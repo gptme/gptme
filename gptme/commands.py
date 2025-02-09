@@ -43,6 +43,7 @@ Actions = Literal[
     "summarize",
     "tokens",
     "export",
+    "commit",
     "help",
     "exit",
 ]
@@ -60,6 +61,7 @@ action_descriptions: dict[Actions, str] = {
     "impersonate": "Impersonate the assistant",
     "tokens": "Show the number of tokens used",
     "export": "Export conversation as HTML",
+    "commit": "Commit staged changes to git",
     "help": "Show this help message",
     "exit": "Exit the program",
 }
@@ -182,6 +184,11 @@ def handle_cmd(
             # Export the chat
             export_chat_to_html(manager.name, manager.log, output_path)
             print(f"Exported conversation to {output_path}")
+        case "commit":
+            manager.undo(1, quiet=True)
+            from .util.context import autocommit
+
+            yield autocommit()
         case _:
             # the case for python, shell, and other block_types supported by tools
             tooluse = ToolUse(name, [], full_args)

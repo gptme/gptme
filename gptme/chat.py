@@ -6,6 +6,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from .commands import execute_cmd
+from .config import get_config
 from .constants import INTERRUPT_CONTENT, PROMPT_USER
 from .init import init
 from .llm import reply
@@ -29,7 +30,11 @@ from .tools.tts import (
 )
 from .util import console, path_with_tilde, print_bell
 from .util.ask_execute import ask_execute
-from .util.context import include_paths, run_precommit_checks
+from .util.context import (
+    autocommit,
+    include_paths,
+    run_precommit_checks,
+)
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
@@ -228,9 +233,13 @@ def step(
         )
     ):
         # Only check for modifications if the last assistant message has no runnable tools
-        if check_for_modifications(log) and (failed_check_message := check_changes()):
-            yield Message("system", failed_check_message, quiet=False)
-            return
+        if check_for_modifications(log):
+            if failed_check_message := check_changes():
+                yield Message("system", failed_check_message, quiet=False)
+                return
+            if get_config().get_env("GPTME_AUTOCOMMIT") in ["true", "1"]:
+                yield autocommit()
+                return
 
     # If last message was a response, ask for input.
     # If last message was from the user (such as from crash/edited log),

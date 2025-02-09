@@ -109,7 +109,9 @@ def _extract_codeblocks(markdown: str) -> Generator[Codeblock, None, None]:
                             nesting_depth -= 1
                             if nesting_depth == 0:
                                 # This closes our top-level block
-                                yield Codeblock(lang, "\n".join(content_lines), start=start_line)
+                                yield Codeblock(
+                                    lang, "\n".join(content_lines), start=start_line
+                                )
                                 i += 1  # Move past the closing ```
                                 break
                             else:
