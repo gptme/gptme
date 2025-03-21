@@ -18,6 +18,10 @@ class MCPClient:
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         
+    def _run_async(self, coro):
+        """Run an async operation in the event loop"""
+        return self.loop.run_until_complete(coro)
+        
     async def _read_stderr(self, stderr):
         """Read stderr without blocking the main flow"""
         try:
@@ -81,36 +85,53 @@ class MCPClient:
                 process.terminate()
                 await process.wait()
         
-    async def connect(self, command: str, args: list[str]):
-        """Connect to an MCP server"""
+    def connect(self, command: str, args: list[str]):
+        """Synchronous connect method"""
+        async def _connect():
+            stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
+            read, write = stdio_transport
+            
+            logger.debug("Got MCP streams")
+            self.session = await self.exit_stack.enter_async_context(ClientSession(read, write))
+            
+            logger.debug("Initializing session")
+            await self.session.initialize()
+            logger.debug("Session initialized")
+            
+            return await self.session.list_tools()
+            
         logger.debug(f"Connecting to MCP server: {command}")
         server_params = StdioServerParameters(command=command, args=args)
+        return self._run_async(_connect())
         
-        # Use AsyncExitStack to manage the async contexts
-        stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-        read, write = stdio_transport
-        
-        logger.debug("Got MCP streams")
-        self.session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-        
-        logger.debug("Initializing session")
-        await self.session.initialize()
-        logger.debug("Session initialized")
-        
-        tools = await self.session.list_tools()
-        logger.debug(f"Got tools: {tools}")
-        return tools
-        
-    async def call_tool(self, tool_name: str, arguments: dict) -> str:
-        """Call a tool on the MCP server"""
+    def call_tool(self, tool_name: str, arguments: dict) -> str:
+        """Synchronous tool call method"""
         if not self.session:
             raise RuntimeError("Not connected to MCP server")
-        return await self.session.call_tool(tool_name, arguments)
-        
-    async def cleanup(self):
-        """Clean up resources"""
-        await self.exit_stack.aclose()
-        
-        if self.loop and not self.loop.is_closed():
-            logger.debug("Closing event loop")
+            
+        async def _call_tool():
+            result = await self.session.call_tool(tool_name, arguments)
+            if hasattr(result, 'content') and result.content:
+                for content in result.content:
+                    if content.type == 'text':
+                        return content.text
+            return str(result)
+            
+        return self._run_async(_call_tool())
+    
+    def cleanup(self):
+        """Clean up resources and close connections."""
+        try:
+            # Create a new event loop for cleanup
+            old_loop = self.loop
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+            
+            # Run cleanup in the new loop
+            self.loop.run_until_complete(self.exit_stack.aclose())
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
+        finally:
             self.loop.close()
+            # Restore the old loop
+            asyncio.set_event_loop(old_loop)

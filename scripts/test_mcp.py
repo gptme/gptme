@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import asyncio
 import logging
 import sys
 
@@ -13,12 +12,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-async def main():
+def main():
     client = MCPClient()
     
     try:
         # Connect to server
-        tools = await client.connect(
+        tools = client.connect(
             command="docker",
             args=[
                 "run",
@@ -30,21 +29,23 @@ async def main():
             ]
         )
         
-        logger.info(f"Connected! Available tools: {tools}")
+        logger.info("Connected! Available tools:")
+        for tool in tools.tools:
+            logger.info(f"- {tool.name}: {tool.description}")
         
-        # Test a simple query
-        result = await client.call_tool("list_tables", {})
-        logger.info(f"Tables: {result}")
+        # List tables
+        tables = client.call_tool("list_tables", {})
+        logger.info(f"Tables: {tables}")
         
     except Exception as e:
         logger.error(f"Test failed: {e}")
         raise
     finally:
-        await client.cleanup()
+        client.cleanup()
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         logger.info("Test interrupted by user")
         sys.exit(1) 
