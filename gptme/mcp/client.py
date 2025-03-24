@@ -1,27 +1,46 @@
 import asyncio
-from typing import Optional
-from contextlib import AsyncExitStack
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 import logging
-import json
-import sys
+from contextlib import AsyncExitStack, asynccontextmanager
+from gptme.config import Config, get_config
+from mcp import ClientSession
+from mcp.client.stdio import stdio_client, StdioServerParameters
+import mcp.types as types  # Import all types
 
 logger = logging.getLogger(__name__)
 
+
 class MCPClient:
     """A client for interacting with MCP servers"""
-    
-    def __init__(self):
-        self.session: Optional[ClientSession] = None
-        self.exit_stack = AsyncExitStack()
+
+    def __init__(self, config: Config=None):
+        """Initialize the client with optional config"""
+        self.config = config or get_config()
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        
+        logger.debug(f"Init - Loop ID: {id(self.loop)}")
+        self.session = None
+        self.tools = None
+        self.stack = None
+
     def _run_async(self, coro):
-        """Run an async operation in the event loop"""
-        return self.loop.run_until_complete(coro)
-        
+        """Run a coroutine in the event loop."""
+        try:
+            logger.debug(f"_run_async start - Loop ID: {id(self.loop)}")
+            result = self.loop.run_until_complete(coro)
+            logger.debug(f"_run_async end - Loop ID: {id(self.loop)}")
+            return result
+        except RuntimeError as e:
+            if "no running event loop" in str(e):
+                # Create a new loop if needed
+                new_loop = asyncio.new_event_loop()
+                logger.debug(f"Created new loop - Loop ID: {id(new_loop)}")
+                asyncio.set_event_loop(new_loop)
+                try:
+                    return new_loop.run_until_complete(coro)
+                finally:
+                    new_loop.close()
+            raise
+
     async def _read_stderr(self, stderr):
         """Read stderr without blocking the main flow"""
         try:
@@ -33,105 +52,58 @@ class MCPClient:
         except Exception as e:
             logger.debug(f"Stderr reader stopped: {e}")
 
-    async def _connect(self, server_params: StdioServerParameters):
-        logger.debug("Starting async connection...")
-        
-        process = await asyncio.create_subprocess_exec(
-            server_params.command,
-            *server_params.args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        logger.debug("Process started")
-        
-        # Start stderr reader in background
-        stderr_task = asyncio.create_task(self._read_stderr(process.stderr))
+    async def _setup_connection(self, server_params):
+        """Set up the connection and maintain it"""
+        self.stack = AsyncExitStack()
+        await self.stack.__aenter__()
         
         try:
-            # Try the normal MCP flow immediately
-            stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-            read, write = stdio_transport
+            transport = await self.stack.enter_async_context(stdio_client(server_params))
+            read, write = transport
             
-            logger.debug("Got MCP streams")
-            self.session = await self.exit_stack.enter_async_context(ClientSession(read, write))
+            csession = ClientSession(read, write)
+            self.session = await self.stack.enter_async_context(csession)
             
-            logger.debug("Initializing session")
             await asyncio.wait_for(self.session.initialize(), timeout=5.0)
-            logger.debug("Session initialized")
-            
-            logger.debug("Listing tools")
-            tools = await asyncio.wait_for(self.session.list_tools(), timeout=5.0)
-            logger.debug("Got tools list")
-            
-            return tools, self.session
-                
-        except asyncio.TimeoutError:
-            logger.error("Operation timed out")
+            self.tools = await asyncio.wait_for(self.session.list_tools(), timeout=10.0)
+            return self.tools, self.session
+        except Exception:
+            if self.stack:
+                await self.stack.__aexit__(None, None, None)
+                self.stack = None
             raise
-        except Exception as e:
-            logger.error(f"Error during connection: {e}")
-            raise
-        finally:
-            # Cancel stderr reader and cleanup
-            stderr_task.cancel()
-            try:
-                await stderr_task
-            except asyncio.CancelledError:
-                pass
-            
-            if process.returncode is None:
-                process.terminate()
-                await process.wait()
-        
-    def connect(self, command: str, args: list[str]):
-        """Synchronous connect method"""
-        async def _connect():
-            stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-            read, write = stdio_transport
-            
-            logger.debug("Got MCP streams")
-            self.session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-            
-            logger.debug("Initializing session")
-            await self.session.initialize()
-            logger.debug("Session initialized")
-            
-            return await self.session.list_tools()
-            
-        logger.debug(f"Connecting to MCP server: {command}")
-        server_params = StdioServerParameters(command=command, args=args)
-        return self._run_async(_connect())
-        
+
+    def connect(self, server_name: str) -> types.ListToolsResult:
+        """Connect to an MCP server by name"""
+        if not self.config.mcp.enabled:
+            raise RuntimeError("MCP is not enabled in config")
+
+        server = next(
+            (s for s in self.config.mcp.servers if s.name == server_name), None
+        )
+        if not server:
+            raise ValueError(f"No MCP server config found for '{server_name}'")
+
+        params = StdioServerParameters(
+            command=server.command, args=server.args, env=server.env
+        )
+
+        tools, session = self._run_async(self._setup_connection(params))
+        logger.info(f"Tools: {tools}")
+        return tools, session
+
     def call_tool(self, tool_name: str, arguments: dict) -> str:
         """Synchronous tool call method"""
         if not self.session:
             raise RuntimeError("Not connected to MCP server")
-            
+
         async def _call_tool():
             result = await self.session.call_tool(tool_name, arguments)
-            if hasattr(result, 'content') and result.content:
+            logger.debug(f"result {result.content[0].text}")
+            if hasattr(result, "content") and result.content:
                 for content in result.content:
-                    if content.type == 'text':
+                    if content.type == "text":
                         return content.text
             return str(result)
-            
+
         return self._run_async(_call_tool())
-    
-    def cleanup(self):
-        """Clean up resources and close connections."""
-        try:
-            # Create a new event loop for cleanup
-            old_loop = self.loop
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
-            
-            # Run cleanup in the new loop
-            self.loop.run_until_complete(self.exit_stack.aclose())
-        except Exception as e:
-            logging.error(f"Error during cleanup: {e}")
-        finally:
-            self.loop.close()
-            # Restore the old loop
-            asyncio.set_event_loop(old_loop)
