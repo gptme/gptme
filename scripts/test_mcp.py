@@ -50,9 +50,45 @@ def main():
         for tool in tools[0].tools:
             logger.info(f"- {tool.name}: {tool.description}")
 
-        # List tables
-        tables = client.call_tool("list_tables", {})
-        logger.info(f"Tables: {tables}")
+        # Create a test table
+        create_result = client.call_tool(
+            "create_table",
+            {
+                "query": """
+                CREATE TABLE IF NOT EXISTS test_users (
+                    id INTEGER PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    email TEXT NOT NULL
+                )
+                """
+            },
+        )
+        logger.info(f"Create table result: {create_result}")
+
+        # Try multiple operations in sequence to verify persistence
+        operations = [
+            ("list_tables", {}, "Tables after creation"),
+            (
+                "write_query",
+                {
+                    "query": "INSERT INTO test_users (username, email) VALUES ('test1', 'test1@example.com')"
+                },
+                "First insert",
+            ),
+            (
+                "write_query",
+                {
+                    "query": "INSERT INTO test_users (username, email) VALUES ('test2', 'test2@example.com')"
+                },
+                "Second insert",
+            ),
+            ("read_query", {"query": "SELECT * FROM test_users"}, "Select all users"),
+        ]
+
+        # Execute operations in sequence
+        for tool_name, params, description in operations:
+            result = client.call_tool(tool_name, params)
+            logger.info(f"{description}: {result}")
 
     except Exception as e:
         logger.error(f"Test failed: {e}")

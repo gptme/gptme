@@ -81,7 +81,6 @@ def _discover_tools(module_names: frozenset[str]) -> list[ToolSpec]:
     # Add MCP tools
     config = get_config()
     tools.extend(create_mcp_tools(config))
-    breakpoint()
 
     return tools
 

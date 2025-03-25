@@ -37,24 +37,26 @@ def create_mcp_tools(config) -> list[ToolSpec]:
                 "session": session,
             }
 
-            breakpoint()
             # Create tool specs for each tool
             for mcp_tool in tools.tools:
                 # Extract parameters
                 parameters = []
-                breakpoint()
-                if hasattr(mcp_tool, "parameters") and mcp_tool.parameters:
-                    for (
-                        param_name,
-                        param_schema,
-                    ) in mcp_tool.parameters.properties.items():
+                # Check if the tool has inputSchema with properties
+                if (
+                    hasattr(mcp_tool, "inputSchema")
+                    and isinstance(mcp_tool.inputSchema, dict)
+                    and "properties" in mcp_tool.inputSchema
+                ):
+                    required_params = mcp_tool.inputSchema.get("required", [])
+                    for param_name, param_schema in mcp_tool.inputSchema[
+                        "properties"
+                    ].items():
                         parameters.append(
                             Parameter(
                                 name=param_name,
-                                description=param_schema.description or "",
-                                type=param_schema.type or "string",
-                                required=param_name
-                                in (mcp_tool.parameters.required or []),
+                                description=param_schema.get("description", ""),
+                                type=param_schema.get("type", "string"),
+                                required=param_name in required_params,
                             )
                         )
 
@@ -67,7 +69,6 @@ def create_mcp_tools(config) -> list[ToolSpec]:
                     available=True,
                 )
 
-                breakpoint()
                 tool_specs.append(tool_spec)
 
         except Exception as e:
@@ -83,10 +84,28 @@ def create_mcp_execute_function(tool_name, client):
     def execute(content=None, args=None, kwargs=None, confirm=None):
         """Execute an MCP tool with confirmation"""
         try:
+            # Get the tool definition from the client
+            tool_def = next(
+                (tool for tool in client.tools.tools if tool.name == tool_name), None
+            )
+
+            # If we have content but no kwargs, try to map it to the appropriate parameter
+            if content and not kwargs and tool_def and tool_def.inputSchema:
+                required = tool_def.inputSchema.get("required", [])
+                properties = tool_def.inputSchema.get("properties", {})
+
+                # If there's exactly one required parameter, use that
+                if len(required) == 1:
+                    kwargs = {required[0]: content}
+                # If there's exactly one parameter (required or not), use that
+                elif len(properties) == 1:
+                    param_name = next(iter(properties.keys()))
+                    kwargs = {param_name: content}
+
             # Format the command and parameters for display
             formatted_args = ""
             if kwargs and len(kwargs) > 0:
-                formatted_args = ", ".join(f"{k}={v}" for k, v in kwargs.items())
+                formatted_args = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
 
             # Show preview and get confirmation
             if confirm is not None:
@@ -104,6 +123,22 @@ def create_mcp_execute_function(tool_name, client):
             return Message("system", result)
         except Exception as e:
             logger.error(f"Error executing MCP tool {tool_name}: {e}")
-            return Message("system", f"Error executing tool: {e}")
+
+            # Provide a helpful error message with parameter information
+            error_msg = f"Error executing tool: {e}\n\n"
+            if tool_def and tool_def.inputSchema:
+                error_msg += "Expected parameters:\n"
+                for param_name, param_info in tool_def.inputSchema.get(
+                    "properties", {}
+                ).items():
+                    required = (
+                        "Required"
+                        if param_name in tool_def.inputSchema.get("required", [])
+                        else "Optional"
+                    )
+                    desc = param_info.get("description", "No description")
+                    error_msg += f"- {param_name}: {desc} ({required})\n"
+
+            return Message("system", error_msg)
 
     return execute

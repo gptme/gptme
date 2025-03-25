@@ -112,6 +112,7 @@ class MCPClient:
 
         async def _call_tool():
             result = await self.session.call_tool(tool_name, arguments)
+            breakpoint()
             logger.debug(f"result {result.content[0].text}")
             if hasattr(result, "content") and result.content:
                 for content in result.content:
