@@ -377,6 +377,22 @@ class ToolUse:
                 except json.JSONDecodeError:
                     logger.debug(f"Failed to parse JSON: {json_str}")
 
+        # Add improved detection for MCP tools
+        # Look for patterns like ```sqlite.list_tables or similar MCP tool patterns
+        mcp_tool_pattern = r"```([a-zA-Z0-9_.]+)(.*?)```"
+        for match in re.finditer(mcp_tool_pattern, content, re.DOTALL):
+            tool_name = match.group(1)
+            tool_content = match.group(2).strip()
+
+            # Skip if it doesn't look like an MCP tool (contains a period)
+            if "." in tool_name:
+                yield ToolUse(
+                    tool=tool_name,
+                    args=[],
+                    content=tool_content,
+                    start=match.start(),
+                )
+
     @classmethod
     def _iter_from_markdown(cls, content: str) -> Generator["ToolUse", None, None]:
         """Returns all markdown-style ToolUse in a message.

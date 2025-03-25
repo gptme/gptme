@@ -1,64 +1,48 @@
-from dataclasses import dataclass
-import logging
+from logging import getLogger
+from collections.abc import Callable
 
-from gptme.mcp import MCPClient
-from gptme.tools.base import ToolSpec, Parameter
-from gptme.message import Message
+from ..message import Message
+from ..mcp.client import MCPClient
+from .base import Parameter, ToolSpec
 
-logger = logging.getLogger(__name__)
+# Define ConfirmFunc type directly to avoid circular imports
+ConfirmFunc = Callable[[str], bool]
 
-
-@dataclass
-class MCPServerConnection:
-    """Represents a connection to an MCP server"""
-
-    name: str
-    client: MCPClient
-    session: object | None = None
+logger = getLogger(__name__)
 
 
-class MCPToolAdapter:
-    def __init__(self, config):
-        self.config = config
-        self.servers: dict[str, MCPServerConnection] = {}
+# Function to create MCP tools
+def create_mcp_tools(config) -> list[ToolSpec]:
+    """Create tool specs for all MCP tools from the config"""
 
-    def initialize(self) -> None:
-        """Initialize connections to all enabled MCP servers"""
-        if not self.config.mcp.enabled:
-            return
+    tool_specs = []
+    servers = {}
 
-        for server_config in self.config.mcp.servers:
-            if not server_config.enabled:
-                continue
+    # Skip if MCP is not enabled
+    if not config.mcp.enabled:
+        return tool_specs
 
-            try:
-                client = MCPClient(self.config)
-                tools, session = client.connect(server_config.name)
+    # Initialize connections to all servers
+    for server_config in config.mcp.servers:
+        try:
+            client = MCPClient(config=config)
 
-                # Store the server connection
-                self.servers[server_config.name] = MCPServerConnection(
-                    name=server_config.name, client=client, session=session
-                )
+            # Connect to server
+            tools, session = client.connect(server_config.name)
 
-                logger.info(f"Connected to MCP server: {server_config.name}")
+            # Store the connection
+            servers[server_config.name] = {
+                "client": client,
+                "tools": tools,
+                "session": session,
+            }
 
-            except Exception as e:
-                logger.error(
-                    f"Failed to connect to MCP server {server_config.name}: {e}"
-                )
-                continue
-
-    def get_tool_specs(self) -> list[ToolSpec]:
-        """Convert MCP tools to ToolSpec format"""
-        tool_specs: list[ToolSpec] = []
-
-        for server_name, connection in self.servers.items():
-            if not connection.client.tools:
-                continue
-
-            for mcp_tool in connection.client.tools.tools:
-                # Convert MCP parameters to ToolSpec parameters
+            breakpoint()
+            # Create tool specs for each tool
+            for mcp_tool in tools.tools:
+                # Extract parameters
                 parameters = []
+                breakpoint()
                 if hasattr(mcp_tool, "parameters") and mcp_tool.parameters:
                     for (
                         param_name,
@@ -74,35 +58,52 @@ class MCPToolAdapter:
                             )
                         )
 
-                # Create execute function that calls the MCP tool
-                def make_execute(tool_name, client):
-                    def execute(content=None, args=None, kwargs=None, confirm=None):
-                        try:
-                            result = client.call_tool(tool_name, kwargs or {})
-                            return Message("system", result)
-                        except Exception as e:
-                            logger.error(f"Error executing MCP tool {tool_name}: {e}")
-                            return Message("system", f"Error executing tool: {e}")
-
-                    return execute
-
-                # Create ToolSpec with server prefix
-                tool_specs.append(
-                    ToolSpec(
-                        name=f"{server_name}.{mcp_tool.name}",
-                        desc=f"[{server_name}] {mcp_tool.description}",
-                        parameters=parameters,
-                        execute=make_execute(mcp_tool.name, connection.client),
-                    )
+                # Create a tool spec with a simple execute function
+                tool_spec = ToolSpec(
+                    name=f"{server_config.name}.{mcp_tool.name}",
+                    desc=f"[{server_config.name}] {mcp_tool.description}",
+                    parameters=parameters,
+                    execute=create_mcp_execute_function(mcp_tool.name, client),
+                    available=True,
                 )
 
-                logger.debug(f"Added MCP tool: {server_name}.{mcp_tool.name}")
+                breakpoint()
+                tool_specs.append(tool_spec)
 
-        return tool_specs
+        except Exception as e:
+            logger.error(f"Failed to connect to MCP server {server_config.name}: {e}")
 
-    async def cleanup(self):
-        """Clean up all MCP server connections"""
-        raise NotImplementedError("Do not run this cleanup")
-        for connection in self.servers.values():
-            if connection.client and connection.client.stack:
-                await connection.client.stack.__aexit__(None, None, None)
+    return tool_specs
+
+
+# Function to create execute function for a specific MCP tool
+def create_mcp_execute_function(tool_name, client):
+    """Create an execute function for an MCP tool"""
+
+    def execute(content=None, args=None, kwargs=None, confirm=None):
+        """Execute an MCP tool with confirmation"""
+        try:
+            # Format the command and parameters for display
+            formatted_args = ""
+            if kwargs and len(kwargs) > 0:
+                formatted_args = ", ".join(f"{k}={v}" for k, v in kwargs.items())
+
+            # Show preview and get confirmation
+            if confirm is not None:
+                confirmation_message = f"Run MCP tool '{tool_name}'"
+                if formatted_args:
+                    confirmation_message += f" with arguments: {formatted_args}"
+                confirmation_message += "?"
+
+                # Exit if not confirmed
+                if not confirm(confirmation_message):
+                    return Message("system", "Tool execution cancelled")
+
+            # Execute the tool
+            result = client.call_tool(tool_name, kwargs or {})
+            return Message("system", result)
+        except Exception as e:
+            logger.error(f"Error executing MCP tool {tool_name}: {e}")
+            return Message("system", f"Error executing tool: {e}")
+
+    return execute

@@ -168,11 +168,38 @@ def chat(
                         ),
                         "",
                     )
-                    has_runnable = any(
-                        tooluse.is_runnable
-                        for tooluse in ToolUse.iter_from_content(last_content)
+
+                    # Debug logging to track what's happening with tool detection
+                    logger.debug(
+                        f"Checking for runnable tools in: {last_content[:100]}..."
                     )
-                    if not has_runnable:
+                    tooluses = list(ToolUse.iter_from_content(last_content))
+                    logger.debug(f"Found tool uses: {[t.tool for t in tooluses]}")
+                    logger.debug(
+                        f"Runnable: {[t.tool for t in tooluses if t.is_runnable]}"
+                    )
+
+                    has_runnable = any(tooluse.is_runnable for tooluse in tooluses)
+
+                    if has_runnable:
+                        logger.info("Found runnable tools, executing...")
+                        # Execute tools directly
+                        for tooluse in tooluses:
+                            if tooluse.is_runnable:
+                                try:
+                                    for response in tooluse.execute(confirm_func):
+                                        manager.append(response)
+                                except Exception as e:
+                                    logger.error(
+                                        f"Error executing tool {tooluse.tool}: {e}"
+                                    )
+                                    manager.append(
+                                        Message(
+                                            "system",
+                                            f"Error executing tool {tooluse.tool}: {e}",
+                                        )
+                                    )
+                    else:
                         break
 
             # All prompts processed, continue to next iteration

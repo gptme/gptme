@@ -234,8 +234,6 @@ def prompt_tools(
 
     prompt += "\n\n*End of Tools aliases.*" if use_tool else "\n\n*End of Tools List.*"
 
-    breakpoint()
-
     yield Message("system", prompt.strip() + "\n\n")
 
 
