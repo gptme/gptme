@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack
 from gptme.config import Config, get_config
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class MCPClient:
     """A client for interacting with MCP servers"""
 
-    def __init__(self, config: Config=None):
+    def __init__(self, config: Config | None = None):
         """Initialize the client with optional config"""
         self.config = config or get_config()
         self.loop = asyncio.new_event_loop()
@@ -20,7 +20,7 @@ class MCPClient:
         logger.debug(f"Init - Loop ID: {id(self.loop)}")
         self.session = None
         self.tools = None
-        self.stack = None
+        self.stack: AsyncExitStack | None = None
 
     def _run_async(self, coro):
         """Run a coroutine in the event loop."""
@@ -52,21 +52,34 @@ class MCPClient:
         except Exception as e:
             logger.debug(f"Stderr reader stopped: {e}")
 
-    async def _setup_connection(self, server_params):
+    async def _setup_connection(
+        self, server_params
+    ) -> tuple[types.ListToolsResult, ClientSession]:
         """Set up the connection and maintain it"""
         self.stack = AsyncExitStack()
         await self.stack.__aenter__()
-        
+
         try:
-            transport = await self.stack.enter_async_context(stdio_client(server_params))
+            transport = await self.stack.enter_async_context(
+                stdio_client(server_params)
+            )
             read, write = transport
-            
+
             csession = ClientSession(read, write)
-            self.session = await self.stack.enter_async_context(csession)
-            
+            session = await self.stack.enter_async_context(csession)
+            self.session = session  # Assign to self.session after the await
+
+            if not self.session:
+                raise RuntimeError("Failed to initialize session")
+
             await asyncio.wait_for(self.session.initialize(), timeout=5.0)
-            self.tools = await asyncio.wait_for(self.session.list_tools(), timeout=10.0)
-            return self.tools, self.session
+            tools = await asyncio.wait_for(self.session.list_tools(), timeout=10.0)
+            self.tools = tools  # Assign after await
+
+            if not self.tools:
+                raise RuntimeError("Failed to get tools list")
+
+            return (self.tools, self.session)
         except Exception:
             if self.stack:
                 await self.stack.__aexit__(None, None, None)

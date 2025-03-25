@@ -7,6 +7,7 @@ from functools import lru_cache
 
 from gptme.config import get_config
 from gptme.constants import INTERRUPT_CONTENT
+from gptme.tools.mcp_adapter import MCPToolAdapter
 
 from ..message import Message
 from ..util.interrupt import clear_interruptible
@@ -77,6 +78,13 @@ def _discover_tools(module_names: frozenset[str]) -> list[ToolSpec]:
             for _, obj in inspect.getmembers(module, lambda c: isinstance(c, ToolSpec)):
                 tools.append(obj)
 
+    # Add MCP tools if enabled
+    config = get_config()
+    if config.mcp and config.mcp.enabled:
+        mcp_adapter = MCPToolAdapter(config)
+        mcp_adapter.initialize()
+        tools.extend(mcp_adapter.get_tool_specs())  # Convert MCP tools to ToolSpecs
+
     return tools
 
 
@@ -88,6 +96,7 @@ def init_tools(
 
     config = get_config()
 
+    breakpoint()
     if allowlist is None:
         env_allowlist = config.get_env("TOOL_ALLOWLIST")
         if env_allowlist:
