@@ -31,9 +31,11 @@ class MCPConfig:
 
 @dataclass
 class Config:
-    prompt: dict
-    env: dict
-    mcp: MCPConfig = field(default_factory=MCPConfig)
+    prompt: dict = field(default_factory=dict)
+    env: dict = field(default_factory=dict)
+    mcp: MCPConfig = field(
+        default_factory=lambda: MCPConfig(enabled=False, auto_start=False, servers=[])
+    )
 
     def get_env(self, key: str, default: str | None = None) -> str | None:
         """Gets an environment variable, checks the config file if it's not set in the environment."""
@@ -124,14 +126,29 @@ def get_config() -> Config:
 
 
 def _load_config() -> Config:
-    config = _load_config_doc()
-    assert "prompt" in config, "prompt key missing in config"
-    assert "env" in config, "env key missing in config"
-    prompt = config.pop("prompt")
-    env = config.pop("env")
-    if config:
-        logger.warning(f"Unknown keys in config: {config.keys()}")
-    return Config(prompt=prompt, env=env)
+    """Load the configuration from the config file."""
+    doc = _load_config_doc()
+    doc.setdefault("prompt", {})
+    doc.setdefault("env", {})
+
+    # Parse MCP config if present
+    mcp_config = MCPConfig(enabled=False, auto_start=False, servers=[])
+    if "mcp" in doc:
+        mcp_data = doc.get("mcp", {})
+        servers = []
+        for server_data in mcp_data.get("servers", []):
+            servers.append(MCPServerConfig(**server_data))
+
+        mcp_config = MCPConfig(
+            enabled=mcp_data.get("enabled", False),
+            auto_start=mcp_data.get("auto_start", False),
+            servers=servers,
+        )
+
+    prompt = doc.get("prompt", {})
+    env = doc.get("env", {})
+
+    return Config(prompt=prompt, env=env, mcp=mcp_config)
 
 
 def _load_config_doc() -> tomlkit.TOMLDocument:

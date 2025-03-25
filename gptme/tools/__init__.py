@@ -96,7 +96,6 @@ def init_tools(
 
     config = get_config()
 
-    breakpoint()
     if allowlist is None:
         env_allowlist = config.get_env("TOOL_ALLOWLIST")
         if env_allowlist:
