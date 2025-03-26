@@ -4,15 +4,11 @@ CLI for gptme utility commands.
 
 import logging
 import sys
-from pathlib import Path
 
 import click
 
-from ..dirs import get_logs_dir
-from ..logmanager import LogManager
-from ..message import Message
 from ..tools import get_tools, init_tools
-from ..tools.chats import list_chats, search_chats
+from ..tools.chats import list_chats, search_chats, read_chat
 
 
 @click.group()
@@ -53,30 +49,45 @@ def chats_list(limit: int, summarize: bool):
 @click.option(
     "--summarize", is_flag=True, help="Generate LLM-based summaries for chats"
 )
-def chats_search(query: str, limit: int, summarize: bool):
+@click.option(
+    "--context",
+    "-c",
+    default=1,
+    help="Number of lines of context to show around matches",
+)
+@click.option(
+    "--matches", "-m", default=1, help="Number of matches to show per conversation"
+)
+def chats_search(query: str, limit: int, summarize: bool, context: int, matches: int):
     """Search conversation logs."""
     if summarize:
         from gptme.init import init  # fmt: skip
 
         # This isn't the best way to initialize the model for summarization, but it works for now
         init("openai/gpt-4o", interactive=False, tool_allowlist=[])
-    search_chats(query, max_results=limit)
+    search_chats(query, max_results=limit, context_lines=context, max_matches=matches)
 
 
 @chats.command("read")
 @click.argument("name")
-def chats_read(name: str):
+@click.option("-n", "--limit", default=5, help="Maximum number of messages to show.")
+@click.option("--system", is_flag=True, help="Include system messages")
+@click.option(
+    "--context",
+    "-c",
+    default=0,
+    help="Number of messages to show before/after each message",
+)
+@click.option("--start", type=int, help="Start from this message number")
+def chats_read(name: str, limit: int, system: bool, context: int, start: int | None):
     """Read a specific chat log."""
-
-    logdir = Path(get_logs_dir()) / name
-    if not logdir.exists():
-        print(f"Chat '{name}' not found")
-        return
-
-    log = LogManager.load(logdir)
-    for msg in log.log:
-        if isinstance(msg, Message):
-            print(f"{msg.role}: {msg.content}")
+    read_chat(
+        name,
+        max_results=limit,
+        incl_system=system,
+        context_messages=context,
+        start_message=start,
+    )
 
 
 @main.group()

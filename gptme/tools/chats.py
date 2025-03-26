@@ -3,7 +3,6 @@ List, search, and summarize past conversation logs.
 """
 
 import logging
-import re
 import textwrap
 from pathlib import Path
 from typing import Literal
@@ -48,12 +47,15 @@ def list_chats(
 
     print(f"Recent conversations (showing up to {max_results}):")
     for i, conv in enumerate(conversations, 1):
-        if metadata:
-            print()  # Add a newline between conversations
-        print(f"{i:2}. {textwrap.indent(conv.format(metadata=True), '    ')[4:]}")
-
         log_path = Path(conv.path)
         log_manager = LogManager.load(log_path, lock=False)
+        msg_count = len(log_manager.log.messages)
+
+        if metadata:
+            print()  # Add a newline between conversations
+            print(f"{i:2}. {textwrap.indent(conv.format(metadata=True), '    ')[4:]}")
+        else:
+            print(f"{i:2}. {conv.name} ({msg_count} msgs)")
 
         # Use the LLM to generate a summary if requested
         if include_summary:
@@ -69,6 +71,8 @@ def search_chats(
     max_results: int = 5,
     system=False,
     sort: Literal["date", "count"] = "date",
+    context_lines: int = 1,
+    max_matches: int = 1,
 ) -> None:
     """
     Search past conversation logs for the given query and print a summary of the results.
@@ -110,84 +114,100 @@ def search_chats(
     )
     for i, result in enumerate(results[:max_results], 1):
         conversation = result["conversation"]
-        matches = result["matching_messages"][:1]
-        match_strs = [
-            _format_message_with_context(msg.content, query) for _, msg in matches
-        ]
+        matches = result["matching_messages"][:max_matches]
         print(
-            f"{i}. {conversation.name} ({len(result['matching_messages'])}): {match_strs[0]}"
+            f"\n{i}. {conversation.name} ({len(result['matching_messages'])} matches):"
         )
+        for j, (msg_idx, msg) in enumerate(matches, 1):
+            print(f"\n  Match {j} (message {msg_idx}, {msg.role}):")
+            match_str = _format_message_with_context(
+                msg.content, query, context_lines=context_lines, max_matches=max_matches
+            )
+            print(f"     {match_str}")
 
 
 def _format_message_with_context(
-    content: str, query: str, context_size: int = 50, max_matches: int = 1
+    content: str, query: str, context_lines: int = 1, max_matches: int = 1
 ) -> str:
     """Format a message with context around matching query parts.
 
     Args:
         content: The message content to search in
         query: The search query
-        context_size: Number of characters to show before and after match
+        context_lines: Number of lines to show before and after match
         max_matches: Maximum number of matches to show
 
     Returns:
         Formatted string with highlighted matches and context
     """
-    content_lower = content.lower()
     query_lower = query.lower()
 
-    # Find all occurrences of the query
-    matches = []
-    start = 0
-    while True:
-        idx = content_lower.find(query_lower, start)
-        if idx == -1:
-            break
-        matches.append(idx)
-        start = idx + len(query_lower)
+    # Split content into lines for line-based context
+    lines = content.split("\n")
+    line_indices = []  # List of (line_number, start_pos, end_pos) for matches
 
-    if not matches:
+    # Find all line numbers containing matches
+    for i, line in enumerate(lines):
+        line_lower = line.lower()
+        start = 0
+        while True:
+            pos = line_lower.find(query_lower, start)
+            if pos == -1:
+                break
+            line_indices.append((i, pos, pos + len(query)))
+            start = pos + len(query)
+
+    if not line_indices:
         return content[:100] + "..." if len(content) > 100 else content
 
     # Format matches with context
     formatted_matches = []
-    for match_idx in matches[:max_matches]:
-        # Extract context window
-        context_start = max(0, match_idx - context_size)
-        context_end = min(len(content), match_idx + len(query) + context_size)
-        context = content[context_start:context_end]
+    for match_idx, start_pos, end_pos in line_indices[:max_matches]:
+        # Get context lines
+        context_start = max(0, match_idx - context_lines)
+        context_end = min(len(lines), match_idx + context_lines + 1)
 
-        # Add ellipsis if truncated
-        prefix = "..." if context_start > 0 else ""
-        suffix = "..." if context_end < len(content) else ""
+        # Get the lines with context
+        context_lines_text = lines[context_start:context_end]
 
-        # Highlight the match
-        match_start = match_idx - context_start
-        match_end = match_start + len(query)
+        # Add line numbers and highlight the match line
+        formatted_lines = []
+        for i, line in enumerate(context_lines_text, start=context_start):
+            if i == match_idx:
+                # Highlight the matching part in the line
+                before = line[:start_pos]
+                match = line[start_pos:end_pos]
+                after = line[end_pos:]
+                formatted_line = f"{before}\033[1;31m{match}\033[0m{after}"
+            else:
+                formatted_line = line
 
-        # Only show line context
-        context_prefix = context[:match_start].rsplit("\n", 1)[-1]
-        context_suffix = context[match_end:].split("\n", 1)[0]
-        context = f"{context_prefix}{context[match_start:match_end]}{context_suffix}"
+            # Add line number prefix
+            formatted_lines.append(f"{i+1:4d}| {formatted_line}")
 
-        # highlighted = f"{prefix}{context_prefix}\033[1m{context[match_start:match_end]}\033[0m{context_suffix}{suffix}"
-        highlighted = f"{prefix}{context}{suffix}"
-        highlighted = re.sub(
-            query,
-            lambda m: f"\033[1;31m{m.group(0)}\033[0m",
-            highlighted,
-            flags=re.DOTALL,
-        )
-        formatted_matches.append(highlighted)
+        # Join the lines and add to formatted matches
+        context_text = "\n     ".join(formatted_lines)
+        if context_start > 0:
+            context_text = "...\n     " + context_text
+        if context_end < len(lines):
+            context_text = context_text + "\n     ..."
 
-    result = " ".join(formatted_matches)
-    if len(matches) > max_matches:
-        result += f" (+{len(matches) - max_matches})"
+        formatted_matches.append(context_text)
+
+    result = "\n".join(formatted_matches)
+    if len(line_indices) > max_matches:
+        result += f"\n(+{len(line_indices) - max_matches} more matches)"
 
     return result
 
 
-def read_chat(conversation: str, max_results: int = 5, incl_system=False) -> None:
+def read_chat(
+    conversation: str,
+    max_results: int = 5,
+    incl_system: bool = False,
+    context_messages: int = 0,
+    start_message: int | None = None,
+) -> None:
     """
     Read a specific conversation log.
 
@@ -195,21 +215,53 @@ def read_chat(conversation: str, max_results: int = 5, incl_system=False) -> Non
         conversation (str): The name of the conversation to read.
         max_results (int): Maximum number of messages to display.
         incl_system (bool): Whether to include system messages.
+        context_messages (int): Number of messages to show before/after each message.
+        start_message (int | None): Start from this message number, if specified.
     """
     from ..logmanager import LogManager, list_conversations  # fmt: skip
 
     for conv in list_conversations():
         if conv.name == conversation:
             log_path = Path(conv.path)
-            logmanager = LogManager.load(log_path)
+            logmanager = LogManager.load(log_path, lock=False)
             print(f"Reading conversation: {conversation}")
-            i = 0
-            for msg in logmanager.log:
-                if msg.role != "system" or incl_system:
-                    print(f"{i}. {msg.format(max_length=100)}")
-                    i += 1
-                if i >= max_results:
-                    break
+
+            # Filter messages
+            messages = [
+                (i, msg)
+                for i, msg in enumerate(logmanager.log)
+                if msg.role != "system" or incl_system
+            ]
+
+            if not messages:
+                print("No messages found.")
+                return
+
+            # Determine start and end indices
+            if start_message is not None:
+                start_idx = max(0, min(start_message - context_messages, len(messages)))
+            else:
+                start_idx = 0
+
+            end_idx = min(start_idx + max_results, len(messages))
+
+            # Show messages with context
+            for i in range(start_idx, end_idx):
+                msg_num, msg = messages[i]
+                content = msg.content
+
+                # Truncate long messages
+                if len(content.split("\n")) > 20:
+                    lines = content.split("\n")
+                    content = "\n".join(lines[:10] + ["..."] + lines[-10:])
+                elif len(content) > 1000:
+                    content = content[:500] + "\n...\n" + content[-500:]
+
+                print(f"\n{msg_num}. {msg.role}:")
+                print(textwrap.indent(content, "    "))
+
+            if end_idx < len(messages):
+                print(f"\n... ({len(messages) - end_idx} more messages)")
             break
     else:
         print(f"Conversation '{conversation}' not found.")
