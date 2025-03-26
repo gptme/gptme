@@ -17,6 +17,16 @@ repos:
   - id: mypy
     additional_dependencies: [types-tabulate, types-docutils, tomli, tomli_w]
     args: [--ignore-missing-imports, --check-untyped-defs]
+- repo: local
+  hooks:
+  - id: check-rst-formatting
+    name: Check RST nested list formatting
+    description: Ensures RST files have proper blank lines between parent/child list items
+    entry: python scripts/check_rst_formatting.py
+    language: system
+    files: \.rst$
+    exclude: docs/_build/
+    args: [docs/]
 #- repo: local
 #  hooks:
 #  - id: pytest

@@ -1,7 +1,14 @@
-.PHONY: docs
+.PHONY: docs help check-rst
 
 # set default shell
 SHELL := $(shell which bash)
+
+help:
+	@echo "gptme Makefile commands:"
+	@echo
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	@echo
+	@echo "Run 'make <command>' to execute a command."
 
 # src dirs and files
 SRCDIRS = gptme tests scripts
@@ -66,13 +73,17 @@ update-models:
 	wayback_url=$$(curl "https://archive.org/wayback/available?url=openai.com/api/pricing/" | jq -r '.archived_snapshots.closest.url') && \
 		gptme 'update the model metadata from this page' gptme/models.py gptme/llm_openai_models.py "$${wayback_url}" --non-interactive
 
-precommit: format lint typecheck
+precommit: format lint typecheck check-rst
+
+check-rst:
+	@echo "Checking RST files for proper nested list formatting..."
+	poetry run python scripts/check_rst_formatting.py docs/
 
 docs/.clean: docs/conf.py
 	poetry run make -C docs clean
 	touch docs/.clean
 
-docs: docs/conf.py docs/*.rst docs/.clean
+docs: docs/conf.py docs/*.rst docs/.clean check-rst
 	if [ ! -e eval_results ]; then \
 		if [ -e eval-results/eval_results ]; then \
 			ln -s eval-results/eval_results .; \

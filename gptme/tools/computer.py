@@ -21,9 +21,9 @@ On Linux, requires X11 and xdotool::
     # On Arch Linux
     sudo pacman -S xdotool
 
-On macOS, uses native ``screencapture`` and external tool `cliclicker`::
+On macOS, uses native ``screencapture`` and external tool ``cliclick``::
 
-    brew install cliclicker
+    brew install cliclick
 
 You need to give your terminal both screen recording and accessibility permissions in System Preferences.
 
@@ -57,6 +57,17 @@ Screen:
 
 The tool automatically handles screen resolution scaling to ensure optimal performance
 with LLM vision capabilities.
+
+.. rubric:: Tips for Complex Operations
+
+For complex operations involving multiple keypresses, you can use semicolon-separated sequences with ``key``:
+
+Examples:
+    - Filling a login form: ``t:username;kp:tab;t:password;kp:return``
+    - Switching applications: ``cmd+tab`` on macOS, ``alt+Tab`` on Linux
+    - (macOS) Opening Spotlight and searching: ``cmd+space;t:firefox;return``
+
+Using a single sequence for complex operations ensures proper timing and recognition of keyboard shortcuts.
 """
 
 import logging
@@ -236,8 +247,16 @@ def _macos_key(key_sequence: str) -> None:
     """
     Send key sequence using cliclick on macOS.
 
-    Maps common key names to cliclick key codes.
-    Uses cliclick's key down/up commands for modifiers and key press for regular keys.
+    Uses unified key sequence parser to handle:
+    - t:text - Type text
+    - modifier+key - Press key with modifiers
+    - key - Press single key
+
+    Multiple operations can be chained with semicolons.
+
+    Examples:
+    - "cmd+space;t:firefox;return"
+    - "t:Hello, world!;tab;t:More text"
 
     Security:
         - Input is properly escaped
@@ -245,56 +264,53 @@ def _macos_key(key_sequence: str) -> None:
     """
     _ensure_cliclick()
 
-    # Map common key names to cliclick key codes
-    key_map = {
-        "Return": "return",
-        "Control_L": "ctrl",
-        "Alt_L": "alt",
-        "Super_L": "cmd",
-        "Shift_L": "shift",
-        # Add more mappings as needed
-    }
-
-    keys = key_sequence.split("+")
-    modifiers = []
-    main_key = None
-
-    for key in keys:
-        if key in key_map:
-            if key in ["Control_L", "Alt_L", "Super_L", "Shift_L"]:
-                modifiers.append(key_map[key])
-            else:
-                main_key = key_map[key]
-        else:
-            # For regular characters, use key press
-            main_key = key.lower()
-
+    operations = _parse_key_sequence(key_sequence)
     commands = []
-    if modifiers:
-        # Press modifiers
-        commands.append(f"kd:{','.join(modifiers)}")
 
-    if main_key:
-        if len(main_key) == 1:
-            # For single characters, use type
-            commands.append(f"t:{main_key}")
-        else:
-            # For special keys, use key press
-            commands.append(f"kp:{main_key}")
+    for op in operations:
+        if op["type"] == "text":
+            commands.append(f"t:{op['text']}")
 
-    if modifiers:
-        # Release modifiers
-        commands.append(f"ku:{','.join(modifiers)}")
+        elif op["type"] == "key":
+            key = COMMON_KEY_MAP.get(op["key"].lower(), op["key"]).lower()
+            if len(key) == 1:
+                # For single characters, use type
+                commands.append(f"t:{key}")
+            else:
+                # For special keys, use key press
+                commands.append(f"kp:{key}")
+
+        elif op["type"] == "combo":
+            modifiers = op["modifiers"]
+            key = op["key"]
+
+            if modifiers:
+                # Press modifiers
+                commands.append(f"kd:{','.join(modifiers)}")
+
+            # Press the main key
+            key = COMMON_KEY_MAP.get(key.lower(), key).lower()
+            if len(key) == 1:
+                commands.append(f"t:{key}")
+            else:
+                commands.append(f"kp:{key}")
+
+            if modifiers:
+                # Release modifiers
+                commands.append(f"ku:{','.join(modifiers)}")
 
     try:
-        for cmd in commands:
-            subprocess.run(
-                ["cliclick", cmd], check=True, capture_output=True, text=True
-            )
+        # Use shell=True with the joined commands, which we know works reliably
+        cmd_shell = "cliclick " + " ".join(commands)
+        logger.info(f"Running: {cmd_shell}")
+        subprocess.run(
+            cmd_shell, shell=True, check=True, capture_output=True, text=True
+        )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to send key sequence: {e.stderr}") from e
 
 
+# TODO: write test for mouse move and mouse position, since it's unreliable
 def _macos_mouse_move(x: int, y: int) -> None:
     """
     Move mouse using cliclick on macOS.
@@ -310,6 +326,73 @@ def _macos_mouse_move(x: int, y: int) -> None:
         raise RuntimeError(
             "cliclick not found. Install with: brew install cliclick"
         ) from None
+
+
+def _linux_handle_key_sequence(key_sequence: str, display: str) -> None:
+    """
+    Handle complex key sequences for Linux using xdotool.
+
+    Uses unified key sequence parser to handle:
+    - t:text - Type text
+    - modifier+key - Press key with modifiers
+    - key - Press single key
+
+    Multiple operations can be chained with semicolons.
+
+    Examples:
+    - "ctrl+l;t:firefox;Return"
+    - "alt+Tab;alt+Tab"
+
+    Args:
+        key_sequence: The key sequence to send
+        display: The X11 display to use
+    """
+    # Map common keys to xdotool-specific keys
+    xdotool_key_map = {
+        "return": "Return",
+        "ctrl": "ctrl",
+        "alt": "alt",
+        "cmd": "super",
+        "shift": "shift",
+        "esc": "Escape",
+        "space": "space",
+        "tab": "Tab",
+    }
+
+    operations = _parse_key_sequence(key_sequence)
+
+    for op in operations:
+        if op["type"] == "text":
+            _linux_type(op["text"], display)
+
+        elif op["type"] == "key":
+            key = xdotool_key_map.get(op["key"].lower(), op["key"])
+            _run_xdotool(f"key {key}", display)
+
+        elif op["type"] == "combo":
+            xdotool_keys = []
+
+            # Add modifiers
+            for mod in op["modifiers"]:
+                mapped_mod = xdotool_key_map.get(mod.lower(), mod)
+                xdotool_keys.append(mapped_mod)
+
+            # Add main key
+            if op["key"]:
+                mapped_key = xdotool_key_map.get(op["key"].lower(), op["key"])
+                xdotool_keys.append(mapped_key)
+
+            # Execute as a key sequence
+            xdotool_key_seq = " ".join(xdotool_keys)
+            _run_xdotool(f"key {xdotool_key_seq}", display)
+
+
+def _linux_type(text: str, display: str) -> None:
+    for chunk in _chunks(text, TYPING_GROUP_SIZE):
+        _run_xdotool(
+            f"type --delay {TYPING_DELAY_MS} -- {shlex.quote(chunk)}",
+            display,
+        )
 
 
 def _macos_click(button: int) -> None:
@@ -428,14 +511,10 @@ def computer(
                 print(f"Typed text: {text}")
         else:
             if action == "key":
-                _run_xdotool(f"key -- {text}", display)
+                _linux_handle_key_sequence(text, display)
                 print(f"Sent key sequence: {text}")
             else:  # type
-                for chunk in _chunks(text, TYPING_GROUP_SIZE):
-                    _run_xdotool(
-                        f"type --delay {TYPING_DELAY_MS} -- {shlex.quote(chunk)}",
-                        display,
-                    )
+                _linux_type(text, display)
                 print(f"Typed text: {text}")
         return None
     elif action == "double_click":
@@ -521,13 +600,128 @@ def computer(
     raise ValueError(f"Invalid action: {action}")
 
 
+# Common key mappings for both platforms
+# Output is directly compatible with cliclick
+COMMON_KEY_MAP = {
+    "return": "return",
+    "enter": "return",
+    "ctrl": "ctrl",
+    "control": "ctrl",
+    "alt": "alt",
+    "option": "alt",
+    "cmd": "cmd",
+    "command": "cmd",
+    "super": "cmd",
+    "shift": "shift",
+    "esc": "esc",
+    "escape": "esc",
+    "space": "space",
+    "tab": "tab",
+    # Add more mappings as needed
+}
+
+# List of recognized modifier keys
+MODIFIER_KEYS = ["ctrl", "alt", "cmd", "shift"]
+
+
+class TextOperation(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class KeyOperation(TypedDict):
+    type: Literal["key"]
+    key: str
+
+
+class ComboOperation(TypedDict):
+    type: Literal["combo"]
+    modifiers: list[str]
+    key: str
+
+
+KeySequenceOperation = (
+    TextOperation | KeyOperation | ComboOperation
+)  # Using | syntax instead of Union
+
+
+def _parse_key_sequence(key_sequence: str) -> list[KeySequenceOperation]:
+    """
+    Parse a key sequence into a list of operations.
+
+    Supports:
+    - "t:text" for typing text
+    - "kp:key" for key press (for backwards compatibility)
+    - "modifier+key" for key combinations
+    - "key" for single key presses
+
+    Returns a list of operations, each a dict with 'type' and relevant data.
+    """
+    operations: list[KeySequenceOperation] = []
+
+    # Split by semicolons for sequences of operations
+    if ";" in key_sequence:
+        steps = key_sequence.split(";")
+    else:
+        steps = [key_sequence]
+
+    for step in steps:
+        step = step.strip()
+
+        # Handle text input: t:text
+        if step.startswith("t:"):
+            text_op: KeySequenceOperation = {"type": "text", "text": step[2:]}
+            operations.append(text_op)
+
+        # Handle explicit key press: kp:key (for backwards compatibility)
+        elif step.startswith("kp:"):
+            key = step[3:]
+            mapped_key = COMMON_KEY_MAP.get(key.lower(), key)
+            key_op: KeySequenceOperation = {"type": "key", "key": mapped_key}
+            operations.append(key_op)
+
+        # Handle modifier+key combinations: mod+key
+        elif "+" in step:
+            parts = step.split("+")
+            modifiers: list[str] = []
+            main_key: str = ""  # Empty string instead of None for type safety
+
+            for part in parts:
+                mapped = COMMON_KEY_MAP.get(part.lower(), part)
+                if mapped.lower() in MODIFIER_KEYS:
+                    modifiers.append(mapped.lower())
+                else:
+                    main_key = mapped
+
+            combo_op: KeySequenceOperation = {
+                "type": "combo",
+                "modifiers": modifiers,
+                "key": main_key or "",  # Ensure it's not None
+            }
+            operations.append(combo_op)
+
+        # Handle single key press
+        else:
+            mapped_key = COMMON_KEY_MAP.get(step.lower(), step)
+            single_key_op: KeySequenceOperation = {"type": "key", "key": mapped_key}
+            operations.append(single_key_op)
+
+    return operations
+
+
 instructions = """
 You can interact with the computer through the `computer` Python function.
 Works on both Linux (X11) and macOS.
 
+The key input syntax works consistently across platforms with:
+
 Available actions:
-- key: Send key sequence (e.g., "Return", "Control_L+c")
-- type: Type text with realistic delays
+- key: Send key sequence using a unified syntax:
+  - Type text: "t:Hello World"
+  - Press key: "return", "esc", "tab"
+  - Key combination: "ctrl+c", "cmd+space"
+  - Chain commands: "cmd+space;t:firefox;return"
+- type: Type text with realistic delays (legacy method)
 - mouse_move: Move mouse to coordinates
 - left_click, right_click, middle_click, double_click: Mouse clicks
 - left_click_drag: Click and drag to coordinates
@@ -535,12 +729,16 @@ Available actions:
 - cursor_position: Get current mouse position
 
 Note: Key names are automatically mapped between platforms.
-Common modifiers like Control_L, Alt_L, Super_L work on both platforms.
+Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platforms.
 """
 
 
 def examples(tool_format):
-    return f"""
+    system = platform.system()
+    is_macos = system == "Darwin"
+
+    # Common examples for all platforms
+    common_examples = f"""
 User: Take a screenshot of the desktop
 Assistant: I'll capture the screen using the screenshot tool.
 {ToolUse("ipython", [], 'computer("screenshot")').to_output(tool_format)}
@@ -558,11 +756,6 @@ System: Moved mouse to 100,200
 {ToolUse("ipython", [], 'computer("left_click")').to_output(tool_format)}
 System: Performed left_click
 
-User: Press Ctrl+C
-Assistant: I'll send the Control+C key sequence.
-{ToolUse("ipython", [], 'computer("key", text="Control_L+c")').to_output(tool_format)}
-System: Sent key sequence: Control_L+c
-
 User: Get the current mouse position
 Assistant: I'll get the cursor position.
 {ToolUse("ipython", [], 'computer("cursor_position")').to_output(tool_format)}
@@ -573,6 +766,30 @@ Assistant: I'll perform a double-click.
 {ToolUse("ipython", [], 'computer("double_click")').to_output(tool_format)}
 System: Performed double_click
 """
+
+    # Platform-specific keyboard shortcut examples
+    if is_macos:
+        keyboard_examples = f"""
+User: Open Spotlight Search and search for "Terminal"
+Assistant: I'll open Spotlight Search and type "Terminal".
+{ToolUse("ipython", [], 'computer("key", text="cmd+space;t:Terminal;return")').to_output(tool_format)}
+System: Sent key sequence: cmd+space;t:Terminal;return
+
+User: Open a new browser tab
+Assistant: I'll open a new browser tab on macOS.
+{ToolUse("ipython", [], 'computer("key", text="cmd+t")').to_output(tool_format)}
+System: Sent key sequence: cmd+t
+"""
+    else:
+        # Linux or other platforms
+        keyboard_examples = f"""
+User: Open a new browser tab
+Assistant: I'll open a new browser tab.
+{ToolUse("ipython", [], 'computer("key", text="ctrl+t")').to_output(tool_format)}
+System: Sent key sequence: ctrl+t
+"""
+
+    return common_examples + keyboard_examples
 
 
 tool = ToolSpec(

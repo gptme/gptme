@@ -54,18 +54,21 @@ The current evaluations test basic tool use in gptme, such as the ability to: re
     The evaluation suite tests models on:
 
     1. Tool Usage
+
        - Shell commands and file operations
        - Git operations
        - Web browsing and data extraction
        - Project navigation and understanding
 
     2. Programming Tasks
+
        - Code completion and generation
        - Bug fixing and debugging
        - Documentation writing
        - Test creation
 
     3. Reasoning
+
        - Multi-step problem solving
        - Tool selection and sequencing
        - Error handling and recovery

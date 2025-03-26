@@ -49,10 +49,16 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install apt dependencies
-      run: sudo apt-get install universal-ctags pandoc tmux
-    - name: Install poetry
+      run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb
+
+    - name: Set up Xvfb
       run: |
-        pipx install poetry
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
+    - name: Install poetry
+      run: pipx install poetry
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:

@@ -91,6 +91,7 @@ greenlet = "*"  # dependency of playwright, but needed for coverage
 sphinx = "^8.0"
 sphinx-click = "^6.0"
 sphinx-book-theme = "^1.0.1"
+sphinx-sitemap = "^2.6.0"
 sphinxcontrib-programoutput = "*"
 sphinxcontrib-asciinema = "*"
 myst-parser = "*"
@@ -162,6 +163,8 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "eval: marks tests as evals (deselect with '-m \"not eval\"'), these may fail, and will not run in CI",
     "serial",
+    "timeout: marks tests with timeout value in seconds",
+    "requires_api: marks tests that require API access",
 ]
 
 [tool.coverage.run]

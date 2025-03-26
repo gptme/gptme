@@ -195,6 +195,7 @@ Differences to gptme:
 
 - gptme is in-terminal instead of in-vscode-fork
 - gptme is extensible with tools, more general-purpose
+
   - Less true now that Cursor supports MCP
 
 Claude

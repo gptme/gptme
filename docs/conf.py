@@ -91,8 +91,15 @@ extensions = [
     "sphinx_click",
     "sphinxcontrib.programoutput",
     "sphinxcontrib.asciinema",
+    "sphinx_sitemap",
 ]
 
+html_baseurl = "https://gptme.org/docs/"  # used to build sitemap
+sitemap_url_scheme = "{link}"
+sitemap_excludes = [
+    "search.html",
+    "genindex.html",
+]
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]

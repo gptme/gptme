@@ -5,7 +5,6 @@ gptme has a minimal REST API with very minimalistic web UI.
 
 .. note::
    The server and web UI is still in development and does not have all the features of the CLI.
-   In particular, it doesn't ever ask for confirmation before executing (yet).
 
 To use it, you need to install gptme with ``server`` extras:
 

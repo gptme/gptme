@@ -1,10 +1,10 @@
 # Use the main Dockerfile as the base image
-FROM gptme:latest
+ARG BASE=gptme:latest
+FROM $BASE as build
 
 # Install server dependencies
 USER root
 WORKDIR /app
-COPY --from=gptme:latest /tmp/requirements-server.txt /tmp/
 RUN pip install -r /tmp/requirements-server.txt && rm /tmp/requirements-server.txt
 
 # Switch back to non-root user

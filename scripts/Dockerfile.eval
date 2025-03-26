@@ -1,5 +1,6 @@
 # Use the main Dockerfile as the base image
-FROM gptme:latest AS base
+ARG BASE=gptme:latest
+FROM $BASE AS base
 
 SHELL ["/bin/bash", "-c"]
 
