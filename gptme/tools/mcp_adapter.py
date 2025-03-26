@@ -1,5 +1,6 @@
 from logging import getLogger
 from collections.abc import Callable
+import json
 
 from ..message import Message
 from ..mcp.client import MCPClient
@@ -60,10 +61,18 @@ def create_mcp_tools(config) -> list[ToolSpec]:
                             )
                         )
 
-                # Create a tool spec with a simple execute function
+                # Add example usage in the correct format
+                example = {
+                    param.name: f"<{param.type}>"
+                    for param in parameters
+                    if param.required
+                }
+                example_str = json.dumps(example, indent=2)
+
                 tool_spec = ToolSpec(
                     name=f"{server_config.name}.{mcp_tool.name}",
                     desc=f"[{server_config.name}] {mcp_tool.description}",
+                    instructions=f"Always provide parameters as a JSON object. Example:\n```\n{example_str}\n```",
                     parameters=parameters,
                     execute=create_mcp_execute_function(mcp_tool.name, client),
                     available=True,
@@ -89,18 +98,14 @@ def create_mcp_execute_function(tool_name, client):
                 (tool for tool in client.tools.tools if tool.name == tool_name), None
             )
 
-            # If we have content but no kwargs, try to map it to the appropriate parameter
-            if content and not kwargs and tool_def and tool_def.inputSchema:
-                required = tool_def.inputSchema.get("required", [])
-                properties = tool_def.inputSchema.get("properties", {})
-
-                # If there's exactly one required parameter, use that
-                if len(required) == 1:
-                    kwargs = {required[0]: content}
-                # If there's exactly one parameter (required or not), use that
-                elif len(properties) == 1:
-                    param_name = next(iter(properties.keys()))
-                    kwargs = {param_name: content}
+            # Try to parse content as JSON if it's not already kwargs
+            if content and not kwargs:
+                try:
+                    kwargs = json.loads(content)
+                except json.JSONDecodeError:
+                    raise ValueError(
+                        f"Content must be a valid JSON object with parameters. Example: {json.dumps(dict((p.name, f'<{p.type}>') for p in tool_def.parameters))}"
+                    )
 
             # Format the command and parameters for display
             formatted_args = ""
