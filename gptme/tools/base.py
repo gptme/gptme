@@ -235,19 +235,23 @@ class ToolSpec:
         if instructions:
             prompt += f"\n\n**Instructions:** {instructions}"
         if examples and (
-            examples_content := self.get_examples(tool_format, quote=True).strip()
+            examples_content := self.get_examples(
+                tool_format, quote=True, strip_system=True
+            ).strip()
         ):
             prompt += f"\n\n### Examples\n\n{examples_content}"
         return prompt
 
-    def get_examples(self, tool_format: ToolFormat = "markdown", quote=False):
+    def get_examples(
+        self, tool_format: ToolFormat = "markdown", quote=False, strip_system=False
+    ):
         if callable(self.examples):
             examples = self.examples(tool_format)
         else:
             examples = self.examples
         # make sure headers have exactly two newlines after them
         examples = re.sub(r"\n*(\n#+.*?)\n+", r"\n\1\n\n", examples)
-        return clean_example(examples, quote=quote)
+        return clean_example(examples, quote=quote, strip_system=strip_system)
 
     def get_functions_description(self) -> str:
         # return a prompt with a brief description of the available functions
