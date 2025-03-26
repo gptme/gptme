@@ -11,12 +11,15 @@ ConfirmFunc = Callable[[str], bool]
 
 logger = getLogger(__name__)
 
+# Add type annotation for tool_specs
+tool_specs: list[ToolSpec] = []
+
 
 # Function to create MCP tools
 def create_mcp_tools(config) -> list[ToolSpec]:
     """Create tool specs for all MCP tools from the config"""
 
-    tool_specs = []
+    tool_specs: list[ToolSpec] = []
     servers = {}
 
     # Skip if MCP is not enabled
@@ -102,10 +105,17 @@ def create_mcp_execute_function(tool_name, client):
             if content and not kwargs:
                 try:
                     kwargs = json.loads(content)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as err:
+                    # Add proper error chaining with 'from'
+                    if tool_def and tool_def.parameters:
+                        example = json.dumps(
+                            dict((p.name, f"<{p.type}>") for p in tool_def.parameters)
+                        )
+                    else:
+                        example = '{"parameter": "value"}'
                     raise ValueError(
-                        f"Content must be a valid JSON object with parameters. Example: {json.dumps(dict((p.name, f'<{p.type}>') for p in tool_def.parameters))}"
-                    )
+                        f"Content must be a valid JSON object with parameters. Example: {example}"
+                    ) from err
 
             # Format the command and parameters for display
             formatted_args = ""

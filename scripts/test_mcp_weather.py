@@ -53,8 +53,7 @@ def main():
         # Test getting weather for a location
         logger.info("\nTesting weather for Stockholm")
         result = client.call_tool(
-            "get_hourly_weather",
-            {"location": "Stockholm, Sweden"}
+            "get_hourly_weather", {"location": "Stockholm, Sweden"}
         )
         logger.info(f"Weather result: {result}")
 
@@ -64,4 +63,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()
