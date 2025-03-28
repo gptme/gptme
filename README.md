@@ -136,7 +136,6 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 
 [![superuserlabs-ceo](https://github.com/ErikBjare/gptme/assets/1405370/bae45488-f4ed-409c-a656-0c5218877de2)](https://asciinema.org/a/621997)
 
-
   <details>
   <summary>Steps</summary>
   <ol>
@@ -229,7 +228,7 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 - 🎓 **Interactive Learning:** Experiment with new technologies or codebases hands-on.
 - 🤖 **Agents & Tools:** Experiment with agents & tools in a local environment.
 
-### 🛠  Developer perks
+### 🛠 Developer perks
 
 - 🧰 Easy to extend
   - Most functionality is implemented as [tools][docs-tools], making it easy to add new features.
@@ -274,8 +273,6 @@ make test | gptme 'fix the failing tests'
 ```
 
 For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
-
-
 
 ## 🛠 Usage
 
@@ -334,7 +331,6 @@ Options:
   --help                 Show this message and exit.
 ```
 
-
 ## 📊 Stats
 
 ### ⭐ Stargazers over time
@@ -343,21 +339,21 @@ Options:
 
 ### 📈 Download Stats
 
- - [PePy][pepy]
- - [PyPiStats][pypistats]
+- [PePy][pepy]
+- [PyPiStats][pypistats]
 
 [pepy]: https://pepy.tech/project/gptme
 [pypistats]: https://pypistats.org/packages/gptme
 
-
 ## 🔗 Links
 
- - [Website][website]
- - [Documentation][docs]
- - [GitHub][github]
- - [Discord][discord]
+- [Website][website]
+- [Documentation][docs]
+- [GitHub][github]
+- [Discord][discord]
 
 <!-- links -->
+
 [website]: https://gptme.org/
 [discord]: https://discord.gg/NMaCmmkxWv
 [github]: https://github.com/gptme/gptme
@@ -383,3 +379,54 @@ Options:
 [docs-server]: https://gptme.org/docs/server.html
 [docs-config]: https://gptme.org/docs/config.html
 [anthropic-computer-use]: https://www.anthropic.com/news/3-5-models-and-computer-use
+
+## MCP (Message Control Protocol) Support
+
+GPTme now supports MCP servers, allowing integration with external tools and services through a standardized protocol. You can configure MCP in your `~/.config/gptme/config.toml` file:
+
+```toml
+[mcp]
+enabled = true
+auto_start = true
+
+[[mcp.servers]]
+name = "my-server"
+enabled = true
+command = "server-command"
+args = ["--arg1", "--arg2"]
+env = { API_KEY = "your-key" }
+```
+
+### Configuration Options
+
+- `enabled`: Enable/disable MCP support globally
+- `auto_start`: Automatically start MCP servers when needed
+- `servers`: List of MCP server configurations
+  - `name`: Unique identifier for the server
+  - `enabled`: Enable/disable individual server
+  - `command`: Command to start the server
+  - `args`: List of command-line arguments
+  - `env`: Environment variables for the server
+
+### Example Configuration
+
+Here's a complete example showing how to configure an MCP weather service:
+
+```toml
+[mcp]
+enabled = true
+auto_start = true
+
+[[mcp.servers]]
+name = "weatherAPI"
+enabled = true
+command = "uvx"
+args = [
+    "--from",
+    "git+https://github.com/adhikasp/mcp-weather.git",
+    "mcp-weather"
+]
+env = { WEATHER_API_KEY = "your-api-key" }
+```
+
+MCP servers can be used to extend GPTme's capabilities with custom tools and integrations. Each server can provide its own set of tools that become available to the AI assistant during conversations.
