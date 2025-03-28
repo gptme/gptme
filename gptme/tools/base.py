@@ -13,9 +13,11 @@ from typing import (
     Literal,
     Protocol,
     TypeAlias,
+    cast,
     get_origin,
 )
 
+import json_repair
 from lxml import etree
 
 from ..codeblock import Codeblock
@@ -353,15 +355,27 @@ class ToolUse:
         for tool_use in tool_uses:
             yield tool_use
 
-        # Simple MCP tool detection - any code block starting with a server name
-        code_block_pattern = r"```(.*?)\n(.*?)```"
-        for match in re.finditer(code_block_pattern, content, re.DOTALL):
-            tool_name = match.group(1).strip()
-            content = match.group(2).strip()
-            if "." in tool_name:  # This indicates it's likely an MCP tool call
-                yield ToolUse(
-                    tool=tool_name, args=None, content=content, start=match.start()
-                )
+        # check if its a toolcall and extract valid JSON
+        if match := toolcall_re.search(content):
+            tool_name = match.group(1)
+            call_id = match.group(2)
+            if (json_str := extract_json(content, match)) is not None:
+                try:
+                    kwargs = json_repair.loads(json_str)
+                    if not isinstance(kwargs, dict):
+                        logger.debug(f"JSON repair result is not a dict: {kwargs}")
+                        return
+                    start_pos = content.find(f"@{tool_name}(")
+                    yield ToolUse(
+                        tool_name,
+                        None,
+                        None,
+                        kwargs=cast(dict[str, str], kwargs),
+                        call_id=call_id,
+                        start=start_pos,
+                    )
+                except json.JSONDecodeError:
+                    logger.debug(f"Failed to parse JSON: {json_str}")
 
     @classmethod
     def _iter_from_markdown(cls, content: str) -> Generator["ToolUse", None, None]:
