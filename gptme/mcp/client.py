@@ -18,8 +18,8 @@ class MCPClient:
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         logger.debug(f"Init - Loop ID: {id(self.loop)}")
-        self.session = None
-        self.tools = None
+        self.session: ClientSession | None = None
+        self.tools: types.ListToolsResult | None = None
         self.stack: AsyncExitStack | None = None
 
     def _run_async(self, coro):
@@ -78,7 +78,7 @@ class MCPClient:
                 self.stack = None
             raise
 
-    def connect(self, server_name: str) -> types.ListToolsResult:
+    def connect(self, server_name: str) -> tuple[types.ListToolsResult, ClientSession]:
         """Connect to an MCP server by name"""
         if not self.config.mcp.enabled:
             raise RuntimeError("MCP is not enabled in config")
@@ -103,11 +103,21 @@ class MCPClient:
             raise RuntimeError("Not connected to MCP server")
 
         async def _call_tool():
-            result = await self.session.call_tool(tool_name, arguments)
-            logger.debug(f"result {result.content[0].text}")
+            session = self.session
+            if session is None:
+                raise RuntimeError("Should not be None")
+
+            result = await session.call_tool(tool_name, arguments)
+            # Safely access content for logging
+            if (hasattr(result, "content") and result.content 
+                and len(result.content) > 0 
+                and hasattr(result.content[0], "text")):
+                content_text = result.content[0].text
+                logger.debug(f"result {content_text}")
+                
             if hasattr(result, "content") and result.content:
                 for content in result.content:
-                    if content.type == "text":
+                    if hasattr(content, "type") and content.type == "text" and hasattr(content, "text"):
                         return content.text
             return str(result)
 
