@@ -73,15 +73,21 @@ def create_mcp_tools(config) -> list[ToolSpec]:
                 example_str = json.dumps(example, indent=2)
 
                 name = f"{server_config.name}_{mcp_tool.name}"
+
+                def make_examples(
+                    tool_name: str, example_content: str
+                ) -> Callable[[str], str]:
+                    return lambda tool_format: ToolUse(
+                        tool_name, [], example_content
+                    ).to_output(tool_format)  # type: ignore[arg-type]
+
                 tool_spec = ToolSpec(
                     name=name,
                     desc=f"[{server_config.name}] {mcp_tool.description}",
                     parameters=parameters,
                     execute=create_mcp_execute_function(mcp_tool.name, client),
                     available=True,
-                    examples=lambda tool_format: ToolUse(
-                        name, [], example_str
-                    ).to_output(tool_format),
+                    examples=make_examples(name, example_str),
                     block_types=[name],
                 )
 

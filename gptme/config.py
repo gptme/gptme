@@ -137,10 +137,6 @@ def _load_config() -> Config:
     if config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
 
-    breakpoint()
-    # config.setdefault("prompt", {})
-    # config.setdefault("env", {})
-
     # Parse MCP config if present
     mcp_config = MCPConfig(enabled=False, auto_start=False, servers=[])
     if mcp:
