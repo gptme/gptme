@@ -4,7 +4,7 @@ import json
 
 from ..message import Message
 from ..mcp.client import MCPClient
-from .base import Parameter, ToolSpec
+from .base import Parameter, ToolSpec, ToolUse
 
 # Define ConfirmFunc type directly to avoid circular imports
 ConfirmFunc = Callable[[str], bool]
@@ -75,10 +75,10 @@ def create_mcp_tools(config) -> list[ToolSpec]:
                 tool_spec = ToolSpec(
                     name=f"{server_config.name}.{mcp_tool.name}",
                     desc=f"[{server_config.name}] {mcp_tool.description}",
-                    instructions=f"Always provide parameters as a JSON object. Example:\n```\n{example_str}\n```",
                     parameters=parameters,
                     execute=create_mcp_execute_function(mcp_tool.name, client),
                     available=True,
+                    examples= ToolUse(f"{server_config.name}.{mcp_tool.name}", [], example_str).to_output('xml')
                 )
 
                 tool_specs.append(tool_spec)
