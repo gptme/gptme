@@ -126,27 +126,31 @@ def get_config() -> Config:
 
 
 def _load_config() -> Config:
-    """Load the configuration from the config file."""
-    doc = _load_config_doc()
-    doc.setdefault("prompt", {})
-    doc.setdefault("env", {})
+    config = _load_config_doc()
+    assert "prompt" in config, "prompt key missing in config"
+    assert "env" in config, "env key missing in config"
+
+    prompt = config.pop("prompt")
+    env = config.pop("env")
+    mcp = config.pop("mcp")
+
+    if config:
+        logger.warning(f"Unknown keys in config: {config.keys()}")
+
+    breakpoint()
+    #config.setdefault("prompt", {})
+        #config.setdefault("env", {})
 
     # Parse MCP config if present
     mcp_config = MCPConfig(enabled=False, auto_start=False, servers=[])
-    if "mcp" in doc:
-        mcp_data = doc.get("mcp", {})
-        servers = []
-        for server_data in mcp_data.get("servers", []):
-            servers.append(MCPServerConfig(**server_data))
-
+    if mcp:
+        servers = [MCPServerConfig(**server_data) for server_data in mcp.get("servers", [])]
         mcp_config = MCPConfig(
-            enabled=mcp_data.get("enabled", False),
-            auto_start=mcp_data.get("auto_start", False),
+            enabled=mcp.get("enabled", False),
+            auto_start=mcp.get("auto_start", False),
             servers=servers,
         )
 
-    prompt = doc.get("prompt", {})
-    env = doc.get("env", {})
 
     return Config(prompt=prompt, env=env, mcp=mcp_config)
 

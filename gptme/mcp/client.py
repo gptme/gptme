@@ -29,16 +29,8 @@ class MCPClient:
             result = self.loop.run_until_complete(coro)
             logger.debug(f"_run_async end - Loop ID: {id(self.loop)}")
             return result
-        except RuntimeError as e:
-            if "no running event loop" in str(e):
-                # Create a new loop if needed
-                new_loop = asyncio.new_event_loop()
-                logger.debug(f"Created new loop - Loop ID: {id(new_loop)}")
-                asyncio.set_event_loop(new_loop)
-                try:
-                    return new_loop.run_until_complete(coro)
-                finally:
-                    new_loop.close()
+        except Exception as e:
+            logger.debug(f"_run_async failed with error: {e}")
             raise
 
     async def _read_stderr(self, stderr):
