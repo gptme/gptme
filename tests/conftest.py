@@ -16,7 +16,6 @@ import pytest
 import requests
 from gptme.config import get_config
 from gptme.init import init  # noqa
-from gptme.server.api import create_app  # noqa
 from gptme.tools import clear_tools, init_tools
 from gptme.tools.rag import _has_gptme_rag
 
@@ -111,6 +110,8 @@ def init_():
 @pytest.fixture
 def server_thread():
     """Start a server in a thread for testing."""
+    from gptme.server.api import create_app  # noqa
+
     app = create_app()
 
     # Find a free port
@@ -140,6 +141,8 @@ def server_thread():
 
 @pytest.fixture
 def client():
+    from gptme.server.api import create_app  # noqa
+
     app = create_app()
     with app.test_client() as client:
         yield client

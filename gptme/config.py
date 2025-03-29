@@ -130,7 +130,7 @@ def _load_config() -> Config:
 
     prompt = config.pop("prompt")
     env = config.pop("env")
-    mcp = config.pop("mcp")
+    mcp = config.pop("mcp", {})
 
     if config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
