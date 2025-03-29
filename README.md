@@ -64,14 +64,21 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 - 🎥 [Demos](#-demos)
 - 🌟 [Features](#-features)
 - 🚀 [Getting Started](#-getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Quick Start](#quick-start)
+  - [Example Commands](#example-commands)
+  - [Configuration](#️-configuration)
+- 🧰 [Available Tools](#-available-tools)
 - 🛠 [Usage](#-usage)
+- ❓ [Troubleshooting](#-troubleshooting)
 - 📊 [Stats](#-stats)
 - 🔗 [Links](#-links)
 
 ## 🎥 Demos
 
 > [!NOTE]
-> These demos are very out of date and do not reflect the latest capabilities. We hope to update them soon!
+> These demos are from early 2023 and do not reflect the latest capabilities. We're working on new demos for 2025 that showcase the full range of current features!
 
 <table>
   <tr>
@@ -229,6 +236,26 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 - 🎓 **Interactive Learning:** Experiment with new technologies or codebases hands-on.
 - 🤖 **Agents & Tools:** Experiment with agents & tools in a local environment.
 
+### 🧰 Available Tools
+
+gptme empowers AI with a variety of tools to interact with your system:
+
+| Tool | Description |
+|------|-------------|
+| `shell` | Execute shell commands directly in your terminal |
+| `python` | Run Python code with access to installed libraries |
+| `save` | Create or overwrite files on your system |
+| `patch` | Make incremental changes to files without rewriting them |
+| `browser` | Search and navigate the web through Playwright |
+| `vision` | Process and analyze images |
+| `screenshot` | Capture screenshots of your desktop |
+| `rag` | Retrieve context from your local files (Retrieval Augmented Generation) |
+| `gh` | Interact with GitHub repositories through the GitHub CLI |
+| `tmux` | Run long-lived commands in persistent sessions |
+| `computer` | Access a full desktop environment for GUI interactions |
+
+Use the `/tools` command during a conversation to see all available tools.
+
 ### 🛠  Developer perks
 
 - 🧰 Easy to extend
@@ -249,31 +276,112 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 
 ## 🚀 Getting Started
 
-Install with pipx:
+### Prerequisites
+
+- Python 3.10 or newer
+- An API key for at least one of the supported LLM providers:
+  - OpenAI (set `OPENAI_API_KEY` environment variable)
+  - Anthropic (set `ANTHROPIC_API_KEY` environment variable)
+  - OpenRouter (set `OPENROUTER_API_KEY` environment variable)
+  - Local models via llama.cpp (see [providers documentation][docs-providers])
+
+### Installation
+
+Install with pipx (recommended):
 
 ```sh
-# requires Python 3.10+
 pipx install gptme
 ```
 
-Now, to get started, run:
+Or with pip:
+
+```sh
+pip install gptme
+```
+
+### Quick Start
+
+To begin a conversation with gptme, simply run:
 
 ```sh
 gptme
 ```
 
-Here are some examples:
+You'll be prompted to choose an LLM provider and set up your API key if you haven't already.
+
+### Example Commands
+
+Here are some powerful examples to try:
 
 ```sh
+# Create a particle effect visualization
 gptme 'write an impressive and colorful particle effect using three.js to particles.html'
+
+# Generate visual art
 gptme 'render mandelbrot set to mandelbrot.png'
+
+# Get configuration suggestions
 gptme 'suggest improvements to my vimrc'
+
+# Process media files
 gptme 'convert to h265 and adjust the volume' video.mp4
+
+# Code assistance from git diffs
 git diff | gptme 'complete the TODOs in this diff'
+
+# Fix failing tests
 make test | gptme 'fix the failing tests'
 ```
 
-For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
+For more detailed guidance, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
+
+### ⚙️ Configuration
+
+gptme can be configured through environment variables or a configuration file:
+
+#### Configuration File
+
+Create a `~/.config/gptme/config.toml` file with your preferences:
+
+```toml
+# Default model and provider
+default_model = "openai/gpt-4o"
+# default_model = "anthropic/claude-3-5-sonnet-20240620"
+# default_model = "openrouter/gpt-4-grok"
+# default_model = "llama.cpp/llama-3-70b-q4_0"
+
+# Always confirm before executing shell commands
+confirm_shell = true
+
+# Use colored output
+color = true
+
+# Default system prompt type ("full", "short", or "custom")
+system_prompt = "full"
+
+# Custom path for conversation logs
+# logs_dir = "~/gptme-logs"
+```
+
+#### Environment Variables
+
+Set these environment variables to configure gptme:
+
+```sh
+# API keys
+export OPENAI_API_KEY="your-api-key"
+export ANTHROPIC_API_KEY="your-api-key"
+export OPENROUTER_API_KEY="your-api-key"
+
+# Default model
+export GPTME_DEFAULT_MODEL="anthropic/claude-3-7-sonnet-20250219"
+
+# Enable/disable features
+export GPTME_CONFIRM_SHELL="true"
+export GPTME_COLOR="true"
+```
+
+For all configuration options, see the [configuration documentation][docs-config].
 
 
 
@@ -334,6 +442,26 @@ Options:
   --help                 Show this message and exit.
 ```
 
+
+## ❓ Troubleshooting
+
+### Common Issues
+
+**API Key Issues**
+- If you get authentication errors, verify your API key is correctly set in your environment variables or config file
+- For OpenAI keys, ensure you have sufficient credits and your account is in good standing
+
+**Tool Execution Problems**
+- For browser tool errors, ensure Playwright is installed: `pip install playwright && python -m playwright install`
+- For GitHub tool issues, verify the GitHub CLI is installed and you're authenticated: `gh auth login`
+
+**Performance Considerations**
+- If responses are slow, try using a smaller model or a different provider
+- Large conversations consume more tokens; start a new conversation for unrelated tasks
+
+Need more help? Join our [Discord community][discord] or [open an issue][github-issues] on GitHub.
+
+[github-issues]: https://github.com/gptme/gptme/issues
 
 ## 📊 Stats
 
