@@ -13,7 +13,7 @@ from .init import init
 from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
-from .message import Message
+from .message import Message, len_tokens
 from .prompts import get_workspace_prompt
 from .tools import (
     ConfirmFunc,
@@ -31,6 +31,9 @@ from .tools.tts import (
     tts_request_queue,
 )
 from .util import console, path_with_tilde, print_bell
+
+# Track which token warnings have been shown
+_token_warnings_shown: set[tuple[str, int]] = set()
 from .util.ask_execute import ask_execute
 from .util.context import include_paths, run_precommit_checks
 from .util.cost import log_costs
@@ -247,10 +250,41 @@ def step(
             yield Message("system", failed_check_message, quiet=False)
             return
 
+    # Get last message
+    last_msg = log[-1] if log else None
+
+    # Check token count and warn if approaching limits before asking for input
+    if last_msg and last_msg.role == "assistant":
+        model_info = get_model(model)
+        total_tokens = len_tokens(log.messages, model)
+        token_step = 10000  # Show warning every 10k tokens
+        limit = model_info.context
+        percentage = (total_tokens / limit) * 100 if limit else 0
+
+        # Show warning at 10k intervals
+        if (
+            total_tokens > token_step and total_tokens % token_step < 1000
+        ):  # Within 1000 tokens after each step
+            logger.info(
+                f"Conversation size: {total_tokens:,} tokens "
+                f"({percentage:.1f}% of {limit:,} token limit)"
+            )
+
+        # Warning when approaching limit (only once at 50%)
+        if percentage > 50:
+            warning_key = (model, limit)
+            if warning_key not in _token_warnings_shown:
+                logger.warning(
+                    "⚠️  Conversation reached 50% of token limit! "
+                    f"Using {total_tokens:,} tokens "
+                    f"({percentage:.1f}% of {limit:,} token limit). "
+                    "Consider starting a new conversation soon."
+                )
+                _token_warnings_shown.add(warning_key)
+
     # If last message was a response, ask for input.
     # If last message was from the user (such as from crash/edited log),
     # then skip asking for input and generate response
-    last_msg = log[-1] if log else None
     if (
         not last_msg
         or (last_msg.role in ["assistant"])
