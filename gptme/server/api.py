@@ -357,6 +357,16 @@ def create_app(cors_origin: str | None = None) -> flask.Flask:
     app.register_blueprint(v2_api)
 
     if cors_origin:
-        CORS(app, resources={r"/api/*": {"origins": cors_origin}})
+        # Only allow credentials if a specific origin is set (not '*')
+        allow_credentials = cors_origin != "*" if cors_origin else False
+        CORS(
+            app,
+            resources={
+                r"/api/*": {
+                    "origins": cors_origin,
+                    "supports_credentials": allow_credentials,
+                }
+            },
+        )
 
     return app
