@@ -33,9 +33,7 @@ class MCPConfig:
 class Config:
     prompt: dict = field(default_factory=dict)
     env: dict = field(default_factory=dict)
-    mcp: MCPConfig = field(
-        default_factory=lambda: MCPConfig(enabled=False, auto_start=False, servers=[])
-    )
+    mcp: MCPConfig = field(default_factory=MCPConfig)
 
     def get_env(self, key: str, default: str | None = None) -> str | None:
         """Gets an environment variable, checks the config file if it's not set in the environment."""

@@ -109,15 +109,22 @@ class MCPClient:
 
             result = await session.call_tool(tool_name, arguments)
             # Safely access content for logging
-            if (hasattr(result, "content") and result.content 
-                and len(result.content) > 0 
-                and hasattr(result.content[0], "text")):
+            if (
+                hasattr(result, "content")
+                and result.content
+                and len(result.content) > 0
+                and hasattr(result.content[0], "text")
+            ):
                 content_text = result.content[0].text
                 logger.debug(f"result {content_text}")
-                
+
             if hasattr(result, "content") and result.content:
                 for content in result.content:
-                    if hasattr(content, "type") and content.type == "text" and hasattr(content, "text"):
+                    if (
+                        hasattr(content, "type")
+                        and content.type == "text"
+                        and hasattr(content, "text")
+                    ):
                         return content.text
             return str(result)
 
