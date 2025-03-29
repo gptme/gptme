@@ -1,55 +1,55 @@
 import os
-import logging
+import shutil
+from collections.abc import Generator
+from pathlib import Path
+
 import pytest
 import tomlkit
-from pathlib import Path
-from collections.abc import Generator
 
 # Import the minimal set of required modules
 from gptme.config import Config, MCPConfig, MCPServerConfig
-
-# Set up logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger(__name__)
 
 
 @pytest.fixture
 def test_config_path(tmp_path) -> Generator[Path, None, None]:
     """Create a temporary config file for testing"""
+    cmd, args = (
+        ["uvx", ["--from"]] if shutil.which("uvx") else ["pipx", ["run", "--spec"]]
+    )
+    if not shutil.which(cmd[0]):
+        pytest.skip(f"{cmd[0]} not found in PATH")
+
+    mcp_server_sqlite = {
+        "name": "sqlite",
+        "enabled": True,
+        "command": cmd,
+        "args": [
+            *args,
+            "git+ssh://git@github.com/modelcontextprotocol/servers#subdirectory=src/sqlite",
+            "mcp-server-sqlite",
+        ],
+        "env": {},
+    }
+
+    mcp_server_weather = {
+        "name": "weatherAPI",
+        "enabled": True,
+        "command": cmd,
+        "args": [
+            *args,
+            "git+https://github.com/adhikasp/mcp-weather.git",
+            "mcp-weather",
+        ],
+        "env": {"WEATHER_API_KEY": os.environ.get("WEATHER_API_KEY", "")},
+    }
+
     config_data = {
         "prompt": {},
         "env": {},
         "mcp": {
             "enabled": True,
             "auto_start": True,
-            "servers": [
-                {
-                    "name": "sqlite",
-                    "enabled": True,
-                    "command": "uvx",
-                    "args": [
-                        "--from",
-                        "git+ssh://git@github.com/modelcontextprotocol/servers#subdirectory=src/sqlite",
-                        "mcp-server-sqlite",
-                    ],
-                    "env": {},
-                },
-                {
-                    "name": "weatherAPI",
-                    "enabled": True,
-                    "command": "uvx",
-                    "args": [
-                        "--from",
-                        "git+https://github.com/adhikasp/mcp-weather.git",
-                        "mcp-weather",
-                    ],
-                    "env": {"WEATHER_API_KEY": os.environ.get("WEATHER_API_KEY", "")},
-                },
-            ],
+            "servers": [mcp_server_sqlite, mcp_server_weather],
         },
     }
 
