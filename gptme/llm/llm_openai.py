@@ -211,6 +211,7 @@ def stream(
     is_o1 = base_model.startswith("o1") or base_model.startswith("o3")
     is_deepseek_reasoner = base_model == "deepseek-reasoner"
     is_reasoner = is_o1 or is_deepseek_reasoner
+    used_model = None
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     reasoning = ""
@@ -237,6 +238,12 @@ def stream(
 
         # Cast the chunk to the correct type
         chunk = cast(ChatCompletionChunk, chunk_raw)
+        if chunk.model != used_model:
+            used_model = chunk.model
+            if chunk.model != base_model:
+                logger.info(
+                    f"Generating with model {chunk.model}, requested {base_model}",
+                )
 
         if not chunk.choices:
             # Got a chunk with no choices, Azure always sends one of these at the start

@@ -361,10 +361,12 @@ def _init_workspace(workspace: Path | None, logdir: Path | None = None) -> Path:
     if logdir:
         log_workspace = logdir / "workspace"
         if log_workspace.exists():
-            assert not workspace or (
-                workspace == log_workspace.resolve()
-            ), f"Workspace already exists in {log_workspace}, wont override."
-            workspace = log_workspace.resolve()
+            resolved_workspace = log_workspace.resolve()
+            if workspace and workspace != resolved_workspace:
+                logger.warning(
+                    f"Using existing workspace at {resolved_workspace} instead of {workspace}"
+                )
+            workspace = resolved_workspace
         else:
             assert workspace.exists(), f"Workspace path {workspace} does not exist"
             log_workspace.symlink_to(workspace, target_is_directory=True)
