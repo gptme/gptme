@@ -346,6 +346,9 @@ def _format_block_smart(header: str, cmd: str, lang="") -> str:
         s += f"{header}:"
     if len(cmd.split("\n")) == 1:
         s += f" `{cmd}`"
+    elif "```" in cmd:
+        # use quadticks if triple ticks in content
+        s += f"\n````{lang}\n{cmd}\n````"
     else:
         s += f"\n```{lang}\n{cmd}\n```"
     return s

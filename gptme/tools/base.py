@@ -20,7 +20,7 @@ from typing import (
 import json_repair
 from lxml import etree
 
-from ..codeblock import Codeblock
+from ..codeblock import Codeblock, quadticks
 from ..message import Message
 from ..util import clean_example, transform_examples_to_chat_directives
 
@@ -440,8 +440,9 @@ class ToolUse:
 
     def _to_markdown(self) -> str:
         assert self.args is not None
+        ticks = "````" if quadticks else "```"
         args = " ".join(self.args)
-        return f"```{self.tool}{' ' if args else ''}{args}\n{self.content}\n```"
+        return f"{ticks}{self.tool}{' ' if args else ''}{args}\n{self.content}\n{ticks}"
 
     def _to_xml(self) -> str:
         assert self.args is not None
