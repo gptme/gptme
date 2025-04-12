@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.mark.timeout(30)
+@pytest.mark.serial
 def test_auto_stepping(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event
 ):
