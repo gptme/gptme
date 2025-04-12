@@ -1,10 +1,12 @@
 import asyncio
 import logging
 from contextlib import AsyncExitStack
+
 from gptme.config import Config, get_config
-from mcp import ClientSession
-from mcp.client.stdio import stdio_client, StdioServerParameters
+
 import mcp.types as types  # Import all types
+from mcp import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
 
 logger = logging.getLogger(__name__)
 

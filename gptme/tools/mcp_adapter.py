@@ -6,7 +6,7 @@ from gptme.config import Config
 
 from ..message import Message
 from ..mcp.client import MCPClient
-from .base import Parameter, ToolSpec, ToolUse
+from .base import ExecuteFunc, Parameter, ToolSpec, ToolUse
 
 # Define ConfirmFunc type directly to avoid circular imports
 ConfirmFunc = Callable[[str], bool]
@@ -102,26 +102,34 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
 
 
 # Function to create execute function for a specific MCP tool
-def create_mcp_execute_function(tool_name, client):
+def create_mcp_execute_function(tool_name: str, client: MCPClient) -> ExecuteFunc:
     """Create an execute function for an MCP tool"""
 
-    def execute(content=None, args=None, kwargs=None, confirm=None):
+    def execute(code=None, args=None, kwargs=None, confirm=None):
         """Execute an MCP tool with confirmation"""
         try:
             # Get the tool definition from the client
-            tool_def = next(
-                (tool for tool in client.tools.tools if tool.name == tool_name), None
-            )
+            tool_def = None
+            if client.tools is not None:
+                tool_def = next(
+                    (tool for tool in client.tools.tools if tool.name == tool_name),
+                    None,
+                )
 
             # Try to parse content as JSON if it's not already kwargs
-            if content and not kwargs:
+            if code and not kwargs:
                 try:
-                    kwargs = json.loads(content)
+                    kwargs = json.loads(code)
                 except json.JSONDecodeError as err:
                     # Add proper error chaining with 'from'
-                    if tool_def and tool_def.parameters:
+                    if tool_def and tool_def.inputSchema:
                         example = json.dumps(
-                            dict((p.name, f"<{p.type}>") for p in tool_def.parameters)
+                            dict(
+                                (p.name, f"<{p.type}>")
+                                for p in tool_def.inputSchema.get(
+                                    "properties", {}
+                                ).values()
+                            )
                         )
                     else:
                         example = '{"parameter": "value"}'
