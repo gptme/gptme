@@ -7,10 +7,6 @@ authors = [
 ]
 readme = "README.md"
 license = "MIT"
-packages = [
-    { include = "gptme" },
-]
-include = ["gptme/server/static/**/*", "media/logo.png"]
 dynamic = ["dependencies"]  # "version"
 
 [project.urls]
@@ -26,6 +22,12 @@ gptme-eval = "gptme.eval.main:main"
 gptme-util = "gptme.util.cli:main"
 gptme-nc = "gptme.ncurses:main"
 gptme-wut = "gptme.wut:main"
+
+[tool.poetry]
+packages = [
+    { include = "gptme" },
+]
+include = ["gptme/server/static/**/*", "media/logo.png"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
