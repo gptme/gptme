@@ -174,7 +174,7 @@ def prompt_user() -> Generator[Message, None, None]:
 
     Only included in interactive mode.
     """
-    config_prompt = get_config().prompt
+    config_prompt = get_config().user.prompt
     about_user = config_prompt.get(
         "about_user", "You are interacting with a human programmer."
     )
@@ -204,7 +204,7 @@ def prompt_project() -> Generator[Message, None, None]:
         return
 
     project_config = get_project_config(projectdir)
-    config_prompt = get_config().prompt
+    config_prompt = get_config().user.prompt
     project = projectdir.name
     project_info = project_config and project_config.prompt
     if not project_info:

@@ -1,7 +1,6 @@
 import logging
 import os
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 
 import tomlkit
@@ -26,26 +25,14 @@ class MCPServerConfig:
 class MCPConfig:
     enabled: bool = False
     auto_start: bool = False
-    servers: list[MCPServerConfig] = field(default_factory=list)
+    servers: dict[str, MCPServerConfig] = field(default_factory=dict)
 
 
 @dataclass
-class Config:
+class UserConfig:
     prompt: dict = field(default_factory=dict)
     env: dict = field(default_factory=dict)
     mcp: MCPConfig = field(default_factory=MCPConfig)
-
-    def get_env(self, key: str, default: str | None = None) -> str | None:
-        """Gets an environment variable, checks the config file if it's not set in the environment."""
-        return os.environ.get(key) or self.env.get(key) or default
-
-    def get_env_required(self, key: str) -> str:
-        """Gets an environment variable, checks the config file if it's not set in the environment."""
-        if val := os.environ.get(key) or self.env.get(key):
-            return val
-        raise KeyError(  # pragma: no cover
-            f"Environment variable {key} not set in env or config, see README."
-        )
 
     def dict(self) -> dict:
         return {
@@ -62,7 +49,7 @@ class Config:
                         "args": s.args,
                         "env": s.env,
                     }
-                    for s in self.mcp.servers
+                    for s in self.mcp.servers.values()
                 ],
             },
         }
@@ -88,13 +75,15 @@ class ProjectConfig:
     prompt: str | None = None
     files: list[str] = field(default_factory=list)
     rag: RagConfig = field(default_factory=RagConfig)
+    env: dict = field(default_factory=dict)
+    mcp: MCPConfig | None = None
 
 
 ABOUT_ACTIVITYWATCH = """ActivityWatch is a free and open-source automated time-tracker that helps you track how you spend your time on your devices."""
 ABOUT_GPTME = "gptme is a CLI to interact with large language models in a Chat-style interface, enabling the assistant to execute commands and code on the local machine, letting them assist in all kinds of development and terminal-based work."
 
 
-default_config = Config(
+default_config = UserConfig(
     prompt={
         "about_user": "I am a curious human programmer.",
         "response_preference": "Basic concepts don't need to be explained.",
@@ -109,22 +98,9 @@ default_config = Config(
     },
 )
 
-# Define the path to the config file
-config_path = os.path.expanduser("~/.config/gptme/config.toml")
 
-# Global variable to store the config
-_config: Config | None = None
-
-
-def get_config() -> Config:
-    global _config
-    if _config is None:
-        _config = _load_config()
-    return _config
-
-
-def _load_config() -> Config:
-    config = _load_config_doc()
+def load_user_config(path: str | None = None) -> UserConfig:
+    config = _load_config_doc(path)
     assert "prompt" in config, "prompt key missing in config"
     assert "env" in config, "env key missing in config"
 
@@ -136,33 +112,36 @@ def _load_config() -> Config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
 
     # Parse MCP config if present
-    mcp_config = MCPConfig(enabled=False, auto_start=False, servers=[])
+    mcp_config = MCPConfig(enabled=False, auto_start=False, servers={})
     if mcp:
-        servers = [
-            MCPServerConfig(**server_data) for server_data in mcp.get("servers", [])
-        ]
+        servers = {
+            server_data["name"]: MCPServerConfig(**server_data)
+            for server_data in mcp.get("servers", [])
+        }
         mcp_config = MCPConfig(
             enabled=mcp.get("enabled", False),
             auto_start=mcp.get("auto_start", False),
             servers=servers,
         )
 
-    return Config(prompt=prompt, env=env, mcp=mcp_config)
+    return UserConfig(prompt=prompt, env=env, mcp=mcp_config)
 
 
-def _load_config_doc() -> tomlkit.TOMLDocument:
+def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
+    if path is None:
+        path = config_path
     # Check if the config file exists
-    if not os.path.exists(config_path):
+    if not os.path.exists(path):
         # If not, create it and write some default settings
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         toml = tomlkit.dumps(default_config.dict())
-        with open(config_path, "w") as config_file:
+        with open(path, "w") as config_file:
             config_file.write(toml)
-        console.log(f"Created config file at {config_path}")
+        console.log(f"Created config file at {path}")
         doc = tomlkit.loads(toml)
         return doc
     else:
-        with open(config_path) as config_file:
+        with open(path) as config_file:
             doc = tomlkit.load(config_file)
         return doc
 
@@ -183,10 +162,9 @@ def set_config_value(key: str, value: str) -> None:  # pragma: no cover
 
     # Reload config
     global _config
-    _config = _load_config()
+    _config = get_config()
 
 
-@lru_cache
 def get_project_config(workspace: Path | None) -> ProjectConfig | None:
     if workspace is None:
         return None
@@ -205,14 +183,91 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
         )
         # load project config
         with open(project_config_path) as f:
-            config_data = dict(tomlkit.load(f))
+            config_data = tomlkit.load(f)
 
         # Handle RAG config conversion before creating ProjectConfig
         if "rag" in config_data:
             config_data["rag"] = RagConfig(**config_data["rag"])  # type: ignore
 
-        return ProjectConfig(**config_data)  # type: ignore
+        mcp = config_data.pop("mcp", {})
+
+        # Parse MCP config if present
+        mcp_config = MCPConfig(enabled=False, auto_start=False, servers={})
+        if mcp:
+            servers = {
+                server_data["name"]: MCPServerConfig(**server_data)
+                for server_data in mcp.get("servers", [])
+            }
+            mcp_config = MCPConfig(
+                enabled=mcp.get("enabled", False),
+                auto_start=mcp.get("auto_start", False),
+                servers=servers,
+            )
+
+        return ProjectConfig(**config_data, mcp=mcp_config)  # type: ignore
     return None
+
+
+@dataclass
+class Config:
+    workspace: Path | None = None
+    user: UserConfig = field(default_factory=load_user_config)
+    project: ProjectConfig | None = None
+    mcp: MCPConfig = field(default_factory=MCPConfig)
+
+    def __post_init__(self):
+        if self.project is None:
+            self.project = get_project_config(self.workspace)
+
+        # Set MCP config from user config
+        self.mcp = self.user.mcp
+
+        # Override MCP config from project config if present, merging mcp servers
+        if self.project and self.project.mcp:
+            servers = self.mcp.servers
+            for project_server in self.project.mcp.servers.values():
+                servers[project_server.name] = project_server
+
+            self.mcp = MCPConfig(
+                enabled=self.project.mcp.enabled,
+                auto_start=self.project.mcp.auto_start,
+                servers=servers,
+            )
+
+    def get_env(self, key: str, default: str | None = None) -> str | None:
+        """Gets an environment variable, checks the config file if it's not set in the environment."""
+        return (
+            os.environ.get(key)
+            or (self.project and self.project.env.get(key))
+            or self.user.env.get(key)
+            or default
+        )
+
+    def get_env_required(self, key: str) -> str:
+        """Gets an environment variable, checks the config file if it's not set in the environment."""
+        if (
+            val := os.environ.get(key)
+            or self.user.env.get(key)
+            or (self.project and self.project.env.get(key))
+        ):
+            return val
+        raise KeyError(  # pragma: no cover
+            f"Environment variable {key} not set in env or config, see README."
+        )
+
+
+# Define the path to the config file
+config_path = os.path.expanduser("~/.config/gptme/config.toml")
+
+# Global variable to store the config
+_config: Config | None = None
+
+
+def get_config() -> Config:
+    global _config
+    if _config is None:
+        _config = Config()
+    return _config
 
 
 if __name__ == "__main__":

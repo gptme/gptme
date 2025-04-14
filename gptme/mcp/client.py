@@ -83,9 +83,7 @@ class MCPClient:
         if not self.config.mcp.enabled:
             raise RuntimeError("MCP is not enabled in config")
 
-        server = next(
-            (s for s in self.config.mcp.servers if s.name == server_name), None
-        )
+        server = self.config.mcp.servers.get(server_name)
         if not server:
             raise ValueError(f"No MCP server config found for '{server_name}'")
 

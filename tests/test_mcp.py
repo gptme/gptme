@@ -7,7 +7,7 @@ import pytest
 import tomlkit
 
 # Import the minimal set of required modules
-from gptme.config import Config, MCPConfig, MCPServerConfig
+from gptme.config import UserConfig, MCPConfig, MCPServerConfig
 
 
 @pytest.fixture
@@ -62,7 +62,7 @@ def test_config_path(tmp_path) -> Generator[Path, None, None]:
 
 
 @pytest.fixture
-def mcp_config(test_config_path) -> Config:
+def mcp_config(test_config_path) -> UserConfig:
     """Load MCP config from the test config file"""
     with open(test_config_path) as f:
         config_data = tomlkit.load(f)
@@ -72,10 +72,10 @@ def mcp_config(test_config_path) -> Config:
     mcp = MCPConfig(
         enabled=mcp_data.get("enabled", False),
         auto_start=mcp_data.get("auto_start", False),
-        servers=servers,
+        servers={s.name: s for s in servers},
     )
 
-    return Config(prompt={}, env={}, mcp=mcp)
+    return UserConfig(prompt={}, env={}, mcp=mcp)
 
 
 @pytest.fixture
