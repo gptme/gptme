@@ -74,9 +74,9 @@ class ReviewComment:
             line=d["line"],
             diff_hunk=d["diff_hunk"],
             id=str(d["id"]),
-            in_reply_to_id=str(d["in_reply_to_id"])
-            if d.get("in_reply_to_id")
-            else None,
+            in_reply_to_id=(
+                str(d["in_reply_to_id"]) if d.get("in_reply_to_id") else None
+            ),
             thread_id=str(d["in_reply_to_id"] if d.get("in_reply_to_id") else d["id"]),
             review_id=str(d["pull_request_review_id"]),
             commit_id=d["commit_id"],
@@ -215,8 +215,6 @@ class PRViewer:
             ]
         )
 
-        from typing import Any
-
         # First, group comments by thread
         threads: dict[str, list[Any]] = {}
         for rc in review_comments:  # type: ignore
@@ -287,7 +285,8 @@ class PRViewer:
 
         if isinstance(comment, Review):
             if comment.user == "ellipsis-dev[bot]":
-                return f"## Review by @{comment.user} ({comment.state})\n{comment.body.split('\n')[0]}"
+                first_line = comment.body.split("\n")[0]
+                return f"## Review by @{comment.user} ({comment.state})\n{first_line}"
             return f"## Review by @{comment.user} ({comment.state})\n{comment.body}"
 
         if isinstance(comment, ReviewComment):
