@@ -1,4 +1,3 @@
-from dataclasses import asdict
 import logging
 import os
 import signal
@@ -268,20 +267,25 @@ def main(
         prompt_msgs = inject_stdin(prompt_msgs, piped_input)
 
     # load or create chat config
-    chat_config = ChatConfig(
-        model=model,
-        tools=tool_allowlist,
-        tool_format=selected_tool_format,
-        stream=stream,
-        interactive=interactive,
-    )
+    chat_config = None
     if logdir.exists():
         chat_config_path = logdir / "chat.toml"
         if chat_config_path.exists():
-            chat_config = ChatConfig.from_toml(chat_config_path)
+            with open(chat_config_path) as f:
+                config_doc = tomlkit.load(f)
+            chat_config = ChatConfig.from_toml(config_doc)
+
+    if chat_config is None:
+        chat_config = ChatConfig(
+            model=model,
+            tools=tool_allowlist,
+            tool_format=selected_tool_format,
+            stream=stream,
+            interactive=interactive,
+        )
 
     # save chat config
-    chat_config_path.write_text(tomlkit.dumps(asdict(chat_config)))
+    chat_config_path.write_text(tomlkit.dumps(chat_config.to_dict()))
 
     if workspace == "@log":
         workspace_path: Path | None = logdir / "workspace"

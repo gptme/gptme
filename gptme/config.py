@@ -30,7 +30,9 @@ class MCPConfig:
 
     @classmethod
     def from_toml(cls, doc: dict) -> Self:
-        servers = [MCPServerConfig(**server) for server in doc.get("servers", [])]
+        servers = [
+            MCPServerConfig(**server.unwrap()) for server in doc.get("servers", [])
+        ]
         return cls(
             enabled=doc.get("enabled", False),
             auto_start=doc.get("auto_start", False),
@@ -188,9 +190,7 @@ class ChatConfig:
     interactive: bool = True
 
     @classmethod
-    def from_toml(cls, path: Path) -> Self:
-        with open(path) as f:
-            config_data = tomlkit.load(f)
+    def from_toml(cls, config_data: TOMLDocument) -> Self:
         env = config_data.pop("env", {})
         mcp = config_data.pop("mcp", {})
         return cls(
@@ -198,6 +198,31 @@ class ChatConfig:
             mcp=MCPConfig.from_toml(mcp),
             **{k: v for k, v in config_data.items()},
         )
+
+    def to_dict(self) -> dict:
+        """Convert ChatConfig to a clean dictionary without tomlkit objects."""
+        return {
+            "model": self.model,
+            "tools": self.tools,
+            "tool_format": self.tool_format,
+            "stream": self.stream,
+            "interactive": self.interactive,
+            "env": dict(self.env),
+            "mcp": {
+                "enabled": self.mcp.enabled,
+                "auto_start": self.mcp.auto_start,
+                "servers": [
+                    {
+                        "name": server.name,
+                        "enabled": server.enabled,
+                        "command": server.command,
+                        "args": list(server.args),
+                        "env": dict(server.env),
+                    }
+                    for server in self.mcp.servers
+                ],
+            },
+        }
 
 
 @dataclass
