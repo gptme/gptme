@@ -2,7 +2,7 @@ import logging
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Self
+from typing_extensions import Self
 
 import tomlkit
 from tomlkit import TOMLDocument
