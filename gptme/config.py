@@ -193,7 +193,11 @@ class ChatConfig:
             config_data = tomlkit.load(f)
         env = config_data.pop("env", {})
         mcp = config_data.pop("mcp", {})
-        return cls(env=env, mcp=MCPConfig.from_toml(mcp))
+        return cls(
+            env=env,
+            mcp=MCPConfig.from_toml(mcp),
+            **{k: v for k, v in config_data.items()},
+        )
 
 
 @dataclass
