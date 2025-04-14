@@ -43,9 +43,9 @@ If you've built something using gptme, we'd love to feature it here!
    .. code-block:: markdown
 
       [![built using gptme](https://img.shields.io/badge/built%20using-gptme%20%F0%9F%A4%96-5151f5?style=flat)](https://github.com/gptme/gptme)
-      
+
     .. code-block:: markdown
-      
+
       [![Powered by gptme](https://img.shields.io/badge/powered%20by-gptme%20%F0%9F%A4%96-5151f5?style=flat)](https://github.com/gptme/gptme)
 
 2. Create a PR adding your project to this list:

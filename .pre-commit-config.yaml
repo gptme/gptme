@@ -22,7 +22,7 @@ repos:
   - id: check-rst-formatting
     name: Check RST nested list formatting
     description: Ensures RST files have proper blank lines between parent/child list items
-    entry: python scripts/check_rst_formatting.py
+    entry: python3 scripts/check_rst_formatting.py
     language: system
     files: \.rst$
     exclude: docs/_build/

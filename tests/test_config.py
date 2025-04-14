@@ -111,18 +111,18 @@ def test_mcp_config_loaded_in_correct_priority():
             temp_file.write("\n" + test_mcp_server_2)
             temp_file.flush()
         config = Config(user=load_user_config(temp_user_config))
-        assert config.mcp.enabled == True
-        assert config.mcp.auto_start == True
+        assert config.mcp.enabled is True
+        assert config.mcp.auto_start is True
         assert len(config.mcp.servers) == 2
         my_server = next(s for s in config.mcp.servers if s.name == "my-server")
         assert my_server.name == "my-server"
-        assert my_server.enabled == True
+        assert my_server.enabled is True
         assert my_server.command == "server-command"
         assert my_server.args == ["--arg1", "--arg2"]
         assert my_server.env == {"API_KEY": "your-key"}
         my_server_2 = next(s for s in config.mcp.servers if s.name == "my-server-2")
         assert my_server_2.name == "my-server-2"
-        assert my_server_2.enabled == True
+        assert my_server_2.enabled is True
         assert my_server_2.command == "server-command-2"
         assert my_server_2.args == ["--arg2", "--arg3"]
         assert my_server_2.env == {"API_KEY": "your-key-2"}
@@ -138,8 +138,8 @@ def test_mcp_config_loaded_in_correct_priority():
         config.user = load_user_config(temp_user_config)
 
         # Check that the MCP config is overridden by the project config
-        assert config.mcp.enabled == False
-        assert config.mcp.auto_start == False
+        assert config.mcp.enabled is False
+        assert config.mcp.auto_start is False
 
         # Check that the MCP servers are merged from the user and project configs
         # Should have 3 servers:
@@ -149,22 +149,22 @@ def test_mcp_config_loaded_in_correct_priority():
         assert len(config.mcp.servers) == 3
         my_server = next(s for s in config.mcp.servers if s.name == "my-server")
         assert my_server.name == "my-server"
-        assert my_server.enabled == False
+        assert my_server.enabled is False
         my_server_2 = next(s for s in config.mcp.servers if s.name == "my-server-2")
         assert my_server_2.name == "my-server-2"
-        assert my_server_2.enabled == True
+        assert my_server_2.enabled is True
         assert my_server_2.command == "server-command-2"
         assert my_server_2.args == ["--arg2", "--arg3"]
         assert my_server_2.env == {"API_KEY": "your-key-2"}
         my_server_3 = next(s for s in config.mcp.servers if s.name == "my-server-3")
         assert my_server_3.name == "my-server-3"
-        assert my_server_3.enabled == True
+        assert my_server_3.enabled is True
         assert my_server_3.command == "server-command-3"
         assert my_server_3.args == ["--arg3", "--arg4"]
         assert my_server_3.env == {"API_KEY": "your-key-3"}
 
     finally:
-    # Delete the temporary files
+        # Delete the temporary files
         if os.path.exists(temp_user_config):
             os.remove(temp_user_config)
         if os.path.exists(temp_project_config):

@@ -83,7 +83,9 @@ class MCPClient:
         if not self.config.mcp.enabled:
             raise RuntimeError("MCP is not enabled in config")
 
-        server = self.config.mcp.servers.get(server_name)
+        server = next(
+            (s for s in self.config.mcp.servers if s.name == server_name), None
+        )
         if not server:
             raise ValueError(f"No MCP server config found for '{server_name}'")
 
@@ -111,7 +113,7 @@ class MCPClient:
                 hasattr(result, "content")
                 and result.content
                 and len(result.content) > 0
-                and hasattr(result.content[0], "text")
+                and isinstance(result.content[0], types.TextContent)
             ):
                 content_text = result.content[0].text
                 logger.debug(f"result {content_text}")
