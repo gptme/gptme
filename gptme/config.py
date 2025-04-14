@@ -213,26 +213,33 @@ class Config:
     workspace: Path | None = None
     user: UserConfig = field(default_factory=load_user_config)
     project: ProjectConfig | None = None
-    mcp: MCPConfig = field(default_factory=MCPConfig)
 
-    def __post_init__(self):
-        if self.project is None:
-            self.project = get_project_config(self.workspace)
+    @classmethod
+    def from_workspace(cls, workspace: Path):
+        config = cls()
+        config.workspace = workspace
+        config.project = get_project_config(workspace)
+        config.user = load_user_config()
 
-        # Set MCP config from user config
-        self.mcp = self.user.mcp
+        return config
+
+    @property
+    def mcp(self) -> MCPConfig:
+        mcp = self.user.mcp
 
         # Override MCP config from project config if present, merging mcp servers
         if self.project and self.project.mcp:
-            servers = self.mcp.servers
+            servers = mcp.servers
             for project_server in self.project.mcp.servers.values():
                 servers[project_server.name] = project_server
 
-            self.mcp = MCPConfig(
+            mcp = MCPConfig(
                 enabled=self.project.mcp.enabled,
                 auto_start=self.project.mcp.auto_start,
                 servers=servers,
             )
+
+        return mcp
 
     def get_env(self, key: str, default: str | None = None) -> str | None:
         """Gets an environment variable, checks the config file if it's not set in the environment."""
@@ -266,8 +273,13 @@ _config: Config | None = None
 def get_config() -> Config:
     global _config
     if _config is None:
-        _config = Config()
+        return Config()
     return _config
+
+
+def set_config(workspace: Path):
+    global _config
+    _config = Config.from_workspace(workspace=workspace)
 
 
 if __name__ == "__main__":

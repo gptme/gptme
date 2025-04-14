@@ -13,7 +13,7 @@ from pick import pick
 from . import __version__
 from .chat import chat
 from .commands import _gen_help
-from .config import get_config
+from .config import get_config, set_config
 from .constants import MULTIPROMPT_SEPARATOR
 from .dirs import get_logs_dir
 from .init import init_logging
@@ -179,6 +179,7 @@ def main(
         # split comma-separated values
         tool_allowlist = [tool for tools in tool_allowlist for tool in tools.split(",")]
 
+    set_config(Path(workspace) if workspace else Path.cwd())
     config = get_config()
 
     model = model or config.get_env("MODEL")

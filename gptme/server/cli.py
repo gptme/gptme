@@ -1,6 +1,9 @@
 import logging
+from pathlib import Path
 
 import click
+
+from gptme.config import set_config
 
 from ..init import init, init_logging
 from .api import create_app
@@ -47,6 +50,7 @@ def main(
     Note that this is very much a work in progress, and is not yet ready for normal use.
     """
     init_logging(verbose)
+    set_config(Path.cwd())
     init(
         model,
         interactive=False,

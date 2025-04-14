@@ -78,9 +78,8 @@ def test_env_vars_loaded_in_correct_priority():
         with open(temp_project_config, "w") as temp_file:
             temp_file.write(project_config)
             temp_file.flush()
-        config = Config(
-            user=load_user_config(temp_user_config), workspace=Path(temp_dir)
-        )
+        config = Config.from_workspace(Path(temp_dir))
+        config.user = load_user_config(temp_user_config)
         assert config.get_env("OPENAI_API_KEY") == "project_test_key"
         assert config.get_env("ANOTHER_KEY") == "project_value"
 
@@ -111,7 +110,7 @@ def test_mcp_config_loaded_in_correct_priority():
         temp_file.write("\n" + test_mcp_server_1_enabled)
         temp_file.write("\n" + test_mcp_server_2)
         temp_file.flush()
-    config = Config(user=load_user_config(temp_user_config), workspace=None)
+    config = Config(user=load_user_config(temp_user_config))
     assert config.mcp.enabled == True
     assert config.mcp.auto_start == True
     assert len(config.mcp.servers) == 2
@@ -133,7 +132,8 @@ def test_mcp_config_loaded_in_correct_priority():
         temp_file.write("\n" + test_mcp_server_1_disabled)
         temp_file.write("\n" + test_mcp_server_3)
         temp_file.flush()
-    config = Config(user=load_user_config(temp_user_config), workspace=Path(temp_dir))
+    config = Config.from_workspace(Path(temp_dir))
+    config.user = load_user_config(temp_user_config)
 
     # Check that the MCP config is overridden by the project config
     assert config.mcp.enabled == False
