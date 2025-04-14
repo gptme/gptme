@@ -1,10 +1,12 @@
 import asyncio
 import logging
 from contextlib import AsyncExitStack
+
 from gptme.config import Config, get_config
-from mcp import ClientSession
-from mcp.client.stdio import stdio_client, StdioServerParameters
+
 import mcp.types as types  # Import all types
+from mcp import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +66,8 @@ class MCPClient:
             if not self.session:
                 raise RuntimeError("Failed to initialize session")
 
-            await asyncio.wait_for(self.session.initialize(), timeout=5.0)
-            tools = await asyncio.wait_for(self.session.list_tools(), timeout=10.0)
+            await asyncio.wait_for(self.session.initialize(), timeout=10.0)
+            tools = await asyncio.wait_for(self.session.list_tools(), timeout=30.0)
             self.tools = tools  # Assign after await
 
             if not self.tools:

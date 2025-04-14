@@ -5,20 +5,21 @@ from pathlib import Path
 
 import pytest
 import tomlkit
-
-# Import the minimal set of required modules
 from gptme.config import Config, MCPConfig, MCPServerConfig
+from gptme.mcp import MCPClient
 
 
 @pytest.fixture
 def test_config_path(tmp_path) -> Generator[Path, None, None]:
     """Create a temporary config file for testing"""
     # support both pipx and uvx
-    pyx_cmd, pyx_args = (
-        ("uvx", ["--from"]) if shutil.which("uvx") else ("pipx", ["run", "--spec"])
-    )
-    if not shutil.which(pyx_cmd):
+    if shutil.which("uvx"):
+        pyx_cmd, pyx_args = ("uvx", ["--from"])
+    elif shutil.which("pipx"):
+        pyx_cmd, pyx_args = ("pipx", ["run", "--spec"])
+    else:
         pytest.skip("pipx or uvx not found in PATH")
+
     if not shutil.which("npx"):
         pytest.skip("npx not found in PATH")
 
@@ -28,7 +29,7 @@ def test_config_path(tmp_path) -> Generator[Path, None, None]:
         "command": pyx_cmd,
         "args": [
             *pyx_args,
-            "git+ssh://git@github.com/modelcontextprotocol/servers#subdirectory=src/sqlite",
+            "git+https://github.com/modelcontextprotocol/servers#subdirectory=src/sqlite",
             "mcp-server-sqlite",
         ],
         "env": {},
@@ -79,10 +80,8 @@ def mcp_config(test_config_path) -> Config:
 
 
 @pytest.fixture
-def mcp_client(mcp_config):
+def mcp_client(mcp_config) -> MCPClient:
     """Create an MCP client instance"""
-    from gptme.mcp import MCPClient
-
     return MCPClient(config=mcp_config)
 
 
