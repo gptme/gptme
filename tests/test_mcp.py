@@ -72,7 +72,7 @@ def mcp_config(test_config_path) -> UserConfig:
     mcp = MCPConfig(
         enabled=mcp_data.get("enabled", False),
         auto_start=mcp_data.get("auto_start", False),
-        servers={s.name: s for s in servers},
+        servers=servers,
     )
 
     return UserConfig(prompt={}, env={}, mcp=mcp)

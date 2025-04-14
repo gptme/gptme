@@ -1,7 +1,8 @@
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Self
 
 import tomlkit
 from tomlkit import TOMLDocument
@@ -25,7 +26,16 @@ class MCPServerConfig:
 class MCPConfig:
     enabled: bool = False
     auto_start: bool = False
-    servers: dict[str, MCPServerConfig] = field(default_factory=dict)
+    servers: list[MCPServerConfig] = field(default_factory=list)
+
+    @classmethod
+    def from_toml(cls, doc: dict) -> Self:
+        servers = [MCPServerConfig(**server) for server in doc.get("servers", [])]
+        return cls(
+            enabled=doc.get("enabled", False),
+            auto_start=doc.get("auto_start", False),
+            servers=servers,
+        )
 
 
 @dataclass
@@ -33,26 +43,6 @@ class UserConfig:
     prompt: dict = field(default_factory=dict)
     env: dict = field(default_factory=dict)
     mcp: MCPConfig = field(default_factory=MCPConfig)
-
-    def dict(self) -> dict:
-        return {
-            "prompt": self.prompt,
-            "env": self.env,
-            "mcp": {
-                "enabled": self.mcp.enabled,
-                "auto_start": self.mcp.auto_start,
-                "servers": [
-                    {
-                        "name": s.name,
-                        "enabled": s.enabled,
-                        "command": s.command,
-                        "args": s.args,
-                        "env": s.env,
-                    }
-                    for s in self.mcp.servers.values()
-                ],
-            },
-        }
 
 
 @dataclass
@@ -111,18 +101,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
     if config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
 
-    # Parse MCP config if present
-    mcp_config = MCPConfig(enabled=False, auto_start=False, servers={})
-    if mcp:
-        servers = {
-            server_data["name"]: MCPServerConfig(**server_data)
-            for server_data in mcp.get("servers", [])
-        }
-        mcp_config = MCPConfig(
-            enabled=mcp.get("enabled", False),
-            auto_start=mcp.get("auto_start", False),
-            servers=servers,
-        )
+    mcp_config = MCPConfig.from_toml(mcp)
 
     return UserConfig(prompt=prompt, env=env, mcp=mcp_config)
 
@@ -134,7 +113,7 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     if not os.path.exists(path):
         # If not, create it and write some default settings
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        toml = tomlkit.dumps(default_config.dict())
+        toml = tomlkit.dumps(asdict(default_config))
         with open(path, "w") as config_file:
             config_file.write(toml)
         console.log(f"Created config file at {path}")
@@ -190,22 +169,31 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
             config_data["rag"] = RagConfig(**config_data["rag"])  # type: ignore
 
         mcp = config_data.pop("mcp", {})
-
-        # Parse MCP config if present
-        mcp_config = MCPConfig(enabled=False, auto_start=False, servers={})
-        if mcp:
-            servers = {
-                server_data["name"]: MCPServerConfig(**server_data)
-                for server_data in mcp.get("servers", [])
-            }
-            mcp_config = MCPConfig(
-                enabled=mcp.get("enabled", False),
-                auto_start=mcp.get("auto_start", False),
-                servers=servers,
-            )
+        mcp_config = MCPConfig.from_toml(mcp)
 
         return ProjectConfig(**config_data, mcp=mcp_config)  # type: ignore
     return None
+
+
+@dataclass
+class ChatConfig:
+    # TODO: support env in chat config
+    env: dict = field(default_factory=dict)
+    # TODO: support mcp in chat config
+    mcp: MCPConfig = field(default_factory=MCPConfig)
+    model: str | None = None
+    tools: list[str] | None = None
+    tool_format: str | None = None
+    stream: bool = True
+    interactive: bool = True
+
+    @classmethod
+    def from_toml(cls, path: Path) -> Self:
+        with open(path) as f:
+            config_data = tomlkit.load(f)
+        env = config_data.pop("env", {})
+        mcp = config_data.pop("mcp", {})
+        return cls(env=env, mcp=MCPConfig.from_toml(mcp))
 
 
 @dataclass
@@ -229,9 +217,12 @@ class Config:
 
         # Override MCP config from project config if present, merging mcp servers
         if self.project and self.project.mcp:
-            servers = mcp.servers
-            for project_server in self.project.mcp.servers.values():
-                servers[project_server.name] = project_server
+            servers = []
+            for server in self.project.mcp.servers:
+                servers.append(server)
+            for server in self.user.mcp.servers:
+                if server.name not in [s.name for s in servers]:
+                    servers.append(server)
 
             mcp = MCPConfig(
                 enabled=self.project.mcp.enabled,

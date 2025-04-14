@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import logging
 import os
 import signal
@@ -9,11 +10,12 @@ from typing import Literal
 
 import click
 from pick import pick
+import tomlkit
 
 from . import __version__
 from .chat import chat
 from .commands import _gen_help
-from .config import get_config, set_config
+from .config import ChatConfig, get_config, set_config
 from .constants import MULTIPROMPT_SEPARATOR
 from .dirs import get_logs_dir
 from .init import init_logging
@@ -264,6 +266,22 @@ def main(
     else:
         logdir = get_logdir(name)
         prompt_msgs = inject_stdin(prompt_msgs, piped_input)
+
+    # load or create chat config
+    chat_config = ChatConfig(
+        model=model,
+        tools=tool_allowlist,
+        tool_format=selected_tool_format,
+        stream=stream,
+        interactive=interactive,
+    )
+    if logdir.exists():
+        chat_config_path = logdir / "chat.toml"
+        if chat_config_path.exists():
+            chat_config = ChatConfig.from_toml(chat_config_path)
+
+    # save chat config
+    chat_config_path.write_text(tomlkit.dumps(asdict(chat_config)))
 
     if workspace == "@log":
         workspace_path: Path | None = logdir / "workspace"

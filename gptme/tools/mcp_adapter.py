@@ -29,7 +29,7 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
         return tool_specs
 
     # Initialize connections to all servers
-    for server_config in config.mcp.servers.values():
+    for server_config in config.mcp.servers:
         try:
             client = MCPClient(config=config)
 
