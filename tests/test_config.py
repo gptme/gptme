@@ -65,28 +65,26 @@ def test_env_vars_loaded_in_correct_priority(monkeypatch):
         # Create a temporary user config file with env vars and check that they are loaded
         with open(temp_user_config, "w") as temp_file:
             temp_file.write(default_user_config)
-            temp_file.write(
-                'OPENAI_API_KEY = "file_test_key"\nANOTHER_KEY = "file_value"'
-            )
+            temp_file.write('TEST_KEY = "file_test_key"\nANOTHER_KEY = "file_value"')
             temp_file.flush()
         config = Config(user=load_user_config(temp_user_config))
-        assert config.get_env("OPENAI_API_KEY") == "file_test_key"
+        assert config.get_env("TEST_KEY") == "file_test_key"
         assert config.get_env("ANOTHER_KEY") == "file_value"
 
         # Check that the env vars are overridden by the project config
-        project_config = """[env]\nOPENAI_API_KEY = \"project_test_key\"\nANOTHER_KEY = \"project_value\""""
+        project_config = """[env]\nTEST_KEY = \"project_test_key\"\nANOTHER_KEY = \"project_value\""""
         with open(temp_project_config, "w") as temp_file:
             temp_file.write(project_config)
             temp_file.flush()
         config = Config.from_workspace(Path(temp_dir))
         config.user = load_user_config(temp_user_config)
-        assert config.get_env("OPENAI_API_KEY") == "project_test_key"
+        assert config.get_env("TEST_KEY") == "project_test_key"
         assert config.get_env("ANOTHER_KEY") == "project_value"
 
         # Check that the env vars are overridden by the environment
         monkeypatch.setenv("ANOTHER_KEY", "env_value")
-        monkeypatch.setenv("OPENAI_API_KEY", "env_test_key")
-        assert config.get_env("OPENAI_API_KEY") == "env_test_key"
+        monkeypatch.setenv("TEST_KEY", "env_test_key")
+        assert config.get_env("TEST_KEY") == "env_test_key"
         assert config.get_env("ANOTHER_KEY") == "env_value"
 
     finally:
