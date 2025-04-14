@@ -1,8 +1,8 @@
 """Tests for auto-stepping and persistence in the V2 API."""
 
 import logging
-import unittest.mock
 import os
+import unittest.mock
 
 import pytest
 import requests
@@ -13,13 +13,12 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.timeout(30)
 def test_auto_stepping(
-    init_, setup_conversation, event_listener, mock_generation, wait_for_event, tmp_path
+    init_, setup_conversation, event_listener, mock_generation, wait_for_event
 ):
     """Test auto-stepping and auto-confirm functionality with multiple tools in sequence."""
     port, conversation_id, session_id = setup_conversation
 
-    test_dir = str(tmp_path / "test_dir")
-    logger.info(f"Using test directory: {test_dir}")
+    test_dir = "/tmp/test_dir"
 
     # Add a user message requesting multiple commands
     requests.post(
