@@ -66,15 +66,6 @@ def test_auto_stepping(
         assert wait_for_event(event_listener, "tool_executing")
         assert wait_for_event(event_listener, "message_added")
 
-        # requests.post(
-        #     f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-        #     json={
-        #         "session_id": session_id,
-        #         "model": "openai/mock-model",
-        #         "auto_confirm": True,
-        #     },
-        # )
-
         # Wait for second tool execution
         assert wait_for_event(event_listener, "generation_started")
         assert wait_for_event(event_listener, "generation_complete")
@@ -90,9 +81,9 @@ def test_auto_stepping(
     conversation_data = resp.json()
     messages = conversation_data["log"]
 
-    # We should have 6 messages:
+    # We should have 7 messages:
     # 1. System, 2. User, 3. Assistant (mkdir), 4. System output,
-    # 5. Assistant (ls), 6. System output
+    # 5. Assistant (ls), 6. System output, 7. Assistant (final message)
     assert len(messages) == 7, (
         f"Expected 7 messages, got {len(messages)}" + "\n" + str(messages)
     )

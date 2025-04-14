@@ -264,10 +264,9 @@ def wait_for_event():
         while time.time() - start_time < timeout:
             if event_type in seq[already_awaited:]:
                 events_passed = seq[already_awaited:].index(event_type) + 1
-                print(seq[already_awaited : already_awaited + events_passed])
+                # print(seq[already_awaited : already_awaited + events_passed])
                 already_awaited += events_passed
-                print(already_awaited)
-                print(seq[already_awaited])
+                # print(already_awaited)
                 return True
             time.sleep(0.1)
         return False

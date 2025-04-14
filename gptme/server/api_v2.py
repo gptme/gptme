@@ -366,7 +366,7 @@ def step(
             },
         )
 
-        if len(tooluses) != 1:
+        if len(tooluses) > 1:
             logger.warning(
                 "Multiple tools per message not yet supported, expect issues"
             )
