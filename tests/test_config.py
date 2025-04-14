@@ -56,7 +56,7 @@ def test_get_config():
     assert config
 
 
-def test_env_vars_loaded_in_correct_priority():
+def test_env_vars_loaded_in_correct_priority(monkeypatch):
     temp_dir = tempfile.gettempdir()
     temp_user_config = os.path.join(temp_dir, "config.toml")
     temp_project_config = os.path.join(temp_dir, "gptme.toml")
@@ -84,8 +84,8 @@ def test_env_vars_loaded_in_correct_priority():
         assert config.get_env("ANOTHER_KEY") == "project_value"
 
         # Check that the env vars are overridden by the environment
-        os.environ["ANOTHER_KEY"] = "env_value"
-        os.environ["OPENAI_API_KEY"] = "env_test_key"
+        monkeypatch.setenv("ANOTHER_KEY", "env_value")
+        monkeypatch.setenv("OPENAI_API_KEY", "env_test_key")
         assert config.get_env("OPENAI_API_KEY") == "env_test_key"
         assert config.get_env("ANOTHER_KEY") == "env_value"
 
