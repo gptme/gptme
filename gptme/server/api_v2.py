@@ -366,6 +366,11 @@ def step(
             },
         )
 
+        if len(tooluses) != 1:
+            logger.warning(
+                "Multiple tools per message not yet supported, expect issues"
+            )
+
         # Handle tool use
         for tooluse in tooluses:
             # Create a tool execution record
@@ -397,7 +402,7 @@ def step(
             if tool_exec.auto_confirm:
                 if session.auto_confirm_count > 0:
                     session.auto_confirm_count -= 1
-                await_tool_execution(conversation_id, session, tool_id, tooluse)
+                start_tool_execution(conversation_id, session, tool_id, tooluse)
 
         # Mark session as not generating
         session.generating = False
@@ -674,7 +679,7 @@ def api_conversation_tool_confirm(conversation_id: str):
         tooluse = tool_exec.tooluse
 
         logger.info(f"Executing runnable tooluse: {tooluse}")
-        await_tool_execution(conversation_id, session, tool_id, tooluse)
+        start_tool_execution(conversation_id, session, tool_id, tooluse)
         return flask.jsonify({"status": "ok", "message": "Tool confirmed"})
 
     elif action == "edit":
@@ -684,7 +689,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             return flask.jsonify({"error": "content is required for edit action"}), 400
 
         # Execute with edited content
-        await_tool_execution(
+        start_tool_execution(
             conversation_id,
             session,
             tool_id,
@@ -711,7 +716,7 @@ def api_conversation_tool_confirm(conversation_id: str):
         session.auto_confirm_count = count
 
         # Also confirm this tool
-        await_tool_execution(conversation_id, session, tool_id, tool_exec.tooluse)
+        start_tool_execution(conversation_id, session, tool_id, tool_exec.tooluse)
     else:
         return flask.jsonify({"error": f"Unknown action: {action}"}), 400
 
@@ -757,12 +762,12 @@ def api_conversation_interrupt(conversation_id: str):
 # ---------------
 
 
-def await_tool_execution(
+def start_tool_execution(
     conversation_id: str,
     session: ConversationSession,
     tool_id: str,
     edited_tooluse: ToolUse | None,
-):
+) -> threading.Thread:
     """Execute a tool and handle its output."""
     # TODO: Use the model from the conversation
     model = m.full if (m := get_default_model()) else "anthropic"
@@ -805,15 +810,14 @@ def await_tool_execution(
             msg = Message("system", f"Error: {str(e)}")
             _append_and_notify(manager, session, msg)
 
-        # Automatically resume generation if auto-confirm is enabled
         # This implements auto-stepping similar to the CLI behavior
-        if session.auto_confirm_count > 0:
-            _start_step_thread(conversation_id, session, model)
+        _start_step_thread(conversation_id, session, model)
 
     # Start execution in a thread
     thread = threading.Thread(target=execute_tool_thread)
     thread.daemon = True
     thread.start()
+    return thread
 
 
 def _start_step_thread(
