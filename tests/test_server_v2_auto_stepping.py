@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def test_auto_stepping(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event
 ):
-    """Test auto-stepping functionality with multiple tools in sequence."""
+    """Test auto-stepping and auto-confirm functionality with multiple tools in sequence."""
     port, conversation_id, session_id = setup_conversation
 
     # Add a user message requesting multiple commands
@@ -37,21 +37,16 @@ def test_auto_stepping(
     )
 
     # Create a mock that returns different responses for each call
-    responses = [
-        (
-            "I'll help you create a directory and list its contents.\n\nFirst, let's create a directory:\n\n"
-            + tool1.to_output("markdown")
-        ),
-        ("Now, let's list its contents:\n\n" + tool2.to_output("markdown")),
-    ]
-    response_iter = iter(responses)
-
-    def mock_stream(messages, model, tools=None, max_tokens=None):
-        try:
-            content = next(response_iter)
-            yield [content]
-        except StopIteration:
-            yield ["No more responses"]
+    mock_stream = mock_generation(
+        [
+            (
+                "I'll help you create a directory and list its contents.\n\nFirst, let's create a directory:\n\n"
+                + tool1.to_output("markdown")
+            ),
+            ("Now, let's list its contents:\n\n" + tool2.to_output("markdown")),
+            ("The directory has been created and listed successfully."),
+        ]
+    )
 
     # Start generation with auto-confirm and the sequential mock
     with unittest.mock.patch("gptme.server.api_v2._stream", mock_stream):
@@ -60,7 +55,7 @@ def test_auto_stepping(
             json={
                 "session_id": session_id,
                 "model": "openai/mock-model",
-                "auto_confirm": True,
+                "auto_confirm": 2,
             },
         )
 
@@ -71,14 +66,14 @@ def test_auto_stepping(
         assert wait_for_event(event_listener, "tool_executing")
         assert wait_for_event(event_listener, "message_added")
 
-        requests.post(
-            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-            json={
-                "session_id": session_id,
-                "model": "openai/mock-model",
-                "auto_confirm": True,
-            },
-        )
+        # requests.post(
+        #     f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+        #     json={
+        #         "session_id": session_id,
+        #         "model": "openai/mock-model",
+        #         "auto_confirm": True,
+        #     },
+        # )
 
         # Wait for second tool execution
         assert wait_for_event(event_listener, "generation_started")
@@ -98,8 +93,8 @@ def test_auto_stepping(
     # We should have 6 messages:
     # 1. System, 2. User, 3. Assistant (mkdir), 4. System output,
     # 5. Assistant (ls), 6. System output
-    assert len(messages) == 6, (
-        f"Expected 6 messages, got {len(messages)}" + "\n" + str(messages)
+    assert len(messages) == 7, (
+        f"Expected 7 messages, got {len(messages)}" + "\n" + str(messages)
     )
 
     # Check for specific content

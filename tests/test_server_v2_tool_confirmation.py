@@ -32,8 +32,11 @@ def test_tool_confirmation_flow(
 
     # Create mock response with the tool
     mock_stream = mock_generation(
-        "I'll help you list the files. Let me run the command:\n\n"
-        + tool.to_output("markdown")
+        [
+            "I'll help you list the files. Let me run the command:\n\n"
+            + tool.to_output("markdown"),
+            "Done, let me know if you need anything else.",
+        ]
     )
 
     # Start generation with mocked response
@@ -69,7 +72,7 @@ def test_tool_confirmation_flow(
 
     # Check message sequence
     messages = resp.json()["log"]
-    assert len(messages) == 4, f"Expected 4 messages, got {len(messages)}"
+    assert len(messages) == 5, f"Expected 5 messages, got {len(messages)}"
 
     # Verify message content
     assert messages[0]["role"] == "system" and "testing" in messages[0]["content"]

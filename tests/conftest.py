@@ -110,7 +110,7 @@ def init_():
 @pytest.fixture
 def server_thread():
     """Start a server in a thread for testing."""
-    from gptme.server.api import create_app  # noqa
+    from gptme.server.api import create_app  # fmt: skip
 
     app = create_app()
 
@@ -141,7 +141,7 @@ def server_thread():
 
 @pytest.fixture
 def client():
-    from gptme.server.api import create_app  # noqa
+    from gptme.server.api import create_app  # fmt: skip
 
     app = create_app()
     with app.test_client() as client:
@@ -230,10 +230,16 @@ def event_listener(setup_conversation):
 def mock_generation():
     """Create a mock generation with customizable output."""
 
-    def create(content):
+    def create(responses: list[str]):
+        response_iter = iter(responses)
+
         def mock_stream(messages, model, tools=None, max_tokens=None):
-            # Yield the content as a single chunk that will be iterated over char by char
-            yield [content]  # Wrap in list so it's only iterated once
+            try:
+                content = next(response_iter)
+                # Yield the content as a single chunk that will be iterated over char by char
+                yield [content]  # Wrap in list so it's only iterated once
+            except StopIteration:
+                yield ["No more responses"]
 
         return mock_stream
 
@@ -258,8 +264,10 @@ def wait_for_event():
         while time.time() - start_time < timeout:
             if event_type in seq[already_awaited:]:
                 events_passed = seq[already_awaited:].index(event_type) + 1
+                print(seq[already_awaited : already_awaited + events_passed])
                 already_awaited += events_passed
-                # print(already_awaited)
+                print(already_awaited)
+                print(seq[already_awaited])
                 return True
             time.sleep(0.1)
         return False

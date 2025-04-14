@@ -610,7 +610,7 @@ def api_conversation_step(conversation_id: str):
     """Take a step in the conversation - generate a response or continue after tool execution."""
     req_json = flask.request.json or {}
     session_id = req_json.get("session_id")
-    auto_confirm = req_json.get("auto_confirm", False)
+    auto_confirm_int_or_bool: int | bool = req_json.get("auto_confirm", False)
     stream = req_json.get("stream", True)
 
     if not session_id:
@@ -619,6 +619,13 @@ def api_conversation_step(conversation_id: str):
     session = SessionManager.get_session(session_id)
     if session is None:
         return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+
+    # if auto_confirm set, set auto_confirm_count
+    if isinstance(auto_confirm_int_or_bool, int):
+        session.auto_confirm_count = auto_confirm_int_or_bool
+    elif isinstance(auto_confirm_int_or_bool, bool):
+        session.auto_confirm_count = 1 if auto_confirm_int_or_bool else -1
+    auto_confirm = bool(session.auto_confirm_count > 0)
 
     if session.generating:
         return flask.jsonify({"error": "Generation already in progress"}), 409
