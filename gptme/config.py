@@ -274,8 +274,8 @@ class Config:
         """Gets an environment variable, checks the config file if it's not set in the environment."""
         if (
             val := os.environ.get(key)
-            or self.user.env.get(key)
             or (self.project and self.project.env.get(key))
+            or self.user.env.get(key)
         ):
             return val
         raise KeyError(  # pragma: no cover
