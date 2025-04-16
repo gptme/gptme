@@ -1,6 +1,11 @@
 import logging
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import (
+    asdict,
+    dataclass,
+    field,
+    replace,
+)
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -206,7 +211,7 @@ class ChatConfig:
 
     _logdir: Path | None = None
 
-    # TODO: these lack a header in toml, we should maybe namespace them [chat]
+    # these are under a [chat] namespace in the toml
     model: str | None = None
     tools: list[str] | None = None
     tool_format: "ToolFormat | None" = None
@@ -222,11 +227,8 @@ class ChatConfig:
     def from_dict(cls, config_data: dict) -> Self:
         _logdir = config_data.pop("_logdir", None)
 
-        model = config_data.pop("model", None)
-        tools = config_data.pop("tools", None)
-        tool_format = config_data.pop("tool_format", None)
-        stream = config_data.pop("stream", True)
-        interactive = config_data.pop("interactive", True)
+        # Extract chat settings
+        chat_data = config_data.pop("chat", {})
 
         env = config_data.pop("env", {})
         mcp = MCPConfig.from_dict(config_data.pop("mcp", {}))
@@ -237,11 +239,7 @@ class ChatConfig:
 
         return cls(
             _logdir=_logdir,
-            model=model,
-            tools=tools,
-            tool_format=tool_format,
-            stream=stream,
-            interactive=interactive,
+            **chat_data,
             env=env,
             mcp=mcp,
         )
@@ -266,12 +264,28 @@ class ChatConfig:
             raise ValueError("ChatConfig has no logdir set")
         self._logdir.mkdir(parents=True, exist_ok=True)
         chat_config_path = self._logdir / "config.toml"
+
         # Convert to dict and remove None values
         config_dict = {
             k: v
             for k, v in asdict(self).items()
             if v is not None and not k.startswith("_")
         }
+
+        # Save chat-specific settings into [chat] table
+        for k in list(config_dict):
+            if k not in ["mcp", "env"]:
+                if "chat" not in config_dict:
+                    config_dict["chat"] = {}
+                config_dict["chat"][k] = config_dict.pop(k)
+
+        # sort in chat -> env -> mcp order
+        config_dict = {
+            "chat": config_dict.pop("chat", {}),
+            "env": config_dict.pop("env", {}),
+            "mcp": config_dict.pop("mcp", {}),
+        }
+
         # TODO: load and update this properly as TOMLDocument to preserve formatting
         with open(chat_config_path, "w") as f:
             tomlkit.dump(config_dict, f)
@@ -292,7 +306,7 @@ class ChatConfig:
             # TODO: note that this isn't a great check: CLI values equal to defaults won't override existing config values
             if cli_value != default_value:
                 # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
-                setattr(config, field_name, cli_value)
+                config = replace(config, **{field_name: cli_value})
 
         # Save the config
         config.save()

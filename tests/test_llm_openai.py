@@ -60,7 +60,7 @@ def test_message_conversion_o1():
 
 
 def test_message_conversion_without_tools():
-    init_tools(allowlist=frozenset(["save"]))
+    init_tools(allowlist=["save"])
 
     messages = [
         Message(role="system", content="Initial Message", pinned=True, hide=True),
@@ -97,7 +97,7 @@ def test_message_conversion_without_tools():
 
 
 def test_message_conversion_with_tools():
-    init_tools(allowlist=frozenset(["save"]))
+    init_tools(allowlist=["save"])
 
     messages = [
         Message(role="user", content="First user prompt"),
@@ -200,7 +200,7 @@ def test_message_conversion_with_tools():
 
 
 def test_message_conversion_with_tool_and_non_tool():
-    init_tools(allowlist=frozenset(["save", "shell"]))
+    init_tools(allowlist=["save", "shell"])
 
     messages = [
         Message(role="user", content="First user prompt"),

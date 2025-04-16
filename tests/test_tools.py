@@ -1,14 +1,15 @@
-import pytest
 from unittest.mock import patch
+
+import pytest
 from gptme.tools import (
     _discover_tools,
-    init_tools,
+    get_available_tools,
+    get_tool,
+    get_tool_for_langtag,
     get_tools,
     has_tool,
-    get_tool,
-    get_available_tools,
+    init_tools,
     is_supported_langtag,
-    get_tool_for_langtag,
 )
 
 
@@ -19,18 +20,12 @@ def test_init_tools():
 
 
 def test_init_tools_allowlist():
-    init_tools(allowlist=frozenset(("save",)))
-
+    init_tools(allowlist=["save"])
     assert len(get_tools()) == 1
-
     assert get_tools()[0].name == "save"
 
-    # let's trigger a tool reloading
-    init_tools.cache_clear()
-
-    init_tools(allowlist=frozenset(("save",)))
-
-    assert len(get_tools()) == 1
+    init_tools(allowlist=["save", "patch"])
+    assert len(get_tools()) == 2
 
 
 def test_init_tools_allowlist_from_env():
@@ -53,11 +48,11 @@ def test_init_tools_allowlist_from_env():
 
 def test_init_tools_fails():
     with pytest.raises(ValueError):
-        init_tools(allowlist=frozenset(("save", "missing_tool")))
+        init_tools(allowlist=["save", "missing_tool"])
 
 
 def test_tool_loading_with_package():
-    found = _discover_tools(frozenset(("gptme.tools",)))
+    found = _discover_tools(["gptme.tools"])
 
     found_names = [t.name for t in found]
 
@@ -66,7 +61,7 @@ def test_tool_loading_with_package():
 
 
 def test_tool_loading_with_module():
-    found = _discover_tools(frozenset(("gptme.tools.save",)))
+    found = _discover_tools(["gptme.tools.save"])
 
     found_names = [t.name for t in found]
 
@@ -75,7 +70,7 @@ def test_tool_loading_with_module():
 
 
 def test_tool_loading_with_missing_package():
-    found = _discover_tools(frozenset(("gptme.fake_",)))
+    found = _discover_tools(["gptme.fake_"])
 
     assert len(found) == 0
 
@@ -96,14 +91,14 @@ def test_get_available_tools():
 
 
 def test_has_tool():
-    init_tools(allowlist=frozenset(("save",)))
+    init_tools(allowlist=["save"])
 
     assert has_tool("save")
     assert not has_tool("anothertool")
 
 
 def test_get_tool():
-    init_tools(allowlist=frozenset(("save",)))
+    init_tools(allowlist=["save"])
 
     tool_save = get_tool("save")
 
@@ -114,14 +109,7 @@ def test_get_tool():
 
 
 def test_get_tool_for_lang_tag():
-    init_tools(
-        allowlist=frozenset(
-            (
-                "save",
-                "ipython",
-            )
-        )
-    )
+    init_tools(allowlist=["save", "ipython"])
 
     assert (tool_python := get_tool_for_langtag("ipython"))
     assert tool_python.name == "ipython"
@@ -130,7 +118,7 @@ def test_get_tool_for_lang_tag():
 
 
 def test_is_supported_lang_tag():
-    init_tools(allowlist=frozenset(("save",)))
+    init_tools(allowlist=["save"])
 
     assert is_supported_langtag("save")
     assert not is_supported_langtag("randomtag")

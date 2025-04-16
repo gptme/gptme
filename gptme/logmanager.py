@@ -22,6 +22,7 @@ from rich import print
 from .dirs import get_logs_dir
 from .message import Message, len_tokens, print_msg
 from .prompts import get_prompt
+from .tools import get_tools
 from .util.context import enrich_messages_with_context
 from .util.reduce import limit_log, reduce_log
 
@@ -263,7 +264,7 @@ class LogManager:
                 raise FileNotFoundError(f"Could not find logfile {logfile}")
 
         log = Log.read_jsonl(logfile)
-        msgs = log.messages or initial_msgs or [get_prompt()]
+        msgs = log.messages or initial_msgs or [get_prompt(get_tools())]
         return cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
 
     def branch(self, name: str) -> None:

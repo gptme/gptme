@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
+from . import get_tools
 from .base import ToolSpec, ToolUse
 
 if TYPE_CHECKING:
@@ -85,7 +86,7 @@ def subagent(agent_id: str, prompt: str):
 
     def run_subagent():
         prompt_msgs = [Message("user", prompt)]
-        initial_msgs = [get_prompt(interactive=False)]
+        initial_msgs = [get_prompt(get_tools(), interactive=False)]
 
         # add the return prompt
         return_prompt = """Thank you for doing the task, please reply with a JSON codeblock on the format:

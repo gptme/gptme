@@ -16,7 +16,7 @@ import pytest
 import requests
 from gptme.config import get_config
 from gptme.init import init  # noqa
-from gptme.tools import clear_tools, init_tools
+from gptme.tools import clear_tools
 from gptme.tools.rag import _has_gptme_rag
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,6 @@ def download_model():
 def clear_tools_before():
     # Clear all tools and cache to prevent test conflicts
     clear_tools()
-    init_tools.cache_clear()
 
 
 @pytest.fixture

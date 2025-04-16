@@ -188,12 +188,13 @@ def main(
     )
 
     # early init tools to generate system prompt
-    init_tools(frozenset(tool_allowlist) if tool_allowlist else None)
+    tools = init_tools(tool_allowlist)
 
     # get initial system prompt
     initial_msgs = [
         get_prompt(
-            prompt_system,
+            tools=tools,
+            prompt=prompt_system,
             interactive=interactive,
             tool_format=selected_tool_format,
             model=model,
@@ -273,12 +274,13 @@ def main(
         workspace_path = Path(workspace) if workspace else None
 
     # Load or create chat config, applying CLI overrides
+    # TODO: doesn't respect already set tools on resume
     logdir.mkdir(parents=True, exist_ok=True)
     chat_config = ChatConfig.load_or_create(
         logdir=logdir,
         cli_config=ChatConfig(
             model=model,
-            tools=tool_allowlist,
+            tools=[tool.name for tool in tools],
             tool_format=selected_tool_format,
             stream=stream,
             interactive=interactive,
@@ -290,7 +292,6 @@ def main(
     signal.signal(signal.SIGINT, handle_keyboard_interrupt)
 
     try:
-        # TODO: pass ChatConfig instead of individual args?
         chat(
             prompt_msgs,
             initial_msgs,

@@ -64,7 +64,7 @@ def init(model: str | None, interactive: bool, tool_allowlist: list[str] | None)
     init_llm(provider)
     set_default_model(f"{provider}/{model}")
 
-    init_tools(frozenset(tool_allowlist) if tool_allowlist else None)
+    init_tools(tool_allowlist)
 
 
 def init_logging(verbose):

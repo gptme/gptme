@@ -21,6 +21,7 @@ from gptme.init import init
 from gptme.logmanager import Log
 from gptme.message import Message
 from gptme.prompts import get_prompt
+from gptme.tools import get_tools
 from gptme.util.context import (
     gather_fresh_context,
     get_changed_files,
@@ -108,7 +109,8 @@ def main():
     # Set up the conversation
     prompt = sys.argv[1] if len(sys.argv) > 1 else "What is fib(10)?"
     prompts = [Message("user", prompt)]
-    initial_msgs = [get_prompt("full", interactive=False)]
+    tools = get_tools()
+    initial_msgs = [get_prompt(tools, prompt="full", interactive=False)]
     log = Log(initial_msgs + prompts)
 
     # Main loop for autonomous operation

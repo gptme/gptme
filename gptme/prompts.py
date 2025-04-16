@@ -19,7 +19,7 @@ from .config import get_config, get_project_config
 from .dirs import get_project_git_dir
 from .llm.models import get_model, get_recommended_model
 from .message import Message
-from .tools import ToolFormat
+from .tools import ToolFormat, ToolSpec
 from .util import document_prompt_function
 
 PromptType = Literal["full", "short"]
@@ -28,19 +28,23 @@ logger = logging.getLogger(__name__)
 
 
 def get_prompt(
+    tools: list[ToolSpec],
+    tool_format: ToolFormat = "markdown",
     prompt: PromptType | str = "full",
     interactive: bool = True,
-    tool_format: ToolFormat = "markdown",
     model: str | None = None,
 ) -> Message:
     """
     Get the initial system prompt.
     """
+    if not tools:
+        raise ValueError("Tools must be provided to generate the prompt.")
+
     msgs: Iterable
     if prompt == "full":
-        msgs = prompt_full(interactive, tool_format, model)
+        msgs = prompt_full(interactive, tools, tool_format, model)
     elif prompt == "short":
-        msgs = prompt_short(interactive, tool_format)
+        msgs = prompt_short(interactive, tools, tool_format)
     else:
         msgs = [Message("system", prompt)]
 
@@ -60,11 +64,11 @@ def _join_messages(msgs: list[Message]) -> Message:
 
 
 def prompt_full(
-    interactive: bool, tool_format: ToolFormat, model: str | None
+    interactive: bool, tools: list[ToolSpec], tool_format: ToolFormat, model: str | None
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
     yield from prompt_gptme(interactive, model)
-    yield from prompt_tools(tool_format=tool_format)
+    yield from prompt_tools(tools=tools, tool_format=tool_format)
     if interactive:
         yield from prompt_user()
     yield from prompt_project()
@@ -73,11 +77,11 @@ def prompt_full(
 
 
 def prompt_short(
-    interactive: bool, tool_format: ToolFormat
+    interactive: bool, tools: list[ToolSpec], tool_format: ToolFormat
 ) -> Generator[Message, None, None]:
     """Short prompt to start the conversation."""
     yield from prompt_gptme(interactive)
-    yield from prompt_tools(examples=False, tool_format=tool_format)
+    yield from prompt_tools(examples=False, tools=tools, tool_format=tool_format)
     if interactive:
         yield from prompt_user()
     yield from prompt_project()
@@ -216,17 +220,15 @@ def prompt_project() -> Generator[Message, None, None]:
 
 
 def prompt_tools(
-    examples: bool = True, tool_format: ToolFormat = "markdown"
+    tools: list[ToolSpec],
+    tool_format: ToolFormat = "markdown",
+    examples: bool = True,
 ) -> Generator[Message, None, None]:
     """Generate the tools overview prompt."""
-    from .tools import get_tools  # fmt: skip
-
-    assert get_tools(), "No tools loaded"
-
     use_tool = tool_format == "tool"
 
     prompt = "# Tools aliases" if use_tool else "# Tools Overview"
-    for tool in get_tools():
+    for tool in tools:
         if not use_tool or not tool.is_runnable():
             prompt += tool.get_tool_prompt(examples, tool_format)
 

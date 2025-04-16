@@ -1,7 +1,12 @@
 import json_repair
 import pytest
 from gptme.tools import init_tools
-from gptme.tools.base import ToolUse, extract_json, set_tool_format, toolcall_re
+from gptme.tools.base import (
+    ToolUse,
+    extract_json,
+    set_tool_format,
+    toolcall_re,
+)
 
 
 @pytest.mark.parametrize(
@@ -59,7 +64,7 @@ patch
     ],
 )
 def test_tool_use_output_patch(tool_format, args, content, kwargs, expected):
-    init_tools(allowlist=frozenset(("patch",)))
+    init_tools(allowlist=["patch"])
 
     result = ToolUse("patch", args, content, kwargs).to_output(tool_format)
 

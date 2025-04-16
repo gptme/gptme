@@ -41,7 +41,7 @@ _loaded_tools: list[ToolSpec] = []
 _available_tools: list[ToolSpec] | None = None
 
 
-def _discover_tools(module_names: frozenset[str]) -> list[ToolSpec]:
+def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
     """Discover tools in a package or module, given the module/package name as a string."""
     tools = []
     for module_name in module_names:
@@ -85,10 +85,9 @@ def _discover_tools(module_names: frozenset[str]) -> list[ToolSpec]:
     return tools
 
 
-@lru_cache
 def init_tools(
-    allowlist: frozenset[str] | None = None,
-) -> None:
+    allowlist: list[str] | None = None,
+) -> list[ToolSpec]:
     """Runs initialization logic for tools."""
 
     config = get_config()
@@ -96,19 +95,12 @@ def init_tools(
     if allowlist is None:
         env_allowlist = config.get_env("TOOL_ALLOWLIST")
         if env_allowlist:
-            allowlist = frozenset(env_allowlist.split(","))
+            allowlist = env_allowlist.split(",")
 
-    for tool in get_available_tools():
+    for tool in get_toolchain(allowlist):
         if tool in _loaded_tools:
-            logger.warning("Tool '%s' already loaded", tool.name)
+            # logger.warning("Tool '%s' already loaded", tool.name)
             continue
-        if allowlist and tool.name not in allowlist:
-            continue
-        if not tool.available:
-            continue
-        if tool.disabled_by_default:
-            if not allowlist or tool.name not in allowlist:
-                continue
         if tool.init:
             tool = tool.init()
 
@@ -117,6 +109,22 @@ def init_tools(
     for tool_name in allowlist or []:
         if not has_tool(tool_name):
             raise ValueError(f"Tool '{tool_name}' not found")
+
+    return _loaded_tools
+
+
+def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
+    tools = []
+    for tool in get_available_tools():
+        if allowlist and tool.name not in allowlist:
+            continue
+        if not tool.available:
+            continue
+        if tool.disabled_by_default:
+            if not allowlist or tool.name not in allowlist:
+                continue
+        tools.append(tool)
+    return tools
 
 
 def execute_msg(msg: Message, confirm: ConfirmFunc) -> Generator[Message, None, None]:
@@ -161,11 +169,11 @@ def get_available_tools() -> list[ToolSpec]:
         # We need to load tools first
         config = get_config()
 
-        tool_modules: frozenset[str] = frozenset()
+        tool_modules: list[str] = list()
         env_tool_modules = config.get_env("TOOL_MODULES", "gptme.tools")
 
         if env_tool_modules:
-            tool_modules = frozenset(env_tool_modules.split(","))
+            tool_modules = env_tool_modules.split(",")
 
         _available_tools = sorted(_discover_tools(tool_modules))
 
@@ -178,6 +186,7 @@ def clear_tools():
 
     _available_tools = None
     _loaded_tools = []
+    # init_tools.cache_clear()
 
 
 def get_tools() -> list[ToolSpec]:

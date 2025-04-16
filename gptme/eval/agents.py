@@ -45,11 +45,11 @@ class GPTMe(Agent):
             store.upload(files)
 
         # TODO: make eval toolset configurable
-        init_tools()
+        tools = init_tools()
 
         print("\n--- Start of generation ---")
         logger.debug(f"Working in {store.working_dir}")
-        prompt_sys = get_prompt()
+        prompt_sys = get_prompt(tools=tools)
         prompt_sys = prompt_sys.replace(
             content=prompt_sys.content
             + "\n\nIf you have trouble and dont seem to make progress, stop trying."

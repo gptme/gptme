@@ -1,6 +1,6 @@
 import pytest
 from gptme.prompts import prompt_tools
-from gptme.tools import init_tools
+from gptme.tools import ToolFormat, init_tools
 
 
 @pytest.mark.parametrize(
@@ -75,10 +75,9 @@ from gptme.tools import init_tools
         "Tool without example",
     ],
 )
-def test_prompt_tools(tool_format, example, expected, not_expected):
-    init_tools(allowlist=frozenset(("shell", "read")))
-
-    prompt = next(prompt_tools(example, tool_format)).content
+def test_prompt_tools(tool_format: ToolFormat, example: bool, expected, not_expected):
+    tools = init_tools(allowlist=["shell", "read"])
+    prompt = next(prompt_tools(tools, tool_format, example)).content
 
     for expect in expected:
         assert expect in prompt
