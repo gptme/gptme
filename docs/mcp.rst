@@ -1,3 +1,5 @@
+.. _mcp:
+
 MCP
 ===
 
@@ -8,7 +10,7 @@ We also intend to expose tools in gptme as MCP servers, allowing you to use gptm
 Configuration
 -------------
 
-You can configure MCP in your ``~/.config/gptme/config.toml`` file:
+You can configure MCP in your :ref:`global-config` (``~/.config/gptme/config.toml``) file:
 
 .. code-block:: toml
 
@@ -22,6 +24,8 @@ You can configure MCP in your ``~/.config/gptme/config.toml`` file:
     command = "server-command"
     args = ["--arg1", "--arg2"]
     env = { API_KEY = "your-key" }
+
+We also intend to support specifying it in the :ref:`project-config`, and the ability to set it per-conversation.
 
 Configuration Options
 ~~~~~~~~~~~~~~~~~~~~~

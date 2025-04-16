@@ -50,7 +50,9 @@ Here is an example:
 
 The ``prompt`` section contains options for the prompt.
 
-The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`.
+The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
+
+If you want to configure MCP servers, you can do so in a ``mcp`` section. See :ref:`mcp` for more information.
 
 Environment Variables
 ~~~~~~~~~~~~~~~~~~~~~
@@ -62,7 +64,7 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_CHECK`` - Enable precommit checks (default: true if ``.pre-commit-config.yaml`` present)
 - ``GPTME_COSTS`` - Enable cost reporting for API calls (default: false)
 - ``GPTME_FRESH`` - Enable fresh context mode (default: false)
-- ``GPTME_BREAK_ON_TOOLUSE`` - Don't stop generation when tool use occurs in stream (default: true)
+- ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream (default: true)
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
 - ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
 
@@ -102,4 +104,4 @@ This file currently supports a few options:
 - ``files``, a list of paths that gptme will always include in the context.
 - ``prompt``, a string that will be included in the system prompt with a ``# Current Project`` header.
 - ``base_prompt``, a string that will be used as the base prompt for the project. This will override the global base prompt ("You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. [...]"). It can be useful to change the identity of the assistant and override some default behaviors.
-- ``rag``, a dictionary to configure the RAG tool. See :ref:`RAG Tool <rag-tool>` for more information.
+- ``rag``, a dictionary to configure the RAG tool. See :ref:`rag` for more information.

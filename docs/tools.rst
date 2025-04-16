@@ -120,7 +120,7 @@ Computer
     :members:
     :noindex:
 
-.. _rag-tool:
+.. _rag:
 
 RAG
 ---

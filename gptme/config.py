@@ -95,7 +95,7 @@ class RagConfig:
 class ProjectConfig:
     """Project-level configuration, such as which files to include in the context by default.
 
-    This is loaded from a gptme.toml :ref:`project config` file in the project directory or .github directory.
+    This is loaded from a gptme.toml :ref:`project-config` file in the project directory or .github directory.
     """
 
     _workspace: Path | None = None
