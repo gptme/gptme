@@ -300,7 +300,7 @@ class ChatConfig:
             tomlkit.dump(config_dict, f)
 
     def to_dict(self) -> dict:
-        """Convert ChatConfig to a dictionary."""
+        """Convert ChatConfig to a dictionary. Returns a dict with non-'mcp' and non-'env' keys nested under a 'chat' key, and 'env' and 'mcp' as top-level keys."""
         # Convert to dict and remove None values
         config_dict = {
             k: v
