@@ -122,6 +122,7 @@ nitpick_ignore = [
     ("py:class", "collections.abc.Generator"),
     ("py:class", "collections.abc.Callable"),
     ("py:class", "pathlib.Path"),
+    ("py:class", "pathlib._local.Path"),
     ("py:class", "flask.app.Flask"),
     ("py:class", "gptme.tools.python.T"),
     ("py:class", "threading.Thread"),

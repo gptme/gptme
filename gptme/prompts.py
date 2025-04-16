@@ -19,7 +19,7 @@ from .config import get_config, get_project_config
 from .dirs import get_project_git_dir
 from .llm.models import get_model, get_recommended_model
 from .message import Message
-from .tools import ToolFormat, ToolSpec
+from .tools import ToolFormat, ToolSpec, get_available_tools
 from .util import document_prompt_function
 
 PromptType = Literal["full", "short"]
@@ -371,7 +371,9 @@ document_prompt_function(
 )(prompt_gptme)
 document_prompt_function()(prompt_user)
 document_prompt_function()(prompt_project)
-document_prompt_function(tool_format="markdown")(prompt_tools)
+document_prompt_function(tools=get_available_tools(), tool_format="markdown")(
+    prompt_tools
+)
 # document_prompt_function(tool_format="xml")(prompt_tools)
 # document_prompt_function(tool_format="tool")(prompt_tools)
 document_prompt_function()(prompt_systeminfo)
