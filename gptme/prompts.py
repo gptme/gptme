@@ -175,13 +175,11 @@ def prompt_user() -> Generator[Message, None, None]:
     Only included in interactive mode.
     """
     config_prompt = get_config().user.prompt
-    about_user = config_prompt.get(
-        "about_user", "You are interacting with a human programmer."
+    about_user = (
+        config_prompt.about_user or "You are interacting with a human programmer."
     )
     response_prefs = (
-        config_prompt.get("response_preference")
-        or config_prompt.get("preferences")
-        or "No specific preferences set."
+        config_prompt.response_preference or "No specific preferences set."
     ).strip()
 
     prompt_content = f"""# About User
@@ -209,7 +207,7 @@ def prompt_project() -> Generator[Message, None, None]:
     project_info = project_config and project_config.prompt
     if not project_info:
         # TODO: remove project preferences in global config? use only project config
-        project_info = config_prompt.get("project", {}).get(project)
+        project_info = (config_prompt.project or {}).get(project)
 
     yield Message(
         "system",

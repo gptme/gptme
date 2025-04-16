@@ -2,14 +2,15 @@ import logging
 import os
 import signal
 import sys
+from dataclasses import asdict
 from datetime import datetime
 from itertools import islice
 from pathlib import Path
 from typing import Literal
 
 import click
-from pick import pick
 import tomlkit
+from pick import pick
 
 from . import __version__
 from .chat import chat
@@ -285,7 +286,7 @@ def main(
         )
 
     # save chat config
-    chat_config_path.write_text(tomlkit.dumps(chat_config.to_dict()))
+    chat_config_path.write_text(tomlkit.dumps(asdict(chat_config)))
 
     if workspace == "@log":
         workspace_path: Path | None = logdir / "workspace"

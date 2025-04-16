@@ -2,11 +2,11 @@ import logging
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing_extensions import Self
 
 import tomlkit
-from tomlkit import TOMLDocument
+from tomlkit import TOMLDocument, table
 from tomlkit.container import Container
+from typing_extensions import Self
 
 from .util import console, path_with_tilde
 
@@ -29,10 +29,8 @@ class MCPConfig:
     servers: list[MCPServerConfig] = field(default_factory=list)
 
     @classmethod
-    def from_toml(cls, doc: dict) -> Self:
-        servers = [
-            MCPServerConfig(**server.unwrap()) for server in doc.get("servers", [])
-        ]
+    def from_dict(cls, doc: dict) -> Self:
+        servers = [MCPServerConfig(**server) for server in doc.get("servers", [])]
         return cls(
             enabled=doc.get("enabled", False),
             auto_start=doc.get("auto_start", False),
@@ -41,8 +39,16 @@ class MCPConfig:
 
 
 @dataclass
+class UserPromptConfig:
+    about_user: str | None = None
+    response_preference: str | None = None
+    project: dict = field(default_factory=dict)
+
+
+@dataclass
 class UserConfig:
-    prompt: dict = field(default_factory=dict)
+    prompt: UserPromptConfig = field(default_factory=UserPromptConfig)
+
     env: dict = field(default_factory=dict)
     mcp: MCPConfig = field(default_factory=MCPConfig)
 
@@ -67,6 +73,7 @@ class ProjectConfig:
     prompt: str | None = None
     files: list[str] = field(default_factory=list)
     rag: RagConfig = field(default_factory=RagConfig)
+
     env: dict = field(default_factory=dict)
     mcp: MCPConfig | None = None
 
@@ -76,14 +83,14 @@ ABOUT_GPTME = "gptme is a CLI to interact with large language models in a Chat-s
 
 
 default_config = UserConfig(
-    prompt={
-        "about_user": "I am a curious human programmer.",
-        "response_preference": "Basic concepts don't need to be explained.",
-        "project": {
+    prompt=UserPromptConfig(
+        about_user="I am a curious human programmer.",
+        response_preference="Basic concepts don't need to be explained.",
+        project={
             "activitywatch": ABOUT_ACTIVITYWATCH,
             "gptme": ABOUT_GPTME,
         },
-    },
+    ),
     env={
         # toml doesn't support None
         # "OPENAI_API_KEY": None
@@ -96,15 +103,14 @@ def load_user_config(path: str | None = None) -> UserConfig:
     assert "prompt" in config, "prompt key missing in config"
     assert "env" in config, "env key missing in config"
 
-    prompt = config.pop("prompt")
+    prompt = UserPromptConfig(**config.pop("prompt", table()).unwrap())
     env = config.pop("env")
-    mcp = config.pop("mcp", {})
+    mcp = config.pop("mcp", table()).unwrap()
 
     if config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
 
-    mcp_config = MCPConfig.from_toml(mcp)
-
+    mcp_config = MCPConfig.from_dict(mcp)
     return UserConfig(prompt=prompt, env=env, mcp=mcp_config)
 
 
@@ -168,61 +174,46 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
 
         # Handle RAG config conversion before creating ProjectConfig
         if "rag" in config_data:
-            config_data["rag"] = RagConfig(**config_data["rag"])  # type: ignore
+            config_data["rag"] = RagConfig(**config_data["rag"].unwrap())
 
         mcp = config_data.pop("mcp", {})
-        mcp_config = MCPConfig.from_toml(mcp)
 
-        return ProjectConfig(**config_data, mcp=mcp_config)  # type: ignore
+        return ProjectConfig(**config_data.unwrap(), mcp=MCPConfig.from_dict(mcp))
     return None
 
 
 @dataclass
 class ChatConfig:
-    # TODO: support env in chat config
-    env: dict = field(default_factory=dict)
-    # TODO: support mcp in chat config
-    mcp: MCPConfig = field(default_factory=MCPConfig)
     model: str | None = None
     tools: list[str] | None = None
     tool_format: str | None = None
     stream: bool = True
     interactive: bool = True
 
+    # TODO: support env in chat config
+    env: dict = field(default_factory=dict)
+    # TODO: support mcp in chat config
+    mcp: MCPConfig = field(default_factory=MCPConfig)
+
     @classmethod
     def from_toml(cls, config_data: TOMLDocument) -> Self:
-        env = config_data.pop("env", {})
-        mcp = config_data.pop("mcp", {})
-        return cls(
-            env=env,
-            mcp=MCPConfig.from_toml(mcp),
-            **{k: v for k, v in config_data.items()},
-        )
+        model = config_data.pop("model", None)
+        tools = config_data.pop("tools", None)
+        tool_format = config_data.pop("tool_format", None)
+        stream = config_data.pop("stream", True)
+        interactive = config_data.pop("interactive", True)
 
-    def to_dict(self) -> dict:
-        """Convert ChatConfig to a clean dictionary without tomlkit objects."""
-        return {
-            "model": self.model,
-            "tools": self.tools,
-            "tool_format": self.tool_format,
-            "stream": self.stream,
-            "interactive": self.interactive,
-            "env": dict(self.env),
-            "mcp": {
-                "enabled": self.mcp.enabled,
-                "auto_start": self.mcp.auto_start,
-                "servers": [
-                    {
-                        "name": server.name,
-                        "enabled": server.enabled,
-                        "command": server.command,
-                        "args": list(server.args),
-                        "env": dict(server.env),
-                    }
-                    for server in self.mcp.servers
-                ],
-            },
-        }
+        env = config_data.pop("env", table()).unwrap()
+        mcp = config_data.pop("mcp", table()).unwrap()
+        return cls(
+            model=model,
+            tools=tools,
+            tool_format=tool_format,
+            stream=stream,
+            interactive=interactive,
+            env=env,
+            mcp=MCPConfig.from_dict(mcp),
+        )
 
 
 @dataclass
