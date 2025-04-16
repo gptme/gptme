@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 class Agent:
+    model: str
+    tool_format: ToolFormat
+
     def __init__(self, model: str, tool_format: ToolFormat = "markdown"):
         self.model = model
         self.tool_format = tool_format

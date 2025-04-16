@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import tomlkit
 from tomlkit import TOMLDocument
 from tomlkit.container import Container
+from tomlkit.exceptions import TOMLKitError
 from typing_extensions import Self
 
 from .util import console, path_with_tilde
@@ -255,16 +256,12 @@ class ChatConfig:
                 config_data = tomlkit.load(f).unwrap()
             config_data["_logdir"] = path
             return cls.from_dict(config_data)
-        except (OSError, tomlkit.exceptions.TOMLKitError) as e:
+        except (OSError, TOMLKitError) as e:
             logger.warning(f"Failed to load chat config from {chat_config_path}: {e}")
             return cls()
 
-    def save(self) -> None:
-        if not self._logdir:
-            raise ValueError("ChatConfig has no logdir set")
-        self._logdir.mkdir(parents=True, exist_ok=True)
-        chat_config_path = self._logdir / "config.toml"
-
+    def to_dict(self) -> dict:
+        """Convert ChatConfig to a dictionary. Returns a dict with non-'mcp' and non-'env' keys nested under a 'chat' key, and 'env' and 'mcp' as top-level keys."""
         # Convert to dict and remove None values
         config_dict = {
             k: v
@@ -285,28 +282,38 @@ class ChatConfig:
             "env": config_dict.pop("env", {}),
             "mcp": config_dict.pop("mcp", {}),
         }
+        return config_dict
+
+    def save(self) -> None:
+        if not self._logdir:
+            raise ValueError("ChatConfig has no logdir set")
+        self._logdir.mkdir(parents=True, exist_ok=True)
+        chat_config_path = self._logdir / "config.toml"
+
+        config_dict = self.to_dict()
 
         # TODO: load and update this properly as TOMLDocument to preserve formatting
         with open(chat_config_path, "w") as f:
             tomlkit.dump(config_dict, f)
 
     @classmethod
-    def load_or_create(cls, logdir: Path, cli_config: Self) -> Self:
+    def load_or_create(cls, logdir: Path, cli_config: Self | None = None) -> Self:
         """Load or create a chat config, applying CLI overrides."""
         # Load existing config if it exists
         config = cls.from_logdir(logdir)
         defaults = cls()
 
         # Apply CLI overrides (only if they differ from defaults)
-        for field_name in cli_config.__dataclass_fields__:
-            if field_name.startswith("_"):
-                continue
-            cli_value = getattr(cli_config, field_name)
-            default_value = getattr(defaults, field_name)
-            # TODO: note that this isn't a great check: CLI values equal to defaults won't override existing config values
-            if cli_value != default_value:
-                # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
-                config = replace(config, **{field_name: cli_value})
+        if cli_config:
+            for field_name in cli_config.__dataclass_fields__:
+                if field_name.startswith("_"):
+                    continue
+                cli_value = getattr(cli_config, field_name)
+                default_value = getattr(defaults, field_name)
+                # TODO: note that this isn't a great check: CLI values equal to defaults won't override existing config values
+                if cli_value != default_value:
+                    # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
+                    config = replace(config, **{field_name: cli_value})
 
         # Save the config
         config.save()
