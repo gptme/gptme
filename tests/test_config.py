@@ -1,4 +1,5 @@
-from dataclasses import asdict, replace
+from dataclasses import replace
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -239,7 +240,7 @@ def test_mcp_config_loaded_from_json():
             }
         ]
     }"""
-    config = MCPConfig.from_json(config_json)
+    config = MCPConfig.from_dict(json.loads(config_json))
 
     assert config.enabled is True
     assert config.auto_start is True
@@ -300,7 +301,7 @@ def test_chat_config_loaded_from_json():
             ]
         }
     }"""
-    config = ChatConfig.from_json(config_json)
+    config = ChatConfig.from_dict(json.loads(config_json))
 
     assert config.model == "gpt-4o"
     assert config.tools == ["tool1", "tool2"]

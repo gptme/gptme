@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from dataclasses import (
@@ -58,11 +57,6 @@ class MCPConfig:
             auto_start=auto_start,
             servers=servers,
         )
-
-    @classmethod
-    def from_json(cls, config_json: str) -> Self:
-        config_dict = json.loads(config_json)
-        return cls.from_dict(config_dict)
 
 
 @dataclass
@@ -352,11 +346,6 @@ class ChatConfig:
         config.save()
 
         return config
-
-    @classmethod
-    def from_json(cls, config_json: str) -> Self:
-        config_dict = json.loads(config_json)
-        return cls.from_dict(config_dict)
 
 
 @dataclass(frozen=True)

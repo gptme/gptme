@@ -481,7 +481,7 @@ def api_conversation_put(conversation_id: str):
     # Load config from request if provided
     config = None
     if req_json and "config" in req_json:
-        config = ChatConfig.from_json(req_json["config"])
+        config = ChatConfig.from_dict(req_json["config"])
     else:
         config = ChatConfig()
 
@@ -815,7 +815,7 @@ def api_conversation_config_put(conversation_id: str):
     if not req_json:
         return flask.jsonify({"error": "No JSON data provided"}), 400
 
-    config = ChatConfig.from_json(req_json)
+    config = ChatConfig.from_dict(req_json)
     logdir = get_logs_dir() / conversation_id
     chat_config_path = logdir / "chat.toml"
     chat_config_path.write_text(tomlkit.dumps(config.to_dict()))
