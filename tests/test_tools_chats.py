@@ -1,7 +1,9 @@
+from gptme.tools import init_tools
 from gptme.tools.chats import list_chats, search_chats
 
 
 def test_chats(capsys):
+    init_tools([])
     list_chats()
     captured = capsys.readouterr()
     if "No conversations found" in captured.out:
