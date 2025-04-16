@@ -1,9 +1,11 @@
+from dataclasses import asdict, replace
 import os
 import tempfile
-from dataclasses import replace
 from pathlib import Path
 
-from gptme.config import Config, get_config, load_user_config
+from gptme.config import Config, get_config, load_user_config, ChatConfig, MCPConfig
+
+import tomlkit
 
 default_user_config = """[prompt]
 about_user = "I am a curious human programmer."
@@ -49,6 +51,29 @@ enabled = true
 command = "server-command-3"
 args = ["--arg3", "--arg4"]
 env = { API_KEY = "your-key-3" }
+"""
+
+chat_config_toml = """
+    [chat]
+    model = "gpt-4o"
+    tools = ["tool1", "tool2"]
+    tool_format = "markdown"
+    stream = true
+    interactive = true
+
+    [env]
+    API_KEY = "your-key"
+
+    [mcp]
+    enabled = true
+    auto_start = true
+
+    [[mcp.servers]]
+    name = "my-server"
+    enabled = true
+    command = "server-command"
+    args = ["--arg1", "--arg2"]
+    env = { API_KEY = "your-key" }
 """
 
 
@@ -169,3 +194,169 @@ def test_mcp_config_loaded_in_correct_priority():
             os.remove(temp_user_config)
         if os.path.exists(temp_project_config):
             os.remove(temp_project_config)
+
+
+def test_mcp_config_loaded_from_toml():
+    config_toml = """[mcp]
+        enabled = true
+        auto_start = true
+
+        [[mcp.servers]]
+        name = "my-server"
+        enabled = true
+        command = "server-command"
+        args = ["--arg1", "--arg2"]
+        env = { API_KEY = "your-key" }
+    """
+    config_dict = tomlkit.loads(config_toml)
+    mcp = config_dict.pop("mcp", {})
+    config = MCPConfig.from_dict(mcp)
+
+    assert config.enabled is True
+    assert config.auto_start is True
+    assert len(config.servers) == 1
+    my_server = next(s for s in config.servers if s.name == "my-server")
+    assert my_server.name == "my-server"
+    assert my_server.enabled is True
+    assert my_server.command == "server-command"
+    assert my_server.args == ["--arg1", "--arg2"]
+    assert my_server.env == {"API_KEY": "your-key"}
+
+
+def test_mcp_config_loaded_from_json():
+    config_json = """{
+        "enabled": true,
+        "auto_start": true,
+        "servers": [
+            {
+                "name": "my-server",
+                "enabled": true,
+                "command": "server-command",
+                "args": ["--arg1", "--arg2"],
+                "env": {
+                    "API_KEY": "your-key"
+                }
+            }
+        ]
+    }"""
+    config = MCPConfig.from_json(config_json)
+
+    assert config.enabled is True
+    assert config.auto_start is True
+    assert len(config.servers) == 1
+    my_server = next(s for s in config.servers if s.name == "my-server")
+    assert my_server.name == "my-server"
+    assert my_server.enabled is True
+
+
+def test_chat_config_loaded_from_toml():
+    toml_doc = tomlkit.loads(chat_config_toml)
+    config = ChatConfig.from_dict(toml_doc)
+
+    assert config.model == "gpt-4o"
+    assert config.tools == ["tool1", "tool2"]
+    assert config.tool_format == "markdown"
+    assert config.stream is True
+    assert config.interactive is True
+    assert config.env == {"API_KEY": "your-key"}
+    assert config.mcp.enabled is True
+    assert config.mcp.auto_start is True
+    assert len(config.mcp.servers) == 1
+    my_server = next(s for s in config.mcp.servers if s.name == "my-server")
+    assert my_server.name == "my-server"
+    assert my_server.enabled is True
+    assert my_server.command == "server-command"
+    assert my_server.args == ["--arg1", "--arg2"]
+    assert my_server.env == {"API_KEY": "your-key"}
+
+    return config
+
+
+def test_chat_config_loaded_from_json():
+    config_json = """{
+        "chat": {
+            "model": "gpt-4o",
+            "tools": ["tool1", "tool2"],
+            "tool_format": "markdown",
+            "stream": true,
+            "interactive": true
+        },
+        "env": {
+            "API_KEY": "your-key"
+        },
+        "mcp": {
+            "enabled": true,
+            "auto_start": true,
+            "servers": [
+                {
+                    "name": "my-server",
+                    "enabled": true,
+                    "command": "server-command",
+                    "args": ["--arg1", "--arg2"],
+                    "env": {
+                        "API_KEY": "your-key"
+                    }
+                }
+            ]
+        }
+    }"""
+    config = ChatConfig.from_json(config_json)
+
+    assert config.model == "gpt-4o"
+    assert config.tools == ["tool1", "tool2"]
+    assert config.tool_format == "markdown"
+    assert config.stream is True
+    assert config.interactive is True
+    assert config.env == {"API_KEY": "your-key"}
+    assert config.mcp.enabled is True
+    assert config.mcp.auto_start is True
+    assert len(config.mcp.servers) == 1
+    my_server = next(s for s in config.mcp.servers if s.name == "my-server")
+    assert my_server.name == "my-server"
+    assert my_server.enabled is True
+    assert my_server.command == "server-command"
+    assert my_server.args == ["--arg1", "--arg2"]
+    assert my_server.env == {"API_KEY": "your-key"}
+
+    return config
+
+
+def test_chat_config_to_dict():
+    config = test_chat_config_loaded_from_json()
+    config_dict = asdict(config)
+    assert config_dict["model"] == "gpt-4o"
+    assert config_dict["tools"] == ["tool1", "tool2"]
+    assert config_dict["tool_format"] == "markdown"
+    assert config_dict["stream"] is True
+    assert config_dict["interactive"] is True
+    assert config_dict["env"] == {"API_KEY": "your-key"}
+    assert config_dict["mcp"] == {
+        "enabled": True,
+        "auto_start": True,
+        "servers": [
+            {
+                "name": "my-server",
+                "enabled": True,
+                "command": "server-command",
+                "args": ["--arg1", "--arg2"],
+                "env": {"API_KEY": "your-key"},
+            }
+        ],
+    }
+
+
+def test_chat_config_to_toml():
+    config = test_chat_config_loaded_from_toml()
+    # config_dict = config.to_dict()
+    config_dict = asdict(config)
+    toml_str = tomlkit.dumps(config_dict)
+    config_new = ChatConfig.from_dict(tomlkit.loads(toml_str))
+    assert config_new == config
+
+
+def test_default_chat_config_to_toml():
+    config = ChatConfig()
+    # toml_str = tomlkit.dumps(config.to_dict())
+    toml_str = tomlkit.dumps(asdict(config))
+    config_new = ChatConfig.from_dict(tomlkit.loads(toml_str))
+    assert config_new == config

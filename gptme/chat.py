@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import cast
 
 from .commands import execute_cmd
-from .config import get_config
+from .config import ChatConfig, get_config
 from .constants import INTERRUPT_CONTENT, PROMPT_USER
 from .init import init
 from .llm import reply
@@ -45,14 +45,10 @@ def chat(
     prompt_msgs: list[Message],
     initial_msgs: list[Message],
     logdir: Path,
-    model: str | None,
-    stream: bool = True,
+    chat_config: ChatConfig,
     no_confirm: bool = False,
-    interactive: bool = True,
     show_hidden: bool = False,
     workspace: Path | None = None,
-    tool_allowlist: list[str] | None = None,
-    tool_format: ToolFormat | None = None,
 ) -> None:
     """
     Run the chat loop.
@@ -68,12 +64,12 @@ def chat(
     set_current_conv_name(conv_name)
 
     # init
-    init(model, interactive, tool_allowlist)
+    init(chat_config.model, chat_config.interactive, chat_config.tools)
 
     default_model = get_default_model()
     assert default_model is not None, "No model loaded and no model specified"
-    modelmeta = get_model(model or default_model.full)
-    if not modelmeta.supports_streaming and stream:
+    modelmeta = get_model(chat_config.model or default_model.full)
+    if not modelmeta.supports_streaming and chat_config.stream:
         logger.info(
             "Disabled streaming for '%s/%s' model (not supported)",
             modelmeta.provider,
@@ -85,7 +81,7 @@ def chat(
     manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
 
     config = get_config()
-    tool_format_with_default: ToolFormat = tool_format or cast(
+    tool_format_with_default: ToolFormat = chat_config.tool_format or cast(
         ToolFormat, config.get_env("TOOL_FORMAT", "markdown")
     )
 
@@ -141,7 +137,7 @@ def chat(
                                 confirm_func,
                                 tool_format=tool_format_with_default,
                                 workspace=workspace,
-                                model=model,
+                                model=chat_config.model,
                             )
                         )
                     except KeyboardInterrupt:
@@ -183,7 +179,7 @@ def chat(
         #  - non-interactive
         #  - no executable block in last assistant message
         # then exit
-        elif not interactive:
+        elif not chat_config.interactive:
             logger.debug("Non-interactive and exhausted prompts")
             if has_tool("tts") and os.environ.get("GPTME_VOICE_FINISH", "").lower() in [
                 "1",

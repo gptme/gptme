@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from gptme.config import ChatConfig
+
 from ..message import Message
 from . import get_tools
 from .base import ToolSpec, ToolUse
@@ -99,14 +101,18 @@ def subagent(agent_id: str, prompt: str):
 ```"""
         prompt_msgs.append(Message("user", return_prompt))
 
+        chat_config = ChatConfig(
+            model=None,
+            stream=False,
+            interactive=False,
+        )
+
         chat(
             prompt_msgs,
             initial_msgs,
             logdir=logdir,
-            model=None,
-            stream=False,
+            chat_config=chat_config,
             no_confirm=True,
-            interactive=False,
             show_hidden=False,
         )
 

@@ -23,6 +23,9 @@ from typing import Literal, TypedDict
 
 import flask
 from flask import request
+import tomlkit
+
+from gptme.config import ChatConfig
 
 from ..dirs import get_logs_dir
 from ..llm import _chat_complete, _stream
@@ -186,6 +189,7 @@ class ConversationSession:
     auto_confirm_count: int = 0
     clients: set[str] = field(default_factory=set)
     event_flag: threading.Event = field(default_factory=threading.Event)
+    chat_config: ChatConfig = field(default_factory=ChatConfig)
 
 
 class SessionManager:
@@ -195,10 +199,14 @@ class SessionManager:
     _conversation_sessions: dict[str, set[str]] = defaultdict(set)
 
     @classmethod
-    def create_session(cls, conversation_id: str) -> ConversationSession:
+    def create_session(
+        cls, conversation_id: str, config: ChatConfig
+    ) -> ConversationSession:
         """Create a new session for a conversation."""
         session_id = str(uuid.uuid4())
-        session = ConversationSession(id=session_id, conversation_id=conversation_id)
+        session = ConversationSession(
+            id=session_id, conversation_id=conversation_id, chat_config=config
+        )
         cls._sessions[session_id] = session
         cls._conversation_sessions[conversation_id].add(session_id)
         return session
@@ -470,6 +478,13 @@ def api_conversation_put(conversation_id: str):
             timestamp: datetime = datetime.fromisoformat(msg["timestamp"])
             msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
 
+    # Load config from request if provided
+    config = None
+    if req_json and "config" in req_json:
+        config = ChatConfig.from_json(req_json["config"])
+    else:
+        config = ChatConfig()
+
     logdir = get_logs_dir() / conversation_id
     if logdir.exists():
         return (
@@ -481,8 +496,12 @@ def api_conversation_put(conversation_id: str):
     log = LogManager(msgs, logdir=logdir)
     log.write()
 
+    # save chat config
+    chat_config_path = logdir / "chat.toml"
+    chat_config_path.write_text(tomlkit.dumps(config.to_dict()))
+
     # Create a session for this conversation
-    session = SessionManager.create_session(conversation_id)
+    session = SessionManager.create_session(conversation_id, config)
 
     # Check for auto_confirm parameter and set auto_confirm_count
     if req_json and req_json.get("auto_confirm"):
@@ -542,8 +561,20 @@ def api_conversation_events(conversation_id: str):
     """Subscribe to conversation events."""
     session_id = request.args.get("session_id")
     if not session_id:
+        # load chat config
+        chat_config = None
+        logdir = get_logs_dir() / conversation_id
+        chat_config_path = logdir / "chat.toml"
+        if chat_config_path.exists():
+            with open(chat_config_path) as f:
+                config_doc = tomlkit.load(f)
+            chat_config = ChatConfig.from_dict(config_doc)
+
+        if chat_config is None:
+            chat_config = ChatConfig()
+
         # Create a new session if none provided
-        session = SessionManager.create_session(conversation_id)
+        session = SessionManager.create_session(conversation_id, chat_config)
         session_id = session.id
     else:
         session_obj = SessionManager.get_session(session_id)
@@ -760,6 +791,36 @@ def api_conversation_interrupt(conversation_id: str):
     SessionManager.add_event(conversation_id, {"type": "interrupted"})
 
     return flask.jsonify({"status": "ok", "message": "Interrupted"})
+
+
+@v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["GET"])
+def api_conversation_config(conversation_id: str):
+    """Get the chat config for a conversation."""
+    logdir = get_logs_dir() / conversation_id
+    chat_config_path = logdir / "chat.toml"
+    if chat_config_path.exists():
+        with open(chat_config_path) as f:
+            config_doc = tomlkit.load(f)
+        return flask.jsonify(ChatConfig.from_dict(config_doc))
+    else:
+        return flask.jsonify(
+            {"error": f"Chat config not found: {conversation_id}"}
+        ), 404
+
+
+@v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["PUT"])
+def api_conversation_config_put(conversation_id: str):
+    """Replace the chat config for a conversation."""
+    req_json = flask.request.json
+    if not req_json:
+        return flask.jsonify({"error": "No JSON data provided"}), 400
+
+    config = ChatConfig.from_json(req_json)
+    logdir = get_logs_dir() / conversation_id
+    chat_config_path = logdir / "chat.toml"
+    chat_config_path.write_text(tomlkit.dumps(config.to_dict()))
+
+    return flask.jsonify({"status": "ok", "message": "Chat config updated"})
 
 
 # Helper functions
