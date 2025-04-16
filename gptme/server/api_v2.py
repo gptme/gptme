@@ -479,11 +479,9 @@ def api_conversation_put(conversation_id: str):
             msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
 
     # Load config from request if provided
-    config = None
+    request_config = None
     if req_json and "config" in req_json:
-        config = ChatConfig.from_dict(req_json["config"])
-    else:
-        config = ChatConfig()
+        request_config = ChatConfig.from_dict(req_json["config"])
 
     logdir = get_logs_dir() / conversation_id
     if logdir.exists():
@@ -496,12 +494,11 @@ def api_conversation_put(conversation_id: str):
     log = LogManager(msgs, logdir=logdir)
     log.write()
 
-    # save chat config
-    chat_config_path = logdir / "chat.toml"
-    chat_config_path.write_text(tomlkit.dumps(config.to_dict()))
+    # Load or create the chat config, overriding values from request config if provided
+    chat_config = ChatConfig.load_or_create(logdir, request_config)
 
     # Create a session for this conversation
-    session = SessionManager.create_session(conversation_id, config)
+    session = SessionManager.create_session(conversation_id, chat_config)
 
     # Check for auto_confirm parameter and set auto_confirm_count
     if req_json and req_json.get("auto_confirm"):
@@ -800,8 +797,8 @@ def api_conversation_config(conversation_id: str):
     chat_config_path = logdir / "chat.toml"
     if chat_config_path.exists():
         with open(chat_config_path) as f:
-            config_doc = tomlkit.load(f)
-        return flask.jsonify(ChatConfig.from_dict(config_doc))
+            config_doc = tomlkit.load(f).unwrap()
+        return flask.jsonify(ChatConfig.from_dict(config_doc).to_dict())
     else:
         return flask.jsonify(
             {"error": f"Chat config not found: {conversation_id}"}
