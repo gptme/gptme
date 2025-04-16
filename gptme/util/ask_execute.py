@@ -249,9 +249,17 @@ def execute_with_confirmation(
         try:
             # Get confirmation
             if not confirm_fn(confirm_msg or f"Execute on {path}?"):
-                yield Message(
-                    "system", "Operation aborted: user chose not to run the operation."
+                # Obtaining reasons and recommendations for users' refusal to implement
+                session = get_prompt_session()
+                feedback = session.prompt(
+                    [
+                        (
+                            "bold fg:ansiyellow",
+                            "Why did you decline? What would you like me to do instead? ",
+                        )
+                    ]
                 )
+                yield Message("user", f"I declined to execute because: {feedback}")
                 return
 
             # Get potentially edited content
