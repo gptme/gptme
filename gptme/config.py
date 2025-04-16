@@ -289,7 +289,9 @@ class ChatConfig:
                 continue
             cli_value = getattr(cli_config, field_name)
             default_value = getattr(defaults, field_name)
+            # TODO: note that this isn't a great check: CLI values equal to defaults won't override existing config values
             if cli_value != default_value:
+                # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
                 setattr(config, field_name, cli_value)
 
         # Save the config
