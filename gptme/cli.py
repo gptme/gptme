@@ -2,14 +2,12 @@ import logging
 import os
 import signal
 import sys
-from dataclasses import asdict
 from datetime import datetime
 from itertools import islice
 from pathlib import Path
 from typing import Literal
 
 import click
-import tomlkit
 from pick import pick
 
 from . import __version__
@@ -267,27 +265,6 @@ def main(
         logdir = get_logdir(name)
         prompt_msgs = inject_stdin(prompt_msgs, piped_input)
 
-    # load or create chat config
-    chat_config = None
-    if logdir.exists():
-        chat_config_path = logdir / "chat.toml"
-        if chat_config_path.exists():
-            with open(chat_config_path) as f:
-                config_doc = tomlkit.load(f)
-            chat_config = ChatConfig.from_toml(config_doc)
-
-    if chat_config is None:
-        chat_config = ChatConfig(
-            model=model,
-            tools=tool_allowlist,
-            tool_format=selected_tool_format,
-            stream=stream,
-            interactive=interactive,
-        )
-
-    # save chat config
-    chat_config_path.write_text(tomlkit.dumps(asdict(chat_config)))
-
     if workspace == "@log":
         workspace_path: Path | None = logdir / "workspace"
         assert workspace_path  # mypy not smart enough to see its not None
@@ -295,23 +272,37 @@ def main(
     else:
         workspace_path = Path(workspace) if workspace else None
 
+    # Load or create chat config, applying CLI overrides
+    logdir.mkdir(parents=True, exist_ok=True)
+    chat_config = ChatConfig.load_or_create(
+        logdir=logdir,
+        cli_config=ChatConfig(
+            model=model,
+            tools=tool_allowlist,
+            tool_format=selected_tool_format,
+            stream=stream,
+            interactive=interactive,
+        ),
+    )
+
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready
     signal.signal(signal.SIGINT, handle_keyboard_interrupt)
 
     try:
+        # TODO: pass ChatConfig instead of individual args?
         chat(
             prompt_msgs,
             initial_msgs,
             logdir,
-            model,
-            stream,
+            chat_config.model,
+            chat_config.stream,
             no_confirm,
-            interactive,
+            chat_config.interactive,
             show_hidden,
             workspace_path,
-            tool_allowlist,
-            selected_tool_format,
+            chat_config.tools,
+            chat_config.tool_format,
         )
     except RuntimeError as e:
         if verbose:
