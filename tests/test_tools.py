@@ -71,14 +71,7 @@ def test_tool_loading_with_module():
 
 def test_tool_loading_with_missing_package():
     found = _discover_tools(["gptme.fake_"])
-
-    # We're only checking that no error was raised and that none
-    # of the returned tools come from the non-existent module
-    # The MCP tools might be included which is fine
-    for tool in found:
-        assert not tool.name.startswith(
-            "fake_"
-        ), f"Tool {tool.name} should not be from non-existent module"
+    assert not found
 
 
 def test_get_available_tools():

@@ -78,10 +78,6 @@ def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
             for _, obj in inspect.getmembers(module, lambda c: isinstance(c, ToolSpec)):
                 tools.append(obj)
 
-    # Add MCP tools
-    config = get_config()
-    tools.extend(create_mcp_tools(config))
-
     return tools
 
 
@@ -176,6 +172,7 @@ def get_available_tools() -> list[ToolSpec]:
             tool_modules = env_tool_modules.split(",")
 
         _available_tools = sorted(_discover_tools(tool_modules))
+        _available_tools.extend(create_mcp_tools(config))
 
     return _available_tools
 
