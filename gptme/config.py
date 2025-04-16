@@ -1,12 +1,12 @@
 import logging
 import os
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
-from functools import lru_cache
 
 import tomlkit
-from tomlkit import TOMLDocument, table
+from tomlkit import TOMLDocument
 from tomlkit.container import Container
 from typing_extensions import Self
 
@@ -72,7 +72,9 @@ class RagConfig:
 
 @dataclass
 class ProjectConfig:
-    """Project-level configuration, such as which files to include in the context by default."""
+    """Project-level configuration, such as which files to include in the context by default.
+
+    This is loaded from a gptme.toml file in the project directory or .github directory."""
 
     _workspace: Path | None = None
 
@@ -106,19 +108,18 @@ default_config = UserConfig(
 
 
 def load_user_config(path: str | None = None) -> UserConfig:
-    config = _load_config_doc(path)
+    config = _load_config_doc(path).unwrap()
     assert "prompt" in config, "prompt key missing in config"
     assert "env" in config, "env key missing in config"
 
-    prompt = UserPromptConfig(**config.pop("prompt", table()).unwrap())
-    env = config.pop("env")
-    mcp = config.pop("mcp", table()).unwrap()
+    prompt = UserPromptConfig(**config.pop("prompt", {}))
+    env = config.pop("env", {})
+    mcp = MCPConfig.from_dict(config.pop("mcp", {}))
 
     if config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
 
-    mcp_config = MCPConfig.from_dict(mcp)
-    return UserConfig(prompt=prompt, env=env, mcp=mcp_config)
+    return UserConfig(prompt=prompt, env=env, mcp=mcp)
 
 
 def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
@@ -155,8 +156,7 @@ def set_config_value(key: str, value: str) -> None:  # pragma: no cover
         tomlkit.dump(doc, config_file)
 
     # Reload config
-    global _config
-    _config = get_config()
+    reload_config()
 
 
 @lru_cache(maxsize=1)
@@ -180,6 +180,8 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
         with open(project_config_path) as f:
             config_data = tomlkit.load(f).unwrap()
 
+        prompt = config_data.pop("prompt", "")
+        files = config_data.pop("files", [])
         rag = RagConfig(**config_data.pop("rag", {}))
         mcp = MCPConfig.from_dict(config_data.pop("mcp", {}))
 
@@ -187,7 +189,14 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
         if config_data:
             logger.warning(f"Unknown keys in project config: {config_data.keys()}")
 
-        return ProjectConfig(_workspace=workspace, **config_data, rag=rag, mcp=mcp)
+        return ProjectConfig(
+            _workspace=workspace,
+            prompt=prompt,
+            files=files,
+            rag=rag,
+            mcp=mcp,
+            **config_data,
+        )
     return None
 
 
@@ -296,6 +305,8 @@ class Config:
 
     @classmethod
     def from_workspace(cls, workspace: Path):
+        get_project_config.cache_clear()
+
         config = cls()
         config.project = get_project_config(workspace)
         config.user = load_user_config()
@@ -362,6 +373,14 @@ def get_config() -> Config:
 def set_config(workspace: Path):
     global _config
     _config = Config.from_workspace(workspace=workspace)
+
+
+def reload_config():
+    global _config
+    if workspace := (_config and _config.project and _config.project._workspace):
+        set_config(workspace)
+    else:
+        _config = Config()
 
 
 if __name__ == "__main__":
