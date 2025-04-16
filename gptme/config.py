@@ -266,12 +266,8 @@ class ChatConfig:
             logger.warning(f"Failed to load chat config from {chat_config_path}: {e}")
             return cls()
 
-    def save(self) -> None:
-        if not self._logdir:
-            raise ValueError("ChatConfig has no logdir set")
-        self._logdir.mkdir(parents=True, exist_ok=True)
-        chat_config_path = self._logdir / "config.toml"
-
+    def to_dict(self) -> dict:
+        """Convert ChatConfig to a dictionary."""
         # Convert to dict and remove None values
         config_dict = {
             k: v
@@ -292,6 +288,15 @@ class ChatConfig:
             "env": config_dict.pop("env", {}),
             "mcp": config_dict.pop("mcp", {}),
         }
+        return config_dict
+
+    def save(self) -> None:
+        if not self._logdir:
+            raise ValueError("ChatConfig has no logdir set")
+        self._logdir.mkdir(parents=True, exist_ok=True)
+        chat_config_path = self._logdir / "config.toml"
+
+        config_dict = self.to_dict()
 
         # TODO: load and update this properly as TOMLDocument to preserve formatting
         with open(chat_config_path, "w") as f:
@@ -324,33 +329,6 @@ class ChatConfig:
     def from_json(cls, config_json: str) -> Self:
         config_dict = json.loads(config_json)
         return cls.from_dict(config_dict)
-
-    def to_dict(self) -> dict:
-        """Convert ChatConfig to a clean dictionary without tomlkit objects."""
-        data = {
-            "model": self.model,
-            "tools": self.tools,
-            "tool_format": self.tool_format,
-            "stream": self.stream,
-            "interactive": self.interactive,
-            "env": dict(self.env),
-            "mcp": {
-                "enabled": self.mcp.enabled,
-                "auto_start": self.mcp.auto_start,
-                "servers": [
-                    {
-                        "name": server.name,
-                        "enabled": server.enabled,
-                        "command": server.command,
-                        "args": list(server.args),
-                        "env": dict(server.env),
-                    }
-                    for server in self.mcp.servers
-                ],
-            },
-        }
-        # Filter out None values before returning
-        return {k: v for k, v in data.items() if v is not None}
 
 
 @dataclass

@@ -1,4 +1,3 @@
-from dataclasses import asdict
 import os
 from pathlib import Path
 import tempfile
@@ -250,7 +249,7 @@ def test_mcp_config_loaded_from_json():
 
 def test_chat_config_loaded_from_toml():
     toml_doc = tomlkit.loads(chat_config_toml)
-    config = ChatConfig.from_dict(toml_doc)
+    config = ChatConfig.from_dict(toml_doc.unwrap())
 
     assert config.model == "gpt-4o"
     assert config.tools == ["tool1", "tool2"]
@@ -322,12 +321,12 @@ def test_chat_config_loaded_from_json():
 
 def test_chat_config_to_dict():
     config = test_chat_config_loaded_from_json()
-    config_dict = asdict(config)
-    assert config_dict["model"] == "gpt-4o"
-    assert config_dict["tools"] == ["tool1", "tool2"]
-    assert config_dict["tool_format"] == "markdown"
-    assert config_dict["stream"] is True
-    assert config_dict["interactive"] is True
+    config_dict = config.to_dict()
+    assert config_dict["chat"]["model"] == "gpt-4o"
+    assert config_dict["chat"]["tools"] == ["tool1", "tool2"]
+    assert config_dict["chat"]["tool_format"] == "markdown"
+    assert config_dict["chat"]["stream"] is True
+    assert config_dict["chat"]["interactive"] is True
     assert config_dict["env"] == {"API_KEY": "your-key"}
     assert config_dict["mcp"] == {
         "enabled": True,
@@ -346,8 +345,7 @@ def test_chat_config_to_dict():
 
 def test_chat_config_to_toml():
     config = test_chat_config_loaded_from_toml()
-    # config_dict = config.to_dict()
-    config_dict = asdict(config)
+    config_dict = config.to_dict()
     toml_str = tomlkit.dumps(config_dict)
     config_new = ChatConfig.from_dict(tomlkit.loads(toml_str))
     assert config_new == config
@@ -355,7 +353,6 @@ def test_chat_config_to_toml():
 
 def test_default_chat_config_to_toml():
     config = ChatConfig()
-    # toml_str = tomlkit.dumps(config.to_dict())
-    toml_str = tomlkit.dumps(asdict(config))
+    toml_str = tomlkit.dumps(config.to_dict())
     config_new = ChatConfig.from_dict(tomlkit.loads(toml_str))
     assert config_new == config
