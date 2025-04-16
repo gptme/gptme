@@ -3,8 +3,8 @@ Configuration
 
 gptme has two configuration files:
 
-- global configuration
-- project configuration
+- :ref:`global configuration <global-config>`
+- :ref:`project configuration <project-config>`
 
 It also supports environment variables for configuration, which take precedence over the configuration files.
 
@@ -77,6 +77,7 @@ Besides the configuration files, gptme supports several environment variables to
 
 All boolean flags accept "1", "true" (case-insensitive) as truthy values.
 
+.. _project-config:
 
 Project config
 --------------

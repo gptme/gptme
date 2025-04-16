@@ -178,6 +178,9 @@ class ToolSpec:
     load_priority: int = 0
     disabled_by_default: bool = False
 
+    def __repr__(self):
+        return f"ToolSpec({self.name})"
+
     def get_doc(self, doc: str | None = None) -> str:
         """Returns an updated docstring with examples."""
         if not doc:

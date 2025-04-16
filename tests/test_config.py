@@ -1,7 +1,9 @@
 import os
-from pathlib import Path
 import tempfile
-from gptme.config import get_config, Config, load_user_config
+from dataclasses import replace
+from pathlib import Path
+
+from gptme.config import Config, get_config, load_user_config
 
 default_user_config = """[prompt]
 about_user = "I am a curious human programmer."
@@ -77,7 +79,7 @@ def test_env_vars_loaded_in_correct_priority(monkeypatch):
             temp_file.write(project_config)
             temp_file.flush()
         config = Config.from_workspace(Path(temp_dir))
-        config.user = load_user_config(temp_user_config)
+        config = replace(config, user=load_user_config(temp_user_config))
         assert config.get_env("TEST_KEY") == "project_test_key"
         assert config.get_env("ANOTHER_KEY") == "project_value"
 
@@ -133,7 +135,7 @@ def test_mcp_config_loaded_in_correct_priority():
             temp_file.write("\n" + test_mcp_server_3)
             temp_file.flush()
         config = Config.from_workspace(Path(temp_dir))
-        config.user = load_user_config(temp_user_config)
+        config = replace(config, user=load_user_config(temp_user_config))
 
         # Check that the MCP config is overridden by the project config
         assert config.mcp.enabled is False

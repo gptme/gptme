@@ -39,6 +39,15 @@ Holds the current conversation as a list of messages, saves and loads the conver
    :members:
 
 
+Config
+~~~~~~
+
+Configuration for ``gptme`` on user level (:ref:`global-config`), project level (:ref:`project-config`), and chat level.
+
+.. automodule:: gptme.config
+   :members:
+
+
 prompts
 -------
 

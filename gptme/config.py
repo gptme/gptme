@@ -4,6 +4,7 @@ from dataclasses import (
     asdict,
     dataclass,
     field,
+    fields,
     replace,
 )
 from functools import lru_cache
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MCPServerConfig:
+    """Configuration for a MCP server."""
+
     name: str
     enabled: bool = True
     command: str = ""
@@ -34,37 +37,50 @@ class MCPServerConfig:
 
 @dataclass
 class MCPConfig:
+    """Configuration for :ref:`Model Context Protocol <MCP>` support, including which MCP servers to use."""
+
     enabled: bool = False
     auto_start: bool = False
     servers: list[MCPServerConfig] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, doc: dict) -> Self:
-        servers = [MCPServerConfig(**server) for server in doc.get("servers", [])]
+        """Create a MCPConfig instance from a dictionary. Warns about unknown keys."""
+        enabled = doc.pop("enabled", False)
+        auto_start = doc.pop("auto_start", False)
+        servers = [MCPServerConfig(**server) for server in doc.pop("servers", [])]
+        if doc:
+            logger.warning(f"Unknown keys in MCP config: {doc.keys()}")
         return cls(
-            enabled=doc.get("enabled", False),
-            auto_start=doc.get("auto_start", False),
+            enabled=enabled,
+            auto_start=auto_start,
             servers=servers,
         )
 
 
 @dataclass
 class UserPromptConfig:
+    """User-level configuration for user-specific prompts and project descriptions."""
+
     about_user: str | None = None
     response_preference: str | None = None
-    project: dict = field(default_factory=dict)
+    project: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class UserConfig:
+    """User-level configuration, such as user-specific prompts and environment variables."""
+
     prompt: UserPromptConfig = field(default_factory=UserPromptConfig)
 
-    env: dict = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig = field(default_factory=MCPConfig)
 
 
 @dataclass
 class RagConfig:
+    """Configuration for :ref:`retrieval-augmented generation <RAG>` support."""
+
     enabled: bool = False
     max_tokens: int | None = None
     min_relevance: float | None = None
@@ -79,7 +95,8 @@ class RagConfig:
 class ProjectConfig:
     """Project-level configuration, such as which files to include in the context by default.
 
-    This is loaded from a gptme.toml file in the project directory or .github directory."""
+    This is loaded from a gptme.toml :ref:`project config` file in the project directory or .github directory.
+    """
 
     _workspace: Path | None = None
 
@@ -88,7 +105,7 @@ class ProjectConfig:
     files: list[str] = field(default_factory=list)
     rag: RagConfig = field(default_factory=RagConfig)
 
-    env: dict = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
 
 
@@ -96,6 +113,7 @@ ABOUT_ACTIVITYWATCH = """ActivityWatch is a free and open-source automated time-
 ABOUT_GPTME = "gptme is a CLI to interact with large language models in a Chat-style interface, enabling the assistant to execute commands and code on the local machine, letting them assist in all kinds of development and terminal-based work."
 
 
+# TODO: include this in docs
 default_config = UserConfig(
     prompt=UserPromptConfig(
         about_user="I am a curious human programmer.",
@@ -113,6 +131,7 @@ default_config = UserConfig(
 
 
 def load_user_config(path: str | None = None) -> UserConfig:
+    """Load the user configuration from the config file."""
     config = _load_config_doc(path).unwrap()
     assert "prompt" in config, "prompt key missing in config"
     assert "env" in config, "env key missing in config"
@@ -147,6 +166,7 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
 
 
 def set_config_value(key: str, value: str) -> None:  # pragma: no cover
+    """Set a value in the user config file."""
     doc: TOMLDocument | Container = _load_config_doc()
 
     # Set the value
@@ -166,6 +186,11 @@ def set_config_value(key: str, value: str) -> None:  # pragma: no cover
 
 @lru_cache(maxsize=1)
 def get_project_config(workspace: Path | None) -> ProjectConfig | None:
+    """
+    Get a cached copy of or load the project configuration from a gptme.toml file in the workspace or .github directory.
+
+    Run :func:`reload_config` or :func:`Config.from_workspace` to reset cache and reload the project config.
+    """
     if workspace is None:
         return None
     project_config_paths = [
@@ -225,6 +250,7 @@ class ChatConfig:
 
     @classmethod
     def from_dict(cls, config_data: dict) -> Self:
+        """Create a ChatConfig instance from a dictionary. Warns about unknown keys."""
         _logdir = config_data.pop("_logdir", None)
 
         # Extract chat settings
@@ -260,6 +286,7 @@ class ChatConfig:
             return cls()
 
     def save(self) -> None:
+        """Save the chat config to the log directory."""
         if not self._logdir:
             raise ValueError("ChatConfig has no logdir set")
         self._logdir.mkdir(parents=True, exist_ok=True)
@@ -298,15 +325,15 @@ class ChatConfig:
         defaults = cls()
 
         # Apply CLI overrides (only if they differ from defaults)
-        for field_name in cli_config.__dataclass_fields__:
-            if field_name.startswith("_"):
+        for _field in fields(cli_config):
+            if _field.name.startswith("_"):
                 continue
-            cli_value = getattr(cli_config, field_name)
-            default_value = getattr(defaults, field_name)
+            cli_value = getattr(cli_config, _field.name)
+            default_value = getattr(defaults, _field.name)
             # TODO: note that this isn't a great check: CLI values equal to defaults won't override existing config values
             if cli_value != default_value:
                 # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
-                config = replace(config, **{field_name: cli_value})
+                config = replace(config, **{_field.name: cli_value})
 
         # Save the config
         config.save()
@@ -314,23 +341,30 @@ class ChatConfig:
         return config
 
 
-@dataclass
+@dataclass(frozen=True)
 class Config:
+    """
+    A complete configuration object, including user and project configurations.
+
+    It is meant to be used to resolve configuration values, not to be passed around everywhere.
+    Care must be taken to avoid this becoming a "god object" passed around loosely, or frequently used as a global.
+    """
+
     user: UserConfig = field(default_factory=load_user_config)
     project: ProjectConfig | None = None
 
     @classmethod
-    def from_workspace(cls, workspace: Path):
+    def from_workspace(cls, workspace: Path) -> Self:
+        """Load the configuration from a workspace directory. Clearing any cache."""
         get_project_config.cache_clear()
-
-        config = cls()
-        config.project = get_project_config(workspace)
-        config.user = load_user_config()
-
-        return config
+        return cls(
+            user=load_user_config(),
+            project=get_project_config(workspace),
+        )
 
     @property
     def mcp(self) -> MCPConfig:
+        """Get the MCP configuration, merging user and project configurations."""
         mcp = self.user.mcp
 
         # Override MCP config from project config if present, merging mcp servers
@@ -380,6 +414,7 @@ _config: Config | None = None
 
 
 def get_config() -> Config:
+    """Get the current configuration."""
     global _config
     if _config is None:
         return Config()
@@ -387,16 +422,20 @@ def get_config() -> Config:
 
 
 def set_config(workspace: Path):
+    """Set the configuration to use a specific workspace, possibly having a project config."""
     global _config
     _config = Config.from_workspace(workspace=workspace)
 
 
-def reload_config():
+def reload_config() -> Config:
+    """Reload the configuration files."""
     global _config
     if workspace := (_config and _config.project and _config.project._workspace):
-        set_config(workspace)
+        _config = Config.from_workspace(workspace=workspace)
     else:
         _config = Config()
+    assert _config
+    return _config
 
 
 if __name__ == "__main__":

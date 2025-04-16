@@ -200,6 +200,8 @@ def prompt_user() -> Generator[Message, None, None]:
 def prompt_project() -> Generator[Message, None, None]:
     """
     Generate the project-specific prompt based on the current Git repository.
+
+    Project-specific prompt can be set in the :ref:`global config`, or :ref:`project config` file is present.
     """
     projectdir = get_project_git_dir()
     if not projectdir:

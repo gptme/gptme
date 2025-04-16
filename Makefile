@@ -94,6 +94,9 @@ docs: docs/conf.py docs/*.rst docs/.clean check-rst
 	fi
 	poetry run make -C docs html SPHINXOPTS="-W --keep-going"
 
+docs-auto:
+	make -C docs livehtml
+
 .PHONY: site
 site: site/dist/index.html site/dist/docs
 	echo "gptme.org" > site/dist/CNAME
