@@ -22,17 +22,17 @@ The simplest way to extend gptme is by writing standalone scripts. These can be:
 - Easily tested and maintained
 
 Benefits of script-based tools:
- - Simple to create and maintain
- - Can be run and tested independently
- - No gptme dependency
- - Flexible language choice
- - Isolated dependencies
+- Simple to create and maintain
+- Can be run and tested independently
+- No gptme dependency
+- Flexible language choice
+- Isolated dependencies
 
 Limitations:
- - Requires shell tool access
- - Can't attach files/images to messages
- - Not listed in tools section
- - No built-in argument validation
+- Requires shell tool access
+- Can't attach files/images to messages
+- Not listed in tools section
+- No built-in argument validation
 
 For script-based tools, no registration is needed. Simply include them in the gptme context to make the agent aware of them.
 
@@ -46,11 +46,11 @@ Creating a Custom Tool
 When you need deeper integration with gptme, you can create a custom tool by defining a new instance of the ``ToolSpec`` class.
 
 Custom tools are necessary when you need to:
- - Attach files/images to messages
- - Get included in the tools section
- - Use without shell tool access
- - Validate arguments
- - Handle complex interactions
+- Attach files/images to messages
+- Get included in the tools section
+- Use without shell tool access
+- Validate arguments
+- Handle complex interactions
 
 The ``ToolSpec`` class requires these parameters:
 
@@ -67,16 +67,14 @@ Examples
 
 For examples of script-based tools, see:
 
-**gptme-contrib**
-    A collection of community-contributed tools and scripts:
+**gptme-contrib** - A collection of community-contributed tools and scripts:
 
-    - `Twitter CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/twitter.py>`_: Twitter client with OAuth support
-    - `Perplexity CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/perplexity.py>`_: Perplexity search tool
+- `Twitter CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/twitter.py>`_: Twitter client with OAuth support
+- `Perplexity CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/perplexity.py>`_: Perplexity search tool
 
-**Standalone Tools**
-    Independent tool repositories:
+**Standalone Tools** - Independent tool repositories:
 
-    - `gptme-rag <https://github.com/gptme/gptme-rag/>`_: Document indexing and retrieval
+- `gptme-rag <https://github.com/gptme/gptme-rag/>`_: Document indexing and retrieval
 
 For examples of custom tools, see:
 
@@ -117,16 +115,18 @@ Here's a minimal example of a custom tool:
 Choosing an Approach
 --------------------
 Use **script-based tools** when you need:
- - Standalone functionality
- - Independent testing/development
- - Language/framework flexibility
- - Isolated dependencies
+
+- Standalone functionality
+- Independent testing/development
+- Language/framework flexibility
+- Isolated dependencies
 
 Use **custom tools** when you need:
- - File/image attachments
- - Tool listing in system prompt
- - Complex argument validation
- - Operation without shell access
+
+- File/image attachments
+- Tool listing in system prompt
+- Complex argument validation
+- Operation without shell access
 
 Registering the Tool
 --------------------
@@ -135,6 +135,7 @@ setting in your :doc:`project configuration file <config>`, which will automatic
 
 .. code-block:: toml
 
+    [env]
     TOOL_MODULES = "gptme.tools,yourpackage.your_custom_tool_module"
 
 Don't remove the ``gptme.tools`` package unless you know exactly what you are doing.

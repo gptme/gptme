@@ -1741,7 +1741,7 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 
 </section>
 <section id="rag">
-<span id="rag-tool"></span><h2>RAG<a class="headerlink" href="#rag" title="Link to this heading">#</a></h2>
+<span id="id1"></span><h2>RAG<a class="headerlink" href="#rag" title="Link to this heading">#</a></h2>
 <p>RAG (Retrieval-Augmented Generation) tool for context-aware assistance.</p>
 <p>The RAG tool provides context-aware assistance by indexing and searching project documentation.</p>
 <p class="rubric">Installation</p>
@@ -1762,13 +1762,19 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 </div>
 <p class="rubric">Features</p>
 <ol class="arabic simple">
-<li><p>Manual Search and Indexing
-- Index project documentation with <code class="docutils literal notranslate"><span class="pre">rag_index</span></code>
-- Search indexed documents with <code class="docutils literal notranslate"><span class="pre">rag_search</span></code>
-- Check index status with <code class="docutils literal notranslate"><span class="pre">rag_status</span></code></p></li>
-<li><p>Automatic Context Enhancement
-- Retrieves semantically similar documents
-- Preserves conversation flow with hidden context messages</p></li>
+<li><p>Manual Search and Indexing</p>
+<ul class="simple">
+<li><p>Index project documentation with <code class="docutils literal notranslate"><span class="pre">rag_index</span></code></p></li>
+<li><p>Search indexed documents with <code class="docutils literal notranslate"><span class="pre">rag_search</span></code></p></li>
+<li><p>Check index status with <code class="docutils literal notranslate"><span class="pre">rag_status</span></code></p></li>
+</ul>
+</li>
+<li><p>Automatic Context Enhancement</p>
+<ul class="simple">
+<li><p>Retrieves semantically similar documents</p></li>
+<li><p>Preserves conversation flow with hidden context messages</p></li>
+</ul>
+</li>
 </ol>
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use RAG to index and search project documentation.
@@ -1844,7 +1850,7 @@ Functions are documented using docstrings...</pre>
 </tr>
 </table><dl class="py function">
 <dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">gptme.tools.rag.</span></span><span class="sig-name descname"><span class="pre">get_rag_context</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rag_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">RagConfig</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a></span></span></dt>
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.rag.</span></span><span class="sig-name descname"><span class="pre">get_rag_context</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rag_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="api.html#gptme.config.RagConfig" title="gptme.config.RagConfig"><span class="pre">RagConfig</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a></span></span></dt>
 <dd><p>Get relevant context chunks from RAG for the user query.</p>
 </dd></dl>
 

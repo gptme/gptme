@@ -39,10 +39,19 @@ Holds the current conversation as a list of messages, saves and loads the conver
    :members:
 
 
+Config
+------
+
+Configuration for ``gptme`` on user-level (:ref:`global-config`), project-level (:ref:`project-config`), and conversation-level.
+
+.. automodule:: gptme.config
+   :members:
+
+
 prompts
 -------
 
-See `Prompts <prompts.html>`_ for more information.
+See :doc:`prompts` for more information.
 
 tools
 -----
@@ -55,7 +64,7 @@ Supporting classes and functions for creating and using tools.
 server
 ------
 
-See `Server <server.html>`_ for more information.
+See :doc:`server` for more information.
 
 .. automodule:: gptme.server
    :members:

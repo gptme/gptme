@@ -401,12 +401,12 @@
                 <article class="bd-article">
                   
   <section id="mcp">
-<h1>MCP<a class="headerlink" href="#mcp" title="Link to this heading">#</a></h1>
+<span id="id1"></span><h1>MCP<a class="headerlink" href="#mcp" title="Link to this heading">#</a></h1>
 <p>gptme acts as a MCP client supporting MCP servers (<a class="reference external" href="https://modelcontextprotocol.io/">Model Context Protocol</a>), allowing integration with external tools and services through a standardized protocol.</p>
 <p>We also intend to expose tools in gptme as MCP servers, allowing you to use gptme tools in other MCP clients.</p>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
-<p>You can configure MCP in your <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code> file:</p>
+<p>You can configure MCP in your <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>) file:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[mcp]</span>
 <span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
 <span class="n">auto_start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
@@ -419,6 +419,7 @@
 <span class="n">env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">API_KEY</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;your-key&quot;</span><span class="w"> </span><span class="p">}</span>
 </pre></div>
 </div>
+<p>We also intend to support specifying it in the <a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a>, and the ability to set it per-conversation.</p>
 <section id="configuration-options">
 <h3>Configuration Options<a class="headerlink" href="#configuration-options" title="Link to this heading">#</a></h3>
 <ul class="simple">

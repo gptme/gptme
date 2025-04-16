@@ -322,6 +322,7 @@
  | <a href="#P"><strong>P</strong></a>
  | <a href="#Q"><strong>Q</strong></a>
  | <a href="#R"><strong>R</strong></a>
+ | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
  | <a href="#U"><strong>U</strong></a>
  | <a href="#W"><strong>W</strong></a>
@@ -625,6 +626,22 @@
       <li><a href="api.html#gptme.codeblock.Codeblock.__init__">__init__() (gptme.codeblock.Codeblock method)</a>
 
       <ul>
+        <li><a href="api.html#gptme.config.ChatConfig.__init__">(gptme.config.ChatConfig method)</a>
+</li>
+        <li><a href="api.html#gptme.config.Config.__init__">(gptme.config.Config method)</a>
+</li>
+        <li><a href="api.html#gptme.config.MCPConfig.__init__">(gptme.config.MCPConfig method)</a>
+</li>
+        <li><a href="api.html#gptme.config.MCPServerConfig.__init__">(gptme.config.MCPServerConfig method)</a>
+</li>
+        <li><a href="api.html#gptme.config.ProjectConfig.__init__">(gptme.config.ProjectConfig method)</a>
+</li>
+        <li><a href="api.html#gptme.config.RagConfig.__init__">(gptme.config.RagConfig method)</a>
+</li>
+        <li><a href="api.html#gptme.config.UserConfig.__init__">(gptme.config.UserConfig method)</a>
+</li>
+        <li><a href="api.html#gptme.config.UserPromptConfig.__init__">(gptme.config.UserPromptConfig method)</a>
+</li>
         <li><a href="api.html#gptme.logmanager.ConversationMeta.__init__">(gptme.logmanager.ConversationMeta method)</a>
 </li>
         <li><a href="api.html#gptme.logmanager.Log.__init__">(gptme.logmanager.Log method)</a>
@@ -662,12 +679,16 @@
 <h2 id="C">C</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.config.ChatConfig">ChatConfig (class in gptme.config)</a>
+</li>
       <li><a href="api.html#gptme.codeblock.Codeblock">Codeblock (class in gptme.codeblock)</a>
 </li>
-      <li><a href="api.html#gptme.message.Message.content">content (gptme.message.Message attribute)</a>
+      <li><a href="api.html#gptme.config.Config">Config (class in gptme.config)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.message.Message.content">content (gptme.message.Message attribute)</a>
+</li>
       <li><a href="api.html#gptme.logmanager.ConversationMeta">ConversationMeta (class in gptme.logmanager)</a>
 </li>
       <li><a href="api.html#gptme.message.Message.cost">cost() (gptme.message.Message method)</a>
@@ -717,9 +738,19 @@
         <li><a href="api.html#gptme.message.Message.format">(gptme.message.Message method)</a>
 </li>
       </ul></li>
+      <li><a href="api.html#gptme.config.ChatConfig.from_dict">from_dict() (gptme.config.ChatConfig class method)</a>
+
+      <ul>
+        <li><a href="api.html#gptme.config.MCPConfig.from_dict">(gptme.config.MCPConfig class method)</a>
+</li>
+      </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.config.ChatConfig.from_logdir">from_logdir() (gptme.config.ChatConfig class method)</a>
+</li>
       <li><a href="api.html#gptme.message.Message.from_toml">from_toml() (gptme.message.Message class method)</a>
+</li>
+      <li><a href="api.html#gptme.config.Config.from_workspace">from_workspace() (gptme.config.Config class method)</a>
 </li>
       <li><a href="api.html#gptme.codeblock.Codeblock.from_xml">from_xml() (gptme.codeblock.Codeblock class method)</a>
 </li>
@@ -738,9 +769,17 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.message.Message.get_codeblocks">get_codeblocks() (gptme.message.Message method)</a>
 </li>
+      <li><a href="api.html#gptme.config.get_config">get_config() (in module gptme.config)</a>
+</li>
       <li><a href="api.html#gptme.logmanager.get_conversations">get_conversations() (in module gptme.logmanager)</a>
 </li>
       <li><a href="api.html#gptme.tools.ToolSpec.get_doc">get_doc() (gptme.tools.ToolSpec method)</a>
+</li>
+      <li><a href="api.html#gptme.config.Config.get_env">get_env() (gptme.config.Config method)</a>
+</li>
+      <li><a href="api.html#gptme.config.Config.get_env_required">get_env_required() (gptme.config.Config method)</a>
+</li>
+      <li><a href="api.html#gptme.config.get_project_config">get_project_config() (in module gptme.config)</a>
 </li>
       <li><a href="prompts.html#gptme.prompts.get_prompt">get_prompt() (in module gptme.prompts)</a>
 </li>
@@ -940,6 +979,13 @@
 </li>
       </ul></li>
       <li>
+    gptme.config
+
+      <ul>
+        <li><a href="api.html#module-gptme.config">module</a>
+</li>
+      </ul></li>
+      <li>
     gptme.logmanager
 
       <ul>
@@ -993,8 +1039,12 @@
 </li>
       <li><a href="api.html#gptme.logmanager.LogManager.load">load() (gptme.logmanager.LogManager class method)</a>
 </li>
+      <li><a href="api.html#gptme.config.ChatConfig.load_or_create">load_or_create() (gptme.config.ChatConfig class method)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.config.load_user_config">load_user_config() (in module gptme.config)</a>
+</li>
       <li><a href="api.html#gptme.logmanager.Log">Log (class in gptme.logmanager)</a>
 </li>
       <li><a href="api.html#gptme.logmanager.LogManager">LogManager (class in gptme.logmanager)</a>
@@ -1005,6 +1055,12 @@
 <h2 id="M">M</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.config.Config.mcp">mcp (gptme.config.Config property)</a>
+</li>
+      <li><a href="api.html#gptme.config.MCPConfig">MCPConfig (class in gptme.config)</a>
+</li>
+      <li><a href="api.html#gptme.config.MCPServerConfig">MCPServerConfig (class in gptme.config)</a>
+</li>
       <li><a href="api.html#gptme.message.Message">Message (class in gptme.message)</a>
 </li>
       <li>
@@ -1012,6 +1068,8 @@
 
       <ul>
         <li><a href="api.html#module-gptme.codeblock">gptme.codeblock</a>
+</li>
+        <li><a href="api.html#module-gptme.config">gptme.config</a>
 </li>
         <li><a href="api.html#module-gptme.logmanager">gptme.logmanager</a>
 </li>
@@ -1053,6 +1111,8 @@
       <li><a href="api.html#gptme.message.Message.pinned">pinned (gptme.message.Message attribute)</a>
 </li>
       <li><a href="api.html#gptme.logmanager.prepare_messages">prepare_messages() (in module gptme.logmanager)</a>
+</li>
+      <li><a href="api.html#gptme.config.ProjectConfig">ProjectConfig (class in gptme.config)</a>
 </li>
       <li><a href="prompts.html#gptme.prompts.prompt_full">prompt_full() (in module gptme.prompts)</a>
 </li>
@@ -1102,13 +1162,31 @@
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api.html#gptme.logmanager.LogManager.rename">rename() (gptme.logmanager.LogManager method)</a>
+      <li><a href="api.html#gptme.config.RagConfig">RagConfig (class in gptme.config)</a>
+</li>
+      <li><a href="api.html#gptme.config.reload_config">reload_config() (in module gptme.config)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.logmanager.LogManager.rename">rename() (gptme.logmanager.LogManager method)</a>
+</li>
       <li><a href="api.html#gptme.message.Message.replace">replace() (gptme.message.Message method)</a>
 </li>
       <li><a href="api.html#gptme.message.Message.role">role (gptme.message.Message attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="S">S</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.config.ChatConfig.save">save() (gptme.config.ChatConfig method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.config.set_config">set_config() (in module gptme.config)</a>
+</li>
+      <li><a href="api.html#gptme.config.set_config_value">set_config_value() (in module gptme.config)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1157,6 +1235,12 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.logmanager.LogManager.undo">undo() (gptme.logmanager.LogManager method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api.html#gptme.config.UserConfig">UserConfig (class in gptme.config)</a>
+</li>
+      <li><a href="api.html#gptme.config.UserPromptConfig">UserPromptConfig (class in gptme.config)</a>
 </li>
   </ul></td>
 </tr></table>

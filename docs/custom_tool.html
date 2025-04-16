@@ -422,23 +422,17 @@
 <li><p>Called via the shell tool</p></li>
 <li><p>Easily tested and maintained</p></li>
 </ul>
-<dl class="simple">
-<dt>Benefits of script-based tools:</dt><dd><ul class="simple">
-<li><p>Simple to create and maintain</p></li>
-<li><p>Can be run and tested independently</p></li>
-<li><p>No gptme dependency</p></li>
-<li><p>Flexible language choice</p></li>
-<li><p>Isolated dependencies</p></li>
-</ul>
-</dd>
-<dt>Limitations:</dt><dd><ul class="simple">
-<li><p>Requires shell tool access</p></li>
-<li><p>Can’t attach files/images to messages</p></li>
-<li><p>Not listed in tools section</p></li>
-<li><p>No built-in argument validation</p></li>
-</ul>
-</dd>
-</dl>
+<p>Benefits of script-based tools:
+- Simple to create and maintain
+- Can be run and tested independently
+- No gptme dependency
+- Flexible language choice
+- Isolated dependencies</p>
+<p>Limitations:
+- Requires shell tool access
+- Can’t attach files/images to messages
+- Not listed in tools section
+- No built-in argument validation</p>
 <p>For script-based tools, no registration is needed. Simply include them in the gptme context to make the agent aware of them.</p>
 <ol class="arabic simple">
 <li><p>Place scripts in a <code class="docutils literal notranslate"><span class="pre">tools/</span></code> directory (or any other location)</p></li>
@@ -449,16 +443,12 @@
 <section id="creating-a-custom-tool">
 <h2>Creating a Custom Tool<a class="headerlink" href="#creating-a-custom-tool" title="Link to this heading">#</a></h2>
 <p>When you need deeper integration with gptme, you can create a custom tool by defining a new instance of the <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> class.</p>
-<dl class="simple">
-<dt>Custom tools are necessary when you need to:</dt><dd><ul class="simple">
-<li><p>Attach files/images to messages</p></li>
-<li><p>Get included in the tools section</p></li>
-<li><p>Use without shell tool access</p></li>
-<li><p>Validate arguments</p></li>
-<li><p>Handle complex interactions</p></li>
-</ul>
-</dd>
-</dl>
+<p>Custom tools are necessary when you need to:
+- Attach files/images to messages
+- Get included in the tools section
+- Use without shell tool access
+- Validate arguments
+- Handle complex interactions</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> class requires these parameters:</p>
 <ul class="simple">
 <li><p><strong>name</strong>: The name of the tool.</p></li>
@@ -473,19 +463,15 @@
 <section id="examples">
 <h2>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h2>
 <p>For examples of script-based tools, see:</p>
-<dl class="simple">
-<dt><strong>gptme-contrib</strong></dt><dd><p>A collection of community-contributed tools and scripts:</p>
+<p><strong>gptme-contrib</strong> - A collection of community-contributed tools and scripts:</p>
 <ul class="simple">
 <li><p><a class="reference external" href="https://github.com/gptme/gptme-contrib/blob/master/scripts/twitter.py">Twitter CLI</a>: Twitter client with OAuth support</p></li>
 <li><p><a class="reference external" href="https://github.com/gptme/gptme-contrib/blob/master/scripts/perplexity.py">Perplexity CLI</a>: Perplexity search tool</p></li>
 </ul>
-</dd>
-<dt><strong>Standalone Tools</strong></dt><dd><p>Independent tool repositories:</p>
+<p><strong>Standalone Tools</strong> - Independent tool repositories:</p>
 <ul class="simple">
 <li><p><a class="reference external" href="https://github.com/gptme/gptme-rag/">gptme-rag</a>: Document indexing and retrieval</p></li>
 </ul>
-</dd>
-</dl>
 <p>For examples of custom tools, see:</p>
 <ul class="simple">
 <li><p><a class="reference external" href="https://github.com/gptme/gptme/blob/master/gptme/tools/screenshot.py">Screenshot tool</a>: Takes screenshots</p></li>
@@ -523,28 +509,27 @@
 </section>
 <section id="choosing-an-approach">
 <h2>Choosing an Approach<a class="headerlink" href="#choosing-an-approach" title="Link to this heading">#</a></h2>
-<dl class="simple">
-<dt>Use <strong>script-based tools</strong> when you need:</dt><dd><ul class="simple">
+<p>Use <strong>script-based tools</strong> when you need:</p>
+<ul class="simple">
 <li><p>Standalone functionality</p></li>
 <li><p>Independent testing/development</p></li>
 <li><p>Language/framework flexibility</p></li>
 <li><p>Isolated dependencies</p></li>
 </ul>
-</dd>
-<dt>Use <strong>custom tools</strong> when you need:</dt><dd><ul class="simple">
+<p>Use <strong>custom tools</strong> when you need:</p>
+<ul class="simple">
 <li><p>File/image attachments</p></li>
 <li><p>Tool listing in system prompt</p></li>
 <li><p>Complex argument validation</p></li>
 <li><p>Operation without shell access</p></li>
 </ul>
-</dd>
-</dl>
 </section>
 <section id="registering-the-tool">
 <h2>Registering the Tool<a class="headerlink" href="#registering-the-tool" title="Link to this heading">#</a></h2>
 <p>To ensure your tool is available for use, you can specify the module in the <code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code> env variable or
 setting in your <a class="reference internal" href="config.html"><span class="doc">project configuration file</span></a>, which will automatically load your custom tools.</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="n">TOOL_MODULES</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gptme.tools,yourpackage.your_custom_tool_module&quot;</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
+<span class="n">TOOL_MODULES</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gptme.tools,yourpackage.your_custom_tool_module&quot;</span>
 </pre></div>
 </div>
 <p>Don’t remove the <code class="docutils literal notranslate"><span class="pre">gptme.tools</span></code> package unless you know exactly what you are doing.</p>
