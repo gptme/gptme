@@ -5,7 +5,6 @@ from gptme import Message
 from gptme import chat as gptme_chat
 from gptme import get_prompt
 from gptme.cli import get_name
-from gptme.config import ChatConfig
 from gptme.dirs import get_logs_dir
 from gptme.tools import init_tools
 
@@ -51,13 +50,6 @@ class GPTMe(Agent):
         # TODO: make eval toolset configurable
         tools = init_tools()
 
-        # Create chat config
-        chat_config = ChatConfig(
-            model=self.model,
-            tool_format=self.tool_format,
-            interactive=False,
-        )
-
         print("\n--- Start of generation ---")
         logger.debug(f"Working in {store.working_dir}")
         prompt_sys = get_prompt(tools=tools)
@@ -70,9 +62,11 @@ class GPTMe(Agent):
                 [Message("user", prompt)],
                 [prompt_sys],
                 logdir=log_dir,
-                chat_config=chat_config,
+                model=self.model,
                 no_confirm=True,
+                interactive=False,
                 workspace=workspace_dir,
+                tool_format=self.tool_format,
             )
         # don't exit on sys.exit()
         except (SystemExit, KeyboardInterrupt):

@@ -296,10 +296,14 @@ def main(
             prompt_msgs,
             initial_msgs,
             logdir,
-            chat_config,
+            chat_config.model,
+            chat_config.stream,
             no_confirm,
+            chat_config.interactive,
             show_hidden,
             workspace_path,
+            chat_config.tools,
+            chat_config.tool_format,
         )
     except RuntimeError as e:
         if verbose:
