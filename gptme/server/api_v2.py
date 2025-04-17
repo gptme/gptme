@@ -23,7 +23,6 @@ from typing import Literal, TypedDict
 
 import flask
 from flask import request
-import tomlkit
 
 from gptme.config import ChatConfig
 
@@ -557,16 +556,8 @@ def api_conversation_events(conversation_id: str):
     session_id = request.args.get("session_id")
     if not session_id:
         # load chat config
-        chat_config = None
         logdir = get_logs_dir() / conversation_id
-        chat_config_path = logdir / "chat.toml"
-        if chat_config_path.exists():
-            with open(chat_config_path) as f:
-                config_doc = tomlkit.load(f)
-            chat_config = ChatConfig.from_dict(config_doc)
-
-        if chat_config is None:
-            chat_config = ChatConfig()
+        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
 
         # Create a new session if none provided
         session = SessionManager.create_session(conversation_id, chat_config)
@@ -792,30 +783,32 @@ def api_conversation_interrupt(conversation_id: str):
 def api_conversation_config(conversation_id: str):
     """Get the chat config for a conversation."""
     logdir = get_logs_dir() / conversation_id
-    chat_config_path = logdir / "chat.toml"
+    chat_config_path = logdir / "config.toml"
     if chat_config_path.exists():
-        with open(chat_config_path) as f:
-            config_doc = tomlkit.load(f).unwrap()
-        return flask.jsonify(ChatConfig.from_dict(config_doc).to_dict())
+        chat_config = ChatConfig.from_logdir(logdir)
+        return flask.jsonify(chat_config.to_dict())
     else:
         return flask.jsonify(
             {"error": f"Chat config not found: {conversation_id}"}
         ), 404
 
 
-@v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["PUT"])
-def api_conversation_config_put(conversation_id: str):
-    """Replace the chat config for a conversation."""
+@v2_api.route(
+    "/api/v2/conversations/<string:conversation_id>/config", methods=["PATCH"]
+)
+def api_conversation_config_patch(conversation_id: str):
+    """Update the chat config for a conversation."""
     req_json = flask.request.json
     if not req_json:
         return flask.jsonify({"error": "No JSON data provided"}), 400
 
-    config = ChatConfig.from_dict(req_json)
+    request_config = ChatConfig.from_dict(req_json)
     logdir = get_logs_dir() / conversation_id
-    chat_config_path = logdir / "chat.toml"
-    chat_config_path.write_text(tomlkit.dumps(config.to_dict()))
+    config = ChatConfig.load_or_create(logdir, request_config)
 
-    return flask.jsonify({"status": "ok", "message": "Chat config updated"})
+    return flask.jsonify(
+        {"status": "ok", "message": "Chat config updated", "config": config.to_dict()}
+    )
 
 
 # Helper functions
