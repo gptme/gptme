@@ -412,7 +412,7 @@ def step(
             if tool_exec.auto_confirm:
                 if session.auto_confirm_count > 0:
                     session.auto_confirm_count -= 1
-                start_tool_execution(conversation_id, session, tool_id, tooluse)
+                start_tool_execution(conversation_id, session, tool_id, tooluse, model)
 
         # Mark session as not generating
         session.generating = False
@@ -623,7 +623,6 @@ def api_conversation_step(conversation_id: str):
     req_json = flask.request.json or {}
     session_id = req_json.get("session_id")
     auto_confirm_int_or_bool: int | bool = req_json.get("auto_confirm", False)
-    stream = req_json.get("stream", True)
 
     if not session_id:
         return flask.jsonify({"error": "session_id is required"}), 400
@@ -631,6 +630,8 @@ def api_conversation_step(conversation_id: str):
     session = SessionManager.get_session(session_id)
     if session is None:
         return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+
+    stream = req_json.get("stream", session.chat_config.stream)
 
     # if auto_confirm set, set auto_confirm_count
     if isinstance(auto_confirm_int_or_bool, int):
@@ -648,7 +649,7 @@ def api_conversation_step(conversation_id: str):
     assert (
         default_model is not None
     ), "No model loaded and no model specified in request"
-    model = req_json.get("model", default_model.full)
+    model = req_json.get("model", session.chat_config.model or default_model.full)
 
     # Start step execution in a background thread
     _start_step_thread(
@@ -675,8 +676,6 @@ def api_conversation_tool_confirm(conversation_id: str):
     session_id = req_json.get("session_id")
     tool_id = req_json.get("tool_id")
     action = req_json.get("action")
-    # TODO: Use the model from the conversation
-    model = m.full if (m := get_default_model()) else "anthropic"
 
     if not session_id or not tool_id or not action:
         return (
@@ -693,12 +692,18 @@ def api_conversation_tool_confirm(conversation_id: str):
 
     tool_exec = session.pending_tools[tool_id]
 
+    # Get model from session config, default model, or fallback to "anthropic"
+    default_model = get_default_model()
+    model = session.chat_config.model or (
+        default_model.full if default_model else "anthropic"
+    )
+
     if action == "confirm":
         # Execute the tool
         tooluse = tool_exec.tooluse
 
         logger.info(f"Executing runnable tooluse: {tooluse}")
-        start_tool_execution(conversation_id, session, tool_id, tooluse)
+        start_tool_execution(conversation_id, session, tool_id, tooluse, model)
         return flask.jsonify({"status": "ok", "message": "Tool confirmed"})
 
     elif action == "edit":
@@ -713,6 +718,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             session,
             tool_id,
             dataclasses.replace(tool_exec.tooluse, content=edited_content),
+            model,
         )
 
     elif action == "skip":
@@ -735,7 +741,9 @@ def api_conversation_tool_confirm(conversation_id: str):
         session.auto_confirm_count = count
 
         # Also confirm this tool
-        start_tool_execution(conversation_id, session, tool_id, tool_exec.tooluse)
+        start_tool_execution(
+            conversation_id, session, tool_id, tool_exec.tooluse, model
+        )
     else:
         return flask.jsonify({"error": f"Unknown action: {action}"}), 400
 
@@ -818,10 +826,9 @@ def start_tool_execution(
     session: ConversationSession,
     tool_id: str,
     edited_tooluse: ToolUse | None,
+    model: str,
 ) -> threading.Thread:
     """Execute a tool and handle its output."""
-    # TODO: Use the model from the conversation
-    model = m.full if (m := get_default_model()) else "anthropic"
 
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
