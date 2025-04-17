@@ -471,7 +471,7 @@ def api_conversation(conversation_id: str):
 def api_conversation_put(conversation_id: str):
     """Create a new conversation."""
     msgs = []
-    req_json = flask.request.json
+    req_json = flask.request.json or {}
     if req_json and "messages" in req_json:
         for msg in req_json["messages"]:
             timestamp: datetime = datetime.fromisoformat(msg["timestamp"])
@@ -489,9 +489,7 @@ def api_conversation_put(conversation_id: str):
     log.write()
 
     # Load or create the chat config, overriding values from request config if provided
-    request_config = ChatConfig.from_dict(
-        req_json["config"] if req_json and "config" in req_json else {}
-    )
+    request_config = ChatConfig.from_dict(req_json.get("config", {}))
     chat_config = ChatConfig.load_or_create(logdir, request_config)
 
     # Create a session for this conversation
