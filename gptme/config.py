@@ -286,7 +286,7 @@ class ChatConfig:
             logger.warning(f"Failed to load chat config from {chat_config_path}: {e}")
             return cls()
 
-    def save(self) -> None:
+    def save(self) -> Self:
         """Save the chat config to the log directory."""
         if not self._logdir:
             raise ValueError("ChatConfig has no logdir set")
@@ -298,6 +298,8 @@ class ChatConfig:
         # TODO: load and update this properly as TOMLDocument to preserve formatting
         with open(chat_config_path, "w") as f:
             tomlkit.dump(config_dict, f)
+
+        return self
 
     def to_dict(self) -> dict:
         """Convert ChatConfig to a dictionary. Returns a dict with non-'mcp' and non-'env' keys nested under a 'chat' key, and 'env' and 'mcp' as top-level keys."""
@@ -323,7 +325,6 @@ class ChatConfig:
         }
         return config_dict
 
-
     @classmethod
     def load_or_create(cls, logdir: Path, cli_config: Self) -> Self:
         """Load or create a chat config, applying CLI overrides."""
@@ -341,9 +342,6 @@ class ChatConfig:
             if cli_value != default_value:
                 # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
                 config = replace(config, **{field_name: cli_value})
-
-        # Save the config
-        config.save()
 
         return config
 

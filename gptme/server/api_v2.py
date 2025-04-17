@@ -490,7 +490,7 @@ def api_conversation_put(conversation_id: str):
 
     # Load or create the chat config, overriding values from request config if provided
     request_config = ChatConfig.from_dict(req_json.get("config", {}))
-    chat_config = ChatConfig.load_or_create(logdir, request_config)
+    chat_config = ChatConfig.load_or_create(logdir, request_config).save()
 
     # Create a session for this conversation
     session = SessionManager.create_session(conversation_id, chat_config)
@@ -802,7 +802,7 @@ def api_conversation_config_patch(conversation_id: str):
 
     request_config = ChatConfig.from_dict(req_json)
     logdir = get_logs_dir() / conversation_id
-    config = ChatConfig.load_or_create(logdir, request_config)
+    config = ChatConfig.load_or_create(logdir, request_config).save()
 
     return flask.jsonify(
         {"status": "ok", "message": "Chat config updated", "config": config.to_dict()}
