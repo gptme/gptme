@@ -31,7 +31,7 @@ from ..llm import _chat_complete, _stream
 from ..llm.models import get_default_model
 from ..logmanager import LogManager, get_user_conversations, prepare_messages
 from ..message import Message
-from ..tools import ToolUse, init_tools
+from ..tools import ToolUse, get_tools, init_tools
 
 logger = logging.getLogger(__name__)
 
@@ -327,15 +327,18 @@ def step(
     # Notify clients about generation status
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
 
+    tool_format = session.chat_config.tool_format
+    tools = None
+    if tool_format == "tool":
+        tools = [t for t in get_tools() if t.is_runnable()]
+
     try:
         # Stream tokens from the model
         output = ""
         tooluses = []
         for token in (
             char
-            for chunk in (_stream if stream else _chat_complete)(
-                msgs, model, tools=None
-            )
+            for chunk in (_stream if stream else _chat_complete)(msgs, model, tools)
             for char in chunk
         ):
             # check if interrupted
