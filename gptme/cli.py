@@ -285,7 +285,7 @@ def main(
             stream=stream,
             interactive=interactive,
         ),
-    )
+    ).save()
 
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready

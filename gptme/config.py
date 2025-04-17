@@ -284,7 +284,7 @@ class ChatConfig:
         }
         return config_dict
 
-    def save(self) -> None:
+    def save(self) -> Self:
         if not self._logdir:
             raise ValueError("ChatConfig has no logdir set")
         self._logdir.mkdir(parents=True, exist_ok=True)
@@ -295,6 +295,8 @@ class ChatConfig:
         # TODO: load and update this properly as TOMLDocument to preserve formatting
         with open(chat_config_path, "w") as f:
             tomlkit.dump(config_dict, f)
+
+        return self
 
     @classmethod
     def load_or_create(cls, logdir: Path, cli_config: Self) -> Self:
@@ -313,9 +315,6 @@ class ChatConfig:
             if cli_value != default_value:
                 # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
                 config = replace(config, **{field_name: cli_value})
-
-        # Save the config
-        config.save()
 
         return config
 
