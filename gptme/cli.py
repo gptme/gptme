@@ -175,6 +175,7 @@ def main(
     if no_confirm:
         logger.warning("Skipping all confirmation prompts.")
 
+    # TODO: Should we use ChatConfig here?
     if tool_allowlist:
         # split comma-separated values
         tool_allowlist = [tool for tools in tool_allowlist for tool in tools.split(",")]
