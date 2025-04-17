@@ -478,11 +478,6 @@ def api_conversation_put(conversation_id: str):
             timestamp: datetime = datetime.fromisoformat(msg["timestamp"])
             msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
 
-    # Load config from request if provided
-    request_config = None
-    if req_json and "config" in req_json:
-        request_config = ChatConfig.from_dict(req_json["config"])
-
     logdir = get_logs_dir() / conversation_id
     if logdir.exists():
         return (
@@ -495,6 +490,9 @@ def api_conversation_put(conversation_id: str):
     log.write()
 
     # Load or create the chat config, overriding values from request config if provided
+    request_config = ChatConfig.from_dict(
+        req_json["config"] if req_json and "config" in req_json else {}
+    )
     chat_config = ChatConfig.load_or_create(logdir, request_config)
 
     # Create a session for this conversation

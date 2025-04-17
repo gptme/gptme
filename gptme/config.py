@@ -325,23 +325,22 @@ class ChatConfig:
 
 
     @classmethod
-    def load_or_create(cls, logdir: Path, cli_config: Self | None = None) -> Self:
+    def load_or_create(cls, logdir: Path, cli_config: Self) -> Self:
         """Load or create a chat config, applying CLI overrides."""
         # Load existing config if it exists
         config = cls.from_logdir(logdir)
         defaults = cls()
 
         # Apply CLI overrides (only if they differ from defaults)
-        if cli_config:
-            for field_name in cli_config.__dataclass_fields__:
-                if field_name.startswith("_"):
-                    continue
-                cli_value = getattr(cli_config, field_name)
-                default_value = getattr(defaults, field_name)
-                # TODO: note that this isn't a great check: CLI values equal to defaults won't override existing config values
-                if cli_value != default_value:
-                    # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
-                    config = replace(config, **{field_name: cli_value})
+        for field_name in cli_config.__dataclass_fields__:
+            if field_name.startswith("_"):
+                continue
+            cli_value = getattr(cli_config, field_name)
+            default_value = getattr(defaults, field_name)
+            # TODO: note that this isn't a great check: CLI values equal to defaults won't override existing config values
+            if cli_value != default_value:
+                # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
+                config = replace(config, **{field_name: cli_value})
 
         # Save the config
         config.save()
