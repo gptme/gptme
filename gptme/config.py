@@ -409,33 +409,36 @@ class Config:
 # Define the path to the config file
 config_path = os.path.expanduser("~/.config/gptme/config.toml")
 
-# Global variable to store the config
-_config: Config | None = None
+import threading
+
+# Thread-local storage for config
+_thread_local = threading.local()
 
 
 def get_config() -> Config:
     """Get the current configuration."""
-    global _config
-    if _config is None:
+    if not hasattr(_thread_local, "config"):
         return Config()
-    return _config
+    return _thread_local.config
 
 
 def set_config(workspace: Path):
     """Set the configuration to use a specific workspace, possibly having a project config."""
-    global _config
-    _config = Config.from_workspace(workspace=workspace)
+    _thread_local.config = Config.from_workspace(workspace=workspace)
 
 
 def reload_config() -> Config:
     """Reload the configuration files."""
-    global _config
-    if workspace := (_config and _config.project and _config.project._workspace):
-        _config = Config.from_workspace(workspace=workspace)
+    if not hasattr(_thread_local, "config"):
+        _thread_local.config = Config()
+    elif workspace := (
+        _thread_local.config.project and _thread_local.config.project._workspace
+    ):
+        _thread_local.config = Config.from_workspace(workspace=workspace)
     else:
-        _config = Config()
-    assert _config
-    return _config
+        _thread_local.config = Config()
+    assert _thread_local.config
+    return _thread_local.config
 
 
 if __name__ == "__main__":

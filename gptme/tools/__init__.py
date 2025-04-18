@@ -37,8 +37,26 @@ __all__ = [
     "set_tool_format",
 ]
 
-_loaded_tools: list[ToolSpec] = []
-_available_tools: list[ToolSpec] | None = None
+import threading
+
+# Thread-local storage for tools
+_thread_local = threading.local()
+
+
+def _get_loaded_tools() -> list[ToolSpec]:
+    if not hasattr(_thread_local, "loaded_tools"):
+        _thread_local.loaded_tools = []
+    return _thread_local.loaded_tools
+
+
+def _get_available_tools_cache() -> list[ToolSpec] | None:
+    if not hasattr(_thread_local, "available_tools"):
+        _thread_local.available_tools = None
+    return _thread_local.available_tools
+
+
+def _set_available_tools_cache(tools: list[ToolSpec] | None) -> None:
+    _thread_local.available_tools = tools
 
 
 def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
@@ -85,7 +103,7 @@ def init_tools(
     allowlist: list[str] | None = None,
 ) -> list[ToolSpec]:
     """Runs initialization logic for tools."""
-
+    loaded_tools = _get_loaded_tools()
     config = get_config()
 
     if allowlist is None:
@@ -94,19 +112,19 @@ def init_tools(
             allowlist = env_allowlist.split(",")
 
     for tool in get_toolchain(allowlist):
-        if tool in _loaded_tools:
+        if tool in loaded_tools:
             # logger.warning("Tool '%s' already loaded", tool.name)
             continue
         if tool.init:
             tool = tool.init()
 
-        _loaded_tools.append(tool)
+        loaded_tools.append(tool)
 
     for tool_name in allowlist or []:
         if not has_tool(tool_name):
             raise ValueError(f"Tool '{tool_name}' not found")
 
-    return _loaded_tools
+    return loaded_tools
 
 
 def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
@@ -148,7 +166,7 @@ def execute_msg(msg: Message, confirm: ConfirmFunc) -> Generator[Message, None, 
 @lru_cache
 def get_tool_for_langtag(lang: str) -> ToolSpec | None:
     block_type = lang.split(" ")[0]
-    for tool in _loaded_tools:
+    for tool in _get_loaded_tools():
         if block_type in tool.block_types:
             return tool
     return None
@@ -159,9 +177,9 @@ def is_supported_langtag(lang: str) -> bool:
 
 
 def get_available_tools() -> list[ToolSpec]:
-    global _available_tools
+    available_tools = _get_available_tools_cache()
 
-    if _available_tools is None:
+    if available_tools is None:
         # We need to load tools first
         config = get_config()
 
@@ -171,34 +189,33 @@ def get_available_tools() -> list[ToolSpec]:
         if env_tool_modules:
             tool_modules = env_tool_modules.split(",")
 
-        _available_tools = sorted(_discover_tools(tool_modules))
-        _available_tools.extend(create_mcp_tools(config))
+        available_tools = sorted(_discover_tools(tool_modules))
+        available_tools.extend(create_mcp_tools(config))
+        _set_available_tools_cache(available_tools)
 
-    return _available_tools
+    return available_tools
 
 
 def clear_tools():
-    global _available_tools
-    global _loaded_tools
-
-    _available_tools = None
-    _loaded_tools = []
+    _set_available_tools_cache(None)
+    _thread_local.loaded_tools = []
     # init_tools.cache_clear()
 
 
 def get_tools() -> list[ToolSpec]:
     """Returns all loaded tools"""
-    return _loaded_tools
+    return _get_loaded_tools()
 
 
 def get_tool(tool_name: str) -> ToolSpec | None:
     """Returns a loaded tool by name or block type."""
+    loaded_tools = _get_loaded_tools()
     # check tool names
-    for tool in _loaded_tools:
+    for tool in loaded_tools:
         if tool.name == tool_name:
             return tool
     # check block types
-    for tool in _loaded_tools:
+    for tool in loaded_tools:
         if tool_name in tool.block_types:
             return tool
     return None
@@ -206,7 +223,7 @@ def get_tool(tool_name: str) -> ToolSpec | None:
 
 def has_tool(tool_name: str) -> bool:
     """Returns True if a tool is loaded."""
-    for tool in _loaded_tools:
+    for tool in _get_loaded_tools():
         if tool.name == tool_name:
             return True
     return False
