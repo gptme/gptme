@@ -237,6 +237,7 @@ class ToolSpec:
         instructions = self.get_instructions(tool_format)
         if instructions:
             prompt += f"\n\n**Instructions:** {instructions}"
+        # TODO: Don't include examples for reasoning models: https://platform.openai.com/docs/guides/function-calling?api-mode=chat&example=get-weather#best-practices-for-defining-functions
         if examples and (
             examples_content := self.get_examples(tool_format, quote=True).strip()
         ):

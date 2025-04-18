@@ -227,13 +227,12 @@ def prompt_tools(
     examples: bool = True,
 ) -> Generator[Message, None, None]:
     """Generate the tools overview prompt."""
-    if tool_format != "tool":
-        prompt = "# Tools Overview"
-        for tool in tools:
-            if not tool.is_runnable():
-                prompt += tool.get_tool_prompt(examples, tool_format)
 
-        prompt += "\n\n*End of Tools List.*"
+    prompt = "# Tools Overview"
+    for tool in tools:
+        prompt += tool.get_tool_prompt(examples, tool_format)
+
+    prompt += "\n\n*End of Tools List.*"
 
     yield Message("system", prompt.strip() + "\n\n")
 
