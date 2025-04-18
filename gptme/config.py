@@ -1,5 +1,6 @@
 import logging
 import os
+from contextvars import ContextVar
 from dataclasses import (
     asdict,
     dataclass,
@@ -17,6 +18,7 @@ from tomlkit.container import Container
 from typing_extensions import Self
 
 from .util import console, path_with_tilde
+
 
 if TYPE_CHECKING:
     from .tools import ToolFormat
@@ -409,41 +411,36 @@ class Config:
 # Define the path to the config file
 config_path = os.path.expanduser("~/.config/gptme/config.toml")
 
-import threading
-
-# Thread-local storage for config
-# Each thread gets its own independent copy of the configuration
-_thread_local = threading.local()
-
-# Note: Configuration must be initialized in each thread that needs it.
-# The first call to get_config() in a thread will create a new Config instance.
-# Subsequent calls in the same thread will return the same instance.
+# Context-local storage for config
+# Each context gets its own independent copy of the configuration
+_config_var: ContextVar[Config | None] = ContextVar("config", default=None)
 
 
 def get_config() -> Config:
     """Get the current configuration."""
-    if not hasattr(_thread_local, "config"):
-        _thread_local.config = Config()
-    return _thread_local.config
+    config = _config_var.get()
+    if config is None:
+        config = Config()
+        _config_var.set(config)
+    return config
 
 
 def set_config(workspace: Path):
     """Set the configuration to use a specific workspace, possibly having a project config."""
-    _thread_local.config = Config.from_workspace(workspace=workspace)
+    _config_var.set(Config.from_workspace(workspace=workspace))
 
 
 def reload_config() -> Config:
     """Reload the configuration files."""
-    if not hasattr(_thread_local, "config"):
-        _thread_local.config = Config()
-    elif workspace := (
-        _thread_local.config.project and _thread_local.config.project._workspace
-    ):
-        _thread_local.config = Config.from_workspace(workspace=workspace)
+    config = _config_var.get()
+    if config is None:
+        config = Config()
+    elif workspace := (config.project and config.project._workspace):
+        config = Config.from_workspace(workspace=workspace)
     else:
-        _thread_local.config = Config()
-    assert _thread_local.config
-    return _thread_local.config
+        config = Config()
+    _config_var.set(config)
+    return config
 
 
 if __name__ == "__main__":
