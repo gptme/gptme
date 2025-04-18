@@ -296,6 +296,9 @@ def step(
         model: Model to use
         branch: Branch to use (default: "main")
     """
+    # Initialize tools in this thread
+    init_tools(None)
+
     # Load conversation
     manager = LogManager.load(
         conversation_id,
@@ -436,15 +439,10 @@ def api_conversations():
     return flask.jsonify(conversations)
 
 
-# Global lock for tool initialization
-_tools_init_lock = threading.Lock()
-
-
 @v2_api.route("/api/v2/conversations/<string:conversation_id>")
 def api_conversation(conversation_id: str):
     """Get a conversation."""
-    with _tools_init_lock:
-        init_tools(None)  # Now thread-safe with lock
+    init_tools(None)
     log = LogManager.load(conversation_id, lock=False)
     log_dict = log.to_dict(branches=True)
 
@@ -508,8 +506,7 @@ def api_conversation_post(conversation_id: str):
     branch = req_json.get("branch", "main")
     tool_allowlist = req_json.get("tools", None)
 
-    with _tools_init_lock:
-        init_tools(tool_allowlist)  # Now thread-safe with lock
+    init_tools(tool_allowlist)
 
     try:
         log = LogManager.load(conversation_id, branch=branch)
@@ -782,6 +779,9 @@ def start_tool_execution(
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
     def execute_tool_thread():
+        # Initialize tools in this thread
+        init_tools(None)
+
         # Load the conversation
         manager = LogManager.load(conversation_id, lock=False)
 

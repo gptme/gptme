@@ -412,13 +412,18 @@ config_path = os.path.expanduser("~/.config/gptme/config.toml")
 import threading
 
 # Thread-local storage for config
+# Each thread gets its own independent copy of the configuration
 _thread_local = threading.local()
+
+# Note: Configuration must be initialized in each thread that needs it.
+# The first call to get_config() in a thread will create a new Config instance.
+# Subsequent calls in the same thread will return the same instance.
 
 
 def get_config() -> Config:
     """Get the current configuration."""
     if not hasattr(_thread_local, "config"):
-        return Config()
+        _thread_local.config = Config()
     return _thread_local.config
 
 

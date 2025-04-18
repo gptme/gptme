@@ -3,7 +3,6 @@ import inspect
 import logging
 import pkgutil
 from collections.abc import Generator
-from functools import lru_cache
 
 from gptme.config import get_config
 from gptme.constants import INTERRUPT_CONTENT
@@ -40,7 +39,12 @@ __all__ = [
 import threading
 
 # Thread-local storage for tools
+# Each thread gets its own independent copy of tool state
 _thread_local = threading.local()
+
+# Note: Tools must be initialized in each thread that needs them.
+# This is particularly important for server environments where request handling
+# happens in different threads than where tools were initially loaded.
 
 
 def _get_loaded_tools() -> list[ToolSpec]:
@@ -99,32 +103,41 @@ def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
     return tools
 
 
+# Global lock for thread-safe tool initialization
+_tools_init_lock = threading.Lock()
+
+
 def init_tools(
     allowlist: list[str] | None = None,
 ) -> list[ToolSpec]:
-    """Runs initialization logic for tools."""
-    loaded_tools = _get_loaded_tools()
-    config = get_config()
+    """Initialize tools in a thread-safe manner.
 
-    if allowlist is None:
-        env_allowlist = config.get_env("TOOL_ALLOWLIST")
-        if env_allowlist:
-            allowlist = env_allowlist.split(",")
+    This function is thread-safe and can be called from multiple threads.
+    Each thread will get its own copy of the tools.
+    """
+    with _tools_init_lock:
+        loaded_tools = _get_loaded_tools()
+        config = get_config()
 
-    for tool in get_toolchain(allowlist):
-        if tool in loaded_tools:
-            # logger.warning("Tool '%s' already loaded", tool.name)
-            continue
-        if tool.init:
-            tool = tool.init()
+        if allowlist is None:
+            env_allowlist = config.get_env("TOOL_ALLOWLIST")
+            if env_allowlist:
+                allowlist = env_allowlist.split(",")
 
-        loaded_tools.append(tool)
+        for tool in get_toolchain(allowlist):
+            if tool in loaded_tools:
+                # logger.warning("Tool '%s' already loaded", tool.name)
+                continue
+            if tool.init:
+                tool = tool.init()
 
-    for tool_name in allowlist or []:
-        if not has_tool(tool_name):
-            raise ValueError(f"Tool '{tool_name}' not found")
+            loaded_tools.append(tool)
 
-    return loaded_tools
+        for tool_name in allowlist or []:
+            if not has_tool(tool_name):
+                raise ValueError(f"Tool '{tool_name}' not found")
+
+        return loaded_tools
 
 
 def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
@@ -161,10 +174,12 @@ def execute_msg(msg: Message, confirm: ConfirmFunc) -> Generator[Message, None, 
                     break
 
 
-# Called often when checking streaming output for executable blocks,
-# so we cache the result.
-@lru_cache
 def get_tool_for_langtag(lang: str) -> ToolSpec | None:
+    """Get the tool that handles a given language tag.
+
+    Called often when checking streaming output for executable blocks.
+    Not cached since tools are thread-local and caching would be complex/brittle.
+    """
     block_type = lang.split(" ")[0]
     for tool in _get_loaded_tools():
         if block_type in tool.block_types:
@@ -197,9 +212,9 @@ def get_available_tools() -> list[ToolSpec]:
 
 
 def clear_tools():
+    """Clear all thread-local tool state."""
     _set_available_tools_cache(None)
     _thread_local.loaded_tools = []
-    # init_tools.cache_clear()
 
 
 def get_tools() -> list[ToolSpec]:

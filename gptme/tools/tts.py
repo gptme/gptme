@@ -396,7 +396,10 @@ def _tts_processor_thread_fn():
 
             # Make request to the TTS server
             url = f"http://{host}:{port}/tts"
-            params = {"text": chunk, "speed": current_speed}
+            params: dict[str, str | float] = {
+                "text": chunk,
+                "speed": current_speed,
+            }
             if voice := os.getenv("GPTME_TTS_VOICE"):
                 params["voice"] = voice
 
