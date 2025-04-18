@@ -1,6 +1,6 @@
 import pytest
 from gptme.prompts import prompt_tools
-from gptme.tools import ToolFormat, init_tools
+from gptme.tools import ToolFormat, clear_tools, init_tools
 
 
 @pytest.mark.parametrize(
@@ -43,7 +43,6 @@ from gptme.tools import ToolFormat, init_tools
             True,
             [
                 "the `shell` tool",
-                "aliases",
                 """@shell: {
   "command": "cat file.txt"
 }""",
@@ -56,7 +55,6 @@ from gptme.tools import ToolFormat, init_tools
             False,
             [
                 "the `shell` tool",
-                "aliases",
             ],
             [
                 """@shell: {
@@ -76,6 +74,7 @@ from gptme.tools import ToolFormat, init_tools
     ],
 )
 def test_prompt_tools(tool_format: ToolFormat, example: bool, expected, not_expected):
+    clear_tools()
     tools = init_tools(allowlist=["shell", "read"])
     prompt = next(prompt_tools(tools, tool_format, example)).content
 
