@@ -15,6 +15,7 @@ import curses
 import logging
 import textwrap
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from .chat import init, step
@@ -26,6 +27,8 @@ from .util.ask_execute import ask_execute
 
 logger = logging.getLogger(__name__)
 
+INPUT_HEIGHT = 2
+
 
 @dataclass
 class MessageComponent:
@@ -34,14 +37,36 @@ class MessageComponent:
     message: Message
     expanded: bool = False
     selected: bool = False
+    is_log: bool = False  # Whether this is a log message
+    log_level: int | None = None  # Log level if this is a log message
 
     def __eq__(self, other):
         if not isinstance(other, MessageComponent):
             return False
         return self.message == other.message
 
+    @classmethod
+    def from_message(cls, message: Message) -> "MessageComponent":
+        """Create a MessageComponent from a Message."""
+        return cls(message=message)
+
+    @classmethod
+    def from_log(cls, timestamp: float, level: int, content: str) -> "MessageComponent":
+        """Create a MessageComponent from a log message."""
+
+        msg = Message(
+            role="system", content=content, timestamp=datetime.fromtimestamp(timestamp)
+        )
+        return cls(
+            message=msg,
+            is_log=True,
+            log_level=level,
+        )
+
 
 class MessageApp:
+    message_components: list[MessageComponent]
+
     def __init__(
         self,
         stdscr,
@@ -59,8 +84,11 @@ class MessageApp:
         self.current_role: RoleLiteral = "user"
         self.use_color: bool = curses.has_colors() and use_color
 
+        self.message_components = []
+
         # Initialize logging handler
-        self.log_messages: list[tuple[int, str]] = []
+        # timestamp, level, message
+        self.log_messages: list[tuple[float, int, str]] = []
         self._setup_logging(log_level)
 
         # Initialize gptme
@@ -74,6 +102,7 @@ class MessageApp:
 
     def _setup_logging(self, log_level: int) -> None:
         """Setup logging handler to capture log messages."""
+        print("Setting up logging...", flush=True)  # Debug print
 
         class CursesHandler(logging.Handler):
             def __init__(self, app):
@@ -81,27 +110,63 @@ class MessageApp:
                 self.app = app
 
             def emit(self, record):
-                self.app.log_messages.append((record.levelno, self.format(record)))
+                msg = (record.created, record.levelno, self.format(record))
+                print(f"Log received: {msg}", flush=True)  # Debug print
+                self.app.log_messages.append(msg)
+                # Add new log message component
+                self.app.message_components.append(MessageComponent.from_log(*msg))
+                # Sort by timestamp to maintain chronological order
+                self.app.message_components.sort(key=lambda x: x.message.timestamp)
                 self.app.draw()  # Redraw to show new log message
 
+        # Configure root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+
+        # Remove any existing handlers to avoid duplicates
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+
+        # Add our curses handler
         handler = CursesHandler(self)
         handler.setLevel(log_level)
         formatter = logging.Formatter("%(levelname)s: %(message)s")
         handler.setFormatter(formatter)
-        logging.getLogger().addHandler(handler)
+        root_logger.addHandler(handler)
+
+        # Test log message
+        logger.info("Logging system initialized")
+        print("Logging setup complete", flush=True)  # Debug print
 
     def _init_message_components(self) -> list[MessageComponent]:
-        """Initialize message components from conversation log."""
-        if not self.manager:
-            return []
-        return [MessageComponent(msg) for msg in self.manager.log]
+        """Initialize message components from conversation log and log messages."""
+        components: list[MessageComponent] = []
+
+        # Add conversation messages
+        if self.manager:
+            components.extend(
+                MessageComponent.from_message(msg) for msg in self.manager.log
+            )
+
+        # Add log messages
+        components.extend(
+            MessageComponent.from_log(timestamp, level, msg)
+            for timestamp, level, msg in self.log_messages
+        )
+
+        # Sort by timestamp
+        components.sort(key=lambda x: x.message.timestamp)
+        return components
 
     def add_message(self, content: str) -> None:
         """Add a new message to the conversation."""
         msg = Message(self.current_role, content)
         if self.manager:
             self.manager.append(msg)
-        self.message_components.append(MessageComponent(msg))
+
+        # Add new message component and resort the list
+        self.message_components.append(MessageComponent.from_message(msg))
+        self.message_components.sort(key=lambda x: x.message.timestamp)
 
     def step_conversation(self) -> None:
         """Step the conversation forward."""
@@ -140,7 +205,6 @@ class MessageApp:
         height, width = self.stdscr.getmaxyx()
 
         self._draw_messages(height, width)
-        self._draw_log_messages(height, width)
         self._draw_input_box(height, width)
         self._draw_mode_indicator(width)
         self._position_cursor(height, width)
@@ -148,10 +212,10 @@ class MessageApp:
         self.stdscr.refresh()
 
     def _draw_messages(self, height: int, width: int) -> None:
-        """Draw conversation messages."""
+        """Draw conversation and log messages."""
         current_y = 0
         for msg_comp in self.message_components[self.scroll_offset :]:
-            if current_y >= height - 5:  # Leave space for input and log messages
+            if current_y >= height - INPUT_HEIGHT:  # Leave space for input box
                 break
             lines_used = self._draw_single_message(current_y, msg_comp, width)
             current_y += lines_used
@@ -163,6 +227,15 @@ class MessageApp:
         if msg_comp == self.selected_message:
             self.stdscr.attron(curses.A_REVERSE)
 
+        if msg_comp.is_log:
+            return self._draw_log_message(y, msg_comp, width)
+        else:
+            return self._draw_conversation_message(y, msg_comp, width)
+
+    def _draw_conversation_message(
+        self, y: int, msg_comp: MessageComponent, width: int
+    ) -> int:
+        """Draw a conversation message."""
         role_color = _role_color(msg_comp.message.role) if self.use_color else None
         if role_color:
             self.stdscr.attron(curses.color_pair(role_color))
@@ -171,16 +244,20 @@ class MessageApp:
             self.stdscr.attroff(curses.color_pair(role_color))
 
         content = msg_comp.message.content
-        wrapped_lines = textwrap.wrap(content, width - 12)
-        lines_to_show = wrapped_lines if msg_comp.expanded else wrapped_lines[:3]
+        msg_comp.expanded = True
+        lines_to_show = (
+            content.split("\n")
+            if msg_comp.expanded
+            else textwrap.wrap(content, width - 12)[:5]
+        )
 
         for i, line in enumerate(lines_to_show):
-            if y + i >= self.stdscr.getmaxyx()[0] - 5:
+            if y + i >= self.stdscr.getmaxyx()[0] - INPUT_HEIGHT:
                 break
             self.stdscr.addstr(y + i, 11, line)
 
-        if not msg_comp.expanded and len(wrapped_lines) > 3:
-            if y + 2 < self.stdscr.getmaxyx()[0] - 5:
+        if not msg_comp.expanded and len(content) > 3:
+            if y + 2 < self.stdscr.getmaxyx()[0] - INPUT_HEIGHT:
                 self.stdscr.addstr(y + 2, width - 5, "...")
 
         if msg_comp == self.selected_message:
@@ -188,30 +265,41 @@ class MessageApp:
 
         return len(lines_to_show)
 
-    def _draw_log_messages(self, height: int, width: int) -> None:
-        """Draw log messages at the bottom of the screen."""
-        start_y = height - 4
-        for i, (level, msg) in enumerate(
-            self.log_messages[-2:]
-        ):  # Show last 2 log messages
-            color = (
-                curses.COLOR_RED
-                if level >= logging.ERROR
-                else (
-                    curses.COLOR_YELLOW
-                    if level >= logging.WARNING
-                    else curses.COLOR_GREEN
-                )
+    def _draw_log_message(self, y: int, msg_comp: MessageComponent, width: int) -> int:
+        """Draw a log message."""
+        assert msg_comp.log_level is not None
+        color = (
+            curses.COLOR_RED
+            if msg_comp.log_level >= logging.ERROR
+            else (
+                curses.COLOR_YELLOW
+                if msg_comp.log_level >= logging.WARNING
+                else curses.COLOR_GREEN
             )
-            if self.use_color:
-                self.stdscr.attron(curses.color_pair(color))
-            self.stdscr.addstr(start_y + i, 0, msg[: width - 1])
-            if self.use_color:
-                self.stdscr.attroff(curses.color_pair(color))
+        )
+        if self.use_color:
+            self.stdscr.attron(curses.color_pair(color))
+
+        content = msg_comp.message.content
+        wrapped_lines = textwrap.wrap(content, width - 2)
+        lines_to_show = wrapped_lines if msg_comp.expanded else wrapped_lines[:1]
+
+        for i, line in enumerate(lines_to_show):
+            if y + i >= self.stdscr.getmaxyx()[0] - INPUT_HEIGHT:
+                break
+            self.stdscr.addstr(y + i, 1, line)
+
+        if self.use_color:
+            self.stdscr.attroff(curses.color_pair(color))
+
+        if msg_comp == self.selected_message:
+            self.stdscr.attroff(curses.A_REVERSE)
+
+        return len(lines_to_show)
 
     def _draw_input_box(self, height: int, width: int) -> None:
         """Draw the input box."""
-        self.stdscr.addstr(height - 2, 0, "-" * width)
+        self.stdscr.addstr(height - INPUT_HEIGHT, 0, "-" * width)
         role_color = _role_color(self.current_role) if self.use_color else None
         if role_color:
             self.stdscr.attron(curses.color_pair(role_color))
@@ -274,22 +362,26 @@ class MessageApp:
     def _handle_normal_mode(self, key: int) -> bool:
         """Handle keys in normal mode."""
         if key == ord("q"):
+            logger.info("Exiting application")
             return True
         elif key == ord("i"):
+            logger.info("Entering input mode")
             self.mode = "input"
             self.cursor_x = len(self.input_buffer)
         elif key == ord("s"):
+            logger.info("Entering select mode")
             self.mode = "select"
             self.selected_message = (
-                MessageComponent(self.message_components[0].message)
+                MessageComponent(message=self.message_components[0].message)
                 if self.message_components
                 else None
             )
         elif key == ord("r"):
+            logger.info("Entering role selection mode")
             self.mode = "role"
-        elif key == curses.KEY_UP:
+        elif key == curses.KEY_UP or key == ord("k"):
             self.scroll_offset = max(0, self.scroll_offset - 1)
-        elif key == curses.KEY_DOWN:
+        elif key == curses.KEY_DOWN or key == ord("j"):
             self.scroll_offset = min(
                 len(self.message_components) - 1, self.scroll_offset + 1
             )
@@ -322,7 +414,7 @@ class MessageApp:
         elif key == ord("d") and self.selected_message is not None:
             self._delete_selected_message()
         elif (
-            key in (curses.KEY_UP, curses.KEY_DOWN)
+            key in (curses.KEY_UP, curses.KEY_DOWN, ord("k"), ord("j"))
             and self.message_components
             and self.selected_message is not None
         ):
@@ -411,13 +503,13 @@ class MessageApp:
         """Move the selection up or down."""
         assert self.selected_message is not None
         idx = self.message_components.index(self.selected_message)
-        if key == curses.KEY_UP:
+        if key == curses.KEY_UP or key == ord("k"):
             self.selected_message = MessageComponent(
-                self.message_components[max(0, idx - 1)].message
+                message=self.message_components[max(0, idx - 1)].message
             )
-        elif key == curses.KEY_DOWN:
+        elif key == curses.KEY_DOWN or key == ord("j"):
             self.selected_message = MessageComponent(
-                self.message_components[
+                message=self.message_components[
                     min(len(self.message_components) - 1, idx + 1)
                 ].message
             )
@@ -445,7 +537,11 @@ def _main(stdscr, logdir: Path | None, use_color: bool):
         app.add_message(
             "In select mode, use arrow keys to navigate, 'e' to edit, 'x' to expand/collapse, and 'd' to delete."
         )
-    app.run()
+    try:
+        app.run()
+    except KeyboardInterrupt:
+        print("Goodbye!")
+        exit(0)
 
 
 def main():
