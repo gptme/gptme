@@ -2,7 +2,9 @@ import importlib
 import inspect
 import logging
 import pkgutil
+import threading
 from collections.abc import Generator
+from contextvars import ContextVar
 
 from gptme.config import get_config
 from gptme.constants import INTERRUPT_CONTENT
@@ -36,31 +38,34 @@ __all__ = [
     "set_tool_format",
 ]
 
-import threading
 
-# Thread-local storage for tools
-# Each thread gets its own independent copy of tool state
-_thread_local = threading.local()
+# Context-local storage for tools
+# Each context gets its own independent copy of tool state
+_loaded_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
+    "loaded_tools", default=None
+)
+_available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
+    "available_tools", default=None
+)
 
-# Note: Tools must be initialized in each thread that needs them.
+# Note: Tools must be initialized in each context that needs them.
 # This is particularly important for server environments where request handling
-# happens in different threads than where tools were initially loaded.
+# happens in different threads/tasks than where tools were initially loaded.
 
 
 def _get_loaded_tools() -> list[ToolSpec]:
-    if not hasattr(_thread_local, "loaded_tools"):
-        _thread_local.loaded_tools = []
-    return _thread_local.loaded_tools
+    loaded_tools = _loaded_tools_var.get()
+    if loaded_tools is None:
+        raise RuntimeError("Tools not initialized in context")
+    return loaded_tools
 
 
 def _get_available_tools_cache() -> list[ToolSpec] | None:
-    if not hasattr(_thread_local, "available_tools"):
-        _thread_local.available_tools = None
-    return _thread_local.available_tools
+    return _available_tools_var.get()
 
 
 def _set_available_tools_cache(tools: list[ToolSpec] | None) -> None:
-    _thread_local.available_tools = tools
+    _available_tools_var.set(tools)
 
 
 def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
@@ -178,7 +183,7 @@ def get_tool_for_langtag(lang: str) -> ToolSpec | None:
     """Get the tool that handles a given language tag.
 
     Called often when checking streaming output for executable blocks.
-    Not cached since tools are thread-local and caching would be complex/brittle.
+    Not cached since tools are context-local and caching would be complex/brittle.
     """
     block_type = lang.split(" ")[0]
     for tool in _get_loaded_tools():
@@ -212,9 +217,9 @@ def get_available_tools() -> list[ToolSpec]:
 
 
 def clear_tools():
-    """Clear all thread-local tool state."""
+    """Clear all context-local tool state."""
     _set_available_tools_cache(None)
-    _thread_local.loaded_tools = []
+    _loaded_tools_var.set([])
 
 
 def get_tools() -> list[ToolSpec]:

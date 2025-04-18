@@ -14,6 +14,7 @@ import threading
 import uuid
 from collections import defaultdict
 from collections.abc import Generator
+from contextvars import Context, copy_context
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -187,6 +188,10 @@ class ConversationSession:
     clients: set[str] = field(default_factory=set)
     event_flag: threading.Event = field(default_factory=threading.Event)
 
+    # Capture context at session creation
+    # TODO: use a fresh context for each session?
+    context: Context = field(default_factory=copy_context)
+
 
 class SessionManager:
     """Manages conversation sessions."""
@@ -198,7 +203,16 @@ class SessionManager:
     def create_session(cls, conversation_id: str) -> ConversationSession:
         """Create a new session for a conversation."""
         session_id = str(uuid.uuid4())
+
+        # Create session with a fresh context
         session = ConversationSession(id=session_id, conversation_id=conversation_id)
+
+        # Initialize tools in the session's context
+        def init_session_context():
+            init_tools(None)  # Initialize tools in this context
+
+        session.context.run(init_session_context)
+
         cls._sessions[session_id] = session
         cls._conversation_sessions[conversation_id].add(session_id)
         return session
@@ -296,9 +310,6 @@ def step(
         model: Model to use
         branch: Branch to use (default: "main")
     """
-    # Initialize tools in this thread
-    init_tools(None)
-
     # Load conversation
     manager = LogManager.load(
         conversation_id,
@@ -405,7 +416,7 @@ def step(
             if tool_exec.auto_confirm:
                 if session.auto_confirm_count > 0:
                     session.auto_confirm_count -= 1
-                start_tool_execution(conversation_id, session, tool_id, tooluse)
+                _start_tool_execution(conversation_id, session, tool_id, tooluse)
 
         # Mark session as not generating
         session.generating = False
@@ -442,6 +453,9 @@ def api_conversations():
 @v2_api.route("/api/v2/conversations/<string:conversation_id>")
 def api_conversation(conversation_id: str):
     """Get a conversation."""
+    # TODO: LogManager.load currently requires tools to be initialized, even when just reading logs
+    # This should be fixed to separate log reading from tool functionality
+    # See: https://github.com/gptme/gptme/issues/XXX
     init_tools(None)
     log = LogManager.load(conversation_id, lock=False)
     log_dict = log.to_dict(branches=True)
@@ -506,6 +520,9 @@ def api_conversation_post(conversation_id: str):
     branch = req_json.get("branch", "main")
     tool_allowlist = req_json.get("tools", None)
 
+    # Initialize tools here since they might be needed for message processing
+    # TODO: Consider lazy initialization when tools are actually needed
+    # Could be moved into session context and initialized only when executing tools
     init_tools(tool_allowlist)
 
     try:
@@ -683,7 +700,7 @@ def api_conversation_tool_confirm(conversation_id: str):
         tooluse = tool_exec.tooluse
 
         logger.info(f"Executing runnable tooluse: {tooluse}")
-        start_tool_execution(conversation_id, session, tool_id, tooluse)
+        _start_tool_execution(conversation_id, session, tool_id, tooluse)
         return flask.jsonify({"status": "ok", "message": "Tool confirmed"})
 
     elif action == "edit":
@@ -693,7 +710,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             return flask.jsonify({"error": "content is required for edit action"}), 400
 
         # Execute with edited content
-        start_tool_execution(
+        _start_tool_execution(
             conversation_id,
             session,
             tool_id,
@@ -720,7 +737,7 @@ def api_conversation_tool_confirm(conversation_id: str):
         session.auto_confirm_count = count
 
         # Also confirm this tool
-        start_tool_execution(conversation_id, session, tool_id, tool_exec.tooluse)
+        _start_tool_execution(conversation_id, session, tool_id, tool_exec.tooluse)
     else:
         return flask.jsonify({"error": f"Unknown action: {action}"}), 400
 
@@ -766,7 +783,7 @@ def api_conversation_interrupt(conversation_id: str):
 # ---------------
 
 
-def start_tool_execution(
+def _start_tool_execution(
     conversation_id: str,
     session: ConversationSession,
     tool_id: str,
@@ -778,10 +795,7 @@ def start_tool_execution(
 
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
-    def execute_tool_thread():
-        # Initialize tools in this thread
-        init_tools(None)
-
+    def _execute_thread():
         # Load the conversation
         manager = LogManager.load(conversation_id, lock=False)
 
@@ -821,8 +835,11 @@ def start_tool_execution(
         _start_step_thread(conversation_id, session, model)
 
     # Start execution in a thread
-    thread = threading.Thread(target=execute_tool_thread)
-    thread.daemon = True
+    thread = threading.Thread(
+        target=session.context.run,
+        args=(_execute_thread,),
+        daemon=True,
+    )
     thread.start()
     return thread
 
@@ -834,14 +851,15 @@ def _start_step_thread(
     branch: str = "main",
     auto_confirm: bool = False,
     stream: bool = True,
-):
-    """Start a step execution in a background thread."""
+) -> threading.Thread:
+    """Start a step execution in a background thread using the session's context."""
 
-    def step_thread():
+    def _step_thread() -> None:
         try:
             # Mark session as generating
             session.generating = True
 
+            # Run step in the session's context
             step(
                 conversation_id=conversation_id,
                 session=session,
@@ -850,7 +868,6 @@ def _start_step_thread(
                 auto_confirm=auto_confirm,
                 stream=stream,
             )
-
         except Exception as e:
             logger.exception(f"Error during step execution: {e}")
             SessionManager.add_event(
@@ -858,7 +875,11 @@ def _start_step_thread(
             )
             session.generating = False
 
-    # Start step execution in a thread
-    thread = threading.Thread(target=step_thread)
-    thread.daemon = True
+    # Run a step in a thread with the session's context
+    thread = threading.Thread(
+        target=session.context.run,
+        args=(_step_thread,),
+        daemon=True,
+    )
     thread.start()
+    return thread
