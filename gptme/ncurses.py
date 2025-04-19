@@ -35,7 +35,7 @@ class MessageComponent:
     """Wrapper for Message that includes display state."""
 
     message: Message
-    expanded: bool = False
+    expanded: bool = True
     selected: bool = False
     is_log: bool = False  # Whether this is a log message
     log_level: int | None = None  # Log level if this is a log message
@@ -48,7 +48,7 @@ class MessageComponent:
     @classmethod
     def from_message(cls, message: Message) -> "MessageComponent":
         """Create a MessageComponent from a Message."""
-        return cls(message=message)
+        return cls(message=message, expanded=message.role != "system")
 
     @classmethod
     def from_log(cls, timestamp: float, level: int, content: str) -> "MessageComponent":
@@ -155,7 +155,8 @@ class MessageApp:
         )
 
         # Sort by timestamp
-        components.sort(key=lambda x: x.message.timestamp)
+        # NOTE: workspace context message ends up after user message with this enabled
+        # components.sort(key=lambda x: x.message.timestamp)
         return components
 
     def add_message(self, content: str) -> None:
@@ -217,81 +218,78 @@ class MessageApp:
         for msg_comp in self.message_components[self.scroll_offset :]:
             if current_y >= height - INPUT_HEIGHT:  # Leave space for input box
                 break
-            lines_used = self._draw_single_message(current_y, msg_comp, width)
+            lines_used = self._draw_message(current_y, msg_comp, width)
             current_y += lines_used
 
-    def _draw_single_message(
-        self, y: int, msg_comp: MessageComponent, width: int
-    ) -> int:
-        """Draw a single message and return number of lines used."""
+    def _draw_message(self, y: int, msg_comp: MessageComponent, width: int) -> int:
+        """Draw a message (either conversation or log)."""
+        # Handle selection highlighting
         if msg_comp == self.selected_message:
             self.stdscr.attron(curses.A_REVERSE)
 
+        # Set up formatting based on message type
+        indent_role = 1
+        indent_content = 13  # Space for role prefix
+        wrap_width = width - indent_content - 1
         if msg_comp.is_log:
-            return self._draw_log_message(y, msg_comp, width)
-        else:
-            return self._draw_conversation_message(y, msg_comp, width)
-
-    def _draw_conversation_message(
-        self, y: int, msg_comp: MessageComponent, width: int
-    ) -> int:
-        """Draw a conversation message."""
-        role_color = _role_color(msg_comp.message.role) if self.use_color else None
-        if role_color:
-            self.stdscr.attron(curses.color_pair(role_color))
-        self.stdscr.addstr(y, 1, f"[{msg_comp.message.role}] ")
-        if role_color:
-            self.stdscr.attroff(curses.color_pair(role_color))
-
-        content = msg_comp.message.content
-        msg_comp.expanded = True
-        lines_to_show = (
-            content.split("\n")
-            if msg_comp.expanded
-            else textwrap.wrap(content, width - 12)[:5]
-        )
-
-        for i, line in enumerate(lines_to_show):
-            if y + i >= self.stdscr.getmaxyx()[0] - INPUT_HEIGHT:
-                break
-            self.stdscr.addstr(y + i, 11, line)
-
-        if not msg_comp.expanded and len(content) > 3:
-            if y + 2 < self.stdscr.getmaxyx()[0] - INPUT_HEIGHT:
-                self.stdscr.addstr(y + 2, width - 5, "...")
-
-        if msg_comp == self.selected_message:
-            self.stdscr.attroff(curses.A_REVERSE)
-
-        return len(lines_to_show)
-
-    def _draw_log_message(self, y: int, msg_comp: MessageComponent, width: int) -> int:
-        """Draw a log message."""
-        assert msg_comp.log_level is not None
-        color = (
-            curses.COLOR_RED
-            if msg_comp.log_level >= logging.ERROR
-            else (
-                curses.COLOR_YELLOW
-                if msg_comp.log_level >= logging.WARNING
-                else curses.COLOR_GREEN
+            # Log message formatting
+            assert msg_comp.log_level is not None
+            color = (
+                curses.COLOR_RED
+                if msg_comp.log_level >= logging.ERROR
+                else (
+                    curses.COLOR_YELLOW
+                    if msg_comp.log_level >= logging.WARNING
+                    else curses.COLOR_GREEN
+                )
             )
-        )
-        if self.use_color:
-            self.stdscr.attron(curses.color_pair(color))
 
+            # For log messages, color only the level indicator
+            if self.use_color:
+                self.stdscr.attron(curses.color_pair(color))
+            level_name = logging.getLevelName(msg_comp.log_level or 0)
+            self.stdscr.addstr(y, indent_role, f"{level_name}")
+            if self.use_color:
+                self.stdscr.attroff(curses.color_pair(color))
+        else:
+            # Conversation message formatting
+            color = _role_color(msg_comp.message.role)
+            # Draw role prefix
+            if self.use_color:
+                self.stdscr.attron(curses.color_pair(color))
+            self.stdscr.addstr(y, indent_role, f"[{msg_comp.message.role}] ")
+            if self.use_color:
+                self.stdscr.attroff(curses.color_pair(color))
+
+        # Handle content wrapping and expansion
         content = msg_comp.message.content
-        wrapped_lines = textwrap.wrap(content, width - 2)
-        lines_to_show = wrapped_lines if msg_comp.expanded else wrapped_lines[:1]
 
+        max_lines_collapsed = 3
+        lines = [
+            line
+            for lines in [
+                textwrap.wrap(
+                    line,
+                    wrap_width,
+                    replace_whitespace=False,
+                )
+                for line in content.split("\n")
+            ]
+            for line in lines
+        ]
+        lines_to_show = lines[: (1000 if msg_comp.expanded else max_lines_collapsed)]
+
+        # Show ellipsis on last line for collapsed messages
+        if len(lines) > len(lines_to_show):
+            lines_to_show[-1] += " ..."
+
+        # Draw content lines (without color)
         for i, line in enumerate(lines_to_show):
-            if y + i >= self.stdscr.getmaxyx()[0] - INPUT_HEIGHT:
+            if y + i >= self.stdscr.getmaxyx()[0] - INPUT_HEIGHT - 1:
                 break
-            self.stdscr.addstr(y + i, 1, line)
+            self.stdscr.addstr(y + i, indent_content, line)
 
-        if self.use_color:
-            self.stdscr.attroff(curses.color_pair(color))
-
+        # Reset selection highlighting if active
         if msg_comp == self.selected_message:
             self.stdscr.attroff(curses.A_REVERSE)
 
@@ -372,9 +370,7 @@ class MessageApp:
             logger.info("Entering select mode")
             self.mode = "select"
             self.selected_message = (
-                MessageComponent(message=self.message_components[0].message)
-                if self.message_components
-                else None
+                self.message_components[0] if self.message_components else None
             )
         elif key == ord("r"):
             logger.info("Entering role selection mode")
