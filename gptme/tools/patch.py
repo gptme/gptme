@@ -243,6 +243,8 @@ def execute_patch_impl(
             f"Patch failed: No such file or directory '{path}' (pwd: {Path.cwd()})"
         ) from None
     except ValueError as e:
+        # TODO: if patch fails on missing original chunk, return the contents of the file
+        #       (opt: or closest matching chunk for large files)
         raise ValueError(f"Patch failed: {e.args[0]}") from None
 
 
