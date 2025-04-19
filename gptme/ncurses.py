@@ -45,6 +45,33 @@ class MessageComponent:
             return False
         return self.message == other.message
 
+    def get_wrapped_lines(self, width: int) -> list[str]:
+        """Split and wrap content to fit the given width."""
+        indent_content = 13  # Space for role prefix
+        wrap_width = width - indent_content - 1
+
+        # Split by newlines and wrap each line separately
+        wrapped_lines = []
+        for line in self.message.content.split("\n"):
+            # Preserve empty lines
+            if not line.strip():
+                wrapped_lines.append("")
+            else:
+                # Wrap non-empty lines
+                wrapped_lines.extend(
+                    textwrap.wrap(
+                        line,
+                        wrap_width,
+                        replace_whitespace=False,
+                    )
+                )
+        return wrapped_lines
+
+    def get_display_height(self, width: int) -> int:
+        """Calculate how many lines this message will take up when displayed."""
+        lines = self.get_wrapped_lines(width)
+        return len(lines) if self.expanded else min(len(lines), 3)
+
     @classmethod
     def from_message(cls, message: Message) -> "MessageComponent":
         """Create a MessageComponent from a Message."""
@@ -99,6 +126,7 @@ class MessageApp:
         # Initialize conversation manager
         self.manager = LogManager.load(logdir) if logdir else None
         self.message_components = self._init_message_components()
+        self._scroll_to_bottom()
 
     def _setup_logging(self, log_level: int) -> None:
         """Setup logging handler to capture log messages."""
@@ -186,6 +214,7 @@ class MessageApp:
             ):
                 self.manager.append(response_msg)
                 self.message_components.append(MessageComponent(response_msg))
+                self._scroll_to_bottom()
                 self.draw()
 
                 # Check if there are any runnable tools left
@@ -230,7 +259,6 @@ class MessageApp:
         # Set up formatting based on message type
         indent_role = 1
         indent_content = 13  # Space for role prefix
-        wrap_width = width - indent_content - 1
         if msg_comp.is_log:
             # Log message formatting
             assert msg_comp.log_level is not None
@@ -261,23 +289,9 @@ class MessageApp:
             if self.use_color:
                 self.stdscr.attroff(curses.color_pair(color))
 
-        # Handle content wrapping and expansion
-        content = msg_comp.message.content
-
-        max_lines_collapsed = 3
-        lines = [
-            line
-            for lines in [
-                textwrap.wrap(
-                    line,
-                    wrap_width,
-                    replace_whitespace=False,
-                )
-                for line in content.split("\n")
-            ]
-            for line in lines
-        ]
-        lines_to_show = lines[: (1000 if msg_comp.expanded else max_lines_collapsed)]
+        # Get wrapped lines
+        lines = msg_comp.get_wrapped_lines(width)
+        lines_to_show = lines if msg_comp.expanded else lines[:3]
 
         # Show ellipsis on last line for collapsed messages
         if len(lines) > len(lines_to_show):
@@ -285,7 +299,7 @@ class MessageApp:
 
         # Draw content lines (without color)
         for i, line in enumerate(lines_to_show):
-            if y + i >= self.stdscr.getmaxyx()[0] - INPUT_HEIGHT - 1:
+            if y + i >= self.stdscr.getmaxyx()[0] - INPUT_HEIGHT:
                 break
             self.stdscr.addstr(y + i, indent_content, line)
 
@@ -383,6 +397,27 @@ class MessageApp:
             )
         return False
 
+    def _scroll_to_bottom(self) -> None:
+        """Scroll to the bottom of the message list."""
+        height, width = self.stdscr.getmaxyx()
+        available_height = height - INPUT_HEIGHT
+
+        # Calculate message heights from bottom up until we fill the screen
+        total_height = 0
+        scroll_to = len(self.message_components)
+
+        for msg_comp in reversed(self.message_components):
+            msg_height = msg_comp.get_display_height(width)
+
+            # If adding this message would exceed screen height, we've found our scroll position
+            if total_height + msg_height > available_height:
+                break
+
+            total_height += msg_height
+            scroll_to -= 1
+
+        self.scroll_offset = max(0, scroll_to)
+
     def _handle_input_mode(self, key: int) -> None:
         """Handle keys in input mode."""
         if key == 27:  # ESC
@@ -423,13 +458,15 @@ class MessageApp:
             self.input_buffer = ""
             self.cursor_x = 0
         elif key == 10 and self.selected_message is not None:  # Enter
-            self.selected_message.message = Message(
-                self.selected_message.message.role, self.input_buffer
+            self.selected_message.message = self.selected_message.message.replace(
+                content=self.input_buffer
             )
             if self.manager:
+                # Update the chat log with the edited message
+                # Don't persist actual logging messages
                 self.manager.edit(
-                    [m.message for m in self.message_components]
-                )  # Update log
+                    [m.message for m in self.message_components if not m.is_log]
+                )
             self.mode = "select"
             self.input_buffer = ""
             self.cursor_x = 0
@@ -486,29 +523,26 @@ class MessageApp:
         assert self.selected_message is not None
         self.message_components.remove(self.selected_message)
         if self.message_components:
-            self.selected_message = MessageComponent(self.message_components[0].message)
+            self.selected_message = self.message_components[0]
         else:
             self.selected_message = None
             self.mode = "normal"
         if self.manager:
+            # Update log
             self.manager.edit(
-                [m.message for m in self.message_components]
-            )  # Update log
+                [m.message for m in self.message_components if not m.is_log]
+            )
 
     def _move_selection(self, key: int) -> None:
         """Move the selection up or down."""
         assert self.selected_message is not None
         idx = self.message_components.index(self.selected_message)
         if key == curses.KEY_UP or key == ord("k"):
-            self.selected_message = MessageComponent(
-                message=self.message_components[max(0, idx - 1)].message
-            )
+            self.selected_message = self.message_components[max(0, idx - 1)]
         elif key == curses.KEY_DOWN or key == ord("j"):
-            self.selected_message = MessageComponent(
-                message=self.message_components[
-                    min(len(self.message_components) - 1, idx + 1)
-                ].message
-            )
+            self.selected_message = self.message_components[
+                min(len(self.message_components) - 1, idx + 1)
+            ]
 
 
 def _role_color(role: str) -> int:
