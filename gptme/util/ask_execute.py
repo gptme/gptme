@@ -114,9 +114,29 @@ def ask_execute(question="Execute code?", default=True) -> bool:
 
     with terminal_state_title("❓ waiting for confirmation"):
         session = get_prompt_session()
+
+        print(console.width)
+        question += " asd" * 100
+        prompt = f"{question} {choicestr}"
+        from textwrap import wrap
+
+        from rich.style import Style
+
+        style_rich = "bold yellow on red"
+        style_prompt_toolkit = "bold fg:ansiyellow bg:ansired"
+
+        lines = wrap(prompt, width=console.width - 40)
+        if len(lines) > 1:
+            # print pre-prompt lines
+            for line in lines[:-1]:
+                console.print(" " + line.strip() + " ", style=Style.parse(style_rich))
+
         answer = (
             session.prompt(
-                [("bold fg:ansiyellow bg:red", f" {question} {choicestr} "), ("", " ")],
+                [
+                    (style_prompt_toolkit, " " + lines[-1].strip() + " "),
+                    ("", " "),
+                ]
             )
             .lower()
             .strip()
