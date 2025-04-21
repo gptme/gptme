@@ -4,7 +4,6 @@ from dataclasses import (
     asdict,
     dataclass,
     field,
-    fields,
     replace,
 )
 from functools import lru_cache
