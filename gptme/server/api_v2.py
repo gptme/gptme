@@ -24,7 +24,7 @@ from typing import Literal, TypedDict
 import flask
 from flask import request
 
-from gptme.config import ChatConfig
+from gptme.config import ChatConfig, Config, set_config
 
 from ..dirs import get_logs_dir
 from ..llm import _chat_complete, _stream
@@ -283,6 +283,7 @@ def step(
     conversation_id: str,
     session: ConversationSession,
     model: str,
+    workspace: Path,
     branch: str = "main",
     auto_confirm: bool = False,
     stream: bool = True,
@@ -301,10 +302,19 @@ def step(
         conversation_id: The conversation ID
         session: The current session
         model: Model to use
+        workspace: Workspace to use
         branch: Branch to use (default: "main")
+        auto_confirm: Whether to auto-confirm tools (default: False)
+        stream: Whether to stream the response (default: True)
     """
+
+    # Create and set config
+    config = Config.from_workspace(workspace=workspace)
+    config.chat = session.chat_config
+    set_config(config)
+
     # Initialize tools in this thread
-    init_tools(None)
+    init_tools(session.chat_config.tools)
 
     # Load conversation
     manager = LogManager.load(
@@ -456,13 +466,16 @@ def api_conversation(conversation_id: str):
     log = LogManager.load(conversation_id, lock=False)
     log_dict = log.to_dict(branches=True)
 
+    chat_config = ChatConfig.load_or_create(log.logdir, ChatConfig())
+    workspace = chat_config.workspace
+
     # make all paths absolute or relative to workspace (no "../")
     for msg in log_dict["log"]:
         if files := msg.get("files"):
             msg["files"] = [
                 (
-                    str(path.relative_to(log.workspace))
-                    if (path := Path(f).resolve()).is_relative_to(log.workspace)
+                    str(path.relative_to(workspace))
+                    if (path := Path(f).resolve()).is_relative_to(workspace)
                     else str(path)
                 )
                 for f in files
@@ -659,6 +672,7 @@ def api_conversation_step(conversation_id: str):
         conversation_id=conversation_id,
         session=session,
         model=model,
+        workspace=session.chat_config.workspace,
         branch=branch,
         auto_confirm=auto_confirm,
         stream=stream,
@@ -733,7 +747,9 @@ def api_conversation_tool_confirm(conversation_id: str):
         _append_and_notify(LogManager.load(conversation_id, lock=False), session, msg)
 
         # Resume generation
-        _start_step_thread(conversation_id, session, model)
+        _start_step_thread(
+            conversation_id, session, model, session.chat_config.workspace
+        )
 
     elif action == "auto":
         # Enable auto-confirmation for future tools
@@ -875,7 +891,9 @@ def start_tool_execution(
             _append_and_notify(manager, session, msg)
 
         # This implements auto-stepping similar to the CLI behavior
-        _start_step_thread(conversation_id, session, model)
+        _start_step_thread(
+            conversation_id, session, model, session.chat_config.workspace
+        )
 
     # Start execution in a thread
     thread = threading.Thread(target=execute_tool_thread)
@@ -888,6 +906,7 @@ def _start_step_thread(
     conversation_id: str,
     session: ConversationSession,
     model: str,
+    workspace: Path,
     branch: str = "main",
     auto_confirm: bool = False,
     stream: bool = True,
@@ -903,6 +922,7 @@ def _start_step_thread(
                 conversation_id=conversation_id,
                 session=session,
                 model=model,
+                workspace=workspace,
                 branch=branch,
                 auto_confirm=auto_confirm,
                 stream=stream,

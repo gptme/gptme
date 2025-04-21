@@ -13,7 +13,7 @@ from pick import pick
 from . import __version__
 from .chat import chat
 from .commands import _gen_help
-from .config import ChatConfig, get_config, set_config
+from .config import ChatConfig, get_config, set_config, set_config_from_workspace
 from .constants import MULTIPROMPT_SEPARATOR
 from .dirs import get_logs_dir
 from .init import init_logging
@@ -175,33 +175,6 @@ def main(
     if no_confirm:
         logger.warning("Skipping all confirmation prompts.")
 
-    # TODO: Should we use ChatConfig here?
-    if tool_allowlist:
-        # split comma-separated values
-        tool_allowlist = [tool for tools in tool_allowlist for tool in tools.split(",")]
-
-    set_config(Path(workspace) if workspace else Path.cwd())
-    config = get_config()
-
-    model = model or config.get_env("MODEL")
-    selected_tool_format: ToolFormat = (
-        tool_format or config.get_env("TOOL_FORMAT") or "markdown"  # type: ignore
-    )
-
-    # early init tools to generate system prompt
-    tools = init_tools(tool_allowlist)
-
-    # get initial system prompt
-    initial_msgs = [
-        get_prompt(
-            tools=tools,
-            prompt=prompt_system,
-            interactive=interactive,
-            tool_format=selected_tool_format,
-            model=model,
-        )
-    ]
-
     # if stdin is not a tty, we might be getting piped input, which we should include in the prompt
     was_piped = False
     piped_input = None
@@ -272,21 +245,55 @@ def main(
         assert workspace_path  # mypy not smart enough to see its not None
         workspace_path.mkdir(parents=True, exist_ok=True)
     else:
-        workspace_path = Path(workspace) if workspace else None
+        workspace_path = Path(workspace) if workspace else Path.cwd()
+
+    # Parse tool allowlist cli argument.
+    if tool_allowlist:
+        # split comma-separated values
+        tool_allowlist = [tool for tools in tool_allowlist for tool in tools.split(",")]
+
+    # Load main config
+    set_config_from_workspace(workspace_path)
+    config = get_config()
 
     # Load or create chat config, applying CLI overrides
-    # TODO: doesn't respect already set tools on resume
     logdir.mkdir(parents=True, exist_ok=True)
     chat_config = ChatConfig.load_or_create(
         logdir=logdir,
         cli_config=ChatConfig(
             model=model,
-            tools=[tool.name for tool in tools],
-            tool_format=selected_tool_format,
+            tools=tool_allowlist,
+            tool_format=tool_format,
             stream=stream,
             interactive=interactive,
+            workspace=workspace_path,
         ),
     ).save()
+
+    # Set chat config in main config
+    config.chat = chat_config
+    set_config(config)
+
+    model = model or config.get_env("MODEL")
+    selected_tool_format: ToolFormat = (
+        tool_format or config.get_env("TOOL_FORMAT") or "markdown"  # type: ignore
+    )
+
+    # early init tools to generate system prompt
+    # We pass the tool_allowlist CLI argument. If it's not provided, init_tools
+    # will load it from the environment variable TOOL_ALLOWLIST or the chat config.
+    tools = init_tools(tool_allowlist)
+
+    # get initial system prompt
+    initial_msgs = [
+        get_prompt(
+            tools=tools,
+            prompt=prompt_system,
+            interactive=interactive,
+            tool_format=selected_tool_format,
+            model=model,
+        )
+    ]
 
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready
@@ -302,7 +309,7 @@ def main(
             no_confirm,
             chat_config.interactive,
             show_hidden,
-            workspace_path,
+            chat_config.workspace,
             chat_config.tools,
             chat_config.tool_format,
         )

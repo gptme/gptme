@@ -242,6 +242,9 @@ class ChatConfig:
     tool_format: "ToolFormat | None" = None
     stream: bool = True
     interactive: bool = True
+    workspace: Path = field(
+        default_factory=Path.cwd
+    )  # TODO: Is default value cwd ok for server?
 
     # TODO: support env in chat config
     env: dict = field(default_factory=dict)
@@ -255,6 +258,10 @@ class ChatConfig:
 
         # Extract chat settings
         chat_data = config_data.pop("chat", {})
+
+        # Convert workspace to Path if present
+        if "workspace" in chat_data:
+            chat_data["workspace"] = Path(chat_data["workspace"])
 
         env = config_data.pop("env", {})
         mcp = MCPConfig.from_dict(config_data.pop("mcp", {}))
@@ -302,10 +309,21 @@ class ChatConfig:
 
     def to_dict(self) -> dict:
         """Convert ChatConfig to a dictionary. Returns a dict with non-'mcp' and non-'env' keys nested under a 'chat' key, and 'env' and 'mcp' as top-level keys."""
-        # Convert to dict and remove None values
+
+        # Custom function to handle Path objects during serialization
+        def _dict_factory(items):
+            result = {}
+            for key, value in items:
+                if isinstance(value, Path):
+                    result[key] = str(value)
+                else:
+                    result[key] = value
+            return result
+
+        # Convert to dict and remove None values, using custom dict factory to handle Path objects
         config_dict = {
             k: v
-            for k, v in asdict(self).items()
+            for k, v in asdict(self, dict_factory=_dict_factory).items()
             if v is not None and not k.startswith("_")
         }
 
@@ -345,7 +363,7 @@ class ChatConfig:
         return config
 
 
-@dataclass(frozen=True)
+@dataclass()
 class Config:
     """
     A complete configuration object, including user and project configurations.
@@ -356,6 +374,7 @@ class Config:
 
     user: UserConfig = field(default_factory=load_user_config)
     project: ProjectConfig | None = None
+    chat: ChatConfig | None = None
 
     @classmethod
     def from_workspace(cls, workspace: Path) -> Self:
@@ -392,6 +411,7 @@ class Config:
         """Gets an environment variable, checks the config file if it's not set in the environment."""
         return (
             os.environ.get(key)
+            or (self.chat and self.chat.env.get(key))
             or (self.project and self.project.env.get(key))
             or self.user.env.get(key)
             or default
@@ -401,6 +421,7 @@ class Config:
         """Gets an environment variable, checks the config file if it's not set in the environment."""
         if (
             val := os.environ.get(key)
+            or (self.chat and self.chat.env.get(key))
             or (self.project and self.project.env.get(key))
             or self.user.env.get(key)
         ):
@@ -431,7 +452,12 @@ def get_config() -> Config:
     return _thread_local.config
 
 
-def set_config(workspace: Path):
+def set_config(config: Config):
+    """Set the configuration."""
+    _thread_local.config = config
+
+
+def set_config_from_workspace(workspace: Path):
     """Set the configuration to use a specific workspace, possibly having a project config."""
     _thread_local.config = Config.from_workspace(workspace=workspace)
 

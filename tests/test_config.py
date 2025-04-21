@@ -61,6 +61,7 @@ chat_config_toml = """
     tool_format = "markdown"
     stream = true
     interactive = true
+    workspace = "~/workspace"
 
     [env]
     API_KEY = "your-key"
@@ -259,6 +260,7 @@ def test_chat_config_loaded_from_toml():
     assert config.tool_format == "markdown"
     assert config.stream is True
     assert config.interactive is True
+    assert config.workspace == Path("~/workspace")
     assert config.env == {"API_KEY": "your-key"}
     assert config.mcp.enabled is True
     assert config.mcp.auto_start is True
@@ -280,7 +282,8 @@ def test_chat_config_loaded_from_json():
             "tools": ["tool1", "tool2"],
             "tool_format": "markdown",
             "stream": true,
-            "interactive": true
+            "interactive": true,
+            "workspace": "~/workspace"
         },
         "env": {
             "API_KEY": "your-key"
@@ -308,6 +311,7 @@ def test_chat_config_loaded_from_json():
     assert config.tool_format == "markdown"
     assert config.stream is True
     assert config.interactive is True
+    assert config.workspace == Path("~/workspace")
     assert config.env == {"API_KEY": "your-key"}
     assert config.mcp.enabled is True
     assert config.mcp.auto_start is True
@@ -330,6 +334,7 @@ def test_chat_config_to_dict():
     assert config_dict["chat"]["tool_format"] == "markdown"
     assert config_dict["chat"]["stream"] is True
     assert config_dict["chat"]["interactive"] is True
+    assert config_dict["chat"]["workspace"] == "~/workspace"
     assert config_dict["env"] == {"API_KEY": "your-key"}
     assert config_dict["mcp"] == {
         "enabled": True,
@@ -350,12 +355,12 @@ def test_chat_config_to_toml():
     config = test_chat_config_loaded_from_toml()
     config_dict = config.to_dict()
     toml_str = tomlkit.dumps(config_dict)
-    config_new = ChatConfig.from_dict(tomlkit.loads(toml_str))
+    config_new = ChatConfig.from_dict(tomlkit.loads(toml_str).unwrap())
     assert config_new == config
 
 
 def test_default_chat_config_to_toml():
     config = ChatConfig()
     toml_str = tomlkit.dumps(config.to_dict())
-    config_new = ChatConfig.from_dict(tomlkit.loads(toml_str))
+    config_new = ChatConfig.from_dict(tomlkit.loads(toml_str).unwrap())
     assert config_new == config

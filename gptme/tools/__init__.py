@@ -114,6 +114,9 @@ def init_tools(
 
     This function is thread-safe and can be called from multiple threads.
     Each thread will get its own copy of the tools.
+
+    If allowlist is not provided, it will be loaded from the environment variable
+    TOOL_ALLOWLIST or the chat config (if set).
     """
     with _tools_init_lock:
         loaded_tools = _get_loaded_tools()
@@ -123,6 +126,8 @@ def init_tools(
             env_allowlist = config.get_env("TOOL_ALLOWLIST")
             if env_allowlist:
                 allowlist = env_allowlist.split(",")
+            elif config.chat and config.chat.tools:
+                allowlist = config.chat.tools
 
         for tool in get_toolchain(allowlist):
             if tool in loaded_tools:
