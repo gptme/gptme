@@ -25,13 +25,14 @@ import flask
 from flask import request
 
 from gptme.config import ChatConfig, Config, set_config
+from gptme.prompts import get_prompt
 
 from ..dirs import get_logs_dir
 from ..llm import _chat_complete, _stream
 from ..llm.models import get_default_model
 from ..logmanager import LogManager, get_user_conversations, prepare_messages
 from ..message import Message
-from ..tools import ToolUse, get_tools, init_tools
+from ..tools import ToolUse, get_toolchain, get_tools, init_tools
 
 logger = logging.getLogger(__name__)
 
@@ -506,7 +507,14 @@ def api_conversation_put(conversation_id: str):
 
     # Load or create the chat config, overriding values from request config if provided
     request_config = ChatConfig.from_dict(req_json.get("config", {}))
-    chat_config = ChatConfig.load_or_create(logdir, request_config).save()
+    chat_config = ChatConfig.load_or_create(logdir, request_config)
+
+    # Set tool allowlist to available tools if not provided
+    if not chat_config.tools:
+        chat_config.tools = [t.name for t in get_toolchain(None)]
+
+    # Save the chat config
+    chat_config.save()
 
     # Create a session for this conversation
     session = SessionManager.create_session(conversation_id, chat_config)
@@ -830,6 +838,20 @@ def api_conversation_config_patch(conversation_id: str):
     request_config = ChatConfig.from_dict(req_json)
     logdir = get_logs_dir() / conversation_id
     config = ChatConfig.load_or_create(logdir, request_config).save()
+
+    # Initialize tools in this thread
+    init_tools(config.tools)
+
+    # Update system prompt with new tools
+    manager = LogManager.load(conversation_id, lock=False)
+    if len(manager.log.messages) >= 1 and manager.log.messages[0].role == "system":
+        manager.log.messages[0] = get_prompt(
+            tools=get_tools(),
+            tool_format=config.tool_format or "markdown",
+            interactive=config.interactive,
+            model=config.model,
+        )
+    manager.write()
 
     return flask.jsonify(
         {"status": "ok", "message": "Chat config updated", "config": config.to_dict()}

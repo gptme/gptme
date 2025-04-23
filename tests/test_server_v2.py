@@ -9,6 +9,7 @@ from flask.testing import FlaskClient
 import tomlkit  # noqa
 from gptme.config import ChatConfig
 from gptme.llm.models import ModelMeta, get_default_model
+from gptme.tools import get_toolchain
 
 # Skip if flask not installed
 pytest.importorskip(
@@ -199,6 +200,7 @@ def test_v2_interrupt(v2_conv, client: FlaskClient):
 def test_v2_chat_config_saved_on_conversation_create(client: FlaskClient):
     """Test that the chat config is saved on conversation create."""
     input_config = ChatConfig(model="gpt-4o")
+    input_config.tools = [t.name for t in get_toolchain(None)]
     conversation_id = create_conversation(client, input_config)["conversation_id"]
 
     response = client.get(f"/api/v2/conversations/{conversation_id}")
@@ -215,15 +217,20 @@ def test_v2_chat_config_saved_on_conversation_create(client: FlaskClient):
     assert config_path.is_file()
 
     config = ChatConfig.from_logdir(logfile.parent)
+    print("old config", input_config.to_dict())
+    print("-" * 80)
+    print("new config", config.to_dict())
     assert config.to_dict() == input_config.to_dict()
 
 
 def test_v2_chat_config_saved_separately_for_each_conversation(client: FlaskClient):
     """Test that the chat config is saved separately for each conversation."""
     input_config_1 = ChatConfig(model="gpt-4o")
+    input_config_1.tools = [t.name for t in get_toolchain(None)]
     conversation_id_1 = create_conversation(client, input_config_1)["conversation_id"]
 
     input_config_2 = ChatConfig(model="gpt-4o-mini")
+    input_config_2.tools = [t.name for t in get_toolchain(None)]
     conversation_id_2 = create_conversation(client, input_config_2)["conversation_id"]
 
     response_1 = client.get(f"/api/v2/conversations/{conversation_id_1}")
@@ -240,6 +247,7 @@ def test_v2_chat_config_saved_separately_for_each_conversation(client: FlaskClie
 def test_v2_chat_config_get_works(client: FlaskClient):
     """Test that the chat config get endpoint works."""
     input_config = ChatConfig(model="gpt-4o")
+    input_config.tools = [t.name for t in get_toolchain(None)]
     conversation_id = create_conversation(client, input_config)["conversation_id"]
 
     response = client.get(f"/api/v2/conversations/{conversation_id}/config")
@@ -250,6 +258,7 @@ def test_v2_chat_config_get_works(client: FlaskClient):
 def test_v2_chat_config_update_works(client: FlaskClient):
     """Test that the chat config update endpoint works."""
     input_config = ChatConfig(model="gpt-4o")
+    input_config.tools = [t.name for t in get_toolchain(None)]
     conversation_id = create_conversation(client, input_config)["conversation_id"]
 
     response = client.get(f"/api/v2/conversations/{conversation_id}/config")
