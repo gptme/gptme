@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 from dataclasses import (
     asdict,
     dataclass,
@@ -103,6 +104,7 @@ class ProjectConfig:
     base_prompt: str | None = None
     prompt: str | None = None
     files: list[str] = field(default_factory=list)
+    context_cmd: str | None = None
     rag: RagConfig = field(default_factory=RagConfig)
 
     env: dict[str, str] = field(default_factory=dict)
@@ -212,6 +214,7 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
 
         prompt = config_data.pop("prompt", "")
         files = config_data.pop("files", [])
+        context_cmd = config_data.pop("context_cmd", None)
         rag = RagConfig(**config_data.pop("rag", {}))
         mcp = MCPConfig.from_dict(config_data.pop("mcp", {}))
 
@@ -223,6 +226,7 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
             _workspace=workspace,
             prompt=prompt,
             files=files,
+            context_cmd=context_cmd,
             rag=rag,
             mcp=mcp,
             **config_data,
@@ -409,7 +413,6 @@ class Config:
 # Define the path to the config file
 config_path = os.path.expanduser("~/.config/gptme/config.toml")
 
-import threading
 
 # Thread-local storage for config
 # Each thread gets its own independent copy of the configuration

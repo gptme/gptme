@@ -9,6 +9,7 @@ import logging
 import platform
 import shutil
 import subprocess
+import time
 from collections.abc import Generator, Iterable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -328,14 +329,10 @@ def get_workspace_prompt(workspace: Path) -> str:
     # NOTE: needs to run after the workspace is initialized (i.e. initial prompt is constructed)
     # TODO: update this prompt if the files change
     # TODO: include `git status -vv`, and keep it up-to-date
-
-    # Get tree output if enabled
-    tree_section = ""
-    tree_output = get_tree_output(workspace)
-    if tree_output:
-        tree_section = f"## Project Structure\n\n```\n{tree_output}\n```\n\n"
+    sections = []
 
     if project := get_project_config(workspace):
+        # files
         files: list[Path] = []
         for fileglob in project.files:
             # expand user
@@ -344,27 +341,53 @@ def get_workspace_prompt(workspace: Path) -> str:
             if new_files := workspace.glob(fileglob):
                 files.extend(new_files)
             else:
-                logger.error(
+                logger.warning(
                     f"File glob '{fileglob}' specified in project config does not match any files."
                 )
-                exit(1)
         files_str = []
         for file in files:
             if file.exists():
                 files_str.append(f"```{file}\n{file.read_text()}\n```")
+        if files_str:
+            sections.append(
+                "## Selected project files\n\nRead more with `cat`.\n\n"
+                + "\n\n".join(files_str)
+            )
 
-        return (
-            "# Workspace Context\n\n"
-            + tree_section
-            + "Selected project files, read more with cat:\n\n"
-            + "\n\n".join(files_str)
+        # context_cmd
+        if project.context_cmd and (
+            cmd_output := get_project_context_cmd_output(project.context_cmd)
+        ):
+            sections.append("## Computed context\n\n" + cmd_output)
+
+    # Get tree output if enabled
+    if tree_output := get_tree_output(workspace):
+        sections.append(f"## Project Structure\n\n```\n{tree_output}\n```\n\n")
+
+    if sections:
+        return "# Workspace Context\n\n" + "\n\n".join(sections)
+    else:
+        return ""
+
+
+def get_project_context_cmd_output(cmd: str) -> str | None:
+    try:
+        start = time.time()
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
-
-    # If no project config but tree output is available, return just the tree
-    if tree_output:
-        return "# Workspace Context\n\n" + tree_section
-
-    return ""
+        logger.info(f"Context command took {time.time() - start:.2f}s")
+        if result.returncode == 0:
+            return f"```{cmd}\n{result.stdout}\n```"
+        else:
+            logger.warning(f"Failed to run context command '{cmd}': {result.stderr}")
+    except Exception as e:
+        logger.warning(f"Error running context command: {e}")
+    return None
 
 
 document_prompt_function(
