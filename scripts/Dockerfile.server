@@ -1,6 +1,7 @@
 # Use the main Dockerfile as the base image
-ARG BASE=gptme:latest
-FROM $BASE as build
+# We don't set a default here due to skaffold not supporting defaults for the BASE ARG
+ARG BASE
+FROM $BASE
 
 # Install server dependencies
 USER root

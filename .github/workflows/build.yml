@@ -160,6 +160,8 @@ jobs:
           ghcr.io/${{ env.OWNER_LC }}/gptme-server:${{ env.SANITIZED_REF_NAME }}
         file: ./scripts/Dockerfile.server
         context: .
+        build-args: |
+          BASE=gptme:latest
         push: ${{ env.SHOULD_PUSH }}
 
     # Build and push eval image
