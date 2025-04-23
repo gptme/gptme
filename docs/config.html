@@ -380,11 +380,10 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chat-config">Chat config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
 </ul>
             </nav>
         </div>
@@ -398,13 +397,14 @@
                   
   <section id="configuration">
 <h1>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h1>
-<p>gptme has two configuration files:</p>
+<p>gptme has three configuration files:</p>
 <ul class="simple">
 <li><p><a class="reference internal" href="#global-config"><span class="std std-ref">global configuration</span></a></p></li>
 <li><p><a class="reference internal" href="#project-config"><span class="std std-ref">project configuration</span></a></p></li>
+<li><p><a class="reference internal" href="#chat-config"><span class="std std-ref">chat configuration</span></a></p></li>
 </ul>
-<p>It also supports environment variables for configuration, which take precedence over the configuration files.</p>
-<p>The CLI also supports a variety of options that can be used to override both configuration values and environment variables.</p>
+<p>It also supports <a class="reference internal" href="#environment-variables"><span class="std std-ref">Environment Variables</span></a> for configuration, which take precedence over the configuration files.</p>
+<p>The CLI also supports a variety of options that can be used to override both configuration values.</p>
 <section id="global-config">
 <span id="id1"></span><h2>Global config<a class="headerlink" href="#global-config" title="Link to this heading">#</a></h2>
 <p>The file is located at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>.</p>
@@ -440,8 +440,40 @@
 <p>The <code class="docutils literal notranslate"><span class="pre">prompt</span></code> section contains options for the prompt.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>. It can also be used to set default tool configuration options, see <a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> for more information.</p>
 <p>If you want to configure MCP servers, you can do so in a <code class="docutils literal notranslate"><span class="pre">mcp</span></code> section. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p>
+<p>See <a class="reference internal" href="api.html#gptme.config.UserConfig" title="gptme.config.UserConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.UserConfig</span></code></a> for the API reference.</p>
+</section>
+<section id="project-config">
+<span id="id2"></span><h2>Project config<a class="headerlink" href="#project-config" title="Link to this heading">#</a></h2>
+<p>The project configuration file is intended to let the user configure how gptme works within a particular project/workspace.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The project configuration file is a very early feature and is likely to change/break in the future.</p>
+</div>
+<p>gptme will look for a <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> file in the workspace root (this is the working directory if not overridden by the <code class="docutils literal notranslate"><span class="pre">--workspace</span></code> option). This file contains project-specific configuration options.</p>
+<p>Example <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="n">files</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;README.md&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Makefile&quot;</span><span class="p">]</span>
+<span class="n">prompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;This is gptme.&quot;</span>
+</pre></div>
+</div>
+<p>This file currently supports a few options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">files</span></code>, a list of paths that gptme will always include in the context.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prompt</span></code>, a string that will be included in the system prompt with a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Current</span> <span class="pre">Project</span></code> header.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">base_prompt</span></code>, a string that will be used as the base prompt for the project. This will override the global base prompt (“You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. […]”). It can be useful to change the identity of the assistant and override some default behaviors.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">context_cmd</span></code>, a command used to generate context to include when constructing the system prompt. The command will be run in the workspace root and should output a string that will be included in the system prompt. Examples can be <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">status</span> <span class="pre">-v</span></code> or <code class="docutils literal notranslate"><span class="pre">scripts/context.sh</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rag</span></code>, a dictionary to configure the RAG tool. See <a class="reference internal" href="tools.html#rag"><span class="std std-ref">RAG</span></a> for more information.</p></li>
+</ul>
+<p>See <a class="reference internal" href="api.html#gptme.config.ProjectConfig" title="gptme.config.ProjectConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.ProjectConfig</span></code></a> for the API reference.</p>
+</section>
+<section id="chat-config">
+<span id="id3"></span><h2>Chat config<a class="headerlink" href="#chat-config" title="Link to this heading">#</a></h2>
+<p>The chat configuration file stores configuration options for a particular chat.
+It is used to store the model, toolset, tool format, and streaming/interactive mode.</p>
+<p>The chat configuration file is stored as <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> in the chat log directory (i.e. <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/2025-04-23-sneaking-angry-alien/config.toml</span></code>). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.</p>
+<p>See <a class="reference internal" href="api.html#gptme.config.ChatConfig" title="gptme.config.ChatConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.ChatConfig</span></code></a> for the API reference.</p>
+</section>
 <section id="environment-variables">
-<h3>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h3>
+<span id="id4"></span><h2>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h2>
 <p>Besides the configuration files, gptme supports several environment variables to control its behavior:</p>
 <p class="rubric">Feature Flags</p>
 <ul class="simple">
@@ -462,28 +494,6 @@
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_LOGS_HOME</span></code> - Override the default logs folder location</p></li>
 </ul>
 <p>All boolean flags accept “1”, “true” (case-insensitive) as truthy values.</p>
-</section>
-</section>
-<section id="project-config">
-<span id="id2"></span><h2>Project config<a class="headerlink" href="#project-config" title="Link to this heading">#</a></h2>
-<p>The project configuration file is intended to let the user configure how gptme works within a particular project/workspace.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The project configuration file is a very early feature and is likely to change/break in the future.</p>
-</div>
-<p>gptme will look for a <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> file in the workspace root (this is the working directory if not overridden by the <code class="docutils literal notranslate"><span class="pre">--workspace</span></code> option). This file contains project-specific configuration options.</p>
-<p>Example <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="n">files</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;README.md&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Makefile&quot;</span><span class="p">]</span>
-<span class="n">prompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;This is gptme.&quot;</span>
-</pre></div>
-</div>
-<p>This file currently supports a few options:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">files</span></code>, a list of paths that gptme will always include in the context.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">prompt</span></code>, a string that will be included in the system prompt with a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Current</span> <span class="pre">Project</span></code> header.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">base_prompt</span></code>, a string that will be used as the base prompt for the project. This will override the global base prompt (“You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. […]”). It can be useful to change the identity of the assistant and override some default behaviors.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">rag</span></code>, a dictionary to configure the RAG tool. See <a class="reference internal" href="tools.html#rag"><span class="std std-ref">RAG</span></a> for more information.</p></li>
-</ul>
 </section>
 </section>
 
@@ -533,11 +543,10 @@
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chat-config">Chat config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
 </ul>
   </nav></div>
 
