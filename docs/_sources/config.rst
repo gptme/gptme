@@ -1,11 +1,10 @@
 Configuration
 =============
 
-gptme has three configuration files:
+gptme has two configuration files:
 
 - :ref:`global configuration <global-config>`
 - :ref:`project configuration <project-config>`
-- :ref:`chat configuration <chat-config>`
 
 It also supports environment variables for configuration, which take precedence over the configuration files.
 
@@ -54,8 +53,6 @@ The ``prompt`` section contains options for the prompt.
 The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
 
 If you want to configure MCP servers, you can do so in a ``mcp`` section. See :ref:`mcp` for more information.
-
-See :class:`gptme.config.UserConfig` for the API reference.
 
 Environment Variables
 ~~~~~~~~~~~~~~~~~~~~~
@@ -107,20 +104,4 @@ This file currently supports a few options:
 - ``files``, a list of paths that gptme will always include in the context.
 - ``prompt``, a string that will be included in the system prompt with a ``# Current Project`` header.
 - ``base_prompt``, a string that will be used as the base prompt for the project. This will override the global base prompt ("You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. [...]"). It can be useful to change the identity of the assistant and override some default behaviors.
-- ``context_cmd``, a command used to generate context to include when constructing the system prompt. The command will be run in the workspace root and should output a string that will be included in the system prompt. Examples can be ``git status -v`` or ``scripts/context.sh``.
 - ``rag``, a dictionary to configure the RAG tool. See :ref:`rag` for more information.
-
-See :class:`gptme.config.ProjectConfig` for the API reference.
-
-
-.. _chat-config:
-
-Chat config
------------
-
-The chat configuration file is intended to let the user configure how gptme works within a particular chat.
-It is used to store the model, toolset, and other options for a particular chat.
-
-The chat configuration file is stored as ``config.toml`` in the chat log directory (i.e. ``~/.local/share/gptme/logs/2025-04-23-sneaking-angry-alien/config.toml``). It is automatically generated when a new chat is started.
-
-See :class:`gptme.config.ChatConfig` for the API reference.
