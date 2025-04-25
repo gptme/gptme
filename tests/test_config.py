@@ -36,13 +36,19 @@ name = "my-server"
 enabled = false
 """
 
-test_mcp_server_2 = """
+test_mcp_server_2_enabled = """
 [[mcp.servers]]
 name = "my-server-2"
 enabled = true
 command = "server-command-2"
 args = ["--arg2", "--arg3"]
 env = { API_KEY = "your-key-2" }
+"""
+
+test_mcp_server_2_disabled = """
+[[mcp.servers]]
+name = "my-server-2"
+enabled = false
 """
 
 test_mcp_server_3 = """
@@ -52,6 +58,15 @@ enabled = true
 command = "server-command-3"
 args = ["--arg3", "--arg4"]
 env = { API_KEY = "your-key-3" }
+"""
+
+test_mcp_server_4 = """
+[[mcp.servers]]
+name = "my-server-4"
+enabled = true
+command = "server-command-4"
+args = ["--arg4", "--arg5"]
+env = { API_KEY = "your-key-4" }
 """
 
 chat_config_toml = """
@@ -134,7 +149,7 @@ def test_mcp_config_loaded_in_correct_priority():
             temp_file.write(default_user_config)
             temp_file.write("\n" + default_mcp_config)
             temp_file.write("\n" + test_mcp_server_1_enabled)
-            temp_file.write("\n" + test_mcp_server_2)
+            temp_file.write("\n" + test_mcp_server_2_enabled)
             temp_file.flush()
         config = Config(user=load_user_config(temp_user_config))
         assert config.mcp.enabled is True
@@ -188,6 +203,57 @@ def test_mcp_config_loaded_in_correct_priority():
         assert my_server_3.command == "server-command-3"
         assert my_server_3.args == ["--arg3", "--arg4"]
         assert my_server_3.env == {"API_KEY": "your-key-3"}
+
+        # Load chat config
+        chat_config_toml_str = """
+            [chat]
+            model = "gpt-4o"
+            tools = ["tool1", "tool2"]
+            tool_format = "markdown"
+            stream = true
+            interactive = true
+
+            [mcp]
+            enabled = true
+            auto_start = true
+
+        """
+        chat_config_toml_str += test_mcp_server_2_disabled + "\n\n" + test_mcp_server_4
+        chat_config_dict = tomlkit.loads(chat_config_toml_str)
+        chat_config = ChatConfig.from_dict(chat_config_dict.unwrap())
+        assert chat_config.mcp is not None
+        assert chat_config.mcp.enabled is True
+        assert chat_config.mcp.auto_start is True
+        assert len(chat_config.mcp.servers) == 2
+
+        # Check that the MCP config is merged from the chat config, project config, and the user config
+        # Should have 4 servers:
+        # - my-server (enabled in user config, disabled in project config)
+        # - my-server-2 (added in user config, not in project config, disabled in chat config)
+        # - my-server-3 (added in project config, not in user config)
+        # - my-server-4 (added in chat config, not in user config or project config)
+        config.chat = chat_config
+        assert config.mcp.enabled is True
+        assert config.mcp.auto_start is True
+        assert len(config.mcp.servers) == 4
+        my_server = next(s for s in config.mcp.servers if s.name == "my-server")
+        assert my_server.name == "my-server"
+        assert my_server.enabled is False
+        my_server_2 = next(s for s in config.mcp.servers if s.name == "my-server-2")
+        assert my_server_2.name == "my-server-2"
+        assert my_server_2.enabled is False
+        my_server_3 = next(s for s in config.mcp.servers if s.name == "my-server-3")
+        assert my_server_3.name == "my-server-3"
+        assert my_server_3.enabled is True
+        assert my_server_3.command == "server-command-3"
+        assert my_server_3.args == ["--arg3", "--arg4"]
+        assert my_server_3.env == {"API_KEY": "your-key-3"}
+        my_server_4 = next(s for s in config.mcp.servers if s.name == "my-server-4")
+        assert my_server_4.name == "my-server-4"
+        assert my_server_4.enabled is True
+        assert my_server_4.command == "server-command-4"
+        assert my_server_4.args == ["--arg4", "--arg5"]
+        assert my_server_4.env == {"API_KEY": "your-key-4"}
 
     finally:
         # Delete the temporary files

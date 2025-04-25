@@ -403,15 +403,11 @@ class Config:
         auto_start = self.user.mcp.auto_start
 
         if self.chat and self.chat.mcp:
-            enabled = self.chat.mcp.enabled
-            auto_start = self.chat.mcp.auto_start
             for server in self.chat.mcp.servers:
                 if server.name not in [s.name for s in servers]:
                     servers.append(server)
 
         if self.project and self.project.mcp:
-            enabled = self.project.mcp.enabled
-            auto_start = self.project.mcp.auto_start
             for server in self.project.mcp.servers:
                 if server.name not in [s.name for s in servers]:
                     servers.append(server)
@@ -419,6 +415,14 @@ class Config:
         for server in self.user.mcp.servers:
             if server.name not in [s.name for s in servers]:
                 servers.append(server)
+
+        if self.project and self.project.mcp:
+            enabled = self.project.mcp.enabled
+            auto_start = self.project.mcp.auto_start
+
+        if self.chat and self.chat.mcp:
+            enabled = self.chat.mcp.enabled
+            auto_start = self.chat.mcp.auto_start
 
         mcp = MCPConfig(
             enabled=enabled,
