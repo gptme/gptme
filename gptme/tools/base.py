@@ -177,6 +177,7 @@ class ToolSpec:
     parameters: list[Parameter] = field(default_factory=list)
     load_priority: int = 0
     disabled_by_default: bool = False
+    is_mcp: bool = False
 
     def __repr__(self):
         return f"ToolSpec({self.name})"

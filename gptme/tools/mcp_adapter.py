@@ -91,6 +91,7 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
                     available=True,
                     examples=make_examples(name, example_str),
                     block_types=[name],
+                    is_mcp=True,
                 )
 
                 tool_specs.append(tool_spec)
