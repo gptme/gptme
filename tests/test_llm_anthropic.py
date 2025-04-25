@@ -139,7 +139,7 @@ def test_message_conversion_with_tools():
         {
             "role": "assistant",
             "content": [
-                {"type": "text", "text": "<thinking>\nSomething\n</thinking>\n"},
+                {"type": "text", "text": "<thinking>\nSomething\n</thinking>"},
                 {
                     "type": "tool_use",
                     "id": "tool_call_id",
@@ -182,7 +182,7 @@ def test_message_conversion_with_tool_and_non_tool():
             role="assistant",
             content=(
                 "The script `hello.py` has been created. "
-                "Run it using the command:\n\n```shell\npython hello.py\n```\n"
+                "Run it using the command:\n\n```shell\npython hello.py\n```"
             ),
         ),
         Message(
@@ -230,7 +230,7 @@ def test_message_conversion_with_tool_and_non_tool():
             "content": [
                 {
                     "type": "text",
-                    "text": "The script `hello.py` has been created. Run it using the command:\n\n```shell\npython hello.py\n```\n",
+                    "text": "The script `hello.py` has been created. Run it using the command:\n\n```shell\npython hello.py\n```",
                 }
             ],
         },

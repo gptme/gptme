@@ -22,12 +22,9 @@ if TYPE_CHECKING:
     import anthropic.types  # fmt: skip
     from anthropic import Anthropic  # fmt: skip
 
-
 logger = logging.getLogger(__name__)
 
 _anthropic: "Anthropic | None" = None
-
-ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif"]
 
 
 def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) -> bool:
@@ -335,6 +332,10 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             yield message
 
 
+# File extensions allowed for image uploads
+ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif"]
+
+
 def _process_file(message_dict: dict) -> dict:
     message_content = message_dict["content"]
 
@@ -557,6 +558,14 @@ def _prepare_messages_for_api(
                 content_parts.append(part)  # type: ignore
             else:
                 content_parts.append({"type": "text", "text": str(part)})
+
+        # Anthropic API rejects messages with trailing whitespace in the last assistant message.
+        # We remove trailing whitespace from all assistant messages to ensure consistent requests for caching.
+        if msg["role"] == "assistant":
+            for item in content_parts:
+                if item.get("type") == "text" and isinstance(item.get("text"), str):
+                    item = cast(anthropic.types.TextBlockParam, item)
+                    item["text"] = item["text"].rstrip()
 
         messages_dicts_new.append({"role": msg["role"], "content": content_parts})
 
