@@ -835,26 +835,37 @@ def api_conversation_config_patch(conversation_id: str):
     if not req_json:
         return flask.jsonify({"error": "No JSON data provided"}), 400
 
+    # Create and set config
     request_config = ChatConfig.from_dict(req_json)
     logdir = get_logs_dir() / conversation_id
-    config = ChatConfig.load_or_create(logdir, request_config).save()
+    chat_config = ChatConfig.load_or_create(logdir, request_config).save()
+    config = Config.from_workspace(workspace=chat_config.workspace)
+    config.chat = chat_config
+    set_config(config)
 
     # Initialize tools in this thread
-    init_tools(config.tools)
+    init_tools(chat_config.tools)
+
+    tools = get_tools()
 
     # Update system prompt with new tools
     manager = LogManager.load(conversation_id, lock=False)
     if len(manager.log.messages) >= 1 and manager.log.messages[0].role == "system":
         manager.log.messages[0] = get_prompt(
             tools=get_tools(),
-            tool_format=config.tool_format or "markdown",
-            interactive=config.interactive,
-            model=config.model,
+            tool_format=chat_config.tool_format or "markdown",
+            interactive=chat_config.interactive,
+            model=chat_config.model,
         )
     manager.write()
 
     return flask.jsonify(
-        {"status": "ok", "message": "Chat config updated", "config": config.to_dict()}
+        {
+            "status": "ok",
+            "message": "Chat config updated",
+            "config": chat_config.to_dict(),
+            "tools": [t.name for t in tools],
+        }
     )
 
 
