@@ -246,10 +246,8 @@ class ChatConfig:
         default_factory=Path.cwd
     )  # TODO: Is default value cwd ok for server?
 
-    # TODO: support env in chat config
     env: dict = field(default_factory=dict)
-    # TODO: support mcp in chat config
-    mcp: MCPConfig = field(default_factory=MCPConfig)
+    mcp: MCPConfig | None = None
 
     @classmethod
     def from_dict(cls, config_data: dict) -> Self:
@@ -264,7 +262,11 @@ class ChatConfig:
             chat_data["workspace"] = Path(chat_data["workspace"])
 
         env = config_data.pop("env", {})
-        mcp = MCPConfig.from_dict(config_data.pop("mcp", {}))
+        mcp = (
+            MCPConfig.from_dict(config_data.pop("mcp", {}))
+            if "mcp" in config_data
+            else None
+        )
 
         # Check for unknown keys
         if config_data:
@@ -334,12 +336,17 @@ class ChatConfig:
                     config_dict["chat"] = {}
                 config_dict["chat"][k] = config_dict.pop(k)
 
+        mcp = config_dict.pop("mcp", None)
+
         # sort in chat -> env -> mcp order
         config_dict = {
             "chat": config_dict.pop("chat", {}),
             "env": config_dict.pop("env", {}),
-            "mcp": config_dict.pop("mcp", {}),
         }
+
+        if mcp:
+            config_dict["mcp"] = mcp
+
         return config_dict
 
     @classmethod
@@ -390,20 +397,34 @@ class Config:
         """Get the MCP configuration, merging user and project configurations."""
         mcp = self.user.mcp
 
-        # Override MCP config from project config if present, merging mcp servers
-        if self.project and self.project.mcp:
-            servers = []
-            for server in self.project.mcp.servers:
-                servers.append(server)
-            for server in self.user.mcp.servers:
+        # Override MCP config from project config and chat config if present, merging mcp servers
+        servers: list[MCPServerConfig] = []
+        enabled = self.user.mcp.enabled
+        auto_start = self.user.mcp.auto_start
+
+        if self.chat and self.chat.mcp:
+            enabled = self.chat.mcp.enabled
+            auto_start = self.chat.mcp.auto_start
+            for server in self.chat.mcp.servers:
                 if server.name not in [s.name for s in servers]:
                     servers.append(server)
 
-            mcp = MCPConfig(
-                enabled=self.project.mcp.enabled,
-                auto_start=self.project.mcp.auto_start,
-                servers=servers,
-            )
+        if self.project and self.project.mcp:
+            enabled = self.project.mcp.enabled
+            auto_start = self.project.mcp.auto_start
+            for server in self.project.mcp.servers:
+                if server.name not in [s.name for s in servers]:
+                    servers.append(server)
+
+        for server in self.user.mcp.servers:
+            if server.name not in [s.name for s in servers]:
+                servers.append(server)
+
+        mcp = MCPConfig(
+            enabled=enabled,
+            auto_start=auto_start,
+            servers=servers,
+        )
 
         return mcp
 

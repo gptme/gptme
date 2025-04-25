@@ -81,7 +81,6 @@ chat_config_toml = """
 
 def test_get_config():
     config = get_config()
-    print(f"config: {config}")
     assert config
 
 
@@ -262,6 +261,7 @@ def test_chat_config_loaded_from_toml():
     assert config.interactive is True
     assert config.workspace == Path("~/workspace")
     assert config.env == {"API_KEY": "your-key"}
+    assert config.mcp is not None
     assert config.mcp.enabled is True
     assert config.mcp.auto_start is True
     assert len(config.mcp.servers) == 1
@@ -313,6 +313,7 @@ def test_chat_config_loaded_from_json():
     assert config.interactive is True
     assert config.workspace == Path("~/workspace")
     assert config.env == {"API_KEY": "your-key"}
+    assert config.mcp is not None
     assert config.mcp.enabled is True
     assert config.mcp.auto_start is True
     assert len(config.mcp.servers) == 1
