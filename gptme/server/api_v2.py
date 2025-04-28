@@ -511,7 +511,12 @@ def api_conversation_put(conversation_id: str):
 
     # Set tool allowlist to available tools if not provided
     if not chat_config.tools:
-        chat_config.tools = [t.name for t in get_toolchain(None)]
+        chat_config.tools = [t.name for t in get_toolchain(None) if not t.is_mcp]
+
+    if not chat_config.mcp:
+        # load from user or project config
+        config = Config.from_workspace(chat_config.workspace)
+        chat_config.mcp = config.mcp
 
     # Save the chat config
     chat_config.save()

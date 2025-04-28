@@ -75,7 +75,7 @@ class UserConfig:
     prompt: UserPromptConfig = field(default_factory=UserPromptConfig)
 
     env: dict[str, str] = field(default_factory=dict)
-    mcp: MCPConfig = field(default_factory=MCPConfig)
+    mcp: MCPConfig | None = None
 
 
 @dataclass
@@ -216,7 +216,8 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
         files = config_data.pop("files", [])
         context_cmd = config_data.pop("context_cmd", None)
         rag = RagConfig(**config_data.pop("rag", {}))
-        mcp = MCPConfig.from_dict(config_data.pop("mcp", {}))
+        if mcp := config_data.pop("mcp", None):
+            mcp = MCPConfig.from_dict(mcp)
 
         # Check for unknown keys
         if config_data:
@@ -399,13 +400,13 @@ class Config:
     @property
     def mcp(self) -> MCPConfig:
         """Get the MCP configuration, merging user and project configurations."""
-        mcp = self.user.mcp
-
         # Override MCP config from project config and chat config if present, merging mcp servers
         servers: list[MCPServerConfig] = []
-        enabled = self.user.mcp.enabled
-        auto_start = self.user.mcp.auto_start
 
+        enabled = False
+        auto_start = False
+
+        # merge mcp servers
         if self.chat and self.chat.mcp:
             for server in self.chat.mcp.servers:
                 if server.name not in [s.name for s in servers]:
@@ -416,9 +417,15 @@ class Config:
                 if server.name not in [s.name for s in servers]:
                     servers.append(server)
 
-        for server in self.user.mcp.servers:
-            if server.name not in [s.name for s in servers]:
-                servers.append(server)
+        if self.user and self.user.mcp:
+            for server in self.user.mcp.servers:
+                if server.name not in [s.name for s in servers]:
+                    servers.append(server)
+
+        # merge mcp config
+        if self.user and self.user.mcp:
+            enabled = self.user.mcp.enabled
+            auto_start = self.user.mcp.auto_start
 
         if self.project and self.project.mcp:
             enabled = self.project.mcp.enabled
