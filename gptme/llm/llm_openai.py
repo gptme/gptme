@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import threading
 from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -197,14 +198,16 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
 
 
 def stream(
-    messages: list[Message], model: str, tools: list[ToolSpec] | None
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    interrupt_event: threading.Event | None = None,
 ) -> Generator[str, None, None]:
     from . import _get_base_model, get_provider_from_model  # fmt: skip
 
     provider = get_provider_from_model(model)
     client = get_client(provider)
     base_model = _get_base_model(model)
-    stop_reason = None
 
     from openai import NOT_GIVEN  # fmt: skip
 
@@ -215,7 +218,8 @@ def stream(
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     reasoning = ""
 
-    for chunk_raw in client.chat.completions.create(
+    # Create the stream generator
+    stream = client.chat.completions.create(
         model=base_model,
         messages=messages_dicts,  # type: ignore
         temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
@@ -228,45 +232,69 @@ def stream(
         #     (1000 if not model.startswith("gpt-") else 4096)
         # ),
         extra_headers=(openrouter_headers if provider == "openrouter" else {}),
-    ):
-        from openai.types.chat import ChatCompletionChunk  # fmt: skip
-        from openai.types.chat.chat_completion_chunk import (  # fmt: skip
-            ChoiceDeltaToolCall,
-            ChoiceDeltaToolCallFunction,
-        )
+    )
 
-        # Cast the chunk to the correct type
-        chunk = cast(ChatCompletionChunk, chunk_raw)
+    # When KeyboardInterrupt is raised, Python will call stream.close()
+    # which will trigger cleanup in the OpenAI client
+    try:
+        for chunk_raw in stream:
+            from openai.types.chat import ChatCompletionChunk  # fmt: skip
+            from openai.types.chat.chat_completion_chunk import (  # fmt: skip
+                ChoiceDeltaToolCall,
+                ChoiceDeltaToolCallFunction,
+            )
 
-        if not chunk.choices:
-            # Got a chunk with no choices, Azure always sends one of these at the start
-            continue
+            # Cast the chunk to the correct type
+            chunk = cast(ChatCompletionChunk, chunk_raw)
 
-        choice = chunk.choices[0]
-        stop_reason = choice.finish_reason
-        delta = choice.delta
+            if not chunk.choices:
+                # Got a chunk with no choices, Azure always sends one of these at the start
+                continue
 
-        if reasoning_content := getattr(delta, "reasoning_content", None):
-            reasoning += reasoning_content
-        elif reasoning:
-            logger.info(f"Reasoning content: {reasoning}")
-            reasoning = ""
+            choice = chunk.choices[0]
+            delta = choice.delta
 
-        if delta.content is not None:
-            yield delta.content
+            if reasoning_content := getattr(delta, "reasoning_content", None):
+                reasoning += reasoning_content
+            elif reasoning:
+                logger.info(f"Reasoning content: {reasoning}")
+                reasoning = ""
 
-        # Handle tool calls
-        if delta.tool_calls:
-            for tool_call in delta.tool_calls:
-                if isinstance(tool_call, ChoiceDeltaToolCall) and tool_call.function:
-                    func = tool_call.function
-                    if isinstance(func, ChoiceDeltaToolCallFunction):
-                        if func.name:
-                            yield f"\n@{func.name}({tool_call.id}): "
-                        if func.arguments:
-                            yield func.arguments
+            if delta.content is not None:
+                yield delta.content
 
-    logger.debug(f"Stop reason: {stop_reason}")
+            # Handle tool calls
+            if delta.tool_calls:
+                for tool_call in delta.tool_calls:
+                    if (
+                        isinstance(tool_call, ChoiceDeltaToolCall)
+                        and tool_call.function
+                    ):
+                        func = tool_call.function
+                        if isinstance(func, ChoiceDeltaToolCallFunction):
+                            if func.name:
+                                yield f"\n@{func.name}({tool_call.id}): "
+                            if func.arguments:
+                                yield func.arguments
+
+            # Log stop reason if we get one
+            if choice.finish_reason:
+                logger.debug(
+                    f"Stream completed with stop reason: {choice.finish_reason}"
+                )
+
+            # check interrupt event
+            if interrupt_event and interrupt_event.is_set():
+                logger.debug("Stream cancelled by user")
+                break
+
+    except KeyboardInterrupt:
+        logger.debug("Stream cancelled by user (Ctrl+C)")
+        return
+    finally:
+        # Ensure the stream is properly closed to avoid wasting tokens
+        # https://openrouter.ai/docs/api-reference/streaming#stream-cancellation
+        stream.close()
 
 
 def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:

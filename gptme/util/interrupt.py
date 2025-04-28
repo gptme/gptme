@@ -3,12 +3,15 @@ Sets up a KeyboardInterrupt handler to handle Ctrl-C during the chat loop.
 """
 
 import os
+import threading
 import time
 
 from . import console
 
 interruptible = False
 last_interrupt_time = 0.0
+last_interrupt_times = []
+interrupt_events = set()
 
 
 def handle_keyboard_interrupt(signum, frame):  # pragma: no cover
@@ -25,11 +28,18 @@ def handle_keyboard_interrupt(signum, frame):  # pragma: no cover
     if interruptible or testing:
         raise KeyboardInterrupt
 
+    last_interrupt_time = current_time
+    last_interrupt_times.append(current_time)
+
+    # 3x in 2s span
+    if len(last_interrupt_times) > 3 and last_interrupt_times[-3] > current_time - 2:
+        console.log("Received multiple interrupts in quick succession. Exiting...")
+        raise KeyboardInterrupt
+
     # if current_time - last_interrupt_time <= timeout:
     #     console.log("Second interrupt received, exiting...")
     #     sys.exit(0)
 
-    last_interrupt_time = current_time
     console.print()
     # console.log(
     #     f"Interrupt received. Press Ctrl-C again within {timeout} seconds to exit."
@@ -37,9 +47,11 @@ def handle_keyboard_interrupt(signum, frame):  # pragma: no cover
     console.log("Interrupted. Press Ctrl-D to exit.")
 
 
-def set_interruptible():
+def set_interruptible(event: threading.Event | None = None):
     global interruptible
     interruptible = True
+    if event is not None:
+        interrupt_events.add(event)
 
 
 def clear_interruptible():
