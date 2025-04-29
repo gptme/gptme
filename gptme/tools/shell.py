@@ -125,6 +125,7 @@ class ShellSession:
         atexit.register(self.close)
 
     def _init(self):
+        # Start bash in its own process group
         self.process = subprocess.Popen(
             ["bash"],
             stdin=subprocess.PIPE,
@@ -132,10 +133,15 @@ class ShellSession:
             stderr=subprocess.PIPE,
             bufsize=0,  # Unbuffered
             universal_newlines=True,
+            preexec_fn=os.setsid,  # Create new process group
         )
         self.stdout_fd = self.process.stdout.fileno()  # type: ignore
         self.stderr_fd = self.process.stderr.fileno()  # type: ignore
         self.delimiter = "END_OF_COMMAND_OUTPUT"
+        self.interrupted = False
+
+        # Set up trap for SIGINT that marks command as interrupted
+        self.run(f"trap 'echo \"ReturnCode:130 {self.delimiter}\"; exit 130' SIGINT")
 
         # set GIT_PAGER=cat
         self.run("export PAGER=")
