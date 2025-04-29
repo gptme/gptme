@@ -68,6 +68,64 @@ def print_readme():
     assert Codeblock.iter_from_markdown(markdown) == []
 
 
+def test_extract_codeblocks_nested_oneline():
+    markdown = """
+```python
+def print_readme():
+    print('''
+        ```echo test```
+    ''')
+```
+"""
+    blocks = list(Codeblock.iter_from_markdown(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "python"
+    assert "```echo test```" in blocks[0].content
+
+
+def test_extract_codeblocks_complete_nested():
+    markdown = """
+```python
+def print_readme():
+    print('''Usage:
+```javascript
+console.log('hello')
+```
+    ''')
+```
+"""
+    blocks = list(Codeblock.iter_from_markdown(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "python"
+    assert "```javascript" in blocks[0].content
+
+
+def test_extract_codeblocks_multiple_nested():
+    markdown = """
+```python
+def example():
+    code = '''
+```javascript
+console.log('hello')
+```
+    '''
+    doc = '''
+```html
+<div>test</div>
+```
+    '''
+```
+"""
+    blocks = list(Codeblock.iter_from_markdown(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "python"
+    assert "```javascript" in blocks[0].content
+    assert "```html" in blocks[0].content
+    # check that entire content is extracted
+    assert blocks[0].content.count("```") == 4
+    assert blocks[0].content.count("'''") == 4
+
+
 def test_extract_codeblocks_empty():
     assert Codeblock.iter_from_markdown("") == []
 
