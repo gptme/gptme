@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from contextlib import AsyncExitStack
+import os
 
 from gptme.config import Config, get_config
 
@@ -91,8 +92,13 @@ class MCPClient:
         if not server:
             raise ValueError(f"No MCP server config found for '{server_name}'")
 
+        env = server.env or {}
+
+        # Add env vars to the environment
+        env.update(os.environ)
+
         params = StdioServerParameters(
-            command=server.command, args=server.args, env=server.env
+            command=server.command, args=server.args, env=env
         )
 
         tools, session = self._run_async(self._setup_connection(params))
