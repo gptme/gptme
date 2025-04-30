@@ -25,7 +25,7 @@ import flask
 from flask import request
 
 from gptme.config import ChatConfig, Config, set_config
-from gptme.prompts import get_prompt
+from gptme.prompts import get_prompt, get_workspace_prompt
 
 from ..dirs import get_logs_dir
 from ..llm import _chat_complete, _stream
@@ -474,10 +474,21 @@ def api_conversation(conversation_id: str):
     # Initialize tools in this thread
     init_tools(chat_config.tools)
 
-    log = LogManager.load(conversation_id, lock=False)
-    log_dict = log.to_dict(branches=True)
+    manager = LogManager.load(conversation_id, lock=False)
+    log_dict = manager.to_dict(branches=True)
 
     workspace = chat_config.workspace
+
+    workspace_prompt = get_workspace_prompt(workspace)
+    # FIXME: this is hacky
+    # NOTE: needs to run after the workspace is set
+    # check if message is already in log, such as upon resume
+    if (
+        workspace_prompt
+        and workspace_prompt not in [m.content for m in manager.log]
+        and "user" not in [m.role for m in manager.log]
+    ):
+        manager.append(Message("system", workspace_prompt, hide=True, quiet=True))
 
     # make all paths absolute or relative to workspace (no "../")
     for msg in log_dict["log"]:
