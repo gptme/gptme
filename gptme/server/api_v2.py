@@ -464,11 +464,19 @@ def api_conversations():
 @v2_api.route("/api/v2/conversations/<string:conversation_id>")
 def api_conversation(conversation_id: str):
     """Get a conversation."""
-    init_tools(None)
+    # Create and set config
+    logdir = get_logs_dir() / conversation_id
+    chat_config = ChatConfig.load_or_create(logdir, ChatConfig()).save()
+    config = Config.from_workspace(workspace=chat_config.workspace)
+    config.chat = chat_config
+    set_config(config)
+
+    # Initialize tools in this thread
+    init_tools(chat_config.tools)
+
     log = LogManager.load(conversation_id, lock=False)
     log_dict = log.to_dict(branches=True)
 
-    chat_config = ChatConfig.load_or_create(log.logdir, ChatConfig())
     workspace = chat_config.workspace
 
     # make all paths absolute or relative to workspace (no "../")
