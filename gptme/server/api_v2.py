@@ -21,6 +21,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Literal, TypedDict
 
+from dotenv import load_dotenv
 import flask
 from flask import request
 
@@ -316,6 +317,9 @@ def step(
     # Initialize tools in this thread
     init_tools(chat_config.tools)
 
+    # Load .env file if present
+    load_dotenv(dotenv_path=workspace / ".env")
+
     # Load conversation
     manager = LogManager.load(
         conversation_id,
@@ -528,6 +532,9 @@ def api_conversation_put(conversation_id: str):
     # Load or create the chat config, overriding values from request config if provided
     request_config = ChatConfig.from_dict(req_json.get("config", {}))
     chat_config = ChatConfig.load_or_create(logdir, request_config)
+
+    # Load .env file if present
+    load_dotenv(dotenv_path=chat_config.workspace / ".env")
 
     # Set tool allowlist to available tools if not provided
     if not chat_config.tools:
@@ -922,6 +929,9 @@ def start_tool_execution(
 
         # Initialize tools in this thread
         init_tools(None)
+
+        # Load .env file if present
+        load_dotenv(dotenv_path=chat_config.workspace / ".env")
 
         # Load the conversation
         manager = LogManager.load(conversation_id, lock=False)
