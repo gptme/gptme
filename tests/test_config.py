@@ -1,12 +1,17 @@
-from dataclasses import replace
 import json
 import os
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
-from gptme.config import Config, get_config, load_user_config, ChatConfig, MCPConfig
-
 import tomlkit
+from gptme.config import (
+    ChatConfig,
+    Config,
+    MCPConfig,
+    get_config,
+    load_user_config,
+)
 
 default_user_config = """[prompt]
 about_user = "I am a curious human programmer."
@@ -70,28 +75,66 @@ env = { API_KEY = "your-key-4" }
 """
 
 chat_config_toml = """
-    [chat]
-    model = "gpt-4o"
-    tools = ["tool1", "tool2"]
-    tool_format = "markdown"
-    stream = true
-    interactive = true
-    workspace = "~/workspace"
+[chat]
+model = "gpt-4o"
+tools = ["tool1", "tool2"]
+tool_format = "markdown"
+stream = true
+interactive = true
+workspace = "~/workspace"
 
-    [env]
-    API_KEY = "your-key"
+[env]
+API_KEY = "your-key"
 
-    [mcp]
-    enabled = true
-    auto_start = true
+[mcp]
+enabled = true
+auto_start = true
 
-    [[mcp.servers]]
-    name = "my-server"
-    enabled = true
-    command = "server-command"
-    args = ["--arg1", "--arg2"]
-    env = { API_KEY = "your-key" }
+[[mcp.servers]]
+name = "my-server"
+enabled = true
+command = "server-command"
+args = ["--arg1", "--arg2"]
+env = { API_KEY = "your-key" }
 """
+
+config_mcp_json = """{
+    "enabled": true,
+    "auto_start": true,
+    "servers": [
+        {
+            "name": "my-server",
+            "enabled": true,
+            "command": "server-command",
+            "args": ["--arg1", "--arg2"],
+            "env": {
+                "API_KEY": "your-key"
+            }
+        }
+    ]
+}"""
+
+
+config_json = (
+    """
+{
+    "chat": {
+        "model": "gpt-4o",
+        "tools": ["tool1", "tool2"],
+        "tool_format": "markdown",
+        "stream": true,
+        "interactive": true,
+        "workspace": "~/workspace"
+    },
+    "env": {
+        "API_KEY": "your-key"
+    },
+    "mcp": """
+    + config_mcp_json
+    + """
+}
+"""
+)
 
 
 def test_get_config():
@@ -291,22 +334,7 @@ def test_mcp_config_loaded_from_toml():
 
 
 def test_mcp_config_loaded_from_json():
-    config_json = """{
-        "enabled": true,
-        "auto_start": true,
-        "servers": [
-            {
-                "name": "my-server",
-                "enabled": true,
-                "command": "server-command",
-                "args": ["--arg1", "--arg2"],
-                "env": {
-                    "API_KEY": "your-key"
-                }
-            }
-        ]
-    }"""
-    config = MCPConfig.from_dict(json.loads(config_json))
+    config = MCPConfig.from_dict(json.loads(config_mcp_json))
 
     assert config.enabled is True
     assert config.auto_start is True
@@ -338,38 +366,8 @@ def test_chat_config_loaded_from_toml():
     assert my_server.args == ["--arg1", "--arg2"]
     assert my_server.env == {"API_KEY": "your-key"}
 
-    return config
-
 
 def test_chat_config_loaded_from_json():
-    config_json = """{
-        "chat": {
-            "model": "gpt-4o",
-            "tools": ["tool1", "tool2"],
-            "tool_format": "markdown",
-            "stream": true,
-            "interactive": true,
-            "workspace": "~/workspace"
-        },
-        "env": {
-            "API_KEY": "your-key"
-        },
-        "mcp": {
-            "enabled": true,
-            "auto_start": true,
-            "servers": [
-                {
-                    "name": "my-server",
-                    "enabled": true,
-                    "command": "server-command",
-                    "args": ["--arg1", "--arg2"],
-                    "env": {
-                        "API_KEY": "your-key"
-                    }
-                }
-            ]
-        }
-    }"""
     config = ChatConfig.from_dict(json.loads(config_json))
 
     assert config.model == "gpt-4o"
@@ -390,11 +388,9 @@ def test_chat_config_loaded_from_json():
     assert my_server.args == ["--arg1", "--arg2"]
     assert my_server.env == {"API_KEY": "your-key"}
 
-    return config
-
 
 def test_chat_config_to_dict():
-    config = test_chat_config_loaded_from_json()
+    config = ChatConfig.from_dict(json.loads(config_json))
     config_dict = config.to_dict()
     assert config_dict["chat"]["model"] == "gpt-4o"
     assert config_dict["chat"]["tools"] == ["tool1", "tool2"]
@@ -419,7 +415,7 @@ def test_chat_config_to_dict():
 
 
 def test_chat_config_to_toml():
-    config = test_chat_config_loaded_from_toml()
+    config = ChatConfig.from_dict(json.loads(config_json))
     config_dict = config.to_dict()
     toml_str = tomlkit.dumps(config_dict)
     config_new = ChatConfig.from_dict(tomlkit.loads(toml_str).unwrap())
