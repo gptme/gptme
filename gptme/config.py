@@ -267,6 +267,9 @@ class ChatConfig:
         # Convert workspace to Path if present
         if "workspace" in chat_data:
             chat_data["workspace"] = Path(chat_data["workspace"])
+        # For old-style config, check if workspace is in the logdir
+        elif _logdir and (_logdir / "workspace").exists():
+            chat_data["workspace"] = (_logdir / "workspace").resolve()
 
         env = config_data.pop("env", {})
         mcp = (
@@ -291,6 +294,12 @@ class ChatConfig:
         """Load ChatConfig from a log directory."""
         chat_config_path = path / "config.toml"
         if not chat_config_path.exists():
+            if (path / "workspace").exists():
+                workspace = (path / "workspace").resolve()
+                return cls(_logdir=path, workspace=workspace)
+            logger.warning(
+                f"Neither chat config nor workspace found at {path}, using default config."
+            )
             return cls(_logdir=path)
         try:
             with open(chat_config_path) as f:
@@ -313,6 +322,11 @@ class ChatConfig:
         # TODO: load and update this properly as TOMLDocument to preserve formatting
         with open(chat_config_path, "w") as f:
             tomlkit.dump(config_dict, f)
+
+        # Set the workspace symlink in the logdir
+        workspace_path = self._logdir / "workspace"
+        workspace_path.unlink(missing_ok=True)
+        workspace_path.symlink_to(self.workspace)
 
         return self
 
@@ -397,6 +411,16 @@ class Config:
         return cls(
             user=load_user_config(),
             project=get_project_config(workspace),
+        )
+
+    @classmethod
+    def from_logdir(cls, logdir: Path) -> Self:
+        """Load the configuration from a log directory."""
+        chat_config = ChatConfig.from_logdir(logdir)
+        return cls(
+            user=load_user_config(),
+            project=get_project_config(chat_config.workspace),
+            chat=chat_config,
         )
 
     @property
