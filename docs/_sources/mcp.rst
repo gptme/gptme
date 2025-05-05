@@ -43,30 +43,41 @@ Configuration Options
 MCP Server Examples
 -------------------
 
-Memory Server
+SQLite Server
 ~~~~~~~~~~~~~
 
-The memory server is a useful example of an MCP server that provides persistent knowledge storage:
+The SQLite server provides database interaction and business intelligence capabilities through SQLite. It enables running SQL queries, analyzing business data, and automatically generating business insight memos:
 
 .. code-block:: toml
 
     [[mcp.servers]]
-    name = "memory"
+    name = "sqlite"
     enabled = true
-    command = "npx"
+    command = "uvx"
     args = [
-        "-y",
-        "@modelcontextprotocol/server-memory"
+        "mcp-server-sqlite",
+        "--db-path",
+        "/path/to/sqlitemcp-store.sqlite"
     ]
-    env = { MEMORY_FILE_PATH = "/path/to/memory.json" }
 
-The memory server provides these tools for knowledge graph manipulation:
+The server provides these core tools:
 
-- ``create_entities``: Create new entities with observations
-- ``create_relations``: Create relationships between entities
-- ``add_observations``: Add new observations to entities
-- ``read_graph``: Read the entire knowledge graph
-- ``search_nodes``: Search for entities and their relations
+Query Tools:
+    - ``read_query``: Execute SELECT queries to read data
+    - ``write_query``: Execute INSERT, UPDATE, or DELETE queries
+    - ``create_table``: Create new tables in the database
+
+Schema Tools:
+    - ``list_tables``: Get a list of all tables
+    - ``describe_table``: View schema information for a specific table
+
+Analysis Tools:
+    - ``append_insight``: Add business insights to the memo resource
+
+Resources:
+    - ``memo://insights``: A continuously updated business insights memo
+
+The server also includes a demonstration prompt ``mcp-demo`` that guides users through database operations and analysis.
 
 Running MCP Servers
 -------------------
