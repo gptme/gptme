@@ -21,10 +21,9 @@ from itertools import islice
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from dotenv import load_dotenv
 import flask
+from dotenv import load_dotenv
 from flask import request
-
 from gptme.config import ChatConfig, Config, set_config
 from gptme.prompts import get_prompt, get_workspace_prompt
 
@@ -33,7 +32,13 @@ from ..llm import _chat_complete, _stream
 from ..llm.models import get_default_model
 from ..logmanager import LogManager, get_user_conversations, prepare_messages
 from ..message import Message
-from ..tools import ToolUse, get_toolchain, get_tools, init_tools
+from ..tools import (
+    ToolUse,
+    get_toolchain,
+    get_tools,
+    init_tools,
+)
+from .api import _abs_to_rel_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +51,7 @@ class MessageDict(TypedDict):
     role: str
     content: str
     timestamp: str
+    files: list[str] | None
 
 
 class ToolUseDict(TypedDict):
@@ -269,11 +275,7 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
         session.conversation_id,
         {
             "type": "message_added",
-            "message": {
-                "role": msg.role,
-                "content": msg.content,
-                "timestamp": msg.timestamp.isoformat(),
-            },
+            "message": msg2dict(msg, manager.workspace),
         },
     )
 
@@ -385,11 +387,7 @@ def step(
             conversation_id,
             {
                 "type": "generation_complete",
-                "message": {
-                    "role": "assistant",
-                    "content": output,
-                    "timestamp": msg.timestamp.isoformat(),
-                },
+                "message": msg2dict(msg, manager.workspace),
             },
         )
 
@@ -497,14 +495,7 @@ def api_conversation(conversation_id: str):
     # make all paths absolute or relative to workspace (no "../")
     for msg in log_dict["log"]:
         if files := msg.get("files"):
-            msg["files"] = [
-                (
-                    str(path.relative_to(workspace))
-                    if (path := Path(f).resolve()).is_relative_to(workspace)
-                    else str(path)
-                )
-                for f in files
-            ]
+            msg["files"] = [_abs_to_rel_workspace(f, workspace) for f in files]
     return flask.jsonify(log_dict)
 
 
@@ -560,6 +551,16 @@ def api_conversation_put(conversation_id: str):
     )
 
 
+def msg2dict(msg: Message, workspace: Path) -> MessageDict:
+    """Convert a Message object to a dictionary."""
+    return {
+        "role": msg.role,
+        "content": msg.content,
+        "timestamp": msg.timestamp.isoformat(),
+        "files": [_abs_to_rel_workspace(f, workspace) for f in msg.files],
+    }
+
+
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["POST"])
 def api_conversation_post(conversation_id: str):
     """Append a message to a conversation."""
@@ -593,11 +594,7 @@ def api_conversation_post(conversation_id: str):
         conversation_id,
         {
             "type": "message_added",
-            "message": {
-                "role": msg.role,
-                "content": msg.content,
-                "timestamp": msg.timestamp.isoformat(),
-            },
+            "message": msg2dict(msg, log.workspace),
         },
     )
 
@@ -858,9 +855,10 @@ def api_conversation_config(conversation_id: str):
         chat_config = ChatConfig.from_logdir(logdir)
         return flask.jsonify(chat_config.to_dict())
     else:
-        return flask.jsonify(
-            {"error": f"Chat config not found: {conversation_id}"}
-        ), 404
+        return (
+            flask.jsonify({"error": f"Chat config not found: {conversation_id}"}),
+            404,
+        )
 
 
 @v2_api.route(
@@ -872,9 +870,10 @@ def api_conversation_config_patch(conversation_id: str):
     if not req_json:
         return flask.jsonify({"error": "No JSON data provided"}), 400
 
+    logdir = get_logs_dir() / conversation_id
+
     # Create and set config
     request_config = ChatConfig.from_dict(req_json)
-    logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, request_config).save()
     config = Config.from_workspace(workspace=chat_config.workspace)
     config.chat = chat_config

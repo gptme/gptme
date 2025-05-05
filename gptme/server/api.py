@@ -45,6 +45,14 @@ def api_conversations():
     return flask.jsonify(conversations)
 
 
+def _abs_to_rel_workspace(path: str | Path, workspace: Path) -> str:
+    """Convert an absolute path to a relative path."""
+    path = Path(path).resolve()
+    if path.is_relative_to(workspace):
+        return str(path.relative_to(workspace))
+    return str(path)
+
+
 @api.route("/api/conversations/<string:logfile>")
 def api_conversation(logfile: str):
     """Get a conversation."""
@@ -54,14 +62,7 @@ def api_conversation(logfile: str):
     # make all paths absolute or relative to workspace (no "../")
     for msg in log_dict["log"]:
         if files := msg.get("files"):
-            msg["files"] = [
-                (
-                    str(path.relative_to(log.workspace))
-                    if (path := Path(f).resolve()).is_relative_to(log.workspace)
-                    else str(path)
-                )
-                for f in files
-            ]
+            msg["files"] = [_abs_to_rel_workspace(f, log.workspace) for f in files]
     return flask.jsonify(log_dict)
 
 
@@ -251,7 +252,17 @@ def api_conversation_generate(logfile: str):
                     f"Tool output: {reply_msg.role} - {reply_msg.content[:100]}..."
                 )
                 manager.append(reply_msg)
-                yield f"data: {flask.json.dumps({'role': reply_msg.role, 'content': reply_msg.content, 'stored': True})}\n\n"
+                # Include files in the streamed response if present
+                response_data = {
+                    "role": reply_msg.role,
+                    "content": reply_msg.content,
+                    "files": [
+                        _abs_to_rel_workspace(path, manager.workspace)
+                        for path in reply_msg.files
+                    ],
+                    "stored": True,
+                }
+                yield f"data: {flask.json.dumps(response_data)}\n\n"
 
             # Check if we need to continue generating
             if tool_replies and any(
