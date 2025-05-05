@@ -456,6 +456,7 @@
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config"><code class="docutils literal notranslate"><span class="pre">Config</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.__init__"><code class="docutils literal notranslate"><span class="pre">Config.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.from_logdir"><code class="docutils literal notranslate"><span class="pre">Config.from_logdir()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.from_workspace"><code class="docutils literal notranslate"><span class="pre">Config.from_workspace()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.get_env"><code class="docutils literal notranslate"><span class="pre">Config.get_env()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.get_env_required"><code class="docutils literal notranslate"><span class="pre">Config.get_env_required()</span></code></a></li>
@@ -897,6 +898,12 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 <dd></dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="gptme.config.Config.from_logdir">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_logdir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">logdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Self</span></span></span><a class="headerlink" href="#gptme.config.Config.from_logdir" title="Link to this definition">#</a></dt>
+<dd><p>Load the configuration from a log directory.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.Config.from_workspace">
 <em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_workspace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Self</span></span></span><a class="headerlink" href="#gptme.config.Config.from_workspace" title="Link to this definition">#</a></dt>
 <dd><p>Load the configuration from a workspace directory. Clearing any cache.</p>
@@ -1257,6 +1264,7 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config"><code class="docutils literal notranslate"><span class="pre">Config</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.__init__"><code class="docutils literal notranslate"><span class="pre">Config.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.from_logdir"><code class="docutils literal notranslate"><span class="pre">Config.from_logdir()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.from_workspace"><code class="docutils literal notranslate"><span class="pre">Config.from_workspace()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.get_env"><code class="docutils literal notranslate"><span class="pre">Config.get_env()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.get_env_required"><code class="docutils literal notranslate"><span class="pre">Config.get_env_required()</span></code></a></li>
