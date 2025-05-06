@@ -583,13 +583,21 @@ def api_conversation_post(conversation_id: str):
 def api_conversation_delete(conversation_id: str):
     """Delete a conversation."""
 
+    # Validate conversation_id to prevent path traversal
+    if "/" in conversation_id or ".." in conversation_id:
+        return flask.jsonify({"error": "Invalid conversation_id"}), 400
+
     logdir = get_logs_dir() / conversation_id
     if not logdir.exists():
         return flask.jsonify(
             {"error": f"Conversation not found: {conversation_id}"}
         ), 404
 
-    shutil.rmtree(logdir)
+    try:
+        shutil.rmtree(logdir)
+    except OSError as e:
+        logger.error(f"Error deleting conversation {conversation_id}: {e}")
+        return flask.jsonify({"error": f"Could not delete conversation: {e}"}), 500
 
     SessionManager.remove_all_sessions_for_conversation(conversation_id)
 
