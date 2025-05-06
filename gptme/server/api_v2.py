@@ -10,6 +10,7 @@ Key improvements:
 
 import dataclasses
 import logging
+import shutil
 import threading
 import uuid
 from collections import defaultdict
@@ -258,6 +259,12 @@ class SessionManager:
                 if not cls._conversation_sessions[conversation_id]:
                     del cls._conversation_sessions[conversation_id]
             del cls._sessions[session_id]
+
+    @classmethod
+    def remove_all_sessions_for_conversation(cls, conversation_id: str) -> None:
+        """Remove all sessions for a conversation."""
+        for session in cls.get_sessions_for_conversation(conversation_id):
+            cls.remove_session(session.id)
 
 
 # Helper Functions for Generation
@@ -568,6 +575,23 @@ def api_conversation_post(conversation_id: str):
             },
         },
     )
+
+    return flask.jsonify({"status": "ok"})
+
+
+@v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["DELETE"])
+def api_conversation_delete(conversation_id: str):
+    """Delete a conversation."""
+
+    logdir = get_logs_dir() / conversation_id
+    if not logdir.exists():
+        return flask.jsonify(
+            {"error": f"Conversation not found: {conversation_id}"}
+        ), 404
+
+    shutil.rmtree(logdir)
+
+    SessionManager.remove_all_sessions_for_conversation(conversation_id)
 
     return flask.jsonify({"status": "ok"})
 
