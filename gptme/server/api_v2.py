@@ -588,6 +588,7 @@ def api_conversation_delete(conversation_id: str):
         return flask.jsonify({"error": "Invalid conversation_id"}), 400
 
     logdir = get_logs_dir() / conversation_id
+    assert logdir.parent == get_logs_dir()
     if not logdir.exists():
         return flask.jsonify(
             {"error": f"Conversation not found: {conversation_id}"}
