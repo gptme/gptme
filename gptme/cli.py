@@ -11,7 +11,7 @@ import click
 from pick import pick
 
 from . import __version__
-from .chat import chat
+from .chat import chat, init_workspace
 from .commands import _gen_help
 from .config import setup_config_from_cli
 from .constants import MULTIPROMPT_SEPARATOR
@@ -246,6 +246,8 @@ def main(
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
+    init_workspace(workspace_path, logdir)
+
     # Setup complete configuration from CLI arguments and workspace
     config = setup_config_from_cli(
         workspace=workspace_path,
@@ -272,6 +274,7 @@ def main(
             interactive=config.chat.interactive,
             tool_format=config.chat.tool_format,
             model=config.chat.model,
+            workspace=workspace_path,
         )
     ]
 
@@ -284,12 +287,12 @@ def main(
             prompt_msgs,
             initial_msgs,
             logdir,
+            config.chat.workspace,
             config.chat.model,
             config.chat.stream,
             no_confirm,
             config.chat.interactive,
             show_hidden,
-            config.chat.workspace,
             config.chat.tools,
             config.chat.tool_format,
         )

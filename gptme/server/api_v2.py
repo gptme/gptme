@@ -26,7 +26,7 @@ import flask
 from dotenv import load_dotenv
 from flask import request
 from gptme.config import ChatConfig, Config, set_config
-from gptme.prompts import get_prompt, get_workspace_prompt
+from gptme.prompts import get_prompt
 
 from ..dirs import get_logs_dir
 from ..llm import _chat_complete, _stream
@@ -499,6 +499,9 @@ def api_conversation_put(conversation_id: str):
 
     req_json = flask.request.json or {}
 
+    # Create the log directory
+    logdir.mkdir(parents=True)
+
     # Load or create the chat config, overriding values from request config if provided
     request_config = ChatConfig.from_dict(req_json.get("config", {}))
     chat_config = ChatConfig.load_or_create(logdir, request_config)
@@ -511,11 +514,9 @@ def api_conversation_put(conversation_id: str):
             tool_format=chat_config.tool_format or "markdown",
             model=chat_config.model,
             prompt=prompt,
+            workspace=chat_config.workspace,
         )
     ]
-
-    if workspace_prompt := get_workspace_prompt(chat_config.workspace):
-        msgs += [Message("system", workspace_prompt, hide=True, quiet=True)]
 
     for msg in req_json.get("messages", []):
         timestamp: datetime = (
@@ -525,7 +526,7 @@ def api_conversation_put(conversation_id: str):
         )
         msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
 
-    logdir.mkdir(parents=True)
+    logdir.mkdir(parents=True, exist_ok=True)
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
 
@@ -540,6 +541,9 @@ def api_conversation_put(conversation_id: str):
 
     # Save the chat config
     chat_config.save()
+
+    # Initialize tools in this thread
+    init_tools(chat_config.tools)
 
     # Create a session for this conversation
     session = SessionManager.create_session(conversation_id)
@@ -912,10 +916,11 @@ def api_conversation_config_patch(conversation_id: str):
     manager = LogManager.load(conversation_id, lock=False)
     if len(manager.log.messages) >= 1 and manager.log.messages[0].role == "system":
         manager.log.messages[0] = get_prompt(
-            tools=get_tools(),
+            tools=tools,
             tool_format=chat_config.tool_format or "markdown",
             interactive=chat_config.interactive,
             model=chat_config.model,
+            workspace=chat_config.workspace,
         )
     manager.write()
 

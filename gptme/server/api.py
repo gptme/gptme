@@ -99,7 +99,7 @@ def api_conversation_file(logfile: str, filename: str):
 def api_conversation_put(logfile: str):
     """Create a conversation."""
     from ..config import ChatConfig
-    from ..prompts import get_prompt, get_workspace_prompt
+    from ..prompts import get_prompt
     from ..tools import get_toolchain
 
     logdir = get_logs_dir() / logfile
@@ -121,11 +121,9 @@ def api_conversation_put(logfile: str):
             tool_format=chat_config.tool_format or "markdown",
             model=chat_config.model,
             prompt=prompt,
+            workspace=chat_config.workspace,
         )
     ]
-
-    if workspace_prompt := get_workspace_prompt(chat_config.workspace):
-        msgs += [Message("system", workspace_prompt, hide=True, quiet=True)]
 
     # Add any additional messages from request
     for msg in req_json.get("messages", []):

@@ -12,7 +12,6 @@ from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import Message
-from .prompts import get_workspace_prompt
 from .tools import (
     ConfirmFunc,
     ToolFormat,
@@ -43,12 +42,12 @@ def chat(
     prompt_msgs: list[Message],
     initial_msgs: list[Message],
     logdir: Path,
+    workspace: Path,
     model: str | None,
     stream: bool = True,
     no_confirm: bool = False,
     interactive: bool = True,
     show_hidden: bool = False,
-    workspace: Path | None = None,
     tool_allowlist: list[str] | None = None,
     tool_format: ToolFormat | None = None,
 ) -> None:
@@ -92,20 +91,8 @@ def chat(
     set_tool_format(tool_format)
 
     # Initialize workspace
-    workspace = _init_workspace(workspace, logdir)
     console.log(f"Using workspace at {path_with_tilde(workspace)}")
     os.chdir(workspace)
-
-    workspace_prompt = get_workspace_prompt(workspace)
-    # FIXME: this is hacky
-    # NOTE: needs to run after the workspace is set
-    # check if message is already in log, such as upon resume
-    if (
-        workspace_prompt
-        and workspace_prompt not in [m.content for m in manager.log]
-        and "user" not in [m.role for m in manager.log]
-    ):
-        manager.append(Message("system", workspace_prompt, hide=True, quiet=True))
 
     # print log
     manager.log.print(show_hidden=show_hidden)
@@ -362,7 +349,7 @@ def check_changes() -> str | None:
     return run_precommit_checks()
 
 
-def _init_workspace(workspace: Path | None, logdir: Path | None = None) -> Path:
+def init_workspace(workspace: Path | None, logdir: Path | None = None) -> Path:
     """Initialize workspace and return the workspace path.
 
     If workspace is None, use current directory.

@@ -1,6 +1,7 @@
 from pathlib import Path
 import random
 import time
+from datetime import datetime
 from typing import cast, Any
 
 import pytest
@@ -8,6 +9,7 @@ from flask.testing import FlaskClient
 import tomlkit  # noqa
 from gptme.config import ChatConfig, MCPConfig
 from gptme.llm.models import ModelMeta, get_default_model
+from gptme.prompts import get_prompt
 from gptme.tools import get_toolchain
 
 # Skip if flask not installed
@@ -88,6 +90,47 @@ def test_v2_conversation_get(v2_conv, client: FlaskClient):
     assert len(data["log"]) >= 1  # At least custom system prompt
     assert data["log"][0]["role"] == "system"
     assert "testing" in data["log"][0]["content"]
+
+
+def test_v2_create_conversation_default_system_prompt(client: FlaskClient):
+    """Test creating a V2 conversation with a default system prompt."""
+    convname = f"test-server-v2-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Hello, this is a test message.",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    conversation_id = response.get_json()["conversation_id"]
+
+    response = client.get(f"/api/v2/conversations/{conversation_id}")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert "log" in data
+    assert len(data["log"]) == 2
+    assert data["log"][0]["role"] == "system"
+    assert data["log"][1]["role"] == "user"
+    assert data["log"][1]["content"] == "Hello, this is a test message."
+
+    # Check that the system prompt is the default one
+    workspace = Path.cwd()
+    prompt = get_prompt(
+        tools=[t for t in get_toolchain(None)],
+        interactive=True,
+        tool_format="markdown",
+        model=None,
+        prompt="full",
+        workspace=workspace,
+    )
+    assert data["log"][0]["content"] == prompt.content
 
 
 def test_v2_conversation_post(v2_conv, client: FlaskClient):

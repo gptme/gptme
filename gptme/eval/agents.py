@@ -3,6 +3,7 @@ from abc import abstractmethod
 
 from gptme import Message
 from gptme import chat as gptme_chat
+from gptme.chat import init_workspace
 from gptme import get_prompt
 from gptme.cli import get_name
 from gptme.dirs import get_logs_dir
@@ -42,6 +43,7 @@ class GPTMe(Agent):
             raise FileExistsError(
                 f"Workspace directory {workspace_dir} already exists."
             )
+        init_workspace(workspace_dir, log_dir)
 
         store = FileStore(working_dir=workspace_dir)
         if files:
@@ -52,7 +54,7 @@ class GPTMe(Agent):
 
         print("\n--- Start of generation ---")
         logger.debug(f"Working in {store.working_dir}")
-        prompt_sys = get_prompt(tools=tools)
+        prompt_sys = get_prompt(tools=tools, workspace=workspace_dir)
         prompt_sys = prompt_sys.replace(
             content=prompt_sys.content
             + "\n\nIf you have trouble and dont seem to make progress, stop trying."
