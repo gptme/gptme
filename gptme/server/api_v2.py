@@ -584,7 +584,7 @@ def api_conversation_delete(conversation_id: str):
     """Delete a conversation."""
 
     # Validate conversation_id to prevent path traversal
-    if "/" in conversation_id or ".." in conversation_id:
+    if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
         return flask.jsonify({"error": "Invalid conversation_id"}), 400
 
     logdir = get_logs_dir() / conversation_id
