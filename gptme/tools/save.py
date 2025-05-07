@@ -2,6 +2,7 @@
 Gives the assistant the ability to save whole files, or append to them.
 """
 
+import re
 from collections.abc import Generator
 from pathlib import Path
 
@@ -84,11 +85,22 @@ def preview_append(content: str, path: Path | None) -> str | None:
     return preview_save(new, path)
 
 
+# Regex for detecting placeholder lines like "# ... rest of content" or "// ... content here"
+re_placeholder = re.compile(r"^\s*(#|//|\"{3})\s*\.{3}.*$", re.MULTILINE)
+
+
+def check_for_placeholders(content: str) -> bool:
+    """Check if content contains placeholder lines."""
+    return bool(re_placeholder.search(content))
+
+
 def execute_save_impl(
     content: str, path: Path | None, confirm: ConfirmFunc
 ) -> Generator[Message, None, None]:
     """Actual save implementation."""
     assert path
+    path_display = path
+    path = path.expanduser()
 
     # Ensure content ends with newline
     if not content.endswith("\n"):
@@ -96,13 +108,13 @@ def execute_save_impl(
 
     # Check if file exists
     if path.exists():
-        if not confirm("File exists, overwrite?"):
+        if not confirm(f"File {path_display} exists, overwrite?"):
             yield Message("system", "Save aborted: user refused to overwrite the file.")
             return
 
     # Check if folder exists
     if not path.parent.exists():
-        if not confirm("Folder doesn't exist, create it?"):
+        if not confirm(f"Folder {path_display.parent} doesn't exist, create it?"):
             yield Message(
                 "system", "Save aborted: user refused to create a missing folder."
             )
@@ -112,7 +124,7 @@ def execute_save_impl(
     # Save the file
     with open(path, "w") as f:
         f.write(content)
-    yield Message("system", f"Saved to {path}")
+    yield Message("system", f"Saved to {path_display}")
 
 
 def execute_append_impl(
@@ -122,6 +134,17 @@ def execute_append_impl(
     assert path
     path_display = path
     path = path.expanduser()
+
+    # Check if folder exists first
+    if not path.parent.exists():
+        if not confirm(f"Folder {path_display.parent} doesn't exist, create it?"):
+            yield Message(
+                "system", "Append aborted: user refused to create a missing folder."
+            )
+            return
+        path.parent.mkdir(parents=True)
+
+    # Then check if file exists
     if not path.exists():
         if not confirm(f"File {path_display} doesn't exist, create it?"):
             yield Message(
@@ -129,16 +152,17 @@ def execute_append_impl(
                 "Append aborted: user refused to create the missing destination file.",
             )
             return
+        path.touch()
 
-    # strip leading newlines
-    # content = content.lstrip("\n")
-    # ensure it ends with a newline
+    # Ensure content ends with newline
     if not content.endswith("\n"):
         content += "\n"
 
+    # Add newline before content if existing file doesn't end with one
     before = path.read_text()
-    if not before.endswith("\n"):
+    if before and not before.endswith("\n"):
         content = "\n" + content
+
     with open(path, "a") as f:
         f.write(content)
     yield Message("system", f"Appended to {path_display}")
@@ -151,6 +175,19 @@ def execute_save(
     confirm: ConfirmFunc,
 ) -> Generator[Message, None, None]:
     """Save code to a file."""
+    if not code:
+        yield Message("system", "No content provided")
+        return
+
+    if check_for_placeholders(code):
+        yield Message(
+            "system",
+            "Save aborted: Content contains placeholder lines (e.g. '# ...' or '// ...'). "
+            "Please provide the complete content or use the patch tool for partial changes.",
+        )
+        return
+
+    # Only proceed with confirmation if no placeholders were found
     yield from execute_with_confirmation(
         code,
         args,
@@ -172,6 +209,24 @@ def execute_append(
     confirm: ConfirmFunc,
 ) -> Generator[Message, None, None]:
     """Append code to a file."""
+    if not code:
+        yield Message("system", "No content provided")
+        return
+
+    if check_for_placeholders(code):
+        yield Message(
+            "system",
+            "Append aborted: Content contains placeholder lines (e.g. '# ...' or '// ...'). "
+            "Please provide the complete content to append.",
+        )
+        return
+
+    path = get_path(code, args, kwargs)
+    if not path:
+        yield Message("system", "No path provided")
+        return
+
+    # Only proceed with confirmation if no placeholders were found
     yield from execute_with_confirmation(
         code,
         args,
@@ -180,8 +235,8 @@ def execute_append(
         execute_fn=execute_append_impl,
         get_path_fn=get_path,
         preview_fn=preview_append,
-        preview_lang="diff",
-        confirm_msg=f"Append to {get_path(code, args, kwargs)}?",
+        preview_lang="diff" if path.exists() else None,  # Only show diff if file exists
+        confirm_msg=f"Append to {path}?",
         allow_edit=True,
     )
 
