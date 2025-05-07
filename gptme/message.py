@@ -52,6 +52,11 @@ class Message:
 
     def __post_init__(self):
         assert isinstance(self.timestamp, datetime)
+        assert (
+            self.content.rstrip() == self.content
+        ), "Content should not have trailing whitespace: {}".format(
+            "\n".join(self.content.splitlines()[-3:])
+        )
 
     def __repr__(self):
         content = textwrap.shorten(self.content, 20, placeholder="...")

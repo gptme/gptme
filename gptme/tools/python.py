@@ -15,9 +15,9 @@ from contextlib import contextmanager
 from logging import getLogger
 from typing import TYPE_CHECKING, TypeVar
 
-from . import get_tools
 from ..message import Message
 from ..util.ask_execute import print_preview
+from . import get_tools
 from .base import (
     ConfirmFunc,
     Parameter,
@@ -28,7 +28,6 @@ from .base import (
 
 if TYPE_CHECKING:
     from IPython.core.interactiveshell import InteractiveShell  # fmt: skip
-
 
 logger = getLogger(__name__)
 
@@ -157,7 +156,7 @@ def execute_python(
     # strip ANSI escape sequences
     # TODO: better to signal to the terminal that we don't want colors?
     output = re.sub(r"\x1b[^m]*m", "", output)
-    yield Message("system", "Executed code block.\n\n" + output)
+    yield Message("system", "Executed code block.\n\n" + output.rstrip())
 
 
 @functools.lru_cache

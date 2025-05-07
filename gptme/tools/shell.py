@@ -305,7 +305,7 @@ def execute_shell_impl(
     if returncode:
         msg += f"Return code: {returncode}"
 
-    yield Message("system", msg)
+    yield Message("system", msg.rstrip())
 
 
 def get_path_fn(*args, **kwargs) -> Path | None:
@@ -345,7 +345,7 @@ def _format_block_smart(header: str, cmd: str, lang="") -> str:
     if header:
         s += f"{header}:"
     if len(cmd.split("\n")) == 1:
-        s += f" `{cmd}`"
+        s += f"`{cmd}`"
     else:
         s += f"\n```{lang}\n{cmd}\n```"
     return s
