@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from gptme.chat import init_workspace
+
 from ..message import Message
 from . import get_tools
 from .base import ToolSpec, ToolUse
@@ -86,7 +88,8 @@ def subagent(agent_id: str, prompt: str):
 
     def run_subagent():
         prompt_msgs = [Message("user", prompt)]
-        initial_msgs = [get_prompt(get_tools(), interactive=False)]
+        workspace = init_workspace(None, logdir)
+        initial_msgs = [get_prompt(get_tools(), interactive=False, workspace=workspace)]
 
         # add the return prompt
         return_prompt = """Thank you for doing the task, please reply with a JSON codeblock on the format:
@@ -103,6 +106,7 @@ def subagent(agent_id: str, prompt: str):
             prompt_msgs,
             initial_msgs,
             logdir=logdir,
+            workspace=workspace,
             model=None,
             stream=False,
             no_confirm=True,

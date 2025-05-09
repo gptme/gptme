@@ -11,7 +11,7 @@ import click
 from pick import pick
 
 from . import __version__
-from .chat import chat
+from .chat import chat, init_workspace
 from .commands import _gen_help
 from .config import ChatConfig, get_config, set_config, set_config_from_workspace
 from .constants import MULTIPROMPT_SEPARATOR
@@ -247,6 +247,8 @@ def main(
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
+    init_workspace(workspace_path, logdir)
+
     # Parse tool allowlist cli argument.
     if tool_allowlist:
         # split comma-separated values
@@ -292,6 +294,7 @@ def main(
             interactive=interactive,
             tool_format=selected_tool_format,
             model=model,
+            workspace=workspace_path,
         )
     ]
 
@@ -304,12 +307,12 @@ def main(
             prompt_msgs,
             initial_msgs,
             logdir,
+            chat_config.workspace,
             chat_config.model,
             chat_config.stream,
             no_confirm,
             chat_config.interactive,
             show_hidden,
-            chat_config.workspace,
             chat_config.tools,
             chat_config.tool_format,
         )

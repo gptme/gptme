@@ -9,7 +9,8 @@ from flask.testing import FlaskClient
 import tomlkit  # noqa
 from gptme.config import ChatConfig, MCPConfig
 from gptme.llm.models import ModelMeta, get_default_model
-from gptme.tools import get_toolchain
+from gptme.prompts import get_prompt
+from gptme.tools import get_toolchain, get_tools
 
 # Skip if flask not installed
 pytest.importorskip(
@@ -94,6 +95,40 @@ def test_v2_conversation_get(v2_conv, client: FlaskClient):
     # Should contain the system message we created
     assert len(data["log"]) == 1
     assert data["log"][0]["role"] == "system"
+
+
+def test_v2_create_conversation_default_system_prompt(client: FlaskClient):
+    """Test creating a V2 conversation with a default system prompt."""
+    convname = f"test-server-v2-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Hello, this is a test message.",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    conversation_id = response.get_json()["conversation_id"]
+
+    response = client.get(f"/api/v2/conversations/{conversation_id}")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert "log" in data
+    assert len(data["log"]) == 2
+    assert data["log"][0]["role"] == "system"
+    assert data["log"][1]["role"] == "user"
+    assert data["log"][1]["content"] == "Hello, this is a test message."
+
+    # Check that the system prompt is the default one
+    workspace = Path.cwd()
+    prompt = get_prompt(get_tools(), prompt="full", workspace=workspace)
+    assert data["log"][0]["content"] == prompt.content
 
 
 def test_v2_conversation_post(v2_conv, client: FlaskClient):
