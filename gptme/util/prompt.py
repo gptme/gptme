@@ -306,7 +306,7 @@ class GptmeCompleter(Completer):
             for option in completions:
                 if option.startswith(text):
                     # make the already typed part bold and underlined
-                    html = f"<teal><u><b>{text}</b></u>{option[len(text):]}</teal>"
+                    html = f"<teal><u><b>{text}</b></u>{option[len(text) :]}</teal>"
                     yield Completion(
                         option,
                         start_position=-len(text),
@@ -435,6 +435,8 @@ def get_input(prompt: str) -> str:
                     }
                 ),
                 include_default_pygments_style=False,
+                enable_suspend=True,
+                enable_open_in_editor=True,
             )
         return result
     except (EOFError, KeyboardInterrupt) as e:
