@@ -195,7 +195,7 @@ def prompt_user() -> Generator[Message, None, None]:
 
 {response_prefs}
 """
-    yield Message("system", prompt_content)
+    yield Message("system", prompt_content.strip())
 
 
 def prompt_project() -> Generator[Message, None, None]:
@@ -235,7 +235,7 @@ def prompt_tools(
 
     prompt += "\n\n*End of Tools List.*"
 
-    yield Message("system", prompt.strip() + "\n\n")
+    yield Message("system", prompt.strip())
 
 
 def prompt_systeminfo() -> Generator[Message, None, None]:
@@ -363,7 +363,7 @@ def get_workspace_prompt(workspace: Path) -> str:
         sections.append(f"## Project Structure\n\n```\n{tree_output}\n```\n\n")
 
     if sections:
-        return "# Workspace Context\n\n" + "\n\n".join(sections)
+        return "# Workspace Context\n\n" + "\n\n".join(sections).strip()
     else:
         return ""
 

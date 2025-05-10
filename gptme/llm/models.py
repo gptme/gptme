@@ -25,6 +25,7 @@ Provider = Literal[
     "xai",
     "deepseek",
     "nvidia",
+    "requesty",
     "local",
 ]
 PROVIDERS: list[Provider] = cast(list[Provider], get_args(Provider))
@@ -38,6 +39,7 @@ PROVIDERS_OPENAI = [
     "groq",
     "deepseek",
     "nvidia",
+    "requesty",
     "local",
 ]
 
@@ -221,6 +223,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
         },
     },
+    "requesty": {},
     "nvidia": {},
     "azure": {},
     "local": {},

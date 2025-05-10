@@ -194,7 +194,7 @@ def _reply_stream(
                 f"tok/s: {len_tokens(output, model)/(end_time - first_token_time):.1f})"
             )
 
-    return Message("assistant", output)
+    return Message("assistant", output.strip())
 
 
 def _summarize_str(content: str) -> str:
