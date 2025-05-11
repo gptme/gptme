@@ -117,10 +117,10 @@ class ShellSession:
     stdout_fd: int
     stderr_fd: int
     delimiter: str
+    _is_windows: bool = os.name == 'nt'
 
     def __init__(self) -> None:
         self._init()
-
         # close on exit
         atexit.register(self.close)
 
@@ -180,38 +180,113 @@ class ShellSession:
         stderr: list[str] = []
         return_code: int | None = None
 
-        while True:
-            rlist, _, _ = select.select([self.stdout_fd, self.stderr_fd], [], [])
-            for fd in rlist:
-                assert fd in [self.stdout_fd, self.stderr_fd]
-                # We use a higher value, because there is a bug which leads to spaces at the boundary
-                # 2**12 = 4096
-                # 2**16 = 65536
-                data = os.read(fd, 2**16).decode("utf-8")
-                lines = data.splitlines(keepends=True)
-                re_returncode = re.compile(r"ReturnCode:(\d+)")
-                for line in lines:
-                    if "ReturnCode:" in line and self.delimiter in line:
-                        if match := re_returncode.search(line):
-                            return_code = int(match.group(1))
-                        # if command is cd and successful, we need to change the directory
-                        if command.startswith("cd ") and return_code == 0:
-                            ex, pwd, _ = self._run("pwd", output=False)
-                            assert ex == 0
-                            os.chdir(pwd.strip())
-                        return (
-                            return_code,
-                            "".join(stdout).strip(),
-                            "".join(stderr).strip(),
-                        )
-                    if fd == self.stdout_fd:
-                        stdout.append(line)
-                        if output:
-                            print(line, end="", file=sys.stdout)
-                    elif fd == self.stderr_fd:
-                        stderr.append(line)
-                        if output:
-                            print(line, end="", file=sys.stderr)
+        if self._is_windows:
+            # Windows implementation using threads
+            import threading
+            from threading import Thread
+            from queue import Queue, Empty
+            import time
+
+            stdout_queue = Queue()
+            stderr_queue = Queue()
+            stop_event = threading.Event()
+
+            def read_stream(fd, queue):
+                while not stop_event.is_set():
+                    try:
+                        data = os.read(fd, 2**16).decode("utf-8")
+                        if not data:
+                            break
+                        queue.put(data)
+                        # Check for delimiter in the data we just read
+                        if self.delimiter in data:
+                            break
+                    except:
+                        break
+
+            t_stdout = Thread(target=read_stream, args=(self.stdout_fd, stdout_queue))
+            t_stderr = Thread(target=read_stream, args=(self.stderr_fd, stderr_queue))
+            t_stdout.daemon = True
+            t_stderr.daemon = True
+            t_stdout.start()
+            t_stderr.start()
+
+            try:
+                while not stop_event.is_set():
+                    # Check stdout first
+                    try:
+                        data = stdout_queue.get(timeout=0.1)
+                        lines = data.splitlines(keepends=True)
+                        for line in lines:
+                            if "ReturnCode:" in line and self.delimiter in line:
+                                re_returncode = re.compile(r"ReturnCode:(\d+)")
+                                if match := re_returncode.search(line):
+                                    return_code = int(match.group(1))
+                                if command.startswith("cd ") and return_code == 0:
+                                    ex, pwd, _ = self._run("pwd", output=False)
+                                    assert ex == 0
+                                    os.chdir(pwd.strip())
+                                stop_event.set()
+                                return (
+                                    return_code,
+                                    "".join(stdout).strip(),
+                                    "".join(stderr).strip(),
+                                )
+                            stdout.append(line)
+                            if output:
+                                print(line, end="", file=sys.stdout)
+                    except Empty:
+                        pass
+
+                    # Then check stderr
+                    try:
+                        data = stderr_queue.get(timeout=0.1)
+                        lines = data.splitlines(keepends=True)
+                        for line in lines:
+                            stderr.append(line)
+                            if output:
+                                print(line, end="", file=sys.stderr)
+                    except Empty:
+                        pass
+
+                    # Check if threads are still alive
+                    if not t_stdout.is_alive() and not t_stderr.is_alive():
+                        break
+            finally:
+                stop_event.set()
+                t_stdout.join(timeout=0.1)
+                t_stderr.join(timeout=0.1)
+
+        else:
+            # Unix implementation using select
+            while True:
+                rlist, _, _ = select.select([self.stdout_fd, self.stderr_fd], [], [])
+                for fd in rlist:
+                    assert fd in [self.stdout_fd, self.stderr_fd]
+                    data = os.read(fd, 2**16).decode("utf-8")
+                    lines = data.splitlines(keepends=True)
+                    re_returncode = re.compile(r"ReturnCode:(\d+)")
+                    for line in lines:
+                        if "ReturnCode:" in line and self.delimiter in line:
+                            if match := re_returncode.search(line):
+                                return_code = int(match.group(1))
+                            if command.startswith("cd ") and return_code == 0:
+                                ex, pwd, _ = self._run("pwd", output=False)
+                                assert ex == 0
+                                os.chdir(pwd.strip())
+                            return (
+                                return_code,
+                                "".join(stdout).strip(),
+                                "".join(stderr).strip(),
+                            )
+                        if fd == self.stdout_fd:
+                            stdout.append(line)
+                            if output:
+                                print(line, end="", file=sys.stdout)
+                        elif fd == self.stderr_fd:
+                            stderr.append(line)
+                            if output:
+                                print(line, end="", file=sys.stderr)
 
     def close(self):
         assert self.process.stdin

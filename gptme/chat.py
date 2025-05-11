@@ -1,7 +1,14 @@
 import logging
 import os
 import sys
-import termios
+try:
+    import termios
+except ImportError:
+    termios = None  # type: ignore
+
+msvcrt = None
+if os.name == 'nt':
+    import msvcrt
 from collections.abc import Generator
 from pathlib import Path
 from typing import cast
@@ -296,7 +303,11 @@ def step(
 def prompt_user(value=None) -> str:  # pragma: no cover
     print_bell()
     # Flush stdin to clear any buffered input before prompting
-    termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    if termios:
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    elif msvcrt:
+        while msvcrt.kbhit():
+            msvcrt.getch()
     response = ""
     with terminal_state_title("⌨️ waiting for input"):
         while not response:

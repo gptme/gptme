@@ -345,7 +345,7 @@ def get_workspace_prompt(workspace: Path) -> str:
         files_str = []
         for file in files:
             if file.exists():
-                files_str.append(f"```{file}\n{file.read_text()}\n```")
+                files_str.append(f"```{file}\n{file.read_text(encoding='utf-8')}\n```")
         if files_str:
             sections.append(
                 "## Selected project files\n\nRead more with `cat`.\n\n"
