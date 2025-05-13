@@ -96,7 +96,7 @@ Chat config
 The chat configuration file stores configuration options for a particular chat.
 It is used to store the model, toolset, tool format, and streaming/interactive mode.
 
-The chat configuration file is stored as ``config.toml`` in the chat log directory (i.e. ``~/.local/share/gptme/logs/2025-04-23-sneaking-angry-alien/config.toml``). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.
+The chat configuration file is stored as ``config.toml`` in the chat log directory (i.e. ``~/.local/share/gptme/logs/2025-04-23-dancing-happy-walrus/config.toml``). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.
 
 See :class:`gptme.config.ChatConfig` for the API reference.
 
@@ -109,7 +109,7 @@ Besides the configuration files, gptme supports several environment variables to
 
 .. rubric:: Feature Flags
 
-- ``GPTME_CHECK`` - Enable precommit checks (default: true if ``.pre-commit-config.yaml`` present)
+- ``GPTME_CHECK`` - Enable ``pre-commit`` checks (default: true if ``.pre-commit-config.yaml`` present, see :ref:`pre-commit`)
 - ``GPTME_COSTS`` - Enable cost reporting for API calls (default: false)
 - ``GPTME_FRESH`` - Enable fresh context mode (default: false)
 - ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream (default: true)

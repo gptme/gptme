@@ -469,7 +469,7 @@
 <span id="id3"></span><h2>Chat config<a class="headerlink" href="#chat-config" title="Link to this heading">#</a></h2>
 <p>The chat configuration file stores configuration options for a particular chat.
 It is used to store the model, toolset, tool format, and streaming/interactive mode.</p>
-<p>The chat configuration file is stored as <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> in the chat log directory (i.e. <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/2025-04-23-sneaking-angry-alien/config.toml</span></code>). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.</p>
+<p>The chat configuration file is stored as <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> in the chat log directory (i.e. <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/2025-04-23-dancing-happy-walrus/config.toml</span></code>). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.</p>
 <p>See <a class="reference internal" href="api.html#gptme.config.ChatConfig" title="gptme.config.ChatConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.ChatConfig</span></code></a> for the API reference.</p>
 </section>
 <section id="environment-variables">
@@ -477,7 +477,7 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <p>Besides the configuration files, gptme supports several environment variables to control its behavior:</p>
 <p class="rubric">Feature Flags</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_CHECK</span></code> - Enable precommit checks (default: true if <code class="docutils literal notranslate"><span class="pre">.pre-commit-config.yaml</span></code> present)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_CHECK</span></code> - Enable <code class="docutils literal notranslate"><span class="pre">pre-commit</span></code> checks (default: true if <code class="docutils literal notranslate"><span class="pre">.pre-commit-config.yaml</span></code> present, see <a class="reference internal" href="usage.html#pre-commit"><span class="std std-ref">Pre-commit Integration</span></a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_COSTS</span></code> - Enable cost reporting for API calls (default: false)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_FRESH</span></code> - Enable fresh context mode (default: false)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_BREAK_ON_TOOLUSE</span></code> - Interrupt generation when tool use occurs in stream (default: true)</p></li>

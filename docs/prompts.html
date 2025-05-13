@@ -557,7 +557,15 @@ to append the code block content to the file at the given path.
 
 <span class="gu">### Examples</span>
 
+<span class="gu">### Reading docs</span>
+<span class="k">&gt; </span><span class="ge">User: how does gptme work?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let&#39;s read the docs.</span>
+<span class="sb">```ipython</span>
+<span class="n">read_url</span><span class="p">(</span><span class="s1">&#39;https://gptme.org/docs/&#39;</span><span class="p">)</span>
+<span class="sb">```</span>
+
 <span class="gu">### Answer question from URL with browsing</span>
+
 <span class="k">&gt; </span><span class="ge">User: find out which is the latest ActivityWatch version from superuserlabs.org</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Let&#39;s browse the site.</span>
 <span class="sb">```ipython</span>
@@ -1194,7 +1202,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 4737</p>
+<p>Tokens: 4783</p>
 </dd></dl>
 
 <dl class="py function">

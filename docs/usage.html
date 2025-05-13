@@ -380,9 +380,18 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#features">Features</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#interfaces">Interfaces</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#features">Features</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#writing-files">Writing Files</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#making-changes">Making Changes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#browser-integration">Browser Integration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiprompt-syntax">Multiprompt syntax</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-confirmation-prompts">Skip confirmation prompts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-interactive mode</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-integration">Pre-commit Integration</a></li>
+</ul>
+</li>
 </ul>
             </nav>
         </div>
@@ -403,6 +412,54 @@
 </div>
 <p>This will show you a list of past chats, allowing you to select one or start a new one.</p>
 <p>To get inspiration for your first prompt, see the <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a>.</p>
+<nav class="contents local" id="table-of-contents">
+<p class="topic-title">Table of Contents</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#commands" id="id1">Commands</a></p></li>
+<li><p><a class="reference internal" href="#interfaces" id="id2">Interfaces</a></p></li>
+<li><p><a class="reference internal" href="#features" id="id3">Features</a></p>
+<ul>
+<li><p><a class="reference internal" href="#writing-files" id="id4">Writing Files</a></p></li>
+<li><p><a class="reference internal" href="#making-changes" id="id5">Making Changes</a></p></li>
+<li><p><a class="reference internal" href="#browser-integration" id="id6">Browser Integration</a></p></li>
+<li><p><a class="reference internal" href="#multiprompt-syntax" id="id7">Multiprompt syntax</a></p></li>
+<li><p><a class="reference internal" href="#skip-confirmation-prompts" id="id8">Skip confirmation prompts</a></p></li>
+<li><p><a class="reference internal" href="#non-interactive-mode" id="id9">Non-interactive mode</a></p></li>
+<li><p><a class="reference internal" href="#pre-commit-integration" id="id10">Pre-commit Integration</a></p></li>
+</ul>
+</li>
+</ul>
+</nav>
+<section id="commands">
+<h2>Commands<a class="headerlink" href="#commands" title="Link to this heading">#</a></h2>
+<p>You can use these slash-commands for various actions within the chat:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/undo</span></code> - Undo the last action</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/log</span></code> - Show the conversation log</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/tools</span></code> - Show available tools</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/edit</span></code> - Edit the conversation in your editor</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/rename</span></code> - Rename the conversation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/fork</span></code> - Create a copy of the conversation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/summarize</span></code> - Summarize the conversation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/replay</span></code> - Re-execute codeblocks in the conversation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/help</span></code> - Show help message</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/exit</span></code> - Exit the program</p></li>
+</ul>
+</section>
+<section id="interfaces">
+<h2>Interfaces<a class="headerlink" href="#interfaces" title="Link to this heading">#</a></h2>
+<p>Besides the CLI, gptme can be used through:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="server.html#web-ui"><span class="std std-ref">Web UI</span></a> - A web-based interface</p></li>
+<li><p><a class="reference internal" href="bot.html"><span class="doc">GitHub Bot</span></a> - GitHub bot integration</p></li>
+</ul>
+<p>For more detailed information about specific features, check out:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="tools.html"><span class="doc">Tools</span></a> - Available tools and their usage</p></li>
+<li><p><a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> - Supported LLM providers</p></li>
+<li><p><a class="reference internal" href="server.html"><span class="doc">Server</span></a> - Web UI and API server setup</p></li>
+</ul>
+</section>
 <section id="features">
 <h2>Features<a class="headerlink" href="#features" title="Link to this heading">#</a></h2>
 <p class="rubric">Tools</p>
@@ -414,7 +471,8 @@
 <li><p><a class="reference internal" href="tools.html#vision"><span class="std std-ref">Vision</span></a> - Process and analyze images</p></li>
 </ul>
 <p>See the <a class="reference internal" href="tools.html"><span class="doc">Tools</span></a> page for a complete list of available tools.</p>
-<p class="rubric">Writing Files</p>
+<section id="writing-files">
+<h3>Writing Files<a class="headerlink" href="#writing-files" title="Link to this heading">#</a></h3>
 <p>You can ask the assistant to create new files or modify existing ones:</p>
 <table style="width: 100%; margin-bottom: 1em">
   
@@ -441,7 +499,9 @@ from matplotlib.animation import FuncAnimation
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Saved to life.py</pre>
   </td>
 </tr>
-</table><p class="rubric">Making Changes</p>
+</table></section>
+<section id="making-changes">
+<h3>Making Changes<a class="headerlink" href="#making-changes" title="Link to this heading">#</a></h3>
 <p>You can start chats and request changes directly from the command line. The contents of any mentioned text files will be included as context, and the assistant will generate patches to apply the requested changes:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;make improvements to life.py so that dead cells fade out over time&#39;</span>
 </pre></div>
@@ -470,57 +530,112 @@ from matplotlib.animation import FuncAnimation
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Patch applied</pre>
   </td>
 </tr>
-</table><p class="rubric">Browser Integration</p>
-<p>With the <a class="reference internal" href="tools.html#browser"><span class="std std-ref">Browser</span></a> extras installed, the assistant can process URLs included in the prompt and interact with web content.</p>
-<p class="rubric">Multiprompt syntax</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">-</span></code> separator allows you to chain multiple prompts together, letting the assistant finish running tools for one prompt before moving to the next:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;create a project&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;add tests&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;commit changes&#39;</span>
+</table></section>
+<section id="browser-integration">
+<h3>Browser Integration<a class="headerlink" href="#browser-integration" title="Link to this heading">#</a></h3>
+<p>With the <a class="reference internal" href="tools.html#browser"><span class="std std-ref">Browser</span></a> extras installed, the assistant can read URLs (included in the prompt or with its <code class="docutils literal notranslate"><span class="pre">read_url</span></code> tool) and “see” web pages by taking screenshots and viewing them.</p>
+</section>
+<section id="multiprompt-syntax">
+<h3>Multiprompt syntax<a class="headerlink" href="#multiprompt-syntax" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">-</span></code> separator allows you to chain multiple prompts together, letting the assistant finish running tools for one prompt before moving on to the next:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;create a project&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;add tests&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;commit changes&#39;</span>
 </pre></div>
 </div>
 <p>This is particularly useful for breaking down complex tasks into steps and creating <a class="reference internal" href="automation.html"><span class="doc">Automation</span></a> workflows.</p>
-<p class="rubric">Skip confirmation prompts</p>
+</section>
+<section id="skip-confirmation-prompts">
+<h3>Skip confirmation prompts<a class="headerlink" href="#skip-confirmation-prompts" title="Link to this heading">#</a></h3>
 <p>You can skip confirmation prompts using the <code class="docutils literal notranslate"><span class="pre">--no-confirm</span></code> flag. This is useful when you are confident the LLM will do what you want, so you don’t want to have to confirm actions:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--no-confirm<span class="w"> </span><span class="s1">&#39;create a snake game using curses in snake.py, dont run it&#39;</span>
 </pre></div>
 </div>
-<p class="rubric">Non-interactive mode</p>
+</section>
+<section id="non-interactive-mode">
+<h3>Non-interactive mode<a class="headerlink" href="#non-interactive-mode" title="Link to this heading">#</a></h3>
 <p>The <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> flag runs gptme in a mode that terminates after completing all prompts. This is useful for scripting and automation:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s1">&#39;create a snake game using curses in snake.py, dont run it&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;make the snake green and the apple red&#39;</span>
 </pre></div>
 </div>
 <p>Note: <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> implies <code class="docutils literal notranslate"><span class="pre">--no-confirm</span></code>, so you don’t need to specify both.</p>
 </section>
-<section id="commands">
-<h2>Commands<a class="headerlink" href="#commands" title="Link to this heading">#</a></h2>
-<p>During a chat session, you can use these slash-commands for various actions:</p>
+<section id="pre-commit-integration">
+<span id="pre-commit"></span><h3>Pre-commit Integration<a class="headerlink" href="#pre-commit-integration" title="Link to this heading">#</a></h3>
+<p>gptme integrates with <a class="reference external" href="https://pre-commit.com/">pre-commit</a> to catch code quality issues early. When enabled, it will automatically run pre-commit checks after file modifications, right before yielding control back to the user, to let the assistant address issues without human intervention.</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">/undo</span></code> - Undo the last action</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/log</span></code> - Show the conversation log</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/tools</span></code> - Show available tools</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/edit</span></code> - Edit the conversation in your editor</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/rename</span></code> - Rename the conversation</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/fork</span></code> - Create a copy of the conversation</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/summarize</span></code> - Summarize the conversation</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/replay</span></code> - Re-execute codeblocks in the conversation</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/help</span></code> - Show help message</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/exit</span></code> - Exit the program</p></li>
+<li><p>Enabled automatically if a <code class="docutils literal notranslate"><span class="pre">.pre-commit-config.yaml</span></code> exists in any parent directory</p></li>
+<li><p>Can be explicitly enabled/disabled with <code class="docutils literal notranslate"><span class="pre">GPTME_CHECK=true/false</span></code></p></li>
+<li><p>Runs after file modifications to catch issues early</p></li>
+<li><p>Shows output in conversation when issues are found</p></li>
+<li><p>Distinguishes between automatically fixed issues and those requiring manual fixes</p></li>
 </ul>
-</section>
-<section id="interfaces">
-<h2>Interfaces<a class="headerlink" href="#interfaces" title="Link to this heading">#</a></h2>
-<p>Besides the CLI, gptme can be used through:</p>
-<ul class="simple">
-<li><p><a class="reference internal" href="server.html#web-ui"><span class="std std-ref">Web UI</span></a> - A web-based interface</p></li>
-<li><p><a class="reference internal" href="bot.html"><span class="doc">GitHub Bot</span></a> - GitHub bot integration</p></li>
-</ul>
-<p>For more detailed information about specific features, check out:</p>
-<ul class="simple">
-<li><p><a class="reference internal" href="tools.html"><span class="doc">Tools</span></a> - Available tools and their usage</p></li>
-<li><p><a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> - Supported LLM providers</p></li>
-<li><p><a class="reference internal" href="server.html"><span class="doc">Server</span></a> - Web UI and API server setup</p></li>
-</ul>
-<hr class="docutils" />
+<p>Example workflow:</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">create a new file named main.py with a simple function</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Sure! I'll create a new file named `main.py` with a simple function that adds two numbers together. Here's the code:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">save main.py</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">def my_function(x, y):
+    return x + y
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Saved to main.py</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I have created the file.</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Pre-commit checks failed<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">stdout</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">typecheck................................................................Failed
+- hook id: typecheck
+- exit code: 1
+main.py: error: Function is missing type hints
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Typechecks failed, I'll update the function to use type hints.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">patch main.py</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;"><<<<<<< ORIGINAL
+def my_function(x, y):
+=======
+def my_function(x: int, y: int) -> int:
+>>>>>>> UPDATED
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Patch applied</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Great, the typecheck should now pass.</pre>
+  </td>
+</tr>
+</table><hr class="docutils" />
 <p>For further usage examples, see the <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a> page.</p>
+</section>
 </section>
 </section>
 
@@ -570,9 +685,18 @@ from matplotlib.animation import FuncAnimation
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#features">Features</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#interfaces">Interfaces</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#features">Features</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#writing-files">Writing Files</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#making-changes">Making Changes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#browser-integration">Browser Integration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiprompt-syntax">Multiprompt syntax</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-confirmation-prompts">Skip confirmation prompts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-interactive mode</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-integration">Pre-commit Integration</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 
