@@ -7,6 +7,7 @@ import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from gptme.util.uri_path import URIPath
 from typing import Literal
 
 import tomlkit
@@ -169,7 +170,7 @@ call_id = "{self.call_id}"
             msg["content"].strip(),
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
-            files=[Path(f) for f in msg.get("files", [])],
+            files=[URIPath(f) for f in msg.get("files", [])],
             timestamp=datetime.fromisoformat(msg["timestamp"]),
             call_id=msg.get("call_id", None),
         )
@@ -315,6 +316,7 @@ def toml_to_msgs(toml: str) -> list[Message]:
             msg["content"].strip(),
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
+            files=[URIPath(f) for f in msg.get("files", [])],
             timestamp=datetime.fromisoformat(msg["timestamp"]),
         )
         for msg in msgs
