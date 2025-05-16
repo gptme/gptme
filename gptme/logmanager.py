@@ -19,6 +19,8 @@ from typing import (
 
 from rich import print
 
+from gptme.util.uri_path import URIPath
+
 from .dirs import get_logs_dir
 from .message import Message, len_tokens, print_msg
 from .prompts import get_prompt
@@ -463,7 +465,7 @@ def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
     with open(path) as file:
         for line in file.readlines():
             json_data = json.loads(line)
-            files = [Path(f) for f in json_data.pop("files", [])]
+            files: list[Path] = [URIPath(f) for f in json_data.pop("files", [])]
             if "timestamp" in json_data:
                 json_data["timestamp"] = datetime.fromisoformat(json_data["timestamp"])
             yield Message(**json_data, files=files)

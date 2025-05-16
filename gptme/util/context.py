@@ -14,6 +14,8 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
+from gptme.util.uri_path import URIPath
+
 from ..config import get_config
 from ..message import Message
 from ..tools import has_tool
@@ -127,7 +129,7 @@ def append_file_content(
     return replace(
         msg,
         content=msg.content + "\n\n".join(files_text.values()),
-        files=[f for f in files if f not in files_text],
+        files=[URIPath(str(f)) for f in files if f not in files_text],
     )
 
 
@@ -211,11 +213,14 @@ def get_mentioned_files(msgs: list[Message], workspace: Path | None) -> list[Pat
     files: Counter[Path] = Counter()
     for msg in msgs:
         for f in msg.files:
+            # If pah is URLPath
+            if isinstance(f, URIPath):
+                pass
             # If path is relative and we have a workspace, make it absolute relative to workspace
-            if workspace_abs and not f.is_absolute():
-                f = (workspace_abs / f).resolve()
-            else:
-                f = f.resolve()
+            elif workspace_abs and not f.is_absolute():
+                # Handle string representation for resolving relative to workspace
+                f = workspace_abs / f
+            f = f.resolve()
             files[f] += 1
 
     if files:
