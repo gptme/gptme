@@ -1,4 +1,10 @@
-import fcntl
+import os
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore
+    if os.name == 'nt':
+        import msvcrt
 import json
 import logging
 import os
@@ -103,7 +109,10 @@ class LogManager:
 
             # Try to acquire an exclusive lock
             try:
-                fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if fcntl:
+                    fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                elif os.name == 'nt':
+                    msvcrt.locking(self._lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
                 # logger.debug(f"Acquired lock on {self.logdir}")
             except BlockingIOError:
                 self._lock_fd.close()
@@ -131,7 +140,11 @@ class LogManager:
         """Release the lock and close the file descriptor"""
         if self._lock_fd:
             try:
-                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                if os.name == 'nt' and msvcrt:
+                    # On Windows, lock is automatically released on file close
+                    pass
+                elif fcntl:
+                    fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
                 self._lock_fd.close()
                 # logger.debug(f"Released lock on {self.logdir}")
             except Exception as e:
