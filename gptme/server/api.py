@@ -361,11 +361,13 @@ def create_app(cors_origin: str | None = None) -> flask.Flask:
     app = flask.Flask(__name__, static_folder=static_path)
     app.register_blueprint(api)
 
-    # Register v2 API
+    # Register v2 API and workspace API
     # noreorder
     from .api_v2 import v2_api  # fmt: skip
+    from .workspace_api import workspace_api  # fmt: skip
 
     app.register_blueprint(v2_api)
+    app.register_blueprint(workspace_api)
 
     if cors_origin:
         # Only allow credentials if a specific origin is set (not '*')
