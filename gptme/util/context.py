@@ -93,7 +93,8 @@ def file_to_display_path(f: Path, workspace: Path | None = None) -> Path:
 
 def md_codeblock(lang: str | Path, content: str) -> str:
     """Wrap content in a markdown codeblock."""
-    return f"```{lang}\n{content}\n```"
+    # we use quadruple backticks to avoid conflicts with triple backticks in the content
+    return f"````{lang}\n{content}\n````"
 
 
 def textfile_as_codeblock(path: Path) -> str | None:

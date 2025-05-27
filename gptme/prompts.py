@@ -22,6 +22,7 @@ from .llm.models import get_model, get_recommended_model
 from .message import Message
 from .tools import ToolFormat, ToolSpec, get_available_tools
 from .util import document_prompt_function
+from .util.context import md_codeblock
 
 PromptType = Literal["full", "short"]
 
@@ -38,9 +39,6 @@ def get_prompt(
     """
     Get the initial system prompt.
     """
-    if not tools:
-        raise ValueError("Tools must be provided to generate the prompt.")
-
     msgs: Iterable
     if prompt == "full":
         msgs = prompt_full(interactive, tools, tool_format, model)
@@ -345,7 +343,7 @@ def get_workspace_prompt(workspace: Path) -> str:
         files_str = []
         for file in files:
             if file.exists():
-                files_str.append(f"```{file}\n{file.read_text()}\n```")
+                files_str.append(md_codeblock(file, file.read_text()))
         if files_str:
             sections.append(
                 "## Selected project files\n\nRead more with `cat`.\n\n"
@@ -354,13 +352,13 @@ def get_workspace_prompt(workspace: Path) -> str:
 
         # context_cmd
         if project.context_cmd and (
-            cmd_output := get_project_context_cmd_output(project.context_cmd)
+            cmd_output := get_project_context_cmd_output(project.context_cmd, workspace)
         ):
             sections.append("## Computed context\n\n" + cmd_output)
 
     # Get tree output if enabled
     if tree_output := get_tree_output(workspace):
-        sections.append(f"## Project Structure\n\n```\n{tree_output}\n```\n\n")
+        sections.append(f"## Project Structure\n\n{md_codeblock('', tree_output)}\n\n")
 
     if sections:
         return "# Workspace Context\n\n" + "\n\n".join(sections)
@@ -368,11 +366,12 @@ def get_workspace_prompt(workspace: Path) -> str:
         return ""
 
 
-def get_project_context_cmd_output(cmd: str) -> str | None:
+def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
     try:
         start = time.time()
         result = subprocess.run(
             cmd,
+            cwd=workspace,
             shell=True,
             capture_output=True,
             text=True,
@@ -380,7 +379,7 @@ def get_project_context_cmd_output(cmd: str) -> str | None:
         )
         logger.info(f"Context command took {time.time() - start:.2f}s")
         if result.returncode == 0:
-            return f"```{cmd}\n{result.stdout}\n```"
+            return md_codeblock(cmd, result.stdout)
         else:
             logger.warning(f"Failed to run context command '{cmd}': {result.stderr}")
     except Exception as e:
