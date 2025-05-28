@@ -35,15 +35,16 @@ def get_prompt(
     prompt: PromptType | str = "full",
     interactive: bool = True,
     model: str | None = None,
+    workspace: Path | None = None,
 ) -> Message:
     """
     Get the initial system prompt.
     """
     msgs: Iterable
     if prompt == "full":
-        msgs = prompt_full(interactive, tools, tool_format, model)
+        msgs = prompt_full(interactive, tools, tool_format, model, workspace)
     elif prompt == "short":
-        msgs = prompt_short(interactive, tools, tool_format)
+        msgs = prompt_short(interactive, tools, tool_format, workspace)
     else:
         msgs = [Message("system", prompt)]
 
@@ -63,7 +64,11 @@ def _join_messages(msgs: list[Message]) -> Message:
 
 
 def prompt_full(
-    interactive: bool, tools: list[ToolSpec], tool_format: ToolFormat, model: str | None
+    interactive: bool,
+    tools: list[ToolSpec],
+    tool_format: ToolFormat,
+    model: str | None,
+    workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
     yield from prompt_gptme(interactive, model)
@@ -71,12 +76,16 @@ def prompt_full(
     if interactive:
         yield from prompt_user()
     yield from prompt_project()
+    yield from prompt_workspace(workspace)
     yield from prompt_systeminfo()
     yield from prompt_timeinfo()
 
 
 def prompt_short(
-    interactive: bool, tools: list[ToolSpec], tool_format: ToolFormat
+    interactive: bool,
+    tools: list[ToolSpec],
+    tool_format: ToolFormat,
+    workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Short prompt to start the conversation."""
     yield from prompt_gptme(interactive)
@@ -84,6 +93,7 @@ def prompt_short(
     if interactive:
         yield from prompt_user()
     yield from prompt_project()
+    yield from prompt_workspace(workspace)
 
 
 def prompt_gptme(
@@ -321,11 +331,14 @@ def get_tree_output(workspace: Path) -> str | None:
         return None
 
 
-def get_workspace_prompt(workspace: Path) -> str:
-    # NOTE: needs to run after the workspace is initialized (i.e. initial prompt is constructed)
+def prompt_workspace(workspace: Path | None = None) -> Generator[Message, None, None]:
     # TODO: update this prompt if the files change
     # TODO: include `git status -vv`, and keep it up-to-date
     sections = []
+
+    if workspace is None:
+        yield Message("system", "")
+        return
 
     if project := get_project_config(workspace):
         # files
@@ -361,9 +374,9 @@ def get_workspace_prompt(workspace: Path) -> str:
         sections.append(f"## Project Structure\n\n{md_codeblock('', tree_output)}\n\n")
 
     if sections:
-        return "# Workspace Context\n\n" + "\n\n".join(sections)
+        yield Message("system", "# Workspace Context\n\n" + "\n\n".join(sections))
     else:
-        return ""
+        yield Message("system", "")
 
 
 def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
