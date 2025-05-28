@@ -2,6 +2,9 @@ from collections.abc import Generator
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
+# Enable support for quadtick-style markdown code blocks
+quadticks = True
+
 
 @dataclass(frozen=True)
 class Codeblock:
@@ -16,17 +19,21 @@ class Codeblock:
             object.__setattr__(self, "path", self.lang)  # frozen dataclass workaround
 
     def to_markdown(self) -> str:
-        return f"```{self.lang}\n{self.content}\n```"
+        ticks = "````" if quadticks else "```"
+        return f"{ticks}{self.lang}\n{self.content}\n{ticks}"
 
     def to_xml(self) -> str:
         return f'<codeblock lang="{self.lang}" path="{self.path}">\n{self.content}\n</codeblock>'
 
     @classmethod
     def from_markdown(cls, content: str) -> "Codeblock":
-        if content.strip().startswith("```"):
-            content = content[3:]
-        if content.strip().endswith("```"):
-            content = content[:-3]
+        content = content.strip()
+        # Strip start and end backticks, handling both triple and quad
+        for delim in ["````", "```"]:
+            if content.startswith(delim):
+                content = content[len(delim) :]
+            if content.endswith(delim):
+                content = content[: -len(delim)]
         lang = content.splitlines()[0].strip()
         return cls(lang, content[len(lang) :])
 
@@ -52,12 +59,22 @@ class Codeblock:
 
 def _extract_codeblocks(markdown: str) -> Generator[Codeblock, None, None]:
     # speed check (early exit): check if message contains a code block
-    backtick_count = markdown.count("```")
-    if backtick_count < 2:
+
+    # check quad ticks
+    backtick_count = markdown.count("````") if quadticks else 0
+    is_quadtick = quadticks
+    if backtick_count == 0:
+        is_quadtick = False
+        # check triple ticks
+        backtick_count = markdown.count("```")
+        if backtick_count < 2:
+            return
+    elif backtick_count == 1:
+        # no complete quadtick codeblock
         return
 
     lines = markdown.split("\n")
-    stack: list[str] = []
+    stack: list[tuple[str, int]] = []
     current_block = []
     current_lang = ""
 
@@ -66,13 +83,21 @@ def _extract_codeblocks(markdown: str) -> Generator[Codeblock, None, None]:
         # TODO: fix to actually be correct
         start_idx = sum(len(line) + 1 for line in lines[:idx])
         stripped_line = line.strip()
-        if stripped_line.startswith("```"):
+        if (
+            stripped_line.startswith("````")
+            if is_quadtick
+            else stripped_line.startswith("```")
+        ):
+            backtick_count = 4 if is_quadtick else 3
             if not stack:  # Start of a new block
-                stack.append(stripped_line[3:])
-                current_lang = stripped_line[3:]
-            elif stripped_line[3:] and stack[-1] != stripped_line[3:]:  # Nested start
+                stack.append((stripped_line[backtick_count:], backtick_count))
+                current_lang = stripped_line[backtick_count:]
+            elif (
+                stripped_line[backtick_count:]
+                and stack[-1][0] != stripped_line[backtick_count:]
+            ):  # Nested start
                 current_block.append(line)
-                stack.append(stripped_line[3:])
+                stack.append((stripped_line[backtick_count:], backtick_count))
             else:  # End of a block
                 if len(stack) == 1:  # Outermost block
                     yield Codeblock(
