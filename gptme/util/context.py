@@ -93,7 +93,8 @@ def file_to_display_path(f: Path, workspace: Path | None = None) -> Path:
 
 def md_codeblock(lang: str | Path, content: str) -> str:
     """Wrap content in a markdown codeblock."""
-    return f"```{lang}\n{content}\n```"
+    # we use quadruple backticks to avoid conflicts with triple backticks in the content
+    return f"````{lang}\n{content}\n````"
 
 
 def textfile_as_codeblock(path: Path) -> str | None:
@@ -319,6 +320,10 @@ def run_precommit_checks() -> str | None:
         # if exit code is 130, it means the user interrupted the process
         if e.returncode == 130:
             logger.info("Pre-commit checks interrupted by user")
+            return None
+        # If no pre-commit config found
+        # Can happen in nested git repos, since we check parent dirs but pre-commit only checks the current repo.
+        if ".pre-commit-config.yaml is not a file" in e.stdout:
             return None
 
         logger.error(f"Pre-commit checks failed: {e}")

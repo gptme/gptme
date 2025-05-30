@@ -88,6 +88,24 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     "openai": OPENAI_MODELS,
     # https://docs.anthropic.com/en/docs/about-claude/models
     "anthropic": {
+        "claude-opus-4-20250514": {
+            "context": 200_000,
+            "max_output": 64000,
+            "price_input": 15,
+            "price_output": 75,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            # "knowledge_cutoff": datetime(2024, 10, 1),
+        },
+        "claude-sonnet-4-20250514": {
+            "context": 200_000,
+            "max_output": 32000,
+            "price_input": 3,
+            "price_output": 15,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            # "knowledge_cutoff": datetime(2024, 10, 1),
+        },
         "claude-3-7-sonnet-20250219": {
             "context": 200_000,
             # TODO: supports beta header `output-128k-2025-02-19` for 128k output option
