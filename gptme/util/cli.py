@@ -140,6 +140,95 @@ def context_generate(path: str):
 
 
 @main.group()
+def llm():
+    """LLM-related utilities."""
+    pass
+
+
+@llm.command("generate")
+@click.argument("prompt", required=False)
+@click.option(
+    "-m",
+    "--model",
+    help="Model to use (e.g. openai/gpt-4o, anthropic/claude-3-5-sonnet)",
+)
+@click.option("--stream/--no-stream", default=False, help="Stream the response")
+def llm_generate(prompt: str | None, model: str | None, stream: bool):
+    """Generate a response from an LLM without any formatting."""
+    import io
+    from contextlib import redirect_stderr
+
+    # Suppress all logging output to get clean response
+    logging.getLogger().setLevel(logging.CRITICAL)
+
+    # Get prompt from stdin if not provided as argument
+    if not prompt:
+        if sys.stdin.isatty():
+            print(
+                "Error: No prompt provided. Pipe text to stdin or provide as argument.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        prompt = sys.stdin.read().strip()
+
+    if not prompt:
+        print("Error: Empty prompt provided.", file=sys.stderr)
+        sys.exit(1)
+
+    # Capture stderr to suppress console output during initialization
+    stderr_capture = io.StringIO()
+
+    with redirect_stderr(stderr_capture):
+        from ..init import init  # fmt: skip
+        from ..llm import _chat_complete, _stream, get_provider_from_model, init_llm  # fmt: skip
+        from ..llm.models import get_default_model  # fmt: skip
+        from ..message import Message  # fmt: skip
+        from ..util import console  # fmt: skip
+
+        # Disable console output
+        console.quiet = True
+
+        # Initialize with minimal setup - no tools needed for simple generation
+        init(model, interactive=False, tool_allowlist=[])
+
+        # Get model or use default
+        if not model:
+            default_model = get_default_model()
+            if not default_model:
+                print(
+                    "Error: No model specified and no default model available.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            model = default_model.full
+
+        # Ensure provider is initialized
+        try:
+            provider = get_provider_from_model(model)
+            init_llm(provider)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    # Create message
+    messages = [Message("user", prompt)]
+
+    try:
+        if stream:
+            # Stream response directly to stdout
+            for chunk in _stream(messages, model, None):
+                print(chunk, end="", flush=True)
+            print()  # Final newline
+        else:
+            # Get complete response and print it
+            response = _chat_complete(messages, model, None)
+            print(response)
+    except Exception as e:
+        print(f"Error generating response: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+@main.group()
 def tools():
     """Tool-related utilities."""
     pass
