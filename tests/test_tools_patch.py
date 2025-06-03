@@ -179,3 +179,25 @@ def test_patch_minimal():
  3"""
     )
     assert p.diff_minimal(strip_context=True) == "-2\n+0"
+
+
+def test_apply_with_extra_divider_fails():
+    """Test that extra ======= markers before >>>>>>> UPDATED cause a clear error."""
+    # This is the problematic case where Claude adds an extra =======
+    codeblock = """
+<<<<<<< ORIGINAL
+    print("Hello world")
+=======
+    name = input("What is your name? ")
+    print(f"Hello {name}")
+=======
+>>>>>>> UPDATED
+"""
+
+    # Should raise a clear error about the extra divider
+    try:
+        list(Patch.from_codeblock(codeblock.strip()))
+        raise AssertionError("Expected ValueError for extra ======= marker")
+    except ValueError as e:
+        assert "extra ======= marker found" in str(e)
+        assert "Use only one =======" in str(e)

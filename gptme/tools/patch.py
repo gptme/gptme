@@ -165,6 +165,14 @@ class Patch:
                 if UPDATED not in after_divider:  # pragma: no cover
                     raise ValueError("invalid patch format: missing >>>>>>> UPDATED")
                 modified, _ = re.split(re.escape(UPDATED), after_divider, maxsplit=1)
+
+                # Check for extra ======= markers in the updated content
+                if "\n=======" in modified:
+                    raise ValueError(
+                        "invalid patch format: extra ======= marker found in updated content. "
+                        "Use only one ======= between original and updated content."
+                    )
+
             yield Patch(original, modified)
 
     @classmethod

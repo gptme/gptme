@@ -282,10 +282,17 @@ def execute_shell_impl(
     shell = get_shell()
     allowlisted = is_allowlisted(cmd)
 
+    # Track current working directory before command execution
+    prev_cwd = os.getcwd()
+
     try:
         returncode, stdout, stderr = shell.run(cmd)
     except Exception as e:
         raise ValueError(f"Shell error: {e}") from None
+
+    # Check if working directory changed
+    current_cwd = os.getcwd()
+    pwd_changed = prev_cwd != current_cwd
 
     stdout = _shorten_stdout(stdout.strip(), pre_tokens=2000, post_tokens=8000)
     stderr = _shorten_stdout(stderr.strip(), pre_tokens=2000, post_tokens=2000)
@@ -303,7 +310,9 @@ def execute_shell_impl(
     if not stdout and not stderr:
         msg += "No output\n"
     if returncode:
-        msg += f"Return code: {returncode}"
+        msg += f"Return code: {returncode}\n"
+    if pwd_changed:
+        msg += f"Working directory changed to: {current_cwd}"
 
     yield Message("system", msg)
 
