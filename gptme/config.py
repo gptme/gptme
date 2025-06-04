@@ -325,8 +325,22 @@ class ChatConfig:
 
         # Set the workspace symlink in the logdir
         workspace_path = self._logdir / "workspace"
-        workspace_path.unlink(missing_ok=True)
-        workspace_path.symlink_to(self.workspace)
+
+        # Only create symlink if workspace is different from the log workspace
+        if self.workspace != workspace_path:
+            if workspace_path.exists():
+                if workspace_path.is_dir() and not workspace_path.is_symlink():
+                    # It's a directory with potential user content, don't delete it
+                    raise ValueError(
+                        f"Workspace directory '{workspace_path}' already exists and contains data. "
+                        "Cannot change workspace when directory is in use. "
+                        "Please move or rename the existing directory first."
+                    )
+                else:
+                    # It's a file or symlink, safe to remove
+                    workspace_path.unlink()
+            workspace_path.symlink_to(self.workspace)
+        # If workspace IS the log workspace, no symlink needed - directory already exists
 
         return self
 
