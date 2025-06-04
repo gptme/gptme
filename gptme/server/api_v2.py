@@ -353,7 +353,7 @@ def step(
     tool_format = chat_config.tool_format
     tools = None
     if tool_format == "tool":
-        tools = [t for t in get_tools() if t.is_runnable()]
+        tools = [t for t in get_tools() if t.is_runnable]
 
     try:
         # Stream tokens from the model

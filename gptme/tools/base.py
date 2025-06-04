@@ -173,7 +173,7 @@ class ToolSpec:
     init: InitFunc | None = None
     execute: ExecuteFunc | None = None
     block_types: list[str] = field(default_factory=list)
-    available: bool = True
+    available: bool | Callable[[], bool] = True
     parameters: list[Parameter] = field(default_factory=list)
     load_priority: int = 0
     disabled_by_default: bool = False
@@ -214,7 +214,16 @@ class ToolSpec:
             return NotImplemented
         return (self.load_priority, self.name) < (other.load_priority, other.name)
 
-    def is_runnable(self):
+    @property
+    def is_available(self) -> bool:
+        """Check if the tool is available for use."""
+        if callable(self.available):
+            return self.available()
+        return self.available
+
+    @property
+    def is_runnable(self) -> bool:
+        """Check if the tool can be executed."""
         return bool(self.execute)
 
     def get_instructions(self, tool_format: ToolFormat):

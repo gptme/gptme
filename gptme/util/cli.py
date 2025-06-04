@@ -170,8 +170,8 @@ def tools_list(available: bool, langtags: bool):
 
     print("Available tools:")
     for tool in get_tools():
-        if not available or tool.available:
-            status = "✓" if tool.available else "✗"
+        if not available or tool.is_available:
+            status = "✓" if tool.is_available else "✗"
             print(
                 f"""
 {status} {tool.name}
@@ -197,7 +197,7 @@ def tools_info(tool_name: str):
 
     print(f"Tool: {tool.name}")
     print(f"Description: {tool.desc}")
-    print(f"Available: {'Yes' if tool.available else 'No'}")
+    print(f"Available: {'Yes' if tool.is_available else 'No'}")
     print("\nInstructions:")
     print(tool.instructions)
     if tool.get_examples():

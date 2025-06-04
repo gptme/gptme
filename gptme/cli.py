@@ -13,7 +13,12 @@ from pick import pick
 from . import __version__
 from .chat import chat
 from .commands import _gen_help
-from .config import ChatConfig, get_config, set_config, set_config_from_workspace
+from .config import (
+    ChatConfig,
+    get_config,
+    set_config,
+    set_config_from_workspace,
+)
 from .constants import MULTIPROMPT_SEPARATOR
 from .dirs import get_logs_dir
 from .init import init_logging
@@ -33,7 +38,7 @@ logger = logging.getLogger(__name__)
 script_path = Path(os.path.realpath(__file__))
 commands_help = "\n".join(_gen_help(incl_langtags=False))
 available_tool_names = ", ".join(
-    sorted([tool.name for tool in get_available_tools() if tool.available])
+    sorted([tool.name for tool in get_available_tools() if tool.is_available])
 )
 
 

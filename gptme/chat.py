@@ -273,7 +273,7 @@ def step(
 
         tools = None
         if tool_format == "tool":
-            tools = [t for t in get_tools() if t.is_runnable()]
+            tools = [t for t in get_tools() if t.is_runnable]
 
         # generate response
         with terminal_state_title("🤔 generating"):

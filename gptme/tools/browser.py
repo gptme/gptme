@@ -37,10 +37,11 @@ Lynx backend:
     This is an experimental feature. It needs some work to be more robust and useful.
 """
 
-import importlib.util
 import importlib.metadata
+import importlib.util
 import logging
 import shutil
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -109,11 +110,17 @@ System:
 """.strip()
 
 
-def has_browser_tool():
+def init() -> ToolSpec:
     if browser == "playwright":
-        console.log("Browser tool available (using playwright)")
+        console.log("Using browser tool with playwright")
     elif browser == "lynx":
-        console.log("Browser tool available (using lynx)")
+        console.log("Using browser tool with lynx")
+    return tool
+
+
+# TODO: remove the unnecessary new .is_available property and the .available Callable type union (bool only for simplicity)
+@lru_cache
+def has_browser_tool():
     return browser is not None
 
 
@@ -158,6 +165,7 @@ tool = ToolSpec(
     desc="Browse, search or screenshot the web",
     examples=examples,
     functions=[read_url, search, screenshot_url],
-    available=has_browser_tool(),
+    available=has_browser_tool,
+    init=init,
 )
 __doc__ = tool.get_doc(__doc__)

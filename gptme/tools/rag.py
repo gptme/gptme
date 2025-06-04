@@ -272,7 +272,7 @@ tool = ToolSpec(
     instructions=instructions,
     examples=examples,
     functions=[rag_index, rag_search, rag_status],
-    available=_has_gptme_rag(),
+    available=_has_gptme_rag,
     init=init,
 )
 
