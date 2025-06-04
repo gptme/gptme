@@ -118,7 +118,6 @@ def init() -> ToolSpec:
     return tool
 
 
-# TODO: remove the unnecessary new .is_available property and the .available Callable type union (bool only for simplicity)
 @lru_cache
 def has_browser_tool():
     return browser is not None

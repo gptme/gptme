@@ -327,10 +327,17 @@ def prompt_input(prompt: str, value=None) -> str:  # pragma: no cover
 def check_for_modifications(log: Log) -> bool:
     """Check if there are any file modifications in last 3 messages or since last user message."""
     messages_since_user = []
+    found_user_message = False
+
     for m in reversed(log):
         if m.role == "user":
+            found_user_message = True
             break
         messages_since_user.append(m)
+
+    # If no user message found, skip the check (only system messages so far)
+    if not found_user_message:
+        return False
 
     # FIXME: this is hacky and unreliable
     has_modifications = any(
@@ -339,7 +346,7 @@ def check_for_modifications(log: Log) -> bool:
         for tu in ToolUse.iter_from_content(m.content)
     )
     # logger.debug(
-    #     f"Found {len(messages_since_user)} messages since user ({has_modifications=})"
+    #     f"Found {len(messages_since_user)} messages since user ({found_user_message=}, {has_modifications=})"
     # )
     return has_modifications
 

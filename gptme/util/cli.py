@@ -174,7 +174,7 @@ def tools_list(available: bool, langtags: bool):
             status = "✓" if tool.is_available else "✗"
             print(
                 f"""
-{status} {tool.name}
+ {status} {tool.name}
    {tool.desc}"""
             )
 
