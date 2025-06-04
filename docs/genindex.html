@@ -374,6 +374,13 @@
 </li>
       </ul></li>
       <li>
+    --full
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-context-retrieve-full">gptme-util-context-retrieve command line option</a>
+</li>
+      </ul></li>
+      <li>
     --host
 
       <ul>
@@ -406,6 +413,8 @@
 </li>
         <li><a href="cli.html#cmdoption-gptme-server-model">gptme-server command line option</a>
 </li>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-m">gptme-util-llm-generate command line option</a>
+</li>
         <li><a href="cli.html#cmdoption-gptme-util-tokens-count-m">gptme-util-tokens-count command line option</a>
 </li>
       </ul></li>
@@ -428,6 +437,8 @@
 
       <ul>
         <li><a href="cli.html#cmdoption-gptme-no-stream">gptme command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-stream">gptme-util-llm-generate command line option</a>
 </li>
       </ul></li>
       <li>
@@ -466,6 +477,13 @@
 </li>
       </ul></li>
       <li>
+    --stream
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-stream">gptme-util-llm-generate command line option</a>
+</li>
+      </ul></li>
+      <li>
     --summarize
 
       <ul>
@@ -474,6 +492,8 @@
         <li><a href="cli.html#cmdoption-gptme-util-chats-search-summarize">gptme-util-chats-search command line option</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --system
 
@@ -481,8 +501,6 @@
         <li><a href="cli.html#cmdoption-gptme-system">gptme command line option</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --timeout
 
@@ -554,6 +572,8 @@
         <li><a href="cli.html#cmdoption-gptme-m">gptme command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-eval-m">gptme-eval command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-m">gptme-util-llm-generate command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-tokens-count-m">gptme-util-tokens-count command line option</a>
 </li>
@@ -880,8 +900,6 @@
         <li><a href="cli.html#cmdoption-gptme-server-v">-v</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     gptme-util command line option
 
@@ -891,6 +909,8 @@
         <li><a href="cli.html#cmdoption-gptme-util-v">-v</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     gptme-util-chats-ls command line option
 
@@ -923,10 +943,34 @@
 </li>
       </ul></li>
       <li>
-    gptme-util-context-generate command line option
+    gptme-util-context-index command line option
 
       <ul>
-        <li><a href="cli.html#cmdoption-gptme-util-context-generate-arg-PATH">PATH</a>
+        <li><a href="cli.html#cmdoption-gptme-util-context-index-arg-PATH">PATH</a>
+</li>
+      </ul></li>
+      <li>
+    gptme-util-context-retrieve command line option
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-context-retrieve-full">--full</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-context-retrieve-arg-QUERY">QUERY</a>
+</li>
+      </ul></li>
+      <li>
+    gptme-util-llm-generate command line option
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-m">--model</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-stream">--no-stream</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-stream">--stream</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-m">-m</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-arg-PROMPT">PROMPT</a>
 </li>
       </ul></li>
       <li>
@@ -1115,7 +1159,7 @@
     PATH
 
       <ul>
-        <li><a href="cli.html#cmdoption-gptme-util-context-generate-arg-PATH">gptme-util-context-generate command line option</a>
+        <li><a href="cli.html#cmdoption-gptme-util-context-index-arg-PATH">gptme-util-context-index command line option</a>
 </li>
       </ul></li>
       <li><a href="api.html#gptme.message.Message.pinned">pinned (gptme.message.Message attribute)</a>
@@ -1124,12 +1168,19 @@
 </li>
       <li><a href="api.html#gptme.config.ProjectConfig">ProjectConfig (class in gptme.config)</a>
 </li>
-      <li><a href="prompts.html#gptme.prompts.prompt_full">prompt_full() (in module gptme.prompts)</a>
+      <li>
+    PROMPT
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-llm-generate-arg-PROMPT">gptme-util-llm-generate command line option</a>
 </li>
-      <li><a href="prompts.html#gptme.prompts.prompt_gptme">prompt_gptme() (in module gptme.prompts)</a>
+      </ul></li>
+      <li><a href="prompts.html#gptme.prompts.prompt_full">prompt_full() (in module gptme.prompts)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="prompts.html#gptme.prompts.prompt_gptme">prompt_gptme() (in module gptme.prompts)</a>
+</li>
       <li><a href="prompts.html#gptme.prompts.prompt_project">prompt_project() (in module gptme.prompts)</a>
 </li>
       <li><a href="prompts.html#gptme.prompts.prompt_short">prompt_short() (in module gptme.prompts)</a>
@@ -1160,6 +1211,8 @@
 
       <ul>
         <li><a href="cli.html#cmdoption-gptme-util-chats-search-arg-QUERY">gptme-util-chats-search command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-context-retrieve-arg-QUERY">gptme-util-context-retrieve command line option</a>
 </li>
       </ul></li>
   </ul></td>
