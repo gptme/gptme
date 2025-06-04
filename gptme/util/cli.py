@@ -195,7 +195,12 @@ def llm_generate(prompt: str | None, model: str | None, stream: bool):
 
     with redirect_stderr(stderr_capture):
         from ..init import init  # fmt: skip
-        from ..llm import _chat_complete, _stream, get_provider_from_model, init_llm  # fmt: skip
+        from ..llm import (  # fmt: skip
+            _chat_complete,
+            _stream,
+            get_provider_from_model,
+            init_llm,
+        )
         from ..llm.models import get_default_model  # fmt: skip
         from ..message import Message  # fmt: skip
         from ..util import console  # fmt: skip

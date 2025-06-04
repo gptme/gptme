@@ -3,6 +3,7 @@
 import time
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from gptme.logmanager import ConversationMeta
 from gptme.util.cli import main
@@ -95,26 +96,38 @@ def test_chats_list(tmp_path, mocker):
     assert "Messages: 2" in result.output  # Second chat has 2 messages
 
 
-def test_context_generate(tmp_path, mocker):
-    """Test the context generate command."""
+def test_context_index_and_retrieve(tmp_path, monkeypatch):
+    """Test the context index and retrieve commands."""
+    # Skip if gptme-rag not available
+    from gptme.tools.rag import _has_gptme_rag
+
+    if not _has_gptme_rag():
+        pytest.skip("gptme-rag not available")
+
     # Create a test file
     test_file = tmp_path / "test.txt"
     test_file.write_text("Hello, world!")
-
-    # Mock RAG dependencies
-    mocker.patch("gptme.tools.rag._has_gptme_rag", return_value=True)
-    mocker.patch("gptme.tools.rag.init")  # Mock the init function
-
-    # Mock the rag_index function
-    mock_index = mocker.patch("gptme.tools.rag.rag_index")
-    mock_index.return_value = 1
+    monkeypatch.chdir(tmp_path)
 
     runner = CliRunner()
-    result = runner.invoke(main, ["context", "generate", str(test_file)])
+    result = runner.invoke(main, ["context", "index", str(test_file)])
 
     assert result.exit_code == 0
-    mock_index.assert_called_once_with(str(test_file))
-    assert "Indexed 1" in result.output
+    assert "indexed 1" in result.output.lower()
+
+    # Test basic retrieve
+    result = runner.invoke(main, ["context", "retrieve", "test query"])
+    assert result.exit_code == 0
+    assert result.output.count("Hello, world!") > 0
+    # Check that the output contains the indexed content only once
+    # TODO: requires fresh index for gptme-rag (or project/dir-specific index support)
+    # assert result.output.count("Hello, world!") == 1
+
+    # Test with --full flag
+    result = runner.invoke(main, ["context", "retrieve", "--full", "test query"])
+    assert result.exit_code == 0
+    assert result.output.count("Hello, world!") > 0
+    # assert result.output.count("Hello, world!") == 1
 
 
 def test_tools_list():
