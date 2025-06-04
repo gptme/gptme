@@ -125,9 +125,9 @@ def context():
     pass
 
 
-@context.command("generate")
+@context.command("index")
 @click.argument("path", type=click.Path(exists=True))
-def context_generate(path: str):
+def context_index(path: str):
     """Index a file or directory for context retrieval."""
     from ..tools.rag import init, rag_index  # fmt: skip
 
@@ -137,6 +137,21 @@ def context_generate(path: str):
     # Index the file/directory
     n_docs = rag_index(path)
     print(f"Indexed {n_docs} documents")
+
+
+@context.command("retrieve")
+@click.argument("query")
+@click.option("--full", is_flag=True, help="Show full context of search results")
+def context_retrieve(query: str, full: bool):
+    """Search indexed documents for relevant context."""
+    from ..tools.rag import init, rag_search  # fmt: skip
+
+    # Initialize RAG
+    init()
+
+    # Search for the query
+    results = rag_search(query, return_full=full)
+    print(results)
 
 
 @main.group()
