@@ -83,6 +83,11 @@ def init(provider: Provider, config: Config):
         clients[provider] = OpenAI(
             api_key=api_key, base_url="https://integrate.api.nvidia.com/v1"
         )
+    elif provider == "requesty":
+        api_key = config.get_env_required("REQUESTY_API_KEY")
+        clients[provider] = OpenAI(
+            api_key=api_key, base_url="https://router.requesty.ai/v1"
+        )
     elif provider == "local":
         # OPENAI_API_BASE renamed to OPENAI_BASE_URL: https://github.com/openai/openai-python/issues/745
         api_base = config.get_env("OPENAI_API_BASE")
