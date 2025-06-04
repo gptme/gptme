@@ -190,7 +190,7 @@ class ConversationSession:
 
     # Capture context at session creation
     # TODO: use a fresh context for each session?
-    context: Context = field(default_factory=copy_context)
+    context: Context = field(default_factory=Context)
 
 
 class SessionManager:
