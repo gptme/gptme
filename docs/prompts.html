@@ -1002,6 +1002,14 @@ npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"
 <span class="s">Scaffolding project in ./fancy-project...</span>
 <span class="sb">```</span>
 
+<span class="gu">#### Proper quoting for complex content</span>
+
+<span class="k">&gt; </span><span class="ge">User: add a comment with backticks and special characters</span>
+<span class="k">&gt; </span><span class="ge">Assistant: When passing complex content with special characters, use single quotes to prevent shell interpretation:</span>
+<span class="sb">```shell</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;Content with `backticks` and $variables that should not be interpreted&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>example.txt
+<span class="sb">```</span>
+
 <span class="gu">## subagent</span>
 
 <span class="gs">**Description:**</span> Create and manage subagents
@@ -1202,7 +1210,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 4783</p>
+<p>Tokens: 4854</p>
 </dd></dl>
 
 <dl class="py function">
