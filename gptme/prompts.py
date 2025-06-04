@@ -343,7 +343,7 @@ def get_workspace_prompt(workspace: Path) -> str:
         files_str = []
         for file in files:
             if file.exists():
-                files_str.append(md_codeblock(file, file.read_text()))
+                files_str.append(md_codeblock(file, file.read_text(encoding='utf-8')))
         if files_str:
             sections.append(
                 "## Selected project files\n\nRead more with `cat`.\n\n"
