@@ -1,5 +1,5 @@
 Building Executables
-===================
+====================
 
 gptme supports building standalone executables using PyInstaller for easier distribution.
 
@@ -72,7 +72,7 @@ This removes the ``build/``, ``dist/``, and temporary spec backup files.
 Customization
 -------------
 
-The PyInstaller configuration is in ``gptme-server.spec``. You can modify this file to:
+The PyInstaller configuration is in ``scripts/pyinstaller/gptme-server.spec``. You can modify this file to:
 
 - Add/remove hidden imports
 - Include additional data files

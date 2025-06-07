@@ -10,9 +10,9 @@ sys.path.insert(0, str(project_root))
 # Define data files to include
 datas = [
     # Include server static files
-    ('gptme/server/static', 'gptme/server/static'),
+    (str(project_root / 'gptme/server/static'), 'gptme/server/static'),
     # Include the logo if needed
-    ('media/logo.png', 'media'),
+    (str(project_root / 'media/logo.png'), 'media'),
 ]
 
 # Hidden imports - modules that PyInstaller might miss
@@ -71,7 +71,7 @@ excludes = [
 ]
 
 a = Analysis(
-    ['gptme/server/__main__.py'],
+    [str(project_root / 'gptme/server/__main__.py')],
     pathex=[],
     binaries=[],
     datas=datas,

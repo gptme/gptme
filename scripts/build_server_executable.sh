@@ -15,11 +15,11 @@ poetry install --extras server --with dev
 
 # Clean previous builds
 echo "Cleaning previous builds..."
-rm -rf build/ dist/ gptme-server.spec.bak
+rm -rf build/ dist/ scripts/pyinstaller/gptme-server.spec.bak
 
 # Run PyInstaller
 echo "Running PyInstaller..."
-poetry run pyinstaller gptme-server.spec
+poetry run pyinstaller scripts/pyinstaller/gptme-server.spec
 
 # Check if build was successful
 if [ -f "dist/gptme-server" ] || [ -f "dist/gptme-server.exe" ]; then

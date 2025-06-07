@@ -102,6 +102,7 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
 
   build-docker:
+    name: Docker
     runs-on: ubuntu-latest
     env:
       SHOULD_PUSH: ${{ github.ref == 'refs/tags/v*' || github.ref == 'refs/heads/master' }}
@@ -230,7 +231,7 @@ jobs:
         make typecheck
 
   build-pyinstaller:
-    name: Build PyInstaller executable on ${{ matrix.os }}
+    name: PyInstaller binaries on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
