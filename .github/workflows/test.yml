@@ -1,0 +1,100 @@
+name: Test
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+jobs:
+  test:
+    name: Test with `${{ matrix.extras }}` and ${{ matrix.model }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE: false
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python_version: ['3.10']
+        extras: ['-E all']
+        model: ['openai/gpt-4o-mini', 'anthropic/claude-3-haiku-20240307']
+        #include:
+          # deepseek, no extras, latest python
+          #- os: ubuntu-latest
+          #  python_version: '3.13'
+          #  extras: ''
+          #  model: 'deepseek/deepseek-chat'
+          # openrouter
+          #- os: ubuntu-latest
+          #  python_version: '3.10'
+          #  extras: ''
+          #  model: 'openrouter/deepseek/deepseek-chat'
+          # openrouter (llama)
+          #- os: ubuntu-latest
+          #  python_version: '3.10'
+          #  extras: ''
+          #  model: 'openrouter/meta-llama/llama-3.3-70B-instruct'
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+    - name: Install apt dependencies
+      run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb
+
+    - name: Set up Xvfb
+      run: |
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
+    - name: Install poetry
+      run: pipx install poetry
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python_version }}
+        cache: 'poetry'
+
+    - name: Install dependencies
+      run: |
+        make build
+        poetry install ${{ matrix.extras }}
+
+    - name: Install playwright
+      if: contains(matrix.extras, 'browser') || contains(matrix.extras, 'all')
+      run: poetry run playwright install chromium
+
+    # old comment: OpenAI sometimes randomly aborts connections
+    - name: Run tests
+      uses: nick-fields/retry@v3
+      env:
+        TERM: xterm
+        MODEL: ${{ matrix.model }}
+      with:
+        timeout_minutes: 5
+        max_attempts: 1  # favor pytest retries (mark with flaky)
+        retry_wait_seconds: 10
+        command: make test SLOW=true
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
+      env:
+        MODEL: ${{ matrix.model }}
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        env_vars: MODEL
+        flags: ${{ matrix.model }}
+
+    - name: Upload test results to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/test-results-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
