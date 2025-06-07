@@ -45,22 +45,26 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "context": 128_000,
         "price_input": 15,
         "price_output": 60,
+        "supports_reasoning": True,
     },
     "o1-preview-2024-09-12": {
         "context": 128_000,
         "price_input": 15,
         "price_output": 60,
+        "supports_reasoning": True,
     },
     # OpenAI o1-mini
     "o1-mini": {
         "context": 128_000,
         "price_input": 3,
         "price_output": 12,
+        "supports_reasoning": True,
     },
     "o1-mini-2024-09-12": {
         "context": 128_000,
         "price_input": 3,
         "price_output": 12,
+        "supports_reasoning": True,
     },
     # GPT-4 Turbo
     "gpt-4-turbo": {

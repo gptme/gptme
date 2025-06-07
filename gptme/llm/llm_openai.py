@@ -153,6 +153,12 @@ def _prep_deepseek_reasoner(msgs: list[Message]) -> Generator[Message, None, Non
     yield from _merge_consecutive(_prep_o1(msgs[1:]))
 
 
+def _is_reasoner(base_model: str) -> bool:
+    is_o1 = any(base_model.startswith(om) for om in ["o1", "o3", "o4"])
+    is_deepseek_reasoner = base_model == "deepseek-reasoner"
+    return is_o1 or is_deepseek_reasoner
+
+
 def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> str:
     # This will generate code and such, so we need appropriate temperature and top_p params
     # top_p controls diversity, temperature controls randomness
@@ -162,12 +168,9 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
     provider = get_provider_from_model(model)
     client = get_client(provider)
     base_model = _get_base_model(model)
+    is_reasoner = _is_reasoner(base_model)
 
     from openai import NOT_GIVEN  # fmt: skip
-
-    is_o1 = base_model.startswith("o1")
-    is_deepseek_reasoner = base_model == "deepseek-reasoner"
-    is_reasoner = is_o1 or is_deepseek_reasoner
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
 
@@ -187,7 +190,10 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
                 f"@{tool_call.function.name}({tool_call.id}): {tool_call.function.arguments}"
             )
     else:
-        if reasoning_content := getattr(choice.message, "reasoning_content", None):
+        if reasoning_content := (
+            getattr(choice.message, "reasoning_content", None)
+            or getattr(choice.message, "reasoning", None)
+        ):
             logger.info("Reasoning content: %s", reasoning_content)
         if choice.message.content:
             result.append(choice.message.content)
@@ -204,16 +210,13 @@ def stream(
     provider = get_provider_from_model(model)
     client = get_client(provider)
     base_model = _get_base_model(model)
-    stop_reason = None
+    is_reasoner = _is_reasoner(base_model)
 
     from openai import NOT_GIVEN  # fmt: skip
 
-    is_o1 = base_model.startswith("o1") or base_model.startswith("o3")
-    is_deepseek_reasoner = base_model == "deepseek-reasoner"
-    is_reasoner = is_o1 or is_deepseek_reasoner
-
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
-    reasoning = ""
+    in_reasoning_block = False
+    stop_reason = None
 
     for chunk_raw in client.chat.completions.create(
         model=base_model,
@@ -222,11 +225,6 @@ def stream(
         top_p=TOP_P if not is_reasoner else NOT_GIVEN,
         stream=True,
         tools=tools_dict if tools_dict else NOT_GIVEN,
-        # the llama-cpp-python server needs this explicitly set, otherwise unreliable results
-        # TODO: make this better
-        # max_tokens=(
-        #     (1000 if not model.startswith("gpt-") else 4096)
-        # ),
         extra_headers=(openrouter_headers if provider == "openrouter" else {}),
     ):
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
@@ -239,20 +237,29 @@ def stream(
         chunk = cast(ChatCompletionChunk, chunk_raw)
 
         if not chunk.choices:
-            # Got a chunk with no choices, Azure always sends one of these at the start
             continue
 
         choice = chunk.choices[0]
         stop_reason = choice.finish_reason
         delta = choice.delta
 
-        if reasoning_content := getattr(delta, "reasoning_content", None):
-            reasoning += reasoning_content
-        elif reasoning:
-            logger.info(f"Reasoning content: {reasoning}")
-            reasoning = ""
-
-        if delta.content is not None:
+        # Handle reasoning content
+        # OpenRouter API uses delta.reasoning
+        # DeepSeek API uses delta.reasoning_content
+        if reasoning_content := (
+            getattr(delta, "reasoning_content", None)
+            or getattr(delta, "reasoning", None)
+        ):
+            if not in_reasoning_block:
+                yield "<think>\n"
+                in_reasoning_block = True
+            yield reasoning_content
+        elif in_reasoning_block:
+            yield "\n</think>\n\n"
+            in_reasoning_block = False
+            if delta.content is not None:
+                yield delta.content
+        elif delta.content is not None:
             yield delta.content
 
         # Handle tool calls
@@ -265,6 +272,16 @@ def stream(
                             yield f"\n@{func.name}({tool_call.id}): "
                         if func.arguments:
                             yield func.arguments
+
+        # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
+        # if delta.type == "response.reasoning_summary.delta":
+        #     if not in_reasoning_block:
+        #         yield "<think>\n"
+        #         in_reasoning_block = True
+        #     yield delta.text
+
+    if in_reasoning_block:
+        yield "\n</think>\n"
 
     logger.debug(f"Stop reason: {stop_reason}")
 
