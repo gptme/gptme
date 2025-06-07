@@ -40,6 +40,9 @@ build-docker-full:
 	docker build . -t gptme:latest -f scripts/Dockerfile
 	docker build . -t gptme-eval:latest -f scripts/Dockerfile.eval --build-arg RUST=yes --build-arg PLAYWRIGHT=no
 
+build-server-exe: ## Build gptme-server executable with PyInstaller
+	./scripts/build_server_executable.sh
+
 test:
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests
 	poetry run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
@@ -138,7 +141,7 @@ release: version dist/CHANGELOG.md
 		git push origin master $${VERSION} && \
 		gh release create $${VERSION} -t $${VERSION} -F dist/CHANGELOG.md
 
-clean: clean-docs clean-site clean-test
+clean: clean-docs clean-site clean-test clean-build
 
 clean-site:
 	rm -rf site/dist
@@ -150,6 +153,9 @@ clean-test:
 	echo $$HOME/.local/share/gptme/logs/*test-*-test_*
 	rm -I $$HOME/.local/share/gptme/logs/*test-*-test_*/*.jsonl || true
 	rm --dir $$HOME/.local/share/gptme/logs/*test-*-test_*/ || true
+
+clean-build: ## Clean PyInstaller build artifacts
+	rm -rf build/ dist/ *.spec.bak
 
 rename-logs:
 	./scripts/auto_rename_logs.py $(if $(APPLY),--no-dry-run) --limit $(or $(LIMIT),10)
