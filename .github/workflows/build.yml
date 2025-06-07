@@ -228,3 +228,45 @@ jobs:
     - name: Typecheck
       run: |
         make typecheck
+
+  build-pyinstaller:
+    name: Build PyInstaller executable on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python_version: ['3.10']
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install poetry
+      run: pipx install poetry
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python_version }}
+        cache: 'poetry'
+    - name: Install dependencies
+      run: |
+        make build
+        poetry install --extras server --with dev
+    - name: Build PyInstaller executable
+      run: make build-server-exe
+    - name: Test executable (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        ./dist/gptme-server --help
+        echo "✅ gptme-server --help executed successfully"
+    - name: Test executable (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        .\dist\gptme-server.exe --help
+        echo "✅ gptme-server.exe --help executed successfully"
+    - name: Upload executable artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: gptme-server-${{ matrix.os }}
+        path: |
+          dist/gptme-server*
+        retention-days: 7
