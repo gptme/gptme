@@ -90,6 +90,9 @@ pytest-retry = "^1.6.3"
 pytest-mock = "*"
 greenlet = "*"  # dependency of playwright, but needed for coverage
 
+# build
+pyinstaller = {version="^6.14", python=">=3.10,<3.13"}  # pyinstaller 6.0+ is required for Python 3.10, but not yet compatible with Python 3.12
+
 # docs
 sphinx = "^8.0"
 sphinx-click = "^6.0"
@@ -111,6 +114,7 @@ datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 computer = []  # pillow (non-opt)
 youtube = ["youtube_transcript_api"]
 tts = ["sounddevice", "scipy", "numpy"]
+pyinstaller = ["pyinstaller"]
 all = [
     # server
     "flask", "flask-cors",
