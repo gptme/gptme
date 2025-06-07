@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>&lt;no title&gt; &#8212; gptme</title>
+    <title>Building Executables &#8212; gptme</title>
   
   
   
@@ -46,11 +46,13 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.6.3.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'computer-use-warning';</script>
-    <link rel="canonical" href="https://gptme.org/docs/computer-use-warning.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'building';</script>
+    <link rel="canonical" href="https://gptme.org/docs/building.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Prompts" href="prompts.html" />
+    <link rel="prev" title="Contributing" href="contributing.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -101,8 +103,6 @@
     <div class="bd-container__inner bd-page-width">
       
       
-      
-        
       
       <dialog id="pst-primary-sidebar-modal"></dialog>
       <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
@@ -167,9 +167,9 @@
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Building Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
 <li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
@@ -265,7 +265,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/computer-use-warning.rst" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/building.rst" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -295,7 +295,7 @@
       
       
       
-      <li><a href="_sources/computer-use-warning.rst" target="_blank"
+      <li><a href="_sources/building.rst" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -371,7 +371,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1><no title></h1>
+    <h1>Building Executables</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -380,9 +380,13 @@
                 <h2> Contents </h2>
             </div>
             <nav aria-label="Page">
-                <ul class="simple visible nav section-nav flex-column">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building-gptme-server-executable">Building gptme-server Executable</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cleaning-build-artifacts">Cleaning Build Artifacts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#customization">Customization</a></li>
 </ul>
-
             </nav>
         </div>
     </div>
@@ -393,11 +397,76 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>The computer use interface is experimental and has serious security implications.
-Please use with caution and see Anthropic’s documentation on <a class="reference external" href="https://docs.anthropic.com/en/docs/build-with-claude/computer-use">computer use</a> for additional guidance.</p>
+  <section id="building-executables">
+<h1>Building Executables<a class="headerlink" href="#building-executables" title="Link to this heading">#</a></h1>
+<p>gptme supports building standalone executables using PyInstaller for easier distribution.</p>
+<section id="building-gptme-server-executable">
+<h2>Building gptme-server Executable<a class="headerlink" href="#building-gptme-server-executable" title="Link to this heading">#</a></h2>
+<p>To build a standalone executable for gptme-server:</p>
+<ol class="arabic">
+<li><p><strong>Install dependencies</strong> (including PyInstaller):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>install<span class="w"> </span>--extras<span class="w"> </span>server<span class="w"> </span>--with<span class="w"> </span>dev
+</pre></div>
 </div>
+</li>
+<li><p><strong>Build the executable</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>build-server-exe
+</pre></div>
+</div>
+<p>Or manually:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/build_server_executable.sh
+</pre></div>
+</div>
+</li>
+<li><p><strong>Find the executable</strong> in the <code class="docutils literal notranslate"><span class="pre">dist/</span></code> directory:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ls<span class="w"> </span>-la<span class="w"> </span>dist/gptme-server*
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
+<p>The standalone executable includes all dependencies and can be run without Python installed:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run the server</span>
+./dist/gptme-server<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">5700</span>
+
+<span class="c1"># Show help</span>
+./dist/gptme-server<span class="w"> </span>--help
+</pre></div>
+</div>
+<p>The executable includes:</p>
+<ul class="simple">
+<li><p>All Python dependencies (Flask, gptme, etc.)</p></li>
+<li><p>Static web UI files</p></li>
+<li><p>All gptme tools and functionality</p></li>
+</ul>
+</section>
+<section id="distribution">
+<h2>Distribution<a class="headerlink" href="#distribution" title="Link to this heading">#</a></h2>
+<p>The executable is self-contained and can be distributed to systems without Python or gptme installed.</p>
+<p><strong>Note</strong>: The executable is platform-specific (Linux/macOS/Windows).</p>
+</section>
+<section id="cleaning-build-artifacts">
+<h2>Cleaning Build Artifacts<a class="headerlink" href="#cleaning-build-artifacts" title="Link to this heading">#</a></h2>
+<p>To clean PyInstaller build artifacts:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>clean-build
+</pre></div>
+</div>
+<p>This removes the <code class="docutils literal notranslate"><span class="pre">build/</span></code>, <code class="docutils literal notranslate"><span class="pre">dist/</span></code>, and temporary spec backup files.</p>
+</section>
+<section id="customization">
+<h2>Customization<a class="headerlink" href="#customization" title="Link to this heading">#</a></h2>
+<p>The PyInstaller configuration is in <code class="docutils literal notranslate"><span class="pre">scripts/pyinstaller/gptme-server.spec</span></code>. You can modify this file to:</p>
+<ul class="simple">
+<li><p>Add/remove hidden imports</p></li>
+<li><p>Include additional data files</p></li>
+<li><p>Change executable options</p></li>
+<li><p>Optimize the build</p></li>
+</ul>
+<p>For more details, see the <a class="reference external" href="https://pyinstaller.org/">PyInstaller documentation</a>.</p>
+</section>
+</section>
 
 
                 </article>
@@ -410,6 +479,24 @@ Please use with caution and see Anthropic’s documentation on <a class="referen
                 <footer class="prev-next-footer d-print-none">
                   
 <div class="prev-next-area">
+    <a class="left-prev"
+       href="contributing.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Contributing</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="prompts.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Prompts</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
 </div>
                 </footer>
               
@@ -426,9 +513,13 @@ Please use with caution and see Anthropic’s documentation on <a class="referen
     <i class="fa-solid fa-list"></i> Contents
   </div>
   <nav class="bd-toc-nav page-toc">
-    <ul class="simple visible nav section-nav flex-column">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building-gptme-server-executable">Building gptme-server Executable</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cleaning-build-artifacts">Cleaning Build Artifacts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#customization">Customization</a></li>
 </ul>
-
   </nav></div>
 
 </div></div>
