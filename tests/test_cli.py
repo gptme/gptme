@@ -295,6 +295,20 @@ def test_stdin(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
 
 
+def test_no_tools(args: list[str], runner: CliRunner):
+    """Tests that the --tools argument can be empty, which should disable all tools."""
+    args.extend(["--tools", ""])
+    args.append("/tools")
+    args.append("-")
+    args.append("/exit")
+    result = runner.invoke(gptme.cli.main, args)
+    output = result.output
+    tools_section = output.split("tools:")[-1].split("User:")[0].strip()
+    assert "No tools available" in tools_section, tools_section
+    assert "python" not in result.output
+    assert result.exit_code == 0
+
+
 # Flaky, seems to not always get "User:" outputted?
 @pytest.mark.xfail(strict=False)
 @pytest.mark.slow

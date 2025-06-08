@@ -26,7 +26,12 @@ from .llm.models import get_recommended_model
 from .logmanager import ConversationMeta, get_user_conversations
 from .message import Message
 from .prompts import get_prompt
-from .tools import ToolFormat, get_available_tools, init_tools
+from .tools import (
+    ToolFormat,
+    clear_tools,
+    get_available_tools,
+    init_tools,
+)
 from .util import epoch_to_age
 from .util.generate_name import generate_name
 from .util.interrupt import handle_keyboard_interrupt, set_interruptible
@@ -109,7 +114,6 @@ The interface provides user commands that can be used to interact with the syste
     "--tools",
     "tool_allowlist",
     default=None,
-    multiple=True,
     help=f"Comma-separated list of tools to allow. Available: {available_tool_names}.",
 )
 @click.option(
@@ -146,7 +150,7 @@ def main(
     prompt_system: str,
     name: str,
     model: str | None,
-    tool_allowlist: list[str] | None,
+    tool_allowlist: str | None,
     tool_format: ToolFormat | None,
     stream: bool,
     verbose: bool,
@@ -160,7 +164,6 @@ def main(
     """Main entrypoint for the CLI."""
     if version:
         # print version
-
         print(f"gptme v{__version__}")
 
         # print dirs
@@ -253,9 +256,12 @@ def main(
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
     # Parse tool allowlist cli argument.
-    if tool_allowlist:
-        # split comma-separated values
-        tool_allowlist = [tool for tools in tool_allowlist for tool in tools.split(",")]
+    # split comma-separated values
+    tool_allowlist_l = (
+        [tool for tool in tool_allowlist.split(",") if tool.strip()]
+        if tool_allowlist is not None
+        else None
+    )
 
     # Load main config
     set_config_from_workspace(workspace_path)
@@ -267,13 +273,15 @@ def main(
         logdir=logdir,
         cli_config=ChatConfig(
             model=model,
-            tools=tool_allowlist,
+            tools=tool_allowlist_l,
             tool_format=tool_format,
             stream=stream,
             interactive=interactive,
             workspace=workspace_path,
         ),
     ).save()
+
+    print(f"Chat config tools: {chat_config.tools}")
 
     # Set chat config in main config
     config.chat = chat_config
@@ -285,9 +293,11 @@ def main(
     )
 
     # early init tools to generate system prompt
-    # We pass the tool_allowlist CLI argument. If it's not provided, init_tools
+    # We pass the tool_allowlist CLI argument. If it's not provided (None), init_tools
     # will load it from the environment variable TOOL_ALLOWLIST or the chat config.
-    tools = init_tools(tool_allowlist)
+    clear_tools()
+    print(f"Using tools: {tool_allowlist_l}")
+    tools = init_tools(tool_allowlist_l)
 
     # get initial system prompt
     initial_msgs = [

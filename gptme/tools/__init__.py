@@ -115,11 +115,13 @@ def init_tools(
     This function is thread-safe and can be called from multiple threads.
     Each thread will get its own copy of the tools.
 
-    If allowlist is not provided, it will be loaded from the environment variable
+    If allowlist is not provided (None), it will be loaded from the environment variable
     TOOL_ALLOWLIST or the chat config (if set).
     """
+    print(f"Allowlist: {allowlist}")
     with _tools_init_lock:
         loaded_tools = _get_loaded_tools()
+        print(f"Already loaded tools: {[tool.name for tool in loaded_tools]}")
         config = get_config()
 
         if allowlist is None:
@@ -142,18 +144,24 @@ def init_tools(
             if not has_tool(tool_name):
                 raise ValueError(f"Tool '{tool_name}' not found")
 
+        print(
+            f"Loaded {len(loaded_tools)} tools: {[tool.name for tool in loaded_tools]}"
+        )
         return loaded_tools
 
 
 def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
-    tools = []
+    tools: list[ToolSpec] = []
+    if allowlist == []:
+        # If allowlist is, return no tools
+        return tools
     for tool in get_available_tools():
-        if allowlist and not tool.is_mcp and tool.name not in allowlist:
+        if allowlist is not None and not tool.is_mcp and tool.name not in allowlist:
             continue
         if not tool.is_available:
             continue
         if tool.disabled_by_default:
-            if not allowlist or tool.name not in allowlist:
+            if allowlist is None or tool.name not in allowlist:
                 continue
         tools.append(tool)
     return tools
