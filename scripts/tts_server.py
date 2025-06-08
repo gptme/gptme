@@ -24,7 +24,9 @@ API Endpoints:
 import io
 import logging
 import shutil
+import subprocess
 from textwrap import shorten
+from typing import Literal
 
 import click
 import kokoro
@@ -41,6 +43,8 @@ log = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(title="TTS Server")
+
+BACKEND: Literal["kokoro", "chatterbox"] = "kokoro"  # TTS backend to use
 
 # Global variables
 DEFAULT_VOICE = "af_heart"  # Default voice
@@ -241,8 +245,65 @@ async def health():
 
 
 @app.get("/tts")
-async def text_to_speech(text: str, speed: float = 1.0, voice: str | None = None):
+async def text_to_speech(
+    text: str, speed: float = 1.0, voice: str | None = None
+) -> StreamingResponse:
     """Convert text to speech and return audio stream."""
+    if BACKEND == "kokoro":
+        return await text_to_speech_kokoro(text, speed, voice)
+    elif BACKEND == "chatterbox":
+        return await text_to_speech_chatterbox(text, speed, voice)
+
+
+async def text_to_speech_chatterbox(
+    text: str, speed: float = 1.0, voice: str | None = None
+) -> StreamingResponse:
+    """Convert text to speech using Chatterbox TTS."""
+
+    # Subprocess call to Chatterbox TTS script that outputs path to generated wav file
+    print(f"Calling Chatterbox TTS: {text}")
+    output = subprocess.run(
+        ["uv", "run", "chatterbox.py", text],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    lines = output.stdout.strip().splitlines()
+    path_wav = lines[-1]
+    print(path_wav)
+    assert path_wav.endswith(".wav"), "Expected last line to be a path to a wav file"
+    # Read the wav file and convert to proper format
+    sample_rate, audio_data = wavfile.read(path_wav)
+
+    # Normalize to [-1, 1] range if needed
+    if np.max(np.abs(audio_data)) > 1.0:
+        audio_data = audio_data / np.max(np.abs(audio_data))
+
+    # Convert to 16-bit integer format (standard for WAV files)
+    if audio_data.dtype != np.int16:
+        if audio_data.dtype.kind == "f":  # floating point
+            audio_int16 = (audio_data * 32767).astype(np.int16)
+        else:  # integer
+            audio_int16 = audio_data.astype(np.int16)
+    else:
+        audio_int16 = audio_data
+
+    # Write to buffer in correct format
+    buffer = io.BytesIO()
+    wavfile.write(buffer, sample_rate, audio_int16)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="audio/wav",
+        headers={"Content-Disposition": 'attachment; filename="speech.wav"'},
+    )
+
+
+async def text_to_speech_kokoro(
+    text: str, speed: float = 1.0, voice: str | None = None
+) -> StreamingResponse:
+    """Convert text to speech using Kokoro TTS."""
     assert pipeline
     # Handle voice selection
     try:
@@ -271,9 +332,17 @@ async def text_to_speech(text: str, speed: float = 1.0, voice: str | None = None
             # Strip silence from audio
             audio = strip_silence(audio)
 
+            # Convert audio to proper format for WAV
+            # Normalize to [-1, 1] range first
+            if np.max(np.abs(audio)) > 1.0:
+                audio = audio / np.max(np.abs(audio))
+
+            # Convert to 16-bit integer format (standard for WAV files)
+            audio_int16 = (audio * 32767).astype(np.int16)
+
             # Convert to WAV format
             buffer = io.BytesIO()
-            wavfile.write(buffer, 24000, audio)
+            wavfile.write(buffer, 24000, audio_int16)
             buffer.seek(0)
 
             return StreamingResponse(
@@ -299,9 +368,25 @@ async def text_to_speech(text: str, speed: float = 1.0, voice: str | None = None
     help="Language code (a=American English, b=British English, etc)",
 )
 @click.option("--list-voices", is_flag=True, help="List available voices and exit")
-def main(port: int, host: str, voice: str | None, lang: str, list_voices: bool):
+@click.option(
+    "--backend",
+    default="kokoro",
+    type=click.Choice(["kokoro", "chatterbox"]),
+    help="TTS backend to use",
+)
+def main(
+    port: int,
+    host: str,
+    voice: str | None,
+    lang: str,
+    list_voices: bool,
+    backend: Literal["kokoro", "chatterbox"],
+):
     """Run the TTS server."""
-    global pipeline, DEFAULT_VOICE, DEFAULT_LANG
+    global pipeline, DEFAULT_VOICE, DEFAULT_LANG, BACKEND
+
+    BACKEND = backend
+
     if list_voices:
         # Initialize pipeline with specified language
         DEFAULT_LANG = lang
