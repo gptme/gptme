@@ -128,6 +128,7 @@ nitpick_ignore = [
     ("py:class", "threading.Thread"),
     ("py:class", "gptme.tools.computer.ScalingSource"),
     ("py:class", "gptme.config.RagConfig"),
+    ("py:class", "ToolFormat"),
 ]
 
 # -- Options for HTML output -------------------------------------------------
