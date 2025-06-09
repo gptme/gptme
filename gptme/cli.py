@@ -259,16 +259,17 @@ def main(
     # Load main config
     # The config is first loaded or created from the workspace directory,
     # using CLI arguments or environment variables to override defaults.
-    # If we are resuming a conversation, we shouldn't override its existing chat config unless we have provided CLI arguments or environment variables.
+    # If we are resuming a conversation we shouldn't override its existing chat config,
+    # unless we have provided CLI arguments or environment variables.
     # TODO: this whole config init process could be rethought and simplified
     #       it may have issues
     set_config_from_workspace(workspace_path)
     config = get_config()
 
-    # Parse model from CLI argument or env var
+    # Get model from CLI argument or env var
     model = model or config.get_env("MODEL")
 
-    # Parse tool allowlist from CLI argument or env var
+    # Get tool allowlist from CLI argument or env var
     tool_allowlist_l: list[str] | None = None
     if tool_allowlist:
         # split comma-separated values
@@ -277,9 +278,8 @@ def main(
         # if environment variable is set, use it as defaults
         tool_allowlist_l = [tool for tool in tool_allowlist_env.split(",")]
 
-    # defaults, after considering CLI allowlist
-    toolchain = get_toolchain(tool_allowlist_l)
-    tools_default = [tool.name for tool in toolchain]
+    # Tool defaults, after considering CLI allowlist
+    tools_default = [tool.name for tool in get_toolchain(tool_allowlist_l)]
 
     selected_tool_format: ToolFormat = (
         tool_format or config.get_env("TOOL_FORMAT") or "markdown"  # type: ignore
@@ -287,7 +287,7 @@ def main(
 
     # Load or create chat config, applying CLI overrides
     logdir.mkdir(parents=True, exist_ok=True)
-    chat_config = ChatConfig.load_or_create(
+    config.chat = ChatConfig.load_or_create(
         logdir=logdir,
         cli_config=ChatConfig(
             model=model,
@@ -301,33 +301,31 @@ def main(
     # remove variables we should no longer use
     del model
     del selected_tool_format
-    assert chat_config.tool_format
+    assert config.chat.tool_format
 
-    # if we had a tool allowlist provided, override the chat config
+    # if we had a tool allowlist set, override the chat config
     # FIXME: this will always override the tools if the env variable is set, need to separate them
-    if tool_allowlist:
-        print(f"Using allowlist: {tool_allowlist}")
-        chat_config.tools = tools_default
+    if config.chat.tools is None or tool_allowlist:
+        config.chat.tools = tools_default
 
-    # Set chat config in main config
-    config.chat = chat_config
-    chat_config.save()
+    # Set chat config
+    config.chat.save()
     set_config(config)
 
     # early init tools to generate system prompt
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools
     # will load it from the environment variable TOOL_ALLOWLIST or the chat config.
-    print(f"Using tools: {chat_config.tools}")
-    tools = init_tools(chat_config.tools)
+    print(f"Using tools: {config.chat.tools}")
+    tools = init_tools(config.chat.tools)
 
     # get initial system prompt
     initial_msgs = [
         get_prompt(
             tools=tools,
             prompt=prompt_system,
-            interactive=interactive,
-            tool_format=chat_config.tool_format,
-            model=chat_config.model,
+            interactive=config.chat.interactive,
+            tool_format=config.chat.tool_format,
+            model=config.chat.model,
         )
     ]
 
@@ -340,14 +338,14 @@ def main(
             prompt_msgs,
             initial_msgs,
             logdir,
-            chat_config.model,
-            chat_config.stream,
+            config.chat.model,
+            config.chat.stream,
             no_confirm,
-            chat_config.interactive,
+            config.chat.interactive,
             show_hidden,
-            chat_config.workspace,
-            chat_config.tools,
-            chat_config.tool_format,
+            config.chat.workspace,
+            config.chat.tools,
+            config.chat.tool_format,
         )
     except RuntimeError as e:
         if verbose:
