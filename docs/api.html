@@ -496,6 +496,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config"><code class="docutils literal notranslate"><span class="pre">set_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_from_workspace"><code class="docutils literal notranslate"><span class="pre">set_config_from_workspace()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_value"><code class="docutils literal notranslate"><span class="pre">set_config_value()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.setup_config_from_cli"><code class="docutils literal notranslate"><span class="pre">setup_config_from_cli()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prompts">prompts</a></li>
@@ -1048,6 +1049,13 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 <dd><p>Set a value in the user config file.</p>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.config.setup_config_from_cli">
+<span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">setup_config_from_cli</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_allowlist</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ToolFormat</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interactive</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.config.Config" title="gptme.config.Config"><span class="pre">Config</span></a></span></span><a class="headerlink" href="#gptme.config.setup_config_from_cli" title="Link to this definition">#</a></dt>
+<dd><p>Initialize and return a complete config from CLI arguments and workspace.</p>
+<p>Handles the precedence: CLI args -&gt; env vars -&gt; config files -&gt; defaults</p>
+</dd></dl>
+
 </section>
 <section id="prompts">
 <h2>prompts<a class="headerlink" href="#prompts" title="Link to this heading">#</a></h2>
@@ -1318,6 +1326,7 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config"><code class="docutils literal notranslate"><span class="pre">set_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_from_workspace"><code class="docutils literal notranslate"><span class="pre">set_config_from_workspace()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_value"><code class="docutils literal notranslate"><span class="pre">set_config_value()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.setup_config_from_cli"><code class="docutils literal notranslate"><span class="pre">setup_config_from_cli()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prompts">prompts</a></li>
