@@ -4,10 +4,8 @@ import sys
 import termios
 from collections.abc import Generator
 from pathlib import Path
-from typing import cast
 
 from .commands import execute_cmd
-from .config import get_config
 from .constants import INTERRUPT_CONTENT, PROMPT_USER
 from .init import init
 from .llm import reply
@@ -84,14 +82,14 @@ def chat(
     console.log(f"Using logdir {path_with_tilde(logdir)}")
     manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
 
-    config = get_config()
-    tool_format_with_default: ToolFormat = tool_format or cast(
-        ToolFormat, config.get_env("TOOL_FORMAT", "markdown")
-    )
+    # tool_format should already be resolved by this point
+    assert (
+        tool_format is not None
+    ), "tool_format should be resolved before calling chat()"
 
     # By defining the tool_format at the last moment we ensure we can use the
     # configuration for subagent
-    set_tool_format(tool_format_with_default)
+    set_tool_format(tool_format)
 
     # Initialize workspace
     workspace = _init_workspace(workspace, logdir)
@@ -139,7 +137,7 @@ def chat(
                                 manager.log,
                                 stream,
                                 confirm_func,
-                                tool_format=tool_format_with_default,
+                                tool_format=tool_format,
                                 workspace=workspace,
                                 model=model,
                             )
@@ -211,7 +209,7 @@ def chat(
             manager.log,
             stream,
             confirm_func,
-            tool_format=tool_format_with_default,
+            tool_format=tool_format,
             workspace=workspace,
         ):  # pragma: no cover
             manager.append(msg)

@@ -5,7 +5,7 @@ import sys
 from datetime import datetime
 from itertools import islice
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 import click
 from pick import pick
@@ -14,10 +14,7 @@ from . import __version__
 from .chat import chat
 from .commands import _gen_help
 from .config import (
-    ChatConfig,
-    get_config,
-    set_config,
-    set_config_from_workspace,
+    setup_config_from_cli,
 )
 from .constants import MULTIPROMPT_SEPARATOR
 from .dirs import get_logs_dir
@@ -29,7 +26,6 @@ from .prompts import get_prompt
 from .tools import (
     ToolFormat,
     get_available_tools,
-    get_toolchain,
     init_tools,
 )
 from .util import epoch_to_age
@@ -256,60 +252,17 @@ def main(
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
-    # Load main config
-    # The config is first loaded or created from the workspace directory,
-    # using CLI arguments or environment variables to override defaults.
-    # If we are resuming a conversation we shouldn't override its existing chat config,
-    # unless we have provided CLI arguments or environment variables.
-    # TODO: this whole config init process could be rethought and simplified, it may have issues.
-    # TODO: this config init should probably be moved to a seperate function,
-    #       so it can be reused and doesnt overlap with functions in init.py, chat.py, and config.py
-    set_config_from_workspace(workspace_path)
-    config = get_config()
-
-    # Get model from CLI argument or env var
-    model = model or config.get_env("MODEL")
-
-    # Get tool allowlist from CLI argument or env var
-    tool_allowlist_l: list[str] | None = None
-    if tool_allowlist is not None:
-        # split comma-separated values
-        tool_allowlist_l = [tool for tool in tool_allowlist.split(",")]
-    elif tool_allowlist_env := config.get_env("TOOLS"):
-        # if environment variable is set, use it as defaults
-        tool_allowlist_l = [tool for tool in tool_allowlist_env.split(",")]
-
-    selected_tool_format: ToolFormat = (
-        tool_format
-        or cast(ToolFormat | None, config.get_env("TOOL_FORMAT"))
-        or "markdown"
-    )
-
-    # Load or create chat config, applying CLI overrides
-    logdir.mkdir(parents=True, exist_ok=True)
-    config.chat = ChatConfig.load_or_create(
+    # Setup complete configuration from CLI arguments and workspace
+    config = setup_config_from_cli(
+        workspace=workspace_path,
         logdir=logdir,
-        cli_config=ChatConfig(
-            model=model,
-            tool_format=selected_tool_format,
-            stream=stream,
-            interactive=interactive,
-            workspace=workspace_path,
-        ),
+        model=model,
+        tool_allowlist=tool_allowlist,
+        tool_format=tool_format,
+        stream=stream,
+        interactive=interactive,
     )
-
-    # remove variables we should no longer use
-    del model
-    del selected_tool_format
-    assert config.chat.tool_format
-
-    # if chat config tools unset, or if we have tool allowlist, update the chat config
-    if config.chat.tools is None or tool_allowlist is not None:
-        config.chat.tools = [tool.name for tool in get_toolchain(tool_allowlist_l)]
-
-    # Set chat config
-    config.chat.save()
-    set_config(config)
+    assert config.chat and config.chat.tool_format
 
     # early init tools to generate system prompt
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools
