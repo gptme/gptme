@@ -23,8 +23,10 @@ API Endpoints:
 
 import io
 import logging
+import os
 import shutil
 import subprocess
+from pathlib import Path
 from textwrap import shorten
 from typing import Literal
 
@@ -47,7 +49,8 @@ app = FastAPI(title="TTS Server")
 BACKEND: Literal["kokoro", "chatterbox"] = "kokoro"  # TTS backend to use
 
 # Global variables
-DEFAULT_VOICE = "af_heart"  # Default voice
+DEFAULT_VOICE = os.environ.get("TTS_VOICE")  # Default voice
+DEFAULT_VOICE_KOKORO = "af_heart"  # Default voice for Kokoro
 DEFAULT_LANG = "a"  # Default language (American English)
 pipeline = None
 
@@ -151,13 +154,13 @@ def _check_espeak():
 
 def init_model(voice: str | None = None):
     """Initialize the Kokoro TTS pipeline."""
-    global pipeline, DEFAULT_VOICE
+    global pipeline, DEFAULT_VOICE_KOKORO
 
     try:
         _check_espeak()
 
         # Use specified voice or default
-        voice_name = voice or DEFAULT_VOICE
+        voice_name = voice or DEFAULT_VOICE or DEFAULT_VOICE_KOKORO
 
         # Initialize the pipeline with default language
         pipeline = KPipeline(lang_code=DEFAULT_LANG)
@@ -169,7 +172,7 @@ def init_model(voice: str | None = None):
                 f"Voice {voice_name} not found. Available voices: {available_voices}"
             )
 
-        DEFAULT_VOICE = voice_name
+        DEFAULT_VOICE_KOKORO = voice_name
         log.info(f"Pipeline initialization complete (using voice: {voice_name})")
 
     except Exception as e:
@@ -259,11 +262,24 @@ async def text_to_speech_chatterbox(
     text: str, speed: float = 1.0, voice: str | None = None
 ) -> StreamingResponse:
     """Convert text to speech using Chatterbox TTS."""
+    script_dir = Path(__file__).parent
+
+    voice = voice or DEFAULT_VOICE
+    if not voice:
+        raise HTTPException(
+            status_code=400,
+            detail="Voice parameter is required for Chatterbox TTS",
+        )
 
     # Subprocess call to Chatterbox TTS script that outputs path to generated wav file
     print(f"Calling Chatterbox TTS: {text}")
     output = subprocess.run(
-        ["uv", "run", "chatterbox.py", text],
+        [
+            "uv",
+            "run",
+            str(script_dir / "chatterbox.py"),
+            text,
+        ],
         check=True,
         capture_output=True,
         text=True,
@@ -360,7 +376,7 @@ async def text_to_speech_kokoro(
 
 @click.command()
 @click.option("--port", default=8000, help="Port to run the server on")
-@click.option("--host", default="0.0.0.0", help="Host to run the server on")
+@click.option("--host", default="127.0.0.1", help="Host to run the server on")
 @click.option("--voice", help="Default voice to use")
 @click.option(
     "--lang",
