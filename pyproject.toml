@@ -111,6 +111,9 @@ myst-parser = "*"
 types-tabulate = "*"
 types-lxml = "*"
 
+# needed for typechecking scripts
+tomli = "^2.2.1"
+
 [tool.poetry.extras]
 server = ["flask", "flask-cors", "pydantic"]
 browser = ["playwright"]
