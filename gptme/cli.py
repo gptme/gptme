@@ -261,8 +261,9 @@ def main(
     # using CLI arguments or environment variables to override defaults.
     # If we are resuming a conversation we shouldn't override its existing chat config,
     # unless we have provided CLI arguments or environment variables.
-    # TODO: this whole config init process could be rethought and simplified
-    #       it may have issues
+    # TODO: this whole config init process could be rethought and simplified, it may have issues.
+    # TODO: this config init should probably be moved to a seperate function,
+    #       so it can be reused and doesnt overlap with functions in init.py, chat.py, and config.py
     set_config_from_workspace(workspace_path)
     config = get_config()
 
@@ -277,9 +278,6 @@ def main(
     elif tool_allowlist_env := config.get_env("TOOLS"):
         # if environment variable is set, use it as defaults
         tool_allowlist_l = [tool for tool in tool_allowlist_env.split(",")]
-
-    # Tool defaults, after considering CLI allowlist
-    tools_default = [tool.name for tool in get_toolchain(tool_allowlist_l)]
 
     selected_tool_format: ToolFormat = (
         tool_format
@@ -305,12 +303,9 @@ def main(
     del selected_tool_format
     assert config.chat.tool_format
 
-    # if allowlist provided and empty, dont use any tools
-    if tool_allowlist == []:
-        config.chat.tools = []
     # if chat config tools unset, or if we have tool allowlist, update the chat config
-    elif config.chat.tools is None or tool_allowlist:
-        config.chat.tools = tools_default
+    if config.chat.tools is None or tool_allowlist is not None:
+        config.chat.tools = [tool.name for tool in get_toolchain(tool_allowlist_l)]
 
     # Set chat config
     config.chat.save()
