@@ -170,6 +170,18 @@ def stream(
         messages, tools
     )
 
+    text_edit = True
+    if text_edit:
+        text_edit_tool_dict: anthropic.types.ToolUnionParam = {
+            "type": "text_editor_20250124",
+            "name": "str_replace_editor",
+        }
+        tools_dict = (tools_dict or []) + (
+            [text_edit_tool_dict]
+            if not any(tool["name"] == "text_edit" for tool in (tools_dict or []))
+            else []
+        )
+
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
     thinking_budget = 16000
@@ -503,7 +515,7 @@ def _prepare_messages_for_api(
 ) -> tuple[
     list["anthropic.types.MessageParam"],
     list["anthropic.types.TextBlockParam"],
-    list["anthropic.types.ToolParam"] | None,
+    list["anthropic.types.ToolUnionParam"] | None,
 ]:
     """Prepare messages for the Anthropic API.
 
@@ -533,7 +545,9 @@ def _prepare_messages_for_api(
     messages_dicts = (_process_file(f) for f in msgs2dicts(messages))
 
     # Prepare tools
-    tools_dict = [_spec2tool(tool) for tool in tools] if tools else None
+    tools_dict: list[anthropic.types.ToolUnionParam] | None = (
+        [_spec2tool(tool) for tool in tools] if tools else None
+    )
 
     if tools_dict is not None:
         messages_dicts = _handle_tools(messages_dicts)
