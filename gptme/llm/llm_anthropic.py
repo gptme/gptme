@@ -164,11 +164,25 @@ def stream(
 ) -> Generator[str, None, None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
+    from anthropic.types import ToolUnionParam
 
     assert _anthropic, "LLM not initialized"
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
     )
+
+    # TODO: make search configurable
+    search = True
+    if search:
+        search_tool_dict: ToolUnionParam = {
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 5,
+        }
+        if tools_dict is None:
+            tools_dict = [search_tool_dict]
+        elif not any(tool["name"] == "web_search" for tool in tools_dict):
+            tools_dict.append(search_tool_dict)
 
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
@@ -206,6 +220,14 @@ def stream(
                     elif isinstance(block, anthropic.types.TextBlock):
                         if block.text:
                             logger.warning("unexpected text block: %s", block.text)
+                    elif isinstance(block, anthropic.types.ServerToolUseBlock):
+                        # This is a tool use block that is not yet runnable.
+                        # It will be filled in later with the tool result.
+                        print("Searching...")
+                    elif isinstance(block, anthropic.types.WebSearchToolResultBlock):
+                        # This is a web search result block.
+                        # It will be filled in later with the search results.
+                        print("Web search tool results")
                     else:
                         print(f"Unknown block type: {block}")
                 case "content_block_delta":
@@ -220,6 +242,12 @@ def stream(
                     elif isinstance(delta, anthropic.types.SignatureDelta):
                         # delta.signature
                         pass
+                    elif isinstance(delta, anthropic.types.CitationsDelta):
+                        if isinstance(
+                            delta.citation,
+                            anthropic.types.CitationsWebSearchResultLocation,
+                        ):
+                            print(delta.citation.url)
                     else:
                         logger.warning("Unknown delta type: %s", delta)
                 case "content_block_stop":
@@ -233,6 +261,8 @@ def stream(
                         yield "\n</think>\n\n"
                     elif isinstance(stop_block, anthropic.types.RedactedThinkingBlock):
                         yield "\n</think redacted>\n\n"
+                    elif isinstance(stop_block, anthropic.types.ServerToolUseBlock):
+                        yield f"\n@{stop_block.name}({stop_block.id}): {stop_block.input}"
                     else:
                         logger.warning("Unknown stop block: %s", stop_block)
                 case "text":
@@ -503,7 +533,7 @@ def _prepare_messages_for_api(
 ) -> tuple[
     list["anthropic.types.MessageParam"],
     list["anthropic.types.TextBlockParam"],
-    list["anthropic.types.ToolParam"] | None,
+    list["anthropic.types.ToolUnionParam"] | None,
 ]:
     """Prepare messages for the Anthropic API.
 
