@@ -140,6 +140,10 @@ def init_tools(
 
         for tool_name in allowlist or []:
             if not has_tool(tool_name):
+                # if the tool is found but unavailable, we log a warning
+                if tool_name in [tool.name for tool in get_available_tools()]:
+                    logger.warning("Tool %s found but is unavailable", tool_name)
+                    continue
                 raise ValueError(f"Tool '{tool_name}' not found")
 
         return loaded_tools

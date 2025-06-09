@@ -33,6 +33,7 @@ import queue
 import re
 import socket
 import threading
+from functools import lru_cache
 
 import requests
 
@@ -46,23 +47,41 @@ host = "localhost"
 port = 8000
 
 # fmt: off
+has_imports = False
 try:
     import numpy as np  # fmt: skip
     import scipy.io.wavfile as wavfile  # fmt: skip
     import scipy.signal as signal  # fmt: skip
     import sounddevice as sd  # fmt: skip
-
-    # available if a server is running on localhost:8000
-    _available = socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect_ex((host, port)) == 0
-    if _available:
-        console.log("TTS enabled")
-    else:
-        console.log("TTS disabled: server not available")
+    has_imports = True
 except (ImportError, OSError):
     # will happen if tts extras not installed
     # sounddevice may throw OSError("PortAudio library not found")
-    _available = False
+    has_imports = False
 # fmt: on
+
+
+@lru_cache
+def is_available() -> bool:
+    """Check if the TTS server is available."""
+    if not has_imports:
+        # console.log("TTS tool not available: missing dependencies")
+        return False
+
+    # available if a server is running on localhost:8000
+    server_available = (
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect_ex((host, port)) == 0
+    )
+    return server_available
+
+
+def init() -> ToolSpec:
+    if is_available():
+        console.log("Using TTS")
+    else:
+        console.log("TTS disabled: server not available")
+    return tool
+
 
 # Global queues and thread controls
 audio_queue: queue.Queue[tuple["np.ndarray", int]] = queue.Queue()
@@ -573,6 +592,7 @@ tool = ToolSpec(
     "tts",
     desc="Text-to-speech (TTS) tool for generating audio from text.",
     instructions="Will output all assistant speech (not codeblocks, tool-uses, or other non-speech text). The assistant cannot hear the output.",
-    available=_available,
+    available=is_available,
     functions=[speak, set_speed, set_volume, stop],
+    init=init,
 )
