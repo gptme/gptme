@@ -5,7 +5,7 @@ import sys
 from datetime import datetime
 from itertools import islice
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import click
 from pick import pick
@@ -271,7 +271,7 @@ def main(
 
     # Get tool allowlist from CLI argument or env var
     tool_allowlist_l: list[str] | None = None
-    if tool_allowlist:
+    if tool_allowlist is not None:
         # split comma-separated values
         tool_allowlist_l = [tool for tool in tool_allowlist.split(",")]
     elif tool_allowlist_env := config.get_env("TOOLS"):
@@ -282,7 +282,9 @@ def main(
     tools_default = [tool.name for tool in get_toolchain(tool_allowlist_l)]
 
     selected_tool_format: ToolFormat = (
-        tool_format or config.get_env("TOOL_FORMAT") or "markdown"  # type: ignore
+        tool_format
+        or cast(ToolFormat | None, config.get_env("TOOL_FORMAT"))
+        or "markdown"
     )
 
     # Load or create chat config, applying CLI overrides
@@ -303,9 +305,11 @@ def main(
     del selected_tool_format
     assert config.chat.tool_format
 
-    # if we had a tool allowlist set, override the chat config
-    # FIXME: this will always override the tools if the env variable is set, need to separate them
-    if config.chat.tools is None or tool_allowlist:
+    # if allowlist provided and empty, dont use any tools
+    if tool_allowlist == []:
+        config.chat.tools = []
+    # if chat config tools unset, or if we have tool allowlist, update the chat config
+    elif config.chat.tools is None or tool_allowlist:
         config.chat.tools = tools_default
 
     # Set chat config
@@ -315,7 +319,7 @@ def main(
     # early init tools to generate system prompt
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools
     # will load it from the environment variable TOOL_ALLOWLIST or the chat config.
-    print(f"Using tools: {config.chat.tools}")
+    logger.debug(f"Using tools: {config.chat.tools}")
     tools = init_tools(config.chat.tools)
 
     # get initial system prompt

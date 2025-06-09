@@ -148,12 +148,12 @@ def init_tools(
 def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
     tools = []
     for tool in get_available_tools():
-        if allowlist and not tool.is_mcp and tool.name not in allowlist:
+        if allowlist is not None and not tool.is_mcp and tool.name not in allowlist:
             continue
         if not tool.is_available:
             continue
         if tool.disabled_by_default:
-            if not allowlist or tool.name not in allowlist:
+            if allowlist is None or tool.name not in allowlist:
                 continue
         tools.append(tool)
     return tools
