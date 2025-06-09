@@ -53,7 +53,7 @@ class KokoroTTSBackend:
             "p": "Brazilian Portuguese",
         }
 
-    def list_voices(self, lang_code: str = None) -> list[str]:
+    def list_voices(self, lang_code: str | None = None) -> list[str]:
         """List all available voices for the given language."""
         lang = lang_code or self.lang_code
 
@@ -126,7 +126,7 @@ class KokoroTTSBackend:
 
         return ["af_heart"]  # Default fallback
 
-    def initialize(self, voice: str = None) -> None:
+    def initialize(self, voice: str | None = None) -> None:
         """Initialize the Kokoro TTS pipeline."""
         try:
             # Use specified voice or default
@@ -175,7 +175,7 @@ class KokoroTTSBackend:
         return audio_data[start:end]
 
     def synthesize(
-        self, text: str, voice: str = None, speed: float = 1.0
+        self, text: str, voice: str | None = None, speed: float = 1.0
     ) -> io.BytesIO:
         """Convert text to speech and return audio buffer."""
         if not self.pipeline:
@@ -230,7 +230,7 @@ class KokoroTTSBackend:
             import kokoro
 
             version = kokoro.__version__
-        except:
+        except Exception:
             version = "unknown"
 
         return {

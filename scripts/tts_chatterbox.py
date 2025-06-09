@@ -15,6 +15,7 @@ Can be used as both a standalone CLI tool and as a backend module.
 import io
 import logging
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -26,24 +27,49 @@ from gradio_client import Client, handle_file
 
 log = logging.getLogger(__name__)
 
+# Supported audio file extensions for voice samples
+audio_extensions = {".wav"}  # , ".mp3", ".flac", ".ogg", ".m4a"}
+
+
+def _list_voices(voice_sample_dir: str | Path) -> list[str]:
+    """List available voice samples in the specified directory."""
+    voice_sample_dir = Path(voice_sample_dir)
+    if not voice_sample_dir.exists():
+        return []
+
+    voices = []
+    for file_path in voice_sample_dir.iterdir():
+        if file_path.is_file() and file_path.suffix.lower() in audio_extensions:
+            voices.append(file_path.name)
+
+    return sorted(voices)
+
 
 class ChatterboxTTSBackend:
     """Chatterbox TTS backend implementation."""
 
-    def __init__(self, hf_token: str = None, voice_sample_dir: str = None):
+    def __init__(
+        self,
+        hf_token: str | None = None,
+        voice_sample_dir: str | None = None,
+    ):
         self.hf_token = hf_token or os.getenv("HF_TOKEN")
         if not self.hf_token:
             raise ValueError(
                 "HF_TOKEN environment variable is required for Chatterbox TTS"
             )
 
+        self.client = None
+
         self.voice_sample_dir = (
             Path(voice_sample_dir) if voice_sample_dir else Path(__file__).parent
         )
-        self.client = None
-        self.default_voice = None
 
-    def initialize(self, voice: str = None) -> None:
+        # first voice sample found in the directory
+        voices = _list_voices(self.voice_sample_dir)
+        self.default_voice: str | None = voices[0] if voices else None
+
+    def initialize(self, voice: str | None = None) -> None:
         """Initialize the Chatterbox TTS client."""
         try:
             self.client = Client("ResembleAI/Chatterbox", hf_token=self.hf_token)
@@ -65,23 +91,12 @@ class ChatterboxTTSBackend:
 
     def list_voices(self) -> list[str]:
         """List available voice samples in the voice sample directory."""
-        if not self.voice_sample_dir.exists():
-            return []
-
-        # Look for common audio file extensions
-        audio_extensions = {".wav", ".mp3", ".flac", ".ogg", ".m4a"}
-        voices = []
-
-        for file_path in self.voice_sample_dir.iterdir():
-            if file_path.is_file() and file_path.suffix.lower() in audio_extensions:
-                voices.append(file_path.name)
-
-        return sorted(voices)
+        return _list_voices(self.voice_sample_dir)
 
     def synthesize(
         self,
         text: str,
-        voice: str = None,
+        voice: str | None = None,
         speed: float = 1.0,
         exaggeration: float = 0.5,
         temperature: float = 0.8,
@@ -163,7 +178,9 @@ class ChatterboxTTSBackend:
 
 
 def generate_audio_cli(
-    text: str, voice_sample_path: str, output_path: str = None
+    text: str,
+    voice_sample_path: str,
+    output_path: str | None = None,
 ) -> str:
     """CLI function to generate audio and return the output path."""
     hf_token = os.getenv("HF_TOKEN")
@@ -190,7 +207,6 @@ def generate_audio_cli(
 
         if output_path:
             # Copy result to specified output path
-            import shutil
 
             shutil.copy2(result, output_path)
             return output_path

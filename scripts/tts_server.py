@@ -7,6 +7,7 @@
 #   "click",
 #   "gradio-client",
 #   "kokoro>=0.9.0",
+#   "scipy",
 # ]
 # ///
 """
@@ -23,10 +24,12 @@ API Endpoints:
     GET /backends - List available backends
 """
 
+import asyncio
 import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from importlib.util import find_spec
 from pathlib import Path
 from textwrap import shorten
 from typing import Literal
@@ -88,7 +91,7 @@ class TTSBackendLoader:
         try:
             # Import the module
             sys.path.insert(0, str(Path(__file__).parent))
-            from tts_kokoro import KokoroTTSBackend
+            from tts_kokoro import KokoroTTSBackend  # fmt: skip
 
             backend = KokoroTTSBackend(lang_code=lang_code, voice=voice)
             backend.initialize(voice)
@@ -102,12 +105,14 @@ class TTSBackendLoader:
             raise RuntimeError(f"Failed to initialize Kokoro backend: {e}") from e
 
     @staticmethod
-    def load_chatterbox_backend(voice_sample_dir: str = None, voice: str = None):
+    def load_chatterbox_backend(
+        voice_sample_dir: str | None = None, voice: str | None = None
+    ):
         """Load and initialize Chatterbox TTS backend."""
         try:
             # Import the module
             sys.path.insert(0, str(Path(__file__).parent))
-            from chatterbox import ChatterboxTTSBackend
+            from tts_chatterbox import ChatterboxTTSBackend  # fmt: skip
 
             backend = ChatterboxTTSBackend(voice_sample_dir=voice_sample_dir)
             backend.initialize(voice)
@@ -124,7 +129,6 @@ class TTSBackendLoader:
     def get_available_backends() -> list[str]:
         """Get list of available backends."""
         backends = []
-        from importlib.util import find_spec
 
         # Check if Kokoro is available
         if find_spec("kokoro"):
@@ -171,7 +175,9 @@ async def health():
         return {"status": "healthy", "backend": backend_name, **backend_info}
     except Exception as e:
         log.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Backend health check failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Backend health check failed: {e}"
+        ) from e
 
 
 @app.get("/voices")
@@ -188,7 +194,9 @@ async def list_voices():
         return {"backend": backend_name, "voices": voices, "count": len(voices)}
     except Exception as e:
         log.error(f"Failed to list voices: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list voices: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list voices: {e}"
+        ) from e
 
 
 @app.get("/backends")
@@ -206,7 +214,9 @@ async def list_backends():
         }
     except Exception as e:
         log.error(f"Failed to list backends: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list backends: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list backends: {e}"
+        ) from e
 
 
 @app.get("/tts")
@@ -236,9 +246,12 @@ async def text_to_speech(
 
         # Prepare synthesis parameters based on backend
         if backend_name == "kokoro":
-            audio_buffer = backend.synthesize(text=text, voice=voice, speed=speed)
+            audio_buffer = await asyncio.to_thread(
+                backend.synthesize, text=text, voice=voice, speed=speed
+            )
         elif backend_name == "chatterbox":
-            audio_buffer = backend.synthesize(
+            audio_buffer = await asyncio.to_thread(
+                backend.synthesize,
                 text=text,
                 voice=voice,
                 speed=speed,
@@ -260,10 +273,12 @@ async def text_to_speech(
 
     except ValueError as e:
         log.error(f"Invalid input: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         log.error(f"Failed to generate speech: {e}")
-        raise HTTPException(status_code=500, detail=f"Speech generation failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Speech generation failed: {e}"
+        ) from e
 
 
 @click.command()
