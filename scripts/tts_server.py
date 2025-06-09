@@ -2,425 +2,377 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#   "pip",
 #   "fastapi>=0.109.0",
 #   "uvicorn>=0.27.0",
-#   "kokoro>=0.3.4",
-#   "scipy>=1.11.0",
-#   "soundfile>=0.12.1",
+#   "click",
+#   "gradio-client",
+#   "kokoro>=0.9.0",
 # ]
 # ///
 """
-Simple TTS server using Kokoro TTS.
+Multi-backend TTS server supporting Kokoro and Chatterbox TTS.
 
 Usage:
-    ./tts_server.py
+    ./tts_server.py --backend kokoro
+    ./tts_server.py --backend chatterbox
 
 API Endpoints:
-    GET /tts?text=Hello - Convert text to speech
-    GET /health - Check server health
+    GET /tts?text=Hello&voice=af_heart&speed=1.0 - Convert text to speech
+    GET /health - Check server health and backend info
+    GET /voices - List available voices
+    GET /backends - List available backends
 """
 
-import io
 import logging
 import os
-import shutil
-import subprocess
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from textwrap import shorten
 from typing import Literal
 
 import click
-import kokoro
-import numpy as np
-import scipy.io.wavfile as wavfile
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from kokoro import KPipeline
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(title="TTS Server")
 
-BACKEND: Literal["kokoro", "chatterbox"] = "kokoro"  # TTS backend to use
-
-# Global variables
-DEFAULT_VOICE = os.environ.get("TTS_VOICE")  # Default voice
-DEFAULT_VOICE_KOKORO = "af_heart"  # Default voice for Kokoro
-DEFAULT_LANG = "a"  # Default language (American English)
-pipeline = None
-
-# Language codes and their descriptions
-LANGUAGE_CODES = {
-    "a": "American English",
-    "b": "British English",
-    "j": "Japanese",
-    "z": "Mandarin Chinese",
-    "e": "Spanish",
-    "f": "French",
-    "h": "Hindi",
-    "i": "Italian",
-    "p": "Brazilian Portuguese",
-}
-
-
-def _list_voices():
-    """
-    List all available voices for the current language.
-
-    Source: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
-    """
-    # American English voices (most complete set)
-    if DEFAULT_LANG == "a":
-        return [
-            "af_heart",
-            "af_alloy",
-            "af_aoede",
-            "af_bella",
-            "af_jessica",
-            "af_kore",
-            "af_nicole",
-            "af_nova",
-            "af_river",
-            "af_sarah",
-            "af_sky",
-            "am_adam",
-            "am_echo",
-            "am_eric",
-            "am_fenrir",
-            "am_liam",
-            "am_michael",
-            "am_onyx",
-            "am_puck",
-            "am_santa",
-        ]
-    # British English voices
-    elif DEFAULT_LANG == "b":
-        return [
-            "bf_alice",
-            "bf_emma",
-            "bf_isabella",
-            "bf_lily",
-            "bm_daniel",
-            "bm_fable",
-            "bm_george",
-            "bm_lewis",
-        ]
-    # Japanese voices
-    elif DEFAULT_LANG == "j":
-        return ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"]
-    # Mandarin Chinese voices
-    elif DEFAULT_LANG == "z":
-        return [
-            "zf_xiaobei",
-            "zf_xiaoni",
-            "zf_xiaoxiao",
-            "zf_xiaoyi",
-            "zm_yunjian",
-            "zm_yunxi",
-            "zm_yunxia",
-            "zm_yunyang",
-        ]
-    # Spanish voices
-    elif DEFAULT_LANG == "e":
-        return ["ef_dora", "em_alex", "em_santa"]
-    # French voices
-    elif DEFAULT_LANG == "f":
-        return ["ff_siwis"]
-    # Hindi voices
-    elif DEFAULT_LANG == "h":
-        return ["hf_alpha", "hf_beta", "hm_omega", "hm_psi"]
-    # Italian voices
-    elif DEFAULT_LANG == "i":
-        return ["if_sara", "im_nicola"]
-    # Brazilian Portuguese voices
-    elif DEFAULT_LANG == "p":
-        return ["pf_dora", "pm_alex", "pm_santa"]
-
-    return ["af_heart"]  # Default fallback to best quality voice
-
-
-def _check_espeak():
-    """Check if espeak/espeak-ng is installed."""
-    if not any([shutil.which("espeak"), shutil.which("espeak-ng")]):
-        raise RuntimeError(
-            "Failed to find `espeak` or `espeak-ng`. Try to install it using 'sudo apt-get install espeak-ng' or equivalent"
-        ) from None
-
-
-def init_model(voice: str | None = None):
-    """Initialize the Kokoro TTS pipeline."""
-    global pipeline, DEFAULT_VOICE_KOKORO
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize backend on startup."""
+    global current_backend
 
     try:
-        _check_espeak()
-
-        # Use specified voice or default
-        voice_name = voice or DEFAULT_VOICE or DEFAULT_VOICE_KOKORO
-
-        # Initialize the pipeline with default language
-        pipeline = KPipeline(lang_code=DEFAULT_LANG)
-
-        # Verify voice exists (this is a placeholder check)
-        available_voices = _list_voices()
-        if voice_name not in available_voices:
-            raise ValueError(
-                f"Voice {voice_name} not found. Available voices: {available_voices}"
+        if backend_name == "kokoro":
+            current_backend = TTSBackendLoader.load_kokoro_backend(
+                lang_code=os.getenv("TTS_LANG", "a"),
+                voice=os.getenv("TTS_VOICE", "af_heart"),
             )
+        elif backend_name == "chatterbox":
+            current_backend = TTSBackendLoader.load_chatterbox_backend(
+                voice_sample_dir=os.getenv("TTS_VOICE_DIR"),
+                voice=os.getenv("TTS_VOICE"),
+            )
+        else:
+            raise ValueError(f"Unknown backend: {backend_name}")
 
-        DEFAULT_VOICE_KOKORO = voice_name
-        log.info(f"Pipeline initialization complete (using voice: {voice_name})")
+        log.info(f"Successfully initialized {backend_name} backend")
 
     except Exception as e:
-        log.error(f"Failed to initialize pipeline: {e}")
+        log.error(f"Failed to initialize backend: {e}")
         raise
 
+    yield
 
-def strip_silence(
-    audio_data: np.ndarray,
-    threshold: float = 0.01,
-    min_silence_duration: int = 1000,
-) -> np.ndarray:
-    """Strip silence from the beginning and end of audio data.
-
-    Args:
-        audio_data: Audio data as numpy array
-        threshold: Amplitude threshold below which is considered silence
-        min_silence_duration: Minimum silence duration in samples
-    """
-    # Convert to absolute values
-    abs_audio = np.abs(audio_data)
-
-    # Find indices where audio is above threshold
-    mask = abs_audio > threshold
-
-    # Find first and last non-silent points
-    non_silent = np.where(mask)[0]
-    if len(non_silent) == 0:
-        return audio_data
-
-    start = max(0, non_silent[0] - min_silence_duration)
-    end = min(len(audio_data), non_silent[-1] + min_silence_duration)
-
-    return audio_data[start:end]
+    # TODO: cleanup
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize model on startup."""
-    init_model(DEFAULT_VOICE)
+# Initialize FastAPI app
+app = FastAPI(title="Multi-Backend TTS Server", lifespan=lifespan)
+
+# Global variables
+current_backend = None
+backend_name = "kokoro"  # Default backend
+
+
+class TTSBackendLoader:
+    """Dynamic backend loader for TTS backends."""
+
+    @staticmethod
+    def load_kokoro_backend(lang_code: str = "a", voice: str = "af_heart"):
+        """Load and initialize Kokoro TTS backend."""
+        try:
+            # Import the module
+            sys.path.insert(0, str(Path(__file__).parent))
+            from tts_kokoro import KokoroTTSBackend
+
+            backend = KokoroTTSBackend(lang_code=lang_code, voice=voice)
+            backend.initialize(voice)
+            return backend
+
+        except ImportError as e:
+            raise ImportError(
+                f"Failed to import Kokoro backend: {e}. Install dependencies with: pip install kokoro scipy soundfile numpy"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize Kokoro backend: {e}") from e
+
+    @staticmethod
+    def load_chatterbox_backend(voice_sample_dir: str = None, voice: str = None):
+        """Load and initialize Chatterbox TTS backend."""
+        try:
+            # Import the module
+            sys.path.insert(0, str(Path(__file__).parent))
+            from chatterbox import ChatterboxTTSBackend
+
+            backend = ChatterboxTTSBackend(voice_sample_dir=voice_sample_dir)
+            backend.initialize(voice)
+            return backend
+
+        except ImportError as e:
+            raise ImportError(
+                f"Failed to import Chatterbox backend: {e}. Install dependencies with: pip install gradio-client"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize Chatterbox backend: {e}") from e
+
+    @staticmethod
+    def get_available_backends() -> list[str]:
+        """Get list of available backends."""
+        backends = []
+        from importlib.util import find_spec
+
+        # Check if Kokoro is available
+        if find_spec("kokoro"):
+            backends.append("kokoro")
+
+        # Check if Chatterbox is available
+        if os.getenv("HF_TOKEN"):
+            if find_spec("gradio_client"):
+                backends.append("chatterbox")
+
+        return backends
+
+
+def get_backend():
+    """Get the current backend instance."""
+    global current_backend
+    if current_backend is None:
+        raise HTTPException(status_code=500, detail="Backend not initialized")
+    return current_backend
 
 
 @app.get("/")
 async def root():
-    return {"message": "Hello World, I am a TTS server based on Kokoro TTS"}
-
-
-@app.get("/health")
-async def health():
-    """Health check endpoint.
-
-    Returns information about:
-    - Server status
-    - Default and available voices
-    - Supported languages
-    - Version information
-    """
+    """Root endpoint with server information."""
     return {
-        "status": "healthy",
-        "voice": {
-            "default": DEFAULT_VOICE,
-            "available": _list_voices(),
-        },
-        "language": {
-            "default": DEFAULT_LANG,
-            "name": LANGUAGE_CODES[DEFAULT_LANG],
-            "supported": LANGUAGE_CODES,
-        },
-        "version": {
-            "kokoro": kokoro.__version__,
+        "message": "Multi-Backend TTS Server",
+        "backend": backend_name,
+        "endpoints": {
+            "tts": "/tts?text=Hello&voice=af_heart&speed=1.0",
+            "health": "/health",
+            "voices": "/voices",
+            "backends": "/backends",
         },
     }
 
 
+@app.get("/health")
+async def health():
+    """Health check endpoint with backend information."""
+    backend = get_backend()
+
+    try:
+        backend_info = backend.get_info()
+        return {"status": "healthy", "backend": backend_name, **backend_info}
+    except Exception as e:
+        log.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Backend health check failed: {e}")
+
+
+@app.get("/voices")
+async def list_voices():
+    """List available voices for the current backend."""
+    backend = get_backend()
+
+    try:
+        if hasattr(backend, "list_voices"):
+            voices = backend.list_voices()
+        else:
+            voices = []
+
+        return {"backend": backend_name, "voices": voices, "count": len(voices)}
+    except Exception as e:
+        log.error(f"Failed to list voices: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list voices: {e}")
+
+
+@app.get("/backends")
+async def list_backends():
+    """List available TTS backends."""
+    try:
+        available = TTSBackendLoader.get_available_backends()
+        return {
+            "current": backend_name,
+            "available": available,
+            "descriptions": {
+                "kokoro": "Local neural TTS with multiple languages and voices",
+                "chatterbox": "Cloud-based TTS with voice cloning capabilities",
+            },
+        }
+    except Exception as e:
+        log.error(f"Failed to list backends: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list backends: {e}")
+
+
 @app.get("/tts")
 async def text_to_speech(
-    text: str, speed: float = 1.0, voice: str | None = None
+    text: str,
+    voice: str | None = None,
+    speed: float = 1.0,
+    # Chatterbox-specific parameters
+    exaggeration: float = 0.5,
+    temperature: float = 0.8,
+    seed: int = 0,
+    cfgw: float = 0.5,
 ) -> StreamingResponse:
     """Convert text to speech and return audio stream."""
-    if BACKEND == "kokoro":
-        return await text_to_speech_kokoro(text, speed, voice)
-    elif BACKEND == "chatterbox":
-        return await text_to_speech_chatterbox(text, speed, voice)
+    backend = get_backend()
 
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Text parameter cannot be empty")
 
-async def text_to_speech_chatterbox(
-    text: str, speed: float = 1.0, voice: str | None = None
-) -> StreamingResponse:
-    """Convert text to speech using Chatterbox TTS."""
-    script_dir = Path(__file__).parent
-
-    voice = voice or DEFAULT_VOICE
-    if not voice:
-        raise HTTPException(
-            status_code=400,
-            detail="Voice parameter is required for Chatterbox TTS",
-        )
-
-    # Subprocess call to Chatterbox TTS script that outputs path to generated wav file
-    print(f"Calling Chatterbox TTS: {text}")
-    output = subprocess.run(
-        [
-            "uv",
-            "run",
-            str(script_dir / "chatterbox.py"),
-            text,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    lines = output.stdout.strip().splitlines()
-    path_wav = lines[-1]
-    print(path_wav)
-    assert path_wav.endswith(".wav"), "Expected last line to be a path to a wav file"
-    # Read the wav file and convert to proper format
-    sample_rate, audio_data = wavfile.read(path_wav)
-
-    # Normalize to [-1, 1] range if needed
-    if np.max(np.abs(audio_data)) > 1.0:
-        audio_data = audio_data / np.max(np.abs(audio_data))
-
-    # Convert to 16-bit integer format (standard for WAV files)
-    if audio_data.dtype != np.int16:
-        if audio_data.dtype.kind == "f":  # floating point
-            audio_int16 = (audio_data * 32767).astype(np.int16)
-        else:  # integer
-            audio_int16 = audio_data.astype(np.int16)
-    else:
-        audio_int16 = audio_data
-
-    # Write to buffer in correct format
-    buffer = io.BytesIO()
-    wavfile.write(buffer, sample_rate, audio_int16)
-    buffer.seek(0)
-
-    return StreamingResponse(
-        buffer,
-        media_type="audio/wav",
-        headers={"Content-Disposition": 'attachment; filename="speech.wav"'},
-    )
-
-
-async def text_to_speech_kokoro(
-    text: str, speed: float = 1.0, voice: str | None = None
-) -> StreamingResponse:
-    """Convert text to speech using Kokoro TTS."""
-    assert pipeline
-    # Handle voice selection
-    try:
-        current_voice = voice or DEFAULT_VOICE
-        if current_voice not in _list_voices():
-            raise ValueError(f"Voice {current_voice} not found")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    if speed <= 0 or speed > 3.0:
+        raise HTTPException(status_code=400, detail="Speed must be between 0 and 3.0")
 
     try:
         log.info(
-            f"Generating audio for text: {shorten(text, 50, placeholder='...')} (speed: {speed}x, voice: {current_voice})"
+            f"Generating audio: {shorten(text, 50, placeholder='...')} (backend: {backend_name})"
         )
 
-        # Generate audio using KPipeline
-        # Note: KPipeline returns a generator of (graphemes, phonemes, audio) tuples
-        # We'll concatenate all audio segments
-        audio_segments = []
-        for _, _, audio in pipeline(text, voice=current_voice, speed=speed):
-            audio_segments.append(audio)
-
-        # Concatenate all audio segments
-        if audio_segments:
-            audio = np.concatenate(audio_segments)
-
-            # Strip silence from audio
-            audio = strip_silence(audio)
-
-            # Convert audio to proper format for WAV
-            # Normalize to [-1, 1] range first
-            if np.max(np.abs(audio)) > 1.0:
-                audio = audio / np.max(np.abs(audio))
-
-            # Convert to 16-bit integer format (standard for WAV files)
-            audio_int16 = (audio * 32767).astype(np.int16)
-
-            # Convert to WAV format
-            buffer = io.BytesIO()
-            wavfile.write(buffer, 24000, audio_int16)
-            buffer.seek(0)
-
-            return StreamingResponse(
-                buffer,
-                media_type="audio/wav",
-                headers={"Content-Disposition": 'attachment; filename="speech.wav"'},
+        # Prepare synthesis parameters based on backend
+        if backend_name == "kokoro":
+            audio_buffer = backend.synthesize(text=text, voice=voice, speed=speed)
+        elif backend_name == "chatterbox":
+            audio_buffer = backend.synthesize(
+                text=text,
+                voice=voice,
+                speed=speed,
+                exaggeration=exaggeration,
+                temperature=temperature,
+                seed=seed,
+                cfgw=cfgw,
             )
         else:
-            raise ValueError("No audio generated")
+            raise HTTPException(
+                status_code=500, detail=f"Unknown backend: {backend_name}"
+            )
 
+        return StreamingResponse(
+            audio_buffer,
+            media_type="audio/wav",
+            headers={"Content-Disposition": 'attachment; filename="speech.wav"'},
+        )
+
+    except ValueError as e:
+        log.error(f"Invalid input: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         log.error(f"Failed to generate speech: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=f"Speech generation failed: {e}")
 
 
 @click.command()
 @click.option("--port", default=8000, help="Port to run the server on")
 @click.option("--host", default="127.0.0.1", help="Host to run the server on")
+@click.option(
+    "--backend",
+    type=click.Choice(["kokoro", "chatterbox"]),
+    default="kokoro",
+    help="TTS backend to use",
+)
 @click.option("--voice", help="Default voice to use")
 @click.option(
     "--lang",
     default="a",
-    help="Language code (a=American English, b=British English, etc)",
+    help="Language code for Kokoro (a=American English, b=British English, etc)",
 )
+@click.option("--voice-dir", help="Directory containing voice samples for Chatterbox")
 @click.option("--list-voices", is_flag=True, help="List available voices and exit")
-@click.option(
-    "--backend",
-    default="kokoro",
-    type=click.Choice(["kokoro", "chatterbox"]),
-    help="TTS backend to use",
-)
+@click.option("--list-backends", is_flag=True, help="List available backends and exit")
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
 def main(
     port: int,
     host: str,
+    backend: Literal["kokoro", "chatterbox"],
     voice: str | None,
     lang: str,
+    voice_dir: str | None,
     list_voices: bool,
-    backend: Literal["kokoro", "chatterbox"],
+    list_backends: bool,
+    verbose: bool,
 ):
-    """Run the TTS server."""
-    global pipeline, DEFAULT_VOICE, DEFAULT_LANG, BACKEND
+    """Run the multi-backend TTS server."""
+    global backend_name, current_backend
 
-    BACKEND = backend
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
 
-    if list_voices:
-        # Initialize pipeline with specified language
-        DEFAULT_LANG = lang
-        pipeline = KPipeline(lang_code=lang)
-        available_voices = _list_voices()
-        print("Available voices:")
-        for v in available_voices:
-            print(f"  - {v}")
+    backend_name = backend
+
+    # Set environment variables for backend configuration
+    if voice:
+        os.environ["TTS_VOICE"] = voice
+    if lang:
+        os.environ["TTS_LANG"] = lang
+    if voice_dir:
+        os.environ["TTS_VOICE_DIR"] = voice_dir
+
+    if list_backends:
+        available = TTSBackendLoader.get_available_backends()
+        click.echo("Available TTS backends:")
+        for b in available:
+            click.echo(f"  - {b}")
+        if not available:
+            click.echo(
+                "  No backends available. Install dependencies for kokoro or chatterbox."
+            )
         return
 
-    if voice:
-        DEFAULT_VOICE = voice
-    DEFAULT_LANG = lang
+    if list_voices:
+        try:
+            # Initialize the specified backend temporarily
+            if backend == "kokoro":
+                temp_backend = TTSBackendLoader.load_kokoro_backend(
+                    lang, voice or "af_heart"
+                )
+            elif backend == "chatterbox":
+                temp_backend = TTSBackendLoader.load_chatterbox_backend(
+                    voice_dir, voice
+                )
+            else:
+                click.echo(f"Unknown backend: {backend}", err=True)
+                return
+
+            voices = temp_backend.list_voices()
+            click.echo(f"Available voices for {backend}:")
+            for v in voices:
+                click.echo(f"  - {v}")
+
+        except Exception as e:
+            click.echo(f"Error listing voices: {e}", err=True)
+            return
+
+    # Check if the selected backend is available
+    available_backends = TTSBackendLoader.get_available_backends()
+    if backend not in available_backends:
+        click.echo(f"Backend '{backend}' is not available.", err=True)
+        click.echo(f"Available backends: {available_backends}", err=True)
+        if backend == "kokoro":
+            click.echo(
+                "Install Kokoro dependencies: pip install kokoro scipy soundfile numpy",
+                err=True,
+            )
+        elif backend == "chatterbox":
+            click.echo(
+                "Install Chatterbox dependencies: pip install gradio-client", err=True
+            )
+            click.echo("Set HF_TOKEN environment variable", err=True)
+        sys.exit(1)
 
     log.info(f"Starting TTS server on {host}:{port}")
-    log.info(f"Using language: {DEFAULT_LANG}")
+    log.info(f"Using backend: {backend}")
     if voice:
-        log.info(f"Using default voice: {voice}")
+        log.info(f"Default voice: {voice}")
+    if backend == "kokoro":
+        log.info(f"Language: {lang}")
+    if voice_dir:
+        log.info(f"Voice directory: {voice_dir}")
+
     uvicorn.run(app, host=host, port=port)
 
 
