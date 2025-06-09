@@ -1,5 +1,6 @@
 import base64
 import logging
+import os
 import time
 from collections.abc import Generator, Iterable
 from functools import wraps
@@ -171,8 +172,7 @@ def stream(
         messages, tools
     )
 
-    # TODO: make search configurable
-    search = True
+    search = os.environ.get("ANTHROPIC_WEB_SEARCH", "false").lower() == "true"
     if search:
         search_tool_dict: ToolUnionParam = {
             "type": "web_search_20250305",
