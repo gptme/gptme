@@ -563,7 +563,9 @@ def _prepare_messages_for_api(
     messages_dicts = (_process_file(f) for f in msgs2dicts(messages))
 
     # Prepare tools
-    tools_dict = [_spec2tool(tool) for tool in tools] if tools else None
+    tools_dict: list[anthropic.types.ToolUnionParam] | None = (
+        [_spec2tool(tool) for tool in tools] if tools else None
+    )
 
     if tools_dict is not None:
         messages_dicts = _handle_tools(messages_dicts)
