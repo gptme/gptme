@@ -1,6 +1,5 @@
 import atexit
 import logging
-import os
 from typing import cast
 
 from dotenv import load_dotenv
@@ -28,18 +27,20 @@ def init(model: str | None, interactive: bool, tool_allowlist: list[str] | None)
         return
     _init_done = True
 
-    # init
     load_dotenv()
+    init_model(model, interactive)
+    init_tools(tool_allowlist)
 
-    # fixes issues with transformers parallelism
-    # which also leads to "Context leak detected, msgtracer returned -1"
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+def init_model(
+    model: str | None = None,
+    interactive: bool = False,
+):
     config = get_config()
 
     # get from config
     if not model:
-        model = config.get_env("MODEL")
+        model = (config.chat.model if config.chat else None) or config.get_env("MODEL")
 
     if not model:  # pragma: no cover
         # auto-detect depending on if OPENAI_API_KEY or ANTHROPIC_API_KEY is set
@@ -60,11 +61,10 @@ def init(model: str | None, interactive: bool, tool_allowlist: list[str] | None)
 
     # set up API_KEY and API_BASE, needs to be done before loading history to avoid saving API_KEY
     model = model or get_recommended_model(provider)
-    console.log(f"Using model: {provider}/{model}")
+    model_full = f"{provider}/{model}"
+    console.log(f"Using model: {model_full}")
     init_llm(provider)
-    set_default_model(f"{provider}/{model}")
-
-    init_tools(tool_allowlist)
+    set_default_model(model_full)
 
 
 def init_logging(verbose):

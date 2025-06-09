@@ -26,7 +26,12 @@ from .llm.models import get_recommended_model
 from .logmanager import ConversationMeta, get_user_conversations
 from .message import Message
 from .prompts import get_prompt
-from .tools import ToolFormat, get_available_tools, init_tools
+from .tools import (
+    ToolFormat,
+    get_available_tools,
+    get_toolchain,
+    init_tools,
+)
 from .util import epoch_to_age
 from .util.generate_name import generate_name
 from .util.interrupt import handle_keyboard_interrupt, set_interruptible
@@ -109,7 +114,6 @@ The interface provides user commands that can be used to interact with the syste
     "--tools",
     "tool_allowlist",
     default=None,
-    multiple=True,
     help=f"Comma-separated list of tools to allow. Available: {available_tool_names}.",
 )
 @click.option(
@@ -146,7 +150,7 @@ def main(
     prompt_system: str,
     name: str,
     model: str | None,
-    tool_allowlist: list[str] | None,
+    tool_allowlist: str | None,
     tool_format: ToolFormat | None,
     stream: bool,
     verbose: bool,
@@ -252,14 +256,34 @@ def main(
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
-    # Parse tool allowlist cli argument.
-    if tool_allowlist:
-        # split comma-separated values
-        tool_allowlist = [tool for tools in tool_allowlist for tool in tools.split(",")]
-
     # Load main config
+    # The config is first loaded or created from the workspace directory,
+    # using CLI arguments or environment variables to override defaults.
+    # If we are resuming a conversation, we shouldn't override its existing chat config unless we have provided CLI arguments or environment variables.
+    # TODO: this whole config init process could be rethought and simplified
+    #       it may have issues
     set_config_from_workspace(workspace_path)
     config = get_config()
+
+    # Parse model from CLI argument or env var
+    model = model or config.get_env("MODEL")
+
+    # Parse tool allowlist from CLI argument or env var
+    tool_allowlist_l: list[str] | None = None
+    if tool_allowlist:
+        # split comma-separated values
+        tool_allowlist_l = [tool for tool in tool_allowlist.split(",")]
+    elif tool_allowlist_env := config.get_env("TOOLS"):
+        # if environment variable is set, use it as defaults
+        tool_allowlist_l = [tool for tool in tool_allowlist_env.split(",")]
+
+    # defaults, after considering CLI allowlist
+    toolchain = get_toolchain(tool_allowlist_l)
+    tools_default = [tool.name for tool in toolchain]
+
+    selected_tool_format: ToolFormat = (
+        tool_format or config.get_env("TOOL_FORMAT") or "markdown"  # type: ignore
+    )
 
     # Load or create chat config, applying CLI overrides
     logdir.mkdir(parents=True, exist_ok=True)
@@ -267,27 +291,34 @@ def main(
         logdir=logdir,
         cli_config=ChatConfig(
             model=model,
-            tools=tool_allowlist,
-            tool_format=tool_format,
+            tool_format=selected_tool_format,
             stream=stream,
             interactive=interactive,
             workspace=workspace_path,
         ),
-    ).save()
+    )
+
+    # remove variables we should no longer use
+    del model
+    del selected_tool_format
+    assert chat_config.tool_format
+
+    # if we had a tool allowlist provided, override the chat config
+    # FIXME: this will always override the tools if the env variable is set, need to separate them
+    if tool_allowlist:
+        print(f"Using allowlist: {tool_allowlist}")
+        chat_config.tools = tools_default
 
     # Set chat config in main config
     config.chat = chat_config
+    chat_config.save()
     set_config(config)
-
-    model = model or config.get_env("MODEL")
-    selected_tool_format: ToolFormat = (
-        tool_format or config.get_env("TOOL_FORMAT") or "markdown"  # type: ignore
-    )
 
     # early init tools to generate system prompt
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools
     # will load it from the environment variable TOOL_ALLOWLIST or the chat config.
-    tools = init_tools(tool_allowlist)
+    print(f"Using tools: {chat_config.tools}")
+    tools = init_tools(chat_config.tools)
 
     # get initial system prompt
     initial_msgs = [
@@ -295,8 +326,8 @@ def main(
             tools=tools,
             prompt=prompt_system,
             interactive=interactive,
-            tool_format=selected_tool_format,
-            model=model,
+            tool_format=chat_config.tool_format,
+            model=chat_config.model,
         )
     ]
 
