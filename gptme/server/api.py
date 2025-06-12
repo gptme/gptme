@@ -59,6 +59,8 @@ def api_conversation(logfile: str):
     init_tools(None)  # FIXME: this is not thread-safe
     log = LogManager.load(logfile, lock=False)
     log_dict = log.to_dict(branches=True)
+    # add workspace to response
+    log_dict["workspace"] = str(log.workspace)
     # make all paths absolute or relative to workspace (no "../")
     for msg in log_dict["log"]:
         if files := msg.get("files"):

@@ -388,6 +388,7 @@ class ConversationMeta:
     modified: float
     messages: int
     branches: int
+    workspace: str
 
     def format(self, metadata=False) -> str:
         """Format conversation metadata for display."""
@@ -423,6 +424,7 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             modified=modified,
             messages=len_msgs,
             branches=1 + len(list(conv_fn.parent.glob("branches/*.jsonl"))),
+            workspace=str(chat_config.workspace),
         )
 
 

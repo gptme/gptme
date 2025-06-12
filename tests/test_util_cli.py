@@ -75,6 +75,7 @@ def test_chats_list(tmp_path, mocker):
         modified=time.time(),
         messages=1,
         branches=1,
+        workspace=".",
     )
     conv2 = ConversationMeta(
         id="2024-01-01-chat-two",
@@ -84,6 +85,7 @@ def test_chats_list(tmp_path, mocker):
         modified=time.time(),
         messages=2,
         branches=1,
+        workspace=".",
     )
 
     # Update the mock to return our test conversations
