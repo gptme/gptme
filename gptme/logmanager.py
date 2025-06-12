@@ -322,6 +322,8 @@ class LogManager:
     def to_dict(self, branches=False) -> dict:
         """Returns a dict representation of the log."""
         d: dict[str, Any] = {
+            "id": self.chat_id,
+            "name": self.name,
             "log": [msg.to_dict() for msg in self.log],
             "logfile": str(self.logfile),
         }

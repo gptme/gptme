@@ -13,9 +13,7 @@ from pick import pick
 from . import __version__
 from .chat import chat
 from .commands import _gen_help
-from .config import (
-    setup_config_from_cli,
-)
+from .config import setup_config_from_cli
 from .constants import MULTIPROMPT_SEPARATOR
 from .dirs import get_logs_dir
 from .init import init_logging
@@ -23,11 +21,7 @@ from .llm.models import get_recommended_model
 from .logmanager import ConversationMeta, get_user_conversations
 from .message import Message
 from .prompts import get_prompt
-from .tools import (
-    ToolFormat,
-    get_available_tools,
-    init_tools,
-)
+from .tools import ToolFormat, get_available_tools, init_tools
 from .util import epoch_to_age
 from .util.generate_name import generate_name
 from .util.interrupt import handle_keyboard_interrupt, set_interruptible
@@ -380,7 +374,7 @@ def pick_log(limit=20) -> Path:  # pragma: no cover
     elif index == len(options) - 1:
         return pick_log(limit + 100)
     else:
-        return get_logdir(convs[index - 1].name)
+        return get_logdir(convs[index - 1].id)
 
 
 def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
