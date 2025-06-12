@@ -95,16 +95,16 @@ def api_conversation_file(logfile: str, filename: str):
 
 @api.route("/api/conversations/<string:logfile>", methods=["PUT"])
 def api_conversation_put(logfile: str):
-    """Create or update a conversation."""
+    """Create a conversation."""
     from ..config import ChatConfig
     from ..prompts import get_prompt, get_workspace_prompt
     from ..tools import get_toolchain
 
-    req_json = flask.request.json or {}
-
     logdir = get_logs_dir() / logfile
     if logdir.exists():
         raise ValueError(f"Conversation already exists: {logdir.name}")
+
+    req_json = flask.request.json or {}
 
     # Load or create chat config
     request_config = ChatConfig.from_dict(req_json.get("config", {}))
