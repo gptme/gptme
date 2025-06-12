@@ -29,6 +29,7 @@ Uses Kokoro for local TTS generation.
 import io
 import logging
 import os
+import platform as platform_module
 import queue
 import re
 import socket
@@ -439,7 +440,6 @@ def get_output_device() -> tuple[int, int]:
         return override_result
 
     # Use platform-specific logic
-    import platform as platform_module
 
     system = platform_module.system()
 
@@ -604,15 +604,19 @@ def _resample_audio(data, orig_sr, target_sr):
     return signal.resample(data, num_samples)
 
 
-def join_short_sentences(sentences: list[str], min_length: int = 100) -> list[str]:
-    """Join consecutive sentences that are shorter than min_length.
+def join_short_sentences(
+    sentences: list[str], min_length: int = 100, max_length: int | None = 300
+) -> list[str]:
+    """Join consecutive sentences that are shorter than min_length, or up to max_length.
 
     Args:
         sentences: List of sentences to potentially join
-        min_length: Minimum length threshold for joining
+        min_length: Minimum length threshold for joining short sentences
+        max_length: Maximum length for combined sentences. If specified, tries to make
+                   sentences as long as possible up to this limit
 
     Returns:
-        List of sentences, with short ones combined
+        List of sentences, with short ones combined or optimized for max length
     """
     result = []
     current = ""
@@ -628,14 +632,23 @@ def join_short_sentences(sentences: list[str], min_length: int = 100) -> list[st
         if not current:
             current = sentence
         else:
-            # Join sentences with a single space, even after punctuation
             # Join sentences with a single space after punctuation
             combined = f"{current} {sentence.lstrip()}"
-            if len(combined) <= min_length:
-                current = combined
+
+            if max_length is not None:
+                # Max length mode: combine as long as possible up to max_length
+                if len(combined) <= max_length:
+                    current = combined
+                else:
+                    result.append(current)
+                    current = sentence
             else:
-                result.append(current)
-                current = sentence
+                # Min length mode: combine only if result is still under min_length
+                if len(combined) <= min_length:
+                    current = combined
+                else:
+                    result.append(current)
+                    current = sentence
 
     if current:
         result.append(current)
