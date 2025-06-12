@@ -15,7 +15,7 @@ SRCDIRS = gptme tests scripts
 SRCFILES_RAW = $(shell find gptme tests -name '*.py' && find scripts -name '*.py' -not -path "scripts/Kokoro-82M/*" -not -path "*/Kokoro-82M/*")
 
 # exclude files
-EXCLUDES = tests/output scripts/build_changelog.py scripts/tts_server.py
+EXCLUDES = tests/output scripts/build_changelog.py scripts/tts_server.py scripts/tts_kokoro.py scripts/tts_chatterbox.py
 SRCFILES = $(shell echo "${SRCFILES_RAW}" | tr ' ' '\n' | grep -v -f <(echo "${EXCLUDES}" | tr ' ' '\n') | tr '\n' ' ')
 
 # radon args
