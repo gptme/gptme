@@ -10,7 +10,6 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime
 
 import pytest
 import requests
@@ -153,17 +152,11 @@ def setup_conversation(server_thread):
     port = server_thread
     conversation_id = f"test-tools-{int(time.time())}-{random.randint(1000, 9999)}"
 
-    # Create conversation with system message
+    # Create conversation with custom system prompt
     resp = requests.put(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an AI assistant for testing.",
-                    "timestamp": datetime.now().isoformat(),
-                }
-            ]
+            "prompt": "You are an AI assistant for testing.",
         },
     )
     assert resp.status_code == 200

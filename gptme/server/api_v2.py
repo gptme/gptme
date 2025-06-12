@@ -26,7 +26,7 @@ import flask
 from dotenv import load_dotenv
 from flask import request
 from gptme.config import ChatConfig, Config, set_config
-from gptme.prompts import get_prompt
+from gptme.prompts import get_prompt, get_workspace_prompt
 
 from ..dirs import get_logs_dir
 from ..llm import _chat_complete, _stream
@@ -206,9 +206,7 @@ class SessionManager:
     _conversation_sessions: dict[str, set[str]] = defaultdict(set)
 
     @classmethod
-    def create_session(
-        cls, conversation_id: str, config: ChatConfig
-    ) -> ConversationSession:
+    def create_session(cls, conversation_id: str) -> ConversationSession:
         """Create a new session for a conversation."""
         session_id = str(uuid.uuid4())
         session = ConversationSession(id=session_id, conversation_id=conversation_id)
@@ -504,28 +502,31 @@ def api_conversation_put(conversation_id: str):
     # Load or create the chat config, overriding values from request config if provided
     request_config = ChatConfig.from_dict(req_json.get("config", {}))
     chat_config = ChatConfig.load_or_create(logdir, request_config)
+    prompt = req_json.get("prompt", "full")
 
-    msgs = []
-    if req_json and "messages" in req_json:
-        for msg in req_json["messages"]:
-            timestamp: datetime = (
-                datetime.fromisoformat(msg["timestamp"])
-                if "timestamp" in msg
-                else datetime.now()
-            )
-            msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
-
-    initial_msgs = [
+    msgs = [
         get_prompt(
             tools=[t for t in get_toolchain(chat_config.tools)],
             interactive=chat_config.interactive,
             tool_format=chat_config.tool_format or "markdown",
             model=chat_config.model,
+            prompt=prompt,
         )
     ]
 
+    if workspace_prompt := get_workspace_prompt(chat_config.workspace):
+        msgs += [Message("system", workspace_prompt, hide=True, quiet=True)]
+
+    for msg in req_json.get("messages", []):
+        timestamp: datetime = (
+            datetime.fromisoformat(msg["timestamp"])
+            if "timestamp" in msg
+            else datetime.now()
+        )
+        msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
+
     logdir.mkdir(parents=True)
-    log = LogManager.load(logdir=logdir, initial_msgs=initial_msgs + msgs, create=True)
+    log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
 
     # Set tool allowlist to available tools if not provided
@@ -541,7 +542,7 @@ def api_conversation_put(conversation_id: str):
     chat_config.save()
 
     # Create a session for this conversation
-    session = SessionManager.create_session(conversation_id, chat_config)
+    session = SessionManager.create_session(conversation_id)
 
     # Check for auto_confirm parameter and set auto_confirm_count
     if req_json and req_json.get("auto_confirm"):
@@ -633,12 +634,8 @@ def api_conversation_events(conversation_id: str):
     """Subscribe to conversation events."""
     session_id = request.args.get("session_id")
     if not session_id:
-        # load chat config
-        logdir = get_logs_dir() / conversation_id
-        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-
         # Create a new session if none provided
-        session = SessionManager.create_session(conversation_id, chat_config)
+        session = SessionManager.create_session(conversation_id)
         session_id = session.id
     else:
         session_obj = SessionManager.get_session(session_id)

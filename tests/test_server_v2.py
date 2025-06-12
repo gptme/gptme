@@ -1,7 +1,6 @@
 from pathlib import Path
 import random
 import time
-from datetime import datetime
 from typing import cast, Any
 
 import pytest
@@ -24,15 +23,9 @@ def create_conversation(client: FlaskClient, config: ChatConfig | None = None):
     """Create a V2 conversation with a session and optional config."""
     convname = f"test-server-v2-{random.randint(0, 1000000)}"
 
-    # Create conversation with a system message
+    # Create conversation with a custom system prompt
     json: dict[str, Any] = {
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are an AI assistant for testing.",
-                "timestamp": datetime.now().isoformat(),
-            }
-        ],
+        "prompt": "You are an AI assistant for testing.",
     }
 
     if config:
@@ -91,9 +84,10 @@ def test_v2_conversation_get(v2_conv, client: FlaskClient):
     assert data is not None
     assert "log" in data
 
-    # Should contain the system message we created
-    assert len(data["log"]) == 1
+    # Should contain system messages (custom system prompt + possibly workspace prompt)
+    assert len(data["log"]) >= 1  # At least custom system prompt
     assert data["log"][0]["role"] == "system"
+    assert "testing" in data["log"][0]["content"]
 
 
 def test_v2_conversation_post(v2_conv, client: FlaskClient):
@@ -113,9 +107,11 @@ def test_v2_conversation_post(v2_conv, client: FlaskClient):
     # Verify message was added
     response = client.get(f"/api/v2/conversations/{conversation_id}")
     data = response.get_json()
-    assert len(data["log"]) == 2
-    assert data["log"][1]["role"] == "user"
-    assert data["log"][1]["content"] == "Hello, this is a test message."
+    # Should have system messages + the user message we just added
+    assert len(data["log"]) >= 2  # At least custom system prompt + user message
+    # Last message should be the user message we added
+    assert data["log"][-1]["role"] == "user"
+    assert data["log"][-1]["content"] == "Hello, this is a test message."
 
 
 @pytest.mark.slow
