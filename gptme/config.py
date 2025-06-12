@@ -244,6 +244,7 @@ class ChatConfig:
     _logdir: Path | None = None
 
     # these are under a [chat] namespace in the toml
+    name: str | None = None
     model: str | None = None
     tools: list[str] | None = None
     tool_format: "ToolFormat | None" = None

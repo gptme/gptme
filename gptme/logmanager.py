@@ -19,6 +19,7 @@ from typing import (
 
 from rich import print
 
+from .config import ChatConfig
 from .dirs import get_logs_dir
 from .message import Message, len_tokens, print_msg
 from .util.context import enrich_messages_with_context
@@ -89,7 +90,7 @@ class LogManager:
             fpath = TemporaryDirectory().name
             logger.warning(f"No logfile specified, using tmpfile at {fpath}")
             self.logdir = Path(fpath)
-        self.name = self.logdir.name
+        self.chat_id = self.logdir.name
 
         # Create and optionally lock the directory
         self.logdir.mkdir(parents=True, exist_ok=True)
@@ -153,8 +154,17 @@ class LogManager:
     @property
     def logfile(self) -> Path:
         if self.current_branch == "main":
-            return get_logs_dir() / self.name / "conversation.jsonl"
+            return get_logs_dir() / self.chat_id / "conversation.jsonl"
         return self.logdir / "branches" / f"{self.current_branch}.jsonl"
+
+    @property
+    def name(self) -> str:
+        """Get the user-friendly display name from ChatConfig, fallback to chat_id."""
+        try:
+            chat_config = ChatConfig.from_logdir(self.logdir)
+            return chat_config.name or self.chat_id
+        except Exception:
+            return self.chat_id
 
     def append(self, msg: Message) -> None:
         """Appends a message to the log, writes the log, prints the message."""
@@ -302,26 +312,6 @@ class LogManager:
         else:
             return None
 
-    def rename(self, name: str, keep_date=False) -> None:
-        """
-        Rename the conversation.
-        Renames the folder containing the conversation and its branches.
-
-        If keep_date is True, we will keep the date part of conversation folder name ("2021-08-01-some-name")
-        If you want to keep the old log, use fork()
-        """
-        if keep_date:
-            name = f"{self.logfile.parent.name[:10]}-{name}"
-
-        logsdir = get_logs_dir()
-        new_logdir = logsdir / name
-        if new_logdir.exists():
-            raise FileExistsError(f"Conversation {name} already exists.")
-        self.name = name
-        self.logdir.mkdir(parents=True, exist_ok=True)
-        self.logdir.rename(logsdir / self.name)
-        self.logdir = logsdir / self.name
-
     def fork(self, name: str) -> None:
         """
         Copy the conversation folder to a new name.
@@ -392,6 +382,7 @@ def _conversation_files() -> list[Path]:
 class ConversationMeta:
     """Metadata about a conversation."""
 
+    id: str
     name: str
     path: str
     created: float
@@ -401,7 +392,7 @@ class ConversationMeta:
 
     def format(self, metadata=False) -> str:
         """Format conversation metadata for display."""
-        output = f"{self.name}"
+        output = f"{self.name} (id: {self.id})"
         if metadata:
             output += f"\nMessages: {self.messages}"
             output += f"\nCreated:  {datetime.fromtimestamp(self.created)}"
@@ -420,8 +411,17 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
         assert len(log) <= 1
         modified = conv_fn.stat().st_mtime
         first_timestamp = log[0].timestamp.timestamp() if log else modified
+        # Try to get display name from ChatConfig, fallback to folder name
+        folder_name = conv_fn.parent.name
+        try:
+            chat_config = ChatConfig.from_logdir(conv_fn.parent)
+            display_name = chat_config.name or folder_name
+        except Exception:
+            display_name = folder_name
+
         yield ConversationMeta(
-            name=f"{conv_fn.parent.name}",
+            id=folder_name,
+            name=display_name,
             path=str(conv_fn),
             created=first_timestamp,
             modified=modified,
@@ -433,8 +433,8 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
 def get_user_conversations() -> Generator[ConversationMeta, None, None]:
     """Returns all user conversations, excluding ones used for testing, evals, etc."""
     for conv in get_conversations():
-        if any(conv.name.startswith(prefix) for prefix in ["tmp", "test-"]) or any(
-            substr in conv.name for substr in ["gptme-evals-"]
+        if any(conv.id.startswith(prefix) for prefix in ["tmp", "test-"]) or any(
+            substr in conv.id for substr in ["gptme-evals-"]
         ):
             continue
         yield conv

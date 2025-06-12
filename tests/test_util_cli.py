@@ -68,7 +68,8 @@ def test_chats_list(tmp_path, mocker):
     # Create ConversationMeta objects for our test conversations
 
     conv1 = ConversationMeta(
-        name="2024-01-01-chat-one",
+        id="2024-01-01-chat-one",
+        name="Chat One",
         path=str(conv1_dir / "conversation.jsonl"),
         created=time.time(),
         modified=time.time(),
@@ -76,7 +77,8 @@ def test_chats_list(tmp_path, mocker):
         branches=1,
     )
     conv2 = ConversationMeta(
-        name="2024-01-01-chat-two",
+        id="2024-01-01-chat-two",
+        name="Chat Two",
         path=str(conv2_dir / "conversation.jsonl"),
         created=time.time(),
         modified=time.time(),
@@ -90,8 +92,10 @@ def test_chats_list(tmp_path, mocker):
     # Test with conversations
     result = runner.invoke(main, ["chats", "ls"])
     assert result.exit_code == 0
-    assert "chat-one" in result.output
-    assert "chat-two" in result.output
+    assert "Chat One" in result.output
+    assert "Chat Two" in result.output
+    assert "2024-01-01-chat-one" in result.output
+    assert "2024-01-01-chat-two" in result.output
     assert "Messages: 1" in result.output  # First chat has 1 message
     assert "Messages: 2" in result.output  # Second chat has 2 messages
 

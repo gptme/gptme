@@ -225,6 +225,8 @@ def edit(manager: LogManager) -> Generator[Message, None, None]:  # pragma: no c
 
 
 def rename(manager: LogManager, new_name: str, confirm: ConfirmFunc) -> None:
+    from .config import ChatConfig
+
     if new_name in ["", "auto"]:
         msgs = prepare_messages(manager.log.messages)[1:]  # skip system message
         new_name = llm.generate_name(msgs)
@@ -233,10 +235,13 @@ def rename(manager: LogManager, new_name: str, confirm: ConfirmFunc) -> None:
         if not confirm("Confirm?"):
             print("Aborting")
             return
-        manager.rename(new_name, keep_date=True)
-    else:
-        manager.rename(new_name, keep_date=False)
-    print(f"Renamed conversation to {manager.logfile.parent}")
+
+    # Load or create chat config and update the name
+    chat_config = ChatConfig.from_logdir(manager.logdir)
+    chat_config.name = new_name
+    chat_config.save()
+
+    print(f"Renamed conversation to: {new_name}")
 
 
 def _gen_help(incl_langtags: bool = True) -> Generator[str, None, None]:

@@ -4,7 +4,6 @@ CLI for gptme utility commands.
 
 import logging
 import sys
-from pathlib import Path
 
 import click
 
@@ -64,13 +63,13 @@ def chats_search(query: str, limit: int, summarize: bool):
 
 
 @chats.command("read")
-@click.argument("name")
-def chats_read(name: str):
+@click.argument("id")
+def chats_read(id: str):
     """Read a specific chat log."""
 
-    logdir = Path(get_logs_dir()) / name
+    logdir = get_logs_dir() / id
     if not logdir.exists():
-        print(f"Chat '{name}' not found")
+        print(f"Chat '{id}' not found")
         return
 
     log = LogManager.load(logdir)

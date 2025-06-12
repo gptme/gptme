@@ -6,8 +6,8 @@ import argparse
 import logging
 
 from gptme.init import init, init_logging
-from gptme.logmanager import LogManager
 from gptme.llm import generate_name
+from gptme.logmanager import LogManager
 from rich import print as rprint
 
 logger = logging.getLogger(__name__)
@@ -23,9 +23,8 @@ def initialize_gptme(verbose: bool):
     )
 
 
-from gptme.util.generate_name import is_generated_name
-
 from gptme.dirs import get_logs_dir
+from gptme.util.generate_name import is_generated_name
 
 
 def auto_rename_logs(dry_run: bool = True, limit: int = 10) -> None:
@@ -127,10 +126,14 @@ def auto_rename_logs(dry_run: bool = True, limit: int = 10) -> None:
                 rprint(f"[cyan]🔄 Would rename: {conv_dir.name} -> {full_new_name}[/]")
             else:
                 rprint(f"[green]✅ Renaming: {conv_dir.name} -> {full_new_name}[/]")
-                manager.rename(
-                    base_new_name + ("-" + str(suffix) if suffix else ""),
-                    keep_date=True,
+                # TODO: fix this to use the new ChatConfig.name option
+                raise NotImplementedError(
+                    "Not reimplemented after adding chat config `name` option for display-names"
                 )
+                # manager.rename(
+                #     base_new_name + ("-" + str(suffix) if suffix else ""),
+                #     keep_date=True,
+                # )
 
             renamed += 1
 
