@@ -409,15 +409,12 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
         modified = conv_fn.stat().st_mtime
         first_timestamp = log[0].timestamp.timestamp() if log else modified
         # Try to get display name from ChatConfig, fallback to folder name
-        folder_name = conv_fn.parent.name
-        try:
-            chat_config = ChatConfig.from_logdir(conv_fn.parent)
-            display_name = chat_config.name or folder_name
-        except Exception:
-            display_name = folder_name
+        conv_id = conv_fn.parent.name
+        chat_config = ChatConfig.from_logdir(conv_fn.parent)
+        display_name = chat_config.name or conv_id
 
         yield ConversationMeta(
-            id=folder_name,
+            id=conv_id,
             name=display_name,
             path=str(conv_fn),
             created=first_timestamp,
