@@ -26,7 +26,7 @@ import flask
 from dotenv import load_dotenv
 from flask import request
 from gptme.config import ChatConfig, Config, set_config
-from gptme.prompts import get_prompt, get_workspace_prompt
+from gptme.prompts import get_prompt
 
 from ..dirs import get_logs_dir
 from ..llm import _chat_complete, _stream
@@ -476,46 +476,22 @@ def api_conversation(conversation_id: str):
     # Create and set config
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig()).save()
-    config = Config.from_workspace(workspace=chat_config.workspace)
-    config.chat = chat_config
-    set_config(config)
-
-    # Initialize tools in this thread
-    init_tools(chat_config.tools)
 
     manager = LogManager.load(conversation_id, lock=False)
     log_dict = manager.to_dict(branches=True)
 
-    workspace = chat_config.workspace
-
-    workspace_prompt = get_workspace_prompt(workspace)
-    # FIXME: this is hacky
-    # NOTE: needs to run after the workspace is set
-    # check if message is already in log, such as upon resume
-    if (
-        workspace_prompt
-        and workspace_prompt not in [m.content for m in manager.log]
-        and "user" not in [m.role for m in manager.log]
-    ):
-        manager.append(Message("system", workspace_prompt, hide=True, quiet=True))
-
     # make all paths absolute or relative to workspace (no "../")
     for msg in log_dict["log"]:
         if files := msg.get("files"):
-            msg["files"] = [_abs_to_rel_workspace(f, workspace) for f in files]
+            msg["files"] = [
+                _abs_to_rel_workspace(f, chat_config.workspace) for f in files
+            ]
     return flask.jsonify(log_dict)
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["PUT"])
 def api_conversation_put(conversation_id: str):
     """Create a new conversation."""
-    msgs = []
-    req_json = flask.request.json or {}
-    if req_json and "messages" in req_json:
-        for msg in req_json["messages"]:
-            timestamp: datetime = datetime.fromisoformat(msg["timestamp"])
-            msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
-
     logdir = get_logs_dir() / conversation_id
     if logdir.exists():
         return (
@@ -523,16 +499,34 @@ def api_conversation_put(conversation_id: str):
             409,
         )
 
-    logdir.mkdir(parents=True)
-    log = LogManager(msgs, logdir=logdir)
-    log.write()
+    req_json = flask.request.json or {}
 
     # Load or create the chat config, overriding values from request config if provided
     request_config = ChatConfig.from_dict(req_json.get("config", {}))
     chat_config = ChatConfig.load_or_create(logdir, request_config)
 
-    # Load .env file if present
-    load_dotenv(dotenv_path=chat_config.workspace / ".env")
+    msgs = []
+    if req_json and "messages" in req_json:
+        for msg in req_json["messages"]:
+            timestamp: datetime = (
+                datetime.fromisoformat(msg["timestamp"])
+                if "timestamp" in msg
+                else datetime.now()
+            )
+            msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
+
+    initial_msgs = [
+        get_prompt(
+            tools=[t for t in get_toolchain(chat_config.tools)],
+            interactive=chat_config.interactive,
+            tool_format=chat_config.tool_format or "markdown",
+            model=chat_config.model,
+        )
+    ]
+
+    logdir.mkdir(parents=True)
+    log = LogManager.load(logdir=logdir, initial_msgs=initial_msgs + msgs, create=True)
+    log.write()
 
     # Set tool allowlist to available tools if not provided
     if not chat_config.tools:
