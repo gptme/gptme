@@ -160,11 +160,8 @@ class LogManager:
     @property
     def name(self) -> str:
         """Get the user-friendly display name from ChatConfig, fallback to chat_id."""
-        try:
-            chat_config = ChatConfig.from_logdir(self.logdir)
-            return chat_config.name or self.chat_id
-        except Exception:
-            return self.chat_id
+        chat_config = ChatConfig.from_logdir(self.logdir)
+        return chat_config.name or self.chat_id
 
     def append(self, msg: Message) -> None:
         """Appends a message to the log, writes the log, prints the message."""
