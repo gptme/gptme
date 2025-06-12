@@ -72,7 +72,9 @@ class ChatterboxTTSBackend:
     def initialize(self, voice: str | None = None) -> None:
         """Initialize the Chatterbox TTS client."""
         try:
-            self.client = Client("ResembleAI/Chatterbox", hf_token=self.hf_token)
+            src = os.environ.get("GRADIO_SRC", "ResembleAI/Chatterbox")
+            self.client = Client(src, hf_token=self.hf_token)
+            # self.client = Client("http://127.0.0.1:7860")
             log.info("Chatterbox TTS client initialized")
 
             if voice:
@@ -99,7 +101,7 @@ class ChatterboxTTSBackend:
         voice: str | None = None,
         speed: float = 1.0,
         exaggeration: float = 0.5,
-        temperature: float = 0.8,
+        temperature: float = 0.5,
         seed: int = 0,
         cfgw: float = 0.5,
     ) -> io.BytesIO:
@@ -224,7 +226,7 @@ def generate_audio_cli(
 @click.option("--output", "-o", help="Output file path")
 @click.option("--voice-dir", help="Directory containing voice samples", default=None)
 @click.option("--exaggeration", default=0.5, help="Exaggeration level (0.0-1.0)")
-@click.option("--temperature", default=0.8, help="Temperature for generation")
+@click.option("--temperature", default=0.5, help="Temperature for generation")
 @click.option("--seed", default=0, help="Random seed")
 @click.option("--cfgw", default=0.5, help="CFG weight")
 @click.option("--list-voices", is_flag=True, help="List available voice samples")

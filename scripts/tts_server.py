@@ -29,6 +29,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime
 from importlib.util import find_spec
 from pathlib import Path
 from textwrap import shorten
@@ -264,6 +265,25 @@ async def text_to_speech(
             raise HTTPException(
                 status_code=500, detail=f"Unknown backend: {backend_name}"
             )
+
+        # Save audio to outputs directory with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
+            :-3
+        ]  # Remove last 3 digits of microseconds
+        outputs_dir = Path("outputs")
+        outputs_dir.mkdir(exist_ok=True)
+
+        output_path = outputs_dir / f"{timestamp}.wav"
+
+        # Save audio buffer to file
+        audio_data = audio_buffer.getvalue()
+        with open(output_path, "wb") as f:
+            f.write(audio_data)
+
+        log.info(f"Saved audio to {output_path}")
+
+        # Reset buffer position for streaming
+        audio_buffer.seek(0)
 
         return StreamingResponse(
             audio_buffer,
