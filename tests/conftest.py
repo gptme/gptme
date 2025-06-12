@@ -147,7 +147,7 @@ def client():
 
 
 @pytest.fixture(scope="function")
-def setup_conversation(server_thread):
+def setup_conversation(server_thread, tmp_path):
     """Create a conversation and return its ID, session ID, and port."""
     port = server_thread
     conversation_id = f"test-tools-{int(time.time())}-{random.randint(1000, 9999)}"
@@ -157,6 +157,9 @@ def setup_conversation(server_thread):
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={
             "prompt": "You are an AI assistant for testing.",
+            "config": {
+                "workspace": str(tmp_path),
+            },
         },
     )
     assert resp.status_code == 200
