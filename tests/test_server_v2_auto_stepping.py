@@ -80,6 +80,9 @@ def test_auto_stepping(
         assert wait_for_event(event_listener, "tool_executing")
         assert wait_for_event(event_listener, "message_added")
 
+        # Wait for final assistant message
+        assert wait_for_event(event_listener, "message_added")
+
     # Verify conversation state
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}"
