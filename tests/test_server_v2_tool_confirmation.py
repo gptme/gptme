@@ -64,6 +64,9 @@ def test_tool_confirmation_flow(
         assert wait_for_event(event_listener, "tool_executing")
         assert wait_for_event(event_listener, "message_added")
 
+        # Wait for assistant final response
+        assert wait_for_event(event_listener, "message_added")
+
     # Verify conversation state
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}"
@@ -79,3 +82,4 @@ def test_tool_confirmation_flow(
     assert messages[2]["role"] == "user" and "List files" in messages[2]["content"]
     assert messages[3]["role"] == "assistant" and "ls -la" in messages[3]["content"]
     assert messages[4]["role"] == "system" and "total" in messages[4]["content"]
+    assert messages[5]["role"] == "assistant" and "Done" in messages[5]["content"]
