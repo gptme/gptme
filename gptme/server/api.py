@@ -96,19 +96,62 @@ def api_conversation_file(logfile: str, filename: str):
 @api.route("/api/conversations/<string:logfile>", methods=["PUT"])
 def api_conversation_put(logfile: str):
     """Create or update a conversation."""
-    msgs = []
-    req_json = flask.request.json
-    if req_json and "messages" in req_json:
-        for msg in req_json["messages"]:
-            timestamp: datetime = datetime.fromisoformat(msg["timestamp"])
-            msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
+    from ..config import ChatConfig
+    from ..prompts import get_prompt, get_workspace_prompt
+    from ..tools import get_toolchain
+
+    req_json = flask.request.json or {}
 
     logdir = get_logs_dir() / logfile
     if logdir.exists():
         raise ValueError(f"Conversation already exists: {logdir.name}")
+
+    # Load or create chat config
+    request_config = ChatConfig.from_dict(req_json.get("config", {}))
+    chat_config = ChatConfig.load_or_create(logdir, request_config)
+    prompt = req_json.get("prompt", "full")
+
+    # Start with system messages
+    msgs = [
+        get_prompt(
+            tools=[t for t in get_toolchain(chat_config.tools)],
+            interactive=chat_config.interactive,
+            tool_format=chat_config.tool_format or "markdown",
+            model=chat_config.model,
+            prompt=prompt,
+        )
+    ]
+
+    if workspace_prompt := get_workspace_prompt(chat_config.workspace):
+        msgs += [Message("system", workspace_prompt, hide=True, quiet=True)]
+
+    # Add any additional messages from request
+    for msg in req_json.get("messages", []):
+        timestamp: datetime = (
+            datetime.fromisoformat(msg["timestamp"])
+            if "timestamp" in msg
+            else datetime.now()
+        )
+        msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
+
     logdir.mkdir(parents=True)
     log = LogManager(msgs, logdir=logdir)
     log.write()
+
+    # Set tool allowlist to available tools if not provided
+    if not chat_config.tools:
+        chat_config.tools = [t.name for t in get_toolchain(None) if not t.is_mcp]
+
+    if not chat_config.mcp:
+        # load from user or project config
+        from ..config import Config
+
+        config = Config.from_workspace(chat_config.workspace)
+        chat_config.mcp = config.mcp
+
+    # Save the chat config
+    chat_config.save()
+
     return {"status": "ok"}
 
 
