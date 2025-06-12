@@ -5,6 +5,7 @@ import os
 import shutil
 import textwrap
 from collections.abc import Generator
+import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from itertools import islice, zip_longest
@@ -20,6 +21,7 @@ from typing import (
 from rich import print
 
 from .config import ChatConfig
+from . import llm
 from .dirs import get_logs_dir
 from .message import Message, len_tokens, print_msg
 from .util.context import enrich_messages_with_context
@@ -170,6 +172,13 @@ class LogManager:
         if not msg.quiet:
             print_msg(msg, oneline=False)
 
+        if (
+            msg.role == "user"
+            and sum(m.role == "user" for m in self.log) == 1
+            and ChatConfig.from_logdir(self.logdir).name is None
+        ):
+            _start_auto_name_thread(self.logdir)
+
     def write(self, branches=True) -> None:
         """
         Writes to the conversation log.
@@ -319,8 +328,8 @@ class LogManager:
         self.logdir = logsdir / name
         self.write()
 
-    def to_dict(self, branches=False) -> dict:
-        """Returns a dict representation of the log."""
+    def to_dict(self, branches: bool = False) -> dict:
+        """Return a dict representation of the log."""
         d: dict[str, Any] = {
             "id": self.chat_id,
             "name": self.name,
@@ -333,6 +342,27 @@ class LogManager:
                 for branch, msgs in self._branches.items()
             }
         return d
+
+
+def _auto_name_conversation(logdir: Path) -> None:
+    """Generate and save a name for the conversation."""
+    logger.info("Auto-naming conversation...")
+    try:
+        manager = LogManager.load(logdir, lock=False)
+        msgs = prepare_messages(manager.log.messages)[1:]
+        name = llm.generate_name(msgs)
+        chat_config = ChatConfig.from_logdir(logdir)
+        chat_config.name = name
+        chat_config.save()
+        logger.info("Auto-named conversation: %s", name)
+    except Exception as e:  # pragma: no cover - best effort
+        logger.warning("Failed to auto-name conversation: %s", e)
+
+
+def _start_auto_name_thread(logdir: Path) -> None:
+    thread = threading.Thread(target=_auto_name_conversation, args=(logdir,))
+    thread.daemon = True
+    thread.start()
 
 
 def prepare_messages(
@@ -358,7 +388,7 @@ def prepare_messages(
     if (len_from := len_tokens(msgs, model.model)) != (
         len_to := len_tokens(msgs_reduced, model.model)
     ):
-        logger.info(f"Reduced log from {len_from//1} to {len_to//1} tokens")
+        logger.info(f"Reduced log from {len_from // 1} to {len_to // 1} tokens")
     msgs_limited = limit_log(msgs_reduced)
     if len(msgs_reduced) != len(msgs_limited):
         logger.info(
