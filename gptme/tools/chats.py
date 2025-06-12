@@ -187,22 +187,22 @@ def _format_message_with_context(
     return result
 
 
-def read_chat(conversation: str, max_results: int = 5, incl_system=False) -> None:
+def read_chat(id: str, max_results: int = 5, incl_system=False) -> None:
     """
     Read a specific conversation log.
 
     Args:
-        conversation (str): The name of the conversation to read.
+        id (str): The id of the conversation to read.
         max_results (int): Maximum number of messages to display.
         incl_system (bool): Whether to include system messages.
     """
     from ..logmanager import LogManager, list_conversations  # fmt: skip
 
     for conv in list_conversations():
-        if conv.name == conversation:
+        if conv.id == id:
             log_path = Path(conv.path)
             logmanager = LogManager.load(log_path)
-            print(f"Reading conversation: {conversation}")
+            print(f"Reading conversation: {conv.name} ({conv.id})")
             i = 0
             for msg in logmanager.log:
                 if msg.role != "system" or incl_system:
@@ -212,7 +212,7 @@ def read_chat(conversation: str, max_results: int = 5, incl_system=False) -> Non
                     break
             break
     else:
-        print(f"Conversation '{conversation}' not found.")
+        print(f"Conversation '{id}' not found.")
 
 
 def examples(tool_format):
