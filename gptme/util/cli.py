@@ -360,5 +360,135 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
         print(return_val)
 
 
+@main.group()
+def models():
+    """Model-related utilities."""
+    pass
+
+
+@models.command("list")
+@click.option("--provider", help="Filter by provider (e.g., openai, anthropic, gemini)")
+@click.option("--pricing", is_flag=True, help="Show pricing information")
+@click.option("--vision", is_flag=True, help="Show only models with vision support")
+@click.option(
+    "--reasoning", is_flag=True, help="Show only models with reasoning support"
+)
+@click.option(
+    "--simple", is_flag=True, help="Output one model per line as provider/model"
+)
+def models_list(
+    provider: str | None, pricing: bool, vision: bool, reasoning: bool, simple: bool
+):
+    """List available models."""
+    from ..llm.models import MODELS, get_model  # fmt: skip
+
+    if simple:
+        # Simple format: one model per line as provider/model
+        for prov in MODELS:
+            if provider and prov != provider:
+                continue
+
+            if not MODELS[prov]:  # Skip empty providers
+                continue
+
+            for model_name in MODELS[prov]:
+                model = get_model(f"{prov}/{model_name}")
+
+                if vision and not model.supports_vision:
+                    continue
+
+                if reasoning and not model.supports_reasoning:
+                    continue
+
+                print(f"{prov}/{model_name}")
+        return
+
+    print("Available models:")
+
+    for prov in MODELS:
+        if provider and prov != provider:
+            continue
+
+        if not MODELS[prov]:  # Skip empty providers
+            continue
+
+        print(f"\n{prov}:")
+        for model_name in MODELS[prov]:
+            model = get_model(f"{prov}/{model_name}")
+
+            if vision and not model.supports_vision:
+                continue
+
+            if reasoning and not model.supports_reasoning:
+                continue
+
+            # Basic info
+            info_parts = [f"  {model.model}"]
+
+            # Context window
+            if model.context:
+                context_str = (
+                    f"{model.context:,}"
+                    if model.context >= 1000
+                    else str(model.context)
+                )
+                info_parts.append(f"ctx: {context_str}")
+
+            # Max output
+            if model.max_output:
+                output_str = (
+                    f"{model.max_output:,}"
+                    if model.max_output >= 1000
+                    else str(model.max_output)
+                )
+                info_parts.append(f"out: {output_str}")
+
+            # Vision support
+            if model.supports_vision:
+                info_parts.append("vision")
+
+            # Reasoning support
+            if model.supports_reasoning:
+                info_parts.append("reasoning")
+
+            # Pricing
+            if pricing and (model.price_input or model.price_output):
+                price_str = f"${model.price_input:.2f}/${model.price_output:.2f}/1M"
+                info_parts.append(price_str)
+
+            print(" | ".join(info_parts))
+
+
+@models.command("info")
+@click.argument("model_name")
+def models_info(model_name: str):
+    """Show detailed information about a specific model."""
+    from ..llm.models import get_model  # fmt: skip
+
+    try:
+        model = get_model(model_name)
+    except Exception as e:
+        print(f"Error getting model info: {e}")
+        sys.exit(1)
+
+    print(f"Model: {model.full}")
+    print(f"Provider: {model.provider}")
+    print(f"Context window: {model.context:,} tokens")
+    if model.max_output:
+        print(f"Max output: {model.max_output:,} tokens")
+
+    print(f"Streaming: {'Yes' if model.supports_streaming else 'No'}")
+    print(f"Vision: {'Yes' if model.supports_vision else 'No'}")
+    print(f"Reasoning: {'Yes' if model.supports_reasoning else 'No'}")
+
+    if model.price_input or model.price_output:
+        print(
+            f"Pricing: ${model.price_input:.2f} input / ${model.price_output:.2f} output per 1M tokens"
+        )
+
+    if model.knowledge_cutoff:
+        print(f"Knowledge cutoff: {model.knowledge_cutoff.strftime('%Y-%m-%d')}")
+
+
 if __name__ == "__main__":
     main()
