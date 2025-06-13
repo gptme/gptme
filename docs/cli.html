@@ -400,6 +400,11 @@
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-llm-generate">generate</a></li>
 </ul>
 </li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models">models</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-info">info</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-list">list</a></li>
+</ul>
+</li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-tokens">tokens</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-tokens-count">count</a></li>
 </ul>
@@ -810,6 +815,65 @@ Pass eval or suite names to run, or result files to print.</p>
 
 </section>
 </section>
+<section id="gptme-util-models">
+<h3>models<a class="headerlink" href="#gptme-util-models" title="Link to this heading">#</a></h3>
+<p>Model-related utilities.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>models<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>COMMAND<span class="w"> </span><span class="o">[</span>ARGS<span class="o">]</span>...
+</pre></div>
+</div>
+<section id="gptme-util-models-info">
+<h4>info<a class="headerlink" href="#gptme-util-models-info" title="Link to this heading">#</a></h4>
+<p>Show detailed information about a specific model.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>models<span class="w"> </span>info<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>MODEL_NAME
+</pre></div>
+</div>
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-models-info-arg-MODEL_NAME">
+<span class="sig-name descname"><span class="pre">MODEL_NAME</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-models-info-arg-MODEL_NAME" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-models-list">
+<h4>list<a class="headerlink" href="#gptme-util-models-list" title="Link to this heading">#</a></h4>
+<p>List available models.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>models<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-models-list-provider">
+<span class="sig-name descname"><span class="pre">--provider</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;provider&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-models-list-provider" title="Link to this definition">#</a></dt>
+<dd><p>Filter by provider (e.g., openai, anthropic, gemini)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-models-list-pricing">
+<span class="sig-name descname"><span class="pre">--pricing</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-models-list-pricing" title="Link to this definition">#</a></dt>
+<dd><p>Show pricing information</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-models-list-vision">
+<span class="sig-name descname"><span class="pre">--vision</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-models-list-vision" title="Link to this definition">#</a></dt>
+<dd><p>Show only models with vision support</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-models-list-reasoning">
+<span class="sig-name descname"><span class="pre">--reasoning</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-models-list-reasoning" title="Link to this definition">#</a></dt>
+<dd><p>Show only models with reasoning support</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-models-list-simple">
+<span class="sig-name descname"><span class="pre">--simple</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-models-list-simple" title="Link to this definition">#</a></dt>
+<dd><p>Output one model per line as provider/model</p>
+</dd></dl>
+
+</section>
+</section>
 <section id="gptme-util-tokens">
 <h3>tokens<a class="headerlink" href="#gptme-util-tokens" title="Link to this heading">#</a></h3>
 <p>Commands for token counting.</p>
@@ -978,6 +1042,11 @@ Pass eval or suite names to run, or result files to print.</p>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-llm">llm</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-llm-generate">generate</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models">models</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-info">info</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-list">list</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-tokens">tokens</a><ul class="nav section-nav flex-column">
