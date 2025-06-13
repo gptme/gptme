@@ -113,6 +113,9 @@ extlinks = {
 # Useful for avoiding ambiguity when the same section heading appears in different documents.
 autosectionlabel_prefix_document = True
 
+# Only autolabel sections up to a certain depth to avoid conflicts with generated CLI docs
+autosectionlabel_maxdepth = 2
+
 autodoc_typehints_format = "short"
 autodoc_class_signature = "separated"
 napoleon_attr_annotations = False
