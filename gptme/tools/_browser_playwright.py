@@ -14,6 +14,7 @@ from playwright.sync_api import Browser, ElementHandle
 from ._browser_thread import BrowserThread
 
 _browser: BrowserThread | None = None
+_last_logs: dict = {"logs": [], "errors": [], "url": None}
 logger = logging.getLogger(__name__)
 
 
@@ -26,7 +27,9 @@ def get_browser() -> BrowserThread:
 
 
 def _load_page(browser: Browser, url: str) -> str:
-    """Load a page and return its body HTML"""
+    """Load a page and return its body HTML, always capturing logs"""
+    global _last_logs
+
     context = browser.new_context(
         locale="en-US",
         geolocation={"latitude": 37.773972, "longitude": 13.39},
@@ -35,7 +38,39 @@ def _load_page(browser: Browser, url: str) -> str:
 
     logger.info(f"Loading page: {url}")
     page = context.new_page()
-    page.goto(url)
+
+    # Always capture logs
+    logs = []
+    page_errors = []
+
+    def on_console(msg):
+        logs.append(
+            {
+                "type": msg.type,
+                "text": msg.text,
+                "location": f"{msg.location.get('url', 'unknown')}:{msg.location.get('lineNumber', 'unknown')}:{msg.location.get('columnNumber', 'unknown')}"
+                if msg.location
+                else "unknown",
+            }
+        )
+
+    def on_page_error(error):
+        page_errors.append(f"Page error: {error}")
+
+    page.on("console", on_console)
+    page.on("pageerror", on_page_error)
+
+    # Navigate to the page
+    try:
+        page.goto(url)
+        # Wait for page to be fully loaded (includes network idle)
+        page.wait_for_load_state("networkidle")
+    except Exception as e:
+        page_errors.append(f"Navigation error: {str(e)}")
+        # Don't re-raise, just capture the error
+
+    # Store logs globally
+    _last_logs = {"logs": logs, "errors": page_errors, "url": url}
 
     return page.inner_html("body")
 
@@ -45,6 +80,31 @@ def read_url(url: str) -> str:
     browser = get_browser()
     body_html = browser.execute(_load_page, url)
     return html_to_markdown(body_html)
+
+
+def read_logs() -> str:
+    """Read browser console logs from the last read URL."""
+    global _last_logs
+
+    if not _last_logs["url"]:
+        return "No URL has been read yet."
+
+    result = [f"=== Logs for {_last_logs['url']} ==="]
+
+    if _last_logs["logs"]:
+        result.append("\n=== Console Logs ===")
+        for log in _last_logs["logs"]:
+            result.append(f"[{log['type'].upper()}] {log['text']} ({log['location']})")
+
+    if _last_logs["errors"]:
+        result.append("\n=== Page Errors ===")
+        for error in _last_logs["errors"]:
+            result.append(error)
+
+    if not _last_logs["logs"] and not _last_logs["errors"]:
+        result.append("\nNo logs or errors captured.")
+
+    return "\n".join(result)
 
 
 def _search_google(browser: Browser, query: str) -> str:

@@ -57,6 +57,7 @@ browser: Literal["playwright", "lynx"] | None = (
 # noreorder
 if browser == "playwright":
     from ._browser_playwright import read_url as read_url_playwright  # fmt: skip
+    from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
     from ._browser_playwright import (
         screenshot_url as screenshot_url_playwright,  # fmt: skip
     )
@@ -107,6 +108,17 @@ Assistant: Certainly! I'll use the browser tool to screenshot the ActivityWatch 
 {ToolUse("ipython", [], "screenshot_url('https://activitywatch.net')").to_output(tool_format)}
 System:
 {ToolUse("result", [], "Screenshot saved to screenshot.png").to_output()}
+
+### Read URL and check browser logs
+User: read this page and check if there are any console errors
+Assistant: I'll read the page first and then check the browser logs.
+{ToolUse("ipython", [], "read_url('https://example.com')").to_output(tool_format)}
+System:
+{ToolUse("https://example.com", [], "Example Domain\n\nThis domain is for use in illustrative examples...").to_output()}
+Assistant: Now let me check the browser console logs:
+{ToolUse("ipython", [], "read_logs()").to_output(tool_format)}
+System:
+{ToolUse("result", [], "=== Logs for https://example.com ===\nNo logs or errors captured.").to_output()}
 """.strip()
 
 
@@ -159,11 +171,19 @@ def screenshot_url(url: str, path: Path | str | None = None) -> Path:
     raise ValueError("Screenshot not supported with lynx backend")
 
 
+def read_logs() -> str:
+    """Read browser console logs from the last read URL."""
+    assert browser
+    if browser == "playwright":
+        return read_logs_playwright()  # type: ignore
+    raise ValueError("Browser logs not supported with lynx backend")
+
+
 tool = ToolSpec(
     name="browser",
     desc="Browse, search or screenshot the web",
     examples=examples,
-    functions=[read_url, search, screenshot_url],
+    functions=[read_url, search, screenshot_url, read_logs],
     available=has_browser_tool,
     init=init,
 )
