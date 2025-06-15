@@ -56,8 +56,8 @@ browser: Literal["playwright", "lynx"] | None = (
 
 # noreorder
 if browser == "playwright":
-    from ._browser_playwright import read_url as read_url_playwright  # fmt: skip
     from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
+    from ._browser_playwright import read_url as read_url_playwright  # fmt: skip
     from ._browser_playwright import (
         screenshot_url as screenshot_url_playwright,  # fmt: skip
     )
@@ -114,11 +114,11 @@ User: read this page and check if there are any console errors
 Assistant: I'll read the page first and then check the browser logs.
 {ToolUse("ipython", [], "read_url('https://example.com')").to_output(tool_format)}
 System:
-{ToolUse("https://example.com", [], "Example Domain\n\nThis domain is for use in illustrative examples...").to_output()}
+{ToolUse("https://example.com", [], "This domain is for use in illustrative examples...").to_output()}
 Assistant: Now let me check the browser console logs:
 {ToolUse("ipython", [], "read_logs()").to_output(tool_format)}
 System:
-{ToolUse("result", [], "=== Logs for https://example.com ===\nNo logs or errors captured.").to_output()}
+{ToolUse("result", [], "No logs or errors captured.").to_output()}
 """.strip()
 
 
