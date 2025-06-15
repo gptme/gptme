@@ -554,6 +554,7 @@ to append the code block content to the file at the given path.
 <span class="s">read_url(url: str) -&gt; str: Read a webpage in a text format.</span>
 <span class="s">search(query: str, engine: Literal[&quot;google&quot;, &quot;duckduckgo&quot;]) -&gt; str: Search for a query on a search engine.</span>
 <span class="s">screenshot_url(url: str, path: Union[Path, str, NoneType]) -&gt; Path: Take a screenshot of a webpage.</span>
+<span class="s">read_logs() -&gt; str: Read browser console logs from the last read URL.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -617,6 +618,26 @@ to append the code block content to the file at the given path.
 <span class="k">&gt; </span><span class="ge">System:</span>
 <span class="sb">```result</span>
 <span class="s">Screenshot saved to screenshot.png</span>
+<span class="sb">```</span>
+
+<span class="gu">### Read URL and check browser logs</span>
+
+<span class="k">&gt; </span><span class="ge">User: read this page and check if there are any console errors</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll read the page first and then check the browser logs.</span>
+<span class="sb">```ipython</span>
+<span class="n">read_url</span><span class="p">(</span><span class="s1">&#39;https://example.com&#39;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System:</span>
+```https://example.com
+This domain is for use in illustrative examples...
+<span class="sb">```</span>
+<span class="sb">&gt; Assistant: Now let me check the browser console logs:</span>
+<span class="sb">```ipython</span>
+<span class="sb">read_logs()</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System:</span>
+<span class="sb">```result</span>
+<span class="s">No logs or errors captured.</span>
 <span class="sb">```</span>
 
 <span class="gu">## chats</span>
@@ -1211,7 +1232,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 4853</p>
+<p>Tokens: 4994</p>
 </dd></dl>
 
 <dl class="py function">

@@ -1421,7 +1421,54 @@ brew<span class="w"> </span>install<span class="w"> </span>lynx
 </pre></div></pre>
   </td>
 </tr>
+</table><p>Read URL and check browser logs</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">read this page and check if there are any console errors</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll read the page first and then check the browser logs.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">read_url('https://example.com')
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;"><div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">https://example.com</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">This domain is for use in illustrative examples...
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Now let me check the browser console logs:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">read_logs()
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;"><div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">result</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">No logs or errors captured.
+</pre></div></pre>
+  </td>
+</tr>
 </table><dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">read_logs</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span></dt>
+<dd><p>Read browser console logs from the last read URL.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.browser.</span></span><span class="sig-name descname"><span class="pre">read_url</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span></dt>
 <dd><p>Read a webpage in a text format.</p>
