@@ -11,7 +11,7 @@ import click
 from pick import pick
 
 from . import __version__
-from .chat import chat, init_workspace
+from .chat import chat
 from .commands import _gen_help
 from .config import setup_config_from_cli
 from .constants import MULTIPROMPT_SEPARATOR
@@ -245,8 +245,6 @@ def main(
         workspace_path.mkdir(parents=True, exist_ok=True)
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
-
-    init_workspace(workspace_path, logdir)
 
     # Setup complete configuration from CLI arguments and workspace
     config = setup_config_from_cli(

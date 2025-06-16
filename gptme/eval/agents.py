@@ -3,7 +3,7 @@ from abc import abstractmethod
 
 from gptme import Message
 from gptme import chat as gptme_chat
-from gptme.chat import init_workspace
+
 from gptme import get_prompt
 from gptme.cli import get_name
 from gptme.dirs import get_logs_dir
@@ -43,7 +43,7 @@ class GPTMe(Agent):
             raise FileExistsError(
                 f"Workspace directory {workspace_dir} already exists."
             )
-        init_workspace(workspace_dir, log_dir)
+        workspace_dir.mkdir(parents=True)
 
         store = FileStore(working_dir=workspace_dir)
         if files:

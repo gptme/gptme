@@ -347,26 +347,3 @@ def check_for_modifications(log: Log) -> bool:
 def check_changes() -> str | None:
     """Run lint/pre-commit checks after file modifications."""
     return run_precommit_checks()
-
-
-def init_workspace(workspace: Path | None, logdir: Path | None = None) -> Path:
-    """Initialize workspace and return the workspace path.
-
-    If workspace is None, use current directory.
-    If logdir is provided, use ``$logdir/workspace`` as workspace if it exists, else create a symlink to workspace.
-    """
-    if not workspace:
-        workspace = Path.cwd()
-
-    if logdir:
-        log_workspace = logdir / "workspace"
-        if log_workspace.exists():
-            assert not workspace or (
-                workspace == log_workspace.resolve()
-            ), f"Workspace already exists in {log_workspace}, wont override."
-            workspace = log_workspace.resolve()
-        else:
-            assert workspace.exists(), f"Workspace path {workspace} does not exist"
-            log_workspace.symlink_to(workspace, target_is_directory=True)
-
-    return workspace
