@@ -42,21 +42,17 @@ def get_prompt(
 
     Returns a list of messages: [core_system_prompt, workspace_prompt] (if workspace provided).
     """
-    msgs: list[Message]
+    # Generate core system messages (without workspace context)
+    core_msgs: list[Message]
     if prompt == "full":
-        msgs = list(prompt_full(interactive, tools, tool_format, model, workspace))
+        core_msgs = list(prompt_full(interactive, tools, tool_format, model))
     elif prompt == "short":
-        msgs = list(prompt_short(interactive, tools, tool_format, workspace))
+        core_msgs = list(prompt_short(interactive, tools, tool_format))
     else:
-        msgs = [Message("system", prompt)]
+        core_msgs = [Message("system", prompt)]
 
-    # Separate workspace messages from core system messages
-    workspace_msgs = [
-        msg for msg in msgs if msg.content.startswith("# Workspace Context")
-    ]
-    core_msgs = [
-        msg for msg in msgs if not msg.content.startswith("# Workspace Context")
-    ]
+    # Generate workspace messages separately
+    workspace_msgs = list(prompt_workspace(workspace))
 
     # Combine core messages into one system prompt
     result = []
@@ -65,8 +61,7 @@ def get_prompt(
         result.append(core_prompt)
 
     # Add workspace messages separately
-    for workspace_msg in workspace_msgs:
-        result.append(workspace_msg)
+    result.extend(workspace_msgs)
 
     # Set hide=True, pinned=True for all messages
     for i, msg in enumerate(result):
@@ -90,7 +85,6 @@ def prompt_full(
     tools: list[ToolSpec],
     tool_format: ToolFormat,
     model: str | None,
-    workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
     yield from prompt_gptme(interactive, model)
@@ -98,7 +92,6 @@ def prompt_full(
     if interactive:
         yield from prompt_user()
     yield from prompt_project()
-    yield from prompt_workspace(workspace)
     yield from prompt_systeminfo()
     yield from prompt_timeinfo()
 
@@ -107,7 +100,6 @@ def prompt_short(
     interactive: bool,
     tools: list[ToolSpec],
     tool_format: ToolFormat,
-    workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Short prompt to start the conversation."""
     yield from prompt_gptme(interactive)
@@ -115,7 +107,6 @@ def prompt_short(
     if interactive:
         yield from prompt_user()
     yield from prompt_project()
-    yield from prompt_workspace(workspace)
 
 
 def prompt_gptme(
