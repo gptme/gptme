@@ -13,8 +13,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from gptme.config import ChatConfig
-
 from ..message import Message
 from . import get_tools
 from .base import ToolSpec, ToolUse
@@ -88,10 +86,7 @@ def subagent(agent_id: str, prompt: str):
 
     def run_subagent():
         prompt_msgs = [Message("user", prompt)]
-        chat_config = ChatConfig.load_or_create(
-            logdir, ChatConfig(workspace=Path.cwd())
-        ).save()
-        workspace = chat_config.workspace
+        workspace = Path.cwd()
         initial_msgs = get_prompt(get_tools(), interactive=False, workspace=workspace)
 
         # add the return prompt
