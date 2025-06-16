@@ -540,9 +540,6 @@ def api_conversation_put(conversation_id: str):
     # Save the chat config
     chat_config.save()
 
-    # Initialize tools in this thread
-    init_tools(chat_config.tools)
-
     # Create a session for this conversation
     session = SessionManager.create_session(conversation_id)
 
