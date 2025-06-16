@@ -10,7 +10,7 @@ import platform
 import shutil
 import subprocess
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Generator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -36,21 +36,39 @@ def get_prompt(
     interactive: bool = True,
     model: str | None = None,
     workspace: Path | None = None,
-) -> Message:
+) -> list[Message]:
     """
     Get the initial system prompt.
+
+    Returns a list of messages: [core_system_prompt, workspace_prompt] (if workspace provided).
     """
-    msgs: Iterable
+    msgs: list[Message]
     if prompt == "full":
-        msgs = prompt_full(interactive, tools, tool_format, model, workspace)
+        msgs = list(prompt_full(interactive, tools, tool_format, model, workspace))
     elif prompt == "short":
-        msgs = prompt_short(interactive, tools, tool_format, workspace)
+        msgs = list(prompt_short(interactive, tools, tool_format, workspace))
     else:
         msgs = [Message("system", prompt)]
 
-    # combine all the system prompt messages into one,
-    # also hide them and pin them to the top
-    return _join_messages(list(msgs)).replace(hide=True, pinned=True)
+    # Separate workspace messages from core system messages
+    workspace_msgs = [
+        msg for msg in msgs if msg.content.startswith("# Workspace Context")
+    ]
+    core_msgs = [
+        msg for msg in msgs if not msg.content.startswith("# Workspace Context")
+    ]
+
+    # Combine core messages into one system prompt
+    result = []
+    if core_msgs:
+        core_prompt = _join_messages(core_msgs).replace(hide=True, pinned=True)
+        result.append(core_prompt)
+
+    # Add workspace messages separately
+    for workspace_msg in workspace_msgs:
+        result.append(workspace_msg.replace(hide=True, pinned=True))
+
+    return result
 
 
 def _join_messages(msgs: list[Message]) -> Message:

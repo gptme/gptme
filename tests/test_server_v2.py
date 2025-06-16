@@ -122,7 +122,7 @@ def test_v2_create_conversation_default_system_prompt(client: FlaskClient):
 
     # Check that the system prompt is the default one
     workspace = Path.cwd()
-    prompt = get_prompt(
+    prompt_msgs = get_prompt(
         tools=[t for t in get_toolchain(None)],
         interactive=True,
         tool_format="markdown",
@@ -130,7 +130,7 @@ def test_v2_create_conversation_default_system_prompt(client: FlaskClient):
         prompt="full",
         workspace=workspace,
     )
-    assert data["log"][0]["content"] == prompt.content
+    assert data["log"][0]["content"] == prompt_msgs[0].content
 
 
 def test_v2_conversation_post(v2_conv, client: FlaskClient):

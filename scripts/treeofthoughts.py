@@ -110,7 +110,7 @@ def main():
     prompt = sys.argv[1] if len(sys.argv) > 1 else "What is fib(10)?"
     prompts = [Message("user", prompt)]
     tools = get_tools()
-    initial_msgs = [get_prompt(tools, prompt="full", interactive=False)]
+    initial_msgs = get_prompt(tools, prompt="full", interactive=False)
     log = Log(initial_msgs + prompts)
 
     # Main loop for autonomous operation

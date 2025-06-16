@@ -92,7 +92,7 @@ def subagent(agent_id: str, prompt: str):
             logdir, ChatConfig(workspace=Path.cwd())
         ).save()
         workspace = chat_config.workspace
-        initial_msgs = [get_prompt(get_tools(), interactive=False, workspace=workspace)]
+        initial_msgs = get_prompt(get_tools(), interactive=False, workspace=workspace)
 
         # add the return prompt
         return_prompt = """Thank you for doing the task, please reply with a JSON codeblock on the format:

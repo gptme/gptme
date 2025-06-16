@@ -507,16 +507,14 @@ def api_conversation_put(conversation_id: str):
     chat_config = ChatConfig.load_or_create(logdir, request_config)
     prompt = req_json.get("prompt", "full")
 
-    msgs = [
-        get_prompt(
-            tools=[t for t in get_toolchain(chat_config.tools)],
-            interactive=chat_config.interactive,
-            tool_format=chat_config.tool_format or "markdown",
-            model=chat_config.model,
-            prompt=prompt,
-            workspace=chat_config.workspace,
-        )
-    ]
+    msgs = get_prompt(
+        tools=[t for t in get_toolchain(chat_config.tools)],
+        interactive=chat_config.interactive,
+        tool_format=chat_config.tool_format or "markdown",
+        model=chat_config.model,
+        prompt=prompt,
+        workspace=chat_config.workspace,
+    )
 
     for msg in req_json.get("messages", []):
         timestamp: datetime = (
@@ -915,13 +913,20 @@ def api_conversation_config_patch(conversation_id: str):
     # Update system prompt with new tools
     manager = LogManager.load(conversation_id, lock=False)
     if len(manager.log.messages) >= 1 and manager.log.messages[0].role == "system":
-        manager.log.messages[0] = get_prompt(
+        # Remove existing system messages and replace with new ones
+        while manager.log.messages and manager.log.messages[0].role == "system":
+            manager.log.messages.pop(0)
+
+        # Insert new system messages at the beginning
+        new_system_msgs = get_prompt(
             tools=tools,
             tool_format=chat_config.tool_format or "markdown",
             interactive=chat_config.interactive,
             model=chat_config.model,
             workspace=chat_config.workspace,
         )
+        for i, msg in enumerate(new_system_msgs):
+            manager.log.messages.insert(i, msg)
     manager.write()
 
     return flask.jsonify(

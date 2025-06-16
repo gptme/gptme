@@ -114,16 +114,14 @@ def api_conversation_put(logfile: str):
     prompt = req_json.get("prompt", "full")
 
     # Start with system messages
-    msgs = [
-        get_prompt(
-            tools=[t for t in get_toolchain(chat_config.tools)],
-            interactive=chat_config.interactive,
-            tool_format=chat_config.tool_format or "markdown",
-            model=chat_config.model,
-            prompt=prompt,
-            workspace=chat_config.workspace,
-        )
-    ]
+    msgs = get_prompt(
+        tools=[t for t in get_toolchain(chat_config.tools)],
+        interactive=chat_config.interactive,
+        tool_format=chat_config.tool_format or "markdown",
+        model=chat_config.model,
+        prompt=prompt,
+        workspace=chat_config.workspace,
+    )
 
     # Add any additional messages from request
     for msg in req_json.get("messages", []):
