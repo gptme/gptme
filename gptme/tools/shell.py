@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import select
+import signal
 import subprocess
 import sys
 from collections.abc import Generator
@@ -27,7 +28,30 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 
-allowlist_commands = ["ls", "stat", "cd", "cat", "pwd", "echo", "head"]
+allowlist_commands = [
+    "ls",
+    "stat",
+    "cd",
+    "cat",
+    "pwd",
+    "echo",
+    "head",
+    "find",
+    "rg",
+    "ag",
+    "tail",
+    "grep",
+    "wc",
+    "sort",
+    "uniq",
+    "cut",
+    "file",
+    "which",
+    "type",
+    "tree",
+    "du",
+    "df",
+]
 
 candidates = (
     # platform-specific
@@ -147,6 +171,8 @@ class ShellSession:
         self.run("export PAGER=")
         self.run("export GH_PAGER=")
         self.run("export GIT_PAGER=cat")
+        # make Python output unbuffered by default for better UX
+        self.run("export PYTHONUNBUFFERED=1")
 
     def run(self, code: str, output=True) -> tuple[int | None, str, str]:
         """Runs a command in the shell and returns the output."""
@@ -186,38 +212,49 @@ class ShellSession:
         stderr: list[str] = []
         return_code: int | None = None
 
-        while True:
-            rlist, _, _ = select.select([self.stdout_fd, self.stderr_fd], [], [])
-            for fd in rlist:
-                assert fd in [self.stdout_fd, self.stderr_fd]
-                # We use a higher value, because there is a bug which leads to spaces at the boundary
-                # 2**12 = 4096
-                # 2**16 = 65536
-                data = os.read(fd, 2**16).decode("utf-8")
-                lines = data.splitlines(keepends=True)
-                re_returncode = re.compile(r"ReturnCode:(\d+)")
-                for line in lines:
-                    if "ReturnCode:" in line and self.delimiter in line:
-                        if match := re_returncode.search(line):
-                            return_code = int(match.group(1))
-                        # if command is cd and successful, we need to change the directory
-                        if command.startswith("cd ") and return_code == 0:
-                            ex, pwd, _ = self._run("pwd", output=False)
-                            assert ex == 0
-                            os.chdir(pwd.strip())
-                        return (
-                            return_code,
-                            "".join(stdout).strip(),
-                            "".join(stderr).strip(),
-                        )
-                    if fd == self.stdout_fd:
-                        stdout.append(line)
-                        if output:
-                            print(line, end="", file=sys.stdout)
-                    elif fd == self.stderr_fd:
-                        stderr.append(line)
-                        if output:
-                            print(line, end="", file=sys.stderr)
+        try:
+            while True:
+                rlist, _, _ = select.select([self.stdout_fd, self.stderr_fd], [], [])
+                for fd in rlist:
+                    assert fd in [self.stdout_fd, self.stderr_fd]
+                    # We use a higher value, because there is a bug which leads to spaces at the boundary
+                    # 2**12 = 4096
+                    # 2**16 = 65536
+                    data = os.read(fd, 2**16).decode("utf-8")
+                    lines = data.splitlines(keepends=True)
+                    re_returncode = re.compile(r"ReturnCode:(\d+)")
+                    for line in lines:
+                        if "ReturnCode:" in line and self.delimiter in line:
+                            if match := re_returncode.search(line):
+                                return_code = int(match.group(1))
+                            # if command is cd and successful, we need to change the directory
+                            if command.startswith("cd ") and return_code == 0:
+                                ex, pwd, _ = self._run("pwd", output=False)
+                                assert ex == 0
+                                os.chdir(pwd.strip())
+                            return (
+                                return_code,
+                                "".join(stdout).strip(),
+                                "".join(stderr).strip(),
+                            )
+                        if fd == self.stdout_fd:
+                            stdout.append(line)
+                            if output:
+                                print(line, end="", file=sys.stdout)
+                        elif fd == self.stderr_fd:
+                            stderr.append(line)
+                            if output:
+                                print(line, end="", file=sys.stderr)
+        except KeyboardInterrupt:
+            # Clear line after ^C to avoid leaving a hanging line
+            print()
+            # Handle interrupt at the source - return partial output and re-raise
+            logger.info("Process interrupted during output reading")
+            # Return partial output with a special return code to indicate interruption
+            partial_stdout = "".join(stdout).strip()
+            partial_stderr = "".join(stderr).strip()
+            # Use -999 as a special code to indicate interruption
+            raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
     def close(self):
         assert self.process.stdin
@@ -281,46 +318,112 @@ def is_allowlisted(cmd: str) -> bool:
     return True
 
 
+def _format_shell_output(
+    cmd: str,
+    stdout: str,
+    stderr: str,
+    returncode: int | None,
+    interrupted: bool,
+    allowlisted: bool,
+    pwd_changed: bool,
+    current_cwd: str,
+) -> str:
+    """Format shell command output into a message."""
+    # Apply shortening logic
+    stdout = _shorten_stdout(stdout, pre_tokens=2000, post_tokens=8000)
+    stderr = _shorten_stdout(stderr, pre_tokens=2000, post_tokens=2000)
+
+    # Format header
+    if interrupted:
+        header = "Command interrupted"
+    else:
+        header = f"Ran {'allowlisted ' if allowlisted else ''}command"
+
+    msg = _format_block_smart(header, cmd, lang="bash") + "\n\n"
+
+    # Add output
+    if stdout:
+        msg += _format_block_smart("", stdout, "stdout") + "\n\n"
+    if stderr:
+        msg += _format_block_smart("", stderr, "stderr") + "\n\n"
+    if not stdout and not stderr:
+        if interrupted:
+            msg += "No output before interruption\n"
+        else:
+            msg += "No output\n"
+
+    # Add status info
+    if interrupted:
+        if returncode is not None:
+            msg += f"Process interrupted (return code: {returncode})\n"
+        else:
+            msg += "Process interrupted\n"
+    elif returncode:
+        msg += f"Return code: {returncode}\n"
+
+    if pwd_changed:
+        msg += f"Working directory changed to: {current_cwd}"
+
+    return msg
+
+
 def execute_shell_impl(
     cmd: str, _: Path | None, confirm: ConfirmFunc
 ) -> Generator[Message, None, None]:
     """Execute shell command and format output."""
     shell = get_shell()
     allowlisted = is_allowlisted(cmd)
-
-    # Track current working directory before command execution
     prev_cwd = os.getcwd()
 
     try:
         returncode, stdout, stderr = shell.run(cmd)
+        interrupted = False
+    except KeyboardInterrupt as e:
+        # Extract partial output and handle subprocess termination
+        stdout = stderr = ""
+        if e.args and isinstance(e.args[0], tuple) and len(e.args[0]) == 2:
+            stdout, stderr = e.args[0]
+
+        # Terminate subprocess gracefully
+        logger.info("Shell command interrupted, sending SIGINT to subprocess")
+        try:
+            shell.process.send_signal(signal.SIGINT)
+            shell.process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            logger.info("Process didn't exit gracefully, terminating")
+            shell.process.terminate()
+            try:
+                shell.process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                logger.info("Process didn't terminate, killing")
+                shell.process.kill()
+                shell.process.wait()
+        except Exception:
+            pass
+
+        returncode = shell.process.returncode
+        interrupted = True
     except Exception as e:
         raise ValueError(f"Shell error: {e}") from None
 
-    # Check if working directory changed
+    # Format and yield output
     current_cwd = os.getcwd()
     pwd_changed = prev_cwd != current_cwd
 
-    stdout = _shorten_stdout(stdout.strip(), pre_tokens=2000, post_tokens=8000)
-    stderr = _shorten_stdout(stderr.strip(), pre_tokens=2000, post_tokens=2000)
-
-    msg = (
-        _format_block_smart(
-            f"Ran {'allowlisted ' if allowlisted else ''}command", cmd, lang="bash"
-        )
-        + "\n\n"
+    msg = _format_shell_output(
+        cmd,
+        stdout,
+        stderr,
+        returncode,
+        interrupted,
+        allowlisted,
+        pwd_changed,
+        current_cwd,
     )
-    if stdout:
-        msg += _format_block_smart("", stdout, "stdout") + "\n\n"
-    if stderr:
-        msg += _format_block_smart("", stderr, "stderr") + "\n\n"
-    if not stdout and not stderr:
-        msg += "No output\n"
-    if returncode:
-        msg += f"Return code: {returncode}\n"
-    if pwd_changed:
-        msg += f"Working directory changed to: {current_cwd}"
-
     yield Message("system", msg)
+
+    if interrupted:
+        raise KeyboardInterrupt() from None
 
 
 def get_path_fn(*args, **kwargs) -> Path | None:
