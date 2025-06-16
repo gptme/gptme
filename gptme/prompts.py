@@ -61,12 +61,16 @@ def get_prompt(
     # Combine core messages into one system prompt
     result = []
     if core_msgs:
-        core_prompt = _join_messages(core_msgs).replace(hide=True, pinned=True)
+        core_prompt = _join_messages(core_msgs)
         result.append(core_prompt)
 
     # Add workspace messages separately
     for workspace_msg in workspace_msgs:
-        result.append(workspace_msg.replace(hide=True, pinned=True))
+        result.append(workspace_msg)
+
+    # Set hide=True, pinned=True for all messages
+    for i, msg in enumerate(result):
+        result[i] = msg.replace(hide=True, pinned=True)
 
     return result
 
