@@ -337,7 +337,6 @@ def prompt_workspace(workspace: Path | None = None) -> Generator[Message, None, 
     sections = []
 
     if workspace is None:
-        yield Message("system", "")
         return
 
     if project := get_project_config(workspace):
@@ -375,8 +374,6 @@ def prompt_workspace(workspace: Path | None = None) -> Generator[Message, None, 
 
     if sections:
         yield Message("system", "# Workspace Context\n\n" + "\n\n".join(sections))
-    else:
-        yield Message("system", "")
 
 
 def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
