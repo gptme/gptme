@@ -529,14 +529,18 @@ def _shorten_stdout(
 
 def split_commands(script: str) -> list[str]:
     # TODO: write proper tests
-    parts = bashlex.parse(script)
+
+    # Preprocess script to handle quoted heredoc delimiters that bashlex can't parse
+    processed_script = _preprocess_quoted_heredocs(script)
+
+    parts = bashlex.parse(processed_script)
     commands = []
     for part in parts:
         if part.kind == "command":
             command_parts = []
             for word in part.parts:
                 start, end = word.pos
-                command_parts.append(script[start:end])
+                command_parts.append(processed_script[start:end])
             command = " ".join(command_parts)
             commands.append(command)
         elif part.kind == "compound":
@@ -544,17 +548,44 @@ def split_commands(script: str) -> list[str]:
                 command_parts = []
                 for word in node.parts:
                     start, end = word.pos
-                    command_parts.append(script[start:end])
+                    command_parts.append(processed_script[start:end])
                 command = " ".join(command_parts)
                 commands.append(command)
         elif part.kind in ["function", "pipeline", "list"]:
-            commands.append(script[part.pos[0] : part.pos[1]])
+            commands.append(processed_script[part.pos[0] : part.pos[1]])
         else:
             logger.warning(
                 f"Unknown shell script part of kind '{part.kind}', hoping this works"
             )
-            commands.append(script[part.pos[0] : part.pos[1]])
-    return commands
+            commands.append(processed_script[part.pos[0] : part.pos[1]])
+
+    # Convert back to original heredoc syntax if we modified it
+    return [_restore_quoted_heredocs(cmd, script) for cmd in commands]
+
+
+def _preprocess_quoted_heredocs(script: str) -> str:
+    """Convert quoted heredoc delimiters to unquoted ones for bashlex parsing."""
+    # Match heredoc operators with quoted delimiters: <<'DELIMITER' or <<"DELIMITER"
+    heredoc_pattern = re.compile(r'<<(["\'])([^"\'\s]+)\1')
+    return heredoc_pattern.sub(r"<<\2", script)
+
+
+def _restore_quoted_heredocs(command: str, original_script: str) -> str:
+    """Restore quoted heredoc delimiters in the processed command."""
+    # If the original script had quoted heredocs, restore them
+    heredoc_pattern = re.compile(r'<<(["\'])([^"\'\s]+)\1')
+    original_matches = heredoc_pattern.findall(original_script)
+
+    if not original_matches:
+        return command
+
+    # Replace unquoted delimiters back to quoted ones
+    for quote, delimiter in original_matches:
+        unquoted_pattern = f"<<{delimiter}"
+        quoted_replacement = f"<<{quote}{delimiter}{quote}"
+        command = command.replace(unquoted_pattern, quoted_replacement)
+
+    return command
 
 
 tool = ToolSpec(

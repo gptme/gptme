@@ -133,6 +133,61 @@ EOF
     assert ret == 0
 
 
+def test_heredoc_quoted_delimiters(shell):
+    # Test heredoc with single-quoted delimiter
+    ret, out, err = shell.run("""cat <<'EOF'
+some content with single quotes
+EOF""")
+    assert err.strip() == ""
+    assert out.strip() == "some content with single quotes"
+    assert ret == 0
+
+    # Test heredoc with double-quoted delimiter
+    ret, out, err = shell.run("""cat <<"EOF"
+some content with double quotes
+EOF""")
+    assert err.strip() == ""
+    assert out.strip() == "some content with double quotes"
+    assert ret == 0
+
+    # Test that quoted delimiters prevent variable expansion
+    ret, out, err = shell.run("""
+VAR="expanded"
+cat <<'EOF'
+This $VAR should not be expanded
+EOF""")
+    assert err.strip() == ""
+    assert out.strip() == "This $VAR should not be expanded"
+    assert ret == 0
+
+
+def test_split_commands_heredoc_quoted():
+    # Test that split_commands can handle quoted heredoc delimiters
+    script_single = """cat <<'EOF'
+content
+EOF"""
+    commands = split_commands(script_single)
+    assert len(commands) == 1
+    assert "<<'EOF'" in commands[0]
+
+    script_double = """cat <<"EOF"
+content
+EOF"""
+    commands = split_commands(script_double)
+    assert len(commands) == 1
+    assert '<<"EOF"' in commands[0]
+
+    # Test mixed commands with quoted heredocs
+    script_mixed = """echo "before"
+cat <<'EOF'
+heredoc content
+EOF
+echo "after" """
+    commands = split_commands(script_mixed)
+    assert len(commands) == 3
+    assert any("<<'EOF'" in cmd for cmd in commands)
+
+
 def test_function():
     script = """
 function hello() {
