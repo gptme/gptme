@@ -101,7 +101,7 @@ class ChatterboxTTSBackend:
         voice: str | None = None,
         speed: float = 1.0,
         exaggeration: float = 0.5,
-        temperature: float = 0.5,
+        temperature: float = 0.8,
         seed: int = 0,
         cfgw: float = 0.5,
     ) -> io.BytesIO:
