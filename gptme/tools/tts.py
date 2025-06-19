@@ -29,6 +29,7 @@ Uses Kokoro for local TTS generation.
 import io
 import logging
 import os
+import platform as platform_module
 import queue
 import re
 import socket
@@ -299,11 +300,129 @@ def clean_for_speech(content: str) -> str:
     return content.strip()
 
 
+def _check_device_override(devices) -> tuple[int, int] | None:
+    """Check for environment variable device override.
+
+    Returns:
+        tuple: (device_index, sample_rate) if override found and valid, None otherwise
+    """
+    if device_override := os.getenv("GPTME_TTS_DEVICE"):
+        try:
+            device_index = int(device_override)
+            if 0 <= device_index < len(devices):
+                device_info = sd.query_devices(device_index)
+                if device_info["max_output_channels"] > 0:
+                    log.debug(f"Using device override: {device_info['name']}")
+                    return device_index, int(device_info["default_samplerate"])
+                else:
+                    log.warning(
+                        f"Override device {device_index} has no output channels"
+                    )
+            else:
+                log.warning(f"Override device index {device_index} out of range")
+        except ValueError:
+            log.warning(f"Invalid device override value: {device_override}")
+    return None
+
+
+def _get_output_device_macos(devices) -> tuple[int, int]:
+    """Get the best output device for macOS.
+
+    macOS strategy:
+    1. Use system default if it has output channels
+    2. Prefer CoreAudio devices (hostapi == 2)
+    3. Fall back to any device with output channels
+    """
+    # Try system default first
+    try:
+        default_output = sd.default.device[1]
+        if default_output is not None:
+            device_info = sd.query_devices(default_output)
+            if device_info["max_output_channels"] > 0:
+                log.debug(f"Using system default output device: {device_info['name']}")
+                return default_output, int(device_info["default_samplerate"])
+    except Exception as e:
+        log.debug(f"Could not use default device: {e}")
+
+    # Prefer CoreAudio devices
+    coreaudio_device = next(
+        (
+            i
+            for i, d in enumerate(devices)
+            if d["max_output_channels"] > 0 and d["hostapi"] == 2
+        ),
+        None,
+    )
+    if coreaudio_device is not None:
+        device_info = sd.query_devices(coreaudio_device)
+        log.debug(f"Using CoreAudio device: {device_info['name']}")
+        return coreaudio_device, int(device_info["default_samplerate"])
+
+    # Fallback to any output device
+    output_device = next(
+        (i for i, d in enumerate(devices) if d["max_output_channels"] > 0),
+        None,
+    )
+    if output_device is None:
+        raise RuntimeError("No suitable audio output device found on macOS")
+
+    device_info = sd.query_devices(output_device)
+    log.debug(f"Fallback to device: {device_info['name']}")
+    return output_device, int(device_info["default_samplerate"])
+
+
+def _get_output_device_linux(devices) -> tuple[int, int]:
+    """Get the best output device for Linux.
+
+    Linux strategy:
+    1. Prefer PulseAudio (handles user's device routing preferences)
+    2. Use system default routing (no device specified)
+    3. Fall back to any device with output channels
+    """
+    # Prefer PulseAudio - it handles user's audio routing preferences
+    pulse_device = next(
+        (
+            i
+            for i, d in enumerate(devices)
+            if "pulse" in d["name"].lower() and d["max_output_channels"] > 0
+        ),
+        None,
+    )
+    if pulse_device is not None:
+        device_info = sd.query_devices(pulse_device)
+        log.debug(f"Using PulseAudio device: {device_info['name']}")
+        return pulse_device, int(device_info["default_samplerate"])
+
+    # Use system default routing (let sounddevice handle it)
+    try:
+        default_info = sd.query_devices(device=None, kind="output")
+        print(default_info)
+        log.debug("Using system default audio routing")
+        raise RuntimeError(
+            "Using system default audio routing, no specific device selected"
+        )
+        # return None, int(default_info["default_samplerate"])
+    except Exception as e:
+        log.debug(f"Could not get default device info: {e}")
+
+    # Last resort: any working output device
+    output_device = next(
+        (i for i, d in enumerate(devices) if d["max_output_channels"] > 0),
+        None,
+    )
+    if output_device is None:
+        raise RuntimeError("No suitable audio output device found on Linux")
+
+    device_info = sd.query_devices(output_device)
+    log.debug(f"Fallback to device: {device_info['name']}")
+    return output_device, int(device_info["default_samplerate"])
+
+
 def get_output_device() -> tuple[int, int]:
     """Get the best available output device and its sample rate.
 
     Returns:
-        tuple: (device_index, sample_rate)
+        tuple: (device_index, sample_rate) where device_index can be None for system default
 
     Raises:
         RuntimeError: If no suitable output device is found
@@ -316,56 +435,40 @@ def get_output_device() -> tuple[int, int]:
             f"out: {dev['max_output_channels']}, hostapi: {dev['hostapi']})"
         )
 
-    # Try using system default output device, preferring virtual devices
-    try:
-        default_output = sd.default.device[1]
-        if default_output is not None:
-            device_info = sd.query_devices(default_output)
-            device_name = device_info["name"].lower()
+    # Check for environment variable override first
+    if override_result := _check_device_override(devices):
+        return override_result
 
-            # Check if it's a virtual device (PulseAudio/PipeWire)
-            if device_info["max_output_channels"] > 0 and device_name in [
-                "pulse",
-                "pipewire",
-            ]:
-                log.debug(f"Using virtual audio device: {device_info['name']}")
-                return default_output, int(device_info["default_samplerate"])
-            else:
-                log.debug(f"Skipping non-virtual default device: {device_info['name']}")
-    except Exception as e:
-        log.debug(f"Could not use default device: {e}")
+    # Use platform-specific logic
 
-    # on macOS, prefer CoreAudio (hostapi == 2)
-    output_device = next(
-        (
-            i
-            for i, d in enumerate(devices)
-            if d["max_output_channels"] > 0 and (d["hostapi"] == 2)
-        ),
-        None,
-    )
+    system = platform_module.system()
 
-    # Third try: any device with output channels
-    if output_device is None:
+    if system == "Darwin":  # macOS
+        return _get_output_device_macos(devices)
+    elif system == "Linux":
+        return _get_output_device_linux(devices)
+    else:
+        # Windows or other platforms - use simple default logic
+        try:
+            default_output = sd.default.device[1]
+            if default_output is not None:
+                device_info = sd.query_devices(default_output)
+                if device_info["max_output_channels"] > 0:
+                    log.debug(f"Using system default: {device_info['name']}")
+                    return default_output, int(device_info["default_samplerate"])
+        except Exception:
+            pass
+
+        # Fallback for other platforms
         output_device = next(
             (i for i, d in enumerate(devices) if d["max_output_channels"] > 0),
             None,
         )
+        if output_device is None:
+            raise RuntimeError(f"No suitable audio output device found on {system}")
 
-    if output_device is None:
-        raise RuntimeError(
-            "No suitable audio output device found. "
-            "Available devices:\n"
-            + "\n".join(f"  {i}: {d['name']}" for i, d in enumerate(devices))
-        )
-
-    device_info = sd.query_devices(output_device)
-    device_sr = int(device_info["default_samplerate"])
-
-    log.debug(f"Selected output device: {output_device} ({device_info['name']})")
-    log.debug(f"Sample rate: {device_sr}")
-
-    return output_device, device_sr
+        device_info = sd.query_devices(output_device)
+        return output_device, int(device_info["default_samplerate"])
 
 
 def _audio_player_thread_fn() -> None:
@@ -389,7 +492,10 @@ def _audio_player_thread_fn() -> None:
             # Get output device
             try:
                 output_device, _ = get_output_device()
-                log.debug(f"Playing on device: {output_device}")
+                if output_device is not None:
+                    log.debug(f"Playing on device: {output_device}")
+                else:
+                    log.debug("Playing on system default device")
             except RuntimeError as e:
                 log.error(str(e))
                 continue
@@ -440,10 +546,20 @@ def _tts_processor_thread_fn():
             audio_data = io.BytesIO(response.content)
             sample_rate, data = wavfile.read(audio_data)
 
+            # Convert to float32 for consistent processing
+            if data.dtype != np.float32:
+                if data.dtype.kind == "i":  # integer
+                    data = data.astype(np.float32) / np.iinfo(data.dtype).max
+                elif data.dtype.kind == "f":  # floating point
+                    # Normalize to [-1, 1] if needed
+                    if np.max(np.abs(data)) > 1.0:
+                        data = data / np.max(np.abs(data))
+                    data = data.astype(np.float32)
+
             # Get output device for sample rate
             try:
                 _, device_sr = get_output_device()
-                # Resample if needed
+                # Resample if needed (now on float32 data)
                 if sample_rate != device_sr:
                     data = _resample_audio(data, sample_rate, device_sr)
                     sample_rate = device_sr
@@ -451,10 +567,6 @@ def _tts_processor_thread_fn():
                 log.error(f"Device error: {e}")
                 tts_request_queue.task_done()
                 continue
-
-            # Normalize audio
-            if data.dtype != np.float32:
-                data = data.astype(np.float32) / np.iinfo(data.dtype).max
 
             # Queue for playback
             audio_queue.put((data, sample_rate))
@@ -492,15 +604,19 @@ def _resample_audio(data, orig_sr, target_sr):
     return signal.resample(data, num_samples)
 
 
-def join_short_sentences(sentences: list[str], min_length: int = 100) -> list[str]:
-    """Join consecutive sentences that are shorter than min_length.
+def join_short_sentences(
+    sentences: list[str], min_length: int = 100, max_length: int | None = 300
+) -> list[str]:
+    """Join consecutive sentences that are shorter than min_length, or up to max_length.
 
     Args:
         sentences: List of sentences to potentially join
-        min_length: Minimum length threshold for joining
+        min_length: Minimum length threshold for joining short sentences
+        max_length: Maximum length for combined sentences. If specified, tries to make
+                   sentences as long as possible up to this limit
 
     Returns:
-        List of sentences, with short ones combined
+        List of sentences, with short ones combined or optimized for max length
     """
     result = []
     current = ""
@@ -516,14 +632,23 @@ def join_short_sentences(sentences: list[str], min_length: int = 100) -> list[st
         if not current:
             current = sentence
         else:
-            # Join sentences with a single space, even after punctuation
             # Join sentences with a single space after punctuation
             combined = f"{current} {sentence.lstrip()}"
-            if len(combined) <= min_length:
-                current = combined
+
+            if max_length is not None:
+                # Max length mode: combine as long as possible up to max_length
+                if len(combined) <= max_length:
+                    current = combined
+                else:
+                    result.append(current)
+                    current = sentence
             else:
-                result.append(current)
-                current = sentence
+                # Min length mode: combine only if result is still under min_length
+                if len(combined) <= min_length:
+                    current = combined
+                else:
+                    result.append(current)
+                    current = sentence
 
     if current:
         result.append(current)
