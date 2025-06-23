@@ -1,0 +1,2609 @@
+gptme documentation
+===================
+
+Welcome to the documentation for ``gptme``!
+
+``gptme`` is a tiny command-line application that allows you to interact with AI agent equipped with powerful local tools, acting as a copilot for your computer, via the terminal. It can execute python and bash, edit local files, search and browse the web.
+
+To get an understanding about how it works, the easiest way is to try it out yourself by following the :doc:`getting-started` guide. If you want to see some examples of what you can do with it, check out the :doc:`examples`, :doc:`demos`, and :doc:`tools`.
+
+It is designed to be easy to use and extend, and can be used as a library or a standalone application. It also has a tiny :ref:`server:Web UI` with basic functionality.
+
+See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file for more general information about the project.
+
+.. note::
+    This documentation site is still under construction.
+
+.. toctree::
+   :maxdepth: 2
+   :caption: User Guide
+
+   getting-started
+   usage
+   examples
+   tools
+   config
+   providers
+   agents
+   server
+   mcp
+   cli
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Developer Guide
+
+   contributing
+   building
+   prompts
+   evals
+   bot
+   finetuning
+   custom_tool
+   api
+
+.. toctree::
+   :maxdepth: 2
+   :caption: About
+
+   alternatives
+   arewetiny
+   timeline
+   Changelog <https://github.com/gptme/gptme/releases>
+
+.. toctree::
+   :caption: External
+   :maxdepth: 2
+
+   GitHub <https://github.com/gptme/gptme>
+   Discord <https://discord.gg/NMaCmmkxWv>
+   X <https://x.com/gptmeorg>
+
+
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
+
+
+Getting Started
+===============
+
+This guide will help you get started with gptme.
+
+Installation
+------------
+
+To install gptme, we recommend using ``pipx``:
+
+.. code-block:: bash
+
+    pipx install gptme
+
+If pipx is not installed, you can install it using pip:
+
+.. code-block:: bash
+
+    pip install --user pipx
+
+.. note::
+
+   Windows is not directly supported, but you can run gptme using WSL or Docker.
+
+Usage
+-----
+
+To start your first chat, simply run:
+
+.. code-block:: bash
+
+    gptme
+
+This will start an interactive chat session with the AI assistant.
+
+If you haven't set a :doc:`LLM provider <providers>` API key in the environment or :doc:`configuration <config>`, you will be prompted for one which will be saved in the configuration file.
+
+For detailed usage instructions, see :doc:`usage`.
+
+You can also try the :doc:`examples`.
+
+Next Steps
+----------
+
+- Read the :doc:`usage` guide
+- Try the :doc:`examples`
+- Learn about available :doc:`tools`
+- Explore different :doc:`providers`
+- Set up the :doc:`server` for web access
+
+Support
+-------
+
+For any issues, please visit our `issue tracker <https://github.com/gptme/gptme/issues>`_.
+
+
+Usage
+=====
+
+This guide covers common usage patterns and examples for gptme.
+
+To start a new chat or select an existing one, run:
+
+.. code-block:: bash
+
+    gptme
+
+This will show you a list of past chats, allowing you to select one or start a new one.
+
+To get inspiration for your first prompt, see the :doc:`examples`.
+
+
+.. contents:: Table of Contents
+   :depth: 5
+   :local:
+   :backlinks: none
+
+Commands
+--------
+
+.. TODO: use autodoc from source, like cli reference
+
+You can use these slash-commands for various actions within the chat:
+
+- ``/undo`` - Undo the last action
+- ``/log`` - Show the conversation log
+- ``/tools`` - Show available tools
+- ``/edit`` - Edit the conversation in your editor
+- ``/rename`` - Rename the conversation
+- ``/fork`` - Create a copy of the conversation
+- ``/summarize`` - Summarize the conversation
+- ``/replay`` - Re-execute codeblocks in the conversation
+- ``/help`` - Show help message
+- ``/exit`` - Exit the program
+
+Interfaces
+----------
+
+Besides the CLI, gptme can be used through:
+
+- :ref:`server:web ui` - A web-based interface
+- :doc:`bot` - GitHub bot integration
+
+For more detailed information about specific features, check out:
+
+- :doc:`tools` - Available tools and their usage
+- :doc:`providers` - Supported LLM providers
+- :doc:`server` - Web UI and API server setup
+
+
+Features
+--------
+
+.. rubric:: Tools
+
+gptme comes with a variety of tools for different tasks:
+
+- :ref:`tools:shell` - Execute shell commands
+- :ref:`tools:python` - Run Python code
+- :ref:`tools:browser` - Browse and interact with web content
+- :ref:`tools:vision` - Process and analyze images
+
+See the :doc:`tools` page for a complete list of available tools.
+
+Writing Files
+^^^^^^^^^^^^^
+
+You can ask the assistant to create new files or modify existing ones:
+
+.. chat::
+
+   User: create a new file named life.py implementing the game of life
+
+   Assistant: Certainly! I'll create a new file named `life.py` implementing Conway's Game of Life. This implementation will use NumPy for efficient array operations and Matplotlib for visualization. Here's the code:
+   ```life.py
+   import numpy as np
+   import matplotlib.pyplot as plt
+   from matplotlib.animation import FuncAnimation
+   ...
+   ```
+
+   System: Saved to life.py
+
+Making Changes
+^^^^^^^^^^^^^^
+
+You can start chats and request changes directly from the command line. The contents of any mentioned text files will be included as context, and the assistant will generate patches to apply the requested changes:
+
+.. code-block:: bash
+
+   gptme 'make improvements to life.py so that dead cells fade out over time'
+
+.. chat::
+
+   User: make improvements to life.py so that dead cells fade out over time
+   ```life.py
+   ...
+   ```
+
+   Assistant: To make alive cells green and dead cells black in the Game of Life simulation, we need to modify the colormap and how we represent the cell states. Here's the updated `life.py` script with these changes:
+   ```patch life.py
+   ...
+   ```
+
+   System: Patch applied
+
+Browser Integration
+^^^^^^^^^^^^^^^^^^^
+
+With the :ref:`tools:browser` extras installed, the assistant can read URLs (included in the prompt or with its ``read_url`` tool) and "see" web pages by taking screenshots and viewing them.
+
+Multiprompt syntax
+^^^^^^^^^^^^^^^^^^
+
+The ``-`` separator allows you to chain multiple prompts together, letting the assistant finish running tools for one prompt before moving on to the next:
+
+.. code-block:: bash
+
+    gptme 'create a project' - 'add tests' - 'commit changes'
+
+This is particularly useful for breaking down complex tasks into steps and creating :doc:`automation` workflows.
+
+Skip confirmation prompts
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+You can skip confirmation prompts using the ``--no-confirm`` flag. This is useful when you are confident the LLM will do what you want, so you don't want to have to confirm actions:
+
+.. code-block:: bash
+
+    gptme --no-confirm 'create a snake game using curses in snake.py, dont run it'
+
+Non-interactive mode
+^^^^^^^^^^^^^^^^^^^^
+
+The ``--non-interactive`` flag runs gptme in a mode that terminates after completing all prompts. This is useful for scripting and automation:
+
+.. code-block:: bash
+
+    gptme --non-interactive 'create a snake game using curses in snake.py, dont run it' '-' 'make the snake green and the apple red'
+
+Note: ``--non-interactive`` implies ``--no-confirm``, so you don't need to specify both.
+
+.. _pre-commit:
+
+Pre-commit Integration
+^^^^^^^^^^^^^^^^^^^^^^
+
+gptme integrates with `pre-commit <https://pre-commit.com/>`__ to catch code quality issues early. When enabled, it will automatically run pre-commit checks after file modifications, right before yielding control back to the user, to let the assistant address issues without human intervention.
+
+- Enabled automatically if a ``.pre-commit-config.yaml`` exists in any parent directory
+- Can be explicitly enabled/disabled with ``GPTME_CHECK=true/false``
+- Runs after file modifications to catch issues early
+- Shows output in conversation when issues are found
+- Distinguishes between automatically fixed issues and those requiring manual fixes
+
+Example workflow:
+
+.. chat::
+
+   User: create a new file named main.py with a simple function
+
+   Assistant: Sure! I'll create a new file named `main.py` with a simple function that adds two numbers together. Here's the code:
+   ```save main.py
+   def my_function(x, y):
+       return x + y
+   ```
+
+   System: Saved to main.py
+
+   Assistant: I have created the file.
+
+   System: Pre-commit checks failed
+   ```stdout
+   typecheck................................................................Failed
+   - hook id: typecheck
+   - exit code: 1
+   main.py: error: Function is missing type hints
+   ```
+
+   Assistant: Typechecks failed, I'll update the function to use type hints.
+   ```patch main.py
+   <<<<<<< ORIGINAL
+   def my_function(x, y):
+   =======
+   def my_function(x: int, y: int) -> int:
+   >>>>>>> UPDATED
+   ```
+
+   System: Patch applied
+
+   Assistant: Great, the typecheck should now pass.
+
+-----
+
+For further usage examples, see the :doc:`examples` page.
+
+
+Examples
+========
+
+Here are some examples of how to use gptme and what its capabilities are.
+
+To see example output without running the commands yourself, check out the :doc:`demos`.
+
+.. code-block:: bash
+
+    gptme 'write a web app to particles.html which shows off an impressive and colorful particle effect using three.js'
+    gptme 'render mandelbrot set to mandelbrot.png'
+
+    # files
+    gptme 'summarize this' README.md
+    gptme 'refactor this' main.py
+    gptme 'what do you see?' image.png  # vision
+
+    # stdin
+    git status -vv | gptme 'fix TODOs'
+    git status -vv | gptme 'commit'
+    make test | gptme 'fix the failing tests'
+
+    # if path not directly provided in prompt, it can read files using tools
+    gptme 'explore'
+    gptme 'take a screenshot and tell me what you see'
+    gptme 'suggest improvements to my vimrc'
+
+    # can read URLs (if browser tool is available)
+    gptme 'implement this' https://github.com/gptme/gptme/issues/286
+
+    # can use `gh` shell tool to read issues, PRs, etc.
+    gptme 'implement gptme/gptme/issues/286'
+
+    # create new projects
+    gptme 'create a performant n-body simulation in rust'
+
+    # chaining prompts
+    gptme 'make a change' - 'test it' - 'commit it'
+    gptme 'show me something cool in the python repl' - 'something cooler' - 'something even cooler'
+
+    # resume the last conversation
+    gptme -r
+
+Do you have a cool example? Share it with us in the `Discussions <https://github.com/gptme/gptme/discussions>`_!
+
+.. toctree::
+   :maxdepth: 2
+   :caption: More Examples
+
+   demos
+   automation
+   projects
+
+
+Demos
+=====
+
+.. note::
+
+   This page is a work in progress, and will be updated with more demos soon.
+
+.. contents:: Table of Contents
+   :depth: 1
+   :local:
+   :backlinks: none
+
+
+.. rubric:: Snake with curses
+
+Generate a snake game that runs in the terminal using curses, and then modify it to add color.
+
+.. asciinema:: 621992
+   :autoplay: true
+   :idle-time-limit: 1
+
+Steps
+
+#. Create a snake game with curses to snake.py
+#. Running fails, ask gptme to fix a bug
+#. Game runs
+#. Ask gptme to add color
+#. Minor struggles
+#. Finished game with green snake and red apple pie!
+
+.. rubric:: Mandelbrot with curses
+
+Generate a program that renders mandelbrot with curses, and then modify it to add color.
+
+.. asciinema:: 621991
+   :autoplay: true
+   :idle-time-limit: 1
+
+Steps
+
+#. Render mandelbrot with curses to mandelbrot_curses.py
+#. Program runs
+#. Add color
+
+
+.. rubric:: Fibonacci
+
+An old demo showing off basic code execution and shell interaction.
+
+.. asciinema:: 606375
+   :autoplay: true
+   :idle-time-limit: 1
+
+Steps
+
+#. Create a new dir 'gptme-test-fib' and git init
+#. Write a fib function to fib.py, commit
+#. Create a public repo and push to GitHub
+
+
+.. rubric:: Answer question from URL
+
+Showing off basic URL loading from the prompt, and answering questions based on the content.
+
+.. asciinema:: 621997
+   :autoplay: true
+   :idle-time-limit: 1
+
+Steps
+
+#. Ask who the CEO of Superuser Labs is, passing website URL
+#. gptme browses the website, and answers correctly
+
+
+.. rubric:: Edit history with /edit
+
+TODO
+
+
+Automation
+==========
+
+gptme can be used to create powerful yet simple automated workflows. Here we showcase small but powerful examples that demonstrate the capabilities of gptme in various workflows and automation scenarios.
+
+We will be using shell scripts, cron jobs, and other tools to automate the workflows.
+
+
+.. note::
+
+   This is a work in progress. We intend to make gptme more powerful for automations, see `issue #143 <https://github.com/gptme/gptme/issues/143>`_ for more details on this plan.
+
+
+
+.. rubric:: Example: Implement feature
+
+This example demonstrates how to implement a feature in a codebase using gptme, making sure the code is correct before creating a pull request.
+
+Given a GitHub issue it will check out a new branch, look up relevant files, make changes, typecheck/test them, and create a pull request if everything is correct.
+
+.. code-block:: bash
+
+   $ gptme 'read <url>' '-' 'create a branch' '-' 'look up relevant files' '-' 'make changes' '-' 'typecheck it' '-' 'test it' '-' 'create a pull request'
+.. rubric:: Example: Automated Code Review
+
+This example demonstrates a simple and composable approach to automated code review using gptme and shell scripting.
+
+1. Create a script called `review_pr.sh`:
+
+   .. code-block:: bash
+
+      #!/bin/bash
+      # Usage: ./review_pr.sh <repo> <pr_number>
+
+      repo=$1
+      pr_number=$2
+
+      # Fetch PR diff
+      diff=$(gh pr view $pr_number --repo $repo --json diffUrl -q .diffUrl | xargs curl -s)
+
+      # Generate review using gptme
+      review=$(gptme --non-interactive "Review this pull request diff and provide constructive feedback:
+      1. Identify potential bugs or issues.
+      2. Suggest improvements for code quality and readability.
+      3. Check for adherence to best practices.
+      4. Highlight any security concerns.
+
+      Pull Request Diff:
+      $diff
+
+      Format your review as a markdown list with clear, concise points.")
+
+      # Post review comment
+      gh pr comment $pr_number --repo $repo --body "## Automated Code Review
+
+      $review
+
+      *This review was generated automatically by gptme.*"
+
+2. Make the script executable:
+
+   .. code-block:: bash
+
+      chmod +x review_pr.sh
+
+3. Set up a GitHub Actions workflow (`.github/workflows/code_review.yml`):
+
+   .. code-block:: yaml
+
+      name: Automated Code Review
+      on:
+        pull_request:
+          types: [opened, synchronize]
+
+      jobs:
+        review:
+          runs-on: ubuntu-latest
+          steps:
+            - uses: actions/checkout@v2
+            - name: Install gptme and GitHub CLI
+              run: |
+                pip install gptme
+                gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+            - name: Run code review
+              env:
+                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                ./review_pr.sh ${{ github.repository }} ${{ github.event.pull_request.number }}
+
+This setup provides automated code reviews for your pull requests using gptme. It demonstrates how powerful automation can be achieved with minimal code and high composability.
+
+Key points:
+- Uses shell scripting for simplicity and ease of understanding
+- Leverages gptme's non-interactive mode for automation
+- Utilizes GitHub CLI (`gh`) for seamless GitHub integration
+- Integrates with GitHub Actions for automated workflow
+
+Benefits of this approach:
+- Easily customizable: Adjust the gptme prompt to focus on specific aspects of code review
+- Composable: The shell script can be extended or combined with other tools
+- Minimal dependencies: Relies on widely available tools (bash, curl, gh)
+- Quick setup: Can be implemented in any GitHub repository with minimal configuration
+
+To customize this for your specific needs:
+1. Modify the gptme prompt in `review_pr.sh` to focus on your project's coding standards
+2. Add additional checks or integrations to the shell script as needed
+3. Adjust the GitHub Actions workflow to fit your CI/CD pipeline
+
+This example serves as a starting point for integrating gptme into your development workflow, demonstrating its potential for automating code review tasks.
+
+.. rubric:: Example: Daily Activity Summary
+
+Here's an example of how to use gptme to generate a daily summary based on ActivityWatch data using a shell script:
+
+.. code-block:: bash
+
+   #!/bin/bash
+
+   # Function to get yesterday's date in YYYY-MM-DD format
+   get_yesterday() {
+       date -d "yesterday" +%Y-%m-%d
+   }
+
+   # Function to get ActivityWatch report
+   get_aw_report() {
+       local date=$1
+       aw-client report $(hostname) --start $date --stop $(date -d "$date + 1 day" +%Y-%m-%d)
+   }
+
+   # Generate daily summary
+   generate_daily_summary() {
+       local yesterday=$(get_yesterday)
+       local aw_report=$(get_aw_report $yesterday)
+
+       # Create a temporary file
+       local summary_file=$(mktemp)
+
+       # Generate summary using gptme
+       gptme --non-interactive "Based on the following ActivityWatch report for $yesterday, provide a concise summary of yesterday's activities.
+       Include insights on productivity, time spent on different categories, and any notable patterns.
+       Suggest areas for improvement if applicable.
+
+       ActivityWatch Report:
+       $aw_report
+
+       Please format the summary in a clear, easy-to-read structure.
+       Save the summary to this file: $summary_file"
+
+       # Return the path to the summary file
+       echo "$summary_file"
+   }
+
+   # Run the summary generation and get the file path
+   summary_file=$(generate_daily_summary)
+
+   # Output the file path (you can use this in other scripts or log it)
+   echo "Daily summary saved to: $summary_file"
+
+To automate this process to run every day at 8 AM, you could set up a cron job. Here's an example cron entry:
+
+.. code-block:: bash
+
+   0 8 * * * /path/to/daily_summary_script.sh
+
+This automation will provide you with daily insights into your computer usage and productivity patterns from the previous day, leveraging the power of gptme to analyze and summarize the data collected by ActivityWatch.
+
+
+
+Projects
+========
+
+This page lists projects that are powered by or built using gptme.
+
+Official Projects
+-----------------
+
+* `gptme <https://github.com/gptme/gptme>`_
+    gptme itself, of course!
+
+* `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_
+    Template for creating new :doc:`agents` powered by gptme.
+
+* `Bob <https://github.com/TimeToBuildBob>`_
+    The first agent built using the gptme agent architecture.
+
+* `gptme-rag <https://github.com/gptme/gptme-rag>`_
+    RAG (Retrieval-Augmented Generation) implementation for gptme context management.
+
+* `gptme-webui <https://github.com/gptme/gptme-webui>`_
+    Fancy web-based user interface for gptme, built with the help of `Lovable <https://lovable.dev/>`_.
+
+* `gptme.vim <https://github.com/gptme/gptme.vim>`_
+    Vim plugin for gptme integration.
+
+Community Projects
+------------------
+
+*Your project could be here! Add it by creating a PR.*
+
+* `ErikBjare/nbody-sim <https://github.com/ErikBjare/nbody-sim>`_
+    Simple but performant n-body simulation in Rust built with gptme using only a few prompts.
+
+
+.. rubric:: Adding Your Project
+
+
+If you've built something using gptme, we'd love to feature it here!
+
+1. Add the "Built with gptme" or "Powered by gptme" badge to your README:
+
+   .. code-block:: markdown
+
+      [![built using gptme](https://img.shields.io/badge/built%20using-gptme%20%F0%9F%A4%96-5151f5?style=flat)](https://github.com/gptme/gptme)
+
+    .. code-block:: markdown
+
+      [![Powered by gptme](https://img.shields.io/badge/powered%20by-gptme%20%F0%9F%A4%96-5151f5?style=flat)](https://github.com/gptme/gptme)
+
+2. Create a PR adding your project to this list:
+
+   .. code-block:: rst
+
+      * `Project Name <https://github.com/username/project>`_
+          Brief description of your project.
+
+.. rubric:: Built with gptme Badge
+
+The "Built with gptme" badge helps showcase your project's use of gptme and connects it to the broader ecosystem.
+
+Standard Badge (for projects built using gptme):
+
+.. image:: https://img.shields.io/badge/built%20using-gptme%20%F0%9F%A4%96-5151f5?style=flat
+   :target: https://github.com/gptme/gptme
+   :alt: Built using gptme
+
+"Powered by" Variant (for tools/services running on gptme):
+
+.. image:: https://img.shields.io/badge/powered%20by-gptme%20%F0%9F%A4%96-5151f5?style=flat
+   :target: https://github.com/gptme/gptme
+   :alt: Powered by gptme
+
+Use the standard badge for projects created with gptme's assistance, and the "powered by" variant for tools or services that run on gptme.
+
+
+Tools
+=====
+
+Tools available in gptme.
+
+The tools can be grouped into the following categories:
+
+- Execution
+
+  - `Shell`_ - Run shell commands
+  - `Python`_ - Run Python code interactively
+  - `Tmux`_ - Use tmux to run commands
+  - `Subagent`_ - Delegate task to a subagent
+
+- Files
+
+  - `Read`_ - Read files
+  - `Save`_ - Save whole files
+  - `Patch`_ - Patch files
+
+- Network
+
+  - `Browser`_ - Access the web
+
+- Vision
+
+  - `Vision`_ - View images
+  - `Screenshot`_ - Take screenshots
+  - `Computer`_ - Control the computer
+
+- Other
+
+  - `Chats`_ - Search past conversations
+  - `RAG`_ - Retrieve documents and code
+  - `TTS`_ - Speech synthesis for responses
+
+Shell
+-----
+
+.. automodule:: gptme.tools.shell
+    :members:
+    :noindex:
+
+Python
+------
+
+.. automodule:: gptme.tools.python
+    :members:
+    :noindex:
+
+Tmux
+----
+
+.. automodule:: gptme.tools.tmux
+    :members:
+    :noindex:
+
+Subagent
+--------
+
+.. automodule:: gptme.tools.subagent
+    :members:
+    :noindex:
+
+Read
+----
+
+.. automodule:: gptme.tools.read
+    :members:
+    :noindex:
+
+Save
+----
+
+.. automodule:: gptme.tools.save
+    :members:
+    :noindex:
+
+Patch
+-----
+
+.. automodule:: gptme.tools.patch
+    :members:
+    :noindex:
+
+Vision
+------
+
+.. automodule:: gptme.tools.vision
+    :members:
+    :noindex:
+
+Screenshot
+----------
+
+.. automodule:: gptme.tools.screenshot
+    :members:
+    :noindex:
+
+Browser
+-------
+
+.. automodule:: gptme.tools.browser
+    :members:
+    :noindex:
+
+Chats
+-----
+
+.. automodule:: gptme.tools.chats
+    :members:
+    :noindex:
+
+Computer
+--------
+.. warning::
+
+   The computer use interface is experimental and has serious security implications.
+   Please use with caution and see Anthropic's documentation on `computer use <https://docs.anthropic.com/en/docs/build-with-claude/computer-use>`_ for additional guidance.
+
+
+.. automodule:: gptme.tools.computer
+    :members:
+    :noindex:
+
+.. _rag:
+
+RAG
+---
+
+.. automodule:: gptme.tools.rag
+    :members:
+    :noindex:
+
+TTS
+---
+
+.. automodule:: gptme.tools.tts
+    :members:
+    :noindex:
+
+MCP
+---
+
+The Model Context Protocol (MCP) allows you to extend gptme with custom tools through external servers.
+See :doc:`mcp` for configuration and usage details.
+
+
+Configuration
+=============
+
+gptme has three configuration files:
+
+- :ref:`global configuration <global-config>`
+- :ref:`project configuration <project-config>`
+- :ref:`chat configuration <chat-config>`
+
+It also supports :ref:`environment-variables` for configuration, which take precedence over the configuration files.
+
+The CLI also supports a variety of options that can be used to override both configuration values.
+
+.. _global-config:
+
+Global config
+-------------
+
+The file is located at ``~/.config/gptme/config.toml``.
+
+Here is an example:
+
+.. code-block:: toml
+
+    [prompt]
+    about_user = "I am a curious human programmer."
+    response_preference = "Don't explain basic concepts"
+
+    [env]
+    # Uncomment to use Claude 3.5 Sonnet by default
+    #MODEL = "anthropic/claude-3-5-sonnet-20240620"
+
+    # One of these need to be set
+    # If none of them are, they will be prompted for on first start
+    OPENAI_API_KEY = ""
+    ANTHROPIC_API_KEY = ""
+    OPENROUTER_API_KEY = ""
+    XAI_API_KEY = ""
+    GEMINI_API_KEY = ""
+    GROQ_API_KEY = ""
+    DEEPSEEK_API_KEY = ""
+
+    # Uncomment to use with Ollama
+    #MODEL = "local/<model-name>"
+    #OPENAI_BASE_URL = "http://localhost:11434/v1"
+
+    # Uncomment to change tool configuration
+    #TOOL_FORMAT = "markdown" # Select the tool formal. One of `markdown`, `xml`, `tool`
+    #TOOL_ALLOWLIST = "save,append,patch,ipython,shell,browser"  # Comma separated list of allowed tools
+    #TOOL_MODULES = "gptme.tools,custom.tools" # List of python comma separated python module path
+
+The ``prompt`` section contains options for the prompt.
+
+The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
+
+If you want to configure MCP servers, you can do so in a ``mcp`` section. See :ref:`mcp` for more information.
+
+See :class:`gptme.config.UserConfig` for the API reference.
+
+.. _project-config:
+
+Project config
+--------------
+
+The project configuration file is intended to let the user configure how gptme works within a particular project/workspace.
+
+.. note::
+
+    The project configuration file is a very early feature and is likely to change/break in the future.
+
+gptme will look for a ``gptme.toml`` file in the workspace root (this is the working directory if not overridden by the ``--workspace`` option). This file contains project-specific configuration options.
+
+Example ``gptme.toml``:
+
+.. code-block:: toml
+
+    files = ["README.md", "Makefile"]
+    prompt = "This is gptme."
+
+This file currently supports a few options:
+
+- ``files``, a list of paths that gptme will always include in the context.
+- ``prompt``, a string that will be included in the system prompt with a ``# Current Project`` header.
+- ``base_prompt``, a string that will be used as the base prompt for the project. This will override the global base prompt ("You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. [...]"). It can be useful to change the identity of the assistant and override some default behaviors.
+- ``context_cmd``, a command used to generate context to include when constructing the system prompt. The command will be run in the workspace root and should output a string that will be included in the system prompt. Examples can be ``git status -v`` or ``scripts/context.sh``.
+- ``rag``, a dictionary to configure the RAG tool. See :ref:`rag` for more information.
+
+See :class:`gptme.config.ProjectConfig` for the API reference.
+
+
+.. _chat-config:
+
+Chat config
+-----------
+
+The chat configuration file stores configuration options for a particular chat.
+It is used to store the model, toolset, tool format, and streaming/interactive mode.
+
+The chat configuration file is stored as ``config.toml`` in the chat log directory (i.e. ``~/.local/share/gptme/logs/2025-04-23-dancing-happy-walrus/config.toml``). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.
+
+See :class:`gptme.config.ChatConfig` for the API reference.
+
+.. _environment-variables:
+
+Environment Variables
+---------------------
+
+Besides the configuration files, gptme supports several environment variables to control its behavior:
+
+.. rubric:: Feature Flags
+
+- ``GPTME_CHECK`` - Enable ``pre-commit`` checks (default: true if ``.pre-commit-config.yaml`` present, see :ref:`pre-commit`)
+- ``GPTME_COSTS`` - Enable cost reporting for API calls (default: false)
+- ``GPTME_FRESH`` - Enable fresh context mode (default: false)
+- ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream (default: true)
+- ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
+- ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
+
+.. rubric:: Tool Configuration
+
+- ``GPTME_TTS_VOICE`` - Set the voice to use for TTS
+- ``GPTME_VOICE_FINISH`` - Wait for TTS speech to finish before exiting (default: false)
+
+.. rubric:: Paths
+
+- ``GPTME_LOGS_HOME`` - Override the default logs folder location
+
+All boolean flags accept "1", "true" (case-insensitive) as truthy values.
+
+
+Providers
+=========
+
+We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
+
+You can find our model recommendations on the :doc:`evals` page.
+
+To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag set to ``<provider>/<model>``, for example:
+
+.. code-block:: sh
+
+    gptme --model openai/gpt-4o "hello"
+    gptme --model anthropic "hello"  # if model part unspecified, will fall back to the provider default
+    gptme --model openrouter/meta-llama/llama-3.1-70b-instruct "hello"
+    gptme --model deepseek/deepseek-reasoner "hello"
+    gptme --model gemini/gemini-1.5-flash-latest "hello"
+    gptme --model groq/llama-3.3-70b-versatile "hello"
+    gptme --model xai/grok-beta "hello"
+    gptme --model local/llama3.2:1b "hello"
+
+On first startup, if ``--model`` is not set, and no API keys are set in the config or environment it will be prompted for. It will then auto-detect the provider, and save the key in the configuration file.
+
+You can list the models known to gptme using ``gptme '/models' - '/exit'``
+
+Use the ``[env]`` section in the :ref:`global-config` file to store API keys using the same format as the environment variables:
+
+- ``OPENAI_API_KEY="your-api-key"``
+- ``ANTHROPIC_API_KEY="your-api-key"``
+- ``OPENROUTER_API_KEY="your-api-key"``
+- ``GEMINI_API_KEY="your-api-key"``
+- ``XAI_API_KEY="your-api-key"``
+- ``GROQ_API_KEY="your-api-key"``
+- ``DEEPSEEK_API_KEY="your-api-key"``
+
+.. rubric:: Local
+
+You can use local LLM models using any OpenAI API-compatible server.
+
+To achieve that with ``ollama``, install it then run:
+
+.. code-block:: sh
+
+    ollama pull llama3.2:1b
+    ollama serve
+    OPENAI_BASE_URL="http://127.0.0.1:11434/v1" gptme 'hello' -m local/llama3.2:1b
+
+.. note::
+
+    Small models won't work well with tools, severely limiting the usefulness of gptme. You can find an overview of how different models perform on the :doc:`evals` page.
+
+
+Agents
+======
+
+gptme supports "agents", which we think of as having:
+
+- Identity
+- Personality & preferences
+- Memory
+
+  - Journal
+  - Tasks
+  - Knowledgebase
+
+- Extra tools
+
+  - Email
+  - Chat
+  - Social Media
+
+gptme agents are git-based and all their data is stored in a git repository. This makes it easy to share and collaborate on agents, and to keep a history of all interactions with the agent.
+
+They leverage the ``gptme.toml`` :doc:`project configuration file <config>` using a particular set of prompts and directory structure which makes it capable to keep a journal, track tasks, remember things, and more.
+
+You can create your own agent with the `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_.
+
+Bob
+---
+
+Bob, aka `@TimeToBuildBob <https://github.com/TimeToBuildBob>`_, is the first experimental agent built on top of gptme. He is a friendly and helpful bot that helps with working on gptme and related projects.
+
+Why personify agents?
+^^^^^^^^^^^^^^^^^^^^^
+
+While personifying agents might seem like a silly idea for professional use, it can actually be quite helpful when working with them. It can help get into the right mindset for interacting with the agent, help you remember what the agent is for, what you've told them, and make the agent more memorable and relatable.
+
+
+Server
+======
+
+gptme has a minimal REST API with very minimalistic web UI.
+
+.. note::
+   The server and web UI is still in development and does not have all the features of the CLI.
+
+To use it, you need to install gptme with ``server`` extras:
+
+.. code-block:: bash
+
+    pipx install 'gptme[server]'
+
+It can then be started by running the following command:
+
+.. code-block:: bash
+
+    gptme-server
+
+For more CLI usage, see the :ref:`CLI reference <cli:gptme-server>`.
+
+There are a few different interfaces available:
+
+Web UI
+------
+
+A tiny chat interface with minimal dependencies that is bundled with the server.
+
+Simply start the server to access the interface at http://localhost:5700
+
+Fancy Web UI
+------------
+
+A modern, feature-rich web interface for gptme is available as a separate project `gptme-webui <https://github.com/gptme/gptme-webui>`_. It is being built with `gptengineer.app <https://gptengineer.app>`_.
+
+You can access it directly at `gptme.gptengineer.run <https://gptme.gptengineer.run>`_.
+
+To serve gptme-webui locally, see the `README <https://github.com/gptme/gptme-webui>`_.
+
+Features:
+
+- Modern React-based interface with shadcn/ui
+- Streaming of responses
+- Mobile-friendly design
+- Dark mode support
+- Offline/exports support
+- Computer use interface integration
+
+Computer Use Interface
+----------------------
+
+The computer use interface provides a split view with a chat on the left and a desktop on the right.
+
+Requires Docker.
+.. warning::
+
+   The computer use interface is experimental and has serious security implications.
+   Please use with caution and see Anthropic's documentation on `computer use <https://docs.anthropic.com/en/docs/build-with-claude/computer-use>`_ for additional guidance.
+
+
+To run the computer use interface in Docker, follow these steps:
+
+.. code-block:: bash
+
+   # Clone the repository
+   git clone https://github.com/gptme/gptme.git
+   cd gptme
+   # Build container
+   make build-docker-computer
+   # Run container
+   docker run -v ~/.config/gptme:/home/computeruse/.config/gptme -p 6080:6080 -p 8080:8080 gptme-computer:latest
+
+The computer use interface provides:
+
+- Combined view at http://localhost:8080/computer
+- Chat view at http://localhost:8080
+- Desktop view at http://localhost:6080/vnc.html
+
+Features:
+
+- Split view with chat on the left, desktop on the right
+- Toggle for view-only/interactive desktop mode
+- Automatic screen scaling for optimal LLM vision
+
+Requirements:
+
+- Docker for running the server with X11 support
+- Network ports 6080 (VNC) and 8080 (web UI) available
+
+.. rubric:: Using Computer Use Locally
+
+You can use the ``computer`` tool (which enables computer use) locally on Linux without Docker or VNC, but it is not recommended due to security concerns.
+
+Requirements:
+- X11 server
+- ``xdotool`` installed
+
+To enable the ``computer`` tool, specify a ``-t/--tools`` list that includes the computer tool (as it is disabled by default):
+
+.. code-block:: bash
+
+   gptme -t computer   # and whichever other tools you want
+
+You also want to set a screen resolution that is suitable for the vision model you are using.
+
+
+.. _mcp:
+
+MCP
+===
+
+gptme acts as a MCP client supporting MCP servers (`Model Context Protocol <https://modelcontextprotocol.io/>`_), allowing integration with external tools and services through a standardized protocol.
+
+We also intend to expose tools in gptme as MCP servers, allowing you to use gptme tools in other MCP clients.
+
+Configuration
+-------------
+
+You can configure MCP in your :ref:`global-config` (``~/.config/gptme/config.toml``) file:
+
+.. code-block:: toml
+
+    [mcp]
+    enabled = true
+    auto_start = true
+
+    [[mcp.servers]]
+    name = "my-server"
+    enabled = true
+    command = "server-command"
+    args = ["--arg1", "--arg2"]
+    env = { API_KEY = "your-key" }
+
+We also intend to support specifying it in the :ref:`project-config`, and the ability to set it per-conversation.
+
+Configuration Options
+~~~~~~~~~~~~~~~~~~~~~
+
+- ``enabled``: Enable/disable MCP support globally
+- ``auto_start``: Automatically start MCP servers when needed
+- ``servers``: List of MCP server configurations
+
+  - ``name``: Unique identifier for the server
+  - ``enabled``: Enable/disable individual server
+  - ``command``: Command to start the server
+  - ``args``: List of command-line arguments
+  - ``env``: Environment variables for the server
+
+MCP Server Examples
+-------------------
+
+SQLite Server
+~~~~~~~~~~~~~
+
+The SQLite server provides database interaction and business intelligence capabilities through SQLite. It enables running SQL queries, analyzing business data, and automatically generating business insight memos:
+
+.. code-block:: toml
+
+    [[mcp.servers]]
+    name = "sqlite"
+    enabled = true
+    command = "uvx"
+    args = [
+        "mcp-server-sqlite",
+        "--db-path",
+        "/path/to/sqlitemcp-store.sqlite"
+    ]
+
+The server provides these core tools:
+
+Query Tools:
+    - ``read_query``: Execute SELECT queries to read data
+    - ``write_query``: Execute INSERT, UPDATE, or DELETE queries
+    - ``create_table``: Create new tables in the database
+
+Schema Tools:
+    - ``list_tables``: Get a list of all tables
+    - ``describe_table``: View schema information for a specific table
+
+Analysis Tools:
+    - ``append_insight``: Add business insights to the memo resource
+
+Resources:
+    - ``memo://insights``: A continuously updated business insights memo
+
+The server also includes a demonstration prompt ``mcp-demo`` that guides users through database operations and analysis.
+
+Running MCP Servers
+-------------------
+
+Each server provides its own set of tools that become available to the assistant.
+
+MCP servers can be run in several ways:
+
+- Using package managers like ``npx``, ``uvx``, or ``pipx`` for convenient installation and execution
+- Running from source or pre-built binaries
+- Using Docker containers
+
+.. warning::
+    Be cautious when using MCP servers from unknown sources, as they run with the same privileges as your user.
+
+You can find a list of available MCP servers in the `example servers <https://modelcontextprotocol.io/examples>`_ and MCP directories like `MCP.so <https://mcp.so/>`_.
+
+
+CLI Reference
+=============
+
+gptme provides the following commands:
+
+.. contents:: Commands
+   :depth: 1
+   :local:
+   :backlinks: none
+
+This is the full CLI reference. For a more concise version, run ``gptme --help``.
+
+.. click:: gptme.cli:main
+   :prog: gptme
+   :nested: full
+
+.. click:: gptme.server:main
+   :prog: gptme-server
+   :nested: full
+
+.. click:: gptme.eval:main
+   :prog: gptme-eval
+   :nested: full
+
+.. click:: gptme.util.cli:main
+   :prog: gptme-util
+   :nested: full
+
+
+Contributing
+============
+
+We welcome contributions to the project. Here is some information to get you started.
+
+.. note::
+    This document is a work in progress. PRs are welcome.
+
+Install
+-------
+
+.. code-block:: bash
+
+   # checkout the code and navigate to the root of the project
+   git clone https://github.com/gptme/gptme.git
+   cd gptme
+
+   # install poetry (if not installed)
+   pipx install poetry
+
+   # activate the virtualenv
+   poetry shell
+
+   # build the project
+   make build
+
+You can now start ``gptme`` from your development environment using the regular commands.
+
+You can also install it in editable mode with ``pipx`` using ``pipx install -e .`` which will let you use your development version of gptme regardless of venv.
+
+Tests
+-----
+
+Run tests with ``make test``.
+
+Some tests make LLM calls, which might take a while and so are not run by default. You can run them with ``make test SLOW=true``.
+
+There are also some integration tests in ``./tests/test-integration.sh`` which are used to manually test more complex tasks.
+
+There is also the :doc:`evals`.
+
+Release
+-------
+
+To make a release, simply run ``make release`` and follow the instructions.
+
+
+Building Executables
+====================
+
+gptme supports building standalone executables using PyInstaller for easier distribution.
+
+Building gptme-server Executable
+--------------------------------
+
+To build a standalone executable for gptme-server:
+
+1. **Install dependencies** (including PyInstaller):
+
+   .. code-block:: bash
+
+      poetry install --extras server --with dev
+
+2. **Build the executable**:
+
+   .. code-block:: bash
+
+      make build-server-exe
+
+   Or manually:
+
+   .. code-block:: bash
+
+      ./scripts/build_server_executable.sh
+
+3. **Find the executable** in the ``dist/`` directory:
+
+   .. code-block:: bash
+
+      ls -la dist/gptme-server*
+
+Usage
+-----
+
+The standalone executable includes all dependencies and can be run without Python installed:
+
+.. code-block:: bash
+
+   # Run the server
+   ./dist/gptme-server --host 0.0.0.0 --port 5700
+
+   # Show help
+   ./dist/gptme-server --help
+
+The executable includes:
+
+- All Python dependencies (Flask, gptme, etc.)
+- Static web UI files
+- All gptme tools and functionality
+
+Distribution
+------------
+
+The executable is self-contained and can be distributed to systems without Python or gptme installed.
+
+**Note**: The executable is platform-specific (Linux/macOS/Windows).
+
+Cleaning Build Artifacts
+------------------------
+
+To clean PyInstaller build artifacts:
+
+.. code-block:: bash
+
+   make clean-build
+
+This removes the ``build/``, ``dist/``, and temporary spec backup files.
+
+Customization
+-------------
+
+The PyInstaller configuration is in ``scripts/pyinstaller/gptme-server.spec``. You can modify this file to:
+
+- Add/remove hidden imports
+- Include additional data files
+- Change executable options
+- Optimize the build
+
+For more details, see the `PyInstaller documentation <https://pyinstaller.org/>`_.
+
+
+Prompts
+=======
+
+Here you can read examples of the system prompts currently used by gptme.
+
+.. automodule:: gptme.prompts
+   :members:
+
+
+Evals
+=====
+
+gptme provides LLMs with a wide variety of tools, but how well do models make use of them? Which tasks can they complete, and which ones do they struggle with? How far can they get on their own, without any human intervention?
+
+To answer these questions, we have created an evaluation suite that tests the capabilities of LLMs on a wide variety of tasks.
+
+.. note::
+    The evaluation suite is still tiny and under development, but the eval harness is fully functional.
+
+Recommended Model
+-----------------
+
+The recommended model is **Claude 3.7 Sonnet** (``anthropic/claude-3-7-sonnet-20250219``) for its:
+
+- Strong coder capabilities
+- Strong performance across all tool types
+- Reasoning capabilities
+- Vision & computer use capabilities
+
+Decent alternatives include:
+
+- GPT-4o (``openai/gpt-4o``)
+- Llama 3.1 405B (``openrouter/meta-llama/llama-3.1-405b-instruct``)
+- DeepSeek V3 (``deepseek/deepseek-chat``)
+- DeepSeek R1 (``deepseek/deepseek-reasoner``)
+
+Usage
+-----
+
+You can run the simple ``hello`` eval with Claude 3.7 Sonnet like this:
+
+.. code-block:: bash
+
+    gptme-eval hello --model anthropic/claude-3-7-sonnet-20250219
+
+However, we recommend running it in Docker to improve isolation and reproducibility:
+
+.. code-block:: bash
+
+    make build-docker
+    docker run \
+        -e "ANTHROPIC_API_KEY=<your api key>" \
+        -v $(pwd)/eval_results:/app/eval_results \
+        gptme-eval hello --model anthropic/claude-3-7-sonnet-20250219
+
+Available Evals
+---------------
+
+The current evaluations test basic tool use in gptme, such as the ability to: read, write, patch files; run code in ipython, commands in the shell; use git and create new projects with npm and cargo. It also has basic tests for web browsing and data extraction.
+
+.. This is where we want to get to:
+
+    The evaluation suite tests models on:
+
+    1. Tool Usage
+
+       - Shell commands and file operations
+       - Git operations
+       - Web browsing and data extraction
+       - Project navigation and understanding
+
+    2. Programming Tasks
+
+       - Code completion and generation
+       - Bug fixing and debugging
+       - Documentation writing
+       - Test creation
+
+    3. Reasoning
+
+       - Multi-step problem solving
+       - Tool selection and sequencing
+       - Error handling and recovery
+       - Self-correction
+
+
+Results
+-------
+
+Here are the results of the evals we have run so far:
+
+.. command-output:: gptme-eval eval_results/*/eval_results.csv
+   :cwd: ..
+   :shell:
+
+We are working on making the evals more robust, informative, and challenging.
+
+
+Other evals
+-----------
+
+We have considered running gptme on other evals such as SWE-Bench, but have not finished it (see `PR #142 <https://github.com/gptme/gptme/pull/142>`_).
+
+If you are interested in running gptme on other evals, drop a comment in the issues!
+
+
+GitHub Bot
+==========
+
+One way to run gptme is as a GitHub bot.
+
+The `gptme-bot` composite action is a GitHub Action that automates the process of running the `gptme`  in response to comments on GitHub issues or pull requests. It is designed to be used for tasks that gptme can perform with a one-shot prompt, such as running commands and committing their results, creating files or making simple changes/additions (like write tests), and (potentially) automating code reviews.
+
+## Usage
+
+To use the `gptme-bot` composite action in your repo, you need to create a GitHub Actions workflow file that triggers the action in response to comments on issues or pull requests.
+
+Here is an example workflow file that triggers the action in response to comments on issues:
+
+```yaml
+name: gptme-bot
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: write-all
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: run gptme-bot action
+        uses: gptme/gptme/.github/actions/bot@master
+        with:
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowlist: "erikbjare"
+```
+
+The `gptme-bot` action will then run the `gptme` command-line tool with the command specified in the comment, and perform actions based on the output of the tool.
+
+If a question was asked, it will simply reply.
+
+If a request was made it will check out the appropriate branch, install dependencies, run `gptme`, then commit and push any changes made. If the issue is a pull request, the bot will push changes directly to the pull request branch. If the issue is not a pull request, the bot will create a new pull request with the changes.
+
+
+Finetuning
+==========
+
+NOTE: this document is a work in progress!
+
+This document aims to provide a step-by-step guide to finetuning a model on conversations from gptme.
+
+The goal of fine-tuning a model for gptme is to:
+
+ - Teach the tools available in gptme
+ - Update out-of-date knowledge and conventions
+ - Improve its ability to recover from errors
+
+
+## Step 1: Gather the data
+
+To fine-tune we need something to fine-tune on.
+
+We will fine-tune on our own conversation history, combined with a subset of the [OpenAssistant dataset][oa-dataset] to extend the training data with relevant examples.
+
+We collect our own conversation history by running the following command:
+
+```bash
+./train/collect.py --model "HuggingFaceH4/zephyr-7b-beta"  # or whatever model you intend to fine-tune
+```
+
+This will create files `train.csv` and `train.jsonl` in the `train` directory.
+
+TODO: describe how to get the OpenAssistant dataset
+TODO: describe how to use exported ChatGPT conversations
+
+## Step 2: Prepare the data
+
+We need to prepare the data for fine-tuning. This involves:
+
+ - Extend the data with examples from the OpenAssistant dataset
+ - Splitting the data into train and validation sets
+   - We might want to make sure that the validation set is comprised of examples from gptme, and not from the OpenAssistant dataset.
+
+TODO...
+
+## Step 3: Fine-tune the model
+
+Options:
+
+ - [axolotl][axolotl]
+   - Does it support Mistral? (and by extension Zephyr)
+ - [Hugging Face transformers][hf-transformers]
+   - [Examples for Llama2][llama-finetuning] by Meta
+ - [OpenPipe][openpipe]?
+   - Looks interesting, but not sure if it's relevant for us.
+
+TODO...
+
+## Model suggestions
+
+ - HuggingFaceH4/zephyr-7b-beta
+ - teknium/Replit-v2-CodeInstruct-3B
+   - I had issues with this one on M2, but would be good to have some 3B model as an example used in testing/debug.
+
+[oa-datasets]: https://projects.laion.ai/Open-Assistant/docs/data/datasets
+[axolotl]: https://github.com/OpenAccess-AI-Collective/axolotl
+[llama-finetuning]: https://ai.meta.com/llama/get-started/#fine-tuning
+
+
+Custom Tools
+============
+
+Introduction
+------------
+There are three main approaches to extending gptme's functionality:
+
+1. **Custom Tools**: Native gptme tools that integrate deeply with the assistant.
+2. **Script Tools**: Standalone scripts that can be called via the shell tool.
+3. **MCP Tools**: Tools that communicate via the Model Context Protocol, allowing language-agnostic tools that can be shared between different LLM clients.
+
+This guide primarily covers the first two approaches. For information about MCP tools, see :doc:`mcp`.
+
+Script-based Tools
+------------------
+
+The simplest way to extend gptme is by writing standalone scripts. These can be:
+
+- Written in any language
+- Run independently of gptme
+- Called via the shell tool
+- Easily tested and maintained
+
+Benefits of script-based tools:
+- Simple to create and maintain
+- Can be run and tested independently
+- No gptme dependency
+- Flexible language choice
+- Isolated dependencies
+
+Limitations:
+- Requires shell tool access
+- Can't attach files/images to messages
+- Not listed in tools section
+- No built-in argument validation
+
+For script-based tools, no registration is needed. Simply include them in the gptme context to make the agent aware of them.
+
+1. Place scripts in a ``tools/`` directory (or any other location)
+2. Make them executable (``chmod +x tools/script.py``)
+3. Use via the shell tool (``gptme 'test our new tool' tools/script.py``)
+
+Creating a Custom Tool
+----------------------
+
+When you need deeper integration with gptme, you can create a custom tool by defining a new instance of the ``ToolSpec`` class.
+
+Custom tools are necessary when you need to:
+- Attach files/images to messages
+- Get included in the tools section
+- Use without shell tool access
+- Validate arguments
+- Handle complex interactions
+
+The ``ToolSpec`` class requires these parameters:
+
+- **name**: The name of the tool.
+- **desc**: A description of what the tool does.
+- **instructions**: Instructions on how to use the tool.
+- **examples**: Example usage of the tool.
+- **execute**: A function that defines the tool's behavior when executed.
+- **block_types**: The block types to detects.
+- **parameters**: A list of parameters that the tool accepts.
+
+Examples
+--------
+
+For examples of script-based tools, see:
+
+**gptme-contrib** - A collection of community-contributed tools and scripts:
+
+- `Twitter CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/twitter.py>`_: Twitter client with OAuth support
+- `Perplexity CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/perplexity.py>`_: Perplexity search tool
+
+**Standalone Tools** - Independent tool repositories:
+
+- `gptme-rag <https://github.com/gptme/gptme-rag/>`_: Document indexing and retrieval
+
+For examples of custom tools, see:
+
+- `Screenshot tool <https://github.com/gptme/gptme/blob/master/gptme/tools/screenshot.py>`_: Takes screenshots
+- `Browser tool <https://github.com/gptme/gptme/blob/master/gptme/tools/browser.py>`_: Web browsing and screenshots
+- `Vision tool <https://github.com/gptme/gptme/blob/master/gptme/tools/vision.py>`_: Image viewing and analysis
+
+Basic Custom Tool Example
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Here's a minimal example of a custom tool:
+
+.. code-block:: python
+
+    from gptme.tools import ToolSpec, Parameter, ToolUse
+    from gptme.message import Message
+
+    def execute(code, args, kwargs, confirm):
+        name = kwargs.get('name', 'World')
+        yield Message('system', f"Hello, {name}!")
+
+    tool = ToolSpec(
+        name="hello",
+        desc="A simple greeting tool",
+        instructions="Greets the user by name",
+        execute=execute,
+        block_types=["hello"],
+        parameters=[
+            Parameter(
+                name="name",
+                type="string",
+                description="Name to greet",
+                required=False,
+            ),
+        ],
+    )
+
+Choosing an Approach
+--------------------
+Use **script-based tools** when you need:
+
+- Standalone functionality
+- Independent testing/development
+- Language/framework flexibility
+- Isolated dependencies
+
+Use **custom tools** when you need:
+
+- File/image attachments
+- Tool listing in system prompt
+- Complex argument validation
+- Operation without shell access
+
+Registering the Tool
+--------------------
+To ensure your tool is available for use, you can specify the module in the ``TOOL_MODULES`` env variable or
+setting in your :doc:`project configuration file <config>`, which will automatically load your custom tools.
+
+.. code-block:: toml
+
+    [env]
+    TOOL_MODULES = "gptme.tools,yourpackage.your_custom_tool_module"
+
+Don't remove the ``gptme.tools`` package unless you know exactly what you are doing.
+
+Ensure your module is in the Python path by either installing it
+(e.g. with ``pip install .`` or ``pipx runpip gptme install .``, depending on installation method)
+or by temporarily modifying the `PYTHONPATH` environment variable. For example:
+
+.. code-block:: bash
+
+    export PYTHONPATH=$PYTHONPATH:/path/to/your/module
+
+This lets Python locate your module during development and testing without requiring installation.
+
+Community Tools
+---------------
+The `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ repository provides a collection of community-contributed tools and scripts.
+This makes it easier to:
+
+- Share tools between agents
+- Maintain consistent quality
+- Learn from examples
+- Contribute your own tools
+
+To use these tools, you can either:
+
+1. Clone the repository and use the scripts directly
+2. Copy specific scripts to your local workspace
+3. Fork the repository to create your own collection
+
+
+API Reference
+=============
+
+Here is the API reference for ``gptme``.
+
+.. contents:: Content
+   :depth: 5
+   :local:
+   :backlinks: none
+
+
+core
+----
+
+Some of the core classes and functions in ``gptme``.
+
+Message
+~~~~~~~
+
+A message in the conversation.
+
+.. autoclass:: gptme.message.Message
+   :members:
+
+Codeblock
+~~~~~~~~~
+
+A codeblock in a message, possibly executable by tools.
+
+.. automodule:: gptme.codeblock
+   :members:
+
+LogManager
+~~~~~~~~~~
+
+Holds the current conversation as a list of messages, saves and loads the conversation to and from files, supports branching, etc.
+
+.. automodule:: gptme.logmanager
+   :members:
+
+
+Config
+------
+
+Configuration for ``gptme`` on user-level (:ref:`global-config`), project-level (:ref:`project-config`), and conversation-level.
+
+.. automodule:: gptme.config
+   :members:
+
+
+prompts
+-------
+
+See :doc:`prompts` for more information.
+
+tools
+-----
+
+Supporting classes and functions for creating and using tools.
+
+.. automodule:: gptme.tools
+   :members:
+
+server
+------
+
+See :doc:`server` for more information.
+
+.. automodule:: gptme.server
+   :members:
+
+
+Alternatives
+============
+
+The AI-assisted development space is rapidly evolving, with many projects emerging and rapidly improving. Here, we'll provide an overview of gptme and some similar projects that might be good alternatives (or vice versa) for your use case, highlighting their key features to help you understand the landscape.
+
+When selecting an AI-assisted development tool, consider the following factors:
+
+1. Your preferred working environment (terminal, IDE, etc.)
+2. The specific tasks you need assistance with
+3. Integration with your existing workflow
+4. The level of control and customization you require
+
+Each of these projects has its own strengths and may be better suited for different use cases. We encourage you to explore them and find the one that best fits your needs.
+
+If your answers to these questions are "terminal", "general-purpose/coding", "extensible", and "highly customizable", gptme might be the right choice for you.
+
+Remember that the AI-assisted development space is rapidly evolving, and these tools are continuously improving and adding new features. Always check the latest documentation and releases for the most up-to-date information.
+
+Let's start with the comparison, we will first show an overview comparison and then dig deeper into each alternative.
+
+Comparison
+----------
+
+While we obviously like gptme, there are other great projects in the AI-assisted development space that provide similar but different capabilities, which be more what you are looking for.
+
+Here we will briefly introduce some we like, along with their key features.
+
+.. |nbsp| unicode:: 0xA0
+   :trim:
+
+.. list-table:: Comparison
+   :widths: 25 10 25 10 10
+   :header-rows: 1
+
+   * -
+     - Type
+     - Focus
+     - Price
+     - Open |nbsp| Source
+   * - gptme
+     - CLI
+     - General purpose
+     - Free
+     - ✅
+   * - Open Interpreter
+     - CLI
+     - General purpose
+     - Free
+     - ✅
+   * - Aider
+     - CLI
+     - Coding
+     - Free
+     - ✅
+   * - Moatless Tools
+     - CLI
+     - Coding
+     - Free
+     - ✅
+   * - OpenHands
+     - CLI/Web
+     - General purpose
+     - Free
+     - ✅
+   * - Lovable.dev
+     - Web app
+     - Frontend
+     - Credits
+     - ❌
+   * - Cursor
+     - IDE fork
+     - Coding
+     - $20/mo
+     - ❌
+   * - Claude Desktop
+     - Desktop app
+     - General purpose
+     - $20/mo
+     - ❌
+   * - Claude Projects
+     - Web app
+     - Chat with files
+     - $20/mo
+     - ❌
+
+
+Projects
+--------
+
+To begin, lets first introduce gptme and then we will compare it to some of the other projects in the space.
+
+gptme
+^^^^^
+
+gptme is a personal AI assistant that runs in your terminal, designed to assist with various programming tasks and knowledge work.
+
+Key features:
+
+- Runs in the terminal
+- Can execute shell commands and Python code
+- Ability to read, write, and patch files
+- Web browsing capabilities
+- Vision support for images and screenshots
+- Self-correcting behavior
+- Support for multiple LLM providers
+- Extensible tool system
+- Highly customizable, aims to be simple to modify
+
+First commit: March 24, 2023.
+
+Aider
+^^^^^
+
+`Aider <https://aider.chat/>`_ is AI pair programming in your terminal.
+
+Key features:
+
+- Git integration
+- Code editing capabilities
+- Conversation history
+- Customizable prompts
+- Builds a code map for context
+- Scores highly on SWE-Bench
+
+Differences to gptme:
+
+- gptme is less git-commit focused
+- gptme is more general-purpose
+- gptme has wider array of tools
+
+First commit: April 4, 2023.
+
+Moatless Tools
+^^^^^^^^^^^^^^
+
+`Moatless Tools <https://github.com/aorwall/moatless-tools>`_ is an impressive AI coding agent that has performed really well on `SWE-Bench <https://www.swebench.com/>`_.
+
+Key features:
+
+- Various specialized tools for different tasks
+- Integration with popular development environments
+- Focus on specific development workflows
+- Scores highly on SWE-Bench
+
+OpenHands
+^^^^^^^^^
+
+`OpenHands <https://github.com/All-Hands-AI/OpenHands>`_ (formerly OpenDevin) is a leading open-source platform for software development agents, with impressive performance on benchmarks and a large community.
+
+Key features:
+
+- Leading performance on SWE-bench (>50% score)
+- Can do anything a human developer can: write code, run commands, browse web
+- Support for multiple LLM providers
+- Both CLI and web interface
+- Docker-based sandboxed execution
+- Active development and large community (46.9k stars)
+
+Differences to gptme:
+
+- More focused on software development
+- Has web UI in addition to CLI
+- Larger community and more active development
+- Docker-based sandboxing vs gptme's direct execution
+
+First commit: March 13, 2024.
+
+Lovable.dev
+^^^^^^^^^^^
+
+`lovable.dev <https://lovable.dev>`_ (previously `GPT Engineer.app <https://gptengineer.app>`_) lets you build webapps fast using natural language.
+
+Key features:
+
+- Builds frontends with ease, just by prompting
+- LLM-powered no-code editor for frontends
+- Git/GitHub integration, ability to import projects
+- Supabase integration for backend support
+
+Differences to gptme:
+
+- gptme is terminal-only (for now)
+- gptme is much more general-purpose
+- gptme is far from low/no-code
+- gptme is far from as good at building frontends
+- gptme is not no-code, you still need to select your context yourself
+
+Disclaimer: gptme author Erik was an early hire at Lovable.
+
+Cursor
+^^^^^^
+
+If you are a VSCode user who doesn't mind using a fork, this seems to be it.
+
+Key features:
+
+- AI native IDE
+- Git checkpointing
+- Great tab completion ("Babble", from `acquiring Supermaven <https://www.coplay.dev/blog/a-brief-history-of-cursor-s-tab-completion>`_)
+
+Differences to gptme:
+
+- gptme is in-terminal instead of in-vscode-fork
+- gptme is extensible with tools, more general-purpose
+
+  - Less true now that Cursor supports MCP
+
+Cline
+^^^^^
+
+`Cline <https://cline.bot/>`_ is a coding agent running as a VSCode extension. Similar to Cursor, but open-source and not a full VSCode fork.
+
+It also has a fork called `Roo Code <https://github.com/RooVetGit/Roo-Code>`_ (prev Roo Cline).
+
+
+Claude
+^^^^^^
+
+Anthropic's Claude has gotten popular due to its excellent coding capabilities. It has also championed MCP as a way to extend its capabilities and solve the n-to-m problem of tool clients (Claude Desktop, Cursor) and servers (browser, shell, python).
+
+.. https://docs.anthropic.com/en/release-notes/claude-apps
+
+.. rubric:: Projects
+
+Claude Projects lets users upload their files and chat with them. It requires a Claude subscription.
+
+Released Jun 25, 2024.
+
+.. rubric:: Artifacts
+
+Claude Artifacts allows users to directly preview certain content, like HTML and React components, allowing to build small web apps with Claude.
+
+It is like a mini-version of Lovable.dev.
+
+Released Aug 27, 2024.
+
+.. rubric:: Desktop
+
+Claude Desktop is a desktop client for Claude.
+
+It supports MCP, allowing for a wide array of tools and resources to be used with it. (gptme also intends to support MCP)
+
+Released October 31st, 2024.
+
+.. rubric:: Code
+
+Claude Code is a "is an agentic coding tool that lives in your terminal, understands your codebase, and helps you code faster through natural language commands".
+
+It is pretty much a full-on clone of gptme, with MCP support. Unlike gptme, it is not open-source (and they have `no such plans <https://github.com/anthropics/claude-code/issues/59>`_.
+
+We have not made a thorough comparison yet. While users we asked have said they still prefer gptme, they acknowledge Claude Code has certain advantages which gptme could learn from.
+
+Released February 24, 2025.
+
+ChatGPT
+^^^^^^^
+
+.. rubric:: Code Interpreter
+
+ChatGPT's Code Interpreter was one of the early inspirations for gptme as an open-source and local-first alternative, giving the LLM access to your terminal and local files.
+
+There's not much to compare here anymore, as gptme has evolved a lot since then (while Code Interpreter hasn't), but it's worth mentioning as it was one of the first projects in this space.
+
+Released July 6, 2023.
+
+.. rubric:: Canvas
+
+ChatGPT Canvas was OpenAI's response to Claude Artifacts (released ~1 month before).
+
+Released October 3, 2024.
+
+.. rubric:: Codex
+
+`Codex <https://github.com/openai/codex>`_ is a "lightweight coding agent that runs in your terminal".
+
+It was OpenAI's response to Claude Code (released ~2 months before). Unlike Claude Code, it is open-source.
+
+Released April 16th, 2025.
+
+(not to be confused with OpenAI's earlier Codex model)
+
+
+Are we tiny?
+============
+
+gptme is intended to be small and simple, and focus on doing the right thing in the right way, rather than all the things in all the ways.
+
+The benefits of this approach are many:
+
+- It is easier to understand and maintain.
+- It is easier to contribute to.
+- It is easier to learn.
+- It is easier to extend.
+- It is more fun to work on.
+
+Being aggressive about keeping things small and simple is a way to keep the project maintainable and fun to work on. The fastest way to kill a project is to make it too big and complex, and suffer burnout as a result.
+
+Another major benefit of keeping things small and simple is that it makes it easier for AI to understand and work with the codebase.
+This is a major goal of the project, and it is important to keep in mind that the simpler the codebase is, the easier it will be for AI to work with it:
+
+..
+
+    *"The simpler your API is, the more effectively the AI can harness it when generating code."*
+
+    -- `Kenneth Reitz <https://x.com/kennethreitz42/status/1852750768920518768>`_ (and many others)
+
+
+To that end, in this document we will present some statistics about the current state of the project, trying to be mindful to keep an eye on this page and make sure we are not growing too much.
+
+Startup time
+------------
+
+.. command-output:: make bench-importtime
+   :cwd: ..
+   :ellipsis: 0,-10
+
+
+Lines of code
+-------------
+
+LoC Core
+********
+
+.. command-output:: make cloc-core
+   :cwd: ..
+
+LoC LLM
+*******
+
+.. command-output:: make cloc-llm
+   :cwd: ..
+
+LoC Tools
+*********
+
+.. command-output:: make cloc-tools
+   :cwd: ..
+
+LoC Server
+***********
+
+.. command-output:: make cloc-server
+   :cwd: ..
+
+LoC Tests
+**********
+
+.. command-output:: make cloc-tests
+   :cwd: ..
+
+LoC Eval
+********
+
+.. command-output:: make cloc-eval
+   :cwd: ..
+
+LoC Total
+*********
+
+.. command-output:: make cloc-total
+   :cwd: ..
+
+Code Metrics
+------------
+
+.. command-output:: make metrics
+   :cwd: ..
+
+The metrics above show:
+
+- **Project Overview**: Basic stats about the codebase size and complexity
+- **Complex Functions**: Functions rated D+ (high complexity, should be refactored)
+- **Large Files**: Files over 300 SLOC (should be split into smaller modules)
+- **Duplicated Files**: Using `jscpd` to find duplicated code
+
+We should aim to:
+
+- Keep average complexity below 4.0
+- Have no E-rated functions (extremely complex)
+- Have few D-rated functions (very complex)
+- Keep files under 300 SLOC where possible
+
+
+Timeline
+========
+
+A brief timeline of the project.
+
+The idea is to later make this into a timeline similar to the one for `ActivityWatch <https://activitywatch.net/timeline/>`_, including releases, features, etc.
+
+.. figure:: https://starchart.cc/gptme/gptme.svg
+   :alt: Stargazers over time
+   :target: https://starchart.cc/gptme/gptme
+
+   GitHub stargazers over time
+
+..
+    This timeline tracks development across the entire gptme ecosystem, including:
+
+    - `gptme <https://github.com/gptme/gptme>`_ (main repository)
+    - `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_
+    - `gptme-rag <https://github.com/gptme/gptme-rag>`_
+    - `gptme.vim <https://github.com/gptme/gptme.vim>`_
+    - `gptme-webui <https://github.com/gptme/gptme-webui>`_
+
+    For repositories with formal releases, we track significant version releases.
+    For repositories without formal releases (like gptme.vim and gptme-webui),
+    we track initial releases and major feature additions based on commit history.
+
+    This file can be automatically updated by gptme with the help of `gh release list` and `gh release view` commands.
+
+2025
+----
+
+March
+
+- v0.27.0 (2025-03-11)
+
+  - Pre-commit integration for automatic code quality checks
+  - macOS support for computer use tool
+  - Claude 3.7 Sonnet and DeepSeek R1 support
+  - Improved TTS with Kokoro 1.0
+  - Context tree for including repository structure in prompts
+  - Enhanced RAG with LLM post-processing
+
+February
+
+- Added image support to gptme-webui (2025-02-07)
+
+January
+
+- Major UI improvements to gptme-webui (2025-01-28)
+- v0.26.0 (2025-01-14)
+
+  - Added support for loading tools from external modules (custom tools)
+  - Added experimental local TTS support using Kokoro
+
+- gptme-contrib repository created (2025-01-10)
+
+  - Initial tools: Twitter and Perplexity CLI integrations
+  - Later expanded with Discord bot, Pushover notifications, and enhanced Twitter automation
+
+2024
+----
+
+December
+
+- v0.25.0 (2024-12-20)
+
+  - New prompt_toolkit-based interface with better completion and highlighting
+  - Support for OpenAI/Anthropic tools APIs
+  - Improved cost & performance through better prompt caching
+  - Better path handling and workspace context
+  - Added heredoc support
+- gptme-agent-template v0.3 release (2024-12-20)
+- gptme-rag v0.5.1 release (2024-12-13)
+
+November
+
+- gptme.vim initial release (2024-11-29)
+- v0.24.0 (2024-11-22)
+- gptme-rag v0.3.0 release (2024-11-22)
+- gptme-agent-template initial release v0.1 (2024-11-21)
+- gptme-rag initial release v0.1.0 (2024-11-15)
+- v0.23.0 (2024-11-14)
+- gptme-webui initial release (2024-11-03)
+- v0.22.0 (2024-11-01)
+
+October
+
+- v0.21.0 (2024-10-25)
+- v0.20.0 (2024-10-10)
+
+  - Updated web UI with sidebar
+  - Improved performance with faster imports
+  - Enhanced error handling for tools
+
+- `First viral tweet <https://x.com/rohanpaul_ai/status/1841999030999470326>`_ (2024-10-04)
+- v0.19.0 (2024-10-02)
+
+September
+
+- v0.18.0 (2024-09-26)
+- v0.17.0 (2024-09-19)
+- v0.16.0 (2024-09-16)
+- v0.15.0 (2024-09-06)
+
+  - Added screenshot_url function to browser tool
+  - Added GitHub bot features for non-change questions/answers
+  - Added special prompting for non-interactive mode
+
+August
+
+- v0.14.0 (2024-08-21)
+- v0.13.0 (2024-08-09)
+
+  - Added Anthropic Claude support
+  - Added tmux terminal tool
+  - Improved shell tool with better bash syntax support
+  - Major tools refactoring
+
+- v0.12.0 (2024-08-06)
+
+  - Improved browsing with assistant-driven navigation
+  - Added subagent tool (early version)
+  - Tools refactoring
+
+- `Show HN <https://news.ycombinator.com/item?id=41204256>`__
+
+2023
+----
+
+November
+
+- v0.11.0 (2023-11-29)
+
+  - Added support for paths/URLs in prompts
+  - Mirror working directory in shell and Python tools
+  - Started evaluation suite
+
+- v0.10.0 (2023-11-03)
+
+  - Improved file handling in prompts
+  - Added GitHub bot documentation
+
+October
+
+- v0.9.0 (2023-10-27)
+
+  - Added automatic naming of conversations
+  - Added patch tool
+  - Initial documentation
+
+- v0.8.0 (2023-10-16)
+
+  - Added web UI for conversations
+  - Added rename and fork commands
+  - Improved web UI responsiveness
+
+- v0.7.0 (2023-10-10)
+- v0.6.0 (2023-10-10)
+- v0.5.0 (2023-10-02)
+
+  - Added browser tool (early version)
+
+September
+
+- v0.4.0 (2023-09-10)
+- v0.3.0 (2023-09-06)
+
+  - Added configuration system
+  - Improved context awareness
+  - Made OpenAI model configurable
+
+- `Reddit announcement <https://www.reddit.com/r/LocalLLaMA/comments/16atlia/gptme_a_fancy_cli_to_interact_with_llms_gpt_or/>`_ (2023-09-05)
+- `Twitter announcement <https://x.com/ErikBjare/status/1699097896451289115>`_ (2023-09-05)
+- `Show HN <https://news.ycombinator.com/item?id=37394845>`__ (2023-09-05)
+- v0.2.1 (2023-09-05)
+
+  - Initial release
+
+August
+
+March
+
+- `Initial commit <https://github.com/gptme/gptme/commit/d00e9aae68cbd6b89bbc474ed7721d08798f96dc>`_
+
+
+.. rubric:: Example: Daily Activity Summary
+
+Here's an example of how to use gptme to generate a daily summary based on ActivityWatch data using a shell script:
+
+.. code-block:: bash
+
+   #!/bin/bash
+
+   # Function to get yesterday's date in YYYY-MM-DD format
+   get_yesterday() {
+       date -d "yesterday" +%Y-%m-%d
+   }
+
+   # Function to get ActivityWatch report
+   get_aw_report() {
+       local date=$1
+       aw-client report $(hostname) --start $date --stop $(date -d "$date + 1 day" +%Y-%m-%d)
+   }
+
+   # Generate daily summary
+   generate_daily_summary() {
+       local yesterday=$(get_yesterday)
+       local aw_report=$(get_aw_report $yesterday)
+
+       # Create a temporary file
+       local summary_file=$(mktemp)
+
+       # Generate summary using gptme
+       gptme --non-interactive "Based on the following ActivityWatch report for $yesterday, provide a concise summary of yesterday's activities.
+       Include insights on productivity, time spent on different categories, and any notable patterns.
+       Suggest areas for improvement if applicable.
+
+       ActivityWatch Report:
+       $aw_report
+
+       Please format the summary in a clear, easy-to-read structure.
+       Save the summary to this file: $summary_file"
+
+       # Return the path to the summary file
+       echo "$summary_file"
+   }
+
+   # Run the summary generation and get the file path
+   summary_file=$(generate_daily_summary)
+
+   # Output the file path (you can use this in other scripts or log it)
+   echo "Daily summary saved to: $summary_file"
+
+To automate this process to run every day at 8 AM, you could set up a cron job. Here's an example cron entry:
+
+.. code-block:: bash
+
+   0 8 * * * /path/to/daily_summary_script.sh
+
+This automation will provide you with daily insights into your computer usage and productivity patterns from the previous day, leveraging the power of gptme to analyze and summarize the data collected by ActivityWatch.
+
+
+.. rubric:: Example: Automated Code Review
+
+This example demonstrates a simple and composable approach to automated code review using gptme and shell scripting.
+
+1. Create a script called `review_pr.sh`:
+
+   .. code-block:: bash
+
+      #!/bin/bash
+      # Usage: ./review_pr.sh <repo> <pr_number>
+
+      repo=$1
+      pr_number=$2
+
+      # Fetch PR diff
+      diff=$(gh pr view $pr_number --repo $repo --json diffUrl -q .diffUrl | xargs curl -s)
+
+      # Generate review using gptme
+      review=$(gptme --non-interactive "Review this pull request diff and provide constructive feedback:
+      1. Identify potential bugs or issues.
+      2. Suggest improvements for code quality and readability.
+      3. Check for adherence to best practices.
+      4. Highlight any security concerns.
+
+      Pull Request Diff:
+      $diff
+
+      Format your review as a markdown list with clear, concise points.")
+
+      # Post review comment
+      gh pr comment $pr_number --repo $repo --body "## Automated Code Review
+
+      $review
+
+      *This review was generated automatically by gptme.*"
+
+2. Make the script executable:
+
+   .. code-block:: bash
+
+      chmod +x review_pr.sh
+
+3. Set up a GitHub Actions workflow (`.github/workflows/code_review.yml`):
+
+   .. code-block:: yaml
+
+      name: Automated Code Review
+      on:
+        pull_request:
+          types: [opened, synchronize]
+
+      jobs:
+        review:
+          runs-on: ubuntu-latest
+          steps:
+            - uses: actions/checkout@v2
+            - name: Install gptme and GitHub CLI
+              run: |
+                pip install gptme
+                gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+            - name: Run code review
+              env:
+                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                ./review_pr.sh ${{ github.repository }} ${{ github.event.pull_request.number }}
+
+This setup provides automated code reviews for your pull requests using gptme. It demonstrates how powerful automation can be achieved with minimal code and high composability.
+
+Key points:
+- Uses shell scripting for simplicity and ease of understanding
+- Leverages gptme's non-interactive mode for automation
+- Utilizes GitHub CLI (`gh`) for seamless GitHub integration
+- Integrates with GitHub Actions for automated workflow
+
+Benefits of this approach:
+- Easily customizable: Adjust the gptme prompt to focus on specific aspects of code review
+- Composable: The shell script can be extended or combined with other tools
+- Minimal dependencies: Relies on widely available tools (bash, curl, gh)
+- Quick setup: Can be implemented in any GitHub repository with minimal configuration
+
+To customize this for your specific needs:
+1. Modify the gptme prompt in `review_pr.sh` to focus on your project's coding standards
+2. Add additional checks or integrations to the shell script as needed
+3. Adjust the GitHub Actions workflow to fit your CI/CD pipeline
+
+This example serves as a starting point for integrating gptme into your development workflow, demonstrating its potential for automating code review tasks.
+
+
+.. warning::
+
+   The computer use interface is experimental and has serious security implications.
+   Please use with caution and see Anthropic's documentation on `computer use <https://docs.anthropic.com/en/docs/build-with-claude/computer-use>`_ for additional guidance.
+
