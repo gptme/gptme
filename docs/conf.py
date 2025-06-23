@@ -4,6 +4,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+
 import re
 from datetime import date
 
@@ -92,6 +93,7 @@ extensions = [
     "sphinxcontrib.programoutput",
     "sphinxcontrib.asciinema",
     "sphinx_sitemap",
+    "sphinx_llms_txt",
 ]
 
 html_baseurl = "https://gptme.org/docs/"  # used to build sitemap

@@ -3485,6 +3485,22 @@ docutils = "*"
 sphinx = ">=4.0"
 
 [[package]]
+name = "sphinx-llms-txt"
+version = "0.2.4"
+description = "llms-full.txt generator for Sphinx"
+optional = false
+python-versions = "*"
+groups = ["dev"]
+files = [
+    {file = "sphinx_llms_txt-0.2.4-py3-none-any.whl", hash = "sha256:c9fbda9814d21d9fc006d86d4328f06e72c079f783d92ae97aaae06a54b31772"},
+    {file = "sphinx_llms_txt-0.2.4.tar.gz", hash = "sha256:ff23007a88be5bbe120bb089977904e5dae39f0ae9c46fecf08237a9f69e67f9"},
+]
+
+[package.extras]
+dev = ["black", "flake8", "isort", "mypy", "pre-commit", "pytest (>=7.0.0)", "sphinx"]
+test = ["pytest (>=7.0.0)"]
+
+[[package]]
 name = "sphinx-sitemap"
 version = "2.6.0"
 description = "Sitemap generator for Sphinx"
@@ -4240,4 +4256,4 @@ youtube = ["youtube_transcript_api"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "9dde72c5a26375089a11509fd829a93802727842a5817a1b76b53d9aec22b288"
+content-hash = "d499053cf33c1ce064b1f01bd491352ec31ff9ff41fac48386d2148a086ae49a"
