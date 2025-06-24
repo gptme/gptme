@@ -44,6 +44,7 @@ class Task:
     target_repo: str | None = None
     conversation_ids: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    archived: bool = False
 
 
 def get_tasks_dir() -> Path:
@@ -81,21 +82,6 @@ def save_task(task: Task) -> None:
     except Exception as e:
         logger.error(f"Error saving task {task.id}: {e}")
         raise
-
-
-def delete_task_file(task_id: str) -> bool:
-    """Delete a task file from storage."""
-    tasks_dir = get_tasks_dir()
-    task_file = tasks_dir / f"{task_id}.json"
-
-    if task_file.exists():
-        try:
-            task_file.unlink()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting task {task_id}: {e}")
-            return False
-    return False
 
 
 def list_tasks() -> list[Task]:
@@ -694,30 +680,45 @@ def api_tasks_update(task_id: str):
         return flask.jsonify({"error": str(e)}), 500
 
 
-@tasks_api.route("/api/v2/tasks/<string:task_id>", methods=["DELETE"])
-def api_tasks_delete(task_id: str):
-    """Delete a task and its conversations."""
+@tasks_api.route("/api/v2/tasks/<string:task_id>/archive", methods=["POST"])
+def api_tasks_archive(task_id: str):
+    """Archive a task (hide from active view but preserve data)."""
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
 
     try:
-        # Delete associated conversations
-        for conv_id in task.conversation_ids:
-            conv_logdir = get_logs_dir() / conv_id
-            if conv_logdir.exists():
-                import shutil
+        if task.archived:
+            return flask.jsonify({"error": "Task is already archived"}), 400
 
-                shutil.rmtree(conv_logdir)
-                logger.info(f"Deleted conversation {conv_id}")
+        task.archived = True
+        save_task(task)
 
-        # Delete task metadata
-        if delete_task_file(task_id):
-            logger.info(f"Deleted task {task_id}")
-            return flask.jsonify({"status": "ok", "message": f"Task {task_id} deleted"})
-        else:
-            return flask.jsonify({"error": "Failed to delete task file"}), 500
+        logger.info(f"Archived task {task_id}")
+        return flask.jsonify({"status": "ok", "message": f"Task {task_id} archived"})
 
     except Exception as e:
-        logger.error(f"Error deleting task {task_id}: {e}")
+        logger.error(f"Error archiving task {task_id}: {e}")
+        return flask.jsonify({"error": str(e)}), 500
+
+
+@tasks_api.route("/api/v2/tasks/<string:task_id>/unarchive", methods=["POST"])
+def api_tasks_unarchive(task_id: str):
+    """Unarchive a task (restore to active view)."""
+    task = load_task(task_id)
+    if not task:
+        return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
+
+    try:
+        if not task.archived:
+            return flask.jsonify({"error": "Task is not archived"}), 400
+
+        task.archived = False
+        save_task(task)
+
+        logger.info(f"Unarchived task {task_id}")
+        return flask.jsonify({"status": "ok", "message": f"Task {task_id} unarchived"})
+
+    except Exception as e:
+        logger.error(f"Error unarchiving task {task_id}: {e}")
         return flask.jsonify({"error": str(e)}), 500
