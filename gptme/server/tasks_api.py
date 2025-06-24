@@ -475,13 +475,8 @@ def create_task_conversation(task: Task) -> str:
     # Create conversation directory (but not workspace subdirectory yet)
     logdir.mkdir(parents=True, exist_ok=True)
 
-    # Determine workspace path
-    if task.target_repo:
-        # If target repo specified, set up workspace for that repo
-        workspace = setup_task_workspace(task.id, task.target_repo)
-    else:
-        # Use current working directory as workspace
-        workspace = Path.cwd()
+    # Always use task-level workspace (all conversations for this task will share it)
+    workspace = setup_task_workspace(task.id, task.target_repo)
 
     chat_config = ChatConfig(
         name=task.content[:50] + "..." if len(task.content) > 50 else task.content,
@@ -516,13 +511,12 @@ def create_task_conversation(task: Task) -> str:
     return conversation_id
 
 
-def setup_task_workspace(task_id: str, target_repo: str) -> Path:
-    """Setup workspace for task with target repository."""
-    # Create workspace outside of logdir to avoid conflicts with symlinks
-    tasks_workspaces = get_logs_dir().parent / "task_workspaces"
-    tasks_workspaces.mkdir(parents=True, exist_ok=True)
-
-    workspace = tasks_workspaces / task_id
+def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
+    """Setup workspace for task. All conversations for this task will share this workspace."""
+    # Use task-level workspace that all conversations for this task will share
+    task_dir = get_tasks_dir() / task_id
+    workspace = task_dir / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
 
     if target_repo and "/" in target_repo:
         # Validate target_repo format (owner/repo)
@@ -530,11 +524,9 @@ def setup_task_workspace(task_id: str, target_repo: str) -> Path:
 
         if not re.match(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$", target_repo):
             logger.error(f"Invalid target_repo format: {target_repo}")
-            workspace.mkdir(parents=True, exist_ok=True)
             return workspace
 
-        # Clone target repository
-        workspace.mkdir(parents=True, exist_ok=True)
+        # Clone target repository into workspace
         repo_name = target_repo.split("/")[-1]
         repo_path = workspace / repo_name
 
@@ -554,13 +546,11 @@ def setup_task_workspace(task_id: str, target_repo: str) -> Path:
             except subprocess.CalledProcessError as e:
                 logger.error(f"Failed to clone {target_repo}: {e}")
                 # Fallback to empty workspace
-                workspace.mkdir(parents=True, exist_ok=True)
                 return workspace
 
         return repo_path
     else:
-        # Create empty workspace
-        workspace.mkdir(parents=True, exist_ok=True)
+        # Return empty workspace
         return workspace
 
 
