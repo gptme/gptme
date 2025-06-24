@@ -116,7 +116,7 @@ def list_tasks() -> list[Task]:
 
 
 def derive_task_status(task: Task) -> TaskStatus:
-    """Derive task status from conversation state and process information."""
+    """Derive task status from git/PR state and process information."""
     if not task.conversation_ids:
         return "pending"
 
@@ -136,35 +136,35 @@ def derive_task_status(task: Task) -> TaskStatus:
         lock_file = logdir / ".lock"
         if lock_file.exists():
             try:
-                # Try to read the lock file to see if process is active
                 with open(lock_file):
-                    # If we can read it without blocking, no active process
-                    return "active"
+                    pass  # If we can read it without blocking, no active process
             except OSError:
                 # If we can't read it, likely an active process
                 return "active"
 
-        # Check conversation completion from messages
-        if manager.log.messages:
-            recent_messages = manager.log.messages[-3:]  # Check last 3 messages
-            for msg in recent_messages:
-                content_lower = msg.content.lower()
-                if msg.role == "assistant" and any(
-                    indicator in content_lower
-                    for indicator in [
-                        "task completed",
-                        "pr created",
-                        "finished",
-                        "done",
-                        "completed",
-                    ]
-                ):
-                    return "completed"
-                elif "error" in content_lower or "failed" in content_lower:
-                    return "failed"
+        # Try to get git status for more accurate status determination
+        if manager.workspace and manager.workspace.exists():
+            git_workspace = manager.workspace
 
-        # If conversation has messages but no completion indicators, assume pending
-        return "pending" if manager.log.messages else "pending"
+            # If this is a cloned repo, the git repo might be in a subdirectory
+            if task.target_repo and "/" in task.target_repo:
+                repo_name = task.target_repo.split("/")[-1]
+                potential_repo_path = manager.workspace / repo_name
+                if (
+                    potential_repo_path.exists()
+                    and (potential_repo_path / ".git").exists()
+                ):
+                    git_workspace = potential_repo_path
+
+            try:
+                git_info = get_git_status(git_workspace)
+                if not git_info.get("error"):
+                    return determine_task_status(task, git_info)
+            except Exception as e:
+                logger.debug(f"Could not get git status for task {task.id}: {e}")
+
+        # Default to pending if no git status available
+        return "pending"
 
     except Exception as e:
         logger.error(f"Error deriving status for task {task.id}: {e}")
@@ -173,8 +173,12 @@ def derive_task_status(task: Task) -> TaskStatus:
 
 def get_task_info(task: Task) -> dict[str, Any]:
     """Get comprehensive task information with derived data."""
-    # Update status
-    task.status = derive_task_status(task)
+    current_status = task.status
+
+    # Only derive status if we can potentially progress
+    derived_status = derive_task_status(task)
+    if is_status_progression(current_status, derived_status):
+        task.status = derived_status
 
     result = asdict(task)
 
@@ -212,16 +216,16 @@ def get_task_info(task: Task) -> dict[str, Any]:
                     result["git"] = git_info
                     logger.debug(f"Git info for task {task.id}: {git_info}")
 
-                    # Update task status based on git info (overrides initial status)
-                    updated_status = determine_task_status(task, git_info)
-                    if updated_status != task.status:
+                    # Update task status based on git info only if it's a valid progression
+                    git_based_status = determine_task_status(task, git_info)
+                    if git_based_status != task.status and is_status_progression(
+                        task.status, git_based_status
+                    ):
                         logger.debug(
-                            f"Updating task {task.id} status from {task.status} to {updated_status}"
+                            f"Updating task {task.id} status from {task.status} to {git_based_status}"
                         )
-                        task.status = updated_status
-                        result["status"] = updated_status
-                        # Save the updated task
-                        save_task(task)
+                        task.status = git_based_status
+                        result["status"] = git_based_status
 
                 except Exception as e:
                     logger.error(f"Error getting git status for {task.id}: {e}")
@@ -234,6 +238,19 @@ def get_task_info(task: Task) -> dict[str, Any]:
             result["error"] = str(e)
 
     return result
+
+
+def is_status_progression(current: TaskStatus, new: TaskStatus) -> bool:
+    """Check if status transition is a valid progression."""
+    # Define valid status progressions
+    progressions = {
+        "pending": ["active", "completed", "failed"],
+        "active": ["pending", "completed", "failed"],
+        "completed": [],  # No regression from completed
+        "failed": ["pending"],  # Allow retry from failed
+    }
+
+    return new in progressions.get(current, [])
 
 
 def determine_task_status(
@@ -251,12 +268,8 @@ def determine_task_status(
             elif pr_status == "CLOSED":
                 return "failed"  # Closed without merge
             elif pr_status == "OPEN":
-                # PR is open, check if there are recent unique commits
-                recent_commits = git_info.get("recent_commits", [])
-                if recent_commits:
-                    return "pending"  # Work done, waiting for review
-                else:
-                    return "pending"  # PR open but no unique commits
+                # PR is open, waiting for review
+                return "pending"
 
         # Check if task has any associated commits
         if git_info:
@@ -265,7 +278,7 @@ def determine_task_status(
 
             if recent_commits or files_changed > 0:
                 # Work has been done
-                return "pending" if not git_info.get("pr_url") else "pending"
+                return "pending"
 
         # Default to pending for new tasks
         return "pending"
@@ -470,7 +483,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
 
 def create_task_conversation(task: Task) -> str:
     """Create a conversation for a task."""
-    conversation_id = task.id
+    conversation_id = f"{task.id}-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}"
     logdir = get_logs_dir() / conversation_id
 
     # Create conversation directory (but not workspace subdirectory yet)
@@ -526,6 +539,14 @@ def setup_task_workspace(task_id: str, target_repo: str) -> Path:
     workspace = tasks_workspaces / task_id
 
     if target_repo and "/" in target_repo:
+        # Validate target_repo format (owner/repo)
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$", target_repo):
+            logger.error(f"Invalid target_repo format: {target_repo}")
+            workspace.mkdir(parents=True, exist_ok=True)
+            return workspace
+
         # Clone target repository
         workspace.mkdir(parents=True, exist_ok=True)
         repo_name = target_repo.split("/")[-1]
@@ -563,17 +584,12 @@ def setup_task_workspace(task_id: str, target_repo: str) -> Path:
 
 @tasks_api.route("/api/v2/tasks")
 def api_tasks_list():
-    """List all tasks with derived status information."""
+    """List all tasks with cached status information."""
     try:
         tasks = list_tasks()
 
-        # Return with derived status and basic info
-        tasks_info = []
-        for task in tasks:
-            task.status = derive_task_status(task)
-            save_task(task)  # Update status in storage
-            tasks_info.append(asdict(task))
-
+        # Return with stored status (no side effects in GET)
+        tasks_info = [asdict(task) for task in tasks]
         return flask.jsonify(tasks_info)
 
     except Exception as e:
@@ -631,7 +647,17 @@ def api_tasks_get(task_id: str):
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
 
     try:
-        return flask.jsonify(get_task_info(task))
+        original_status = task.status
+        task_info = get_task_info(task)
+
+        # Persist updated status if it changed
+        if task.status != original_status:
+            save_task(task)
+            logger.info(
+                f"Updated task {task_id} status from {original_status} to {task.status}"
+            )
+
+        return flask.jsonify(task_info)
     except Exception as e:
         logger.error(f"Error getting task {task_id}: {e}")
         return flask.jsonify({"error": str(e)}), 500
@@ -694,31 +720,4 @@ def api_tasks_delete(task_id: str):
 
     except Exception as e:
         logger.error(f"Error deleting task {task_id}: {e}")
-        return flask.jsonify({"error": str(e)}), 500
-
-
-@tasks_api.route("/api/v2/tasks/<string:task_id>/continue", methods=["POST"])
-def api_tasks_continue(task_id: str):
-    """Create a new conversation to continue work on a task."""
-    task = load_task(task_id)
-    if not task:
-        return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
-
-    try:
-        # Create new conversation
-        conversation_id = create_task_conversation(task)
-        task.conversation_ids.append(conversation_id)
-
-        save_task(task)
-
-        return flask.jsonify(
-            {
-                "status": "ok",
-                "conversation_id": conversation_id,
-                "message": "Created new conversation for task",
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Error continuing task {task_id}: {e}")
         return flask.jsonify({"error": str(e)}), 500
