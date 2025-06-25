@@ -40,6 +40,17 @@ from ..tools import (
     init_tools,
 )
 from .api import _abs_to_rel_workspace
+from .openapi_docs import (
+    api_doc,
+    ConversationListResponse,
+    ConversationResponse,
+    ErrorResponse,
+    InterruptRequest,
+    SessionResponse,
+    StatusResponse,
+    StepRequest,
+    ToolConfirmRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -450,6 +461,12 @@ def step(
 
 
 @v2_api.route("/api/v2")
+@api_doc(
+    summary="V2 API root",
+    description="Get information about the v2 API",
+    responses={200: dict},
+    tags=["v2-general"],
+)
 def api_root():
     """Root endpoint for the v2 API."""
     return flask.jsonify(
@@ -461,6 +478,20 @@ def api_root():
 
 
 @v2_api.route("/api/v2/conversations")
+@api_doc(
+    summary="List conversations (V2)",
+    description="Get a list of user conversations with metadata using the V2 API",
+    responses={200: ConversationListResponse, 500: ErrorResponse},
+    parameters=[
+        {
+            "name": "limit",
+            "in": "query",
+            "schema": {"type": "integer", "default": 100},
+            "description": "Maximum number of conversations to return",
+        }
+    ],
+    tags=["v2-conversations"],
+)
 def api_conversations():
     """List conversations."""
     limit = int(request.args.get("limit", 100))
@@ -469,6 +500,21 @@ def api_conversations():
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>")
+@api_doc(
+    summary="Get conversation (V2)",
+    description="Retrieve a conversation with all its messages and metadata using the V2 API",
+    responses={200: ConversationResponse, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "conversation_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["v2-conversations"],
+)
 def api_conversation(conversation_id: str):
     """Get a conversation."""
     # Create and set config
@@ -488,6 +534,22 @@ def api_conversation(conversation_id: str):
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["PUT"])
+@api_doc(
+    summary="Create conversation (V2)",
+    description="Create a new conversation with initial configuration and messages using the V2 API",
+    request_body=dict,  # TODO: Create proper request model
+    responses={200: SessionResponse, 409: ErrorResponse, 400: ErrorResponse},
+    parameters=[
+        {
+            "name": "conversation_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["v2-conversations"],
+)
 def api_conversation_put(conversation_id: str):
     """Create a new conversation."""
     logdir = get_logs_dir() / conversation_id
@@ -563,6 +625,22 @@ def msg2dict(msg: Message, workspace: Path) -> MessageDict:
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["POST"])
+@api_doc(
+    summary="Add message to conversation (V2)",
+    description="Add a new message to an existing conversation using the V2 API",
+    request_body=dict,  # TODO: Use proper message request model
+    responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "conversation_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["v2-conversations"],
+)
 def api_conversation_post(conversation_id: str):
     """Append a message to a conversation."""
     req_json = flask.request.json
@@ -603,6 +681,26 @@ def api_conversation_post(conversation_id: str):
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["DELETE"])
+@api_doc(
+    summary="Delete conversation (V2)",
+    description="Delete a conversation and all its data using the V2 API",
+    responses={
+        200: StatusResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    parameters=[
+        {
+            "name": "conversation_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["v2-conversations"],
+)
 def api_conversation_delete(conversation_id: str):
     """Delete a conversation."""
 
@@ -629,6 +727,28 @@ def api_conversation_delete(conversation_id: str):
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/events")
+@api_doc(
+    summary="Subscribe to conversation events (V2)",
+    description="Subscribe to real-time conversation events via Server-Sent Events stream",
+    responses={200: None, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "conversation_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        },
+        {
+            "name": "session_id",
+            "in": "query",
+            "required": False,
+            "schema": {"type": "string"},
+            "description": "Session ID (creates new session if not provided)",
+        },
+    ],
+    tags=["v2-events"],
+)
 def api_conversation_events(conversation_id: str):
     """Subscribe to conversation events."""
     session_id = request.args.get("session_id")
@@ -694,6 +814,27 @@ def api_conversation_events(conversation_id: str):
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/step", methods=["POST"])
+@api_doc(
+    summary="Take conversation step (V2)",
+    description="Take a step in the conversation - generate a response or continue after tool execution",
+    request_body=StepRequest,
+    responses={
+        200: StatusResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
+    parameters=[
+        {
+            "name": "conversation_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["v2-sessions"],
+)
 def api_conversation_step(conversation_id: str):
     """Take a step in the conversation - generate a response or continue after tool execution."""
     req_json = flask.request.json or {}
@@ -748,6 +889,22 @@ def api_conversation_step(conversation_id: str):
 
 @v2_api.route(
     "/api/v2/conversations/<string:conversation_id>/tool/confirm", methods=["POST"]
+)
+@api_doc(
+    summary="Confirm tool execution (V2)",
+    description="Confirm, edit, skip, or auto-confirm a pending tool execution",
+    request_body=ToolConfirmRequest,
+    responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "conversation_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["v2-tools"],
 )
 def api_conversation_tool_confirm(conversation_id: str):
     """Confirm or modify a tool execution."""
@@ -836,6 +993,22 @@ def api_conversation_tool_confirm(conversation_id: str):
 
 @v2_api.route(
     "/api/v2/conversations/<string:conversation_id>/interrupt", methods=["POST"]
+)
+@api_doc(
+    summary="Interrupt conversation (V2)",
+    description="Interrupt the current generation or tool execution in a conversation",
+    request_body=InterruptRequest,
+    responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "conversation_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["v2-sessions"],
 )
 def api_conversation_interrupt(conversation_id: str):
     """Interrupt the current generation or tool execution."""

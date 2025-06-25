@@ -27,6 +27,17 @@ from ..llm.models import get_default_model
 from ..logmanager import LogManager, get_user_conversations, prepare_messages
 from ..message import Message
 from ..tools import ToolUse, execute_msg, init_tools
+from .openapi_docs import (
+    api_doc,
+    ConversationCreateRequest,
+    ConversationListResponse,
+    ConversationResponse,
+    ErrorResponse,
+    GenerateRequest,
+    GenerateResponse,
+    MessageCreateRequest,
+    StatusResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +45,31 @@ api = flask.Blueprint("api", __name__)
 
 
 @api.route("/api")
+@api_doc(
+    summary="API root",
+    description="Get basic API information",
+    responses={200: dict},
+    tags=["general"],
+)
 def api_root():
     return flask.jsonify({"message": "Hello World!"})
 
 
 @api.route("/api/conversations")
+@api_doc(
+    summary="List conversations",
+    description="Get a list of user conversations with metadata",
+    responses={200: ConversationListResponse, 500: ErrorResponse},
+    parameters=[
+        {
+            "name": "limit",
+            "in": "query",
+            "schema": {"type": "integer", "default": 100},
+            "description": "Maximum number of conversations to return",
+        }
+    ],
+    tags=["conversations"],
+)
 def api_conversations():
     limit = int(request.args.get("limit", 100))
     conversations = list(islice(get_user_conversations(), limit))
@@ -54,6 +85,21 @@ def _abs_to_rel_workspace(path: str | Path, workspace: Path) -> str:
 
 
 @api.route("/api/conversations/<string:logfile>")
+@api_doc(
+    summary="Get conversation",
+    description="Retrieve a conversation with all its messages and metadata",
+    responses={200: ConversationResponse, 404: ErrorResponse, 403: ErrorResponse},
+    parameters=[
+        {
+            "name": "logfile",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["conversations"],
+)
 def api_conversation(logfile: str):
     """Get a conversation."""
     init_tools(None)  # FIXME: this is not thread-safe
@@ -69,6 +115,28 @@ def api_conversation(logfile: str):
 
 
 @api.route("/api/conversations/<string:logfile>/files/<path:filename>")
+@api_doc(
+    summary="Get conversation file",
+    description="Download a file from a conversation's workspace",
+    responses={200: None, 403: ErrorResponse, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "logfile",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        },
+        {
+            "name": "filename",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "File path within workspace",
+        },
+    ],
+    tags=["conversations", "files"],
+)
 def api_conversation_file(logfile: str, filename: str):
     """
     Get a file from a conversation, path must be absolute or relative to workspace.
@@ -96,6 +164,22 @@ def api_conversation_file(logfile: str, filename: str):
 
 
 @api.route("/api/conversations/<string:logfile>", methods=["PUT"])
+@api_doc(
+    summary="Create conversation",
+    description="Create a new conversation with initial configuration and messages",
+    request_body=ConversationCreateRequest,
+    responses={200: StatusResponse, 400: ErrorResponse, 409: ErrorResponse},
+    parameters=[
+        {
+            "name": "logfile",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["conversations"],
+)
 def api_conversation_put(logfile: str):
     """Create a conversation."""
     from ..config import ChatConfig
@@ -157,6 +241,22 @@ def api_conversation_put(logfile: str):
     "/api/conversations/<string:logfile>",
     methods=["POST"],
 )
+@api_doc(
+    summary="Add message to conversation",
+    description="Add a new message to an existing conversation",
+    request_body=MessageCreateRequest,
+    responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "logfile",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["conversations"],
+)
 def api_conversation_post(logfile: str):
     """Post a message to the conversation."""
     req_json = flask.request.json
@@ -182,6 +282,22 @@ def confirm_func(msg: str) -> bool:
 
 # generate response
 @api.route("/api/conversations/<string:logfile>/generate", methods=["POST"])
+@api_doc(
+    summary="Generate response",
+    description="Generate an AI response in the conversation, with optional streaming",
+    request_body=GenerateRequest,
+    responses={200: GenerateResponse, 400: ErrorResponse, 500: ErrorResponse},
+    parameters=[
+        {
+            "name": "logfile",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["conversations", "generation"],
+)
 def api_conversation_generate(logfile: str):
     # get model or use server default
     req_json = flask.request.json or {}
@@ -411,6 +527,12 @@ def create_app(cors_origin: str | None = None) -> flask.Flask:
     app.register_blueprint(v2_api)
     app.register_blueprint(workspace_api)
     app.register_blueprint(tasks_api)
+
+    # Register OpenAPI documentation
+    from .openapi_docs import docs_api  # fmt: skip
+
+    app.register_blueprint(docs_api)
+    logger.info("OpenAPI documentation available at /api/docs/")
 
     if cors_origin:
         # Only allow credentials if a specific origin is set (not '*')
