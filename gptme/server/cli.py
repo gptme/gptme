@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 @click.group(invoke_without_command=True)
 @click.pass_context
-def cli(ctx):
+def main(ctx):
     """gptme server commands."""
     # if flask not installed, ask the user to install `server` extras
     try:
@@ -30,7 +30,7 @@ def cli(ctx):
         ctx.invoke(serve)
 
 
-@cli.command("serve")
+@main.command("serve")
 @click.option("--debug", is_flag=True, help="Debug mode")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.option(
@@ -82,7 +82,7 @@ def serve(
     app.run(debug=debug, host=host, port=int(port))
 
 
-@cli.command("openapi")
+@main.command("openapi")
 @click.option("-o", "--output", default="openapi.json", help="Output file path")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 def generate_openapi(output: str, verbose: bool):
@@ -108,10 +108,5 @@ def generate_openapi(output: str, verbose: bool):
         click.echo(f"OpenAPI specification generated: {output}")
 
 
-def main():
-    """Main entry point for backward compatibility."""
-    cli()
-
-
 if __name__ == "__main__":
-    cli()
+    main()
