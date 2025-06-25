@@ -382,7 +382,11 @@
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">gptme</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-server">gptme-server</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-server">gptme-server</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-server-openapi">openapi</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-server-serve">serve</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval">gptme-eval</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util">gptme-util</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats">chats</a><ul class="nav section-nav flex-column">
@@ -563,54 +567,75 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 </section>
 <section id="gptme-server">
 <h2>gptme-server<a class="headerlink" href="#gptme-server" title="Link to this heading">#</a></h2>
-<p>Starts a server and web UI for gptme.</p>
-<p>Note that this is very much a work in progress, and is not yet ready for normal use.</p>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-server<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+<p>gptme server commands.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-server<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>COMMAND<span class="w"> </span><span class="o">[</span>ARGS<span class="o">]</span>...
+</pre></div>
+</div>
+<section id="gptme-server-openapi">
+<h3>openapi<a class="headerlink" href="#gptme-server-openapi" title="Link to this heading">#</a></h3>
+<p>Generate OpenAPI specification without starting server.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-server<span class="w"> </span>openapi<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
 <p class="rubric">Options</p>
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-server-debug">
-<span class="sig-name descname"><span class="pre">--debug</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-server-debug" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object std" id="cmdoption-gptme-server-openapi-o">
+<span id="cmdoption-gptme-server-openapi-output"></span><span class="sig-name descname"><span class="pre">-o</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--output</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-openapi-o" title="Link to this definition">#</a></dt>
+<dd><p>Output file path</p>
+</dd></dl>
+
+</section>
+<section id="gptme-server-serve">
+<h3>serve<a class="headerlink" href="#gptme-server-serve" title="Link to this heading">#</a></h3>
+<p>Starts a server and web UI for gptme.</p>
+<p>Note that this is very much a work in progress, and is not yet ready for normal use.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-server<span class="w"> </span>serve<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-debug">
+<span class="sig-name descname"><span class="pre">--debug</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-server-serve-debug" title="Link to this definition">#</a></dt>
 <dd><p>Debug mode</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-server-v">
-<span id="cmdoption-gptme-server-verbose"></span><span class="sig-name descname"><span class="pre">-v</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--verbose</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-server-v" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-v">
+<span id="cmdoption-gptme-server-serve-verbose"></span><span class="sig-name descname"><span class="pre">-v</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--verbose</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-server-serve-v" title="Link to this definition">#</a></dt>
 <dd><p>Verbose output</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-server-model">
-<span class="sig-name descname"><span class="pre">--model</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;model&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-model" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-model">
+<span class="sig-name descname"><span class="pre">--model</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;model&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-serve-model" title="Link to this definition">#</a></dt>
 <dd><p>Model to use by default, can be overridden in each request.</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-server-host">
-<span class="sig-name descname"><span class="pre">--host</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;host&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-host" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-host">
+<span class="sig-name descname"><span class="pre">--host</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;host&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-serve-host" title="Link to this definition">#</a></dt>
 <dd><p>Host to bind the server to.</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-server-port">
-<span class="sig-name descname"><span class="pre">--port</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;port&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-port" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-port">
+<span class="sig-name descname"><span class="pre">--port</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;port&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-serve-port" title="Link to this definition">#</a></dt>
 <dd><p>Port to run the server on.</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-server-tools">
-<span class="sig-name descname"><span class="pre">--tools</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tools&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-tools" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-tools">
+<span class="sig-name descname"><span class="pre">--tools</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tools&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-serve-tools" title="Link to this definition">#</a></dt>
 <dd><p>Tools to enable, comma separated.</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-server-cors-origin">
-<span class="sig-name descname"><span class="pre">--cors-origin</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;cors_origin&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-cors-origin" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-cors-origin">
+<span class="sig-name descname"><span class="pre">--cors-origin</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;cors_origin&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-serve-cors-origin" title="Link to this definition">#</a></dt>
 <dd><p>CORS origin to allow. Use ‘*’ to allow all origins.</p>
 </dd></dl>
 
+</section>
 </section>
 <section id="gptme-eval">
 <h2>gptme-eval<a class="headerlink" href="#gptme-eval" title="Link to this heading">#</a></h2>
@@ -1026,7 +1051,11 @@ Pass eval or suite names to run, or result files to print.</p>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">gptme</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-server">gptme-server</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-server">gptme-server</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-server-openapi">openapi</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-server-serve">serve</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval">gptme-eval</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util">gptme-util</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats">chats</a><ul class="nav section-nav flex-column">

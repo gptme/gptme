@@ -357,14 +357,14 @@
     --cors-origin
 
       <ul>
-        <li><a href="cli.html#cmdoption-gptme-server-cors-origin">gptme-server command line option</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-cors-origin">gptme-server-serve command line option</a>
 </li>
       </ul></li>
       <li>
     --debug
 
       <ul>
-        <li><a href="cli.html#cmdoption-gptme-server-debug">gptme-server command line option</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-debug">gptme-server-serve command line option</a>
 </li>
       </ul></li>
       <li>
@@ -385,7 +385,7 @@
     --host
 
       <ul>
-        <li><a href="cli.html#cmdoption-gptme-server-host">gptme-server command line option</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-host">gptme-server-serve command line option</a>
 </li>
       </ul></li>
       <li>
@@ -412,7 +412,7 @@
 </li>
         <li><a href="cli.html#cmdoption-gptme-eval-m">gptme-eval command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-model">gptme-server command line option</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-model">gptme-server-serve command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-llm-generate-m">gptme-util-llm-generate command line option</a>
 </li>
@@ -450,6 +450,13 @@
 </li>
       </ul></li>
       <li>
+    --output
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-server-openapi-o">gptme-server-openapi command line option</a>
+</li>
+      </ul></li>
+      <li>
     --parallel
 
       <ul>
@@ -460,7 +467,7 @@
     --port
 
       <ul>
-        <li><a href="cli.html#cmdoption-gptme-server-port">gptme-server command line option</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-port">gptme-server-serve command line option</a>
 </li>
       </ul></li>
       <li>
@@ -552,7 +559,7 @@
       <ul>
         <li><a href="cli.html#cmdoption-gptme-t">gptme command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-tools">gptme-server command line option</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-tools">gptme-server-serve command line option</a>
 </li>
       </ul></li>
       <li>
@@ -561,7 +568,7 @@
       <ul>
         <li><a href="cli.html#cmdoption-gptme-v">gptme command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-v">gptme-server command line option</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-v">gptme-server-serve command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-v">gptme-util command line option</a>
 </li>
@@ -626,6 +633,13 @@
 </li>
       </ul></li>
       <li>
+    -o
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-server-openapi-o">gptme-server-openapi command line option</a>
+</li>
+      </ul></li>
+      <li>
     -p
 
       <ul>
@@ -654,7 +668,7 @@
       <ul>
         <li><a href="cli.html#cmdoption-gptme-v">gptme command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-v">gptme-server command line option</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-v">gptme-server-serve command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-v">gptme-util command line option</a>
 </li>
@@ -916,24 +930,33 @@
 </li>
       </ul></li>
       <li>
-    gptme-server command line option
+    gptme-server-openapi command line option
 
       <ul>
-        <li><a href="cli.html#cmdoption-gptme-server-cors-origin">--cors-origin</a>
+        <li><a href="cli.html#cmdoption-gptme-server-openapi-o">--output</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-debug">--debug</a>
+        <li><a href="cli.html#cmdoption-gptme-server-openapi-o">-o</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-host">--host</a>
+      </ul></li>
+      <li>
+    gptme-server-serve command line option
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-cors-origin">--cors-origin</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-model">--model</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-debug">--debug</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-port">--port</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-host">--host</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-tools">--tools</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-model">--model</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-v">--verbose</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-port">--port</a>
 </li>
-        <li><a href="cli.html#cmdoption-gptme-server-v">-v</a>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-tools">--tools</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-v">--verbose</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-server-serve-v">-v</a>
 </li>
       </ul></li>
       <li>
