@@ -3809,14 +3809,14 @@ sphinx = ">=4.0"
 
 [[package]]
 name = "sphinx-llms-txt"
-version = "0.2.4"
+version = "0.3.0"
 description = "llms-full.txt generator for Sphinx"
 optional = false
 python-versions = "*"
 groups = ["dev"]
 files = [
-    {file = "sphinx_llms_txt-0.2.4-py3-none-any.whl", hash = "sha256:c9fbda9814d21d9fc006d86d4328f06e72c079f783d92ae97aaae06a54b31772"},
-    {file = "sphinx_llms_txt-0.2.4.tar.gz", hash = "sha256:ff23007a88be5bbe120bb089977904e5dae39f0ae9c46fecf08237a9f69e67f9"},
+    {file = "sphinx_llms_txt-0.3.0-py3-none-any.whl", hash = "sha256:c3873961305dd89b95f207bc3e4faa72a910ca3788c71a576e683b001ac79628"},
+    {file = "sphinx_llms_txt-0.3.0.tar.gz", hash = "sha256:877ba9065225b1af7337fe4fbb7d155d69fdedfab0e11213d6286b7b4e01fcc8"},
 ]
 
 [package.extras]
@@ -4593,4 +4593,4 @@ youtube = ["youtube_transcript_api"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "9309df2f2ab579c85c7d03fdcebeedd5b4f72e1ec5ab16f33ba8159925a37330"
+content-hash = "8f587fa9d146c4851e7e5c97c683c9dea5224a82723f9a08afccf5c103ea5e0a"
