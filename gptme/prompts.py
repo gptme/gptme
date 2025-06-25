@@ -29,7 +29,7 @@ DEFAULT_CONTEXT_FILES = [
     "README*",
     "CLAUDE.md",
     "GEMINI.md",
-    ".cursor/**/*.md",
+    ".cursor/rules/*.mdc",
     "pyproject.toml",
     "package.json",
     "Cargo.toml",
