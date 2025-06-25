@@ -1,8 +1,8 @@
 from gptme.tools.tts import (
+    join_short_sentences,
     re_thinking,
     re_tool_use,
     split_text,
-    join_short_sentences,
 )
 
 
@@ -47,11 +47,11 @@ def test_join_short_sentences():
     # Test with min_length to force splits
     sentences = ["One two", "three four", "five."]
     result = join_short_sentences(sentences, min_length=10)
-    assert result == ["One two", "three four", "five."]
-
-    # Test with min_length to allow combining
-    result = join_short_sentences(sentences, min_length=100)
     assert result == ["One two three four five."]
+
+    # Test with max_length to limit combining
+    result = join_short_sentences(sentences, min_length=10, max_length=20)
+    assert result == ["One two three four", "five."]
 
     # Test with empty lines (should preserve paragraph breaks)
     sentences = ["Hello.", "", "World."]
