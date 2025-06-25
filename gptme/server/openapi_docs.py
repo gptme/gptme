@@ -274,8 +274,8 @@ def _infer_parameters(func: Callable, rule_string: str) -> list[dict[str, Any]]:
     """Infer parameters from Flask route and function signature."""
     parameters = []
 
-    # Extract path parameters from route
-    path_params = re.findall(r"<(?:string:)?(\w+)>", rule_string)
+    # Extract path parameters from route - handle all Flask parameter types
+    path_params = re.findall(r"<(?:\w+:)?(\w+)>", rule_string)
     for param in path_params:
         parameters.append(
             {
@@ -477,6 +477,67 @@ def generate_openapi_spec() -> dict[str, Any]:
     for schema_name, schema in all_schemas.items():
         all_schemas[schema_name] = update_refs(schema)
 
+    # Convert Pydantic's anyOf nullable patterns to OpenAPI 3.0 nullable format
+    def convert_to_openapi_nullable(schema: dict) -> dict:
+        """Recursively convert Pydantic's anyOf nullable patterns to OpenAPI 3.0 format."""
+        if isinstance(schema, dict):
+            # Handle anyOf nullable patterns
+            if "anyOf" in schema:
+                any_of_items = schema["anyOf"]
+                if isinstance(any_of_items, list) and len(any_of_items) == 2:
+                    # Check for type + null pattern
+                    type_item = None
+                    null_item = None
+                    for item in any_of_items:
+                        if isinstance(item, dict):
+                            if item.get("type") == "null":
+                                null_item = item
+                            elif "type" in item:
+                                type_item = item
+                            elif "$ref" in item:
+                                type_item = item
+
+                    if null_item and type_item:
+                        # Convert to OpenAPI 3.0 nullable format
+                        new_schema = {k: v for k, v in schema.items() if k != "anyOf"}
+                        new_schema.update(type_item)
+                        new_schema["nullable"] = True
+
+                        # If field has enum, add null to the allowed values
+                        if "enum" in new_schema and None not in new_schema["enum"]:
+                            new_schema["enum"] = new_schema["enum"] + [None]
+
+                        return new_schema
+
+            # Handle direct nullable patterns (type + default: null)
+            elif (
+                "type" in schema
+                and "default" in schema
+                and schema["default"] is None
+                and "nullable" not in schema
+                and schema["type"] != "null"
+            ):
+                # This is a field with default: null but not explicitly nullable
+                new_schema = schema.copy()
+                new_schema["nullable"] = True
+
+                # If field has enum, add null to the allowed values
+                if "enum" in new_schema and None not in new_schema["enum"]:
+                    new_schema["enum"] = new_schema["enum"] + [None]
+
+                return new_schema
+
+            # Recursively process all dictionary values
+            return {k: convert_to_openapi_nullable(v) for k, v in schema.items()}
+        elif isinstance(schema, list):
+            return [convert_to_openapi_nullable(item) for item in schema]
+        else:
+            return schema
+
+    # Apply nullable conversion to all schemas
+    for schema_name in list(all_schemas.keys()):
+        all_schemas[schema_name] = convert_to_openapi_nullable(all_schemas[schema_name])
+
     # Add all schemas to spec
     spec["components"]["schemas"].update(all_schemas)  # type: ignore
 
@@ -501,8 +562,21 @@ def generate_openapi_spec() -> dict[str, Any]:
         path = _convert_flask_path_to_openapi(rule.rule)
         methods = (rule.methods or set()) - {"HEAD", "OPTIONS"}
 
-        # Infer parameters if not manually specified
-        final_parameters = doc["parameters"] or _infer_parameters(view_func, rule.rule)
+        # Always infer path parameters, then merge with manual parameters
+        inferred_parameters = _infer_parameters(view_func, rule.rule)
+        manual_parameters = doc["parameters"] or []
+
+        # Merge parameters, with manual parameters taking precedence
+        final_parameters = []
+        manual_param_names = {p["name"] for p in manual_parameters}
+
+        # Add inferred path parameters that aren't manually overridden
+        for param in inferred_parameters:
+            if param["name"] not in manual_param_names:
+                final_parameters.append(param)
+
+        # Add manual parameters
+        final_parameters.extend(manual_parameters)
 
         paths_dict = spec["paths"]  # type: ignore
         if path not in paths_dict:
@@ -571,6 +645,10 @@ def generate_openapi_spec() -> dict[str, Any]:
                 method_spec["parameters"] = final_parameters
 
             paths_dict[path][method.lower()] = method_spec  # type: ignore
+
+    # Apply conversion to parameter schemas in paths (after paths are populated)
+    if "paths" in spec:
+        spec["paths"] = convert_to_openapi_nullable(spec["paths"])
 
     return spec
 

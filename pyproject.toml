@@ -79,6 +79,7 @@ ruff = "*"
 pylint = "*"
 pre-commit = "*"
 radon = "*"
+openapi-spec-validator = "^0.7.2"
 
 # test
 pytest = "^8.0"

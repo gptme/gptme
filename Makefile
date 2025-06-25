@@ -82,6 +82,13 @@ check-rst:
 	@echo "Checking RST files for proper nested list formatting..."
 	poetry run python scripts/check_rst_formatting.py docs/
 
+check-openapi: ## Validate OpenAPI specification
+	@echo "Generating OpenAPI spec..."
+	poetry run gptme-server openapi -o openapi.json
+	@echo "Validating OpenAPI spec..."
+	poetry run openapi-spec-validator openapi.json
+	@echo "✅ OpenAPI spec is valid!"
+
 docs/.clean: docs/conf.py
 	poetry run make -C docs clean
 	touch docs/.clean

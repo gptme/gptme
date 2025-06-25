@@ -1,8 +1,8 @@
+import json
 import logging
 from pathlib import Path
 
 import click
-
 from gptme.config import set_config_from_workspace
 
 from ..init import init, init_logging
@@ -11,7 +11,26 @@ from .api import create_app
 logger = logging.getLogger(__name__)
 
 
-@click.command("gptme-server")
+@click.group(invoke_without_command=True)
+@click.pass_context
+def cli(ctx):
+    """gptme server commands."""
+    # if flask not installed, ask the user to install `server` extras
+    try:
+        __import__("flask")
+    except ImportError:
+        logger.error(
+            "gptme installed without needed extras for server. "
+            "Install them with `pip install gptme[server]`"
+        )
+        exit(1)
+
+    # If no subcommand was provided, default to serve
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(serve)
+
+
+@cli.command("serve")
 @click.option("--debug", is_flag=True, help="Debug mode")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.option(
@@ -35,7 +54,7 @@ logger = logging.getLogger(__name__)
     default=None,
     help="CORS origin to allow. Use '*' to allow all origins.",
 )
-def main(
+def serve(
     debug: bool,
     verbose: bool,
     model: str | None,
@@ -57,16 +76,42 @@ def main(
         tool_allowlist=None if tools is None else tools.split(","),
     )
 
-    # if flask not installed, ask the user to install `server` extras
-    try:
-        __import__("flask")
-    except ImportError:
-        logger.error(
-            "gptme installed without needed extras for server. "
-            "Install them with `pip install gptme[server]`"
-        )
-        exit(1)
     click.echo("Initialization complete, starting server")
 
     app = create_app(cors_origin=cors_origin)
     app.run(debug=debug, host=host, port=int(port))
+
+
+@cli.command("openapi")
+@click.option("-o", "--output", default="openapi.json", help="Output file path")
+@click.option("-v", "--verbose", is_flag=True, help="Verbose output")
+def generate_openapi(output: str, verbose: bool):
+    """Generate OpenAPI specification."""
+    init_logging(verbose)
+    set_config_from_workspace(Path.cwd())
+    init(
+        model=None,
+        interactive=False,
+        tool_allowlist=None,
+    )
+
+    # Create app and generate spec without starting server
+    app = create_app()
+    with app.app_context():
+        from .openapi_docs import generate_openapi_spec
+
+        spec = generate_openapi_spec()
+
+        with open(output, "w") as f:
+            json.dump(spec, f, indent=2)
+
+        click.echo(f"OpenAPI specification generated: {output}")
+
+
+def main():
+    """Main entry point for backward compatibility."""
+    cli()
+
+
+if __name__ == "__main__":
+    cli()
