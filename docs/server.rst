@@ -28,6 +28,7 @@ The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>
 **Try it now:** `chat.gptme.org <https://chat.gptme.org>`_
 
 **Key Features:**
+
 - Modern React-based interface with shadcn/ui components
 - Real-time streaming of AI responses
 - Mobile-friendly responsive design
@@ -47,6 +48,7 @@ A lightweight chat interface with minimal dependencies is bundled with the gptme
 Access at http://localhost:5700 after starting ``gptme-server``.
 
 This interface provides basic chat functionality and is useful for:
+
 - Quick testing and development
 - Minimal server deployments
 - Environments with limited resources
@@ -71,17 +73,20 @@ The computer use interface provides an innovative split-view experience with cha
    docker run -v ~/.config/gptme:/home/computeruse/.config/gptme -p 6080:6080 -p 8080:8080 gptme-computer:latest
 
 **Access Points:**
+
 - **Combined interface:** http://localhost:8080/computer
 - **Chat only:** http://localhost:8080
 - **Desktop only:** http://localhost:6080/vnc.html
 
 **Features:**
+
 - Split-view interface with real-time desktop interaction
 - Toggle between view-only and interactive desktop modes
 - Automatic screen scaling optimized for LLM vision models
 - Secure containerized environment
 
 **Requirements:**
+
 - Docker with X11 support
 - Available ports: 6080 (VNC) and 8080 (web interface)
 
@@ -91,6 +96,7 @@ Local Computer Use (Advanced)
 You can enable the ``computer`` tool locally on Linux systems, though this is not recommended for security reasons.
 
 **Requirements:**
+
 - X11 server
 - ``xdotool`` package installed
 

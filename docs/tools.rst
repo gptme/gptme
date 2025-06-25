@@ -3,35 +3,45 @@ Tools
 
 gptme's tools enable AI agents to execute code, edit files, browse the web, process images, and interact with your computer.
 
-## Tool Categories
+Overview
+--------
 
-### 💻 Code & Development
+📁 File System
+^^^^^^^^^^^^^^
 
-- `Python`_ - Execute Python code interactively with full library access
-- `Shell`_ - Run shell commands and manage system processes
 - `Read`_ - Read files in any format
 - `Save`_ - Create and overwrite files
 - `Patch`_ - Apply precise changes to existing files
 
-### 🌐 Web & Research
+💻 Code & Development
+^^^^^^^^^^^^^^^^^^^^^
+
+- `Python`_ - Execute Python code interactively with full library access
+- `Shell`_ - Run shell commands and manage system processes
+
+🌐 Web & Research
+^^^^^^^^^^^^^^^^^
 
 - `Browser`_ - Browse websites, take screenshots, and read web content
 - `RAG`_ - Index and search through documentation and codebases
 - `Chats`_ - Search past conversations for context and references
 
-### 👁️ Visual & Interactive
+👁️ Visual & Interactive
+^^^^^^^^^^^^^^^^^^^^^^
 
 - `Vision`_ - Analyze images, diagrams, and visual content
 - `Screenshot`_ - Capture your screen for visual context
 - `Computer`_ - Control desktop applications through visual interface
 
-### ⚡ Advanced Workflows
+⚡ Advanced Workflows
+^^^^^^^^^^^^^^^^^^^^^
 
 - `Tmux`_ - Manage long-running processes in terminal sessions
 - `Subagent`_ - Delegate subtasks to specialized agent instances
 - `TTS`_ - Convert responses to speech for hands-free interaction
 
-## Tool Combinations
+Combinations
+^^^^^^^^^^^^
 
 The real power emerges when tools work together:
 
