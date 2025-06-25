@@ -84,18 +84,8 @@ def serve(
 
 @main.command("openapi")
 @click.option("-o", "--output", default="openapi.json", help="Output file path")
-@click.option("-v", "--verbose", is_flag=True, help="Verbose output")
-def generate_openapi(output: str, verbose: bool):
-    """Generate OpenAPI specification."""
-    init_logging(verbose)
-    set_config_from_workspace(Path.cwd())
-    init(
-        model="openai/mock",
-        interactive=False,
-        tool_allowlist=None,
-    )
-
-    # Create app and generate spec without starting server
+def generate_openapi(output: str):
+    """Generate OpenAPI specification without starting server."""
     app = create_app()
     with app.app_context():
         from .openapi_docs import generate_openapi_spec
