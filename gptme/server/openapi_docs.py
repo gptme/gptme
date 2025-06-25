@@ -1,14 +1,23 @@
 """
 OpenAPI documentation using pydantic dataclasses.
 
-Simple decorator-based approach for existing function routes.
+Simple decorator-based approach for existing function routes with automatic inference.
 """
 
-from typing import Any
+import inspect
+import re
+from collections.abc import Callable
+from typing import (
+    Any,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
-from flask import Blueprint, jsonify, current_app
+from flask import Blueprint, current_app, jsonify
+from gptme.__version__ import __version__
 from pydantic import BaseModel, Field
-
 
 # Pydantic Models (auto-generate OpenAPI schemas)
 # -----------------------------------------------
@@ -158,31 +167,224 @@ class ChatConfig(BaseModel):
     workspace: str | None = Field(None, description="Workspace path")
 
 
-# Simple decorator for OpenAPI documentation
-# ------------------------------------------
+# Helper functions for automatic inference
+# ----------------------------------------
+
+
+def _parse_docstring(docstring: str | None) -> tuple[str, str]:
+    """Parse docstring into summary and description."""
+    if not docstring:
+        return "", ""
+
+    lines = [line.strip() for line in docstring.strip().split("\n") if line.strip()]
+    if not lines:
+        return "", ""
+
+    summary = lines[0]
+    description = "\n".join(lines[1:]) if len(lines) > 1 else ""
+
+    return summary, description
+
+
+def _infer_response_type(func: Callable) -> dict[int, type | None]:
+    """Infer response types from function type annotations."""
+    try:
+        type_hints = get_type_hints(func)
+        return_type = type_hints.get("return")
+
+        if return_type is None:
+            return {200: None}
+
+        # Handle Union types (e.g., Union[SuccessResponse, ErrorResponse])
+        if get_origin(return_type) is Union:
+            # For now, just use the first non-None type as 200 response
+            args = get_args(return_type)
+            for arg in args:
+                if (
+                    arg is not type(None)
+                    and isinstance(arg, type)
+                    and issubclass(arg, BaseModel)
+                ):
+                    return {200: arg, 500: ErrorResponse}
+            return {200: None}
+
+        # Handle direct BaseModel subclasses
+        if isinstance(return_type, type) and issubclass(return_type, BaseModel):
+            return {200: return_type, 500: ErrorResponse}
+
+        return {200: None}
+    except Exception:
+        return {200: None}
+
+
+def _infer_request_body(func: Callable) -> type[BaseModel] | None:
+    """Infer request body type from function parameters or annotations."""
+    try:
+        # First try to get from function annotations (for new style)
+        type_hints = get_type_hints(func)
+
+        # Look for parameters that are BaseModel subclasses (excluding path params)
+        sig = inspect.signature(func)
+        for param_name, _param in sig.parameters.items():
+            if param_name in ("logfile", "filename"):  # Skip path parameters
+                continue
+
+            param_type = type_hints.get(param_name)
+            if (
+                param_type
+                and isinstance(param_type, type)
+                and issubclass(param_type, BaseModel)
+            ):
+                return param_type
+
+        return None
+    except Exception:
+        return None
+
+
+def api_doc_simple(
+    responses: dict[int, type | None] | None = None,
+    request_body: type[BaseModel] | None = None,
+    parameters: list[dict[str, Any]] | None = None,
+    tags: list[str] | None = None,
+):
+    """
+    Simplified decorator that infers everything possible automatically.
+
+    Use this for maximum automation - only specify what can't be inferred.
+    """
+    return api_doc(
+        summary=None,  # Will be inferred from docstring
+        description=None,  # Will be inferred from docstring
+        responses=responses,
+        request_body=request_body,
+        parameters=parameters,  # Manual override for special cases
+        tags=tags,
+    )
+
+
+def _convert_flask_path_to_openapi(flask_path: str) -> str:
+    """Convert Flask route pattern to OpenAPI path pattern."""
+    # Convert <type:param> or <param> to {param}
+    # Handles string:, path:, int:, float:, etc.
+    return re.sub(r"<(?:\w+:)?(\w+)>", r"{\1}", flask_path)
+
+
+def _infer_parameters(func: Callable, rule_string: str) -> list[dict[str, Any]]:
+    """Infer parameters from Flask route and function signature."""
+    parameters = []
+
+    # Extract path parameters from route
+    path_params = re.findall(r"<(?:string:)?(\w+)>", rule_string)
+    for param in path_params:
+        parameters.append(
+            {
+                "name": param,
+                "in": "path",
+                "required": True,
+                "schema": {"type": "string"},
+                "description": f"{param.replace('_', ' ').title()} identifier",
+            }
+        )
+
+    # Try to infer query parameters from function signature
+    try:
+        sig = inspect.signature(func)
+        for param_name, param in sig.parameters.items():
+            if param_name in path_params or param_name in ("logfile", "filename"):
+                continue
+
+            # If parameter has a default value, it might be a query parameter
+            if param.default is not inspect.Parameter.empty:
+                param_type = "integer" if isinstance(param.default, int) else "string"
+                parameters.append(
+                    {
+                        "name": param_name,
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": param_type, "default": param.default},
+                        "description": f"{param_name.replace('_', ' ').title()} parameter",
+                    }
+                )
+    except Exception:
+        pass
+
+    return parameters
+
+
+def _infer_tags(func: Callable) -> list[str]:
+    """Infer tags from function module and name."""
+    module_parts = func.__module__.split(".")
+    if "api" in module_parts:
+        # Extract meaningful parts after 'api'
+        api_index = module_parts.index("api")
+        if api_index + 1 < len(module_parts):
+            return [module_parts[api_index + 1]]
+
+    # Fallback to extracting from function name
+    func_name = func.__name__
+    if func_name.startswith("api_"):
+        return [func_name[4:].split("_")[0]]
+
+    return ["general"]
+
+
+# Enhanced decorator for OpenAPI documentation
+# --------------------------------------------
 
 _endpoint_docs: dict[str, dict[str, Any]] = {}
 
 
 def api_doc(
-    summary: str,
-    description: str = "",
+    summary: str | None = None,
+    description: str | None = None,
     responses: dict[int, type | None] | None = None,
     request_body: type | None = None,
     parameters: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
 ):
-    """Decorator to add OpenAPI documentation to endpoints."""
+    """
+    Enhanced decorator to add OpenAPI documentation to endpoints.
+
+    Automatically infers information from:
+    - Function docstrings (summary/description)
+    - Type annotations (response/request types)
+    - Function signatures (parameters)
+    - Module structure (tags)
+
+    Manual parameters override automatic inference.
+    """
 
     def decorator(func):
         endpoint = f"{func.__module__}.{func.__name__}"
+
+        # Auto-infer from docstring if not provided
+        if summary is None or description is None:
+            auto_summary, auto_description = _parse_docstring(func.__doc__)
+            final_summary = (
+                summary or auto_summary or func.__name__.replace("_", " ").title()
+            )
+            final_description = description or auto_description
+        else:
+            final_summary = summary
+            final_description = description
+
+        # Auto-infer response types if not provided
+        final_responses = responses or _infer_response_type(func)
+
+        # Auto-infer request body if not provided
+        final_request_body = request_body or _infer_request_body(func)
+
+        # Auto-infer tags if not provided
+        final_tags = tags or _infer_tags(func)
+
         _endpoint_docs[endpoint] = {
-            "summary": summary,
-            "description": description,
-            "responses": responses or {},
-            "request_body": request_body,
-            "parameters": parameters or [],
-            "tags": tags or [],
+            "summary": final_summary,
+            "description": final_description,
+            "responses": final_responses,
+            "request_body": final_request_body,
+            "parameters": parameters,  # Will be inferred later when we have route info
+            "tags": final_tags,
         }
         return func
 
@@ -196,12 +398,12 @@ def generate_openapi_spec() -> dict[str, Any]:
         "openapi": "3.0.3",
         "info": {
             "title": "gptme API",
-            "version": "2.0.0",
+            "version": __version__,
             "description": "Personal AI assistant server API",
             "contact": {"name": "gptme", "url": "https://gptme.org"},
             "license": {
                 "name": "MIT",
-                "url": "https://github.com/gptme/gptme/blob/main/LICENSE",
+                "url": "https://github.com/gptme/gptme/blob/master/LICENSE",
             },
         },
         "servers": [{"url": "/", "description": "gptme server"}],
@@ -209,26 +411,32 @@ def generate_openapi_spec() -> dict[str, Any]:
         "components": {"schemas": {}},
     }
 
-    # Add schemas from pydantic models
-    model_classes: list[type[BaseModel]] = [
-        ConversationListItem,
-        Message,
-        Conversation,
-        MessageCreateRequest,
-        GenerateRequest,
-        FileMetadata,
-        ErrorResponse,
-        StatusResponse,
-        ConversationResponse,
-        ConversationListResponse,
-        ConversationCreateRequest,
-        GenerateResponse,
-        SessionResponse,
-        StepRequest,
-        ToolConfirmRequest,
-        InterruptRequest,
-        ChatConfig,
-    ]
+    # Automatically collect all Pydantic models used in endpoint documentation
+    model_classes_set: set[type[BaseModel]] = set()
+
+    def collect_models_from_type(type_hint: Any) -> None:
+        """Recursively collect BaseModel classes from type annotations."""
+        if isinstance(type_hint, type) and issubclass(type_hint, BaseModel):
+            model_classes_set.add(type_hint)
+        elif hasattr(type_hint, "__origin__"):
+            # Handle generic types like list[TaskResponse], dict[str, Model], etc.
+            if hasattr(type_hint, "__args__"):
+                for arg in type_hint.__args__:
+                    collect_models_from_type(arg)
+
+    # Collect models from all documented endpoints
+    for doc in _endpoint_docs.values():
+        # Collect from request body
+        if doc.get("request_body"):
+            collect_models_from_type(doc["request_body"])
+
+        # Collect from responses
+        for response_type in doc.get("responses", {}).values():
+            if response_type:
+                collect_models_from_type(response_type)
+
+    # Convert back to list for existing code compatibility
+    model_classes = list(model_classes_set)
 
     # Generate schemas and collect all definitions
     all_schemas: dict[str, Any] = {}
@@ -290,8 +498,11 @@ def generate_openapi_spec() -> dict[str, Any]:
             continue
 
         doc = _endpoint_docs[endpoint_key]
-        path = rule.rule
-        methods = rule.methods - {"HEAD", "OPTIONS"}
+        path = _convert_flask_path_to_openapi(rule.rule)
+        methods = (rule.methods or set()) - {"HEAD", "OPTIONS"}
+
+        # Infer parameters if not manually specified
+        final_parameters = doc["parameters"] or _infer_parameters(view_func, rule.rule)
 
         paths_dict = spec["paths"]  # type: ignore
         if path not in paths_dict:
@@ -305,11 +516,15 @@ def generate_openapi_spec() -> dict[str, Any]:
                 "responses": {},
             }
 
-            # Add responses
+            # Add responses with better descriptions
             for code, response_type in doc["responses"].items():
                 if response_type:
+                    # Get description from response model if available
+                    response_description = (
+                        getattr(response_type, "__doc__", None) or f"HTTP {code}"
+                    )
                     method_spec["responses"][str(code)] = {
-                        "description": f"HTTP {code}",
+                        "description": response_description,
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -322,7 +537,7 @@ def generate_openapi_spec() -> dict[str, Any]:
                     # Handle non-JSON responses (like file downloads)
                     if code == 200:
                         method_spec["responses"][str(code)] = {
-                            "description": "File download",
+                            "description": "File download or binary content",
                             "content": {
                                 "application/octet-stream": {
                                     "schema": {"type": "string", "format": "binary"}
@@ -331,24 +546,29 @@ def generate_openapi_spec() -> dict[str, Any]:
                         }
                     else:
                         method_spec["responses"][str(code)] = {
-                            "description": f"HTTP {code}"
+                            "description": f"HTTP {code} response"
                         }
 
-            # Add request body
+            # Add request body with better validation
             if doc["request_body"] and method.lower() in ["post", "put", "patch"]:
+                request_description = (
+                    getattr(doc["request_body"], "__doc__", None) or "Request body"
+                )
                 method_spec["requestBody"] = {
+                    "description": request_description,
+                    "required": True,
                     "content": {
                         "application/json": {
                             "schema": {
                                 "$ref": f"#/components/schemas/{doc['request_body'].__name__}"
                             }
                         }
-                    }
+                    },
                 }
 
-            # Add parameters
-            if doc["parameters"]:
-                method_spec["parameters"] = doc["parameters"]
+            # Add parameters (inferred or manual)
+            if final_parameters:
+                method_spec["parameters"] = final_parameters
 
             paths_dict[path][method.lower()] = method_spec  # type: ignore
 

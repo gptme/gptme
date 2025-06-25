@@ -41,7 +41,6 @@ from ..tools import (
 )
 from .api import _abs_to_rel_workspace
 from .openapi_docs import (
-    api_doc,
     ConversationListResponse,
     ConversationResponse,
     ErrorResponse,
@@ -50,6 +49,8 @@ from .openapi_docs import (
     StatusResponse,
     StepRequest,
     ToolConfirmRequest,
+    api_doc,
+    api_doc_simple,
 )
 
 logger = logging.getLogger(__name__)
@@ -461,14 +462,12 @@ def step(
 
 
 @v2_api.route("/api/v2")
-@api_doc(
-    summary="V2 API root",
-    description="Get information about the v2 API",
-    responses={200: dict},
-    tags=["v2-general"],
-)
+@api_doc_simple()
 def api_root():
-    """Root endpoint for the v2 API."""
+    """V2 API root.
+
+    Get information about the v2 API, including available endpoints and capabilities.
+    """
     return flask.jsonify(
         {
             "message": "gptme v2 API",
@@ -478,10 +477,9 @@ def api_root():
 
 
 @v2_api.route("/api/v2/conversations")
-@api_doc(
-    summary="List conversations (V2)",
-    description="Get a list of user conversations with metadata using the V2 API",
+@api_doc_simple(
     responses={200: ConversationListResponse, 500: ErrorResponse},
+    tags=["conversations-v2"],
     parameters=[
         {
             "name": "limit",
@@ -490,33 +488,26 @@ def api_root():
             "description": "Maximum number of conversations to return",
         }
     ],
-    tags=["v2-conversations"],
 )
 def api_conversations():
-    """List conversations."""
+    """List conversations (V2).
+
+    Get a list of user conversations with metadata using the V2 API.
+    """
     limit = int(request.args.get("limit", 100))
     conversations = list(islice(get_user_conversations(), limit))
     return flask.jsonify(conversations)
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>")
-@api_doc(
-    summary="Get conversation (V2)",
-    description="Retrieve a conversation with all its messages and metadata using the V2 API",
-    responses={200: ConversationResponse, 404: ErrorResponse},
-    parameters=[
-        {
-            "name": "conversation_id",
-            "in": "path",
-            "required": True,
-            "schema": {"type": "string"},
-            "description": "Conversation ID",
-        }
-    ],
-    tags=["v2-conversations"],
+@api_doc_simple(
+    responses={200: ConversationResponse, 404: ErrorResponse}, tags=["conversations-v2"]
 )
 def api_conversation(conversation_id: str):
-    """Get a conversation."""
+    """Get conversation (V2).
+
+    Retrieve a conversation with all its messages and metadata using the V2 API.
+    """
     # Create and set config
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig()).save()
@@ -548,7 +539,7 @@ def api_conversation(conversation_id: str):
             "description": "Conversation ID",
         }
     ],
-    tags=["v2-conversations"],
+    tags=["conversations-v2"],
 )
 def api_conversation_put(conversation_id: str):
     """Create a new conversation."""
@@ -639,7 +630,7 @@ def msg2dict(msg: Message, workspace: Path) -> MessageDict:
             "description": "Conversation ID",
         }
     ],
-    tags=["v2-conversations"],
+    tags=["conversations-v2"],
 )
 def api_conversation_post(conversation_id: str):
     """Append a message to a conversation."""
@@ -699,7 +690,7 @@ def api_conversation_post(conversation_id: str):
             "description": "Conversation ID",
         }
     ],
-    tags=["v2-conversations"],
+    tags=["conversations-v2"],
 )
 def api_conversation_delete(conversation_id: str):
     """Delete a conversation."""
@@ -747,7 +738,7 @@ def api_conversation_delete(conversation_id: str):
             "description": "Session ID (creates new session if not provided)",
         },
     ],
-    tags=["v2-events"],
+    tags=["sessions"],
 )
 def api_conversation_events(conversation_id: str):
     """Subscribe to conversation events."""
@@ -833,7 +824,7 @@ def api_conversation_events(conversation_id: str):
             "description": "Conversation ID",
         }
     ],
-    tags=["v2-sessions"],
+    tags=["sessions"],
 )
 def api_conversation_step(conversation_id: str):
     """Take a step in the conversation - generate a response or continue after tool execution."""
@@ -904,7 +895,7 @@ def api_conversation_step(conversation_id: str):
             "description": "Conversation ID",
         }
     ],
-    tags=["v2-tools"],
+    tags=["sessions"],
 )
 def api_conversation_tool_confirm(conversation_id: str):
     """Confirm or modify a tool execution."""
@@ -1008,7 +999,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             "description": "Conversation ID",
         }
     ],
-    tags=["v2-sessions"],
+    tags=["sessions"],
 )
 def api_conversation_interrupt(conversation_id: str):
     """Interrupt the current generation or tool execution."""

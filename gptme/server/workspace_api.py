@@ -11,8 +11,10 @@ from typing import Literal, TypedDict
 
 import flask
 from flask import request
+from pydantic import BaseModel, Field
 
 from ..logmanager import LogManager
+from .openapi_docs import api_doc_simple, ErrorResponse
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,34 @@ class FileType(TypedDict):
     size: int
     modified: str
     mime_type: str | None
+
+
+# Pydantic models for OpenAPI
+class FileMetadata(BaseModel):
+    """File metadata for OpenAPI documentation."""
+
+    name: str = Field(..., description="File or directory name")
+    path: str = Field(..., description="Path relative to workspace")
+    type: Literal["file", "directory"] = Field(..., description="File type")
+    size: int = Field(..., description="File size in bytes")
+    modified: str = Field(..., description="Last modified timestamp (ISO format)")
+    mime_type: str | None = Field(None, description="MIME type (files only)")
+
+
+class FileListResponse(BaseModel):
+    """Response containing a list of files."""
+
+    files: list[FileMetadata] = Field(..., description="List of files and directories")
+
+
+class FilePreviewResponse(BaseModel):
+    """Response for file preview."""
+
+    type: Literal["text", "binary"] = Field(..., description="Preview type")
+    content: str | None = Field(None, description="File content (text files only)")
+    metadata: FileMetadata | None = Field(
+        None, description="File metadata (binary files)"
+    )
 
 
 @dataclass
@@ -147,13 +177,28 @@ def list_directory(
 @workspace_api.route(
     "/api/v2/conversations/<string:conversation_id>/workspace/<path:subpath>"
 )
+@api_doc_simple(
+    responses={
+        200: FileMetadata,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    parameters=[
+        {
+            "name": "show_hidden",
+            "in": "query",
+            "schema": {"type": "boolean", "default": False},
+            "description": "Whether to include hidden files and directories",
+        }
+    ],
+    tags=["workspace"],
+)
 def browse_workspace(conversation_id: str, subpath: str | None = None):
-    """
-    List contents of a conversation's workspace directory.
+    """Browse workspace directory.
 
-    Args:
-        conversation_id: ID of the conversation
-        subpath: Optional path within workspace
+    List contents of a conversation's workspace directory.
+    Returns file metadata for a single file or directory listing.
     """
     try:
         # Load the conversation to get its workspace
@@ -183,18 +228,24 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
 @workspace_api.route(
     "/api/v2/conversations/<string:conversation_id>/workspace/<path:filepath>/preview"
 )
+@api_doc_simple(
+    responses={
+        200: FilePreviewResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["workspace"],
+)
 def preview_file(conversation_id: str, filepath: str):
-    """
+    """Preview workspace file.
+
     Get a preview of a file in the conversation's workspace.
 
     Currently supports:
-    - Text files (returned as-is)
-    - Images (returned as-is)
-    - Binary files (returns metadata only)
-
-    Args:
-        conversation_id: ID of the conversation
-        filepath: Path to file within workspace
+    - Text files: returned as JSON with content
+    - Images: returned as binary data with appropriate MIME type
+    - Binary files: returns metadata only
     """
     try:
         # Load the conversation to get its workspace

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import flask
+from pydantic import BaseModel, Field
 
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager
@@ -22,6 +23,7 @@ from ..config import ChatConfig
 from ..message import Message
 from ..prompts import get_prompt
 from ..tools import get_toolchain
+from .openapi_docs import api_doc_simple, ErrorResponse, StatusResponse
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,78 @@ class Task:
     conversation_ids: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     archived: bool = False
+
+
+# Pydantic models for OpenAPI
+class TaskCreateRequest(BaseModel):
+    """Request to create a new task."""
+
+    content: str = Field(..., description="Task description or content")
+    target_type: TargetType = Field("stdout", description="Target type for task output")
+    target_repo: str | None = Field(
+        None, description="Target repository (for PR tasks)"
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Additional task metadata"
+    )
+
+
+class TaskUpdateRequest(BaseModel):
+    """Request to update a task."""
+
+    content: str | None = Field(None, description="Updated task content")
+    target_type: TargetType | None = Field(None, description="Updated target type")
+    target_repo: str | None = Field(None, description="Updated target repository")
+    metadata: dict[str, Any] | None = Field(None, description="Updated metadata")
+
+
+class ConversationInfo(BaseModel):
+    """Conversation information."""
+
+    id: str = Field(..., description="Conversation ID")
+    name: str = Field(..., description="Conversation name")
+    message_count: int = Field(..., description="Number of messages in conversation")
+
+
+class GitInfo(BaseModel):
+    """Git repository information."""
+
+    branch: str | None = Field(None, description="Current git branch")
+    clean: bool | None = Field(None, description="Whether working directory is clean")
+    files: list[str] = Field(default_factory=list, description="Modified files")
+    remote_url: str | None = Field(None, description="Remote repository URL")
+    pr_url: str | None = Field(None, description="Pull request URL")
+    pr_status: str | None = Field(None, description="Pull request status")
+    pr_merged: bool | None = Field(None, description="Whether PR is merged")
+    error: str | None = Field(None, description="Error message if git info unavailable")
+
+
+class TaskResponse(BaseModel):
+    """Complete task information."""
+
+    id: str = Field(..., description="Task ID")
+    content: str = Field(..., description="Task content")
+    created_at: str = Field(..., description="Task creation timestamp")
+    status: TaskStatus = Field(..., description="Task status")
+    target_type: TargetType = Field(..., description="Target type")
+    target_repo: str | None = Field(None, description="Target repository")
+    conversation_ids: list[str] = Field(
+        default_factory=list, description="Associated conversation IDs"
+    )
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Task metadata")
+    archived: bool = Field(False, description="Whether task is archived")
+    workspace: str | None = Field(None, description="Task workspace path")
+    conversation: ConversationInfo | None = Field(
+        None, description="Active conversation info"
+    )
+    git: GitInfo | None = Field(None, description="Git repository information")
+    error: str | None = Field(None, description="Error message if any")
+
+
+class TaskListResponse(BaseModel):
+    """Response containing a list of tasks."""
+
+    tasks: list[TaskResponse] = Field(..., description="List of tasks")
 
 
 def get_tasks_dir() -> Path:
@@ -561,8 +635,15 @@ def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
 
 
 @tasks_api.route("/api/v2/tasks")
+@api_doc_simple(
+    responses={200: TaskListResponse, 500: ErrorResponse},
+    tags=["tasks"],
+)
 def api_tasks_list():
-    """List all tasks with cached status information."""
+    """List all tasks.
+
+    List all tasks with their cached status information.
+    """
     try:
         tasks = list_tasks()
 
@@ -576,8 +657,17 @@ def api_tasks_list():
 
 
 @tasks_api.route("/api/v2/tasks", methods=["POST"])
+@api_doc_simple(
+    request_body=TaskCreateRequest,
+    responses={201: TaskResponse, 400: ErrorResponse, 500: ErrorResponse},
+    tags=["tasks"],
+)
 def api_tasks_create():
-    """Create a new task."""
+    """Create a new task.
+
+    Create a new task with the specified content and configuration.
+    A conversation will be automatically created for the task.
+    """
     req_json = flask.request.json
     if not req_json:
         return flask.jsonify({"error": "No JSON data provided"}), 400
@@ -618,8 +708,16 @@ def api_tasks_create():
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>")
+@api_doc_simple(
+    responses={200: TaskResponse, 404: ErrorResponse, 500: ErrorResponse},
+    tags=["tasks"],
+)
 def api_tasks_get(task_id: str):
-    """Get detailed task information."""
+    """Get detailed task information.
+
+    Retrieve comprehensive information about a task including git status,
+    conversation details, and derived status information.
+    """
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
@@ -642,8 +740,22 @@ def api_tasks_get(task_id: str):
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>", methods=["PUT"])
+@api_doc_simple(
+    request_body=TaskUpdateRequest,
+    responses={
+        200: TaskResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["tasks"],
+)
 def api_tasks_update(task_id: str):
-    """Update task metadata."""
+    """Update task metadata.
+
+    Update task content, target type, target repository, or metadata.
+    Only provided fields will be updated.
+    """
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
@@ -673,8 +785,21 @@ def api_tasks_update(task_id: str):
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>/archive", methods=["POST"])
+@api_doc_simple(
+    responses={
+        200: StatusResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["tasks"],
+)
 def api_tasks_archive(task_id: str):
-    """Archive a task (hide from active view but preserve data)."""
+    """Archive a task.
+
+    Archive a task to hide it from active view while preserving all data.
+    Archived tasks can be restored using the unarchive endpoint.
+    """
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
@@ -695,8 +820,21 @@ def api_tasks_archive(task_id: str):
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>/unarchive", methods=["POST"])
+@api_doc_simple(
+    responses={
+        200: StatusResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["tasks"],
+)
 def api_tasks_unarchive(task_id: str):
-    """Unarchive a task (restore to active view)."""
+    """Unarchive a task.
+
+    Restore an archived task to active view, making it visible
+    in the standard task listings again.
+    """
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
