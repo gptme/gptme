@@ -1,102 +1,122 @@
 Server
 ======
 
-gptme has a minimal REST API with very minimalistic web UI.
+gptme provides multiple web-based interfaces for browser-based interactions, from lightweight options to sophisticated desktop-integrated experiences.
 
-.. note::
-   The server and web UI is still in development and does not have all the features of the CLI.
+Installation
+------------
 
-To use it, you need to install gptme with ``server`` extras:
+To use gptme's server capabilities, install with server extras:
 
 .. code-block:: bash
 
     pipx install 'gptme[server]'
 
-It can then be started by running the following command:
+Start the server:
 
 .. code-block:: bash
 
     gptme-server
 
-For more CLI usage, see the :ref:`CLI reference <cli:gptme-server>`.
+For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 
-There are a few different interfaces available:
+.. _server:gptme-webui:
 
-Web UI
-------
+gptme-webui: Modern Web Interface
+---------------------------------
 
-A tiny chat interface with minimal dependencies that is bundled with the server.
+The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>`_: a modern, feature-rich React application that provides a complete gptme experience in your browser.
 
-Simply start the server to access the interface at http://localhost:5700
+**Try it now:** `chat.gptme.org <https://chat.gptme.org>`_
 
-Fancy Web UI
+**Key Features:**
+
+- Modern React-based interface with shadcn/ui components
+- Real-time streaming of AI responses
+- Mobile-friendly responsive design
+- Dark mode support
+- Conversation export and offline capabilities
+- Integrated computer use interface
+- Full tool support and visualization
+
+**Local Installation:**
+For self-hosting and local development, see the `gptme-webui README <https://github.com/gptme/gptme-webui>`_.
+
+Basic Web UI
 ------------
 
-A modern, feature-rich web interface for gptme is available as a separate project `gptme-webui <https://github.com/gptme/gptme-webui>`_. It is being built with `gptengineer.app <https://gptengineer.app>`_.
+A lightweight chat interface with minimal dependencies is bundled with the gptme server for simple deployments.
 
-You can access it directly at `gptme.gptengineer.run <https://gptme.gptengineer.run>`_.
+Access at http://localhost:5700 after starting ``gptme-server``.
 
-To serve gptme-webui locally, see the `README <https://github.com/gptme/gptme-webui>`_.
+This interface provides basic chat functionality and is useful for:
 
-Features:
-
-- Modern React-based interface with shadcn/ui
-- Streaming of responses
-- Mobile-friendly design
-- Dark mode support
-- Offline/exports support
-- Computer use interface integration
+- Quick testing and development
+- Minimal server deployments
+- Environments with limited resources
 
 Computer Use Interface
 ----------------------
 
-The computer use interface provides a split view with a chat on the left and a desktop on the right.
-
-Requires Docker.
+The computer use interface provides an innovative split-view experience with chat on the left and a live desktop environment on the right, enabling AI agents to interact directly with desktop applications.
 
 .. include:: computer-use-warning.rst
 
-To run the computer use interface in Docker, follow these steps:
+**Docker Setup** (Recommended):
 
 .. code-block:: bash
 
    # Clone the repository
    git clone https://github.com/gptme/gptme.git
    cd gptme
-   # Build container
+
+   # Build and run the computer use container
    make build-docker-computer
-   # Run container
    docker run -v ~/.config/gptme:/home/computeruse/.config/gptme -p 6080:6080 -p 8080:8080 gptme-computer:latest
 
-The computer use interface provides:
+**Access Points:**
 
-- Combined view at http://localhost:8080/computer
-- Chat view at http://localhost:8080
-- Desktop view at http://localhost:6080/vnc.html
+- **Combined interface:** http://localhost:8080/computer
+- **Chat only:** http://localhost:8080
+- **Desktop only:** http://localhost:6080/vnc.html
 
-Features:
+**Features:**
 
-- Split view with chat on the left, desktop on the right
-- Toggle for view-only/interactive desktop mode
-- Automatic screen scaling for optimal LLM vision
+- Split-view interface with real-time desktop interaction
+- Toggle between view-only and interactive desktop modes
+- Automatic screen scaling optimized for LLM vision models
+- Secure containerized environment
 
-Requirements:
+**Requirements:**
 
-- Docker for running the server with X11 support
-- Network ports 6080 (VNC) and 8080 (web UI) available
+- Docker with X11 support
+- Available ports: 6080 (VNC) and 8080 (web interface)
 
-.. rubric:: Using Computer Use Locally
+Local Computer Use (Advanced)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can use the ``computer`` tool (which enables computer use) locally on Linux without Docker or VNC, but it is not recommended due to security concerns.
+You can enable the ``computer`` tool locally on Linux systems, though this is not recommended for security reasons.
 
-Requirements:
+**Requirements:**
+
 - X11 server
-- ``xdotool`` installed
+- ``xdotool`` package installed
 
-To enable the ``computer`` tool, specify a ``-t/--tools`` list that includes the computer tool (as it is disabled by default):
+**Usage:**
 
 .. code-block:: bash
 
-   gptme -t computer   # and whichever other tools you want
+   # Enable computer tool (disabled by default for security)
+   gptme -t computer
 
-You also want to set a screen resolution that is suitable for the vision model you are using.
+Set an appropriate screen resolution for your vision model before use.
+
+REST API
+--------
+
+gptme-server provides a REST API for programmatic access to gptme functionality. This enables integration with custom applications and automation workflows.
+
+The API endpoints support the core gptme operations including chat interactions, tool execution, and conversation management.
+
+.. note::
+   API documentation is available when running the server. Visit the server endpoint ``/api/docs/`` for interactive API documentation based on the OpenAPI spec (served at ``/api/docs/openapi.json``).

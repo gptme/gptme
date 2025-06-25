@@ -3,11 +3,18 @@ gptme documentation
 
 Welcome to the documentation for ``gptme``!
 
-``gptme`` is a tiny command-line application that allows you to interact with AI agent equipped with powerful local tools, acting as a copilot for your computer, via the terminal. It can execute python and bash, edit local files, search and browse the web.
+``gptme`` is an ecosystem of tools for interacting with AI agents equipped with powerful local tools, acting as a copilot for your computer. The core components include:
 
-To get an understanding about how it works, the easiest way is to try it out yourself by following the :doc:`getting-started` guide. If you want to see some examples of what you can do with it, check out the :doc:`examples`, :doc:`demos`, and :doc:`tools`.
+- **gptme CLI**: The main :doc:`command-line interface <cli>` for terminal-based interactions
+- **gptme-server**: A :doc:`server component <server>` for running gptme as a service
+- **gptme-webui**: A :doc:`web interface <server>` for browser-based interactions
+- **gptme-agent-template**: A template for creating custom :doc:`AI agents <agents>`
 
-It is designed to be easy to use and extend, and can be used as a library or a standalone application. It also has a tiny :ref:`server:Web UI` with basic functionality.
+The system can execute python and bash, edit local files, search and browse the web, and much more through its rich set of :doc:`built-in tools <tools>` and extensible :doc:`tool system <custom_tool>`. You can see what's possible in the :doc:`examples` and :doc:`demos`, from creating web apps and games to analyzing data and automating workflows.
+
+**Getting Started:** To begin using gptme, follow the :doc:`getting-started` guide, set up your preferred :doc:`LLM provider <providers>`, and customize your :doc:`configuration <config>` as needed.
+
+The system is designed to be easy to use and extend, and can be used as a library, standalone application, or web service. For detailed usage patterns and features, see the :doc:`usage` guide.
 
 See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file for more general information about the project.
 
@@ -110,6 +117,33 @@ For detailed usage instructions, see :doc:`usage`.
 
 You can also try the :doc:`examples`.
 
+Quick Examples
+--------------
+
+Here are some compelling examples to get you started:
+
+.. code-block:: bash
+
+    # Create applications and games
+    gptme 'write a web app to particles.html which shows off an impressive and colorful particle effect using three.js'
+    gptme 'create a performant n-body simulation in rust'
+
+    # Work with files and code
+    gptme 'summarize this' README.md
+    gptme 'refactor this' main.py
+    gptme 'what do you see?' image.png  # vision
+
+    # Development workflows
+    git status -vv | gptme 'commit'
+    make test | gptme 'fix the failing tests'
+    gptme 'implement this' https://github.com/gptme/gptme/issues/286
+
+    # Chain multiple tasks
+    gptme 'make a change' - 'test it' - 'commit it'
+
+    # Resume conversations
+    gptme -r
+
 Next Steps
 ----------
 
@@ -140,7 +174,6 @@ This will show you a list of past chats, allowing you to select one or start a n
 
 To get inspiration for your first prompt, see the :doc:`examples`.
 
-
 .. contents:: Table of Contents
    :depth: 5
    :local:
@@ -169,7 +202,8 @@ Interfaces
 
 Besides the CLI, gptme can be used through:
 
-- :ref:`server:web ui` - A web-based interface
+- :ref:`server:gptme-webui` - A web-based interface
+- A `desktop app <https://github.com/gptme/gptme-tauri>`_ (WIP)
 - :doc:`bot` - GitHub bot integration
 
 For more detailed information about specific features, check out:
@@ -551,18 +585,21 @@ This example demonstrates a simple and composable approach to automated code rev
 This setup provides automated code reviews for your pull requests using gptme. It demonstrates how powerful automation can be achieved with minimal code and high composability.
 
 Key points:
+
 - Uses shell scripting for simplicity and ease of understanding
 - Leverages gptme's non-interactive mode for automation
 - Utilizes GitHub CLI (`gh`) for seamless GitHub integration
 - Integrates with GitHub Actions for automated workflow
 
 Benefits of this approach:
+
 - Easily customizable: Adjust the gptme prompt to focus on specific aspects of code review
 - Composable: The shell script can be extended or combined with other tools
 - Minimal dependencies: Relies on widely available tools (bash, curl, gh)
 - Quick setup: Can be implemented in any GitHub repository with minimal configuration
 
 To customize this for your specific needs:
+
 1. Modify the gptme prompt in `review_pr.sh` to focus on your project's coding standards
 2. Add additional checks or integrations to the shell script as needed
 3. Adjust the GitHub Actions workflow to fit your CI/CD pipeline
@@ -706,38 +743,55 @@ Use the standard badge for projects created with gptme's assistance, and the "po
 Tools
 =====
 
-Tools available in gptme.
+gptme's tools enable AI agents to execute code, edit files, browse the web, process images, and interact with your computer.
 
-The tools can be grouped into the following categories:
+Overview
+--------
 
-- Execution
+📁 File System
+^^^^^^^^^^^^^^
 
-  - `Shell`_ - Run shell commands
-  - `Python`_ - Run Python code interactively
-  - `Tmux`_ - Use tmux to run commands
-  - `Subagent`_ - Delegate task to a subagent
+- `Read`_ - Read files in any format
+- `Save`_ - Create and overwrite files
+- `Patch`_ - Apply precise changes to existing files
 
-- Files
+💻 Code & Development
+^^^^^^^^^^^^^^^^^^^^^
 
-  - `Read`_ - Read files
-  - `Save`_ - Save whole files
-  - `Patch`_ - Patch files
+- `Python`_ - Execute Python code interactively with full library access
+- `Shell`_ - Run shell commands and manage system processes
 
-- Network
+🌐 Web & Research
+^^^^^^^^^^^^^^^^^
 
-  - `Browser`_ - Access the web
+- `Browser`_ - Browse websites, take screenshots, and read web content
+- `RAG`_ - Index and search through documentation and codebases
+- `Chats`_ - Search past conversations for context and references
 
-- Vision
+👁️ Visual & Interactive
+^^^^^^^^^^^^^^^^^^^^^^^
 
-  - `Vision`_ - View images
-  - `Screenshot`_ - Take screenshots
-  - `Computer`_ - Control the computer
+- `Vision`_ - Analyze images, diagrams, and visual content
+- `Screenshot`_ - Capture your screen for visual context
+- `Computer`_ - Control desktop applications through visual interface
 
-- Other
+⚡ Advanced Workflows
+^^^^^^^^^^^^^^^^^^^^^
 
-  - `Chats`_ - Search past conversations
-  - `RAG`_ - Retrieve documents and code
-  - `TTS`_ - Speech synthesis for responses
+- `Tmux`_ - Manage long-running processes in terminal sessions
+- `Subagent`_ - Delegate subtasks to specialized agent instances
+- `TTS`_ - Convert responses to speech for hands-free interaction
+
+Combinations
+^^^^^^^^^^^^
+
+The real power emerges when tools work together:
+
+- **Web Research + Code**: `Browser`_ + `Python`_ - Browse documentation and implement solutions
+- **Visual Development**: `Vision`_ + `Patch`_ - Analyze UI mockups and update code accordingly
+- **System Automation**: `Shell`_ + `Python`_ - Combine system commands with data processing
+- **Interactive Debugging**: `Screenshot`_ + `Computer`_ - Visual debugging and interface automation
+- **Knowledge-Driven Development**: `RAG`_ + `Chats`_ - Learn from documentation and past conversations
 
 Shell
 -----
@@ -1035,144 +1089,337 @@ To achieve that with ``ollama``, install it then run:
 Agents
 ======
 
-gptme supports "agents", which we think of as having:
+gptme supports highly customizable "agents": persistent AI assistants with structured memory, identity, and workspace management capabilities.
 
-- Identity
-- Personality & preferences
-- Memory
+Each agent is implemented as a git repository that serves as their "brain," containing all their data, configuration, and interaction history.
 
-  - Journal
-  - Tasks
-  - Knowledgebase
+Architecture
+------------
 
-- Extra tools
+**Git-based Repository Structure:** Each agent is a complete git repository with a structured workspace.
 
-  - Email
-  - Chat
-  - Social Media
+- **Core files** - ``README.md``, ``ABOUT.md``, ``ARCHITECTURE.md``, ``gptme.toml``
+- ``journal/`` - Daily activity logs (YYYY-MM-DD.md format)
+- ``tasks/`` - Individual task files with YAML metadata
+- ``knowledge/`` - Long-term documentation and insights
+- ``people/`` - Contact profiles and relationship management
+- ``projects/`` - Project-specific information
 
-gptme agents are git-based and all their data is stored in a git repository. This makes it easy to share and collaborate on agents, and to keep a history of all interactions with the agent.
+**Dynamic Context Generation:** Agents use sophisticated context generation to maintain awareness.
 
-They leverage the ``gptme.toml`` :doc:`project configuration file <config>` using a particular set of prompts and directory structure which makes it capable to keep a journal, track tasks, remember things, and more.
+- :doc:`Project configuration <config>` (``gptme.toml``) specifies core files always in context
+- A ``context_cmd`` command specified in ``gptme.toml`` is used for dynamic context generation
+- Each interaction includes recent journal entries, active tasks, and git status
+- Provides comprehensive situational awareness across sessions
 
-You can create your own agent with the `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_.
+Key Systems
+-----------
 
-Bob
----
+**Journal System:**
 
-Bob, aka `@TimeToBuildBob <https://github.com/TimeToBuildBob>`_, is the first experimental agent built on top of gptme. He is a friendly and helpful bot that helps with working on gptme and related projects.
+- One file per day in append-only format
+- Contains task progress, decisions, reflections, and plans
+- Most recent entries automatically included in context
+- Maintains historical record of all activities and thoughts
+
+**Task Management:**
+
+- Individual Markdown files with YAML frontmatter metadata
+- States: new, active, paused, done, cancelled
+- Priority levels, tags, and dependencies
+- CLI tools for management and status tracking
+- Integrated with journal entries for progress updates
+
+**Knowledge Base:**
+
+- Long-term information storage organized by topic
+- Technical documentation, best practices, and insights
+- Cross-referenced with tasks and journal entries
+
+**People Directory:**
+
+- Individual profiles for contacts and collaborators
+- Includes interests, skills, project history, and interaction notes
+- Privacy-conscious with appropriate detail levels
+
+Usage
+-----
+
+**Creating an Agent:**
+
+Use the `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ to create new agents:
+
+.. code-block:: bash
+
+    # Clone the template repository
+    git clone https://github.com/gptme/gptme-agent-template
+    cd gptme-agent-template
+
+    # Fork the template
+    ./fork.sh ../my-agent "MyAgent"
+    cd ../my-agent
+
+**Running an Agent:**
+
+.. code-block:: bash
+
+    # Install dependencies
+    pipx install gptme
+    pipx install pre-commit
+    make install
+
+    # Run the agent
+    ./run.sh "your prompt here"
+
+**Execution Flow:**
+
+1. ``run.sh`` builds dynamic context from all agent systems
+2. Context includes journal entries, task status, and current git state
+3. ``gptme`` runs with comprehensive situational awareness
+4. Agent can access and update all workspace components
+
+Benefits
+--------
+
+**Version Control:**
+
+- All agent data and interactions are version-controlled
+- Complete history of agent development and interactions
+- Easy backup, sharing, and collaboration
+
+**Persistence:**
+
+- Agents maintain state across sessions
+- Remember previous conversations, decisions, and progress
+- Build knowledge and relationships over time
+
+**Structured Memory:**
+
+- Organized information storage prevents knowledge loss
+- Easy retrieval of past decisions and context
+- Cross-referencing between different information types
+
+**Extensibility:**
+
+- Template provides consistent foundation
+- Customizable identity, goals, and capabilities
+- Integration with external tools and services
+
+**Goal-Oriented Behavior:**
+
+- Clear goals transform agents from reactive tools into proactive collaborators
+- Well-defined purpose enables agents to take initiative, suggest improvements, and identify opportunities
+- Strategic direction helps agents prioritize decisions and maintain long-term perspective
+- Goals provide the contextual framework that "pulls agents forward" toward meaningful outcomes
+
+Examples
+--------
+
+**Bob:**
+Bob, aka `@TimeToBuildBob <https://github.com/TimeToBuildBob>`_, is an experimental agent that helps with gptme development. He demonstrates practical agent capabilities including:
+
+- Project management and task tracking
+- Code review and development assistance
+- Documentation and knowledge management
+- Community interaction and support
+
+**Creating Specialized Agents:**
+The template system enables creating agents for specific domains:
+
+- Development assistants with project-specific knowledge
+- Research assistants with domain expertise
+- Personal productivity assistants with custom workflows
+- Team collaboration agents with shared knowledge bases
+
+External Integrations
+---------------------
+
+Agents can be extended with various external integrations and tools for enhanced capabilities:
+
+**Content & Information:**
+
+- **Web Browsing:** Access and analyze web content using built-in browser tools
+- **Search Integration:** Query search engines and process results
+- **RSS Reader:** Consume and process RSS feeds in LLM-friendly formats
+
+**Communication & Sharing:**
+
+- **Email Integration:** Send and receive emails for external communication
+- **Social Media:**
+
+  - Twitter integration for sharing updates and public communication
+  - Discord integration for community interaction
+
+- **GitHub Integration:** Create and share gists, manage repositories
+- **Website Publishing:** Share information and updates publicly
+
+**Collaboration Tools:**
+
+- **Git Integration:** Version control with co-authoring capabilities
+- **Issue Tracking:** Integration with GitHub issues and project management
+- **Documentation:** Automated documentation generation and updates
+
+**Development & Operations:**
+
+- **CI/CD Integration:** Automated testing and deployment workflows
+- **Monitoring:** System and application monitoring capabilities
+- **Database Access:** Query and update databases as needed
+
+These integrations transform agents from isolated assistants into connected participants in digital workflows, enabling them to:
+
+- Stay informed about relevant developments through content feeds
+- Communicate with external parties and communities
+- Share their work and insights publicly
+- Collaborate on projects with proper attribution
+- Maintain awareness of project status and issues
+
+**Note:** Many integrations are work-in-progress (WIP) and under active development.
 
 Why personify agents?
-^^^^^^^^^^^^^^^^^^^^^
+---------------------
 
-While personifying agents might seem like a silly idea for professional use, it can actually be quite helpful when working with them. It can help get into the right mindset for interacting with the agent, help you remember what the agent is for, what you've told them, and make the agent more memorable and relatable.
+While personifying agents might seem unnecessary for professional use, it provides several benefits:
+
+- **Mental Model:** Helps users understand the agent's role and capabilities
+- **Consistency:** Encourages consistent interaction patterns and expectations
+- **Memory:** Makes it easier to remember what you've told the agent
+- **Engagement:** Creates more natural and memorable interactions
+- **Identity:** Distinguishes between different specialized agents
+
+Links
+-----
+
+For more details, see the following resources:
+
+- `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ - Template for creating new agents
+- `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ - Community-contributed tools and scripts for agents
 
 
 Server
 ======
 
-gptme has a minimal REST API with very minimalistic web UI.
+gptme provides multiple web-based interfaces for browser-based interactions, from lightweight options to sophisticated desktop-integrated experiences.
 
-.. note::
-   The server and web UI is still in development and does not have all the features of the CLI.
+Installation
+------------
 
-To use it, you need to install gptme with ``server`` extras:
+To use gptme's server capabilities, install with server extras:
 
 .. code-block:: bash
 
     pipx install 'gptme[server]'
 
-It can then be started by running the following command:
+Start the server:
 
 .. code-block:: bash
 
     gptme-server
 
-For more CLI usage, see the :ref:`CLI reference <cli:gptme-server>`.
+For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 
-There are a few different interfaces available:
+.. _server:gptme-webui:
 
-Web UI
-------
+gptme-webui: Modern Web Interface
+---------------------------------
 
-A tiny chat interface with minimal dependencies that is bundled with the server.
+The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>`_: a modern, feature-rich React application that provides a complete gptme experience in your browser.
 
-Simply start the server to access the interface at http://localhost:5700
+**Try it now:** `chat.gptme.org <https://chat.gptme.org>`_
 
-Fancy Web UI
+**Key Features:**
+
+- Modern React-based interface with shadcn/ui components
+- Real-time streaming of AI responses
+- Mobile-friendly responsive design
+- Dark mode support
+- Conversation export and offline capabilities
+- Integrated computer use interface
+- Full tool support and visualization
+
+**Local Installation:**
+For self-hosting and local development, see the `gptme-webui README <https://github.com/gptme/gptme-webui>`_.
+
+Basic Web UI
 ------------
 
-A modern, feature-rich web interface for gptme is available as a separate project `gptme-webui <https://github.com/gptme/gptme-webui>`_. It is being built with `gptengineer.app <https://gptengineer.app>`_.
+A lightweight chat interface with minimal dependencies is bundled with the gptme server for simple deployments.
 
-You can access it directly at `gptme.gptengineer.run <https://gptme.gptengineer.run>`_.
+Access at http://localhost:5700 after starting ``gptme-server``.
 
-To serve gptme-webui locally, see the `README <https://github.com/gptme/gptme-webui>`_.
+This interface provides basic chat functionality and is useful for:
 
-Features:
-
-- Modern React-based interface with shadcn/ui
-- Streaming of responses
-- Mobile-friendly design
-- Dark mode support
-- Offline/exports support
-- Computer use interface integration
+- Quick testing and development
+- Minimal server deployments
+- Environments with limited resources
 
 Computer Use Interface
 ----------------------
 
-The computer use interface provides a split view with a chat on the left and a desktop on the right.
-
-Requires Docker.
+The computer use interface provides an innovative split-view experience with chat on the left and a live desktop environment on the right, enabling AI agents to interact directly with desktop applications.
 .. warning::
 
    The computer use interface is experimental and has serious security implications.
    Please use with caution and see Anthropic's documentation on `computer use <https://docs.anthropic.com/en/docs/build-with-claude/computer-use>`_ for additional guidance.
 
 
-To run the computer use interface in Docker, follow these steps:
+**Docker Setup** (Recommended):
 
 .. code-block:: bash
 
    # Clone the repository
    git clone https://github.com/gptme/gptme.git
    cd gptme
-   # Build container
+
+   # Build and run the computer use container
    make build-docker-computer
-   # Run container
    docker run -v ~/.config/gptme:/home/computeruse/.config/gptme -p 6080:6080 -p 8080:8080 gptme-computer:latest
 
-The computer use interface provides:
+**Access Points:**
 
-- Combined view at http://localhost:8080/computer
-- Chat view at http://localhost:8080
-- Desktop view at http://localhost:6080/vnc.html
+- **Combined interface:** http://localhost:8080/computer
+- **Chat only:** http://localhost:8080
+- **Desktop only:** http://localhost:6080/vnc.html
 
-Features:
+**Features:**
 
-- Split view with chat on the left, desktop on the right
-- Toggle for view-only/interactive desktop mode
-- Automatic screen scaling for optimal LLM vision
+- Split-view interface with real-time desktop interaction
+- Toggle between view-only and interactive desktop modes
+- Automatic screen scaling optimized for LLM vision models
+- Secure containerized environment
 
-Requirements:
+**Requirements:**
 
-- Docker for running the server with X11 support
-- Network ports 6080 (VNC) and 8080 (web UI) available
+- Docker with X11 support
+- Available ports: 6080 (VNC) and 8080 (web interface)
 
-.. rubric:: Using Computer Use Locally
+Local Computer Use (Advanced)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can use the ``computer`` tool (which enables computer use) locally on Linux without Docker or VNC, but it is not recommended due to security concerns.
+You can enable the ``computer`` tool locally on Linux systems, though this is not recommended for security reasons.
 
-Requirements:
+**Requirements:**
+
 - X11 server
-- ``xdotool`` installed
+- ``xdotool`` package installed
 
-To enable the ``computer`` tool, specify a ``-t/--tools`` list that includes the computer tool (as it is disabled by default):
+**Usage:**
 
 .. code-block:: bash
 
-   gptme -t computer   # and whichever other tools you want
+   # Enable computer tool (disabled by default for security)
+   gptme -t computer
 
-You also want to set a screen resolution that is suitable for the vision model you are using.
+Set an appropriate screen resolution for your vision model before use.
+
+REST API
+--------
+
+gptme-server provides a REST API for programmatic access to gptme functionality. This enables integration with custom applications and automation workflows.
+
+The API endpoints support the core gptme operations including chat interactions, tool execution, and conversation management.
+
+.. note::
+   API documentation is available when running the server. Visit the server endpoint ``/api/docs/`` for interactive API documentation based on the OpenAPI spec (served at ``/api/docs/openapi.json``).
 
 
 .. _mcp:
@@ -1245,13 +1492,16 @@ Query Tools:
     - ``create_table``: Create new tables in the database
 
 Schema Tools:
+
     - ``list_tables``: Get a list of all tables
     - ``describe_table``: View schema information for a specific table
 
 Analysis Tools:
+
     - ``append_insight``: Add business insights to the memo resource
 
 Resources:
+
     - ``memo://insights``: A continuously updated business insights memo
 
 The server also includes a demonstration prompt ``mcp-demo`` that guides users through database operations and analysis.
@@ -1672,6 +1922,7 @@ The simplest way to extend gptme is by writing standalone scripts. These can be:
 - Easily tested and maintained
 
 Benefits of script-based tools:
+
 - Simple to create and maintain
 - Can be run and tested independently
 - No gptme dependency
@@ -1679,6 +1930,7 @@ Benefits of script-based tools:
 - Isolated dependencies
 
 Limitations:
+
 - Requires shell tool access
 - Can't attach files/images to messages
 - Not listed in tools section
@@ -1696,6 +1948,7 @@ Creating a Custom Tool
 When you need deeper integration with gptme, you can create a custom tool by defining a new instance of the ``ToolSpec`` class.
 
 Custom tools are necessary when you need to:
+
 - Attach files/images to messages
 - Get included in the tools section
 - Use without shell tool access
@@ -2583,18 +2836,21 @@ This example demonstrates a simple and composable approach to automated code rev
 This setup provides automated code reviews for your pull requests using gptme. It demonstrates how powerful automation can be achieved with minimal code and high composability.
 
 Key points:
+
 - Uses shell scripting for simplicity and ease of understanding
 - Leverages gptme's non-interactive mode for automation
 - Utilizes GitHub CLI (`gh`) for seamless GitHub integration
 - Integrates with GitHub Actions for automated workflow
 
 Benefits of this approach:
+
 - Easily customizable: Adjust the gptme prompt to focus on specific aspects of code review
 - Composable: The shell script can be extended or combined with other tools
 - Minimal dependencies: Relies on widely available tools (bash, curl, gh)
 - Quick setup: Can be implemented in any GitHub repository with minimal configuration
 
 To customize this for your specific needs:
+
 1. Modify the gptme prompt in `review_pr.sh` to focus on your project's coding standards
 2. Add additional checks or integrations to the shell script as needed
 3. Adjust the GitHub Actions workflow to fit your CI/CD pipeline

@@ -381,9 +381,14 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-ui">Web UI</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fancy-web-ui">Fancy Web UI</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-webui-modern-web-interface">gptme-webui: Modern Web Interface</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-web-ui">Basic Web UI</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rest-api">REST API</a></li>
 </ul>
             </nav>
         </div>
@@ -397,87 +402,107 @@
                   
   <section id="server">
 <h1>Server<a class="headerlink" href="#server" title="Link to this heading">#</a></h1>
-<p>gptme has a minimal REST API with very minimalistic web UI.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The server and web UI is still in development and does not have all the features of the CLI.</p>
-</div>
-<p>To use it, you need to install gptme with <code class="docutils literal notranslate"><span class="pre">server</span></code> extras:</p>
+<p>gptme provides multiple web-based interfaces for browser-based interactions, from lightweight options to sophisticated desktop-integrated experiences.</p>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
+<p>To use gptme’s server capabilities, install with server extras:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[server]&#39;</span>
 </pre></div>
 </div>
-<p>It can then be started by running the following command:</p>
+<p>Start the server:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-server
 </pre></div>
 </div>
-<p>For more CLI usage, see the <a class="reference internal" href="cli.html#gptme-server"><span class="std std-ref">CLI reference</span></a>.</p>
-<p>There are a few different interfaces available:</p>
-<section id="web-ui">
-<h2>Web UI<a class="headerlink" href="#web-ui" title="Link to this heading">#</a></h2>
-<p>A tiny chat interface with minimal dependencies that is bundled with the server.</p>
-<p>Simply start the server to access the interface at <a class="reference external" href="http://localhost:5700">http://localhost:5700</a></p>
+<p>For more CLI options, see the <a class="reference internal" href="cli.html#gptme-server"><span class="std std-ref">CLI reference</span></a>.</p>
 </section>
-<section id="fancy-web-ui">
-<h2>Fancy Web UI<a class="headerlink" href="#fancy-web-ui" title="Link to this heading">#</a></h2>
-<p>A modern, feature-rich web interface for gptme is available as a separate project <a class="reference external" href="https://github.com/gptme/gptme-webui">gptme-webui</a>. It is being built with <a class="reference external" href="https://gptengineer.app">gptengineer.app</a>.</p>
-<p>You can access it directly at <a class="reference external" href="https://gptme.gptengineer.run">gptme.gptengineer.run</a>.</p>
-<p>To serve gptme-webui locally, see the <a class="reference external" href="https://github.com/gptme/gptme-webui">README</a>.</p>
-<p>Features:</p>
+<section id="gptme-webui-modern-web-interface">
+<span id="server-gptme-webui"></span><h2>gptme-webui: Modern Web Interface<a class="headerlink" href="#gptme-webui-modern-web-interface" title="Link to this heading">#</a></h2>
+<p>The primary web interface is <a class="reference external" href="https://github.com/gptme/gptme-webui">gptme-webui</a>: a modern, feature-rich React application that provides a complete gptme experience in your browser.</p>
+<p><strong>Try it now:</strong> <a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a></p>
+<p><strong>Key Features:</strong></p>
 <ul class="simple">
-<li><p>Modern React-based interface with shadcn/ui</p></li>
-<li><p>Streaming of responses</p></li>
-<li><p>Mobile-friendly design</p></li>
+<li><p>Modern React-based interface with shadcn/ui components</p></li>
+<li><p>Real-time streaming of AI responses</p></li>
+<li><p>Mobile-friendly responsive design</p></li>
 <li><p>Dark mode support</p></li>
-<li><p>Offline/exports support</p></li>
-<li><p>Computer use interface integration</p></li>
+<li><p>Conversation export and offline capabilities</p></li>
+<li><p>Integrated computer use interface</p></li>
+<li><p>Full tool support and visualization</p></li>
+</ul>
+<p><strong>Local Installation:</strong>
+For self-hosting and local development, see the <a class="reference external" href="https://github.com/gptme/gptme-webui">gptme-webui README</a>.</p>
+</section>
+<section id="basic-web-ui">
+<h2>Basic Web UI<a class="headerlink" href="#basic-web-ui" title="Link to this heading">#</a></h2>
+<p>A lightweight chat interface with minimal dependencies is bundled with the gptme server for simple deployments.</p>
+<p>Access at <a class="reference external" href="http://localhost:5700">http://localhost:5700</a> after starting <code class="docutils literal notranslate"><span class="pre">gptme-server</span></code>.</p>
+<p>This interface provides basic chat functionality and is useful for:</p>
+<ul class="simple">
+<li><p>Quick testing and development</p></li>
+<li><p>Minimal server deployments</p></li>
+<li><p>Environments with limited resources</p></li>
 </ul>
 </section>
 <section id="computer-use-interface">
 <h2>Computer Use Interface<a class="headerlink" href="#computer-use-interface" title="Link to this heading">#</a></h2>
-<p>The computer use interface provides a split view with a chat on the left and a desktop on the right.</p>
-<p>Requires Docker.</p>
+<p>The computer use interface provides an innovative split-view experience with chat on the left and a live desktop environment on the right, enabling AI agents to interact directly with desktop applications.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>The computer use interface is experimental and has serious security implications.
 Please use with caution and see Anthropic’s documentation on <a class="reference external" href="https://docs.anthropic.com/en/docs/build-with-claude/computer-use">computer use</a> for additional guidance.</p>
 </div>
-<p>To run the computer use interface in Docker, follow these steps:</p>
+<p><strong>Docker Setup</strong> (Recommended):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the repository</span>
 git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme.git
 <span class="nb">cd</span><span class="w"> </span>gptme
-<span class="c1"># Build container</span>
+
+<span class="c1"># Build and run the computer use container</span>
 make<span class="w"> </span>build-docker-computer
-<span class="c1"># Run container</span>
 docker<span class="w"> </span>run<span class="w"> </span>-v<span class="w"> </span>~/.config/gptme:/home/computeruse/.config/gptme<span class="w"> </span>-p<span class="w"> </span><span class="m">6080</span>:6080<span class="w"> </span>-p<span class="w"> </span><span class="m">8080</span>:8080<span class="w"> </span>gptme-computer:latest
 </pre></div>
 </div>
-<p>The computer use interface provides:</p>
+<p><strong>Access Points:</strong></p>
 <ul class="simple">
-<li><p>Combined view at <a class="reference external" href="http://localhost:8080/computer">http://localhost:8080/computer</a></p></li>
-<li><p>Chat view at <a class="reference external" href="http://localhost:8080">http://localhost:8080</a></p></li>
-<li><p>Desktop view at <a class="reference external" href="http://localhost:6080/vnc.html">http://localhost:6080/vnc.html</a></p></li>
+<li><p><strong>Combined interface:</strong> <a class="reference external" href="http://localhost:8080/computer">http://localhost:8080/computer</a></p></li>
+<li><p><strong>Chat only:</strong> <a class="reference external" href="http://localhost:8080">http://localhost:8080</a></p></li>
+<li><p><strong>Desktop only:</strong> <a class="reference external" href="http://localhost:6080/vnc.html">http://localhost:6080/vnc.html</a></p></li>
 </ul>
-<p>Features:</p>
+<p><strong>Features:</strong></p>
 <ul class="simple">
-<li><p>Split view with chat on the left, desktop on the right</p></li>
-<li><p>Toggle for view-only/interactive desktop mode</p></li>
-<li><p>Automatic screen scaling for optimal LLM vision</p></li>
+<li><p>Split-view interface with real-time desktop interaction</p></li>
+<li><p>Toggle between view-only and interactive desktop modes</p></li>
+<li><p>Automatic screen scaling optimized for LLM vision models</p></li>
+<li><p>Secure containerized environment</p></li>
 </ul>
-<p>Requirements:</p>
+<p><strong>Requirements:</strong></p>
 <ul class="simple">
-<li><p>Docker for running the server with X11 support</p></li>
-<li><p>Network ports 6080 (VNC) and 8080 (web UI) available</p></li>
+<li><p>Docker with X11 support</p></li>
+<li><p>Available ports: 6080 (VNC) and 8080 (web interface)</p></li>
 </ul>
-<p class="rubric">Using Computer Use Locally</p>
-<p>You can use the <code class="docutils literal notranslate"><span class="pre">computer</span></code> tool (which enables computer use) locally on Linux without Docker or VNC, but it is not recommended due to security concerns.</p>
-<p>Requirements:
-- X11 server
-- <code class="docutils literal notranslate"><span class="pre">xdotool</span></code> installed</p>
-<p>To enable the <code class="docutils literal notranslate"><span class="pre">computer</span></code> tool, specify a <code class="docutils literal notranslate"><span class="pre">-t/--tools</span></code> list that includes the computer tool (as it is disabled by default):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-t<span class="w"> </span>computer<span class="w">   </span><span class="c1"># and whichever other tools you want</span>
+<section id="local-computer-use-advanced">
+<h3>Local Computer Use (Advanced)<a class="headerlink" href="#local-computer-use-advanced" title="Link to this heading">#</a></h3>
+<p>You can enable the <code class="docutils literal notranslate"><span class="pre">computer</span></code> tool locally on Linux systems, though this is not recommended for security reasons.</p>
+<p><strong>Requirements:</strong></p>
+<ul class="simple">
+<li><p>X11 server</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">xdotool</span></code> package installed</p></li>
+</ul>
+<p><strong>Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable computer tool (disabled by default for security)</span>
+gptme<span class="w"> </span>-t<span class="w"> </span>computer
 </pre></div>
 </div>
-<p>You also want to set a screen resolution that is suitable for the vision model you are using.</p>
+<p>Set an appropriate screen resolution for your vision model before use.</p>
+</section>
+</section>
+<section id="rest-api">
+<h2>REST API<a class="headerlink" href="#rest-api" title="Link to this heading">#</a></h2>
+<p>gptme-server provides a REST API for programmatic access to gptme functionality. This enables integration with custom applications and automation workflows.</p>
+<p>The API endpoints support the core gptme operations including chat interactions, tool execution, and conversation management.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>API documentation is available when running the server. Visit the server endpoint <code class="docutils literal notranslate"><span class="pre">/api/docs/</span></code> for interactive API documentation based on the OpenAPI spec (served at <code class="docutils literal notranslate"><span class="pre">/api/docs/openapi.json</span></code>).</p>
+</div>
 </section>
 </section>
 
@@ -527,9 +552,14 @@ docker<span class="w"> </span>run<span class="w"> </span>-v<span class="w"> </sp
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-ui">Web UI</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fancy-web-ui">Fancy Web UI</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-webui-modern-web-interface">gptme-webui: Modern Web Interface</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-web-ui">Basic Web UI</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rest-api">REST API</a></li>
 </ul>
   </nav></div>
 

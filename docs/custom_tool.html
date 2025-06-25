@@ -423,17 +423,21 @@
 <li><p>Called via the shell tool</p></li>
 <li><p>Easily tested and maintained</p></li>
 </ul>
-<p>Benefits of script-based tools:
-- Simple to create and maintain
-- Can be run and tested independently
-- No gptme dependency
-- Flexible language choice
-- Isolated dependencies</p>
-<p>Limitations:
-- Requires shell tool access
-- Can’t attach files/images to messages
-- Not listed in tools section
-- No built-in argument validation</p>
+<p>Benefits of script-based tools:</p>
+<ul class="simple">
+<li><p>Simple to create and maintain</p></li>
+<li><p>Can be run and tested independently</p></li>
+<li><p>No gptme dependency</p></li>
+<li><p>Flexible language choice</p></li>
+<li><p>Isolated dependencies</p></li>
+</ul>
+<p>Limitations:</p>
+<ul class="simple">
+<li><p>Requires shell tool access</p></li>
+<li><p>Can’t attach files/images to messages</p></li>
+<li><p>Not listed in tools section</p></li>
+<li><p>No built-in argument validation</p></li>
+</ul>
 <p>For script-based tools, no registration is needed. Simply include them in the gptme context to make the agent aware of them.</p>
 <ol class="arabic simple">
 <li><p>Place scripts in a <code class="docutils literal notranslate"><span class="pre">tools/</span></code> directory (or any other location)</p></li>
@@ -444,12 +448,14 @@
 <section id="creating-a-custom-tool">
 <h2>Creating a Custom Tool<a class="headerlink" href="#creating-a-custom-tool" title="Link to this heading">#</a></h2>
 <p>When you need deeper integration with gptme, you can create a custom tool by defining a new instance of the <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> class.</p>
-<p>Custom tools are necessary when you need to:
-- Attach files/images to messages
-- Get included in the tools section
-- Use without shell tool access
-- Validate arguments
-- Handle complex interactions</p>
+<p>Custom tools are necessary when you need to:</p>
+<ul class="simple">
+<li><p>Attach files/images to messages</p></li>
+<li><p>Get included in the tools section</p></li>
+<li><p>Use without shell tool access</p></li>
+<li><p>Validate arguments</p></li>
+<li><p>Handle complex interactions</p></li>
+</ul>
 <p>The <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> class requires these parameters:</p>
 <ul class="simple">
 <li><p><strong>name</strong>: The name of the tool.</p></li>

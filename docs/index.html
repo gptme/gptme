@@ -401,9 +401,16 @@
   <section id="gptme-documentation">
 <h1>gptme documentation<a class="headerlink" href="#gptme-documentation" title="Link to this heading">#</a></h1>
 <p>Welcome to the documentation for <code class="docutils literal notranslate"><span class="pre">gptme</span></code>!</p>
-<p><code class="docutils literal notranslate"><span class="pre">gptme</span></code> is a tiny command-line application that allows you to interact with AI agent equipped with powerful local tools, acting as a copilot for your computer, via the terminal. It can execute python and bash, edit local files, search and browse the web.</p>
-<p>To get an understanding about how it works, the easiest way is to try it out yourself by following the <a class="reference internal" href="getting-started.html"><span class="doc">Getting Started</span></a> guide. If you want to see some examples of what you can do with it, check out the <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a>, <a class="reference internal" href="demos.html"><span class="doc">Demos</span></a>, and <a class="reference internal" href="tools.html"><span class="doc">Tools</span></a>.</p>
-<p>It is designed to be easy to use and extend, and can be used as a library or a standalone application. It also has a tiny <a class="reference internal" href="server.html#web-ui"><span class="std std-ref">Web UI</span></a> with basic functionality.</p>
+<p><code class="docutils literal notranslate"><span class="pre">gptme</span></code> is an ecosystem of tools for interacting with AI agents equipped with powerful local tools, acting as a copilot for your computer. The core components include:</p>
+<ul class="simple">
+<li><p><strong>gptme CLI</strong>: The main <a class="reference internal" href="cli.html"><span class="doc">command-line interface</span></a> for terminal-based interactions</p></li>
+<li><p><strong>gptme-server</strong>: A <a class="reference internal" href="server.html"><span class="doc">server component</span></a> for running gptme as a service</p></li>
+<li><p><strong>gptme-webui</strong>: A <a class="reference internal" href="server.html"><span class="doc">web interface</span></a> for browser-based interactions</p></li>
+<li><p><strong>gptme-agent-template</strong>: A template for creating custom <a class="reference internal" href="agents.html"><span class="doc">AI agents</span></a></p></li>
+</ul>
+<p>The system can execute python and bash, edit local files, search and browse the web, and much more through its rich set of <a class="reference internal" href="tools.html"><span class="doc">built-in tools</span></a> and extensible <a class="reference internal" href="custom_tool.html"><span class="doc">tool system</span></a>. You can see what’s possible in the <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a> and <a class="reference internal" href="demos.html"><span class="doc">Demos</span></a>, from creating web apps and games to analyzing data and automating workflows.</p>
+<p><strong>Getting Started:</strong> To begin using gptme, follow the <a class="reference internal" href="getting-started.html"><span class="doc">Getting Started</span></a> guide, set up your preferred <a class="reference internal" href="providers.html"><span class="doc">LLM provider</span></a>, and customize your <a class="reference internal" href="config.html"><span class="doc">configuration</span></a> as needed.</p>
+<p>The system is designed to be easy to use and extend, and can be used as a library, standalone application, or web service. For detailed usage patterns and features, see the <a class="reference internal" href="usage.html"><span class="doc">Usage</span></a> guide.</p>
 <p>See the <a class="reference external" href="https://github.com/gptme/gptme/blob/master/README.md">README</a> file for more general information about the project.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -415,6 +422,7 @@
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="getting-started.html#installation">Installation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="getting-started.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#quick-examples">Quick Examples</a></li>
 <li class="toctree-l2"><a class="reference internal" href="getting-started.html#next-steps">Next Steps</a></li>
 <li class="toctree-l2"><a class="reference internal" href="getting-started.html#support">Support</a></li>
 </ul>
@@ -432,6 +440,7 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tools.html#overview">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools.html#shell">Shell</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools.html#python">Python</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools.html#tmux">Tmux</a></li>
@@ -458,13 +467,22 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="providers.html">Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="agents.html#bob">Bob</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents.html#architecture">Architecture</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents.html#key-systems">Key Systems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents.html#benefits">Benefits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents.html#examples">Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents.html#external-integrations">External Integrations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents.html#why-personify-agents">Why personify agents?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents.html#links">Links</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="server.html#web-ui">Web UI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="server.html#fancy-web-ui">Fancy Web UI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="server.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="server.html#gptme-webui-modern-web-interface">gptme-webui: Modern Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="server.html#basic-web-ui">Basic Web UI</a></li>
 <li class="toctree-l2"><a class="reference internal" href="server.html#computer-use-interface">Computer Use Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="server.html#rest-api">REST API</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a><ul>

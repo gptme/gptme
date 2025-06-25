@@ -457,20 +457,26 @@ gh<span class="w"> </span>pr<span class="w"> </span>comment<span class="w"> </sp
 </li>
 </ol>
 <p>This setup provides automated code reviews for your pull requests using gptme. It demonstrates how powerful automation can be achieved with minimal code and high composability.</p>
-<p>Key points:
-- Uses shell scripting for simplicity and ease of understanding
-- Leverages gptme’s non-interactive mode for automation
-- Utilizes GitHub CLI (<cite>gh</cite>) for seamless GitHub integration
-- Integrates with GitHub Actions for automated workflow</p>
-<p>Benefits of this approach:
-- Easily customizable: Adjust the gptme prompt to focus on specific aspects of code review
-- Composable: The shell script can be extended or combined with other tools
-- Minimal dependencies: Relies on widely available tools (bash, curl, gh)
-- Quick setup: Can be implemented in any GitHub repository with minimal configuration</p>
-<p>To customize this for your specific needs:
-1. Modify the gptme prompt in <cite>review_pr.sh</cite> to focus on your project’s coding standards
-2. Add additional checks or integrations to the shell script as needed
-3. Adjust the GitHub Actions workflow to fit your CI/CD pipeline</p>
+<p>Key points:</p>
+<ul class="simple">
+<li><p>Uses shell scripting for simplicity and ease of understanding</p></li>
+<li><p>Leverages gptme’s non-interactive mode for automation</p></li>
+<li><p>Utilizes GitHub CLI (<cite>gh</cite>) for seamless GitHub integration</p></li>
+<li><p>Integrates with GitHub Actions for automated workflow</p></li>
+</ul>
+<p>Benefits of this approach:</p>
+<ul class="simple">
+<li><p>Easily customizable: Adjust the gptme prompt to focus on specific aspects of code review</p></li>
+<li><p>Composable: The shell script can be extended or combined with other tools</p></li>
+<li><p>Minimal dependencies: Relies on widely available tools (bash, curl, gh)</p></li>
+<li><p>Quick setup: Can be implemented in any GitHub repository with minimal configuration</p></li>
+</ul>
+<p>To customize this for your specific needs:</p>
+<ol class="arabic simple">
+<li><p>Modify the gptme prompt in <cite>review_pr.sh</cite> to focus on your project’s coding standards</p></li>
+<li><p>Add additional checks or integrations to the shell script as needed</p></li>
+<li><p>Adjust the GitHub Actions workflow to fit your CI/CD pipeline</p></li>
+</ol>
 <p>This example serves as a starting point for integrating gptme into your development workflow, demonstrating its potential for automating code review tasks.</p>
 
 

@@ -67,18 +67,21 @@ This example demonstrates a simple and composable approach to automated code rev
 This setup provides automated code reviews for your pull requests using gptme. It demonstrates how powerful automation can be achieved with minimal code and high composability.
 
 Key points:
+
 - Uses shell scripting for simplicity and ease of understanding
 - Leverages gptme's non-interactive mode for automation
 - Utilizes GitHub CLI (`gh`) for seamless GitHub integration
 - Integrates with GitHub Actions for automated workflow
 
 Benefits of this approach:
+
 - Easily customizable: Adjust the gptme prompt to focus on specific aspects of code review
 - Composable: The shell script can be extended or combined with other tools
 - Minimal dependencies: Relies on widely available tools (bash, curl, gh)
 - Quick setup: Can be implemented in any GitHub repository with minimal configuration
 
 To customize this for your specific needs:
+
 1. Modify the gptme prompt in `review_pr.sh` to focus on your project's coding standards
 2. Add additional checks or integrations to the shell script as needed
 3. Adjust the GitHub Actions workflow to fit your CI/CD pipeline

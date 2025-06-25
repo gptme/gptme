@@ -1,38 +1,55 @@
 Tools
 =====
 
-Tools available in gptme.
+gptme's tools enable AI agents to execute code, edit files, browse the web, process images, and interact with your computer.
 
-The tools can be grouped into the following categories:
+Overview
+--------
 
-- Execution
+📁 File System
+^^^^^^^^^^^^^^
 
-  - `Shell`_ - Run shell commands
-  - `Python`_ - Run Python code interactively
-  - `Tmux`_ - Use tmux to run commands
-  - `Subagent`_ - Delegate task to a subagent
+- `Read`_ - Read files in any format
+- `Save`_ - Create and overwrite files
+- `Patch`_ - Apply precise changes to existing files
 
-- Files
+💻 Code & Development
+^^^^^^^^^^^^^^^^^^^^^
 
-  - `Read`_ - Read files
-  - `Save`_ - Save whole files
-  - `Patch`_ - Patch files
+- `Python`_ - Execute Python code interactively with full library access
+- `Shell`_ - Run shell commands and manage system processes
 
-- Network
+🌐 Web & Research
+^^^^^^^^^^^^^^^^^
 
-  - `Browser`_ - Access the web
+- `Browser`_ - Browse websites, take screenshots, and read web content
+- `RAG`_ - Index and search through documentation and codebases
+- `Chats`_ - Search past conversations for context and references
 
-- Vision
+👁️ Visual & Interactive
+^^^^^^^^^^^^^^^^^^^^^^^
 
-  - `Vision`_ - View images
-  - `Screenshot`_ - Take screenshots
-  - `Computer`_ - Control the computer
+- `Vision`_ - Analyze images, diagrams, and visual content
+- `Screenshot`_ - Capture your screen for visual context
+- `Computer`_ - Control desktop applications through visual interface
 
-- Other
+⚡ Advanced Workflows
+^^^^^^^^^^^^^^^^^^^^^
 
-  - `Chats`_ - Search past conversations
-  - `RAG`_ - Retrieve documents and code
-  - `TTS`_ - Speech synthesis for responses
+- `Tmux`_ - Manage long-running processes in terminal sessions
+- `Subagent`_ - Delegate subtasks to specialized agent instances
+- `TTS`_ - Convert responses to speech for hands-free interaction
+
+Combinations
+^^^^^^^^^^^^
+
+The real power emerges when tools work together:
+
+- **Web Research + Code**: `Browser`_ + `Python`_ - Browse documentation and implement solutions
+- **Visual Development**: `Vision`_ + `Patch`_ - Analyze UI mockups and update code accordingly
+- **System Automation**: `Shell`_ + `Python`_ - Combine system commands with data processing
+- **Interactive Debugging**: `Screenshot`_ + `Computer`_ - Visual debugging and interface automation
+- **Knowledge-Driven Development**: `RAG`_ + `Chats`_ - Learn from documentation and past conversations
 
 Shell
 -----

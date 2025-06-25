@@ -22,6 +22,7 @@ The simplest way to extend gptme is by writing standalone scripts. These can be:
 - Easily tested and maintained
 
 Benefits of script-based tools:
+
 - Simple to create and maintain
 - Can be run and tested independently
 - No gptme dependency
@@ -29,6 +30,7 @@ Benefits of script-based tools:
 - Isolated dependencies
 
 Limitations:
+
 - Requires shell tool access
 - Can't attach files/images to messages
 - Not listed in tools section
@@ -46,6 +48,7 @@ Creating a Custom Tool
 When you need deeper integration with gptme, you can create a custom tool by defining a new instance of the ``ToolSpec`` class.
 
 Custom tools are necessary when you need to:
+
 - Attach files/images to messages
 - Get included in the tools section
 - Use without shell tool access

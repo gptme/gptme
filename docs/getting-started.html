@@ -383,6 +383,7 @@
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-examples">Quick Examples</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#support">Support</a></li>
 </ul>
@@ -424,6 +425,31 @@
 <p>If you haven’t set a <a class="reference internal" href="providers.html"><span class="doc">LLM provider</span></a> API key in the environment or <a class="reference internal" href="config.html"><span class="doc">configuration</span></a>, you will be prompted for one which will be saved in the configuration file.</p>
 <p>For detailed usage instructions, see <a class="reference internal" href="usage.html"><span class="doc">Usage</span></a>.</p>
 <p>You can also try the <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a>.</p>
+</section>
+<section id="quick-examples">
+<h2>Quick Examples<a class="headerlink" href="#quick-examples" title="Link to this heading">#</a></h2>
+<p>Here are some compelling examples to get you started:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Create applications and games</span>
+gptme<span class="w"> </span><span class="s1">&#39;write a web app to particles.html which shows off an impressive and colorful particle effect using three.js&#39;</span>
+gptme<span class="w"> </span><span class="s1">&#39;create a performant n-body simulation in rust&#39;</span>
+
+<span class="c1"># Work with files and code</span>
+gptme<span class="w"> </span><span class="s1">&#39;summarize this&#39;</span><span class="w"> </span>README.md
+gptme<span class="w"> </span><span class="s1">&#39;refactor this&#39;</span><span class="w"> </span>main.py
+gptme<span class="w"> </span><span class="s1">&#39;what do you see?&#39;</span><span class="w"> </span>image.png<span class="w">  </span><span class="c1"># vision</span>
+
+<span class="c1"># Development workflows</span>
+git<span class="w"> </span>status<span class="w"> </span>-vv<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;commit&#39;</span>
+make<span class="w"> </span><span class="nb">test</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;fix the failing tests&#39;</span>
+gptme<span class="w"> </span><span class="s1">&#39;implement this&#39;</span><span class="w"> </span>https://github.com/gptme/gptme/issues/286
+
+<span class="c1"># Chain multiple tasks</span>
+gptme<span class="w"> </span><span class="s1">&#39;make a change&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;test it&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;commit it&#39;</span>
+
+<span class="c1"># Resume conversations</span>
+gptme<span class="w"> </span>-r
+</pre></div>
+</div>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
@@ -489,6 +515,7 @@
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-examples">Quick Examples</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#support">Support</a></li>
 </ul>

@@ -13,7 +13,6 @@ This will show you a list of past chats, allowing you to select one or start a n
 
 To get inspiration for your first prompt, see the :doc:`examples`.
 
-
 .. contents:: Table of Contents
    :depth: 5
    :local:
@@ -42,7 +41,8 @@ Interfaces
 
 Besides the CLI, gptme can be used through:
 
-- :ref:`server:web ui` - A web-based interface
+- :ref:`server:gptme-webui` - A web-based interface
+- A `desktop app <https://github.com/gptme/gptme-tauri>`_ (WIP)
 - :doc:`bot` - GitHub bot integration
 
 For more detailed information about specific features, check out:

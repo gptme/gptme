@@ -39,6 +39,33 @@ For detailed usage instructions, see :doc:`usage`.
 
 You can also try the :doc:`examples`.
 
+Quick Examples
+--------------
+
+Here are some compelling examples to get you started:
+
+.. code-block:: bash
+
+    # Create applications and games
+    gptme 'write a web app to particles.html which shows off an impressive and colorful particle effect using three.js'
+    gptme 'create a performant n-body simulation in rust'
+
+    # Work with files and code
+    gptme 'summarize this' README.md
+    gptme 'refactor this' main.py
+    gptme 'what do you see?' image.png  # vision
+
+    # Development workflows
+    git status -vv | gptme 'commit'
+    make test | gptme 'fix the failing tests'
+    gptme 'implement this' https://github.com/gptme/gptme/issues/286
+
+    # Chain multiple tasks
+    gptme 'make a change' - 'test it' - 'commit it'
+
+    # Resume conversations
+    gptme -r
+
 Next Steps
 ----------
 

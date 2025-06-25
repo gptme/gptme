@@ -381,6 +381,15 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-system">📁 File System</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#code-development">💻 Code &amp; Development</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#web-research">🌐 Web &amp; Research</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#visual-interactive">👁️ Visual &amp; Interactive</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-workflows">⚡ Advanced Workflows</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#combinations">Combinations</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shell">Shell</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python">Python</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tmux">Tmux</a></li>
@@ -409,44 +418,60 @@
                   
   <section id="tools">
 <h1>Tools<a class="headerlink" href="#tools" title="Link to this heading">#</a></h1>
-<p>Tools available in gptme.</p>
-<p>The tools can be grouped into the following categories:</p>
+<p>gptme’s tools enable AI agents to execute code, edit files, browse the web, process images, and interact with your computer.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<section id="file-system">
+<h3>📁 File System<a class="headerlink" href="#file-system" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p>Execution</p>
-<ul>
-<li><p><a class="reference internal" href="#shell">Shell</a> - Run shell commands</p></li>
-<li><p><a class="reference internal" href="#python">Python</a> - Run Python code interactively</p></li>
-<li><p><a class="reference internal" href="#tmux">Tmux</a> - Use tmux to run commands</p></li>
-<li><p><a class="reference internal" href="#subagent">Subagent</a> - Delegate task to a subagent</p></li>
+<li><p><a class="reference internal" href="#read">Read</a> - Read files in any format</p></li>
+<li><p><a class="reference internal" href="#save">Save</a> - Create and overwrite files</p></li>
+<li><p><a class="reference internal" href="#patch">Patch</a> - Apply precise changes to existing files</p></li>
 </ul>
-</li>
-<li><p>Files</p>
-<ul>
-<li><p><a class="reference internal" href="#read">Read</a> - Read files</p></li>
-<li><p><a class="reference internal" href="#save">Save</a> - Save whole files</p></li>
-<li><p><a class="reference internal" href="#patch">Patch</a> - Patch files</p></li>
+</section>
+<section id="code-development">
+<h3>💻 Code &amp; Development<a class="headerlink" href="#code-development" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><a class="reference internal" href="#python">Python</a> - Execute Python code interactively with full library access</p></li>
+<li><p><a class="reference internal" href="#shell">Shell</a> - Run shell commands and manage system processes</p></li>
 </ul>
-</li>
-<li><p>Network</p>
-<ul>
-<li><p><a class="reference internal" href="#browser">Browser</a> - Access the web</p></li>
+</section>
+<section id="web-research">
+<h3>🌐 Web &amp; Research<a class="headerlink" href="#web-research" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><a class="reference internal" href="#browser">Browser</a> - Browse websites, take screenshots, and read web content</p></li>
+<li><p><a class="reference internal" href="#rag">RAG</a> - Index and search through documentation and codebases</p></li>
+<li><p><a class="reference internal" href="#chats">Chats</a> - Search past conversations for context and references</p></li>
 </ul>
-</li>
-<li><p>Vision</p>
-<ul>
-<li><p><a class="reference internal" href="#vision">Vision</a> - View images</p></li>
-<li><p><a class="reference internal" href="#screenshot">Screenshot</a> - Take screenshots</p></li>
-<li><p><a class="reference internal" href="#computer">Computer</a> - Control the computer</p></li>
+</section>
+<section id="visual-interactive">
+<h3>👁️ Visual &amp; Interactive<a class="headerlink" href="#visual-interactive" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><a class="reference internal" href="#vision">Vision</a> - Analyze images, diagrams, and visual content</p></li>
+<li><p><a class="reference internal" href="#screenshot">Screenshot</a> - Capture your screen for visual context</p></li>
+<li><p><a class="reference internal" href="#computer">Computer</a> - Control desktop applications through visual interface</p></li>
 </ul>
-</li>
-<li><p>Other</p>
-<ul>
-<li><p><a class="reference internal" href="#chats">Chats</a> - Search past conversations</p></li>
-<li><p><a class="reference internal" href="#rag">RAG</a> - Retrieve documents and code</p></li>
-<li><p><a class="reference internal" href="#tts">TTS</a> - Speech synthesis for responses</p></li>
+</section>
+<section id="advanced-workflows">
+<h3>⚡ Advanced Workflows<a class="headerlink" href="#advanced-workflows" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><a class="reference internal" href="#tmux">Tmux</a> - Manage long-running processes in terminal sessions</p></li>
+<li><p><a class="reference internal" href="#subagent">Subagent</a> - Delegate subtasks to specialized agent instances</p></li>
+<li><p><a class="reference internal" href="#tts">TTS</a> - Convert responses to speech for hands-free interaction</p></li>
 </ul>
-</li>
+</section>
+<section id="combinations">
+<h3>Combinations<a class="headerlink" href="#combinations" title="Link to this heading">#</a></h3>
+<p>The real power emerges when tools work together:</p>
+<ul class="simple">
+<li><p><strong>Web Research + Code</strong>: <a class="reference internal" href="#browser">Browser</a> + <a class="reference internal" href="#python">Python</a> - Browse documentation and implement solutions</p></li>
+<li><p><strong>Visual Development</strong>: <a class="reference internal" href="#vision">Vision</a> + <a class="reference internal" href="#patch">Patch</a> - Analyze UI mockups and update code accordingly</p></li>
+<li><p><strong>System Automation</strong>: <a class="reference internal" href="#shell">Shell</a> + <a class="reference internal" href="#python">Python</a> - Combine system commands with data processing</p></li>
+<li><p><strong>Interactive Debugging</strong>: <a class="reference internal" href="#screenshot">Screenshot</a> + <a class="reference internal" href="#computer">Computer</a> - Visual debugging and interface automation</p></li>
+<li><p><strong>Knowledge-Driven Development</strong>: <a class="reference internal" href="#rag">RAG</a> + <a class="reference internal" href="#chats">Chats</a> - Learn from documentation and past conversations</p></li>
 </ul>
+</section>
+</section>
 <section id="shell">
 <h2>Shell<a class="headerlink" href="#shell" title="Link to this heading">#</a></h2>
 <p>The assistant can execute shell commands with bash by outputting code blocks with <cite>shell</cite> as the language.</p>
@@ -2185,6 +2210,15 @@ See <a class="reference internal" href="mcp.html"><span class="doc">MCP</span></
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-system">📁 File System</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#code-development">💻 Code &amp; Development</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#web-research">🌐 Web &amp; Research</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#visual-interactive">👁️ Visual &amp; Interactive</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-workflows">⚡ Advanced Workflows</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#combinations">Combinations</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shell">Shell</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python">Python</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tmux">Tmux</a></li>

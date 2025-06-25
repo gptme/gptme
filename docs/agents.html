@@ -381,10 +381,14 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bob">Bob</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-personify-agents">Why personify agents?</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-systems">Key Systems</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#benefits">Benefits</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#external-integrations">External Integrations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-personify-agents">Why personify agents?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#links">Links</a></li>
 </ul>
             </nav>
         </div>
@@ -398,35 +402,202 @@
                   
   <section id="agents">
 <h1>Agents<a class="headerlink" href="#agents" title="Link to this heading">#</a></h1>
-<p>gptme supports “agents”, which we think of as having:</p>
+<p>gptme supports highly customizable “agents”: persistent AI assistants with structured memory, identity, and workspace management capabilities.</p>
+<p>Each agent is implemented as a git repository that serves as their “brain,” containing all their data, configuration, and interaction history.</p>
+<section id="architecture">
+<h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">#</a></h2>
+<p><strong>Git-based Repository Structure:</strong> Each agent is a complete git repository with a structured workspace.</p>
 <ul class="simple">
-<li><p>Identity</p></li>
-<li><p>Personality &amp; preferences</p></li>
-<li><p>Memory</p>
-<ul>
-<li><p>Journal</p></li>
-<li><p>Tasks</p></li>
-<li><p>Knowledgebase</p></li>
+<li><p><strong>Core files</strong> - <code class="docutils literal notranslate"><span class="pre">README.md</span></code>, <code class="docutils literal notranslate"><span class="pre">ABOUT.md</span></code>, <code class="docutils literal notranslate"><span class="pre">ARCHITECTURE.md</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">journal/</span></code> - Daily activity logs (YYYY-MM-DD.md format)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tasks/</span></code> - Individual task files with YAML metadata</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">knowledge/</span></code> - Long-term documentation and insights</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">people/</span></code> - Contact profiles and relationship management</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">projects/</span></code> - Project-specific information</p></li>
 </ul>
-</li>
-<li><p>Extra tools</p>
-<ul>
-<li><p>Email</p></li>
-<li><p>Chat</p></li>
-<li><p>Social Media</p></li>
+<p><strong>Dynamic Context Generation:</strong> Agents use sophisticated context generation to maintain awareness.</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="config.html"><span class="doc">Project configuration</span></a> (<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>) specifies core files always in context</p></li>
+<li><p>A <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> command specified in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> is used for dynamic context generation</p></li>
+<li><p>Each interaction includes recent journal entries, active tasks, and git status</p></li>
+<li><p>Provides comprehensive situational awareness across sessions</p></li>
 </ul>
-</li>
-</ul>
-<p>gptme agents are git-based and all their data is stored in a git repository. This makes it easy to share and collaborate on agents, and to keep a history of all interactions with the agent.</p>
-<p>They leverage the <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> <a class="reference internal" href="config.html"><span class="doc">project configuration file</span></a> using a particular set of prompts and directory structure which makes it capable to keep a journal, track tasks, remember things, and more.</p>
-<p>You can create your own agent with the <a class="reference external" href="https://github.com/gptme/gptme-agent-template/">gptme-agent-template</a>.</p>
-<section id="bob">
-<h2>Bob<a class="headerlink" href="#bob" title="Link to this heading">#</a></h2>
-<p>Bob, aka <a class="reference external" href="https://github.com/TimeToBuildBob">&#64;TimeToBuildBob</a>, is the first experimental agent built on top of gptme. He is a friendly and helpful bot that helps with working on gptme and related projects.</p>
-<section id="why-personify-agents">
-<h3>Why personify agents?<a class="headerlink" href="#why-personify-agents" title="Link to this heading">#</a></h3>
-<p>While personifying agents might seem like a silly idea for professional use, it can actually be quite helpful when working with them. It can help get into the right mindset for interacting with the agent, help you remember what the agent is for, what you’ve told them, and make the agent more memorable and relatable.</p>
 </section>
+<section id="key-systems">
+<h2>Key Systems<a class="headerlink" href="#key-systems" title="Link to this heading">#</a></h2>
+<p><strong>Journal System:</strong></p>
+<ul class="simple">
+<li><p>One file per day in append-only format</p></li>
+<li><p>Contains task progress, decisions, reflections, and plans</p></li>
+<li><p>Most recent entries automatically included in context</p></li>
+<li><p>Maintains historical record of all activities and thoughts</p></li>
+</ul>
+<p><strong>Task Management:</strong></p>
+<ul class="simple">
+<li><p>Individual Markdown files with YAML frontmatter metadata</p></li>
+<li><p>States: new, active, paused, done, cancelled</p></li>
+<li><p>Priority levels, tags, and dependencies</p></li>
+<li><p>CLI tools for management and status tracking</p></li>
+<li><p>Integrated with journal entries for progress updates</p></li>
+</ul>
+<p><strong>Knowledge Base:</strong></p>
+<ul class="simple">
+<li><p>Long-term information storage organized by topic</p></li>
+<li><p>Technical documentation, best practices, and insights</p></li>
+<li><p>Cross-referenced with tasks and journal entries</p></li>
+</ul>
+<p><strong>People Directory:</strong></p>
+<ul class="simple">
+<li><p>Individual profiles for contacts and collaborators</p></li>
+<li><p>Includes interests, skills, project history, and interaction notes</p></li>
+<li><p>Privacy-conscious with appropriate detail levels</p></li>
+</ul>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
+<p><strong>Creating an Agent:</strong></p>
+<p>Use the <a class="reference external" href="https://github.com/gptme/gptme-agent-template/">gptme-agent-template</a> to create new agents:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the template repository</span>
+git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme-agent-template
+<span class="nb">cd</span><span class="w"> </span>gptme-agent-template
+
+<span class="c1"># Fork the template</span>
+./fork.sh<span class="w"> </span>../my-agent<span class="w"> </span><span class="s2">&quot;MyAgent&quot;</span>
+<span class="nb">cd</span><span class="w"> </span>../my-agent
+</pre></div>
+</div>
+<p><strong>Running an Agent:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install dependencies</span>
+pipx<span class="w"> </span>install<span class="w"> </span>gptme
+pipx<span class="w"> </span>install<span class="w"> </span>pre-commit
+make<span class="w"> </span>install
+
+<span class="c1"># Run the agent</span>
+./run.sh<span class="w"> </span><span class="s2">&quot;your prompt here&quot;</span>
+</pre></div>
+</div>
+<p><strong>Execution Flow:</strong></p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">run.sh</span></code> builds dynamic context from all agent systems</p></li>
+<li><p>Context includes journal entries, task status, and current git state</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme</span></code> runs with comprehensive situational awareness</p></li>
+<li><p>Agent can access and update all workspace components</p></li>
+</ol>
+</section>
+<section id="benefits">
+<h2>Benefits<a class="headerlink" href="#benefits" title="Link to this heading">#</a></h2>
+<p><strong>Version Control:</strong></p>
+<ul class="simple">
+<li><p>All agent data and interactions are version-controlled</p></li>
+<li><p>Complete history of agent development and interactions</p></li>
+<li><p>Easy backup, sharing, and collaboration</p></li>
+</ul>
+<p><strong>Persistence:</strong></p>
+<ul class="simple">
+<li><p>Agents maintain state across sessions</p></li>
+<li><p>Remember previous conversations, decisions, and progress</p></li>
+<li><p>Build knowledge and relationships over time</p></li>
+</ul>
+<p><strong>Structured Memory:</strong></p>
+<ul class="simple">
+<li><p>Organized information storage prevents knowledge loss</p></li>
+<li><p>Easy retrieval of past decisions and context</p></li>
+<li><p>Cross-referencing between different information types</p></li>
+</ul>
+<p><strong>Extensibility:</strong></p>
+<ul class="simple">
+<li><p>Template provides consistent foundation</p></li>
+<li><p>Customizable identity, goals, and capabilities</p></li>
+<li><p>Integration with external tools and services</p></li>
+</ul>
+<p><strong>Goal-Oriented Behavior:</strong></p>
+<ul class="simple">
+<li><p>Clear goals transform agents from reactive tools into proactive collaborators</p></li>
+<li><p>Well-defined purpose enables agents to take initiative, suggest improvements, and identify opportunities</p></li>
+<li><p>Strategic direction helps agents prioritize decisions and maintain long-term perspective</p></li>
+<li><p>Goals provide the contextual framework that “pulls agents forward” toward meaningful outcomes</p></li>
+</ul>
+</section>
+<section id="examples">
+<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h2>
+<p><strong>Bob:</strong>
+Bob, aka <a class="reference external" href="https://github.com/TimeToBuildBob">&#64;TimeToBuildBob</a>, is an experimental agent that helps with gptme development. He demonstrates practical agent capabilities including:</p>
+<ul class="simple">
+<li><p>Project management and task tracking</p></li>
+<li><p>Code review and development assistance</p></li>
+<li><p>Documentation and knowledge management</p></li>
+<li><p>Community interaction and support</p></li>
+</ul>
+<p><strong>Creating Specialized Agents:</strong>
+The template system enables creating agents for specific domains:</p>
+<ul class="simple">
+<li><p>Development assistants with project-specific knowledge</p></li>
+<li><p>Research assistants with domain expertise</p></li>
+<li><p>Personal productivity assistants with custom workflows</p></li>
+<li><p>Team collaboration agents with shared knowledge bases</p></li>
+</ul>
+</section>
+<section id="external-integrations">
+<h2>External Integrations<a class="headerlink" href="#external-integrations" title="Link to this heading">#</a></h2>
+<p>Agents can be extended with various external integrations and tools for enhanced capabilities:</p>
+<p><strong>Content &amp; Information:</strong></p>
+<ul class="simple">
+<li><p><strong>Web Browsing:</strong> Access and analyze web content using built-in browser tools</p></li>
+<li><p><strong>Search Integration:</strong> Query search engines and process results</p></li>
+<li><p><strong>RSS Reader:</strong> Consume and process RSS feeds in LLM-friendly formats</p></li>
+</ul>
+<p><strong>Communication &amp; Sharing:</strong></p>
+<ul class="simple">
+<li><p><strong>Email Integration:</strong> Send and receive emails for external communication</p></li>
+<li><p><strong>Social Media:</strong></p>
+<ul>
+<li><p>Twitter integration for sharing updates and public communication</p></li>
+<li><p>Discord integration for community interaction</p></li>
+</ul>
+</li>
+<li><p><strong>GitHub Integration:</strong> Create and share gists, manage repositories</p></li>
+<li><p><strong>Website Publishing:</strong> Share information and updates publicly</p></li>
+</ul>
+<p><strong>Collaboration Tools:</strong></p>
+<ul class="simple">
+<li><p><strong>Git Integration:</strong> Version control with co-authoring capabilities</p></li>
+<li><p><strong>Issue Tracking:</strong> Integration with GitHub issues and project management</p></li>
+<li><p><strong>Documentation:</strong> Automated documentation generation and updates</p></li>
+</ul>
+<p><strong>Development &amp; Operations:</strong></p>
+<ul class="simple">
+<li><p><strong>CI/CD Integration:</strong> Automated testing and deployment workflows</p></li>
+<li><p><strong>Monitoring:</strong> System and application monitoring capabilities</p></li>
+<li><p><strong>Database Access:</strong> Query and update databases as needed</p></li>
+</ul>
+<p>These integrations transform agents from isolated assistants into connected participants in digital workflows, enabling them to:</p>
+<ul class="simple">
+<li><p>Stay informed about relevant developments through content feeds</p></li>
+<li><p>Communicate with external parties and communities</p></li>
+<li><p>Share their work and insights publicly</p></li>
+<li><p>Collaborate on projects with proper attribution</p></li>
+<li><p>Maintain awareness of project status and issues</p></li>
+</ul>
+<p><strong>Note:</strong> Many integrations are work-in-progress (WIP) and under active development.</p>
+</section>
+<section id="why-personify-agents">
+<h2>Why personify agents?<a class="headerlink" href="#why-personify-agents" title="Link to this heading">#</a></h2>
+<p>While personifying agents might seem unnecessary for professional use, it provides several benefits:</p>
+<ul class="simple">
+<li><p><strong>Mental Model:</strong> Helps users understand the agent’s role and capabilities</p></li>
+<li><p><strong>Consistency:</strong> Encourages consistent interaction patterns and expectations</p></li>
+<li><p><strong>Memory:</strong> Makes it easier to remember what you’ve told the agent</p></li>
+<li><p><strong>Engagement:</strong> Creates more natural and memorable interactions</p></li>
+<li><p><strong>Identity:</strong> Distinguishes between different specialized agents</p></li>
+</ul>
+</section>
+<section id="links">
+<h2>Links<a class="headerlink" href="#links" title="Link to this heading">#</a></h2>
+<p>For more details, see the following resources:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-agent-template/">gptme-agent-template</a> - Template for creating new agents</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-contrib">gptme-contrib</a> - Community-contributed tools and scripts for agents</p></li>
+</ul>
 </section>
 </section>
 
@@ -476,10 +647,14 @@
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bob">Bob</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-personify-agents">Why personify agents?</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-systems">Key Systems</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#benefits">Benefits</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#external-integrations">External Integrations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-personify-agents">Why personify agents?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#links">Links</a></li>
 </ul>
   </nav></div>
 
