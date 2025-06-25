@@ -20,8 +20,10 @@ Start the server:
 
 For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 
+.. _server:gptme-webui:
+
 gptme-webui: Modern Web Interface
-----------------------------------
+---------------------------------
 
 The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>`_: a modern, feature-rich React application that provides a complete gptme experience in your browser.
 
@@ -41,7 +43,7 @@ The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>
 For self-hosting and local development, see the `gptme-webui README <https://github.com/gptme/gptme-webui>`_.
 
 Basic Web UI
--------------
+------------
 
 A lightweight chat interface with minimal dependencies is bundled with the gptme server for simple deployments.
 
@@ -117,4 +119,4 @@ gptme-server provides a REST API for programmatic access to gptme functionality.
 The API endpoints support the core gptme operations including chat interactions, tool execution, and conversation management.
 
 .. note::
-   API documentation is available when running the server. Visit the server endpoint for interactive API documentation.
+   API documentation is available when running the server. Visit the server endpoint ``/api/docs/`` for interactive API documentation based on the OpenAPI spec (served at ``/api/docs/openapi.json``).

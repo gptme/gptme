@@ -27,7 +27,7 @@ Overview
 - `Chats`_ - Search past conversations for context and references
 
 👁️ Visual & Interactive
-^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^
 
 - `Vision`_ - Analyze images, diagrams, and visual content
 - `Screenshot`_ - Capture your screen for visual context

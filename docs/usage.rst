@@ -41,7 +41,7 @@ Interfaces
 
 Besides the CLI, gptme can be used through:
 
-- :ref:`server:web ui` - A web-based interface
+- :ref:`server:gptme-webui` - A web-based interface
 - :doc:`bot` - GitHub bot integration
 
 For more detailed information about specific features, check out:
