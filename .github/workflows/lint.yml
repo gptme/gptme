@@ -45,3 +45,22 @@ jobs:
     - name: Typecheck
       run: |
         make typecheck
+
+  openapi:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install poetry
+      run: pipx install poetry
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'poetry'
+    - name: Install dependencies
+      run: |
+        make build
+        poetry install -E server
+    - name: Check OpenAPI specification
+      run: |
+        make check-openapi
