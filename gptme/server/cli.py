@@ -90,7 +90,7 @@ def generate_openapi(output: str, verbose: bool):
     init_logging(verbose)
     set_config_from_workspace(Path.cwd())
     init(
-        model=None,
+        model="openai/mock",
         interactive=False,
         tool_allowlist=None,
     )
