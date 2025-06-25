@@ -2055,7 +2055,7 @@ gptme<span class="w"> </span><span class="s1">&#39;hello, testing tts&#39;</span
 <dd><p>Get the best available output device and its sample rate.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>(device_index, sample_rate)</p>
+<dd class="field-odd"><p>(device_index, sample_rate) where device_index can be None for system default</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>tuple</p>
@@ -2074,17 +2074,19 @@ gptme<span class="w"> </span><span class="s1">&#39;hello, testing tts&#39;</span
 
 <dl class="py function">
 <dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">gptme.tools.tts.</span></span><span class="sig-name descname"><span class="pre">join_short_sentences</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sentences</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_length</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">100</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></span></dt>
-<dd><p>Join consecutive sentences that are shorter than min_length.</p>
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.tts.</span></span><span class="sig-name descname"><span class="pre">join_short_sentences</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sentences</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_length</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_length</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">300</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Join consecutive sentences that are shorter than min_length, or up to max_length.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>sentences</strong> – List of sentences to potentially join</p></li>
-<li><p><strong>min_length</strong> – Minimum length threshold for joining</p></li>
+<li><p><strong>min_length</strong> – Minimum length threshold for joining short sentences</p></li>
+<li><p><strong>max_length</strong> – Maximum length for combined sentences. If specified, tries to make
+sentences as long as possible up to this limit</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>List of sentences, with short ones combined</p>
+<dd class="field-even"><p>List of sentences, with short ones combined or optimized for max length</p>
 </dd>
 </dl>
 </dd></dl>
