@@ -117,6 +117,13 @@ Benefits
 - Customizable identity, goals, and capabilities
 - Integration with external tools and services
 
+**Goal-Oriented Behavior:**
+
+- Clear goals transform agents from reactive tools into proactive collaborators
+- Well-defined purpose enables agents to take initiative, suggest improvements, and identify opportunities
+- Strategic direction helps agents prioritize decisions and maintain long-term perspective
+- Goals provide the contextual framework that "pulls agents forward" toward meaningful outcomes
+
 Examples
 --------
 
@@ -136,6 +143,50 @@ The template system enables creating agents for specific domains:
 - Personal productivity assistants with custom workflows
 - Team collaboration agents with shared knowledge bases
 
+External Integrations
+---------------------
+
+Agents can be extended with various external integrations and tools for enhanced capabilities:
+
+**Content & Information:**
+
+- **Web Browsing:** Access and analyze web content using built-in browser tools
+- **Search Integration:** Query search engines and process results
+- **RSS Reader:** Consume and process RSS feeds in LLM-friendly formats
+
+**Communication & Sharing:**
+
+- **Email Integration:** Send and receive emails for external communication
+- **Social Media:**
+
+  - Twitter integration for sharing updates and public communication
+  - Discord integration for community interaction
+
+- **GitHub Integration:** Create and share gists, manage repositories
+- **Website Publishing:** Share information and updates publicly
+
+**Collaboration Tools:**
+
+- **Git Integration:** Version control with co-authoring capabilities
+- **Issue Tracking:** Integration with GitHub issues and project management
+- **Documentation:** Automated documentation generation and updates
+
+**Development & Operations:**
+
+- **CI/CD Integration:** Automated testing and deployment workflows
+- **Monitoring:** System and application monitoring capabilities
+- **Database Access:** Query and update databases as needed
+
+These integrations transform agents from isolated assistants into connected participants in digital workflows, enabling them to:
+
+- Stay informed about relevant developments through content feeds
+- Communicate with external parties and communities
+- Share their work and insights publicly
+- Collaborate on projects with proper attribution
+- Maintain awareness of project status and issues
+
+**Note:** Many integrations are work-in-progress (WIP) and under active development.
+
 Why personify agents?
 ---------------------
 
@@ -146,3 +197,11 @@ While personifying agents might seem unnecessary for professional use, it provid
 - **Memory:** Makes it easier to remember what you've told the agent
 - **Engagement:** Creates more natural and memorable interactions
 - **Identity:** Distinguishes between different specialized agents
+
+Links
+-----
+
+For more details, see the following resources:
+
+- `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ - Template for creating new agents
+- `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ - Community-contributed tools and scripts for agents

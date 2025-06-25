@@ -1,5 +1,5 @@
-Server & Web Interfaces
-========================
+Server
+======
 
 gptme provides multiple web-based interfaces for browser-based interactions, from lightweight options to sophisticated desktop-integrated experiences.
 
@@ -23,7 +23,7 @@ For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 gptme-webui: Modern Web Interface
 ----------------------------------
 
-The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>`_ - a modern, feature-rich React application that provides a complete gptme experience in your browser.
+The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>`_: a modern, feature-rich React application that provides a complete gptme experience in your browser.
 
 **Try it now:** `chat.gptme.org <https://chat.gptme.org>`_
 
