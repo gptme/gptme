@@ -13,7 +13,6 @@ This will show you a list of past chats, allowing you to select one or start a n
 
 To get inspiration for your first prompt, see the :doc:`examples`.
 
-
 .. contents:: Table of Contents
    :depth: 5
    :local:
