@@ -10,6 +10,19 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+SYSTEM_PROMPT = """You are a helpful AI assistant.
+
+Rules:
+1. Provide only the final answer. It is important that you do not include any explanation on the steps below.
+2. Do not show the intermediate steps information.
+
+Steps:
+1. Decide if the answer should be a brief sentence or a list of suggestions.
+2. If it is a list of suggestions, first, write a brief and natural introduction based on the original query.
+3. Followed by a list of suggestions, each suggestion should be split by two newlines.
+""".strip()
+
+
 def search_perplexity(query: str) -> str:
     """Search using Perplexity AI API."""
     try:
@@ -41,11 +54,11 @@ def search_perplexity(query: str) -> str:
         )
 
         response = client.chat.completions.create(
-            model="llama-3.1-sonar-large-128k-online",
+            model="sonar",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an artificial intelligence assistant and you need to engage in a helpful, detailed, polite conversation with a user.",
+                    "content": SYSTEM_PROMPT,
                 },
                 {
                     "role": "user",
