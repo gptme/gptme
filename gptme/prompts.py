@@ -24,6 +24,19 @@ from .tools import ToolFormat, ToolSpec, get_available_tools
 from .util import document_prompt_function
 from .util.context import md_codeblock
 
+# Default files to include in context when no gptme.toml is present or files list is empty
+DEFAULT_CONTEXT_FILES = [
+    "README*",
+    "CLAUDE.md",
+    "GEMINI.md",
+    ".cursor/**/*.md",
+    "pyproject.toml",
+    "package.json",
+    "Cargo.toml",
+    "Makefile",
+    "docker-compose.y*ml",
+]
+
 PromptType = Literal["full", "short"]
 
 logger = logging.getLogger(__name__)
@@ -352,34 +365,60 @@ def prompt_workspace(workspace: Path | None = None) -> Generator[Message, None, 
     if workspace is None:
         return
 
-    if project := get_project_config(workspace):
-        # files
-        files: list[Path] = []
-        for fileglob in project.files:
-            # expand user
-            fileglob = str(Path(fileglob).expanduser())
-            # expand with glob
-            if new_files := workspace.glob(fileglob):
-                files.extend(new_files)
-            else:
+    project = get_project_config(workspace)
+
+    # Determine which file patterns to use
+    if project is None or project.files is None:
+        # No project config or no files specified in config
+        file_patterns = DEFAULT_CONTEXT_FILES
+        if project is None:
+            logger.debug("No project config found, using default context files")
+        else:
+            logger.debug(
+                "Project config has no files specified, using default context files"
+            )
+    else:
+        # Project config exists with files explicitly set (could be empty list)
+        file_patterns = project.files
+        if not project.files:
+            logger.debug(
+                "Project config has files explicitly set to empty, not including any files"
+            )
+
+    # Process file patterns
+    files: list[Path] = []
+    for fileglob in file_patterns:
+        # expand user
+        fileglob = str(Path(fileglob).expanduser())
+        # expand with glob
+        if new_files := workspace.glob(fileglob):
+            files.extend(new_files)
+        else:
+            # Only warn for explicitly configured files, not defaults
+            if project and project.files is not None:
                 logger.warning(
                     f"File glob '{fileglob}' specified in project config does not match any files."
                 )
-        files_str = []
-        for file in files:
-            if file.exists():
-                files_str.append(md_codeblock(file, file.read_text()))
-        if files_str:
-            sections.append(
-                "## Selected project files\n\nRead more with `cat`.\n\n"
-                + "\n\n".join(files_str)
-            )
 
-        # context_cmd
-        if project.context_cmd and (
+    files_str = []
+    for file in files:
+        if file.exists():
+            files_str.append(md_codeblock(file, file.read_text()))
+    if files_str:
+        sections.append(
+            "## Selected project files\n\nRead more with `cat`.\n\n"
+            + "\n\n".join(files_str)
+        )
+
+    # context_cmd
+    if (
+        project
+        and project.context_cmd
+        and (
             cmd_output := get_project_context_cmd_output(project.context_cmd, workspace)
-        ):
-            sections.append("## Computed context\n\n" + cmd_output)
+        )
+    ):
+        sections.append("## Computed context\n\n" + cmd_output)
 
     # Get tree output if enabled
     if tree_output := get_tree_output(workspace):

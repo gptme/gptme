@@ -103,7 +103,7 @@ class ProjectConfig:
 
     base_prompt: str | None = None
     prompt: str | None = None
-    files: list[str] = field(default_factory=list)
+    files: list[str] | None = None
     context_cmd: str | None = None
     rag: RagConfig = field(default_factory=RagConfig)
 
@@ -215,7 +215,7 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
             config_data = tomlkit.load(f).unwrap()
 
         prompt = config_data.pop("prompt", "")
-        files = config_data.pop("files", [])
+        files = config_data.pop("files", None)
         context_cmd = config_data.pop("context_cmd", None)
         rag = RagConfig(**config_data.pop("rag", {}))
         if mcp := config_data.pop("mcp", None):
