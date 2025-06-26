@@ -584,7 +584,7 @@ def setup_config_from_cli(
         if tool_allowlist.startswith("+"):
             additive_tools = True
             tool_allowlist = tool_allowlist[1:]  # Remove the + prefix
-        resolved_tool_allowlist = [tool.strip() for tool in tool_allowlist.split(",")]
+        resolved_tool_allowlist = [tool.strip() for tool in tool_allowlist.split(",") if tool.strip()]
     elif tools_env := config.get_env("TOOLS"):
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
 
