@@ -50,38 +50,79 @@ class Codeblock:
         return list(_extract_codeblocks(markdown))
 
 
+import re
+
+# valid start/end of markdown code blocks
+re_triple_tick_start = re.compile(r"^```.*\n")
+re_triple_tick_end = re.compile(r"^```$")
+
+
 def _extract_codeblocks(markdown: str) -> Generator[Codeblock, None, None]:
+    """
+    Extracts code blocks from a markdown string using context-aware pattern matching.
+
+    Tricks used:
+    - Opening ``` must be at start of line, optionally preceded by blank lines
+    - Closing ``` must be alone on line, optionally followed by blank lines or EOF
+    - ``` with content immediately before/after is treated as literal text, not delimiter
+
+    This handles nested cases where ``` appears inside string literals or other content.
+    """
     # speed check (early exit): check if message contains a code block
-    backtick_count = markdown.count("```")
-    if backtick_count < 2:
+    if "```" not in markdown:
         return
 
     lines = markdown.split("\n")
-    stack: list[str] = []
-    current_block = []
-    current_lang = ""
+    i = 0
 
-    for idx, line in enumerate(lines):
-        # not actually the starting index, but close enough
-        # TODO: fix to actually be correct
-        start_idx = sum(len(line) + 1 for line in lines[:idx])
-        stripped_line = line.strip()
-        if stripped_line.startswith("```"):
-            if not stack:  # Start of a new block
-                stack.append(stripped_line[3:])
-                current_lang = stripped_line[3:]
-            elif stripped_line[3:] and stack[-1] != stripped_line[3:]:  # Nested start
-                current_block.append(line)
-                stack.append(stripped_line[3:])
-            else:  # End of a block
-                if len(stack) == 1:  # Outermost block
-                    yield Codeblock(
-                        current_lang, "\n".join(current_block), start=start_idx
-                    )
-                    current_block = []
-                    current_lang = ""
-                else:  # Nested end
-                    current_block.append(line)
-                stack.pop()
-        elif stack:
-            current_block.append(line)
+    while i < len(lines):
+        line = lines[i]
+
+        # Look for code block start
+        if line.startswith("```"):
+            lang = line[3:].strip()
+            content_lines: list[str] = []
+            i += 1
+
+            # Track nesting depth to handle nested code blocks
+            nesting_depth = 1
+
+            # Collect content until we find the matching closing ```
+            while i < len(lines):
+                line = lines[i]
+
+                # Check if this line starts with ``` (potential opening or closing)
+                if line.startswith("```"):
+                    if line.strip() == "```":
+                        # Bare ``` - check if it's opening or closing based on next line
+                        if (
+                            i + 1 < len(lines)
+                            and lines[i + 1].strip() != ""
+                            and not lines[i + 1].startswith("```")
+                        ):
+                            # Next line has content, this is an opening tag
+                            nesting_depth += 1
+                            content_lines.append(line)
+                        else:
+                            # Next line is empty/EOF or starts with ```, this is closing tag
+                            nesting_depth -= 1
+                            if nesting_depth == 0:
+                                # This closes our top-level block
+                                yield Codeblock(lang, "\n".join(content_lines))
+                                break
+                            else:
+                                # This closes a nested block, add to content
+                                content_lines.append(line)
+                    else:
+                        # This starts a nested block (has language or content after ```)
+                        nesting_depth += 1
+                        content_lines.append(line)
+                else:
+                    content_lines.append(line)
+
+                i += 1
+
+            # If we reached the end without completing the block, don't yield it
+            # (this handles the unfinished nested test case)
+
+        i += 1

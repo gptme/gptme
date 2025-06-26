@@ -201,3 +201,41 @@ def test_apply_with_extra_divider_fails():
     except ValueError as e:
         assert "extra ======= marker found" in str(e)
         assert "Use only one =======" in str(e)
+
+
+# TODO: write a test for this
+example_patch_with_nested_codeblock = '''
+<<<<<<< ORIGINAL
+        return_prompt = """Thank you for doing the task, please reply with a JSON codeblock on the format:
+
+```json
+{
+    result: 'A description of the task result/outcome',
+    status: 'success' | 'failure',
+}
+```"""
+=======
+        return_prompt = """Thank you for doing the task, please reply with a JSON codeblock on the format:
+
+```json
+{
+    "result": "A description of the task result/outcome",
+    "status": "success"
+}
+```"""
+>>>>>>> UPDATED
+```
+'''
+
+
+def test_apply_with_nested_codeblock():
+    """Test that patches containing nested codeblocks (like ```json) work correctly."""
+    # Parse the example patch to extract original and expected content
+    patches = list(Patch.from_codeblock(example_patch_with_nested_codeblock.strip()))
+    patch = patches[0]
+
+    content = patch.original
+    expected = patch.updated
+
+    result = apply(example_patch_with_nested_codeblock.strip(), content)
+    assert result == expected
