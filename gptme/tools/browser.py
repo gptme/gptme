@@ -54,6 +54,15 @@ browser: Literal["playwright", "lynx"] | None = (
     "playwright" if has_playwright() else ("lynx" if has_lynx() else None)
 )
 
+# Check for Perplexity availability
+try:
+    from ._browser_perplexity import has_perplexity_key, search_perplexity  # fmt: skip
+
+    has_perplexity = has_perplexity_key()
+except ImportError:
+    has_perplexity = False
+    search_perplexity = None  # type: ignore
+
 # noreorder
 if browser == "playwright":
     from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
@@ -68,7 +77,8 @@ elif browser == "lynx":
 
 logger = logging.getLogger(__name__)
 
-EngineType = Literal["google", "duckduckgo"]
+# Always include all engine types in the type definition
+EngineType = Literal["google", "duckduckgo", "perplexity"]
 
 
 def examples(tool_format):
@@ -101,6 +111,14 @@ Assistant: Following link to the ActivityWatch website.
 System:
 {ToolUse("https://activitywatch.net/", [], "... The ActivityWatch project was founded by Erik Bjäreholt in 2016. ...".strip()).to_output()}
 Assistant: The founder of ActivityWatch is Erik Bjäreholt.
+
+### Searching with Perplexity
+User: what are the latest developments in AI?
+Assistant: Let me search for that using Perplexity AI.
+{ToolUse("ipython", [], "search('latest developments in AI', 'perplexity')").to_output(tool_format)}
+System:
+{ToolUse("result", [], "Based on recent developments, AI has seen significant advances...").to_output()}
+Assistant: Based on the search results, here are the latest AI developments...
 
 ### Take screenshot of page
 User: take a screenshot of the ActivityWatch website
@@ -147,7 +165,12 @@ def read_url(url: str) -> str:
 def search(query: str, engine: EngineType = "google") -> str:
     """Search for a query on a search engine."""
     logger.info(f"Searching for '{query}' on {engine}")
-    if browser == "playwright":
+    if engine == "perplexity":
+        if has_perplexity:
+            return search_perplexity(query)  # type: ignore
+        else:
+            return "Error: Perplexity search not available. Set PERPLEXITY_API_KEY environment variable or add it to ~/.config/gptme/config.toml"
+    elif browser == "playwright":
         return search_playwright(query, engine)
     elif browser == "lynx":
         return search_lynx(query, engine)  # type: ignore
