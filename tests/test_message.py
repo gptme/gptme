@@ -50,12 +50,15 @@ def test():
     msg = Message(
         "system",
         """Hello world!
+
 ```bash
 echo "Hello world!"
 ```
+
 ```ipython
 print("Hello world!")
 ```
+
 That's all folks!
 """,
     )
