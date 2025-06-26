@@ -1,5 +1,6 @@
 import base64
 import logging
+import os
 import time
 from collections.abc import Generator, Iterable
 from functools import wraps
@@ -28,6 +29,13 @@ _anthropic: "Anthropic | None" = None
 
 
 def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) -> bool:
+    # Support environment variable to override reasoning behavior
+    env_reasoning = os.environ.get("GPTME_REASONING")
+    if env_reasoning and env_reasoning.lower() in ("1", "true", "yes"):
+        return True
+    elif env_reasoning and env_reasoning.lower() in ("0", "false", "no"):
+        return False
+
     # Only enable thinking for supported models and when not using `tool` format
     if not model_meta.supports_reasoning:
         return False
