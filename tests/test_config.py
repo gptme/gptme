@@ -427,3 +427,75 @@ def test_default_chat_config_to_toml():
     toml_str = tomlkit.dumps(config.to_dict())
     config_new = ChatConfig.from_dict(tomlkit.loads(toml_str).unwrap())
     assert config_new == config
+
+
+def test_tool_allowlist_additive_behavior(monkeypatch, tmp_path):
+    """Test that tool allowlist with + prefix adds to default tools instead of replacing."""
+    from gptme.config import setup_config_from_cli
+    from gptme.tools import get_toolchain
+
+    # Create a temporary workspace
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    # Test regular behavior (replace tools)
+    config = setup_config_from_cli(
+        workspace=workspace, logdir=logdir, tool_allowlist="shell,patch"
+    )
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert set(config.chat.tools) == {"shell", "patch"}
+
+    # Test additive behavior (+ prefix adds to default tools)
+    # First get default tools to compare
+    default_tools = [tool.name for tool in get_toolchain(None)]
+
+    config_additive = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir / "additive",
+        tool_allowlist="+browser,vision",
+    )
+
+    # Should have all default tools plus browser and vision
+    expected_tools = set(default_tools)
+    expected_tools.update(["browser", "vision"])
+
+    assert config_additive.chat is not None
+    assert config_additive.chat.tools is not None
+    assert set(config_additive.chat.tools) == expected_tools
+
+    # Test additive behavior with tool already in default
+    config_overlap = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir / "overlap",
+        tool_allowlist="+shell",  # shell is likely in default tools
+    )
+
+    # Should not duplicate tools
+    assert config_overlap.chat is not None
+    assert config_overlap.chat.tools is not None
+    assert len(config_overlap.chat.tools) == len(set(config_overlap.chat.tools))
+    assert "shell" in config_overlap.chat.tools
+
+
+def test_tool_allowlist_empty_plus_prefix(tmp_path):
+    """Test that + prefix with empty tools just returns default tools."""
+    from gptme.config import setup_config_from_cli
+    from gptme.tools import get_toolchain
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    # Test with just "+" (empty additional tools)
+    config = setup_config_from_cli(
+        workspace=workspace, logdir=logdir, tool_allowlist="+"
+    )
+
+    default_tools = [tool.name for tool in get_toolchain(None)]
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert set(config.chat.tools) == set(default_tools)

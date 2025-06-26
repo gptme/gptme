@@ -577,7 +577,13 @@ def setup_config_from_cli(
 
     # Handle tool allowlist - convert string to list if needed
     resolved_tool_allowlist: list[str] | None = None
+    additive_tools = False
+
     if tool_allowlist is not None:
+        # Check if we want to add to default toolchain (starts with +)
+        if tool_allowlist.startswith("+"):
+            additive_tools = True
+            tool_allowlist = tool_allowlist[1:]  # Remove the + prefix
         resolved_tool_allowlist = [tool.strip() for tool in tool_allowlist.split(",")]
     elif tools_env := config.get_env("TOOLS"):
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
@@ -601,9 +607,22 @@ def setup_config_from_cli(
 
     # Set tools if not already set or if CLI override provided
     if config.chat.tools is None or tool_allowlist is not None:
-        config.chat.tools = [
-            tool.name for tool in get_toolchain(resolved_tool_allowlist)
-        ]
+        if additive_tools and resolved_tool_allowlist:
+            # Get default toolchain and add the specified tools
+            default_tools = [tool.name for tool in get_toolchain(None)]
+            additional_tools = [
+                tool.name for tool in get_toolchain(resolved_tool_allowlist)
+            ]
+            # Combine, avoiding duplicates while preserving order
+            combined_tools = default_tools[:]
+            for tool in additional_tools:
+                if tool not in combined_tools:
+                    combined_tools.append(tool)
+            config.chat.tools = combined_tools
+        else:
+            config.chat.tools = [
+                tool.name for tool in get_toolchain(resolved_tool_allowlist)
+            ]
 
     # Save and set the final config
     config.chat.save()
