@@ -1,4 +1,4 @@
-from gptme.codeblock import Codeblock
+from gptme.codeblock import Codeblock, _extract_codeblocks
 
 
 def test_extract_codeblocks_basic():
@@ -134,3 +134,21 @@ Done!
     assert "npm install" in content
     assert "node app.js" in content
     assert "Done!" in content
+
+
+def test_extract_codeblocks_consecutive():
+    """Test that consecutive codeblocks are both extracted."""
+    markdown = """```python
+print("first")
+```
+```bash
+echo "second"
+```"""
+    codeblocks = list(_extract_codeblocks(markdown))
+    assert len(codeblocks) == 2
+    assert codeblocks[0].lang == "python"
+    assert codeblocks[0].content == 'print("first")'
+    assert codeblocks[0].start == 0
+    assert codeblocks[1].lang == "bash"
+    assert codeblocks[1].content == 'echo "second"'
+    assert codeblocks[1].start == 3

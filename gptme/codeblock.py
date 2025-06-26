@@ -110,6 +110,7 @@ def _extract_codeblocks(markdown: str) -> Generator[Codeblock, None, None]:
                             if nesting_depth == 0:
                                 # This closes our top-level block
                                 yield Codeblock(lang, "\n".join(content_lines), start=start_line)
+                                i += 1  # Move past the closing ```
                                 break
                             else:
                                 # This closes a nested block, add to content
@@ -125,5 +126,5 @@ def _extract_codeblocks(markdown: str) -> Generator[Codeblock, None, None]:
 
             # If we reached the end without completing the block, don't yield it
             # (this handles the unfinished nested test case)
-
-        i += 1
+        else:
+            i += 1
