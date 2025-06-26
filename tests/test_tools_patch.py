@@ -203,7 +203,6 @@ def test_apply_with_extra_divider_fails():
         assert "Use only one =======" in str(e)
 
 
-# TODO: write a test for this
 example_patch_with_nested_codeblock = '''
 <<<<<<< ORIGINAL
         return_prompt = """Thank you for doing the task, please reply with a JSON codeblock on the format:
