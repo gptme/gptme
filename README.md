@@ -1,63 +1,50 @@
-<p align="center">
+<div align="center">
   <img src="https://gptme.org/media/logo.png" width=150 />
-</p>
+  <h1>gptme</h1>
+  <p><i>/ʤiː piː tiː miː/</i></p>
+  
+  <p>
+    <a href="https://gptme.org/docs/getting-started.html">Getting Started</a>
+    •
+    <a href="https://gptme.org/">Website</a>
+    •
+    <a href="https://gptme.org/docs/">Documentation</a>
+  </p>
 
-<h1 align="center">gptme</h1>
+  <p>
+    <a href="https://github.com/gptme/gptme/actions/workflows/build.yml"><img src="https://github.com/gptme/gptme/actions/workflows/build.yml/badge.svg" alt="Build Status" /></a>
+    <a href="https://github.com/gptme/gptme/actions/workflows/docs.yml"><img src="https://github.com/gptme/gptme/actions/workflows/docs.yml/badge.svg" alt="Docs Build Status" /></a>
+    <a href="https://codecov.io/gh/gptme/gptme"><img src="https://codecov.io/gh/gptme/gptme/graph/badge.svg?token=DYAYJ8EF41" alt="Codecov" /></a>
+    <a href="https://pypi.org/project/gptme/"><img src="https://img.shields.io/pypi/v/gptme" alt="PyPI version" /></a>
+    <a href="https://pepy.tech/project/gptme"><img src="https://img.shields.io/pepy/dt/gptme" alt="PyPI - Downloads all-time" /></a>
+    <a href="https://pypistats.org/packages/gptme"><img src="https://img.shields.io/pypi/dd/gptme?color=success" alt="PyPI - Downloads per day" /></a>
+  </p>
 
-<p align="center">
-<i>/ʤiː piː tiː miː/</i>
-</p>
+  <p>
+    <a href="https://discord.gg/NMaCmmkxWv"><img src="https://img.shields.io/discord/1271539422017618012?logo=discord&style=social" alt="Discord" /></a>
+    <a href="https://x.com/gptmeorg"><img src="https://img.shields.io/twitter/follow/gptmeorg?style=social" alt="X.com" /></a>
+  </p>
 
-<!-- Links -->
-<p align="center">
-  <a href="https://gptme.org/docs/getting-started.html">Getting Started</a>
-  •
-  <a href="https://gptme.org/">Website</a>
-  •
-  <a href="https://gptme.org/docs/">Documentation</a>
-</p>
-
-<!-- Badges -->
-<p align="center">
-  <a href="https://github.com/gptme/gptme/actions/workflows/build.yml">
-    <img src="https://github.com/gptme/gptme/actions/workflows/build.yml/badge.svg" alt="Build Status" />
-  </a>
-  <a href="https://github.com/gptme/gptme/actions/workflows/docs.yml">
-    <img src="https://github.com/gptme/gptme/actions/workflows/docs.yml/badge.svg" alt="Docs Build Status" />
-  </a>
-  <a href="https://codecov.io/gh/gptme/gptme">
-    <img src="https://codecov.io/gh/gptme/gptme/graph/badge.svg?token=DYAYJ8EF41" alt="Codecov" />
-  </a>
-  <br>
-  <a href="https://pypi.org/project/gptme/">
-    <img src="https://img.shields.io/pypi/v/gptme" alt="PyPI version" />
-  </a>
-  <a href="https://pepy.tech/project/gptme">
-    <img src="https://img.shields.io/pepy/dt/gptme" alt="PyPI - Downloads all-time" />
-  </a>
-  <a href="https://pypistats.org/packages/gptme">
-    <img src="https://img.shields.io/pypi/dd/gptme?color=success" alt="PyPI - Downloads per day" />
-  </a>
-  <br>
-  <a href="https://discord.gg/NMaCmmkxWv">
-    <img src="https://img.shields.io/discord/1271539422017618012?logo=discord&style=social" alt="Discord" />
-  </a>
-  <a href="https://x.com/gptmeorg">
-    <img src="https://img.shields.io/twitter/follow/gptmeorg?style=social" alt="X.com" />
-  </a>
-  <br>
-  <a href="https://gptme.org/docs/projects.html">
-    <img src="https://img.shields.io/badge/powered%20by-gptme%20%F0%9F%A4%96-5151f5?style=flat" alt="Powered by gptme" />
-  </a>
-</p>
+  <p>
+    <a href="https://gptme.org/docs/projects.html"><img src="https://img.shields.io/badge/powered%20by-gptme%20%F0%9F%A4%96-5151f5?style=flat" alt="Powered by gptme" /></a>
+  </p>
+</div>
 
 <p align="center">
-📜 Personal AI assistant/agent in your terminal, with tools so it can:<br/>Use the terminal, run code, edit files, browse the web, use vision, and much more;<br/>a great coding agent, but is general-purpose to assists in all kinds of knowledge-work, from a simple but powerful CLI.
+  <strong>Your personal AI assistant/agent in the terminal</strong><br>
+  Use the shell, run code, edit files, browse the web, and much more.<br>
+  A powerful coding companion and general-purpose assistant for all kinds of knowledge work.
 </p>
 
-<p align="center">
-An unconstrained local <a href="https://gptme.org/docs/alternatives.html">alternative</a> to: ChatGPT with "Code Interpreter", Cursor Agent, etc.<br/>Not limited by lack of software, internet access, timeouts, or privacy concerns (if using local models).
-</p>
+## Why gptme?
+
+- 🚀 **Unconstrained**: No limitations on software, internet access, or timeouts
+- 🔒 **Privacy-focused**: Use local models for complete data control
+- 🛠 **Versatile**: Great for coding, but capable of assisting with any task
+- 🧠 **Intelligent**: Leverages advanced LLMs for human-like interactions
+- 🔧 **Extensible**: Easy to add new tools and capabilities
+
+An advanced <a href="https://gptme.org/docs/alternatives.html">alternative</a> to ChatGPT with "Code Interpreter", Cursor Agent, and more.
 
 ## 📚 Table of Contents
 
@@ -65,13 +52,16 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 - 🌟 [Features](#-features)
 - 🚀 [Getting Started](#-getting-started)
 - 🛠 [Usage](#-usage)
+- 👥 [Community](#-community)
 - 📊 [Stats](#-stats)
 - 🔗 [Links](#-links)
 
 ## 🎥 Demos
 
 > [!NOTE]
-> These demos are very out of date and do not reflect the latest capabilities. We hope to update them soon!
+> These demos showcase core capabilities. New demos highlighting the latest features are coming soon!
+>
+> For the most current examples, check our [documentation][docs-examples].
 
 <table>
   <tr>
@@ -190,90 +180,77 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 
 ## 🌟 Features
 
-- 💻 Code execution
-  - Executes code in your local environment with the [shell][docs-tools-shell] and [python][docs-tools-python] tools.
-- 🧩 Read, write, and change files
-  - Makes incremental changes with the [patch][docs-tools-patch] tool.
-- 🌐 Search and browse the web.
-  - Can use a browser via Playwright with the [browser][docs-tools-browser] tool.
-- 👀 Vision
-  - Can see images referenced in prompts, screenshots of your desktop, and web pages.
-- 🔄 Self-correcting
-  - Output is fed back to the assistant, allowing it to respond and self-correct.
-- 🤖 Support for several LLM [providers][docs-providers]
-  - Use OpenAI, Anthropic, OpenRouter, or serve locally with `llama.cpp`
-- 🌐 Web UI and REST API
-  - Modern web interface at [chat.gptme.org](https://chat.gptme.org) ([gptme-webui])
-  - Simple built-in web UI included in the Python package
-  - [Server][docs-server] with REST API
-  - Standalone executable builds available with PyInstaller
-- 💻 [Computer use][docs-tools-computer] tool, as hyped by [Anthropic][anthropic-computer-use] (see [#216](https://github.com/gptme/gptme/issues/216))
-  - Give the assistant access to a full desktop, allowing it to interact with GUI applications.
-- 🤖 Long-running agents and advanced agent architectures (see [#143](https://github.com/gptme/gptme/issues/143) and [#259](https://github.com/gptme/gptme/issues/259))
-  - Create your own agent with persistence using [gptme-agent-template][agent-template], like [Bob][bob].
-- ✨ Many smaller features to ensure a great experience
-  - 🚰 Pipe in context via `stdin` or as arguments.
-    - Passing a filename as an argument will read the file and include it as context.
-  - → Smart completion and highlighting:
-    - Tab completion and highlighting for commands and paths
-  - 📝 Automatic naming of conversations
-  - ✅ Detects and integrates [pre-commit](https://github.com/pre-commit/pre-commit)
-  - 🗣️ [Text-to-Speech][docs-tools-tts] support, locally generated using Kokoro
-  - 🎯 Feature flags for advanced usage, see [configuration docs][docs-config]
+### Core Capabilities
+- 💻 **Code Execution**: Run Python code and shell commands in your local environment via [ipython][docs-tools-python] and [shell][docs-tools-shell] tools
+- 🧩 **File Management**: Read, write, and edit files with precision using [patch][docs-tools-patch] for targeted changes
+- 🌐 **Web Access**: Search and browse the web with the [browser][docs-tools-browser] tool powered by Playwright
+- 👀 **Vision**: Process images from prompts, take screenshots, and analyze web pages
+- 🔄 **Self-correcting**: Feedback loop enables the assistant to learn and improve responses
 
-### 🛠 Use Cases
+### Platform & Integrations
+- 🤖 **Multiple LLM Providers**: Support for [OpenAI, Anthropic, OpenRouter][docs-providers], and local models via `llama.cpp`
+- 🌐 **Web Interface**: Modern UI at [chat.gptme.org](https://chat.gptme.org) ([gptme-webui]) and simple built-in web UI
+- 🖥️ **API Access**: [Server][docs-server] with REST API and standalone executable builds
+- 💻 **[Computer Use][docs-tools-computer]**: Control desktop applications as demonstrated by [Anthropic][anthropic-computer-use]
+- 🤖 **Agent Framework**: Build persistent agents with [gptme-agent-template][agent-template] (see [Bob][bob])
 
-- 🖥 **Development:** Write and run code faster with AI assistance.
-- 🎯 **Shell Expert:** Get the right command using natural language (no more memorizing flags!).
-- 📊 **Data Analysis:** Process and analyze data directly in your terminal.
-- 🎓 **Interactive Learning:** Experiment with new technologies or codebases hands-on.
-- 🤖 **Agents & Tools:** Experiment with agents & tools in a local environment.
+### Developer Experience
+- 🧰 **Extensible Architecture**: Most functionality implemented as [tools][docs-tools] for easy extension
+- 🧪 **Quality Assurance**: Extensive testing with high coverage
+- 🧹 **Clean Code**: Maintained with `mypy`, `ruff`, and `pyupgrade`
+- 🤖 **GitHub Integration**: [Bot][docs-bot] to request changes from comments
+- 📊 **Evaluation Suite**: [Tools][docs-evals] for testing model capabilities
+- 📝 **Editor Integration**: [gptme.vim][gptme.vim] for Vim integration
 
-### 🛠 Developer perks
+### User Experience Enhancements
+- 🚰 **Flexible Input**: Pipe in context via `stdin` or as arguments
+- ⌨️ **Smart UI**: Tab completion and highlighting for commands and paths
+- 📝 **Conversation Management**: Automatic naming and organization of chat history
+- ✅ **Developer Tools**: Integration with [pre-commit](https://github.com/pre-commit/pre-commit)
+- 🗣️ **Accessibility**: [Text-to-Speech][docs-tools-tts] support using Kokoro
+- 🎯 **Customization**: Feature flags for advanced usage via [configuration][docs-config]
 
-- 🧰 Easy to extend
-  - Most functionality is implemented as [tools][docs-tools], making it easy to add new features.
-- 🧪 Extensive testing, high coverage.
-- 🧹 Clean codebase, checked and formatted with `mypy`, `ruff`, and `pyupgrade`.
-- 🤖 [GitHub Bot][docs-bot] to request changes from comments! (see [#16](https://github.com/gptme/gptme/issues/16))
-  - Operates in this repo! (see [#18](https://github.com/gptme/gptme/issues/18) for example)
-  - Runs entirely in GitHub Actions.
-- 📊 [Evaluation suite][docs-evals] for testing capabilities of different models
-- 📝 [gptme.vim][gptme.vim] for easy integration with vim
-
-### 🚧 In progress
-
-- 🌳 Tree-based conversation structure (see [#17](https://github.com/gptme/gptme/issues/17))
-- 📜 RAG to automatically include context from local files (see [#59](https://github.com/gptme/gptme/issues/59))
-- 🏆 Advanced evals for testing frontier capabilities
+### 🚧 Coming Soon
+- 🌳 Tree-based conversation structure ([#17](https://github.com/gptme/gptme/issues/17))
+- 📜 RAG for automatic context from local files ([#59](https://github.com/gptme/gptme/issues/59))
+- 🏆 Advanced evaluation framework for frontier capabilities
 
 ## 🚀 Getting Started
 
-Install with pipx:
+### Quick Install
 
 ```sh
-# requires Python 3.10+
+# Requires Python 3.10+
 pipx install gptme
 ```
 
-Now, to get started, run:
+### Run Your First Command
 
 ```sh
 gptme
 ```
 
-Here are some examples:
+### Try These Examples
 
 ```sh
-gptme 'write an impressive and colorful particle effect using three.js to particles.html'
+# Generate creative code
+gptme 'write an impressive particle effect using three.js to particles.html'
+
+# Create visualizations
 gptme 'render mandelbrot set to mandelbrot.png'
+
+# Get configuration help
 gptme 'suggest improvements to my vimrc'
+
+# Process media files
 gptme 'convert to h265 and adjust the volume' video.mp4
+
+# Code assistance
 git diff | gptme 'complete the TODOs in this diff'
 make test | gptme 'fix the failing tests'
 ```
 
-For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
+For detailed instructions, see our [Getting Started Guide][docs-getting-started] and [Examples][docs-examples].
 
 ## 🛠 Usage
 
@@ -336,6 +313,16 @@ Options:
   --help                 Show this message and exit.
 ```
 
+## 👥 Community
+
+We welcome contributions and feedback from our community! Here's how you can get involved:
+
+- **Bug Reports & Feature Requests**: Submit issues on [GitHub][github]
+- **Contribute Code**: See our [contribution guidelines](https://gptme.org/docs/contributing.html)
+- **Join Discussions**: Connect with us on [Discord][discord]
+- **Stay Updated**: Follow us on [X.com](https://x.com/gptmeorg)
+- **Share Your Projects**: Built something with gptme? Let us know!
+
 ## 📊 Stats
 
 ### ⭐ Stargazers over time
@@ -344,18 +331,18 @@ Options:
 
 ### 📈 Download Stats
 
-- [PePy][pepy]
-- [PyPiStats][pypistats]
+- [PePy][pepy] - Lifetime downloads
+- [PyPiStats][pypistats] - Daily download metrics
 
 [pepy]: https://pepy.tech/project/gptme
 [pypistats]: https://pypistats.org/packages/gptme
 
 ## 🔗 Links
 
-- [Website][website]
-- [Documentation][docs]
-- [GitHub][github]
-- [Discord][discord]
+- 🌐 [Website][website]
+- 📚 [Documentation][docs]
+- 🐙 [GitHub][github]
+- 💬 [Discord][discord]
 
 <!-- links -->
 
@@ -381,6 +368,5 @@ Options:
 [docs-bot]: https://gptme.org/docs/bot.html
 [docs-server]: https://gptme.org/docs/server.html
 [docs-evals]: https://gptme.org/docs/evals.html
-[docs-server]: https://gptme.org/docs/server.html
 [docs-config]: https://gptme.org/docs/config.html
 [anthropic-computer-use]: https://www.anthropic.com/news/3-5-models-and-computer-use
