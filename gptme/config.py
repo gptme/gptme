@@ -148,7 +148,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
     return UserConfig(prompt=prompt, env=env, mcp=mcp)
 
 
-def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
+def _load_config_doc(path: str | None = None) -> tomlkit.toml_document.TOMLDocument:
     if path is None:
         path = config_path
     # Check if the config file exists

@@ -95,7 +95,7 @@ class LogManager:
         # Create and optionally lock the directory
         self.logdir.mkdir(parents=True, exist_ok=True)
         is_pytest = "PYTEST_CURRENT_TEST" in os.environ
-        if lock and not is_pytest:
+        if lock and not is_pytest and os.name != "nt":  # Apply lock only on non-Windows systems
             self._lockfile = self.logdir / ".lock"
             self._lockfile.touch(exist_ok=True)
             self._lock_fd = self._lockfile.open("w")
@@ -128,7 +128,7 @@ class LogManager:
 
     def __del__(self):
         """Release the lock and close the file descriptor"""
-        if self._lock_fd:
+        if self._lock_fd and os.name != "nt":
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
                 self._lock_fd.close()

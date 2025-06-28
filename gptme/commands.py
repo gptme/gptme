@@ -224,8 +224,9 @@ def edit(manager: LogManager) -> Generator[Message, None, None]:  # pragma: no c
     print("Applied edited messages, write /log to see the result")
 
 
+from .config import ChatConfig
+
 def rename(manager: LogManager, new_name: str, confirm: ConfirmFunc) -> None:
-    from .config import ChatConfig
 
     if new_name in ["", "auto"]:
         msgs = prepare_messages(manager.log.messages)[1:]  # skip system message

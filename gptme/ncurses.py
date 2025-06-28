@@ -8,6 +8,7 @@ Very WIP ncurses UI for gptme.
 import argparse
 import curses
 import textwrap
+import os
 
 
 class Message:
@@ -269,6 +270,9 @@ def _main(stdscr, use_color: bool):
 
 
 def main():
+    if os.name == "nt":
+        print("ncurses UI is not supported on Windows.")
+        return
     parser = argparse.ArgumentParser(
         description="Message App with optional color support"
     )
