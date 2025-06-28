@@ -54,17 +54,9 @@ If you plan on deleting a section, you must provide surrounding context to indic
 DO NOT omit spans of pre-existing code without using the // ... existing code ... comment to indicate its absence.
 """
 
-instructions_format = {
-    "markdown": f"""
-The $PATH parameter MUST be on the same line as the code block start, not on the line after.
-
-{ToolUse("morph", ["$PATH"], "$EDIT_INSTRUCTIONS").to_output("markdown")}
-""",
-    "tool": "The `edit` parameter must contain your edit instructions as a string.",
-}
-
-examples = """
-```morph example.py
+examples = f"""
+{ToolUse("morph", ["example.py"],
+'''
 // ... existing code ...
 FIRST_EDIT
 // ... existing code ...
@@ -72,7 +64,7 @@ SECOND_EDIT
 // ... existing code ...
 THIRD_EDIT
 // ... existing code ...
-```
+'''.strip()).to_output("markdown")}
 """
 
 
