@@ -306,25 +306,43 @@ def _summarize_helper(s: str, tok_max_start=400, tok_max_end=400) -> str:
     return summary
 
 
+def list_available_providers() -> list[tuple[Provider, str]]:
+    """
+    List all available providers based on configured API keys.
+
+    Returns:
+        List of tuples (provider, api_key_env_var) for configured providers
+    """
+    config = get_config()
+    available = []
+
+    provider_checks = [
+        ("openai", "OPENAI_API_KEY"),
+        ("anthropic", "ANTHROPIC_API_KEY"),
+        ("openrouter", "OPENROUTER_API_KEY"),
+        ("gemini", "GEMINI_API_KEY"),
+        ("groq", "GROQ_API_KEY"),
+        ("xai", "XAI_API_KEY"),
+        ("deepseek", "DEEPSEEK_API_KEY"),
+        ("openai-azure", "AZURE_OPENAI_API_KEY"),
+    ]
+
+    for provider, env_var in provider_checks:
+        if config.get_env(env_var):
+            available.append((cast(Provider, provider), env_var))
+
+    return available
+
+
 def guess_provider_from_config() -> Provider | None:
     """
     Guess the provider to use from the configuration.
     """
-    config = get_config()
-
-    if config.get_env("OPENAI_API_KEY"):
-        console.log("Found OpenAI API key, using OpenAI provider")
-        return "openai"
-    elif config.get_env("ANTHROPIC_API_KEY"):
-        console.log("Found Anthropic API key, using Anthropic provider")
-        return "anthropic"
-    elif config.get_env("OPENROUTER_API_KEY"):
-        console.log("Found OpenRouter API key, using OpenRouter provider")
-        return "openrouter"
-    elif config.get_env("GEMINI_API_KEY"):
-        console.log("Found Gemini API key, using Gemini provider")
-        return "gemini"
-
+    available = list_available_providers()
+    if available:
+        provider, _ = available[0]  # Return first available provider
+        console.log(f"Found {provider} API key, using {provider} provider")
+        return provider
     return None
 
 

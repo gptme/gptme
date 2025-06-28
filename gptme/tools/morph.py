@@ -12,6 +12,7 @@ import difflib
 from collections.abc import Generator
 from pathlib import Path
 
+from ..llm import list_available_providers
 from ..llm import reply as llm_reply
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
@@ -23,6 +24,8 @@ from .base import (
     get_path,
 )
 
+# Prompt from Morph Fast Apply v2 documentation
+# https://docs.morphllm.com/api-reference/endpoint/apply
 instructions = """
 Use this tool to propose an edit to an existing file.
 
@@ -51,23 +54,6 @@ If you plan on deleting a section, you must provide surrounding context to indic
 DO NOT omit spans of pre-existing code without using the // ... existing code ... comment to indicate its absence.
 """
 
-# gptme-generated prompt
-instructions_gptme = """
-To edit files using Morph Fast Apply, provide the target file path and edit instructions.
-
-Morph will intelligently apply your changes by understanding the intent and making minimal, precise edits.
-You can describe what you want to change in natural language or provide specific code snippets.
-
-Use truncation markers like "// ... existing code ..." to indicate unchanged parts when providing specific edits.
-This tool is particularly effective for:
-- Adding new functions or methods
-- Modifying existing logic
-- Refactoring code
-- Bug fixes
-
-The tool reads the original file, sends it to Morph with your edit instructions, and applies the result.
-""".strip()
-
 instructions_format = {
     "markdown": f"""
 The $PATH parameter MUST be on the same line as the code block start, not on the line after.
@@ -88,6 +74,12 @@ THIRD_EDIT
 // ... existing code ...
 ```
 """
+
+
+def is_openrouter_available() -> bool:
+    """Check if OpenRouter is available for Morph tool."""
+    available_providers = list_available_providers()
+    return any(provider == "openrouter" for provider, _ in available_providers)
 
 
 def preview_morph(content: str, path: Path | None) -> str | None:
@@ -205,6 +197,7 @@ tool = ToolSpec(
     examples=examples,
     execute=execute_morph,
     block_types=["morph"],
+    available=is_openrouter_available,
     parameters=[
         Parameter(
             name="path",
