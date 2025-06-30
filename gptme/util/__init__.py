@@ -61,13 +61,40 @@ def epoch_to_age(epoch, incl_date=False):
         )
 
 
-def clean_example(s: str, strict=False, quote=False) -> str:
+def clean_example(s: str, strict=False, quote=False, strip_system=False) -> str:
     orig = s
     s = re.sub(
         r"(^|\n)([>] )?([A-Za-z]+):",
         rf"\1{'> ' if quote else ''}\3:",
         s,
     )
+    if strip_system:
+        # Split into lines and filter out system messages and their content
+        lines = s.split("\n")
+        filtered_lines = []
+        skip_next = False
+        in_codeblock = False
+        for line in lines:
+            # Track codeblock state
+            if line.strip().startswith("```"):
+                in_codeblock = not in_codeblock
+
+            if skip_next:
+                # Only stop skipping if we're not in a codeblock and either:
+                # - line is empty
+                # - new role message starts
+                if not in_codeblock and (
+                    not line.strip() or re.match(r"^(> )?[A-Za-z]+:", line)
+                ):
+                    skip_next = False
+                    if line.strip():  # If it's a new role, keep the line
+                        filtered_lines.append(line)
+                continue
+            if re.match(r"^(> )?System:", line):
+                skip_next = True
+                continue
+            filtered_lines.append(line)
+        s = "\n".join(filtered_lines)
     if strict:
         assert s != orig, "Couldn't find a message"
     return s
