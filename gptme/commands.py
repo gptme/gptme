@@ -8,7 +8,7 @@ from typing import Literal
 
 from . import llm
 from .constants import INTERRUPT_CONTENT
-from .llm.models import MODELS, get_default_model, set_default_model
+from .llm.models import get_default_model, set_default_model
 from .logmanager import LogManager, prepare_messages
 from .message import (
     Message,
@@ -170,15 +170,8 @@ def handle_cmd(
                 print(
                     f"  (streaming: {model.supports_streaming}, vision: {model.supports_vision})"
                 )
-                # TODO: list known models
-                for provider in MODELS:
-                    if not MODELS[provider]:
-                        continue
-                    print(f"{provider}/")
-                    for model_name in list(MODELS[provider].keys())[:10]:
-                        print(f"  {model_name}")
-                    if len(MODELS[provider]) > 10:
-                        print(f"  ... ({len(MODELS[provider]) - 10} more)")
+
+                print_available_models()
         case "export":
             manager.undo(1, quiet=True)
             manager.write()
@@ -277,6 +270,13 @@ def _gen_help(incl_langtags: bool = True) -> Generator[str, None, None]:
 def help():
     for line in _gen_help():
         print(line)
+
+
+def print_available_models() -> None:
+    """Print all available models from all providers."""
+    from .llm.models import list_models
+
+    list_models(dynamic_fetch=True)
 
 
 def get_user_commands() -> list[str]:

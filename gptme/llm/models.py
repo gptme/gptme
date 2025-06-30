@@ -373,3 +373,114 @@ def get_summary_model(provider: Provider) -> str:  # pragma: no cover
         return "deepseek-chat"
     else:
         raise ValueError(f"Provider {provider} did not have a summary model")
+
+
+def list_models(
+    provider_filter: str | None = None,
+    show_pricing: bool = False,
+    vision_only: bool = False,
+    reasoning_only: bool = False,
+    simple_format: bool = False,
+    dynamic_fetch: bool = True,
+) -> None:
+    """
+    List available models with optional filtering.
+
+    Args:
+        provider_filter: Only show models from this provider
+        show_pricing: Include pricing information
+        vision_only: Only show models with vision support
+        reasoning_only: Only show models with reasoning support
+        simple_format: Output one model per line as provider/model
+        dynamic_fetch: Fetch dynamic models from APIs where available
+    """
+    if not simple_format:
+        print("Available models:")
+
+    for provider in MODELS:
+        if provider_filter and provider != provider_filter:
+            continue
+
+        # Get models for this provider
+        models_to_show = []
+
+        # Try dynamic fetching first for supported providers
+        if dynamic_fetch and provider == "openrouter":
+            try:
+                from . import get_available_models
+
+                dynamic_models = get_available_models(provider)
+                models_to_show = dynamic_models
+            except Exception as e:
+                if not simple_format:
+                    print(f"  (failed to fetch dynamic models: {e})")
+                # Fall back to static models
+                static_models = [
+                    get_model(f"{provider}/{name}") for name in MODELS[provider]
+                ]
+                models_to_show = static_models
+        else:
+            # Use static models
+            if MODELS[provider]:
+                static_models = [
+                    get_model(f"{provider}/{name}") for name in MODELS[provider]
+                ]
+                models_to_show = static_models
+
+        # Apply filters
+        filtered_models = []
+        for model in models_to_show:
+            if vision_only and not model.supports_vision:
+                continue
+            if reasoning_only and not model.supports_reasoning:
+                continue
+            filtered_models.append(model)
+
+        if not filtered_models:
+            continue
+
+        # Output models
+        if simple_format:
+            for model in filtered_models:
+                print(f"{model.provider}/{model.model}")
+        else:
+            print(f"\n{provider}:")
+            if dynamic_fetch and provider == "openrouter" and len(filtered_models) > 0:
+                print(f"  ({len(filtered_models)} models available via API)")
+
+            # Show up to 10 models with details
+            for model in filtered_models[:10]:
+                info_parts = [f"  {model.model}"]
+
+                # Context window
+                if model.context:
+                    context_k = model.context // 1000
+                    info_parts.append(f"{context_k}k ctx")
+
+                # Max output
+                if model.max_output:
+                    output_k = model.max_output // 1000
+                    info_parts.append(f"{output_k}k out")
+
+                # Vision support
+                if model.supports_vision:
+                    info_parts.append("vision")
+
+                # Reasoning support
+                if model.supports_reasoning:
+                    info_parts.append("reasoning")
+
+                # Pricing
+                if show_pricing and (model.price_input or model.price_output):
+                    price_str = f"${model.price_input:.2f}/${model.price_output:.2f}/1M"
+                    info_parts.append(price_str)
+
+                print(" | ".join(info_parts))
+
+            # Show count if more than 10
+            if len(filtered_models) > 10:
+                print(f"  ... ({len(filtered_models) - 10} more)")
+
+            # Show empty message if no models configured
+            if not filtered_models and not MODELS[provider]:
+                print("  (no models configured)")

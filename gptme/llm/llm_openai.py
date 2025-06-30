@@ -1,7 +1,9 @@
 import base64
 import json
 import logging
+import requests
 from collections.abc import Generator, Iterable
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -526,6 +528,58 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
         }
     else:
         raise ValueError("Provider doesn't support tools API")
+
+
+@lru_cache(maxsize=1)
+def get_available_models(provider: Provider) -> list[ModelMeta]:
+    """Get available models from a provider."""
+    if provider != "openrouter":
+        raise ValueError(f"Provider {provider} does not support listing models")
+
+    config = get_config()
+    api_key = config.get_env_required("OPENROUTER_API_KEY")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        **openrouter_headers,
+    }
+
+    try:
+        response = requests.get(
+            "https://openrouter.ai/api/v1/models", headers=headers, timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        # Convert raw models to ModelMeta objects
+        raw_models = data.get("data", [])
+        return [openrouter_model_to_modelmeta(model) for model in raw_models]
+    except requests.RequestException as e:
+        logger.error(f"Failed to retrieve models from {provider}: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error retrieving models from {provider}: {e}")
+        raise
+
+
+def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
+    """Convert OpenRouter model data to ModelMeta object."""
+    pricing = model_data.get("pricing", {})
+
+    return ModelMeta(
+        provider="openrouter",
+        model=model_data.get("id", ""),
+        context=model_data.get("context_length", 128_000),
+        max_output=model_data.get("max_completion_tokens"),
+        supports_streaming=True,  # Most OpenRouter models support streaming
+        supports_vision="vision"
+        in model_data.get("architecture", {}).get("modality", ""),
+        supports_reasoning=False,  # Would need to check model-specific capabilities
+        price_input=float(pricing.get("prompt", 0))
+        * 1_000_000,  # Convert to per-1M tokens
+        price_output=float(pricing.get("completion", 0))
+        * 1_000_000,  # Convert to per-1M tokens
+    )
 
 
 def _prepare_messages_for_api(

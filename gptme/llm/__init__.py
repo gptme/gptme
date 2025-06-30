@@ -24,6 +24,7 @@ from .llm_openai import stream as stream_openai
 from .models import (
     MODELS,
     PROVIDERS_OPENAI,
+    ModelMeta,
     Provider,
     get_default_model_summary,
 )
@@ -359,3 +360,25 @@ def get_model_from_api_key(api_key: str) -> tuple[str, Provider, str] | None:
         return api_key, "openai", "OPENAI_API_KEY"
 
     return None
+
+
+def get_available_models(provider: Provider) -> list[ModelMeta]:
+    """
+    Get available models from a provider.
+
+    Args:
+        provider: The provider to get models from
+
+    Returns:
+        List of ModelMeta objects
+
+    Raises:
+        ValueError: If provider doesn't support listing models
+        Exception: If API request fails
+    """
+    if provider == "openrouter":
+        from .llm_openai import get_available_models as get_openai_models
+
+        return get_openai_models(provider)
+    else:
+        raise ValueError(f"Provider {provider} does not support listing models")

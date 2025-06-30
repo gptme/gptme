@@ -380,83 +380,16 @@ def models_list(
     provider: str | None, pricing: bool, vision: bool, reasoning: bool, simple: bool
 ):
     """List available models."""
-    from ..llm.models import MODELS, get_model  # fmt: skip
+    from ..llm.models import list_models
 
-    if simple:
-        # Simple format: one model per line as provider/model
-        for prov in MODELS:
-            if provider and prov != provider:
-                continue
-
-            if not MODELS[prov]:  # Skip empty providers
-                continue
-
-            for model_name in MODELS[prov]:
-                model = get_model(f"{prov}/{model_name}")
-
-                if vision and not model.supports_vision:
-                    continue
-
-                if reasoning and not model.supports_reasoning:
-                    continue
-
-                print(f"{prov}/{model_name}")
-        return
-
-    print("Available models:")
-
-    for prov in MODELS:
-        if provider and prov != provider:
-            continue
-
-        if not MODELS[prov]:  # Skip empty providers
-            continue
-
-        print(f"\n{prov}:")
-        for model_name in MODELS[prov]:
-            model = get_model(f"{prov}/{model_name}")
-
-            if vision and not model.supports_vision:
-                continue
-
-            if reasoning and not model.supports_reasoning:
-                continue
-
-            # Basic info
-            info_parts = [f"  {model.model}"]
-
-            # Context window
-            if model.context:
-                context_str = (
-                    f"{model.context:,}"
-                    if model.context >= 1000
-                    else str(model.context)
-                )
-                info_parts.append(f"ctx: {context_str}")
-
-            # Max output
-            if model.max_output:
-                output_str = (
-                    f"{model.max_output:,}"
-                    if model.max_output >= 1000
-                    else str(model.max_output)
-                )
-                info_parts.append(f"out: {output_str}")
-
-            # Vision support
-            if model.supports_vision:
-                info_parts.append("vision")
-
-            # Reasoning support
-            if model.supports_reasoning:
-                info_parts.append("reasoning")
-
-            # Pricing
-            if pricing and (model.price_input or model.price_output):
-                price_str = f"${model.price_input:.2f}/${model.price_output:.2f}/1M"
-                info_parts.append(price_str)
-
-            print(" | ".join(info_parts))
+    list_models(
+        provider_filter=provider,
+        show_pricing=pricing,
+        vision_only=vision,
+        reasoning_only=reasoning,
+        simple_format=simple,
+        dynamic_fetch=True,
+    )
 
 
 @models.command("info")
