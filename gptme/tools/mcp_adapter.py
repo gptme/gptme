@@ -1,11 +1,12 @@
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from logging import getLogger
 
 from gptme.config import Config
 
 from ..mcp.client import MCPClient
 from ..message import Message
+from ..util.ask_execute import execute_with_confirmation
 from .base import (
     ExecuteFunc,
     Parameter,
@@ -111,8 +112,21 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
 def create_mcp_execute_function(tool_name: str, client: MCPClient) -> ExecuteFunc:
     """Create an execute function for an MCP tool"""
 
-    def execute(code=None, args=None, kwargs=None, confirm=None):
-        """Execute an MCP tool with confirmation"""
+    def preview_mcp(content: str, tool_name: str = tool_name) -> str | None:
+        """Prepare preview content for MCP tool execution."""
+        try:
+            if content:
+                # Try to parse and format the JSON parameters
+                params = json.loads(content)
+                return json.dumps(params, indent=2)
+            return None
+        except json.JSONDecodeError:
+            return content  # Return as-is if not valid JSON
+
+    def execute_mcp_impl(
+        content: str, tool_name: str, confirm: ConfirmFunc
+    ) -> Generator[Message, None, None]:
+        """Actual MCP tool implementation."""
         try:
             # Get the tool definition from the client
             tool_def = None
@@ -122,46 +136,29 @@ def create_mcp_execute_function(tool_name: str, client: MCPClient) -> ExecuteFun
                     None,
                 )
 
-            # Try to parse content as JSON if it's not already kwargs
-            if code and not kwargs:
-                try:
-                    kwargs = json.loads(code)
-                except json.JSONDecodeError as err:
-                    # Add proper error chaining with 'from'
-                    if tool_def and tool_def.inputSchema:
-                        example = json.dumps(
-                            dict(
-                                (p.name, f"<{p.type}>")
-                                for p in tool_def.inputSchema.get(
-                                    "properties", {}
-                                ).values()
-                            )
-                        )
-                    else:
-                        example = '{"parameter": "value"}'
-                    raise ValueError(
-                        f"Content must be a valid JSON object with parameters. Example: {example}"
-                    ) from err
-
-            # Format the command and parameters for display
-            formatted_args = ""
-            if kwargs and len(kwargs) > 0:
-                formatted_args = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
-
-            # Show preview and get confirmation
-            if confirm is not None:
-                confirmation_message = f"Run MCP tool '{tool_name}'"
-                if formatted_args:
-                    confirmation_message += f" with arguments: {formatted_args}"
-                confirmation_message += "?"
-
-                # Exit if not confirmed
-                if not confirm(confirmation_message):
-                    return Message("system", "Tool execution cancelled")
+            # Parse content as JSON
+            try:
+                kwargs = json.loads(content) if content else {}
+            except json.JSONDecodeError as err:
+                if tool_def and tool_def.inputSchema:
+                    example = json.dumps(
+                        {
+                            prop_name: f"<{prop_info.get('type', 'string')}>"
+                            for prop_name, prop_info in tool_def.inputSchema.get(
+                                "properties", {}
+                            ).items()
+                        },
+                        indent=2,
+                    )
+                else:
+                    example = '{\n  "parameter": "value"\n}'
+                raise ValueError(
+                    f"Content must be a valid JSON object with parameters. Example:\n{example}"
+                ) from err
 
             # Execute the tool
-            result = client.call_tool(tool_name, kwargs or {})
-            return Message("system", result)
+            result = client.call_tool(tool_name, kwargs)
+            yield Message("system", result)
         except Exception as e:
             logger.error(f"Error executing MCP tool {tool_name}: {e}")
 
@@ -180,6 +177,33 @@ def create_mcp_execute_function(tool_name: str, client: MCPClient) -> ExecuteFun
                     desc = param_info.get("description", "No description")
                     error_msg += f"- {param_name}: {desc} ({required})\n"
 
-            return Message("system", error_msg)
+            yield Message("system", error_msg)
+
+    def execute(
+        code: str | None,
+        args: list[str] | None,
+        kwargs: dict[str, str] | None,
+        confirm: ConfirmFunc,
+    ):
+        """Execute an MCP tool with confirmation"""
+        if not code:
+            yield Message("system", "No parameters provided")
+            return
+
+        # Use execute_with_confirmation like save tool does
+        yield from execute_with_confirmation(
+            code,
+            args,
+            kwargs,
+            confirm,
+            execute_fn=lambda content, *_: execute_mcp_impl(
+                content, tool_name, confirm
+            ),
+            get_path_fn=lambda *_: None,  # MCP tools don't have paths
+            preview_fn=lambda content, *_: preview_mcp(content),
+            preview_lang="json",
+            confirm_msg=f"Execute MCP tool '{tool_name}'?",
+            allow_edit=True,
+        )
 
     return execute

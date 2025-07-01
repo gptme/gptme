@@ -6,7 +6,6 @@ from collections.abc import Generator
 
 from gptme.config import get_config
 from gptme.constants import INTERRUPT_CONTENT
-from gptme.tools.mcp_adapter import create_mcp_tools
 
 from ..message import Message
 from ..util.interrupt import clear_interruptible
@@ -201,6 +200,8 @@ def is_supported_langtag(lang: str) -> bool:
 
 
 def get_available_tools() -> list[ToolSpec]:
+    from gptme.tools.mcp_adapter import create_mcp_tools  # fmt: skip
+
     available_tools = _get_available_tools_cache()
 
     if available_tools is None:
