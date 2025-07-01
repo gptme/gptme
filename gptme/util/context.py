@@ -394,10 +394,16 @@ The following changes have been made:
 Please review these changes and create an appropriate commit:
 
 1. Stage the relevant files using `git add`
-2. Generate a descriptive commit message following Conventional Commits format (feat:, fix:, docs:, chore:, etc.)
-3. Create the commit using `git commit -m "message"`
+2. Create the commit using the HEREDOC format to avoid escaping issues:
 
-Focus on the actual changes made and their purpose rather than just listing modified files."""
+```shell
+git add example.txt
+git commit -m "$(cat <<'EOF'
+Your commit message here
+EOF
+)"
+```
+"""
 
         return Message("user", commit_prompt)
 
