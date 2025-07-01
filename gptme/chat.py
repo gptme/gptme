@@ -30,17 +30,16 @@ from .tools.tts import (
 )
 from .util import console, path_with_tilde, print_bell
 from .util.ask_execute import ask_execute
-from .util.context import (
-    autocommit,
-    include_paths,
-    run_precommit_checks,
-)
+from .util.context import autocommit, include_paths, run_precommit_checks
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
 from .util.terminal import set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
+
+# Global flag to track if we were recently interrupted
+_recently_interrupted = False
 
 
 def chat(
@@ -65,6 +64,9 @@ def chat(
 
     Callable from other modules.
     """
+    global _recently_interrupted
+    _recently_interrupted = False
+
     # Set initial terminal title with conversation name
     conv_name = logdir.name
     set_current_conv_name(conv_name)
@@ -108,106 +110,244 @@ def chat(
             return True
         return ask_execute(msg)
 
+    # Convert prompt_msgs to a queue for unified handling
+    prompt_queue = list(prompt_msgs)
+
     # main loop
     while True:
-        # if prompt_msgs given, process each prompt fully before moving to the next
-        if prompt_msgs:
-            while prompt_msgs:
-                msg = prompt_msgs.pop(0)
+        msg: Message | None = None
+        try:
+            # Process next message (either from prompt queue or user input)
+            if prompt_queue:
+                msg = prompt_queue.pop(0)
                 msg = include_paths(msg, workspace)
                 manager.append(msg)
-                # if prompt is a user-command, execute it
+
+                # Handle user commands
                 if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
                     continue
 
-                # Generate and execute response for this prompt
-                while True:
-                    try:
-                        set_interruptible()
-                        response_msgs = list(
-                            step(
-                                manager.log,
-                                stream,
-                                confirm_func,
-                                tool_format=tool_format,
-                                workspace=workspace,
-                                model=model,
-                            )
+                # Process the message and get response
+                _process_message_conversation(
+                    manager, msg, stream, confirm_func, tool_format, workspace, model
+                )
+            else:
+                # Get user input or exit if non-interactive
+                if not interactive:
+                    logger.debug("Non-interactive and exhausted prompts")
+                    _wait_for_tts_if_enabled()
+                    break
+
+                msg = _get_user_input(manager.log, workspace)
+                if msg is None:
+                    # Either user wants to exit OR we should generate response directly
+                    if _should_prompt_for_input(manager.log):
+                        # User wants to exit
+                        break
+                    else:
+                        # Don't prompt for input, generate response directly (crash recovery, etc.)
+                        # Process existing log without adding new message
+                        _process_message_conversation(
+                            manager,
+                            None,
+                            stream,
+                            confirm_func,
+                            tool_format,
+                            workspace,
+                            model,
                         )
-                    except KeyboardInterrupt:
-                        console.log("Interrupted. Stopping current execution.")
-                        manager.append(Message("system", INTERRUPT_CONTENT))
-                        break
-                    finally:
-                        clear_interruptible()
+                else:
+                    # Normal case: user provided input
+                    manager.append(msg)
 
-                    for response_msg in response_msgs:
-                        manager.append(response_msg)
-                        # run any user-commands, if msg is from user
-                        if response_msg.role == "user" and execute_cmd(
-                            response_msg, manager, confirm_func
-                        ):
-                            break
+                    # Reset interrupt flag since user provided new input
+                    _recently_interrupted = False
 
-                    # Check if there are any runnable tools left
-                    last_content = next(
-                        (
-                            m.content
-                            for m in reversed(manager.log)
-                            if m.role == "assistant"
-                        ),
-                        "",
+                    # Handle user commands
+                    if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
+                        continue
+
+                    # Process the message and get response
+                    _process_message_conversation(
+                        manager,
+                        msg,
+                        stream,
+                        confirm_func,
+                        tool_format,
+                        workspace,
+                        model,
                     )
-                    has_runnable = any(
-                        tooluse.is_runnable
-                        for tooluse in ToolUse.iter_from_content(last_content)
-                    )
-                    if not has_runnable:
-                        break
 
-            # All prompts processed, continue to next iteration
+        except KeyboardInterrupt:
+            console.log("Interrupted.")
+            _recently_interrupted = True
+            manager.append(Message("system", INTERRUPT_CONTENT))
+            # Clear any remaining prompts to avoid confusion
+            prompt_queue.clear()
             continue
 
-        # if:
-        #  - prompts exhausted
-        #  - non-interactive
-        #  - no executable block in last assistant message
-        # then exit
-        elif not interactive:
-            logger.debug("Non-interactive and exhausted prompts")
-            if has_tool("tts") and os.environ.get("GPTME_VOICE_FINISH", "").lower() in [
-                "1",
-                "true",
-            ]:
-                logger.info("Waiting for TTS to finish...")
 
-                set_interruptible()
-                try:
-                    # Wait for all TTS processing to complete
-                    tts_request_queue.join()
-                    logger.info("tts request queue joined")
-                    # Then wait for all audio to finish playing
-                    audio_queue.join()
-                    logger.info("audio queue joined")
-                except KeyboardInterrupt:
-                    logger.info("Interrupted while waiting for TTS")
+def _process_message_conversation(
+    manager: LogManager,
+    msg: Message | None,  # Can be None when generating response directly
+    stream: bool,
+    confirm_func: ConfirmFunc,
+    tool_format: ToolFormat,
+    workspace: Path,
+    model: str | None,
+) -> None:
+    """Process a message and generate responses until no more tools to run."""
+    while True:
+        try:
+            set_interruptible()
+            response_msgs = list(
+                step(
+                    manager.log,
+                    stream,
+                    confirm_func,
+                    tool_format=tool_format,
+                    workspace=workspace,
+                    model=model,
+                )
+            )
+        except KeyboardInterrupt:
+            console.log("Interrupted during response generation.")
+            global _recently_interrupted
+            _recently_interrupted = True
+            manager.append(Message("system", INTERRUPT_CONTENT))
+            break
+        finally:
+            clear_interruptible()
 
-                    stop()
+        for response_msg in response_msgs:
+            manager.append(response_msg)
+            # run any user-commands, if msg is from user
+            if response_msg.role == "user" and execute_cmd(
+                response_msg, manager, confirm_func
+            ):
+                return
+
+        # Check if there are any runnable tools left
+        last_content = next(
+            (m.content for m in reversed(manager.log) if m.role == "assistant"),
+            "",
+        )
+        has_runnable = any(
+            tooluse.is_runnable for tooluse in ToolUse.iter_from_content(last_content)
+        )
+        if not has_runnable:
             break
 
-        # ask for input if no prompt, generate reply, and run tools
-        clear_interruptible()  # Ensure we're not interruptible during user input
-        for msg in step(
-            manager.log,
-            stream,
-            confirm_func,
-            tool_format=tool_format,
-            workspace=workspace,
-        ):  # pragma: no cover
-            manager.append(msg)
-            # run any user-commands, if msg is from user
-            if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
-                break
+    # After all tools are executed, check for modifications and run autocommit/pre-commit
+    _check_and_handle_modifications(
+        manager, stream, confirm_func, tool_format, workspace, model
+    )
+
+
+def _check_and_handle_modifications(
+    manager: LogManager,
+    stream: bool,
+    confirm_func: ConfirmFunc,
+    tool_format: ToolFormat,
+    workspace: Path,
+    model: str | None,
+) -> None:
+    """Check for modifications and handle autocommit/pre-commit after conversation is done."""
+    global _recently_interrupted
+
+    # Skip automatic actions if we were recently interrupted
+    if _recently_interrupted:
+        return
+
+    if check_for_modifications(manager.log):
+        try:
+            set_interruptible()
+
+            if failed_check_message := check_changes():
+                manager.append(Message("system", failed_check_message, quiet=False))
+                return
+
+            if get_config().get_env("GPTME_AUTOCOMMIT") in ["true", "1"]:
+                autocommit_msg = autocommit()
+                manager.append(autocommit_msg)
+                return
+
+        except KeyboardInterrupt:
+            console.log("Interrupted during pre-commit/autocommit.")
+            _recently_interrupted = True
+            manager.append(Message("system", INTERRUPT_CONTENT))
+        finally:
+            clear_interruptible()
+
+
+def _should_prompt_for_input(log: Log) -> bool:
+    """
+    Determine if we should ask for user input or generate response directly.
+
+    Returns True if we should prompt for input, False if we should generate response.
+    This preserves the original logic for handling edge cases like crash recovery.
+    """
+    last_msg = log[-1] if log else None
+
+    # Ask for input when:
+    # - No messages at all
+    # - Last message was from assistant (normal flow)
+    # - Last message was an interrupt
+    # - Last message was pinned
+    # - No user messages exist in the entire log
+    return (
+        not last_msg
+        or (last_msg.role in ["assistant"])
+        or last_msg.content == INTERRUPT_CONTENT
+        or last_msg.pinned
+        or not any(role == "user" for role in [m.role for m in log])
+    )
+
+
+def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
+    """Get user input, returning None if user wants to exit."""
+    clear_interruptible()  # Don't interrupt during user input
+
+    # Check if we should prompt for input or generate response directly
+    if not _should_prompt_for_input(log):
+        # Last message was from user (crash recovery, edited log, etc.)
+        # Don't ask for input, let the system generate a response
+        return None
+
+    # print diff between now and last user message timestamp
+    if os.environ.get("GPTME_SHOW_WORKED", "0") in ["1", "true"]:
+        last_user_msg = next((m for m in reversed(log) if m.role == "user"), None)
+        if last_user_msg and log:
+            diff = log[-1].timestamp - last_user_msg.timestamp
+            console.log(f"Worked for {diff.total_seconds():.2f} seconds")
+
+    try:
+        inquiry = prompt_user()
+        msg = Message("user", inquiry, quiet=True)
+        msg = include_paths(msg, workspace)
+        return msg
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
+def _wait_for_tts_if_enabled() -> None:
+    """Wait for TTS to finish if enabled."""
+    if has_tool("tts") and os.environ.get("GPTME_VOICE_FINISH", "").lower() in [
+        "1",
+        "true",
+    ]:
+        logger.info("Waiting for TTS to finish...")
+        set_interruptible()
+        try:
+            # Wait for all TTS processing to complete
+            tts_request_queue.join()
+            logger.info("tts request queue joined")
+            # Then wait for all audio to finish playing
+            audio_queue.join()
+            logger.info("audio queue joined")
+        except KeyboardInterrupt:
+            logger.info("Interrupted while waiting for TTS")
+            stop()
 
 
 def step(
@@ -218,55 +358,16 @@ def step(
     workspace: Path | None = None,
     model: str | None = None,
 ) -> Generator[Message, None, None]:
-    """Runs a single pass of the chat."""
+    """Runs a single pass of the chat - generates response and executes tools."""
+    global _recently_interrupted
+
     default_model = get_default_model()
     assert default_model is not None, "No model loaded and no model specified"
     model = model or default_model.full
     if isinstance(log, list):
         log = Log(log)
 
-    # Check if we have any recent file modifications, and if so, run lint checks
-    if not any(
-        tooluse.is_runnable
-        for tooluse in ToolUse.iter_from_content(
-            next((m.content for m in reversed(log) if m.role == "assistant"), "")
-        )
-    ):
-        # Only check for modifications if the last assistant message has no runnable tools
-        if check_for_modifications(log):
-            if failed_check_message := check_changes():
-                yield Message("system", failed_check_message, quiet=False)
-                return
-            if get_config().get_env("GPTME_AUTOCOMMIT") in ["true", "1"]:
-                yield autocommit()
-                return
-
-    # If last message was a response, ask for input.
-    # If last message was from the user (such as from crash/edited log),
-    # then skip asking for input and generate response
-    last_msg = log[-1] if log else None
-    if (
-        not last_msg
-        or (last_msg.role in ["assistant"])
-        or last_msg.content == INTERRUPT_CONTENT
-        or last_msg.pinned
-        or not any(role == "user" for role in [m.role for m in log])
-    ):  # pragma: no cover
-        # print diff between now and last user message timestamp
-        # has some issues (includes tool execution, wait for confirmation, etc.)
-        if os.environ.get("GPTME_SHOW_WORKED", "0") in ["1", "true"]:
-            last_user_msg = next((m for m in reversed(log) if m.role == "user"), None)
-            if last_user_msg:
-                diff = log[-1].timestamp - last_user_msg.timestamp
-                console.log(f"Worked for {diff.total_seconds():.2f} seconds")
-
-        inquiry = prompt_user()
-        msg = Message("user", inquiry, quiet=True)
-        msg = include_paths(msg, workspace)
-        yield msg
-        log = log.append(msg)
-
-    # generate response and run tools
+    # Generate response and run tools
     try:
         set_interruptible()
 
@@ -291,6 +392,10 @@ def step(
         if msg_response:
             yield msg_response.replace(quiet=True)
             yield from execute_msg(msg_response, confirm)
+
+        # Reset interrupt flag after successful completion
+        _recently_interrupted = False
+
     finally:
         clear_interruptible()
 
@@ -343,7 +448,7 @@ def check_for_modifications(log: Log) -> bool:
 
     # FIXME: this is hacky and unreliable
     has_modifications = any(
-        tu.tool in ["save", "patch", "append"]
+        tu.tool in ["save", "patch", "append", "morph"]
         for m in messages_since_user[:3]
         for tu in ToolUse.iter_from_content(m.content)
     )
