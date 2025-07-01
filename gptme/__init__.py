@@ -1,3 +1,4 @@
+# Testing autocommit functionality - second test
 from .__version__ import __version__
 from .cli import chat, main
 from .codeblock import Codeblock
