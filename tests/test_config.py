@@ -9,6 +9,7 @@ from gptme.config import (
     ChatConfig,
     Config,
     MCPConfig,
+    ProjectConfig,
     get_config,
     load_user_config,
 )
@@ -135,6 +136,71 @@ config_json = (
 }
 """
 )
+
+project_config_toml = """
+files = [
+  "README.md",
+  "ARCHITECTURE.md",
+  "gptme.toml"
+]
+context_cmd = "scripts/context.sh"
+prompt = "You are a helpful assistant."
+base_prompt = "My custom base prompt."
+
+[mcp]
+enabled = true
+auto_start = true
+
+[[mcp.servers]]
+name = "sqlite"
+enabled = true
+command = "uvx"
+args = [
+    "mcp-server-sqlite",
+    "--db-path",
+    "database.db"
+]
+
+[[mcp.servers]]
+name = "oura"
+enabled = true
+command = "uvx"
+args = ["oura-mcp-server"]
+
+[rag]
+enabled = true
+
+"""
+
+project_config_json = """
+{
+    "files": ["README.md", "ARCHITECTURE.md", "gptme.toml"],
+    "context_cmd": "scripts/context.sh",
+    "prompt": "You are a helpful assistant.",
+    "base_prompt": "My custom base prompt.",
+    "rag": {
+        "enabled": true
+    },
+    "mcp": {
+        "enabled": true,
+        "auto_start": true,
+        "servers": [
+            {
+                "name": "sqlite",
+                "enabled": true,
+                "command": "uvx",
+                "args": ["mcp-server-sqlite", "--db-path", "database.db"]
+            },
+            {
+                "name": "oura",
+                "enabled": true,
+                "command": "uvx",
+                "args": ["oura-mcp-server"]
+            }
+        ]
+    }
+}
+"""
 
 
 def test_get_config():
@@ -426,4 +492,93 @@ def test_default_chat_config_to_toml():
     config = ChatConfig()
     toml_str = tomlkit.dumps(config.to_dict())
     config_new = ChatConfig.from_dict(tomlkit.loads(toml_str).unwrap())
+    assert config_new == config
+
+
+def test_project_config_loaded_from_toml():
+    config = ProjectConfig.from_dict(tomlkit.loads(project_config_toml).unwrap())
+
+    assert config.files == ["README.md", "ARCHITECTURE.md", "gptme.toml"]
+    assert config.context_cmd == "scripts/context.sh"
+    assert config.prompt == "You are a helpful assistant."
+    assert config.base_prompt == "My custom base prompt."
+    assert config.rag.enabled is True
+
+    assert config.mcp is not None
+    assert config.mcp.enabled is True
+    assert config.mcp.auto_start is True
+
+    assert len(config.mcp.servers) == 2
+
+    sqlite_server = next(s for s in config.mcp.servers if s.name == "sqlite")
+    assert sqlite_server.name == "sqlite"
+    assert sqlite_server.enabled is True
+    assert sqlite_server.command == "uvx"
+    assert sqlite_server.args == ["mcp-server-sqlite", "--db-path", "database.db"]
+
+    oura_server = next(s for s in config.mcp.servers if s.name == "oura")
+    assert oura_server.name == "oura"
+    assert oura_server.enabled is True
+    assert oura_server.command == "uvx"
+    assert oura_server.args == ["oura-mcp-server"]
+
+
+def test_project_config_loaded_from_json():
+    config = ProjectConfig.from_dict(json.loads(project_config_json))
+
+    assert config.files == ["README.md", "ARCHITECTURE.md", "gptme.toml"]
+    assert config.context_cmd == "scripts/context.sh"
+    assert config.prompt == "You are a helpful assistant."
+    assert config.base_prompt == "My custom base prompt."
+    assert config.rag.enabled is True
+
+    assert config.mcp is not None
+    assert config.mcp.enabled is True
+    assert config.mcp.auto_start is True
+
+    assert len(config.mcp.servers) == 2
+
+    sqlite_server = next(s for s in config.mcp.servers if s.name == "sqlite")
+    assert sqlite_server.name == "sqlite"
+    assert sqlite_server.enabled is True
+    assert sqlite_server.command == "uvx"
+    assert sqlite_server.args == ["mcp-server-sqlite", "--db-path", "database.db"]
+
+    oura_server = next(s for s in config.mcp.servers if s.name == "oura")
+    assert oura_server.name == "oura"
+    assert oura_server.enabled is True
+    assert oura_server.command == "uvx"
+    assert oura_server.args == ["oura-mcp-server"]
+
+
+def test_project_config_to_dict():
+    config = ProjectConfig.from_dict(json.loads(project_config_json))
+    config_dict = config.to_dict()
+    assert config_dict["files"] == ["README.md", "ARCHITECTURE.md", "gptme.toml"]
+    assert config_dict["context_cmd"] == "scripts/context.sh"
+    assert config_dict["prompt"] == "You are a helpful assistant."
+    assert config_dict["base_prompt"] == "My custom base prompt."
+    assert config_dict["rag"]["enabled"] is True
+    assert config_dict["mcp"]["enabled"] is True
+    assert config_dict["mcp"]["auto_start"] is True
+    assert len(config_dict["mcp"]["servers"]) == 2
+    assert config_dict["mcp"]["servers"][0]["name"] == "sqlite"
+    assert config_dict["mcp"]["servers"][0]["enabled"] is True
+    assert config_dict["mcp"]["servers"][0]["command"] == "uvx"
+    assert config_dict["mcp"]["servers"][0]["args"] == [
+        "mcp-server-sqlite",
+        "--db-path",
+        "database.db",
+    ]
+    assert config_dict["mcp"]["servers"][1]["name"] == "oura"
+    assert config_dict["mcp"]["servers"][1]["enabled"] is True
+    assert config_dict["mcp"]["servers"][1]["command"] == "uvx"
+    assert config_dict["mcp"]["servers"][1]["args"] == ["oura-mcp-server"]
+
+
+def test_project_config_to_toml():
+    config = ProjectConfig.from_dict(json.loads(project_config_json))
+    config_dict = config.to_dict()
+    toml_str = tomlkit.dumps(config_dict)
+    config_new = ProjectConfig.from_dict(tomlkit.loads(toml_str).unwrap())
     assert config_new == config
