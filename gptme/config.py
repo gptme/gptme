@@ -106,9 +106,78 @@ class ProjectConfig:
     files: list[str] | None = None
     context_cmd: str | None = None
     rag: RagConfig = field(default_factory=RagConfig)
+    agent_name: str | None = None
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
+
+    @classmethod
+    def from_dict(cls, config_data: dict, workspace: Path | None = None) -> Self:
+        """Create a ProjectConfig instance from a dictionary. Warns about unknown keys."""
+        prompt = config_data.pop("prompt", None)
+        files = config_data.pop("files", None)
+        context_cmd = config_data.pop("context_cmd", None)
+        rag = RagConfig(**config_data.pop("rag", {}))
+        agent_name = config_data.pop("agent_name", None)
+        env = config_data.pop("env", {})
+        if mcp := config_data.pop("mcp", None):
+            mcp = MCPConfig.from_dict(mcp)
+
+        prompt = config_data.pop("prompt", "")
+        files = config_data.pop("files", None)
+        context_cmd = config_data.pop("context_cmd", None)
+        rag = RagConfig(**config_data.pop("rag", {}))
+        if mcp := config_data.pop("mcp", None):
+            mcp = MCPConfig.from_dict(mcp)
+
+        # Check for unknown keys
+        if config_data:
+            logger.warning(f"Unknown keys in project config: {config_data.keys()}")
+
+        return cls(
+            _workspace=workspace,
+            prompt=prompt,
+            files=files,
+            context_cmd=context_cmd,
+            rag=rag,
+            agent_name=agent_name,
+            env=env,
+            mcp=mcp,
+            **config_data,
+        )
+
+    def merge(self, other: Self) -> Self:
+        """Merge another ProjectConfig into this one."""
+        return replace(self, **{k: v for k, v in other.to_dict().items()})
+
+    def to_dict(self) -> dict:
+        """Convert ProjectConfig to a dictionary. Returns a dict with non-'mcp' and non-'env' keys nested under a 'project' key, and 'env' and 'mcp' as top-level keys."""
+
+        # Custom function to handle Path objects during serialization
+        def _dict_factory(items):
+            result = {}
+            for key, value in items:
+                if isinstance(value, Path):
+                    result[key] = str(path_with_tilde(value))
+                else:
+                    result[key] = value
+            return result
+
+        # Convert to dict and remove None values (including in nested dicts), using custom dict factory to handle Path objects
+        def remove_none_values(d):
+            if not isinstance(d, dict):
+                return d
+            return {k: remove_none_values(v) for k, v in d.items() if v is not None}
+
+        config_dict = remove_none_values(
+            {
+                k: v
+                for k, v in asdict(self, dict_factory=_dict_factory).items()
+                if not k.startswith("_")
+            }
+        )
+
+        return config_dict
 
 
 ABOUT_ACTIVITYWATCH = """ActivityWatch is a free and open-source automated time-tracker that helps you track how you spend your time on your devices."""
@@ -214,27 +283,7 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
         with open(project_config_path) as f:
             config_data = tomlkit.load(f).unwrap()
 
-        prompt = config_data.pop("prompt", "")
-        files = config_data.pop("files", None)
-        context_cmd = config_data.pop("context_cmd", None)
-        rag = RagConfig(**config_data.pop("rag", {}))
-        if mcp := config_data.pop("mcp", None):
-            mcp = MCPConfig.from_dict(mcp)
-
-        # Check for unknown keys
-        if config_data:
-            logger.warning(f"Unknown keys in project config: {config_data.keys()}")
-
-        return ProjectConfig(
-            _workspace=workspace,
-            prompt=prompt,
-            files=files,
-            context_cmd=context_cmd,
-            rag=rag,
-            mcp=mcp,
-            **config_data,
-        )
-    return None
+        return ProjectConfig.from_dict(config_data, workspace=workspace)
 
 
 @dataclass

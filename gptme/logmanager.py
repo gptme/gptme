@@ -19,7 +19,7 @@ from typing import (
 
 from rich import print
 
-from .config import ChatConfig
+from .config import ChatConfig, get_project_config
 from .dirs import get_logs_dir
 from .message import Message, len_tokens, print_msg
 from .util.context import enrich_messages_with_context
@@ -389,6 +389,7 @@ class ConversationMeta:
     messages: int
     branches: int
     workspace: str
+    agent_name: str | None = None
 
     def format(self, metadata=False) -> str:
         """Format conversation metadata for display."""
@@ -415,6 +416,8 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
         conv_id = conv_fn.parent.name
         chat_config = ChatConfig.from_logdir(conv_fn.parent)
         display_name = chat_config.name or conv_id
+        project_config = get_project_config(chat_config.workspace)
+        agent_name = project_config.agent_name if project_config else None
 
         yield ConversationMeta(
             id=conv_id,
@@ -425,6 +428,7 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             messages=len_msgs,
             branches=1 + len(list(conv_fn.parent.glob("branches/*.jsonl"))),
             workspace=str(chat_config.workspace),
+            agent_name=agent_name,
         )
 
 
