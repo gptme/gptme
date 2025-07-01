@@ -103,61 +103,6 @@ def preview_morph(content: str, path: Path | None) -> str | None:
         return f"Preview failed: {str(e)}"
 
 
-def execute_morph_impl(
-    content: str, path: Path | None, confirm: ConfirmFunc
-) -> Generator[Message, None, None]:
-    """Actual morph implementation - writes the edited content to file."""
-    if not path:
-        raise ValueError("No file path provided")
-
-    try:
-        # Read original content first to compare
-        with open(path) as f:
-            original_content = f.read()
-
-        # Check if content actually changed
-        if content == original_content:
-            yield Message("system", f"Morph edit resulted in no changes to {path}")
-            return
-
-        # Generate diff for feedback
-        diff_lines = list(
-            difflib.unified_diff(
-                original_content.splitlines(),
-                content.splitlines(),
-                fromfile=str(path),
-                tofile=str(path),
-                lineterm="",
-            )
-        )
-
-        # Write the edited content back to file
-        with open(path, "w") as f:
-            f.write(content)
-
-        # Provide detailed success message with diff
-        if diff_lines:
-            diff_str = "\n".join(diff_lines)
-            yield Message(
-                "system",
-                f"Morph edit successfully applied to {path}\n\nDiff:\n{diff_str}",
-            )
-        else:
-            # This shouldn't happen if we checked for changes above, but just in case
-            yield Message("system", f"Morph edit applied to {path} (no diff available)")
-
-    except FileNotFoundError:
-        raise ValueError(
-            f"Morph failed: No such file or directory '{path}' (pwd: {Path.cwd()})"
-        ) from None
-    except PermissionError:
-        raise ValueError(
-            f"Morph failed: Permission denied when writing to '{path}'"
-        ) from None
-    except Exception as e:
-        raise ValueError(f"Morph failed: {str(e)}") from e
-
-
 def execute_morph(
     code: str | None,
     args: list[str] | None,
@@ -206,13 +151,19 @@ def execute_morph(
             yield Message("system", "Error: Morph returned empty content")
             return
 
+        # Create a closure that captures the original content for verification
+        def execute_morph_with_verification(
+            content: str, path: Path | None, confirm_fn: ConfirmFunc
+        ) -> Generator[Message, None, None]:
+            yield from execute_morph_impl(content, path, confirm_fn, original_content)
+
         # Use execute_with_confirmation with the edited content
         yield from execute_with_confirmation(
             edited_content,
             args,
             kwargs,
             confirm,
-            execute_fn=execute_morph_impl,
+            execute_fn=execute_morph_with_verification,
             get_path_fn=lambda *_: file_path,
             preview_fn=preview_morph,
             preview_lang="diff",
@@ -222,6 +173,74 @@ def execute_morph(
 
     except Exception as e:
         yield Message("system", f"Morph API call failed: {str(e)}")
+
+
+def execute_morph_impl(
+    content: str,
+    path: Path | None,
+    confirm: ConfirmFunc,
+    expected_original_content: str,
+) -> Generator[Message, None, None]:
+    """Actual morph implementation - writes the edited content to file."""
+    if not path:
+        raise ValueError("No file path provided")
+
+    try:
+        # Read current content to verify it hasn't changed
+        with open(path) as f:
+            current_content = f.read()
+
+        # Verify that the file hasn't changed since we generated the patch
+        if current_content != expected_original_content:
+            yield Message(
+                "system",
+                f"Morph edit failed: File {path} has been modified since the patch was generated. "
+                f"The file content has changed and applying the edit could overwrite recent changes. "
+                f"Please retry the morph operation with the current file content.",
+            )
+            return
+
+        # Check if content actually changed
+        if content == current_content:
+            yield Message("system", f"Morph edit resulted in no changes to {path}")
+            return
+
+        # Generate diff for feedback
+        diff_lines = list(
+            difflib.unified_diff(
+                current_content.splitlines(),
+                content.splitlines(),
+                fromfile=str(path),
+                tofile=str(path),
+                lineterm="",
+            )
+        )
+
+        # Write the edited content back to file
+        with open(path, "w") as f:
+            f.write(content)
+
+        # Provide detailed success message with diff
+        if diff_lines:
+            diff_str = "\n".join(diff_lines)
+            yield Message(
+                "system",
+                f"Morph edit successfully applied to {path}\n\nDiff:\n{diff_str}",
+            )
+        else:
+            # This shouldn't happen if we checked for changes above, but just in case
+            yield Message("system", f"Morph edit applied to {path} (no diff available)")
+
+    except FileNotFoundError:
+        raise ValueError(
+            f"Morph failed: No such file or directory '{path}' (pwd: {Path.cwd()})"
+        ) from None
+    except PermissionError:
+        raise ValueError(
+            f"Morph failed: Permission denied when writing to '{path}'"
+        ) from None
+    except Exception as e:
+        raise ValueError(f"Morph failed: {str(e)}") from e
 
 
 tool = ToolSpec(
