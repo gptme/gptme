@@ -59,72 +59,29 @@ re_triple_tick_end = re.compile(r"^```$")
 
 def _extract_codeblocks(markdown: str) -> Generator[Codeblock, None, None]:
     """
-    Extracts code blocks from a markdown string using context-aware pattern matching.
-
-    Tricks used:
-    - Opening ``` must be at start of line, optionally preceded by blank lines
-    - Closing ``` must be alone on line, optionally followed by blank lines or EOF
-    - ``` with content immediately before/after is treated as literal text, not delimiter
-
-    This handles nested cases where ``` appears inside string literals or other content.
+    Extracts code blocks from a markdown string.
     """
-    # speed check (early exit): check if message contains a code block
-    if "```" not in markdown:
-        return
-
     lines = markdown.split("\n")
-    i = 0
+    in_codeblock = False
+    current_codeblock_lines: list[str] = []
+    lang = ""
+    start_line = 0
 
-    while i < len(lines):
-        line = lines[i]
-
-        # Look for code block start
+    for i, line in enumerate(lines):
         if line.startswith("```"):
-            start_line = i  # Track the starting line number
-            lang = line[3:].strip()
-            content_lines: list[str] = []
-            i += 1
-
-            # Track nesting depth to handle nested code blocks
-            nesting_depth = 1
-
-            # Collect content until we find the matching closing ```
-            while i < len(lines):
-                line = lines[i]
-
-                # Check if this line starts with ``` (potential opening or closing)
-                if line.startswith("```"):
-                    if line.strip() == "```":
-                        # Bare ``` - check if it's opening or closing based on next line
-                        if (
-                            i + 1 < len(lines)
-                            and lines[i + 1].strip() != ""
-                            and not lines[i + 1].startswith("```")
-                        ):
-                            # Next line has content, this is an opening tag
-                            nesting_depth += 1
-                            content_lines.append(line)
-                        else:
-                            # Next line is empty/EOF or starts with ```, this is closing tag
-                            nesting_depth -= 1
-                            if nesting_depth == 0:
-                                # This closes our top-level block
-                                yield Codeblock(lang, "\n".join(content_lines), start=start_line)
-                                i += 1  # Move past the closing ```
-                                break
-                            else:
-                                # This closes a nested block, add to content
-                                content_lines.append(line)
-                    else:
-                        # This starts a nested block (has language or content after ```)
-                        nesting_depth += 1
-                        content_lines.append(line)
-                else:
-                    content_lines.append(line)
-
-                i += 1
-
-            # If we reached the end without completing the block, don't yield it
-            # (this handles the unfinished nested test case)
-        else:
-            i += 1
+            if in_codeblock:
+                # End of a code block
+                yield Codeblock(lang, "\n".join(current_codeblock_lines), start=start_line)
+                in_codeblock = False
+                current_codeblock_lines = []
+                lang = ""
+            else:
+                # Start of a code block
+                in_codeblock = True
+                start_line = i
+                lang = line[3:].strip()
+        elif in_codeblock:
+            current_codeblock_lines.append(line)
+    # If the markdown ends with an unclosed code block, yield it
+    if in_codeblock:
+        yield Codeblock(lang, "\n".join(current_codeblock_lines), start=start_line)

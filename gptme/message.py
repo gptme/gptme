@@ -315,7 +315,9 @@ def toml_to_msgs(toml: str) -> list[Message]:
             msg["content"].strip(),
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
+            files=[Path(f) for f in msg.get("files", [])],
             timestamp=datetime.fromisoformat(msg["timestamp"]),
+            call_id=msg.get("call_id", None),
         )
         for msg in msgs
     ]
