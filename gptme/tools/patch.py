@@ -243,12 +243,12 @@ def execute_patch_impl(
         warnings_str = "\n".join(warnings)
         yield Message(
             "system",
-            f"Patch successfully applied to {path}\n{warnings_str}".strip(),
+            f"Patch successfully applied to `{path}`\n{warnings_str}".strip(),
         )
 
     except FileNotFoundError:
         raise ValueError(
-            f"Patch failed: No such file or directory '{path}' (pwd: {Path.cwd()})"
+            f"Patch failed: No such file or directory `{path}` (pwd: `{Path.cwd()}`)"
         ) from None
     except ValueError as e:
         raise ValueError(f"Patch failed: {e.args[0]}") from None

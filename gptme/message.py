@@ -247,8 +247,9 @@ def format_msgs(
         status_emoji = ""
         if msg.role == "system":
             first_line = msg.content.split("\n", 1)[0].lower()
-            isSuccess = first_line.startswith(
-                ("saved", "appended", "patch successfully")
+            first_three_words = first_line.split()[:3]
+            isSuccess = first_line.startswith(("saved", "appended")) or any(
+                word in ["success", "successfully"] for word in first_three_words
             )
             isError = first_line.startswith(("error", "failed"))
             if isSuccess:
