@@ -25,9 +25,9 @@ from pathlib import Path
 from typing import Literal, TypedDict
 
 import flask
+import tomlkit
 from dotenv import load_dotenv
 from flask import request
-import tomlkit
 from gptme.config import (
     ChatConfig,
     Config,
@@ -1132,19 +1132,19 @@ def api_agents_put():
     if not fork_command:
         return flask.jsonify({"error": "fork_command is required"}), 400
 
-    workspace = req_json.get("workspace")
-    if not workspace:
-        return flask.jsonify({"error": "workspace is required"}), 400
+    path = req_json.get("path")
+    if not path:
+        return flask.jsonify({"error": "path is required"}), 400
     else:
-        workspace = Path(workspace).expanduser().resolve()
+        path = Path(path).expanduser().resolve()
 
-    # Ensure the workspace is empty
-    if workspace.exists():
-        return flask.jsonify({"error": f"Workspace already exists: {workspace}"}), 400
+    # Ensure the folder is empty
+    if path.exists():
+        return flask.jsonify({"error": f"Folder/path already exists: {path}"}), 400
 
     project_config = req_json.get("project_config")
     if project_config:
-        project_config = ProjectConfig.from_dict(project_config, workspace=workspace)
+        project_config = ProjectConfig.from_dict(project_config, workspace=path)
 
     # Clone the template repo into a temp dir
     temp_base = tempfile.gettempdir()
@@ -1172,7 +1172,7 @@ def api_agents_put():
     )
     if submodule_result.returncode != 0:
         # Delete the temp dir if the submodule update failed
-        # shutil.rmtree(temp_dir)
+        shutil.rmtree(temp_dir)
         return flask.jsonify(
             {
                 "error": f"Failed to update submodules: {submodule_result.stderr.decode()}"
@@ -1192,8 +1192,8 @@ def api_agents_put():
 
             # Delete the temp dir and workspace if the post-fork command failed
             shutil.rmtree(temp_dir)
-            if workspace.exists():
-                shutil.rmtree(workspace)
+            if path.exists():
+                shutil.rmtree(path)
 
             return flask.jsonify(
                 {"error": f"Failed to run post-fork command: {error_msg}"}
@@ -1201,12 +1201,13 @@ def api_agents_put():
     except Exception as e:
         # Delete the temp dir and workspace if the post-fork command failed
         shutil.rmtree(temp_dir)
-        if workspace.exists():
-            shutil.rmtree(workspace)
+        if path.exists():
+            shutil.rmtree(path)
         return flask.jsonify({"error": f"Failed to run post-fork command: {e}"}), 500
 
     # Merge in the project config
-    current_project_config = get_project_config(workspace)
+    # TODO: with layered project configs (https://github.com/gptme/gptme/issues/584), this should be more sophisticated
+    current_project_config = get_project_config(path)
     if not current_project_config and not project_config:
         # No project config, just write the agent name to the config
         project_config = ProjectConfig(agent_name=agent_name)
@@ -1222,7 +1223,7 @@ def api_agents_put():
         project_config.agent_name = agent_name
 
     # Write the project config
-    with open(workspace / "gptme.toml", "w") as f:
+    with open(path / "gptme.toml", "w") as f:
         f.write(tomlkit.dumps(project_config.to_dict()))
 
     # Delete the temp dir
@@ -1236,7 +1237,7 @@ def api_agents_put():
     logdir.mkdir(parents=True)
 
     # Load or create the chat config, overriding values from request config if provided
-    request_config = ChatConfig(workspace=workspace)
+    request_config = ChatConfig(workspace=path)
     chat_config = ChatConfig.load_or_create(logdir, request_config).save()
 
     msgs = get_prompt(
@@ -1244,7 +1245,7 @@ def api_agents_put():
         interactive=chat_config.interactive,
         tool_format=chat_config.tool_format or "markdown",
         model=chat_config.model,
-        workspace=workspace,
+        workspace=path,
     )
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
