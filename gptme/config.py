@@ -123,13 +123,6 @@ class ProjectConfig:
         if mcp := config_data.pop("mcp", None):
             mcp = MCPConfig.from_dict(mcp)
 
-        prompt = config_data.pop("prompt", "")
-        files = config_data.pop("files", None)
-        context_cmd = config_data.pop("context_cmd", None)
-        rag = RagConfig(**config_data.pop("rag", {}))
-        if mcp := config_data.pop("mcp", None):
-            mcp = MCPConfig.from_dict(mcp)
-
         # Check for unknown keys
         if config_data:
             logger.warning(f"Unknown keys in project config: {config_data.keys()}")
@@ -284,6 +277,7 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
             config_data = tomlkit.load(f).unwrap()
 
         return ProjectConfig.from_dict(config_data, workspace=workspace)
+    return None
 
 
 @dataclass
