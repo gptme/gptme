@@ -93,6 +93,13 @@ class RagConfig:
 
 
 @dataclass
+class AgentConfig:
+    """Configuration for agent-specific settings."""
+
+    name: str
+
+
+@dataclass
 class ProjectConfig:
     """Project-level configuration, such as which files to include in the context by default.
 
@@ -106,7 +113,7 @@ class ProjectConfig:
     files: list[str] | None = None
     context_cmd: str | None = None
     rag: RagConfig = field(default_factory=RagConfig)
-    agent_name: str | None = None
+    agent: AgentConfig | None = None
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -118,7 +125,9 @@ class ProjectConfig:
         files = config_data.pop("files", None)
         context_cmd = config_data.pop("context_cmd", None)
         rag = RagConfig(**config_data.pop("rag", {}))
-        agent_name = config_data.pop("agent_name", None)
+        agent = (
+            AgentConfig(**config_data.pop("agent")) if "agent" in config_data else None
+        )
         env = config_data.pop("env", {})
         if mcp := config_data.pop("mcp", None):
             mcp = MCPConfig.from_dict(mcp)
@@ -133,7 +142,7 @@ class ProjectConfig:
             files=files,
             context_cmd=context_cmd,
             rag=rag,
-            agent_name=agent_name,
+            agent=agent,
             env=env,
             mcp=mcp,
             **config_data,
@@ -296,6 +305,7 @@ class ChatConfig:
     workspace: Path = field(
         default_factory=Path.cwd
     )  # TODO: Is default value cwd ok for server?
+    agent: Path | None = None
 
     env: dict = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -315,6 +325,10 @@ class ChatConfig:
         elif _logdir and (_logdir / "workspace").exists():
             chat_data["workspace"] = (_logdir / "workspace").resolve()
 
+        # Extract agent
+        agent_path = chat_data.pop("agent", None)
+        agent = Path(agent_path).expanduser().resolve() if agent_path else None
+
         env = config_data.pop("env", {})
         mcp = (
             MCPConfig.from_dict(config_data.pop("mcp", {}))
@@ -329,6 +343,7 @@ class ChatConfig:
         return cls(
             _logdir=_logdir,
             **chat_data,
+            agent=agent,
             env=env,
             mcp=mcp,
         )

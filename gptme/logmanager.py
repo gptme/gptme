@@ -390,6 +390,7 @@ class ConversationMeta:
     branches: int
     workspace: str
     agent_name: str | None = None
+    agent_path: str | None = None
 
     def format(self, metadata=False) -> str:
         """Format conversation metadata for display."""
@@ -416,8 +417,14 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
         conv_id = conv_fn.parent.name
         chat_config = ChatConfig.from_logdir(conv_fn.parent)
         display_name = chat_config.name or conv_id
-        project_config = get_project_config(chat_config.workspace)
-        agent_name = project_config.agent_name if project_config else None
+
+        agent_path = chat_config.agent
+        agent_project_config = get_project_config(agent_path) if agent_path else None
+        agent_name = (
+            agent_project_config.agent.name
+            if agent_project_config and agent_project_config.agent
+            else None
+        )
 
         yield ConversationMeta(
             id=conv_id,
@@ -429,6 +436,7 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             branches=1 + len(list(conv_fn.parent.glob("branches/*.jsonl"))),
             workspace=str(chat_config.workspace),
             agent_name=agent_name,
+            agent_path=str(agent_path) if agent_path else None,
         )
 
 

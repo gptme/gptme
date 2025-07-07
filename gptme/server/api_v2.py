@@ -30,6 +30,7 @@ import tomlkit
 from dotenv import load_dotenv
 from flask import request
 from gptme.config import (
+    AgentConfig,
     ChatConfig,
     Config,
     ProjectConfig,
@@ -1179,13 +1180,14 @@ def api_agents_put():
                 "error": f"Failed to update submodules: {submodule_result.stderr.decode()}"
             }
         ), 500
+    logger.info(f"Cloned template repo to {temp_dir}")
 
     # Run the post-fork command
     try:
         post_fork_result = subprocess.run(
             shlex.split(fork_command), capture_output=True, check=False, cwd=temp_dir
         )
-        logger.info(f"Post-fork command result: {post_fork_result}")
+        logger.debug(f"Post-fork command result: {post_fork_result}")
         if post_fork_result.returncode != 0:
             error_msg = post_fork_result.stderr.decode()
             if not error_msg:
@@ -1205,13 +1207,14 @@ def api_agents_put():
         if path.exists():
             shutil.rmtree(path)
         return flask.jsonify({"error": f"Failed to run post-fork command: {e}"}), 500
+    logger.info(f"Post-fork command executed successfully: {fork_command}")
 
     # Merge in the project config
     # TODO: with layered project configs (https://github.com/gptme/gptme/issues/584), this should be more sophisticated
     current_project_config = get_project_config(path)
     if not current_project_config and not project_config:
         # No project config, just write the agent name to the config
-        project_config = ProjectConfig(agent_name=agent_name)
+        project_config = ProjectConfig(agent=AgentConfig(name=agent_name))
     elif current_project_config and project_config:
         # Merge in the project config
         project_config = current_project_config.merge(project_config)
@@ -1220,8 +1223,8 @@ def api_agents_put():
         project_config = current_project_config
 
     # Set agent name if not set
-    if not project_config.agent_name:
-        project_config.agent_name = agent_name
+    if not project_config.agent or not project_config.agent.name:
+        project_config.agent = AgentConfig(name=agent_name)
 
     # Write the project config
     with open(path / "gptme.toml", "w") as f:
@@ -1238,7 +1241,7 @@ def api_agents_put():
     logdir.mkdir(parents=True)
 
     # Load or create the chat config, overriding values from request config if provided
-    request_config = ChatConfig(workspace=path)
+    request_config = ChatConfig(workspace=path, agent=path)
     chat_config = ChatConfig.load_or_create(logdir, request_config).save()
 
     msgs = get_prompt(
