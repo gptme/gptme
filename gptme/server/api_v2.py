@@ -10,6 +10,7 @@ Key improvements:
 
 import dataclasses
 import logging
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -1182,7 +1183,7 @@ def api_agents_put():
     # Run the post-fork command
     try:
         post_fork_result = subprocess.run(
-            fork_command.split(), capture_output=True, check=False, cwd=temp_dir
+            shlex.split(fork_command), capture_output=True, check=False, cwd=temp_dir
         )
         logger.info(f"Post-fork command result: {post_fork_result}")
         if post_fork_result.returncode != 0:
