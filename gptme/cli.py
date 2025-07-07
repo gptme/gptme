@@ -70,8 +70,15 @@ The interface provides user commands that can be used to interact with the syste
 @click.option(
     "-w",
     "--workspace",
+    "workspace",
     default=None,
     help="Path to workspace directory. Pass '@log' to create a workspace in the log directory.",
+)
+@click.option(
+    "--agent-path",
+    "agent_path",
+    default=None,
+    help="Path to agent workspace directory.",
 )
 @click.option(
     "-r",
@@ -150,6 +157,7 @@ def main(
     version: bool,
     resume: bool,
     workspace: str | None,
+    agent_path: str | None,
 ):
     """Main entrypoint for the CLI."""
     if version:
@@ -272,6 +280,7 @@ def main(
         tool_format=config.chat.tool_format,
         model=config.chat.model,
         workspace=workspace_path,
+        agent_path=Path(agent_path) if agent_path else None,
     )
 
     # register a handler for Ctrl-C

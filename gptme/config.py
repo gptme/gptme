@@ -259,7 +259,7 @@ def set_config_value(key: str, value: str) -> None:  # pragma: no cover
     reload_config()
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
 def get_project_config(workspace: Path | None) -> ProjectConfig | None:
     """
     Get a cached copy of or load the project configuration from a gptme.toml file in the workspace or .github directory.

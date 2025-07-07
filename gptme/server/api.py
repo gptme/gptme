@@ -172,6 +172,7 @@ def api_conversation_put(logfile: str):
         model=chat_config.model,
         prompt=prompt,
         workspace=chat_config.workspace,
+        agent_path=chat_config.agent,
     )
 
     # Add any additional messages from request

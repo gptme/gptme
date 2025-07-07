@@ -568,6 +568,7 @@ def create_task_conversation(task: Task) -> str:
         model=None,
         prompt="full",
         workspace=workspace,
+        agent_path=None,
     )
 
     # Add task-specific messages

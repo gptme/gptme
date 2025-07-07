@@ -592,6 +592,7 @@ def api_conversation_put(conversation_id: str):
         model=chat_config.model,
         prompt=prompt,
         workspace=chat_config.workspace,
+        agent_path=chat_config.agent,
     )
 
     for msg in req_json.get("messages", []):
@@ -1110,6 +1111,7 @@ def api_conversation_config_patch(conversation_id: str):
             interactive=chat_config.interactive,
             model=chat_config.model,
             workspace=chat_config.workspace,
+            agent_path=chat_config.agent,
         )
         for i, msg in enumerate(new_system_msgs):
             manager.log.messages.insert(i, msg)
@@ -1264,6 +1266,7 @@ def api_agents_put():
         tool_format=chat_config.tool_format or "markdown",
         model=chat_config.model,
         workspace=path,
+        agent_path=chat_config.agent,
     )
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)

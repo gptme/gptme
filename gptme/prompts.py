@@ -50,29 +50,47 @@ def get_prompt(
     interactive: bool = True,
     model: str | None = None,
     workspace: Path | None = None,
+    agent_path: Path | None = None,
 ) -> list[Message]:
     """
     Get the initial system prompt.
 
     Returns a list of messages: [core_system_prompt, workspace_prompt] (if workspace provided).
     """
+    agent_config = get_project_config(agent_path)
+    agent_name = (
+        agent_config.agent.name if agent_config and agent_config.agent else None
+    )
+
     # Generate core system messages (without workspace context)
     core_msgs: list[Message]
     if prompt == "full":
-        core_msgs = list(prompt_full(interactive, tools, tool_format, model))
+        core_msgs = list(
+            prompt_full(interactive, tools, tool_format, model, agent_name=agent_name)
+        )
     elif prompt == "short":
-        core_msgs = list(prompt_short(interactive, tools, tool_format))
+        core_msgs = list(
+            prompt_short(interactive, tools, tool_format, agent_name=agent_name)
+        )
     else:
         core_msgs = [Message("system", prompt)]
 
     # Generate workspace messages separately
-    workspace_msgs = list(prompt_workspace(workspace))
+    workspace_msgs = (
+        list(prompt_workspace(workspace)) if workspace != agent_path else []
+    )
+
+    # Generate workspace context from agent if provided
+    agent_msgs = list(prompt_workspace(agent_path, title="Agent Workspace Files"))
 
     # Combine core messages into one system prompt
     result = []
     if core_msgs:
         core_prompt = _join_messages(core_msgs)
         result.append(core_prompt)
+
+    # Add agent messages seperately
+    result.extend(agent_msgs)
 
     # Add workspace messages separately
     result.extend(workspace_msgs)
@@ -99,9 +117,10 @@ def prompt_full(
     tools: list[ToolSpec],
     tool_format: ToolFormat,
     model: str | None,
+    agent_name: str | None = None,
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
-    yield from prompt_gptme(interactive, model)
+    yield from prompt_gptme(interactive, model, agent_name)
     yield from prompt_tools(tools=tools, tool_format=tool_format)
     if interactive:
         yield from prompt_user()
@@ -114,9 +133,10 @@ def prompt_short(
     interactive: bool,
     tools: list[ToolSpec],
     tool_format: ToolFormat,
+    agent_name: str | None = None,
 ) -> Generator[Message, None, None]:
     """Short prompt to start the conversation."""
-    yield from prompt_gptme(interactive)
+    yield from prompt_gptme(interactive, agent_name)
     yield from prompt_tools(examples=False, tools=tools, tool_format=tool_format)
     if interactive:
         yield from prompt_user()
@@ -124,7 +144,7 @@ def prompt_short(
 
 
 def prompt_gptme(
-    interactive: bool, model: str | None = None
+    interactive: bool, model: str | None = None, agent_name: str | None = None
 ) -> Generator[Message, None, None]:
     """
     Base system prompt for gptme.
@@ -141,8 +161,14 @@ def prompt_gptme(
     # use <thinking> tags as a fallback if the model doesn't natively support reasoning
     use_thinking_tags = not model_meta or not model_meta.supports_reasoning
 
+    if agent_name:
+        agent_blurb = f"{agent_name}, an agent running in gptme, letting you act as a general-purpose AI assistant powered by LLMs"
+    else:
+        agent_name = f"gptme v{__version__}"
+        agent_blurb = f"{agent_name}, a general-purpose AI assistant powered by LLMs"
+
     default_base_prompt = f"""
-You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. {('Currently using model: ' + model_meta.full) if model_meta else ''}
+You are {agent_blurb}. {('Currently using model: ' + model_meta.full) if model_meta else ''}
 You are designed to help users with programming tasks, such as writing code, debugging, and learning new concepts.
 You can run code, execute terminal commands, and access the filesystem on the local machine.
 You will help the user with writing code, either from scratch or in existing projects.
@@ -358,7 +384,9 @@ def get_tree_output(workspace: Path) -> str | None:
         return None
 
 
-def prompt_workspace(workspace: Path | None = None) -> Generator[Message, None, None]:
+def prompt_workspace(
+    workspace: Path | None = None, title="Project Workspace Files"
+) -> Generator[Message, None, None]:
     # TODO: update this prompt if the files change
     # TODO: include `git status -vv`, and keep it up-to-date
     sections = []
@@ -407,8 +435,7 @@ def prompt_workspace(workspace: Path | None = None) -> Generator[Message, None, 
             files_str.append(md_codeblock(file, file.read_text()))
     if files_str:
         sections.append(
-            "## Selected project files\n\nRead more with `cat`.\n\n"
-            + "\n\n".join(files_str)
+            "## Selected files\n\nRead more with `cat`.\n\n" + "\n\n".join(files_str)
         )
 
     # context_cmd
@@ -426,7 +453,7 @@ def prompt_workspace(workspace: Path | None = None) -> Generator[Message, None, 
         sections.append(f"## Project Structure\n\n{md_codeblock('', tree_output)}\n\n")
 
     if sections:
-        yield Message("system", "# Workspace Context\n\n" + "\n\n".join(sections))
+        yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
 
 def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:

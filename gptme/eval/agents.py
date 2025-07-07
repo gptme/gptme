@@ -3,7 +3,6 @@ from abc import abstractmethod
 
 from gptme import Message
 from gptme import chat as gptme_chat
-
 from gptme import get_prompt
 from gptme.cli import get_name
 from gptme.dirs import get_logs_dir
