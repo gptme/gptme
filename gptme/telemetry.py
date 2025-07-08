@@ -36,6 +36,9 @@ _meter = None
 _token_counter = None
 _request_histogram = None
 
+TELEMETRY_AVAILABLE = False
+TELEMETRY_IMPORT_ERROR = None
+
 try:
     from opentelemetry import trace, metrics
     from opentelemetry.exporter.jaeger.thrift import JaegerExporter
@@ -47,8 +50,9 @@ try:
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
     TELEMETRY_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     TELEMETRY_AVAILABLE = False
+    TELEMETRY_IMPORT_ERROR = str(e)
 
 
 def is_telemetry_enabled() -> bool:
@@ -74,9 +78,10 @@ def init_telemetry(
         _request_histogram
 
     if not TELEMETRY_AVAILABLE:
-        logger.warning(
-            "OpenTelemetry dependencies not available. Install with: pip install gptme[telemetry]"
-        )
+        error_msg = "OpenTelemetry dependencies not available. Install with: pip install gptme[telemetry]"
+        if TELEMETRY_IMPORT_ERROR:
+            error_msg += f" (Import error: {TELEMETRY_IMPORT_ERROR})"
+        logger.warning(error_msg)
         return
 
     # Check if telemetry is enabled via environment variable
@@ -102,7 +107,7 @@ def init_telemetry(
             trace.get_tracer_provider().add_span_processor(span_processor)
 
         # Initialize metrics
-        prometheus_reader = PrometheusMetricReader(port=prometheus_port)
+        prometheus_reader = PrometheusMetricReader()
         metrics.set_meter_provider(MeterProvider(metric_readers=[prometheus_reader]))
         _meter = metrics.get_meter(service_name)
 
@@ -132,6 +137,12 @@ def init_telemetry(
         # Log to console so users know telemetry is active
         if console:
             console.log("📊 Telemetry enabled - performance metrics will be collected")
+            if jaeger_endpoint or os.getenv("JAEGER_ENDPOINT"):
+                jaeger_host = jaeger_endpoint or os.getenv("JAEGER_ENDPOINT")
+                jaeger_port = os.getenv("JAEGER_PORT", "14268")
+                console.log(
+                    f"🔍 Traces will be sent to Jaeger at {jaeger_host}:{jaeger_port}"
+                )
 
     except Exception as e:
         logger.error(f"Failed to initialize telemetry: {e}")
@@ -280,13 +291,20 @@ def shutdown_telemetry() -> None:
         return
 
     try:
+        # Force flush any pending spans before shutdown
+        tracer_provider = trace.get_tracer_provider()
+        if hasattr(tracer_provider, "force_flush"):
+            logger.debug("Flushing pending traces...")
+            tracer_provider.force_flush(timeout_millis=5000)  # 5 second timeout
+
         # Shutdown tracer provider
-        if hasattr(trace.get_tracer_provider(), "shutdown"):
-            trace.get_tracer_provider().shutdown()
+        if hasattr(tracer_provider, "shutdown"):
+            tracer_provider.shutdown()
 
         # Shutdown meter provider
-        if hasattr(metrics.get_meter_provider(), "shutdown"):
-            metrics.get_meter_provider().shutdown()
+        meter_provider = metrics.get_meter_provider()
+        if hasattr(meter_provider, "shutdown"):
+            meter_provider.shutdown()
 
         _telemetry_enabled = False
         logger.info("Telemetry shutdown successfully")
