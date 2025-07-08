@@ -19,6 +19,13 @@ from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
+# Import console for user-visible messages
+try:
+    from ..util import console
+except ImportError:
+    # Fallback if console not available
+    console = None
+
 # Type variable for generic function decoration
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -121,6 +128,10 @@ def init_telemetry(
 
         _telemetry_enabled = True
         logger.info("OpenTelemetry telemetry initialized successfully")
+
+        # Log to console so users know telemetry is active
+        if console:
+            console.log("📊 Telemetry enabled - performance metrics will be collected")
 
     except Exception as e:
         logger.error(f"Failed to initialize telemetry: {e}")
