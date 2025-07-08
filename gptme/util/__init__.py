@@ -6,7 +6,6 @@ import functools
 import logging
 import re
 import shutil
-import sys
 import textwrap
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -144,12 +143,6 @@ def transform_examples_to_chat_directives(s: str, strict=False) -> str:
     if strict:
         assert s != orig, "Couldn't find place to put start of directive"
     return s
-
-
-def print_bell():
-    """Ring the terminal bell."""
-    sys.stdout.write("\a")
-    sys.stdout.flush()
 
 
 @lru_cache

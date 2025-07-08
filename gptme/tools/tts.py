@@ -29,7 +29,6 @@ Uses Kokoro for local TTS generation.
 import io
 import logging
 import os
-import platform as platform_module
 import queue
 import re
 import socket
@@ -39,6 +38,9 @@ from functools import lru_cache
 import requests
 
 from ..util import console
+from ..util.sound import is_audio_available, play_audio_data
+from ..util.sound import set_volume as set_audio_volume
+from ..util.sound import stop_audio
 from .base import ToolSpec
 
 # Setup logging
@@ -47,25 +49,21 @@ log = logging.getLogger(__name__)
 host = "localhost"
 port = 8000
 
-# fmt: off
-has_imports = False
+# Check for TTS-specific imports
+has_tts_imports = False
 try:
     import numpy as np  # fmt: skip
     import scipy.io.wavfile as wavfile  # fmt: skip
-    import scipy.signal as signal  # fmt: skip
-    import sounddevice as sd  # fmt: skip
-    has_imports = True
+
+    has_tts_imports = True
 except (ImportError, OSError):
-    # will happen if tts extras not installed
-    # sounddevice may throw OSError("PortAudio library not found")
-    has_imports = False
-# fmt: on
+    has_tts_imports = False
 
 
 @lru_cache
 def is_available() -> bool:
     """Check if the TTS server is available."""
-    if not has_imports:
+    if not has_tts_imports or not is_audio_available():
         # console.log("TTS tool not available: missing dependencies")
         return False
 
@@ -84,12 +82,9 @@ def init() -> ToolSpec:
     return tool
 
 
-# Global queues and thread controls
-audio_queue: queue.Queue[tuple["np.ndarray", int]] = queue.Queue()
+# TTS-specific state
 tts_request_queue: queue.Queue[str | None] = queue.Queue()
-playback_thread: threading.Thread | None = None
 tts_processor_thread: threading.Thread | None = None
-current_volume = 1.0
 current_speed = 1.0
 
 
@@ -108,17 +103,16 @@ def set_speed(speed):
 
 def set_volume(volume):
     """Set the volume for TTS playback (0.0 to 1.0)."""
-    global current_volume
-    current_volume = max(0.0, min(1.0, volume))
-    log.info(f"TTS volume set to {current_volume:.2f}")
+    volume = max(0.0, min(1.0, volume))
+    set_audio_volume(volume)
+    log.info(f"TTS volume set to {volume:.2f}")
 
 
 def stop() -> None:
     """Stop audio playback and clear queues."""
-    sd.stop()
+    stop_audio()
 
-    # Clear both queues silently
-    clear_queue()
+    # Clear TTS request queue
     with tts_request_queue.mutex:
         tts_request_queue.queue.clear()
         tts_request_queue.all_tasks_done.notify_all()
@@ -131,16 +125,6 @@ def stop() -> None:
             tts_processor_thread.join(timeout=1)
         except RuntimeError:
             pass
-
-
-def clear_queue() -> None:
-    """Clear the audio queue without stopping current playback."""
-    while not audio_queue.empty():
-        try:
-            audio_queue.get_nowait()
-            audio_queue.task_done()
-        except queue.Empty:
-            break
 
 
 def split_text(text: str) -> list[str]:
@@ -300,214 +284,6 @@ def clean_for_speech(content: str) -> str:
     return content.strip()
 
 
-def _check_device_override(devices) -> tuple[int, int] | None:
-    """Check for environment variable device override.
-
-    Returns:
-        tuple: (device_index, sample_rate) if override found and valid, None otherwise
-    """
-    if device_override := os.getenv("GPTME_TTS_DEVICE"):
-        try:
-            device_index = int(device_override)
-            if 0 <= device_index < len(devices):
-                device_info = sd.query_devices(device_index)
-                if device_info["max_output_channels"] > 0:
-                    log.debug(f"Using device override: {device_info['name']}")
-                    return device_index, int(device_info["default_samplerate"])
-                else:
-                    log.warning(
-                        f"Override device {device_index} has no output channels"
-                    )
-            else:
-                log.warning(f"Override device index {device_index} out of range")
-        except ValueError:
-            log.warning(f"Invalid device override value: {device_override}")
-    return None
-
-
-def _get_output_device_macos(devices) -> tuple[int, int]:
-    """Get the best output device for macOS.
-
-    macOS strategy:
-    1. Use system default if it has output channels
-    2. Prefer CoreAudio devices (hostapi == 2)
-    3. Fall back to any device with output channels
-    """
-    # Try system default first
-    try:
-        default_output = sd.default.device[1]
-        if default_output is not None:
-            device_info = sd.query_devices(default_output)
-            if device_info["max_output_channels"] > 0:
-                log.debug(f"Using system default output device: {device_info['name']}")
-                return default_output, int(device_info["default_samplerate"])
-    except Exception as e:
-        log.debug(f"Could not use default device: {e}")
-
-    # Prefer CoreAudio devices
-    coreaudio_device = next(
-        (
-            i
-            for i, d in enumerate(devices)
-            if d["max_output_channels"] > 0 and d["hostapi"] == 2
-        ),
-        None,
-    )
-    if coreaudio_device is not None:
-        device_info = sd.query_devices(coreaudio_device)
-        log.debug(f"Using CoreAudio device: {device_info['name']}")
-        return coreaudio_device, int(device_info["default_samplerate"])
-
-    # Fallback to any output device
-    output_device = next(
-        (i for i, d in enumerate(devices) if d["max_output_channels"] > 0),
-        None,
-    )
-    if output_device is None:
-        raise RuntimeError("No suitable audio output device found on macOS")
-
-    device_info = sd.query_devices(output_device)
-    log.debug(f"Fallback to device: {device_info['name']}")
-    return output_device, int(device_info["default_samplerate"])
-
-
-def _get_output_device_linux(devices) -> tuple[int, int]:
-    """Get the best output device for Linux.
-
-    Linux strategy:
-    1. Prefer PulseAudio (handles user's device routing preferences)
-    2. Use system default routing (no device specified)
-    3. Fall back to any device with output channels
-    """
-    # Prefer PulseAudio - it handles user's audio routing preferences
-    pulse_device = next(
-        (
-            i
-            for i, d in enumerate(devices)
-            if "pulse" in d["name"].lower() and d["max_output_channels"] > 0
-        ),
-        None,
-    )
-    if pulse_device is not None:
-        device_info = sd.query_devices(pulse_device)
-        log.debug(f"Using PulseAudio device: {device_info['name']}")
-        return pulse_device, int(device_info["default_samplerate"])
-
-    # Use system default routing (let sounddevice handle it)
-    try:
-        default_info = sd.query_devices(device=None, kind="output")
-        print(default_info)
-        log.debug("Using system default audio routing")
-        raise RuntimeError(
-            "Using system default audio routing, no specific device selected"
-        )
-        # return None, int(default_info["default_samplerate"])
-    except Exception as e:
-        log.debug(f"Could not get default device info: {e}")
-
-    # Last resort: any working output device
-    output_device = next(
-        (i for i, d in enumerate(devices) if d["max_output_channels"] > 0),
-        None,
-    )
-    if output_device is None:
-        raise RuntimeError("No suitable audio output device found on Linux")
-
-    device_info = sd.query_devices(output_device)
-    log.debug(f"Fallback to device: {device_info['name']}")
-    return output_device, int(device_info["default_samplerate"])
-
-
-def get_output_device() -> tuple[int, int]:
-    """Get the best available output device and its sample rate.
-
-    Returns:
-        tuple: (device_index, sample_rate) where device_index can be None for system default
-
-    Raises:
-        RuntimeError: If no suitable output device is found
-    """
-    devices = sd.query_devices()
-    log.debug("Available audio devices:")
-    for i, dev in enumerate(devices):
-        log.debug(
-            f"  [{i}] {dev['name']} (in: {dev['max_input_channels']}, "
-            f"out: {dev['max_output_channels']}, hostapi: {dev['hostapi']})"
-        )
-
-    # Check for environment variable override first
-    if override_result := _check_device_override(devices):
-        return override_result
-
-    # Use platform-specific logic
-
-    system = platform_module.system()
-
-    if system == "Darwin":  # macOS
-        return _get_output_device_macos(devices)
-    elif system == "Linux":
-        return _get_output_device_linux(devices)
-    else:
-        # Windows or other platforms - use simple default logic
-        try:
-            default_output = sd.default.device[1]
-            if default_output is not None:
-                device_info = sd.query_devices(default_output)
-                if device_info["max_output_channels"] > 0:
-                    log.debug(f"Using system default: {device_info['name']}")
-                    return default_output, int(device_info["default_samplerate"])
-        except Exception:
-            pass
-
-        # Fallback for other platforms
-        output_device = next(
-            (i for i, d in enumerate(devices) if d["max_output_channels"] > 0),
-            None,
-        )
-        if output_device is None:
-            raise RuntimeError(f"No suitable audio output device found on {system}")
-
-        device_info = sd.query_devices(output_device)
-        return output_device, int(device_info["default_samplerate"])
-
-
-def _audio_player_thread_fn() -> None:
-    """Background thread for playing audio."""
-    log.debug("Audio player thread started")
-    while True:
-        try:
-            # Get audio data from queue
-            log.debug("Waiting for audio data...")
-            data, sample_rate = audio_queue.get()
-            if data is None:  # Sentinel value to stop thread
-                log.debug("Received stop signal")
-                break
-
-            # Apply volume
-            data = data * current_volume
-            log.debug(
-                f"Playing audio: shape={data.shape}, sr={sample_rate}, vol={current_volume}"
-            )
-
-            # Get output device
-            try:
-                output_device, _ = get_output_device()
-                if output_device is not None:
-                    log.debug(f"Playing on device: {output_device}")
-                else:
-                    log.debug("Playing on system default device")
-            except RuntimeError as e:
-                log.error(str(e))
-                continue
-            sd.play(data, sample_rate, device=output_device)
-            sd.wait()  # Wait until audio is finished playing
-            log.debug("Finished playing audio chunk")
-
-            audio_queue.task_done()
-        except Exception as e:
-            log.error(f"Error in audio playback: {e}")
-
-
 def _tts_processor_thread_fn():
     """Background thread for processing TTS requests."""
     log.debug("TTS processor ready")
@@ -556,20 +332,8 @@ def _tts_processor_thread_fn():
                         data = data / np.max(np.abs(data))
                     data = data.astype(np.float32)
 
-            # Get output device for sample rate
-            try:
-                _, device_sr = get_output_device()
-                # Resample if needed (now on float32 data)
-                if sample_rate != device_sr:
-                    data = _resample_audio(data, sample_rate, device_sr)
-                    sample_rate = device_sr
-            except RuntimeError as e:
-                log.error(f"Device error: {e}")
-                tts_request_queue.task_done()
-                continue
-
-            # Queue for playback
-            audio_queue.put((data, sample_rate))
+            # Play audio using the sound utility
+            play_audio_data(data, sample_rate, block=False)
             tts_request_queue.task_done()
 
         except Exception as e:
@@ -577,14 +341,9 @@ def _tts_processor_thread_fn():
             tts_request_queue.task_done()
 
 
-def ensure_threads():
-    """Ensure both playback and TTS processor threads are running."""
-    global playback_thread, tts_processor_thread
-
-    # Ensure playback thread
-    if playback_thread is None or not playback_thread.is_alive():
-        playback_thread = threading.Thread(target=_audio_player_thread_fn, daemon=True)
-        playback_thread.start()
+def ensure_tts_thread():
+    """Ensure TTS processor thread is running."""
+    global tts_processor_thread
 
     # Ensure TTS processor thread
     if tts_processor_thread is None or not tts_processor_thread.is_alive():
@@ -592,16 +351,6 @@ def ensure_threads():
             target=_tts_processor_thread_fn, daemon=True
         )
         tts_processor_thread.start()
-
-
-def _resample_audio(data, orig_sr, target_sr):
-    """Resample audio data to target sample rate."""
-    if orig_sr == target_sr:
-        return data
-
-    duration = len(data) / orig_sr
-    num_samples = int(duration * target_sr)
-    return signal.resample(data, num_samples)
 
 
 def join_short_sentences(
@@ -695,8 +444,8 @@ def speak(text, block=False, interrupt=True, clean=True):
         chunks = join_short_sentences(split_text(text))
         chunks = [c.replace("gptme", "gpt-me") for c in chunks]  # Fix pronunciation
 
-        # Ensure both threads are running
-        ensure_threads()
+        # Ensure TTS processor thread is running
+        ensure_tts_thread()
 
         # Queue chunks for processing
         for chunk in chunks:
@@ -706,8 +455,7 @@ def speak(text, block=False, interrupt=True, clean=True):
         if block:
             # Wait for all TTS processing to complete
             tts_request_queue.join()
-            # Then wait for all audio to finish playing
-            audio_queue.join()
+            # Note: Audio playback blocking is now handled by the sound utility
 
     except Exception as e:
         log.error(f"Failed to queue text for speech: {e}")

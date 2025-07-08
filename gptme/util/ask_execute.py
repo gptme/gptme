@@ -16,7 +16,7 @@ from rich.syntax import Syntax
 
 from ..message import Message
 from ..tools import ConfirmFunc
-from . import print_bell
+from .sound import print_bell
 from .clipboard import copy, set_copytext
 from .prompt import get_prompt_session
 from .terminal import terminal_state_title
