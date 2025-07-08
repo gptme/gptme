@@ -2039,31 +2039,8 @@ gptme<span class="w"> </span><span class="s1">&#39;hello, testing tts&#39;</span
 
 <dl class="py function">
 <dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">gptme.tools.tts.</span></span><span class="sig-name descname"><span class="pre">clear_queue</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span></dt>
-<dd><p>Clear the audio queue without stopping current playback.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">gptme.tools.tts.</span></span><span class="sig-name descname"><span class="pre">ensure_threads</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span></dt>
-<dd><p>Ensure both playback and TTS processor threads are running.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">gptme.tools.tts.</span></span><span class="sig-name descname"><span class="pre">get_output_device</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span></span></dt>
-<dd><p>Get the best available output device and its sample rate.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>(device_index, sample_rate) where device_index can be None for system default</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>tuple</p>
-</dd>
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>RuntimeError</strong> – If no suitable output device is found</p>
-</dd>
-</dl>
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.tts.</span></span><span class="sig-name descname"><span class="pre">ensure_tts_thread</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span></dt>
+<dd><p>Ensure TTS processor thread is running.</p>
 </dd></dl>
 
 <dl class="py function">
