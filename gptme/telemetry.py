@@ -17,16 +17,6 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from opentelemetry import metrics, trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.exporter.prometheus import PrometheusMetricReader
-from opentelemetry.instrumentation.flask import FlaskInstrumentor
-from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
 logger = logging.getLogger(__name__)
 
 # Type variable for generic function decoration
@@ -43,6 +33,16 @@ TELEMETRY_AVAILABLE = False
 TELEMETRY_IMPORT_ERROR = None
 
 try:
+    from opentelemetry import metrics, trace  # fmt: skip
+    from opentelemetry.exporter import otlp  # fmt: skip
+    from opentelemetry.exporter.prometheus import PrometheusMetricReader  # fmt: skip
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor  # fmt: skip
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor  # fmt: skip
+    from opentelemetry.sdk.metrics import MeterProvider  # fmt: skip
+    from opentelemetry.sdk.resources import Resource  # fmt: skip
+    from opentelemetry.sdk.trace import TracerProvider  # fmt: skip
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor  # fmt: skip
+
     TELEMETRY_AVAILABLE = True
 except ImportError as e:
     TELEMETRY_AVAILABLE = False
@@ -62,27 +62,20 @@ def init_telemetry(
     enable_requests_instrumentation: bool = True,
 ) -> None:
     """Initialize OpenTelemetry tracing and metrics."""
-    global \
-        _telemetry_enabled, \
-        _tracer, \
-        _meter, \
-        _memory_gauge, \
-        _cpu_gauge, \
-        _token_counter, \
-        _request_histogram
+    global _telemetry_enabled, _tracer, _meter, _token_counter, _request_histogram
+
+    # Check if telemetry is enabled via environment variable
+    if os.getenv("GPTME_TELEMETRY_ENABLED", "").lower() not in ("true", "1", "yes"):
+        logger.debug(
+            "Telemetry not enabled. Set GPTME_TELEMETRY_ENABLED=true to enable."
+        )
+        return
 
     if not TELEMETRY_AVAILABLE:
         error_msg = "OpenTelemetry dependencies not available. Install with: pip install gptme[telemetry]"
         if TELEMETRY_IMPORT_ERROR:
             error_msg += f" (Import error: {TELEMETRY_IMPORT_ERROR})"
         logger.warning(error_msg)
-        return
-
-    # Check if telemetry is enabled via environment variable
-    if os.getenv("GPTME_TELEMETRY_ENABLED", "").lower() not in ("true", "1", "yes"):
-        logger.info(
-            "Telemetry not enabled. Set GPTME_TELEMETRY_ENABLED=true to enable."
-        )
         return
 
     try:
@@ -103,7 +96,9 @@ def init_telemetry(
                 or os.getenv("OTLP_ENDPOINT")
                 or f"http://{os.getenv('JAEGER_ENDPOINT', 'localhost')}:4317"
             )
-            otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
+            otlp_exporter = otlp.grpc.trace_exporter.OTLPSpanExporter(
+                endpoint=otlp_endpoint
+            )
             span_processor = BatchSpanProcessor(otlp_exporter)
             trace.get_tracer_provider().add_span_processor(span_processor)
 
