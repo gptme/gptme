@@ -11,7 +11,7 @@ To answer these questions, we have created an evaluation suite that tests the ca
 Recommended Model
 -----------------
 
-The recommended model is **Claude Sonnet 4** (``anthropic/claude-sonnet-4-20250514``) for its:
+The recommended model is **Claude Sonnet 4** (``anthropic/claude-sonnet-4-20250514`` and ``openrouter/anthropic/claude-sonnet-4``) for its:
 
 - Strong agentic capabilities
 - Strong coder capabilities
@@ -33,7 +33,7 @@ You can run the simple ``hello`` eval with Claude 3.7 Sonnet like this:
 
 .. code-block:: bash
 
-    gptme-eval hello --model anthropic/claude-3-7-sonnet-20250219
+    gptme-eval hello --model anthropic/claude-sonnet-4-20250514
 
 However, we recommend running it in Docker to improve isolation and reproducibility:
 
@@ -43,7 +43,7 @@ However, we recommend running it in Docker to improve isolation and reproducibil
     docker run \
         -e "ANTHROPIC_API_KEY=<your api key>" \
         -v $(pwd)/eval_results:/app/eval_results \
-        gptme-eval hello --model anthropic/claude-3-7-sonnet-20250219
+        gptme-eval hello --model anthropic/claude-sonnet-4-20250514
 
 Available Evals
 ---------------
