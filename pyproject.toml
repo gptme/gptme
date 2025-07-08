@@ -73,6 +73,14 @@ flask = {version = "^3.0", optional=true}
 flask-cors = {version = ">=4,<6", optional=true}
 pydantic = "^2.11.7"
 
+# telemetry
+opentelemetry-api = {version = "^1.20.0", optional=true}
+opentelemetry-sdk = {version = "^1.20.0", optional=true}
+opentelemetry-instrumentation-flask = {version = "^0.41", optional=true}
+opentelemetry-instrumentation-requests = {version = "^0.41", optional=true}
+opentelemetry-exporter-jaeger = {version = "^1.20.0", optional=true}
+opentelemetry-exporter-prometheus = {version = "^0.55b1", optional=true}
+
 [tool.poetry.group.dev.dependencies]
 # lint
 mypy = "*"
@@ -122,6 +130,7 @@ computer = []  # pillow (non-opt)
 youtube = ["youtube_transcript_api"]
 tts = ["sounddevice", "scipy", "numpy"]
 pyinstaller = ["pyinstaller"]
+telemetry = ["opentelemetry-api", "opentelemetry-sdk", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-requests", "opentelemetry-exporter-jaeger", "opentelemetry-exporter-prometheus"]
 all = [
     # server
     "flask", "flask-cors", "pydantic",
@@ -135,6 +144,8 @@ all = [
     "youtube_transcript_api",
     # tts
     "sounddevice", "scipy", "numpy",
+    # telemetry
+    "opentelemetry-api", "opentelemetry-sdk", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-requests", "opentelemetry-exporter-jaeger", "opentelemetry-exporter-prometheus",
 ]
 
 [tool.ruff]

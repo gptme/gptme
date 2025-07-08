@@ -7,6 +7,7 @@ from click_default_group import DefaultGroup
 from gptme.config import set_config_from_workspace
 
 from ..init import init, init_logging
+from ..telemetry import init_telemetry, shutdown_telemetry
 from .api import create_app
 
 logger = logging.getLogger(__name__)
@@ -72,10 +73,17 @@ def serve(
         tool_allowlist=None if tools is None else tools.split(","),
     )
 
+    # Initialize telemetry
+    init_telemetry(service_name="gptme-server", enable_flask_instrumentation=True)
+
     click.echo("Initialization complete, starting server")
 
     app = create_app(cors_origin=cors_origin)
-    app.run(debug=debug, host=host, port=int(port))
+
+    try:
+        app.run(debug=debug, host=host, port=int(port))
+    finally:
+        shutdown_telemetry()
 
 
 @main.command("openapi")

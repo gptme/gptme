@@ -8,6 +8,7 @@ from gptme.config import get_config
 from gptme.constants import INTERRUPT_CONTENT
 
 from ..message import Message
+from ..telemetry import trace_function
 from ..util.interrupt import clear_interruptible
 from ..util.terminal import terminal_state_title
 from .base import (
@@ -162,6 +163,7 @@ def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
     return tools
 
 
+@trace_function(name="tools.execute_msg", attributes={"component": "tools"})
 def execute_msg(msg: Message, confirm: ConfirmFunc) -> Generator[Message, None, None]:
     """Uses any tools called in a message and returns the response."""
     assert msg.role == "assistant", "Only assistant messages can be executed"

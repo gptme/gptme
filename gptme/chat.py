@@ -13,6 +13,7 @@ from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import Message
+from .telemetry import trace_function
 from .tools import (
     ConfirmFunc,
     ToolFormat,
@@ -42,6 +43,7 @@ logger = logging.getLogger(__name__)
 _recently_interrupted = False
 
 
+@trace_function(name="chat.main", attributes={"component": "chat"})
 def chat(
     prompt_msgs: list[Message],
     initial_msgs: list[Message],

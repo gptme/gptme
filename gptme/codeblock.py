@@ -2,6 +2,8 @@ from collections.abc import Generator
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
+from .telemetry import trace_function
+
 
 @dataclass(frozen=True)
 class Codeblock:
@@ -22,6 +24,7 @@ class Codeblock:
         return f'<codeblock lang="{self.lang}" path="{self.path}">\n{self.content}\n</codeblock>'
 
     @classmethod
+    @trace_function(name="codeblock.from_markdown", attributes={"component": "parser"})
     def from_markdown(cls, content: str) -> "Codeblock":
         if content.strip().startswith("```"):
             content = content[3:]
@@ -31,6 +34,7 @@ class Codeblock:
         return cls(lang, content[len(lang) :])
 
     @classmethod
+    @trace_function(name="codeblock.from_xml", attributes={"component": "parser"})
     def from_xml(cls, content: str) -> "Codeblock":
         """
         Example:
@@ -46,6 +50,9 @@ class Codeblock:
         return "." in self.lang or "/" in self.lang
 
     @classmethod
+    @trace_function(
+        name="codeblock.iter_from_markdown", attributes={"component": "parser"}
+    )
     def iter_from_markdown(cls, markdown: str) -> list["Codeblock"]:
         return list(_extract_codeblocks(markdown))
 
@@ -57,6 +64,7 @@ re_triple_tick_start = re.compile(r"^```.*\n")
 re_triple_tick_end = re.compile(r"^```$")
 
 
+@trace_function(name="codeblock.extract_codeblocks", attributes={"component": "parser"})
 def _extract_codeblocks(markdown: str) -> Generator[Codeblock, None, None]:
     """
     Extracts code blocks from a markdown string using context-aware pattern matching.

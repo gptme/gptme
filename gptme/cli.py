@@ -21,6 +21,7 @@ from .llm.models import get_recommended_model
 from .logmanager import ConversationMeta, get_user_conversations
 from .message import Message
 from .prompts import get_prompt
+from .telemetry import init_telemetry, shutdown_telemetry
 from .tools import ToolFormat, get_available_tools, init_tools
 from .util import epoch_to_age
 from .util.generate_name import generate_name
@@ -176,6 +177,9 @@ def main(
     # init logging
     init_logging(verbose)
 
+    # init telemetry
+    init_telemetry(service_name="gptme-cli")
+
     if not interactive:
         no_confirm = True
 
@@ -308,6 +312,8 @@ def main(
         else:
             logger.error(e)
         sys.exit(1)
+    finally:
+        shutdown_telemetry()
 
 
 def get_name(name: str) -> str:

@@ -11,6 +11,7 @@ from rich import print as rprint
 from ..config import Config, get_config
 from ..constants import prompt_assistant
 from ..message import Message, format_msgs, len_tokens
+from ..telemetry import trace_function
 from ..tools import ToolSpec, ToolUse
 from ..util import console
 from .llm_anthropic import chat as chat_anthropic
@@ -49,6 +50,7 @@ def _get_agent_name(config: Config) -> str | None:
     return agent_config.name if agent_config and agent_config.name else None
 
 
+@trace_function(name="llm.reply", attributes={"component": "llm"})
 def reply(
     messages: list[Message],
     model: str,
@@ -91,6 +93,7 @@ def _get_base_model(model: str) -> str:
     return model.split("/", 1)[1]
 
 
+@trace_function(name="llm.chat_complete", attributes={"component": "llm"})
 def _chat_complete(
     messages: list[Message], model: str, tools: list[ToolSpec] | None
 ) -> str:
@@ -103,6 +106,7 @@ def _chat_complete(
         raise ValueError(f"Unsupported provider: {provider}")
 
 
+@trace_function(name="llm.stream", attributes={"component": "llm"})
 def _stream(
     messages: list[Message], model: str, tools: list[ToolSpec] | None
 ) -> Iterator[str]:
@@ -115,6 +119,7 @@ def _stream(
         raise ValueError(f"Unsupported provider: {provider}")
 
 
+@trace_function(name="llm.reply_stream", attributes={"component": "llm"})
 def _reply_stream(
     messages: list[Message],
     model: str,
@@ -207,6 +212,7 @@ def _reply_stream(
     return Message("assistant", output)
 
 
+@trace_function(name="llm.summarize", attributes={"component": "llm"})
 def _summarize_str(content: str) -> str:
     """
     Summarizes a long text using a LLM.
@@ -239,6 +245,7 @@ def _summarize_str(content: str) -> str:
     return summary
 
 
+@trace_function(name="llm.generate_name", attributes={"component": "llm"})
 def generate_name(msgs: list[Message]) -> str:
     """
     Generates a name for a given text/conversation using a LLM.
