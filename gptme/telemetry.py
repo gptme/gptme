@@ -167,10 +167,8 @@ def trace_function(
             if not is_telemetry_enabled() or _tracer is None:
                 return func(*args, **kwargs)
             span_name = name or f"{func.__module__}.{func.__name__}"
-            print(f"🔍 DEBUG: Creating span '{span_name}'")  # Debug line
 
             with _tracer.start_as_current_span(span_name) as span:
-                print(f"🔍 DEBUG: Span created: {span}")  # Debug line
                 if attributes:
                     for key, value in attributes.items():
                         span.set_attribute(key, value)
