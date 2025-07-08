@@ -166,6 +166,14 @@ check_untyped_defs = true
 disable_error_code = "import-untyped"
 
 [[tool.mypy.overrides]]
+module = "tomli_w"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "opentelemetry.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "langchain.*"
 ignore_missing_imports = true
 

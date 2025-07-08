@@ -100,7 +100,9 @@ def init_telemetry(
                 endpoint=otlp_endpoint
             )
             span_processor = BatchSpanProcessor(otlp_exporter)
-            trace.get_tracer_provider().add_span_processor(span_processor)
+            tracer_provider = trace.get_tracer_provider()
+            if hasattr(tracer_provider, "add_span_processor"):
+                tracer_provider.add_span_processor(span_processor)  # type: ignore
 
         # Initialize metrics
         prometheus_reader = PrometheusMetricReader()
@@ -212,7 +214,7 @@ class TimedOperation:
         self.name = name
         self.attributes = attributes or {}
         self.start_time: float | None = None
-        self.span = None
+        self.span: Any = None  # Using Any to avoid complex OpenTelemetry type imports
 
     def __enter__(self):
         if not is_telemetry_enabled() or _tracer is None:
