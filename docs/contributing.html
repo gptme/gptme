@@ -383,6 +383,10 @@
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests">Tests</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#telemetry">Telemetry</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">Setup</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
 </ul>
             </nav>
@@ -427,6 +431,63 @@ make<span class="w"> </span>build
 <p>Some tests make LLM calls, which might take a while and so are not run by default. You can run them with <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">test</span> <span class="pre">SLOW=true</span></code>.</p>
 <p>There are also some integration tests in <code class="docutils literal notranslate"><span class="pre">./tests/test-integration.sh</span></code> which are used to manually test more complex tasks.</p>
 <p>There is also the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a>.</p>
+</section>
+<section id="telemetry">
+<h2>Telemetry<a class="headerlink" href="#telemetry" title="Link to this heading">#</a></h2>
+<p>gptme includes optional OpenTelemetry integration for performance monitoring and debugging. This is useful for development to understand performance characteristics and identify bottlenecks.</p>
+<section id="setup">
+<h3>Setup<a class="headerlink" href="#setup" title="Link to this heading">#</a></h3>
+<p>To enable telemetry during development:</p>
+<ol class="arabic">
+<li><p>Install telemetry dependencies:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>install<span class="w"> </span>-E<span class="w"> </span>telemetry
+</pre></div>
+</div>
+</li>
+<li><p>Run Jaeger for trace visualization:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--name<span class="w"> </span>jaeger<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>-p<span class="w"> </span><span class="m">16686</span>:16686<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>-p<span class="w"> </span><span class="m">4317</span>:4317<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>-p<span class="w"> </span><span class="m">4318</span>:4318<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>-p<span class="w"> </span><span class="m">5778</span>:5778<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>-p<span class="w"> </span><span class="m">9411</span>:9411<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>cr.jaegertracing.io/jaegertracing/jaeger:latest
+</pre></div>
+</div>
+</li>
+<li><p>Set the telemetry environment variable:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_TELEMETRY_ENABLED</span><span class="o">=</span><span class="nb">true</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://localhost:4317<span class="w">  </span><span class="c1"># optional (default)</span>
+</pre></div>
+</div>
+</li>
+<li><p>Run gptme:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>run<span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span>
+<span class="c1"># or gptme-server</span>
+poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
+</pre></div>
+</div>
+</li>
+<li><p>View traces in Jaeger UI:</p>
+<blockquote>
+<div><p>You can view traces in the Jaeger UI at <a class="reference external" href="http://localhost:16686">http://localhost:16686</a>.</p>
+</div></blockquote>
+</li>
+</ol>
+<p>Once enabled, gptme will automatically:</p>
+<ul class="simple">
+<li><p>Trace function execution times</p></li>
+<li><p>Record token processing metrics</p></li>
+<li><p>Monitor request durations</p></li>
+<li><p>Instrument Flask and HTTP requests</p></li>
+</ul>
+<p>The telemetry data helps identify:</p>
+<ul class="simple">
+<li><p>Slow operations and bottlenecks</p></li>
+<li><p>Token processing rates</p></li>
+<li><p>Tool execution performance</p></li>
+</ul>
+</section>
 </section>
 <section id="release">
 <h2>Release<a class="headerlink" href="#release" title="Link to this heading">#</a></h2>
@@ -482,6 +543,10 @@ make<span class="w"> </span>build
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests">Tests</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#telemetry">Telemetry</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">Setup</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
 </ul>
   </nav></div>

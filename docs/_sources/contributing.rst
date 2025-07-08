@@ -39,6 +39,66 @@ There are also some integration tests in ``./tests/test-integration.sh`` which a
 
 There is also the :doc:`evals`.
 
+Telemetry
+---------
+
+gptme includes optional OpenTelemetry integration for performance monitoring and debugging. This is useful for development to understand performance characteristics and identify bottlenecks.
+
+Setup
+~~~~~
+
+To enable telemetry during development:
+
+1. Install telemetry dependencies:
+
+   .. code-block:: bash
+
+      poetry install -E telemetry
+
+2. Run Jaeger for trace visualization:
+
+   .. code-block:: bash
+
+      docker run --rm --name jaeger \
+                -p 16686:16686 \
+                -p 4317:4317 \
+                -p 4318:4318 \
+                -p 5778:5778 \
+                -p 9411:9411 \
+                cr.jaegertracing.io/jaegertracing/jaeger:latest
+
+3. Set the telemetry environment variable:
+
+   .. code-block:: bash
+
+      export GPTME_TELEMETRY_ENABLED=true
+      export OTLP_ENDPOINT=http://localhost:4317  # optional (default)
+
+4. Run gptme:
+
+   .. code-block:: bash
+
+      poetry run gptme 'hello'
+      # or gptme-server
+      poetry run gptme-server
+
+5. View traces in Jaeger UI:
+
+    You can view traces in the Jaeger UI at http://localhost:16686.
+
+Once enabled, gptme will automatically:
+
+- Trace function execution times
+- Record token processing metrics
+- Monitor request durations
+- Instrument Flask and HTTP requests
+
+The telemetry data helps identify:
+
+- Slow operations and bottlenecks
+- Token processing rates
+- Tool execution performance
+
 Release
 -------
 
