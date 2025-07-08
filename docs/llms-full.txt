@@ -1705,10 +1705,11 @@ To answer these questions, we have created an evaluation suite that tests the ca
 Recommended Model
 -----------------
 
-The recommended model is **Claude 3.7 Sonnet** (``anthropic/claude-3-7-sonnet-20250219``) for its:
+The recommended model is **Claude Sonnet 4** (``anthropic/claude-sonnet-4-20250514``) for its:
 
+- Strong agentic capabilities
 - Strong coder capabilities
-- Strong performance across all tool types
+- Strong performance across all tool types and formats
 - Reasoning capabilities
 - Vision & computer use capabilities
 
