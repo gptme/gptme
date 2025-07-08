@@ -13,6 +13,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from ..config import get_config
+
 log = logging.getLogger(__name__)
 
 # Check for audio dependencies
@@ -366,8 +368,11 @@ def print_bell():
     sys.stdout.write("\a")
     sys.stdout.flush()
 
-    # If audio is available, play the ding sound
-    if is_audio_available():
+    # If audio is available and GPTME_DING is enabled, play the ding sound
+    if is_audio_available() and get_config().get_env("GPTME_DING"):
         play_ding()
     else:
-        log.info("Audio not available, skipping ding sound playback")
+        if not is_audio_available():
+            log.info("Audio not available, skipping ding sound playback")
+        else:
+            log.debug("GPTME_DING not set, skipping ding sound playback")
