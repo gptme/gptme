@@ -63,22 +63,23 @@ The SQLite server provides database interaction and business intelligence capabi
 The server provides these core tools:
 
 Query Tools:
-    - ``read_query``: Execute SELECT queries to read data
-    - ``write_query``: Execute INSERT, UPDATE, or DELETE queries
-    - ``create_table``: Create new tables in the database
+
+- ``read_query``: Execute SELECT queries to read data
+- ``write_query``: Execute INSERT, UPDATE, or DELETE queries
+- ``create_table``: Create new tables in the database
 
 Schema Tools:
 
-    - ``list_tables``: Get a list of all tables
-    - ``describe_table``: View schema information for a specific table
+- ``list_tables``: Get a list of all tables
+- ``describe_table``: View schema information for a specific table
 
 Analysis Tools:
 
-    - ``append_insight``: Add business insights to the memo resource
+- ``append_insight``: Add business insights to the memo resource
 
 Resources:
 
-    - ``memo://insights``: A continuously updated business insights memo
+- ``memo://insights``: A continuously updated business insights memo
 
 The server also includes a demonstration prompt ``mcp-demo`` that guides users through database operations and analysis.
 
