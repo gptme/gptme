@@ -357,7 +357,19 @@ def wait_for_audio():
     """Wait for all audio playback to finish."""
     if has_audio_imports and playback_thread and playback_thread.is_alive():
         try:
-            audio_queue.join()
+            # Add timeout to prevent hanging indefinitely
+            timeout = 5.0  # 5 second timeout
+
+            # Use a loop with timeout instead of blocking join
+            import time
+
+            start = time.time()
+            while not audio_queue.empty() and (time.time() - start) < timeout:
+                time.sleep(0.1)
+
+            if not audio_queue.empty():
+                log.warning("Audio playback timeout reached, forcing cleanup")
+                stop_audio()
         except Exception as e:
             log.debug(f"Error waiting for audio: {e}")
 
