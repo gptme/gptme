@@ -207,50 +207,6 @@ def record_request_duration(
     _request_histogram.record(duration, {"endpoint": endpoint, "method": method})
 
 
-class TimedOperation:
-    """Context manager for timing operations."""
-
-    def __init__(self, name: str, attributes: dict[str, Any] | None = None):
-        self.name = name
-        self.attributes = attributes or {}
-        self.start_time: float | None = None
-        self.span: Any = None  # Using Any to avoid complex OpenTelemetry type imports
-
-    def __enter__(self):
-        if not is_telemetry_enabled() or _tracer is None:
-            return self
-
-        self.start_time = time.time()
-        self.span = _tracer.start_span(self.name)
-
-        if self.span:
-            for key, value in self.attributes.items():
-                self.span.set_attribute(key, value)
-
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if not is_telemetry_enabled() or self.span is None or self.start_time is None:
-            return
-
-        duration = time.time() - self.start_time
-        self.span.set_attribute("operation.duration_seconds", duration)
-
-        if exc_type is not None:
-            self.span.set_attribute("operation.success", False)
-            self.span.set_attribute("operation.error.type", exc_type.__name__)
-            self.span.set_attribute("operation.error.message", str(exc_val))
-        else:
-            self.span.set_attribute("operation.success", True)
-
-        self.span.end()
-
-    def add_attribute(self, key: str, value: Any) -> None:
-        """Add an attribute to the current span."""
-        if self.span:
-            self.span.set_attribute(key, value)
-
-
 def measure_tokens_per_second(func: F) -> F:
     """Decorator to measure tokens per second for LLM operations."""
 
