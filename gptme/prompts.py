@@ -334,7 +334,7 @@ def prompt_timeinfo() -> Generator[Message, None, None]:
 
 def get_tree_output(workspace: Path) -> str | None:
     """Get the output of `tree --gitignore .` if available."""
-    if get_config().get_env("GPTME_CONTEXT_TREE") not in ["1", "true"]:
+    if not get_config().get_env_bool("GPTME_CONTEXT_TREE"):
         return None
 
     # Check if tree command is available

@@ -369,7 +369,7 @@ def print_bell():
     sys.stdout.flush()
 
     # If audio is available and GPTME_DING is enabled, play the ding sound
-    if is_audio_available() and get_config().get_env("GPTME_DING"):
+    if is_audio_available() and get_config().get_env_bool("GPTME_DING"):
         play_ding()
     else:
         if not is_audio_available():

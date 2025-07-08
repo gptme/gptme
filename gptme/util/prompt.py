@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from gptme.config import get_config
 from gptme.llm.models import get_default_model
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -358,7 +359,7 @@ def llm_suggest(text: str) -> list[str]:
     model = get_default_model()
     assert model, "No model loaded"
 
-    enabled = os.environ.get("GPTME_SUGGEST_LLM") in ["1", "true"]
+    enabled = get_config().get_env_bool("GPTME_SUGGEST_LLM")
     if enabled:
         content = _chat_complete(
             messages=[

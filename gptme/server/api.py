@@ -8,7 +8,6 @@ See here for instructions how to serve matplotlib figures:
 import atexit
 import io
 import logging
-import os
 from collections.abc import Generator
 from contextlib import redirect_stdout
 from datetime import datetime
@@ -21,6 +20,7 @@ from flask import current_app, request
 from flask_cors import CORS
 
 from ..commands import execute_cmd
+from ..config import get_config
 from ..dirs import get_logs_dir
 from ..llm import _stream
 from ..llm.models import get_default_model
@@ -121,7 +121,7 @@ def api_conversation_file(logfile: str, filename: str):
     workspace = Path(log.workspace).resolve()
 
     # Can be set to override workspace restriction
-    allow_root = os.getenv("GPTME_ALLOW_ROOT_FILES", "").lower() in ["1", "true"]
+    allow_root = get_config().get_env_bool("GPTME_ALLOW_ROOT_FILES")
 
     # Resolve the full path, ensuring it stays within workspace
     try:

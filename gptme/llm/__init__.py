@@ -59,10 +59,7 @@ def reply(
     config = get_config()
     agent_name = _get_agent_name(config)
     if stream:
-        break_on_tooluse = config.get_env("GPTME_BREAK_ON_TOOLUSE", "true") in [
-            "1",
-            "true",
-        ]
+        break_on_tooluse = bool(config.get_env_bool("GPTME_BREAK_ON_TOOLUSE", True))
         return _reply_stream(
             messages, model, tools, break_on_tooluse, agent_name=agent_name
         )

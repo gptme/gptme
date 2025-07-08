@@ -569,6 +569,11 @@ class Config:
             or default
         )
 
+    def get_env_bool(self, key: str, default: bool | None = None) -> bool | None:
+        if env_value := self.get_env(key):
+            return env_value.lower() in ("1", "true", "yes", "on")
+        return default
+
     def get_env_required(self, key: str) -> str:
         """Gets an environment variable, checks the config file if it's not set in the environment."""
         if (

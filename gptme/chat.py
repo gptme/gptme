@@ -253,7 +253,7 @@ def _check_and_handle_modifications(manager: LogManager) -> None:
 
             success, failed_check_message = check_changes()
             if success:
-                if get_config().get_env("GPTME_AUTOCOMMIT") in ["true", "1"]:
+                if get_config().get_env_bool("GPTME_AUTOCOMMIT"):
                     autocommit_msg = autocommit()
                     manager.append(autocommit_msg)
                     return
@@ -303,7 +303,7 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
         return None
 
     # print diff between now and last user message timestamp
-    if os.environ.get("GPTME_SHOW_WORKED", "0") in ["1", "true"]:
+    if get_config().get_env_bool("GPTME_SHOW_WORKED"):
         last_user_msg = next((m for m in reversed(log) if m.role == "user"), None)
         if last_user_msg and log:
             diff = log[-1].timestamp - last_user_msg.timestamp
@@ -369,7 +369,7 @@ def step(
         # generate response
         with terminal_state_title("🤔 generating"):
             msg_response = reply(msgs, get_model(model).full, stream, tools)
-            if os.environ.get("GPTME_COSTS") in ["1", "true"]:
+            if get_config().get_env_bool("GPTME_COSTS"):
                 log_costs(msgs + [msg_response])
 
         # speak if TTS tool is available

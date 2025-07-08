@@ -92,7 +92,7 @@ class Patch:
             # if original chunk not in file, we want to include the current file contents in the error message so it can recover fast
             file_contents = (
                 f"Here are the actual file contents:\n```original\n{content}\n```"
-                if get_config().get_env("GPTME_PATCH_RECOVERY") in ["true", "1"]
+                if get_config().get_env_bool("GPTME_PATCH_RECOVERY")
                 else ""
             )
             raise ValueError(f"original chunk not found in file\n{file_contents}")
