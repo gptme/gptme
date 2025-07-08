@@ -52,12 +52,43 @@
 </p>
 
 <p align="center">
-📜 Personal AI assistant/agent in your terminal, with tools so it can:<br/>Use the terminal, run code, edit files, browse the web, use vision, and much more;<br/>a great coding agent, but is general-purpose to assists in all kinds of knowledge-work, from a simple but powerful CLI.
+<strong>🤖 Your AI coding companion that actually gets things done</strong><br/>
+Write code, debug issues, automate tasks, and explore projects—all from your terminal.<br/>
+No constraints, no timeouts, complete privacy when using local models.
 </p>
 
 <p align="center">
-An unconstrained local <a href="https://gptme.org/docs/alternatives.html">alternative</a> to: ChatGPT with "Code Interpreter", Cursor Agent, etc.<br/>Not limited by lack of software, internet access, timeouts, or privacy concerns (if using local models).
+<strong>✨ What makes it special:</strong> Code execution • File editing • Web browsing • Vision • Self-correction<br/>
+An unconstrained local <a href="https://gptme.org/docs/alternatives.html">alternative</a> to Claude Code, Cursor Agent, and similar tools.
 </p>
+
+## 🚀 Getting Started
+
+Install with pipx:
+
+```sh
+# requires Python 3.10+
+pipx install gptme
+```
+
+Now, to get started, run:
+
+```sh
+gptme
+```
+
+Here are some examples:
+
+```sh
+gptme 'write an impressive and colorful particle effect using three.js to particles.html'
+gptme 'render mandelbrot set to mandelbrot.png'
+gptme 'suggest improvements to my vimrc'
+gptme 'convert to h265 and adjust the volume' video.mp4
+git diff | gptme 'complete the TODOs in this diff'
+make test | gptme 'fix the failing tests'
+```
+
+For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
 
 ## 📚 Table of Contents
 
@@ -71,7 +102,7 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 ## 🎥 Demos
 
 > [!NOTE]
-> These demos are very out of date and do not reflect the latest capabilities. We hope to update them soon!
+> More demos showcasing the latest features are coming soon! Check out our [documentation examples](https://gptme.org/docs/examples.html) for the most up-to-date use cases.
 
 <table>
   <tr>
@@ -221,7 +252,7 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - 🗣️ [Text-to-Speech][docs-tools-tts] support, locally generated using Kokoro
   - 🎯 Feature flags for advanced usage, see [configuration docs][docs-config]
 
-### 🛠 Use Cases
+## 🛠 Use Cases
 
 - 🖥 **Development:** Write and run code faster with AI assistance.
 - 🎯 **Shell Expert:** Get the right command using natural language (no more memorizing flags!).
@@ -229,7 +260,7 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 - 🎓 **Interactive Learning:** Experiment with new technologies or codebases hands-on.
 - 🤖 **Agents & Tools:** Experiment with agents & tools in a local environment.
 
-### 🛠 Developer perks
+## 🛠 Developer perks
 
 - 🧰 Easy to extend
   - Most functionality is implemented as [tools][docs-tools], making it easy to add new features.
@@ -241,39 +272,11 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 - 📊 [Evaluation suite][docs-evals] for testing capabilities of different models
 - 📝 [gptme.vim][gptme.vim] for easy integration with vim
 
-### 🚧 In progress
+## 🚧 In progress
 
 - 🌳 Tree-based conversation structure (see [#17](https://github.com/gptme/gptme/issues/17))
 - 📜 RAG to automatically include context from local files (see [#59](https://github.com/gptme/gptme/issues/59))
 - 🏆 Advanced evals for testing frontier capabilities
-
-## 🚀 Getting Started
-
-Install with pipx:
-
-```sh
-# requires Python 3.10+
-pipx install gptme
-```
-
-Now, to get started, run:
-
-```sh
-gptme
-```
-
-Here are some examples:
-
-```sh
-gptme 'write an impressive and colorful particle effect using three.js to particles.html'
-gptme 'render mandelbrot set to mandelbrot.png'
-gptme 'suggest improvements to my vimrc'
-gptme 'convert to h265 and adjust the volume' video.mp4
-git diff | gptme 'complete the TODOs in this diff'
-make test | gptme 'fix the failing tests'
-```
-
-For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
 
 ## 🛠 Usage
 
