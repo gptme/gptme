@@ -24,6 +24,7 @@ from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 logger = logging.getLogger(__name__)
@@ -85,8 +86,9 @@ def init_telemetry(
         return
 
     try:
-        # Initialize tracing
-        trace.set_tracer_provider(TracerProvider())
+        # Initialize tracing with proper service name
+        resource = Resource.create({"service.name": service_name})
+        trace.set_tracer_provider(TracerProvider(resource=resource))
         _tracer = trace.get_tracer(service_name)
 
         # Set up OTLP exporter if endpoint provided (for Jaeger or other OTLP-compatible backends)
