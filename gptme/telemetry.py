@@ -14,17 +14,19 @@ import functools
 import logging
 import os
 import time
-from typing import Any, TypeVar
 from collections.abc import Callable
+from typing import Any, TypeVar
+
+from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 logger = logging.getLogger(__name__)
-
-# Import console for user-visible messages
-try:
-    from ..util import console
-except ImportError:
-    # Fallback if console not available
-    console = None
 
 # Type variable for generic function decoration
 F = TypeVar("F", bound=Callable[..., Any])
@@ -40,15 +42,6 @@ TELEMETRY_AVAILABLE = False
 TELEMETRY_IMPORT_ERROR = None
 
 try:
-    from opentelemetry import trace, metrics
-    from opentelemetry.exporter.jaeger.thrift import JaegerExporter
-    from opentelemetry.exporter.prometheus import PrometheusMetricReader
-    from opentelemetry.instrumentation.flask import FlaskInstrumentor
-    from opentelemetry.instrumentation.requests import RequestsInstrumentor
-    from opentelemetry.sdk.metrics import MeterProvider
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
     TELEMETRY_AVAILABLE = True
 except ImportError as e:
     TELEMETRY_AVAILABLE = False
@@ -96,14 +89,20 @@ def init_telemetry(
         trace.set_tracer_provider(TracerProvider())
         _tracer = trace.get_tracer(service_name)
 
-        # Set up Jaeger exporter if endpoint provided
-        if jaeger_endpoint or os.getenv("JAEGER_ENDPOINT"):
-            jaeger_exporter = JaegerExporter(
-                agent_host_name=jaeger_endpoint
-                or os.getenv("JAEGER_ENDPOINT", "localhost"),
-                agent_port=int(os.getenv("JAEGER_PORT", "14268")),
+        # Set up OTLP exporter if endpoint provided (for Jaeger or other OTLP-compatible backends)
+        if (
+            jaeger_endpoint
+            or os.getenv("JAEGER_ENDPOINT")
+            or os.getenv("OTLP_ENDPOINT")
+        ):
+            # OTLP uses different default ports: 4317 for gRPC, 4318 for HTTP
+            otlp_endpoint = (
+                jaeger_endpoint
+                or os.getenv("OTLP_ENDPOINT")
+                or f"http://{os.getenv('JAEGER_ENDPOINT', 'localhost')}:4317"
             )
-            span_processor = BatchSpanProcessor(jaeger_exporter)
+            otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
+            span_processor = BatchSpanProcessor(otlp_exporter)
             trace.get_tracer_provider().add_span_processor(span_processor)
 
         # Initialize metrics
@@ -134,15 +133,22 @@ def init_telemetry(
         _telemetry_enabled = True
         logger.info("OpenTelemetry telemetry initialized successfully")
 
+        # Import console for user-visible messages
+        from .util import console  # fmt: skip
+
         # Log to console so users know telemetry is active
-        if console:
-            console.log("📊 Telemetry enabled - performance metrics will be collected")
-            if jaeger_endpoint or os.getenv("JAEGER_ENDPOINT"):
-                jaeger_host = jaeger_endpoint or os.getenv("JAEGER_ENDPOINT")
-                jaeger_port = os.getenv("JAEGER_PORT", "14268")
-                console.log(
-                    f"🔍 Traces will be sent to Jaeger at {jaeger_host}:{jaeger_port}"
-                )
+        console.log("📊 Telemetry enabled - performance metrics will be collected")
+        if (
+            jaeger_endpoint
+            or os.getenv("JAEGER_ENDPOINT")
+            or os.getenv("OTLP_ENDPOINT")
+        ):
+            otlp_endpoint = (
+                jaeger_endpoint
+                or os.getenv("OTLP_ENDPOINT")
+                or f"http://{os.getenv('JAEGER_ENDPOINT', 'localhost')}:4317"
+            )
+            console.log(f"🔍 Traces will be sent via OTLP to {otlp_endpoint}")
 
     except Exception as e:
         logger.error(f"Failed to initialize telemetry: {e}")
@@ -154,14 +160,15 @@ def trace_function(
     """Decorator to trace function execution."""
 
     def decorator(func: F) -> F:
-        if not is_telemetry_enabled() or _tracer is None:
-            return func
-
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            if not is_telemetry_enabled() or _tracer is None:
+                return func(*args, **kwargs)
             span_name = name or f"{func.__module__}.{func.__name__}"
+            print(f"🔍 DEBUG: Creating span '{span_name}'")  # Debug line
 
             with _tracer.start_as_current_span(span_name) as span:
+                print(f"🔍 DEBUG: Span created: {span}")  # Debug line
                 if attributes:
                     for key, value in attributes.items():
                         span.set_attribute(key, value)
