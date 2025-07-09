@@ -75,7 +75,7 @@ To enable telemetry during development:
       docker run --name prometheus -d -p 127.0.0.1:9090:9090 prom/prometheus
 
       # Or with custom config to scrape gptme metrics on port 8000
-      cat > prometheus.yml << EOF
+      cat > scripts/prometheus.yml << EOF
       global:
         scrape_interval: 15s
       scrape_configs:
@@ -87,16 +87,17 @@ To enable telemetry during development:
 
       docker run --rm --name prometheus \
                 -p 9090:9090 \
-                -v $(pwd)/prometheus.yml:/etc/prometheus/prometheus.yml \
+                -v $(pwd)/scripts/prometheus.yml:/etc/prometheus/prometheus.yml \
                 prom/prometheus
 
-4. Set the telemetry environment variable:
+4. Set the telemetry environment variables:
 
    .. code-block:: bash
 
       export GPTME_TELEMETRY_ENABLED=true
       export OTLP_ENDPOINT=http://localhost:4317  # optional (default)
       export PROMETHEUS_PORT=8000  # optional (default)
+      export PROMETHEUS_ADDR=0.0.0.0  # optional (default: localhost, use 0.0.0.0 for Docker access)
 
 5. Run gptme:
 
