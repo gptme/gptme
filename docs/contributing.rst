@@ -88,7 +88,7 @@ To enable telemetry during development:
       docker run --rm --name prometheus \
                 -p 9090:9090 \
                 -v $(pwd)/scripts/prometheus.yml:/etc/prometheus/prometheus.yml \
-                prom/prometheus
+                prom/prometheus --enable-feature=otlp-write-receive
 
 4. Set the telemetry environment variables:
 
@@ -168,7 +168,7 @@ Here are some useful Prometheus queries for monitoring gptme:
    histogram_quantile(0.95, rate(gptme_request_duration_seconds_bucket[5m]))
 
 Environment Variables
-~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
 
 - ``GPTME_TELEMETRY_ENABLED``: Enable/disable telemetry (default: false)
 - ``OTLP_ENDPOINT``: OTLP endpoint for traces (default: http://localhost:4317)
