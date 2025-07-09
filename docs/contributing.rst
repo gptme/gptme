@@ -67,14 +67,38 @@ To enable telemetry during development:
                 -p 9411:9411 \
                 cr.jaegertracing.io/jaegertracing/jaeger:latest
 
-3. Set the telemetry environment variable:
+3. (Optional) Run Prometheus for metrics collection:
+
+   .. code-block:: bash
+
+      # Simple default Prometheus
+      docker run --name prometheus -d -p 127.0.0.1:9090:9090 prom/prometheus
+
+      # Or with custom config to scrape gptme metrics on port 8000
+      cat > prometheus.yml << EOF
+      global:
+        scrape_interval: 15s
+      scrape_configs:
+        - job_name: 'gptme'
+          static_configs:
+            - targets: ['host.docker.internal:8000']
+          metrics_path: '/metrics'
+      EOF
+
+      docker run --rm --name prometheus \
+                -p 9090:9090 \
+                -v $(pwd)/prometheus.yml:/etc/prometheus/prometheus.yml \
+                prom/prometheus
+
+4. Set the telemetry environment variable:
 
    .. code-block:: bash
 
       export GPTME_TELEMETRY_ENABLED=true
       export OTLP_ENDPOINT=http://localhost:4317  # optional (default)
+      export PROMETHEUS_PORT=8000  # optional (default)
 
-4. Run gptme:
+5. Run gptme:
 
    .. code-block:: bash
 
@@ -82,9 +106,11 @@ To enable telemetry during development:
       # or gptme-server
       poetry run gptme-server
 
-5. View traces in Jaeger UI:
+6. View data:
 
-    You can view traces in the Jaeger UI at http://localhost:16686.
+   - **Traces**: Jaeger UI at http://localhost:16686
+   - **Metrics**: Prometheus UI at http://localhost:9090
+   - **Raw metrics**: Direct metrics endpoint at http://localhost:8000/metrics
 
 Once enabled, gptme will automatically:
 
@@ -92,12 +118,61 @@ Once enabled, gptme will automatically:
 - Record token processing metrics
 - Monitor request durations
 - Instrument Flask and HTTP requests
+- Expose Prometheus metrics at `/metrics` endpoint
 
 The telemetry data helps identify:
 
 - Slow operations and bottlenecks
 - Token processing rates
 - Tool execution performance
+- Resource usage patterns
+
+Available Metrics
+~~~~~~~~~~~~~~~~~
+
+The following metrics are automatically collected:
+
+- ``gptme_tokens_processed_total``: Counter of tokens processed by type
+- ``gptme_request_duration_seconds``: Histogram of request durations by endpoint
+- ``gptme_tool_calls_total``: Counter of tool calls made by tool name
+- ``gptme_tool_duration_seconds``: Histogram of tool execution durations by tool name
+- ``gptme_active_conversations``: Gauge of currently active conversations
+- ``gptme_llm_requests_total``: Counter of LLM API requests by provider, model, and success status
+- HTTP request metrics (from Flask instrumentation)
+- OpenAI/Anthropic API call metrics (from LLM instrumentations)
+
+Example Prometheus Queries
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Here are some useful Prometheus queries for monitoring gptme:
+
+.. code-block:: promql
+
+   # Average tool execution time by tool
+   rate(gptme_tool_duration_seconds_sum[5m]) / rate(gptme_tool_duration_seconds_count[5m])
+
+   # Most used tools
+   topk(10, rate(gptme_tool_calls_total[5m]))
+
+   # LLM request success rate
+   rate(gptme_llm_requests_total{success="true"}[5m]) / rate(gptme_llm_requests_total[5m])
+
+   # Tokens processed per second
+   rate(gptme_tokens_processed_total[5m])
+
+   # Active conversations
+   gptme_active_conversations
+
+   # Request latency percentiles
+   histogram_quantile(0.95, rate(gptme_request_duration_seconds_bucket[5m]))
+
+Environment Variables
+~~~~~~~~~~~~~~~~~~~~
+
+- ``GPTME_TELEMETRY_ENABLED``: Enable/disable telemetry (default: false)
+- ``OTLP_ENDPOINT``: OTLP endpoint for traces (default: http://localhost:4317)
+- ``PROMETHEUS_PORT``: Port for Prometheus metrics endpoint (default: 8000)
+- ``PROMETHEUS_ADDR``: Address for Prometheus metrics endpoint (default: localhost, use 0.0.0.0 for Docker access)
 
 Release
 -------

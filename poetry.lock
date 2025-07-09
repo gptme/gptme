@@ -2475,6 +2475,25 @@ packaging = ">=18.0"
 wrapt = ">=1.0.0,<2.0.0"
 
 [[package]]
+name = "opentelemetry-instrumentation-anthropic"
+version = "0.40.14"
+description = "OpenTelemetry Anthropic instrumentation"
+optional = true
+python-versions = "<4,>=3.9"
+groups = ["main"]
+markers = "extra == \"telemetry\" or extra == \"all\""
+files = [
+    {file = "opentelemetry_instrumentation_anthropic-0.40.14-py3-none-any.whl", hash = "sha256:d516a7aaa4b81b6fa6585f3db7a84feacb288fc56721484c63422ea6a9119c00"},
+    {file = "opentelemetry_instrumentation_anthropic-0.40.14.tar.gz", hash = "sha256:5450cc52fbbd916c21fc74df511e93ce794e889fbd916f90decaa1240893419e"},
+]
+
+[package.dependencies]
+opentelemetry-api = ">=1.28.0,<2.0.0"
+opentelemetry-instrumentation = ">=0.50b0"
+opentelemetry-semantic-conventions = ">=0.50b0"
+opentelemetry-semantic-conventions-ai = "0.4.9"
+
+[[package]]
 name = "opentelemetry-instrumentation-flask"
 version = "0.55b1"
 description = "Flask instrumentation for OpenTelemetry"
@@ -2497,6 +2516,27 @@ packaging = ">=21.0"
 
 [package.extras]
 instruments = ["flask (>=1.0)"]
+
+[[package]]
+name = "opentelemetry-instrumentation-openai-v2"
+version = "2.1b0"
+description = "OpenTelemetry Official OpenAI instrumentation"
+optional = true
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "extra == \"telemetry\" or extra == \"all\""
+files = [
+    {file = "opentelemetry_instrumentation_openai_v2-2.1b0-py3-none-any.whl", hash = "sha256:176ca5aa204fd51dd9460911f87f989686ad337abeb388e4195b84abc9f72f0b"},
+    {file = "opentelemetry_instrumentation_openai_v2-2.1b0.tar.gz", hash = "sha256:184a95f84c28f579fbcd78b1b542d3cf75e6bd1dc9c3b8c7be4786a19cdbaf13"},
+]
+
+[package.dependencies]
+opentelemetry-api = ">=1.28,<2.0"
+opentelemetry-instrumentation = ">=0.49b0,<1.0"
+opentelemetry-semantic-conventions = ">=0.49b0,<1.0"
+
+[package.extras]
+instruments = ["openai (>=1.26.0)"]
 
 [[package]]
 name = "opentelemetry-instrumentation-requests"
@@ -2589,6 +2629,19 @@ files = [
 [package.dependencies]
 opentelemetry-api = "1.34.1"
 typing-extensions = ">=4.5.0"
+
+[[package]]
+name = "opentelemetry-semantic-conventions-ai"
+version = "0.4.9"
+description = "OpenTelemetry Semantic Conventions Extension for Large Language Models"
+optional = true
+python-versions = "<4,>=3.9"
+groups = ["main"]
+markers = "extra == \"telemetry\" or extra == \"all\""
+files = [
+    {file = "opentelemetry_semantic_conventions_ai-0.4.9-py3-none-any.whl", hash = "sha256:71149e46a72554ae17de46bca6c11ba540c19c89904bd4cc3111aac6edf10315"},
+    {file = "opentelemetry_semantic_conventions_ai-0.4.9.tar.gz", hash = "sha256:54a0b901959e2de5124384925846bac2ea0a6dab3de7e501ba6aecf5e293fe04"},
+]
 
 [[package]]
 name = "opentelemetry-util-http"
@@ -5153,17 +5206,17 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
-all = ["flask", "flask-cors", "matplotlib", "numpy", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-requests", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "scipy", "sounddevice", "youtube_transcript_api"]
+all = ["flask", "flask-cors", "matplotlib", "numpy", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai-v2", "opentelemetry-instrumentation-requests", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "scipy", "sounddevice", "youtube_transcript_api"]
 browser = ["playwright"]
 computer = []
 datascience = ["matplotlib", "numpy", "pandas"]
 pyinstaller = []
 server = ["flask", "flask-cors", "pydantic"]
-telemetry = ["opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-requests", "opentelemetry-sdk"]
+telemetry = ["opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai-v2", "opentelemetry-instrumentation-requests", "opentelemetry-sdk"]
 tts = ["numpy", "scipy", "sounddevice"]
 youtube = ["youtube_transcript_api"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "7796ef39b744bec5cd3fcc269853007e5f18ba86c4adb6a5161619773622f6e9"
+content-hash = "a4443cc396e0fa8205e194c820b9738a2963c3ba6652efca5216167b4a2aba40"

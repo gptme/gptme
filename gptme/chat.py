@@ -336,6 +336,7 @@ def _wait_for_tts_if_enabled() -> None:
             stop()
 
 
+@trace_function(name="chat.step", attributes={"component": "chat"})
 def step(
     log: Log | list[Message],
     stream: bool,

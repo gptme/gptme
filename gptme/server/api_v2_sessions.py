@@ -11,11 +11,11 @@ import os
 import threading
 import uuid
 from collections import defaultdict
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from collections.abc import Generator
 
 import flask
 from dotenv import load_dotenv
@@ -27,6 +27,7 @@ from ..llm import _chat_complete, _stream
 from ..llm.models import get_default_model
 from ..logmanager import LogManager, prepare_messages
 from ..message import Message
+from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools, init_tools
 from .api_v2_common import ErrorEvent, EventType, msg2dict
 from .openapi_docs import (
@@ -168,6 +169,7 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
     )
 
 
+@trace_function("api_v2.step", attributes={"component": "api_v2"})
 def step(
     conversation_id: str,
     session: ConversationSession,
@@ -353,6 +355,7 @@ def start_tool_execution(
 
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
+    @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
     def execute_tool_thread():
         config = Config.from_workspace(workspace=chat_config.workspace)
         config.chat = chat_config
