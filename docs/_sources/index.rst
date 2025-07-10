@@ -74,3 +74,4 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+* `llms.txt <llms.txt>`_ and `llms-full.txt <llms-full.txt>`_
