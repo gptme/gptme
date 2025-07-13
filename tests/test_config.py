@@ -12,6 +12,7 @@ from gptme.config import (
     ProjectConfig,
     get_config,
     load_user_config,
+    setup_config_from_cli,
 )
 
 default_user_config = """[prompt]
@@ -582,3 +583,99 @@ def test_project_config_to_toml():
     toml_str = tomlkit.dumps(config_dict)
     config_new = ProjectConfig.from_dict(tomlkit.loads(toml_str).unwrap())
     assert config_new == config
+
+
+def test_resume_config_precedence():
+    """Test that resume configuration respects saved config unless CLI overrides provided."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logdir = Path(tmpdir) / "test-conversation"
+        logdir.mkdir()
+        workspace = Path(tmpdir) / "workspace"
+        workspace.mkdir()
+
+        # Create a saved conversation config with specific model and tool_format
+        saved_config_content = f"""[chat]
+model = "openrouter/test-model"
+tool_format = "xml"
+tools = ["shell", "python"]
+stream = true
+interactive = true
+workspace = "{str(workspace)}"
+
+[env]
+"""
+
+        config_file = logdir / "config.toml"
+        config_file.write_text(saved_config_content)
+
+        # Test 1: Resume without CLI overrides - should use saved config
+        config = setup_config_from_cli(
+            workspace=workspace,
+            logdir=logdir,
+            model=None,  # No CLI override
+            tool_allowlist=None,  # No CLI override
+            tool_format=None,  # No CLI override
+            stream=True,
+            interactive=True,
+            agent_path=None,
+        )
+
+        assert config.chat is not None, "Chat config should be loaded"
+        assert (
+            config.chat.model == "openrouter/test-model"
+        ), "Should use saved model when no CLI override"
+        assert (
+            config.chat.tool_format == "xml"
+        ), "Should use saved tool_format when no CLI override"
+        assert config.chat.tools is not None and (
+            "shell" in config.chat.tools
+        ), "Should use saved tools when no CLI override"
+
+        # Test 2: Resume with CLI overrides - should use CLI values
+        config = setup_config_from_cli(
+            workspace=workspace,
+            logdir=logdir,
+            model="anthropic/claude-3-sonnet",  # CLI override
+            tool_allowlist="browser,read",  # CLI override
+            tool_format="markdown",  # CLI override
+            stream=True,
+            interactive=True,
+            agent_path=None,
+        )
+
+        assert config.chat is not None, "Chat config should be loaded"
+        assert (
+            config.chat.model == "anthropic/claude-3-sonnet"
+        ), "Should use CLI model when provided"
+        assert (
+            config.chat.tool_format == "markdown"
+        ), "Should use CLI tool_format when provided"
+        assert config.chat.tools == [
+            "browser",
+            "read",
+        ], "Should use CLI tools when provided"
+
+        # Test 3: New conversation (no saved config) - should fall back to env/defaults
+        new_logdir = Path(tmpdir) / "new-conversation"
+        new_logdir.mkdir()
+
+        config = setup_config_from_cli(
+            workspace=workspace,
+            logdir=new_logdir,
+            model=None,  # No CLI override
+            tool_allowlist=None,  # No CLI override
+            tool_format=None,  # No CLI override
+            stream=True,
+            interactive=True,
+            agent_path=None,
+        )
+
+        # For new conversations, should use defaults/env (tool_format defaults to "markdown")
+        assert config.chat is not None, "Chat config should be loaded"
+        assert (
+            config.chat.tool_format == "markdown"
+        ), "Should use default tool_format for new conversation"
+        # Model will depend on env vars, so we just check it's not the saved value
+        assert (
+            config.chat.model != "openrouter/test-model"
+        ), "Should not use saved model for new conversation"

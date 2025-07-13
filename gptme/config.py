@@ -460,15 +460,26 @@ class ChatConfig:
         config = cls.from_logdir(logdir)
         defaults = cls()
 
-        # Apply CLI overrides (only if they differ from defaults)
+        # Apply CLI overrides for explicitly provided values
         for field_name in cli_config.__dataclass_fields__:
             if field_name.startswith("_"):
                 continue
             cli_value = getattr(cli_config, field_name)
             default_value = getattr(defaults, field_name)
-            # TODO: note that this isn't a great check: CLI values equal to defaults won't override existing config values
-            if cli_value != default_value:
-                # logger.info(f"Overriding {field_name} with CLI value: {cli_value}")
+
+            # For optional fields that default to None, check if explicitly provided
+            if (
+                field_name in ["model", "tool_format", "tools", "agent"]
+                and cli_value is not None
+            ):
+                logger.debug(f"Overriding {field_name} with CLI value: {cli_value}")
+                config = replace(config, **{field_name: cli_value})
+            # For other fields, use the original logic (differs from defaults)
+            elif (
+                field_name not in ["model", "tool_format", "tools", "agent"]
+                and cli_value != default_value
+            ):
+                logger.debug(f"Overriding {field_name} with CLI value: {cli_value}")
                 config = replace(config, **{field_name: cli_value})
 
         # Auto-detect agent if not explicitly set
@@ -645,7 +656,7 @@ def setup_config_from_cli(
     """
     Initialize and return a complete config from CLI arguments and workspace.
 
-    Handles the precedence: CLI args -> env vars -> config files -> defaults
+    Handles the precedence: CLI args -> saved conversation config -> env vars -> config files -> defaults
     """
     from .tools import get_toolchain
 
@@ -653,19 +664,55 @@ def setup_config_from_cli(
     set_config_from_workspace(workspace)
     config = get_config()
 
-    # Resolve configuration values with proper precedence
-    resolved_model = model or config.get_env("MODEL")
+    # Check if we're resuming an existing conversation
+    existing_chat_config = None
+    if logdir.exists() and (logdir / "config.toml").exists():
+        existing_chat_config = ChatConfig.from_logdir(logdir)
 
-    # Handle tool allowlist - convert string to list if needed
+    # Resolve configuration values with proper precedence
+    # For resuming: CLI args -> saved conversation config -> env vars/config files
+    # For new conversations: CLI args -> env vars/config files -> defaults
+    resolved_model: str | None
+    if model is not None:
+        # CLI override always takes precedence
+        resolved_model = model
+    elif existing_chat_config and existing_chat_config.model:
+        # When resuming, use saved conversation model unless CLI override provided
+        resolved_model = existing_chat_config.model
+    else:
+        # Fall back to env/config for new conversations or when no saved model
+        resolved_model = config.get_env("MODEL")
+
+    # Handle tool allowlist with similar precedence
     resolved_tool_allowlist: list[str] | None = None
     if tool_allowlist is not None:
+        # CLI override always takes precedence
         resolved_tool_allowlist = [tool.strip() for tool in tool_allowlist.split(",")]
+    elif existing_chat_config and existing_chat_config.tools:
+        # When resuming, use saved conversation tools unless CLI override provided
+        resolved_tool_allowlist = existing_chat_config.tools
     elif tools_env := config.get_env("TOOLS"):
+        # Fall back to env/config for new conversations or when no saved tools
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
 
-    resolved_tool_format = (
-        tool_format or cast("ToolFormat", config.get_env("TOOL_FORMAT")) or "markdown"
-    )
+    # Handle tool_format with similar precedence
+    if tool_format is not None:
+        # CLI override always takes precedence
+        resolved_tool_format = tool_format
+    elif existing_chat_config and existing_chat_config.tool_format:
+        # When resuming, use saved conversation tool_format unless CLI override provided
+        resolved_tool_format = existing_chat_config.tool_format
+    else:
+        # Fall back to env/config for new conversations or when no saved tool_format
+        resolved_tool_format = (
+            cast("ToolFormat", config.get_env("TOOL_FORMAT")) or "markdown"
+        )
+
+    # Handle agent_path with similar precedence
+    resolved_agent_path: Path | None = agent_path
+    if agent_path is None and existing_chat_config and existing_chat_config.agent:
+        # When resuming, use saved conversation agent unless CLI override provided
+        resolved_agent_path = existing_chat_config.agent
 
     # Create or load chat config with CLI overrides
     logdir.mkdir(parents=True, exist_ok=True)
@@ -677,7 +724,7 @@ def setup_config_from_cli(
             stream=stream,
             interactive=interactive,
             workspace=workspace,
-            agent=agent_path,
+            agent=resolved_agent_path,
         ),
     )
 
