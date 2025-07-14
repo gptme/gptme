@@ -4,9 +4,10 @@ import os
 import shutil
 from pathlib import Path
 
-from .config import get_config
-from .llm import list_available_providers
+from .config import config_path, get_config, set_config_value
+from .llm import get_model_from_api_key, list_available_providers
 from .llm.models import get_default_model
+from .util import console
 
 
 def setup():
@@ -144,12 +145,30 @@ def _show_config_status():
         "Azure OpenAI": "openai-azure",
     }
 
+    missing_providers = []
     for display_name, _env_var in all_providers:
         internal_name = provider_name_map[display_name]
         if internal_name in available_provider_names:
             print(f"  {display_name}: ✅")
         else:
             print(f"  {display_name}: ❌")
+            missing_providers.append(display_name)
+
+    # Offer to help set up missing API keys
+    if missing_providers:
+        print()
+        response = (
+            input("Would you like to set up an API key now? (y/N): ").strip().lower()
+        )
+        if response in ["y", "yes"]:
+            try:
+                provider, api_key = ask_for_api_key()
+                print(f"✅ Successfully configured {provider} API key!")
+                print("   You may need to restart gptme for changes to take effect.")
+            except KeyboardInterrupt:
+                print("\n❌ API key setup cancelled.")
+            except Exception as e:
+                print(f"❌ Error setting up API key: {e}")
 
     print()
 
@@ -249,3 +268,32 @@ def _suggest_precommit():
         print("   Or: 'Add pre-commit hooks for Python linting and formatting'")
 
     print()
+
+
+def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
+    """Prompt user for API key and validate it."""
+    api_key = input("Your OpenAI, Anthropic, OpenRouter, or Gemini API key: ").strip()
+    if (found_model_tuple := get_model_from_api_key(api_key)) is not None:
+        return found_model_tuple
+    else:
+        console.print("Invalid API key format. Please try again.")
+        return _prompt_api_key()
+
+
+def ask_for_api_key():  # pragma: no cover
+    """Interactively ask user for API key."""
+    console.print("No API key set for OpenAI, Anthropic, OpenRouter, or Gemini.")
+    console.print(
+        """You can get one at:
+ - OpenAI: https://platform.openai.com/account/api-keys
+ - Anthropic: https://console.anthropic.com/settings/keys
+ - OpenRouter: https://openrouter.ai/settings/keys
+ - Gemini: https://aistudio.google.com/app/apikey
+ """
+    )
+    # Save to config
+    api_key, provider, env_var = _prompt_api_key()
+    set_config_value(f"env.{env_var}", api_key)
+    console.print(f"API key saved to config at {config_path}")
+    console.print(f"Successfully set up {provider} API key.")
+    return provider, api_key

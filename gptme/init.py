@@ -5,14 +5,15 @@ from typing import cast
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 
-from .config import config_path, get_config, set_config_value
-from .llm import get_model_from_api_key, guess_provider_from_config, init_llm
+from .config import get_config
+from .llm import guess_provider_from_config, init_llm
 from .llm.models import (
     PROVIDERS,
     Provider,
     get_recommended_model,
     set_default_model,
 )
+from .setup import ask_for_api_key
 from .tools import init_tools
 from .util import console
 
@@ -91,31 +92,3 @@ def init_logging(verbose):
         logging.shutdown()
 
     atexit.register(cleanup_logging)
-
-
-def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
-    api_key = input("Your OpenAI, Anthropic, OpenRouter, or Gemini API key: ").strip()
-    if (found_model_tuple := get_model_from_api_key(api_key)) is not None:
-        return found_model_tuple
-    else:
-        console.print("Invalid API key format. Please try again.")
-        return _prompt_api_key()
-
-
-def ask_for_api_key():  # pragma: no cover
-    """Interactively ask user for API key"""
-    console.print("No API key set for OpenAI, Anthropic, OpenRouter, or Gemini.")
-    console.print(
-        """You can get one at:
- - OpenAI: https://platform.openai.com/account/api-keys
- - Anthropic: https://console.anthropic.com/settings/keys
- - OpenRouter: https://openrouter.ai/settings/keys
- - Gemini: https://aistudio.google.com/app/apikey
- """
-    )
-    # Save to config
-    api_key, provider, env_var = _prompt_api_key()
-    set_config_value(f"env.{env_var}", api_key)
-    console.print(f"API key saved to config at {config_path}")
-    console.print(f"Successfully set up {provider} API key.")
-    return provider, api_key
