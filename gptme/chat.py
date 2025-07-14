@@ -23,18 +23,14 @@ from .tools import (
     has_tool,
     set_tool_format,
 )
-from .tools.tts import (
-    speak,
-    stop,
-    tts_request_queue,
-)
+from .tools.tts import speak, stop, tts_request_queue
 from .util import console, path_with_tilde
-from .util.sound import print_bell, wait_for_audio
 from .util.ask_execute import ask_execute
 from .util.context import autocommit, include_paths, run_precommit_checks
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
+from .util.sound import print_bell, wait_for_audio
 from .util.terminal import set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
@@ -87,7 +83,7 @@ def chat(
         )
         stream = False
 
-    console.log(f"Using logdir {path_with_tilde(logdir)}")
+    console.log(f"Using logdir: {path_with_tilde(logdir)}")
     manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
 
     # tool_format should already be resolved by this point
@@ -100,7 +96,7 @@ def chat(
     set_tool_format(tool_format)
 
     # Initialize workspace
-    console.log(f"Using workspace at {path_with_tilde(workspace)}")
+    console.log(f"Using workspace: {path_with_tilde(workspace)}")
     os.chdir(workspace)
 
     # print log

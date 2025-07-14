@@ -46,6 +46,8 @@ def init_model(
     if not model:  # pragma: no cover
         # auto-detect depending on if OPENAI_API_KEY or ANTHROPIC_API_KEY is set
         model = guess_provider_from_config()
+        if not model:
+            console.print("[yellow]No API keys set, no provider available.[/yellow]")
 
     # ask user for API key
     if not model and interactive:

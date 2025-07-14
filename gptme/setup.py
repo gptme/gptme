@@ -1,36 +1,51 @@
 """Setup functionality for gptme configuration and completions."""
 
+import importlib.util
 import os
 import shutil
 from pathlib import Path
 from typing import get_args
 
+from rich.panel import Panel
+from rich.prompt import Confirm, Prompt
+from rich.syntax import Syntax
+from rich.table import Table
+from rich.text import Text
+
+import gptme
+
 from .config import config_path, get_config, set_config_value
 from .llm import get_model_from_api_key, list_available_providers
 from .llm.models import Provider, get_default_model
-from .util import console
+from .util import console, path_with_tilde
 
 
 def setup():
     """Setup gptme with completions, configuration, and project setup."""
-    print("=== gptme Setup ===\n")
 
-    # 1. Shell completions
-    _setup_completions()
+    # 1. Show user configuration status
+    _show_user_config_status()
 
-    # 2. Show configuration status
-    _show_config_status()
-
-    # 3. Project setup
+    # 2. Project setup
     _setup_project()
 
-    # 4. Optional dependencies
+    # 3. Optional dependencies
     _check_optional_dependencies()
 
-    # 5. Pre-commit setup
+    # 4. Pre-commit setup
     _suggest_precommit()
 
-    print("\n✅ Setup complete! You can now use gptme with improved configuration.")
+    # 5. Shell completions
+    _setup_completions()
+
+    console.print(
+        Panel.fit(
+            "[bold green]✅ Setup complete![/bold green]\n"
+            "You can now use gptme with improved configuration.",
+            style="green",
+            padding=(0, 1),
+        )
+    )
 
 
 def _detect_shell() -> str | None:
@@ -39,17 +54,21 @@ def _detect_shell() -> str | None:
     return shell if shell in ["fish", "bash", "zsh"] else None
 
 
+def _is_wayland_environment() -> bool:
+    """Detect if we're running in a Wayland environment."""
+    return (
+        os.environ.get("XDG_SESSION_TYPE") == "wayland"
+        or os.environ.get("WAYLAND_DISPLAY") is not None
+    )
+
+
 def _setup_completions():
     """Setup shell completions."""
-    print("🐚 Shell Completions")
-    print("=" * 20)
-
     shell = _detect_shell()
     if not shell:
-        print("❌ Could not detect shell type")
+        console.print("[red]❌ Could not detect shell type for completions[/red]")
+        console.print()
         return
-
-    print(f"Detected shell: {shell}")
 
     if shell == "fish":
         fish_completions_dir = Path.home() / ".config" / "fish" / "completions"
@@ -57,13 +76,14 @@ def _setup_completions():
 
         # Find the gptme installation directory
         try:
-            import gptme
-
             gptme_dir = Path(gptme.__file__).parent.parent
             source_file = gptme_dir / "scripts" / "completions" / "gptme.fish"
 
             if not source_file.exists():
-                print(f"❌ Completions file not found at {source_file}")
+                console.print(
+                    f"[red]❌ Completions file not found at {source_file}[/red]"
+                )
+                console.print()
                 return
 
             # Create completions directory if it doesn't exist
@@ -71,55 +91,82 @@ def _setup_completions():
 
             # Copy or symlink the completions file
             if fish_completions_file.exists():
-                print(
-                    f"✅ Fish completions already installed at {fish_completions_file}"
+                console.print(
+                    f"[green]✅ Fish completions already installed[/green] [dim]({path_with_tilde(fish_completions_file)})[/dim]"
                 )
             else:
-                try:
-                    fish_completions_file.symlink_to(source_file)
-                    print(f"✅ Fish completions installed at {fish_completions_file}")
-                except OSError:
-                    # Fallback to copy if symlink fails
-                    shutil.copy2(source_file, fish_completions_file)
-                    print(f"✅ Fish completions installed at {fish_completions_file}")
-
-                print("   Restart your shell or run 'exec fish' to enable completions")
+                _install_fish_completions(fish_completions_file, source_file)
+                return
 
         except ImportError:
-            print("❌ Could not find gptme installation directory")
+            console.print("[red]❌ Could not find gptme installation directory[/red]")
 
     elif shell in ["bash", "zsh"]:
-        print(f"⚠️  {shell} completions not yet implemented")
-        print("   Fish completions are currently supported")
+        console.print(f"[blue]Detected shell:[/blue] [bold]{shell}[/bold]")
+        console.print(f"[yellow]⚠️  {shell} completions not yet implemented[/yellow]")
+        console.print("   [dim]Fish completions are currently supported[/dim]")
 
-    print()
+    console.print()
 
 
-def _show_config_status():
-    """Show current configuration status."""
-    print("⚙️  Configuration Status")
-    print("=" * 23)
+def _install_fish_completions(fish_completions_file: Path, source_file: Path):
+    console.print(
+        Panel.fit(
+            Text("🐚 Shell Completions", style="bold blue"),
+            style="blue",
+            padding=(0, 2),
+        )
+    )
 
+    # TODO: prompt for confirmation?
+    try:
+        fish_completions_file.symlink_to(source_file)
+        console.print(
+            f"[green]✅ Fish completions installed[/green]\n"
+            f"   [dim]{fish_completions_file}[/dim]"
+        )
+    except OSError:
+        # Fallback to copy if symlink fails
+        shutil.copy2(source_file, fish_completions_file)
+        console.print(
+            f"[green]✅ Fish completions installed[/green]\n"
+            f"   [dim]{fish_completions_file}[/dim]"
+        )
+
+    console.print(
+        "   [yellow]💡 Restart your shell or run 'exec fish' to enable completions[/yellow]"
+    )
+
+
+def _show_user_config_status():
+    """Show current user configuration status."""
     config = get_config()
 
     # Show default model
+    model_table = Table(show_header=False, box=None, padding=(0, 1))
+    model_table.add_column("Property", style="cyan")
+    model_table.add_column("Value", style="white")
+
     try:
         model = get_default_model()
         if model:
-            print(f"Default model: {model.full}")
-            print(f"  Provider: {model.provider}")
-            print(f"  Context: {model.context:,} tokens")
-            print(f"  Streaming: {'✅' if model.supports_streaming else '❌'}")
-            print(f"  Vision: {'✅' if model.supports_vision else '❌'}")
+            model_table.add_row("Default model", f"[bold]{model.full}[/bold]")
+            model_table.add_row("Provider", model.provider)
+            model_table.add_row("Context", f"{model.context:,} tokens")
+            model_table.add_row("Streaming", "✅" if model.supports_streaming else "❌")
+            model_table.add_row("Vision", "✅" if model.supports_vision else "❌")
         else:
-            print("❌ No default model configured")
+            model_table.add_row("Status", "[red]❌ No default model configured[/red]")
     except Exception as e:
-        print(f"❌ Error getting default model: {e}")
+        model_table.add_row("Status", f"[red]❌ Error getting default model: {e}[/red]")
 
-    print()
+    console.print(model_table)
+    console.print()
 
     # Show configured providers (check for API keys)
-    print("API Keys Status:")
+    api_table = Table(title="API Keys Status", show_header=True, box=None)
+    api_table.add_column("Provider", style="cyan", no_wrap=True)
+    api_table.add_column("Status", justify="center")
 
     # Get all possible providers from the literal type
     all_providers = get_args(Provider)
@@ -136,31 +183,37 @@ def _show_config_status():
             display_name = "XAI"
 
         if provider in available_provider_names:
-            print(f"  {display_name}: ✅")
+            api_table.add_row(display_name, "[green]✅[/green]")
         else:
-            print(f"  {display_name}: ❌")
+            api_table.add_row(display_name, "[red]❌[/red]")
             missing_providers.append(display_name)
+
+    console.print(api_table)
 
     # Offer to help set up missing API keys
     if missing_providers:
-        print()
-        response = (
-            input("Would you like to set up an API key now? (y/N): ").strip().lower()
-        )
-        if response in ["y", "yes"]:
+        console.print()
+        if Confirm.ask("Would you like to set up an API key now?", default=False):
             try:
                 provider, api_key = ask_for_api_key()
-                print(f"✅ Successfully configured {provider} API key!")
-                print("   You may need to restart gptme for changes to take effect.")
+                console.print(
+                    f"[green]✅ Successfully configured {provider} API key![/green]"
+                )
+                console.print(
+                    "   [yellow]You may need to restart gptme for changes to take effect.[/yellow]"
+                )
             except KeyboardInterrupt:
-                print("\n❌ API key setup cancelled.")
+                console.print("\n[red]❌ API key setup cancelled.[/red]")
             except Exception as e:
-                print(f"❌ Error setting up API key: {e}")
+                console.print(f"[red]❌ Error setting up API key: {e}[/red]")
 
-    print()
+    console.print()
 
     # Show extra features
-    print("Extra Features:")
+    features_table = Table(title="Extra Features", show_header=True, box=None)
+    features_table.add_column("Feature", style="cyan")
+    features_table.add_column("Status", justify="center")
+
     features = {
         "GPTME_DING": "Bell sound on completion",
         "GPTME_CONTEXT_TREE": "Context tree visualization",
@@ -169,39 +222,46 @@ def _show_config_status():
 
     for env_var, description in features.items():
         enabled = config.get_env_bool(env_var, False)
-        status = "✅" if enabled else "❌"
-        print(f"  {description}: {status}")
+        status = "[green]✅[/green]" if enabled else "[red]❌[/red]"
+        features_table.add_row(description, status)
 
-    print()
-    response = (
-        input("Would you like to configure extra features? (y/N): ").strip().lower()
-    )
-    if response in ["y", "yes"]:
+    console.print(features_table)
+    console.print()
+
+    if Confirm.ask("Would you like to configure extra features?", default=False):
         _configure_extra_features(features)
 
-    print()
+    console.print()
 
 
-def _setup_project():
-    """Setup project configuration."""
-    print("📁 Project Setup")
-    print("=" * 15)
-
+def _setup_project() -> bool:
+    """Setup project configuration. Returns True if already configured."""
     cwd = Path.cwd()
     gptme_toml = cwd / "gptme.toml"
     github_gptme_toml = cwd / ".github" / "gptme.toml"
 
-    if gptme_toml.exists() or github_gptme_toml.exists():
+    is_configured = gptme_toml.exists() or github_gptme_toml.exists()
+
+    if is_configured:
+        # Show condensed status for already configured projects
         existing_file = gptme_toml if gptme_toml.exists() else github_gptme_toml
-        print(f"✅ Project config already exists at {existing_file}")
-        return
+        console.print(
+            f"[green]✅ Project Setup[/green] [dim]({existing_file.name})[/dim]"
+        )
+        return True
 
-    print("No gptme.toml found in current directory")
-
-    response = (
-        input("Create a gptme.toml file for this project? (y/N): ").strip().lower()
+    # Show full setup panel for unconfigured projects
+    console.print(
+        Panel.fit(
+            Text("📁 Project Setup", style="bold magenta"),
+            style="magenta",
+            padding=(0, 2),
+        )
     )
-    if response in ["y", "yes"]:
+
+    console.print("[yellow]No gptme.toml found in current directory[/yellow]")
+
+    if Confirm.ask("Create a gptme.toml file for this project?", default=False):
         # Create basic gptme.toml
         config_content = """# gptme project configuration
 # See https://gptme.org/docs/config.html for more options
@@ -217,95 +277,133 @@ files = ["README.md"]
 """
 
         gptme_toml.write_text(config_content)
-        print(f"✅ Created {gptme_toml}")
-        print("   Edit this file to customize your project's gptme configuration")
+        console.print(f"[green]✅ Created {gptme_toml}[/green]")
+        console.print(
+            "   [dim]Edit this file to customize your project's gptme configuration[/dim]"
+        )
 
-    print()
+        # Show a preview of the created config
+        console.print("\n[bold]Preview of created `gptme.toml`:[/bold]")
+        console.print(
+            Syntax(config_content, "toml", theme="monokai", line_numbers=True),
+        )
+
+    console.print()
+    return False
 
 
-def _suggest_precommit():
-    """Suggest setting up pre-commit."""
-    print("🔍 Pre-commit Setup")
-    print("=" * 18)
-
+def _suggest_precommit() -> bool:
+    """Suggest setting up pre-commit. Returns True if already configured."""
+    # TODO: also check
     cwd = Path.cwd()
     precommit_config = cwd / ".pre-commit-config.yaml"
 
     if precommit_config.exists():
-        print("✅ Pre-commit configuration already exists")
-        return
+        # Show condensed status for already configured pre-commit
+        console.print(
+            "[green]✅ Pre-commit Setup[/green] [dim](.pre-commit-config.yaml)[/dim]"
+        )
+        return True
 
     # Check if this looks like a Python project
     has_python_files = any(cwd.glob("*.py")) or any(cwd.glob("**/*.py"))
     has_git = (cwd / ".git").exists()
 
     if not has_git:
-        print("ℹ️  Not a git repository, skipping pre-commit setup")
-        return
+        console.print(
+            "[blue]ℹ️  Pre-commit Setup[/blue] [dim](not a git repository)[/dim]"
+        )
+        console.print()
+        return False
 
     if not has_python_files:
-        print("ℹ️  No Python files detected, skipping pre-commit setup")
-        return
+        console.print(
+            "[blue]ℹ️  Pre-commit Setup[/blue] [dim](no Python files detected)[/dim]"
+        )
+        console.print()
+        return False
 
-    print("This appears to be a Python project in a git repository")
-    response = (
-        input("Would you like help setting up pre-commit hooks? (y/N): ")
-        .strip()
-        .lower()
+    # Show full setup panel for unconfigured pre-commit
+    console.print(
+        Panel.fit(
+            Text("🔍 Pre-commit Setup", style="bold yellow"),
+            style="yellow",
+            padding=(0, 2),
+        )
     )
 
-    if response in ["y", "yes"]:
-        print("💡 You can ask gptme to help you set up pre-commit:")
-        print("   Example: 'Set up pre-commit with ruff, mypy, and black'")
-        print("   Or: 'Add pre-commit hooks for Python linting and formatting'")
+    console.print(
+        "[green]This appears to be a Python project in a git repository[/green]"
+    )
 
-    print()
+    if Confirm.ask("Would you like help setting up pre-commit hooks?", default=False):
+        console.print()
+        console.print(
+            Panel.fit(
+                "[bold]💡 You can ask gptme to help you set up pre-commit:[/bold]\n\n"
+                "[cyan]Examples:[/cyan]\n"
+                "• [dim]'Set up pre-commit with ruff, mypy, and black'[/dim]\n"
+                "• [dim]'Add pre-commit hooks for Python linting and formatting'[/dim]\n"
+                "• [dim]'Configure pre-commit for this project'[/dim]",
+                title="💡 Suggestion",
+                border_style="blue",
+            )
+        )
+
+    console.print()
+    return False
 
 
 def _configure_extra_features(features: dict[str, str]):
     """Configure extra features interactively."""
-    print("\n🔧 Configure Extra Features")
-    print("=" * 25)
+    console.print(
+        Panel.fit(
+            Text("🔧 Configure Extra Features", style="bold cyan"),
+            style="cyan",
+            padding=(0, 2),
+        )
+    )
 
     config = get_config()
     changes_made = False
 
     for env_var, description in features.items():
         current_enabled = config.get_env_bool(env_var, False)
-        status = "enabled" if current_enabled else "disabled"
+        status = "[green]enabled[/green]" if current_enabled else "[red]disabled[/red]"
 
-        print(f"\n{description}")
-        print(f"  Currently: {status}")
+        console.print(f"\n[bold]{description}[/bold]")
+        console.print(f"  Currently: {status}")
 
-        response = input(f"  Enable {description.lower()}? (y/N): ").strip().lower()
-
-        if response in ["y", "yes"]:
+        if Confirm.ask(f"  Enable {description.lower()}?", default=current_enabled):
             if not current_enabled:
                 set_config_value(f"env.{env_var}", "1")
-                print(f"  ✅ Enabled {description.lower()}")
+                console.print(f"  [green]✅ Enabled {description.lower()}[/green]")
                 changes_made = True
             else:
-                print("  ℹ️  Already enabled")
+                console.print("  [blue]ℹ️  Already enabled[/blue]")
         else:
             if current_enabled:
                 set_config_value(f"env.{env_var}", "0")
-                print(f"  ❌ Disabled {description.lower()}")
+                console.print(f"  [red]❌ Disabled {description.lower()}[/red]")
                 changes_made = True
             else:
-                print("  ℹ️  Remains disabled")
+                console.print("  [blue]ℹ️  Remains disabled[/blue]")
 
+    console.print()
     if changes_made:
-        print(f"\n✅ Configuration saved to {config_path}")
-        print("   Changes will take effect for new gptme sessions")
+        console.print(
+            Panel.fit(
+                f"[green]✅ Configuration saved to[/green] [dim]{config_path}[/dim]\n"
+                "[yellow]Changes will take effect for new gptme sessions[/yellow]",
+                border_style="green",
+            )
+        )
     else:
-        print("\n ℹ️  No changes made")
+        console.print("[blue]ℹ️  No changes made[/blue]")
 
 
 def _check_optional_dependencies():
     """Check for optional dependencies and show their status."""
-    print("🔧 Optional Dependencies")
-    print("=" * 24)
-
     # Define optional dependencies with their purpose and installation instructions
     dependencies = [
         {
@@ -319,12 +417,6 @@ def _check_optional_dependencies():
             "check_type": "command",
             "purpose": "Basic web browsing (fallback for browser tool)",
             "install": "brew install lynx  # macOS\nsudo apt install lynx  # Ubuntu/Debian",
-        },
-        {
-            "name": "wl-clipboard",
-            "check_type": "command",
-            "purpose": "Clipboard operations on Wayland",
-            "install": "sudo apt install wl-clipboard  # Ubuntu/Debian",
         },
         {
             "name": "pdftotext",
@@ -346,27 +438,66 @@ def _check_optional_dependencies():
         },
     ]
 
+    # Only check wl-clipboard in Wayland environments
+    if _is_wayland_environment():
+        dependencies.append(
+            {
+                "name": "wl-clipboard",
+                "check_type": "command",
+                "purpose": "Clipboard operations on Wayland",
+                "install": "sudo apt install wl-clipboard  # Ubuntu/Debian",
+            }
+        )
+
+    deps_table = Table(show_header=True, box=None)
+    deps_table.add_column("Dependency", style="cyan", no_wrap=True)
+    deps_table.add_column("Status", justify="center", width=8)
+    deps_table.add_column("Purpose", style="dim")
+
     missing_deps = []
 
     for dep in dependencies:
         is_available = _check_dependency(dep["name"], dep["check_type"])
-        status = "✅" if is_available else "❌"
-        print(f"  {dep['name']}: {status}")
-        print(f"    Purpose: {dep['purpose']}")
+        status = "[green]✅[/green]" if is_available else "[red]❌[/red]"
+        deps_table.add_row(dep["name"], status, dep["purpose"])
 
         if not is_available:
             missing_deps.append(dep)
-            print(f"    Install: {dep['install']}")
-
-        print()
 
     if missing_deps:
-        print(f"💡 {len(missing_deps)} optional dependencies are missing.")
-        print("   These are not required but enable additional features.")
-    else:
-        print("✅ All optional dependencies are installed!")
+        console.print(
+            Panel.fit(
+                Text("📦 Optional Dependencies", style="bold purple"),
+                style="purple",
+                padding=(0, 2),
+            )
+        )
 
-    print()
+        console.print(deps_table)
+        console.print(
+            f"\n[yellow]💡 {len(missing_deps)} optional dependencies are missing.[/yellow]"
+        )
+        console.print(
+            "[dim]These are not required but enable additional features.[/dim]"
+        )
+
+        # Show installation instructions for missing dependencies
+        if Confirm.ask(
+            "\nShow installation instructions for missing dependencies?", default=False
+        ):
+            install_table = Table(
+                title="Installation Instructions", show_header=True, box=None
+            )
+            install_table.add_column("Dependency", style="cyan")
+            install_table.add_column("Install Command", style="green")
+
+            for dep in missing_deps:
+                install_table.add_row(dep["name"], dep["install"])
+
+            console.print()
+            console.print(install_table)
+    else:
+        console.print("[green]✅ All optional dependencies are installed![/green]")
 
 
 def _check_dependency(name: str, check_type: str) -> bool:
@@ -375,8 +506,6 @@ def _check_dependency(name: str, check_type: str) -> bool:
         return shutil.which(name) is not None
     elif check_type == "python":
         try:
-            import importlib.util
-
             return importlib.util.find_spec(name) is not None
         except ImportError:
             return False
@@ -385,28 +514,49 @@ def _check_dependency(name: str, check_type: str) -> bool:
 
 def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
     """Prompt user for API key and validate it."""
-    api_key = input("Your OpenAI, Anthropic, OpenRouter, or Gemini API key: ").strip()
+    console.print("Paste your API key [dim](We will auto-detect the provider)[/dim]")
+    api_key = Prompt.ask("API key", password=True).strip()
     if (found_model_tuple := get_model_from_api_key(api_key)) is not None:
         return found_model_tuple
     else:
-        console.print("Invalid API key format. Please try again.")
+        console.print("[red]Invalid API key format. Please try again.[/red]")
         return _prompt_api_key()
 
 
 def ask_for_api_key():  # pragma: no cover
     """Interactively ask user for API key."""
-    console.print("No API key set for OpenAI, Anthropic, OpenRouter, or Gemini.")
     console.print(
-        """You can get one at:
- - OpenAI: https://platform.openai.com/account/api-keys
- - Anthropic: https://console.anthropic.com/settings/keys
- - OpenRouter: https://openrouter.ai/settings/keys
- - Gemini: https://aistudio.google.com/app/apikey
- """
+        Panel.fit(
+            Text("🔑 API Key Setup", style="bold green"),
+            style="green",
+            padding=(0, 2),
+        )
     )
+
+    # Create a nice table with provider links
+    providers_table = Table(title="🔑 Get API Keys", show_header=True, box=None)
+    providers_table.add_column("Provider", style="cyan")
+    providers_table.add_column("URL", style="blue")
+
+    providers_table.add_row("OpenAI", "https://platform.openai.com/account/api-keys")
+    providers_table.add_row("Anthropic", "https://console.anthropic.com/settings/keys")
+    providers_table.add_row("OpenRouter", "https://openrouter.ai/settings/keys")
+    providers_table.add_row("Gemini", "https://aistudio.google.com/app/apikey")
+
+    console.print()
+    console.print(providers_table)
+    console.print()
+
     # Save to config
     api_key, provider, env_var = _prompt_api_key()
     set_config_value(f"env.{env_var}", api_key)
-    console.print(f"API key saved to config at {config_path}")
-    console.print(f"Successfully set up {provider} API key.")
+
+    console.print(
+        Panel.fit(
+            f"[green]✅ Successfully set up {provider} API key![/green]\n"
+            f"[dim]API key saved to config at {config_path}[/dim]",
+            border_style="green",
+        )
+    )
+
     return provider, api_key
