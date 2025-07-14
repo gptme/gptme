@@ -18,6 +18,7 @@ from .message import (
     print_msg,
     toml_to_msgs,
 )
+from .setup import setup
 from .tools import (
     ConfirmFunc,
     ToolUse,
@@ -45,6 +46,7 @@ Actions = Literal[
     "tokens",
     "export",
     "commit",
+    "setup",
     "help",
     "exit",
 ]
@@ -63,6 +65,7 @@ action_descriptions: dict[Actions, str] = {
     "tokens": "Show the number of tokens used",
     "export": "Export conversation as HTML",
     "commit": "Commit staged changes to git",
+    "setup": "Setup gptme with completions and configuration",
     "help": "Show this help message",
     "exit": "Exit the program",
 }
@@ -265,6 +268,14 @@ def cmd_commit(ctx: CommandContext) -> Generator[Message, None, None]:
     from .util.context import autocommit
 
     yield autocommit()
+
+
+@command("setup")
+def cmd_setup(ctx: CommandContext) -> None:
+    """Setup gptme with completions, configuration, and project setup."""
+    ctx.manager.undo(1, quiet=True)
+    ctx.manager.write()
+    setup()
 
 
 @command("help")
