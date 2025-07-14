@@ -24,7 +24,10 @@ def setup():
     # 3. Project setup
     _setup_project()
 
-    # 4. Pre-commit setup
+    # 4. Optional dependencies
+    _check_optional_dependencies()
+
+    # 5. Pre-commit setup
     _suggest_precommit()
 
     print("\n✅ Setup complete! You can now use gptme with improved configuration.")
@@ -296,6 +299,88 @@ def _configure_extra_features(features: dict[str, str]):
         print("   Changes will take effect for new gptme sessions")
     else:
         print("\n ℹ️  No changes made")
+
+
+def _check_optional_dependencies():
+    """Check for optional dependencies and show their status."""
+    print("🔧 Optional Dependencies")
+    print("=" * 24)
+
+    # Define optional dependencies with their purpose and installation instructions
+    dependencies = [
+        {
+            "name": "playwright",
+            "check_type": "python",
+            "purpose": "Advanced web browsing with browser automation",
+            "install": "pip install playwright && playwright install",
+        },
+        {
+            "name": "lynx",
+            "check_type": "command",
+            "purpose": "Basic web browsing (fallback for browser tool)",
+            "install": "brew install lynx  # macOS\nsudo apt install lynx  # Ubuntu/Debian",
+        },
+        {
+            "name": "wl-clipboard",
+            "check_type": "command",
+            "purpose": "Clipboard operations on Wayland",
+            "install": "sudo apt install wl-clipboard  # Ubuntu/Debian",
+        },
+        {
+            "name": "pdftotext",
+            "check_type": "command",
+            "purpose": "PDF text extraction",
+            "install": "brew install poppler  # macOS\nsudo apt install poppler-utils  # Ubuntu/Debian",
+        },
+        {
+            "name": "gh",
+            "check_type": "command",
+            "purpose": "GitHub CLI operations",
+            "install": "brew install gh  # macOS\nsudo apt install gh  # Ubuntu/Debian",
+        },
+        {
+            "name": "tmux",
+            "check_type": "command",
+            "purpose": "Terminal multiplexing for long-running processes",
+            "install": "brew install tmux  # macOS\nsudo apt install tmux  # Ubuntu/Debian",
+        },
+    ]
+
+    missing_deps = []
+
+    for dep in dependencies:
+        is_available = _check_dependency(dep["name"], dep["check_type"])
+        status = "✅" if is_available else "❌"
+        print(f"  {dep['name']}: {status}")
+        print(f"    Purpose: {dep['purpose']}")
+
+        if not is_available:
+            missing_deps.append(dep)
+            print(f"    Install: {dep['install']}")
+
+        print()
+
+    if missing_deps:
+        print(f"💡 {len(missing_deps)} optional dependencies are missing.")
+        print("   These are not required but enable additional features.")
+    else:
+        print("✅ All optional dependencies are installed!")
+
+    print()
+
+
+def _check_dependency(name: str, check_type: str) -> bool:
+    """Check if a dependency is available."""
+    if check_type == "command":
+        return shutil.which(name) is not None
+    elif check_type == "python":
+        try:
+            import importlib.util
+
+            return importlib.util.find_spec(name) is not None
+        except ImportError:
+            return False
+    return False
 
 
 def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
