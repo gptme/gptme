@@ -21,6 +21,9 @@ logs*
 # fetched by make
 scripts/build_changelog.py
 
+# media files need to be force-fully added to not pollute the repo
+media/
+
 # build/test/prof/cache
 build
 dist

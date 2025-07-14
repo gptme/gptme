@@ -14,8 +14,8 @@ Generate various sounds for gptme tool notifications.
 import argparse
 import shutil
 import subprocess
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -314,14 +314,17 @@ def generate_all_sounds(output_dir: Path):
         print(f"Generated {filename}")
 
 
+SRC_DIR = Path(__file__).parent.resolve()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate tool sounds for gptme")
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
-        default=Path("gptme/media"),
-        help="Output directory (default: gptme/media)",
+        default=(SRC_DIR / ".." / "media").resolve(),
+        help="Output directory (default: $GPTME_ROOT/media)",
     )
     parser.add_argument(
         "--sound",
