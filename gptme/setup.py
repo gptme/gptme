@@ -3,10 +3,11 @@
 import os
 import shutil
 from pathlib import Path
+from typing import get_args
 
 from .config import config_path, get_config, set_config_value
 from .llm import get_model_from_api_key, list_available_providers
-from .llm.models import get_default_model
+from .llm.models import Provider, get_default_model
 from .util import console
 
 
@@ -117,38 +118,21 @@ def _show_config_status():
     # Show configured providers (check for API keys)
     print("API Keys Status:")
 
-    # Get available providers from the LLM module
+    # Get all possible providers from the literal type
+    all_providers = get_args(Provider)
     available_providers = list_available_providers()
     available_provider_names = {provider for provider, _ in available_providers}
 
-    # All supported providers (from the LLM module's provider_checks)
-    all_providers = [
-        ("OpenAI", "OPENAI_API_KEY"),
-        ("Anthropic", "ANTHROPIC_API_KEY"),
-        ("OpenRouter", "OPENROUTER_API_KEY"),
-        ("Gemini", "GEMINI_API_KEY"),
-        ("Groq", "GROQ_API_KEY"),
-        ("XAI", "XAI_API_KEY"),
-        ("DeepSeek", "DEEPSEEK_API_KEY"),
-        ("Azure OpenAI", "AZURE_OPENAI_API_KEY"),
-    ]
-
-    # Map provider names to their internal names for checking
-    provider_name_map = {
-        "OpenAI": "openai",
-        "Anthropic": "anthropic",
-        "OpenRouter": "openrouter",
-        "Gemini": "gemini",
-        "Groq": "groq",
-        "XAI": "xai",
-        "DeepSeek": "deepseek",
-        "Azure OpenAI": "openai-azure",
-    }
-
     missing_providers = []
-    for display_name, _env_var in all_providers:
-        internal_name = provider_name_map[display_name]
-        if internal_name in available_provider_names:
+    for provider in all_providers:
+        # Generate display name
+        display_name = provider.replace("-", " ").title()
+        if provider == "openai-azure":
+            display_name = "Azure OpenAI"
+        elif provider == "xai":
+            display_name = "XAI"
+
+        if provider in available_provider_names:
             print(f"  {display_name}: ✅")
         else:
             print(f"  {display_name}: ❌")
@@ -184,8 +168,13 @@ def _show_config_status():
         enabled = config.get_env_bool(env_var, False)
         status = "✅" if enabled else "❌"
         print(f"  {description}: {status}")
-        if not enabled:
-            print(f"    (Set {env_var}=1 to enable)")
+
+    print()
+    response = (
+        input("Would you like to configure extra features? (y/N): ").strip().lower()
+    )
+    if response in ["y", "yes"]:
+        _configure_extra_features(features)
 
     print()
 
@@ -268,6 +257,45 @@ def _suggest_precommit():
         print("   Or: 'Add pre-commit hooks for Python linting and formatting'")
 
     print()
+
+
+def _configure_extra_features(features: dict[str, str]):
+    """Configure extra features interactively."""
+    print("\n🔧 Configure Extra Features")
+    print("=" * 25)
+
+    config = get_config()
+    changes_made = False
+
+    for env_var, description in features.items():
+        current_enabled = config.get_env_bool(env_var, False)
+        status = "enabled" if current_enabled else "disabled"
+
+        print(f"\n{description}")
+        print(f"  Currently: {status}")
+
+        response = input(f"  Enable {description.lower()}? (y/N): ").strip().lower()
+
+        if response in ["y", "yes"]:
+            if not current_enabled:
+                set_config_value(f"env.{env_var}", "1")
+                print(f"  ✅ Enabled {description.lower()}")
+                changes_made = True
+            else:
+                print("  ℹ️  Already enabled")
+        else:
+            if current_enabled:
+                set_config_value(f"env.{env_var}", "0")
+                print(f"  ❌ Disabled {description.lower()}")
+                changes_made = True
+            else:
+                print("  ℹ️  Remains disabled")
+
+    if changes_made:
+        print(f"\n✅ Configuration saved to {config_path}")
+        print("   Changes will take effect for new gptme sessions")
+    else:
+        print("\n ℹ️  No changes made")
 
 
 def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
