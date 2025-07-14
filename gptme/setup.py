@@ -91,10 +91,10 @@ def _setup_completions():
 
             # Check if completions file exists and verify it's correct
             if fish_completions_file.exists():
-                needs_update = _check_completions_file(
+                needed_update = _check_completions_file(
                     fish_completions_file, source_file
                 )
-                if not needs_update:
+                if not needed_update:
                     console.print(
                         f"[green]✅ Fish completions correctly installed[/green] [dim]({path_with_tilde(fish_completions_file)})[/dim]"
                     )
@@ -115,69 +115,59 @@ def _setup_completions():
 
 
 def _check_completions_file(completions_file: Path, source_file: Path) -> bool:
-    """Check if completions file is correct and up-to-date. Returns True if update is needed."""
-    try:
-        if completions_file.is_symlink():
-            # Check if symlink points to the current source file
-            current_target = completions_file.resolve()
-            if current_target == source_file.resolve():
-                return False
-            else:
-                console.print(
-                    "[yellow]⚠️  Fish completions symlink points to outdated location[/yellow]"
-                )
-                console.print(f"   Current: [dim]{current_target}[/dim]")
-                console.print(f"   Expected: [dim]{source_file}[/dim]")
-
-                if Confirm.ask(
-                    "Update completions to point to current installation?", default=True
-                ):
-                    try:
-                        completions_file.unlink()
-                        _install_fish_completions(completions_file, source_file)
-                        return False
-                    except OSError as e:
-                        console.print(
-                            f"[red]❌ Failed to update completions: {e}[/red]"
-                        )
-                        return False
-                else:
-                    console.print("[yellow]⚠️  Completions may be outdated[/yellow]")
-                    return False
+    """Check if completions file is correct and up-to-date. Returns True if update was recommended."""
+    if completions_file.is_symlink():
+        # Check if symlink points to the current source file
+        current_target = completions_file.resolve()
+        if current_target == source_file.resolve():
+            return False
         else:
-            # Regular file - check if it's the same content or offer to replace with symlink
             console.print(
-                f"[yellow]⚠️  Fish completions file exists but is not a symlink[/yellow] [dim]({path_with_tilde(completions_file)})[/dim]"
+                "[yellow]⚠️  Fish completions symlink points to outdated location[/yellow]"
             )
+            console.print(f"   Current: [dim]{current_target}[/dim]")
+            console.print(f"   Expected: [dim]{source_file}[/dim]")
 
-            # Check if content matches
-            try:
-                if completions_file.read_text() == source_file.read_text():
-                    console.print("   [green]Content matches current version[/green]")
-                    if Confirm.ask(
-                        "Replace with symlink to automatically stay updated?",
-                        default=True,
-                    ):
-                        completions_file.unlink()
-                        _install_fish_completions(completions_file, source_file)
-                        return False
-                else:
-                    console.print("   [red]Content differs from current version[/red]")
-                    if Confirm.ask("Replace with current version?", default=True):
-                        completions_file.unlink()
-                        _install_fish_completions(completions_file, source_file)
-                        return False
-            except OSError:
-                console.print("   [red]Could not read completions file[/red]")
+            if Confirm.ask(
+                "Update completions to point to current installation?", default=True
+            ):
+                try:
+                    completions_file.unlink()
+                    _install_fish_completions(completions_file, source_file)
+                except OSError as e:
+                    console.print(f"[red]❌ Failed to update completions: {e}[/red]")
+            else:
+                console.print("[yellow]⚠️  Completions may be outdated[/yellow]")
+            return True
+    else:
+        # Regular file - check if it's the same content or offer to replace with symlink
+        console.print(
+            f"[yellow]⚠️  Fish completions file exists but is not a symlink[/yellow] [dim]({path_with_tilde(completions_file)})[/dim]"
+        )
+
+        # Check if content matches
+        try:
+            if completions_file.read_text() == source_file.read_text():
+                console.print("   [green]Content matches current version[/green]")
+                if Confirm.ask(
+                    "Replace with symlink to automatically stay updated?",
+                    default=False,
+                ):
+                    completions_file.unlink()
+                    _install_fish_completions(completions_file, source_file)
+            else:
+                console.print("   [red]Content differs from current version[/red]")
                 if Confirm.ask("Replace with current version?", default=True):
                     completions_file.unlink()
                     _install_fish_completions(completions_file, source_file)
-                    return False
+                return True
+        except OSError:
+            console.print("   [red]Could not read completions file[/red]")
+            if Confirm.ask("Replace with current version?", default=True):
+                completions_file.unlink()
+                _install_fish_completions(completions_file, source_file)
+            return True
 
-            return False
-
-    except OSError as e:
-        console.print(f"[red]❌ Error checking completions file: {e}[/red]")
         return False
 
 
