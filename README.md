@@ -219,6 +219,9 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - 📝 Automatic naming of conversations
   - ✅ Detects and integrates [pre-commit](https://github.com/pre-commit/pre-commit)
   - 🗣️ [Text-to-Speech][docs-tools-tts] support, locally generated using Kokoro
+  - 🔊 Tool sounds: Pleasant notification sounds for different tool operations
+    - Enable with `GPTME_TOOL_SOUNDS=true`
+    - Different sounds for shell commands, file operations, screenshots, etc.
   - 🎯 Feature flags for advanced usage, see [configuration docs][docs-config]
 
 ### 🛠 Use Cases

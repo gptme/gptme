@@ -353,6 +353,73 @@ def play_ding():
         log.warning(f"Bell sound file not found: {bell_path}")
 
 
+def play_tool_sound(sound_type: str):
+    """Play a tool sound.
+
+    Args:
+        sound_type: Type of sound to play. One of:
+            - "sawing": General tool use (sawing sound)
+            - "drilling": General tool use (drilling sound)
+            - "page_turn": Read operations
+            - "seashell_click": Shell commands
+            - "camera_shutter": Screenshot operations
+    """
+    if not is_audio_available():
+        log.debug("Audio not available, skipping tool sound playback")
+        return
+
+    if not get_config().get_env_bool("GPTME_TOOL_SOUNDS"):
+        log.debug("GPTME_TOOL_SOUNDS not enabled, skipping tool sound playback")
+        return
+
+    # Get the sound file from the package
+    sound_path = Path(__file__).parent.parent / "media" / f"{sound_type}.wav"
+
+    if sound_path.exists():
+        log.debug(f"Playing tool sound: {sound_type}")
+        play_sound_file(sound_path, block=False)
+    else:
+        log.warning(f"Tool sound file not found: {sound_path}")
+
+
+def get_tool_sound_for_tool(tool_name: str) -> str | None:
+    """Get the appropriate sound type for a tool.
+
+    Args:
+        tool_name: Name of the tool
+
+    Returns:
+        Sound type to play, or None if no specific sound is configured
+    """
+    # Map tools to their sounds
+    tool_sound_map = {
+        # Read operations - page turn sound
+        "read": "page_turn",
+        # Shell commands - seashell click sound
+        "shell": "seashell_click",
+        # Screenshot - camera shutter sound
+        "screenshot": "camera_shutter",
+        # File write operations - file write sound
+        "save": "file_write",
+        "append": "file_write",
+        "patch": "file_write",
+        "morph": "file_write",
+        # General tool use - sawing sound by default
+        # We can add more specific mappings here
+        "python": "sawing",
+        "ipython": "sawing",
+        "browser": "sawing",
+        "gh": "sawing",
+        "tmux": "sawing",
+        "computer": "sawing",
+        "chats": "sawing",
+        "rag": "sawing",
+        "subagent": "sawing",
+    }
+
+    return tool_sound_map.get(tool_name)
+
+
 def wait_for_audio():
     """Wait for all audio playback to finish."""
     if has_audio_imports and playback_thread and playback_thread.is_alive():

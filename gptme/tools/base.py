@@ -296,6 +296,12 @@ class ToolUse:
         tool = get_tool(self.tool)
         if tool and tool.execute:
             try:
+                # Play tool sound if enabled
+                from ..util.sound import get_tool_sound_for_tool, play_tool_sound
+
+                if sound_type := get_tool_sound_for_tool(self.tool):
+                    play_tool_sound(sound_type)
+
                 ex = tool.execute(
                     self.content,
                     self.args,
