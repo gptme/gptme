@@ -151,6 +151,7 @@ def init_tools(
 
 def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
     # Validate allowlist if provided
+    # TODO: maybe check in CLI init instead, as this might hard error in the server when loading conversations where tools are not available
     if allowlist is not None:
         available_tools = get_available_tools()
         available_tool_names = [tool.name for tool in available_tools]
