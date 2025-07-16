@@ -4,7 +4,7 @@ Perplexity search backend for the browser tool.
 
 import logging
 import os
-import tomllib
+import tomlkit
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -40,8 +40,8 @@ def search_perplexity(query: str) -> str:
             # Try config file
             config_path = Path.home() / ".config" / "gptme" / "config.toml"
             if config_path.exists():
-                with open(config_path, "rb") as f:
-                    config = tomllib.load(f)
+                with open(config_path) as f:
+                    config = tomlkit.load(f)
                     api_key = config.get("env", {}).get("PERPLEXITY_API_KEY")
 
         if not api_key:
@@ -86,8 +86,8 @@ def has_perplexity_key() -> bool:
     config_path = Path.home() / ".config" / "gptme" / "config.toml"
     if config_path.exists():
         try:
-            with open(config_path, "rb") as f:
-                config = tomllib.load(f)
+            with open(config_path) as f:
+                config = tomlkit.load(f)
                 return bool(config.get("env", {}).get("PERPLEXITY_API_KEY"))
         except Exception:
             pass
