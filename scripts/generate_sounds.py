@@ -12,8 +12,10 @@ Generate various sounds for gptme tool notifications.
 """
 
 import argparse
+import os
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -293,6 +295,52 @@ def generate_file_write_sound(
     return scribble_sound.astype(np.float32)
 
 
+def save_bell_sound(output_path: Path, **kwargs) -> None:
+    """Generate and save a bell sound to a file."""
+    bell_sound = generate_bell_sound(**kwargs)
+    sf.write(output_path, bell_sound, 44100)
+    print(f"Bell sound saved to: {output_path}")
+
+
+def play_sound(audio_data: np.ndarray, sample_rate: int = 44100) -> None:
+    """Play the sound using the system's default audio player."""
+    # Create a temporary file
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+        tmp_path = tmp_file.name
+
+    try:
+        # Save to temporary file
+        sf.write(tmp_path, audio_data, sample_rate)
+
+        # Try to play using different system commands
+        play_commands = [
+            ["afplay", tmp_path],  # macOS
+            ["aplay", tmp_path],  # Linux (ALSA)
+            ["paplay", tmp_path],  # Linux (PulseAudio)
+            ["play", tmp_path],  # SoX
+        ]
+
+        for cmd in play_commands:
+            if shutil.which(cmd[0]):
+                try:
+                    subprocess.run(cmd, check=True, capture_output=True)
+                    return
+                except subprocess.CalledProcessError:
+                    continue
+
+        print(
+            "Could not find a suitable audio player. Audio saved to temporary file:",
+            tmp_path,
+        )
+
+    finally:
+        # Clean up temporary file
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
 def generate_all_sounds(output_dir: Path):
     """Generate all tool sounds and save them to the output directory."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -323,8 +371,7 @@ def main():
         "-o",
         "--output",
         type=Path,
-        default=(SRC_DIR / ".." / "media").resolve(),
-        help="Output directory (default: $GPTME_ROOT/media)",
+        help="Output directory or file path (default: $GPTME_ROOT/media for --sound=all, or specific filename for individual sounds)",
     )
     parser.add_argument(
         "--sound",
@@ -345,13 +392,41 @@ def main():
         "-p", "--play", action="store_true", help="Play the generated sound"
     )
 
+    # Bell sound customization options
+    parser.add_argument(
+        "-d",
+        "--duration",
+        type=float,
+        default=1.5,
+        help="Duration in seconds for bell sound (default: 1.5)",
+    )
+    parser.add_argument(
+        "-f",
+        "--frequency",
+        type=float,
+        default=800.0,
+        help="Fundamental frequency in Hz for bell sound (default: 800.0)",
+    )
+    parser.add_argument(
+        "-v",
+        "--volume",
+        type=float,
+        default=0.3,
+        help="Volume level 0.0-1.0 for bell sound (default: 0.3)",
+    )
+
     args = parser.parse_args()
 
     if args.sound == "all":
-        generate_all_sounds(args.output)
+        output_dir = args.output or (SRC_DIR / ".." / "media").resolve()
+        generate_all_sounds(output_dir)
     else:
         generators: dict[str, SoundGenerator] = {
-            "bell": generate_bell_sound,
+            "bell": lambda: generate_bell_sound(
+                duration=args.duration,
+                fundamental_freq=args.frequency,
+                volume=args.volume,
+            ),
             "sawing": generate_sawing_sound,
             "drilling": generate_drilling_sound,
             "page_turn": generate_page_turn_sound,
@@ -361,29 +436,19 @@ def main():
         }
 
         sound_data = generators[args.sound]()
-        output_path = args.output / f"{args.sound}.wav"
+
+        if args.output:
+            output_path = args.output
+        else:
+            output_dir = (SRC_DIR / ".." / "media").resolve()
+            output_path = output_dir / f"{args.sound}.wav"
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
         sf.write(output_path, sound_data, 44100)
-        print(f"Generated {args.sound}.wav")
+        print(f"Generated {args.sound}.wav at {output_path}")
 
         if args.play:
-            # Try to play the sound
-            play_commands = [
-                ["afplay", str(output_path)],  # macOS
-                ["aplay", str(output_path)],  # Linux (ALSA)
-                ["paplay", str(output_path)],  # Linux (PulseAudio)
-                ["play", str(output_path)],  # SoX
-            ]
-
-            for cmd in play_commands:
-                if shutil.which(cmd[0]):
-                    try:
-                        subprocess.run(cmd, check=True, capture_output=True)
-                        break
-                    except subprocess.CalledProcessError:
-                        continue
-            else:
-                print("Could not find a suitable audio player")
+            play_sound(sound_data)
 
 
 if __name__ == "__main__":
