@@ -150,6 +150,24 @@ def init_tools(
 
 
 def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
+    # Validate allowlist if provided
+    if allowlist is not None:
+        available_tools = get_available_tools()
+        available_tool_names = [tool.name for tool in available_tools]
+
+        for tool_name in allowlist:
+            if tool_name not in available_tool_names:
+                raise ValueError(
+                    f"Tool '{tool_name}' not found. Available tools: {', '.join(sorted(available_tool_names))}"
+                )
+
+            # Check if tool is available
+            tool_obj = next(tool for tool in available_tools if tool.name == tool_name)
+            if not tool_obj.is_available:
+                raise ValueError(
+                    f"Tool '{tool_name}' is unavailable (likely missing dependencies)"
+                )
+
     tools = []
     for tool in get_available_tools():
         if allowlist is not None and not tool.is_mcp and tool.name not in allowlist:
