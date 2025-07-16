@@ -26,6 +26,6 @@ def test_get_prompt_short():
 
 
 def test_get_prompt_custom():
-    prompt_msgs = get_prompt(get_tools(), prompt="Hello world!")
+    prompt_msgs = get_prompt([], prompt="Hello world!")
     assert len(prompt_msgs) == 1
     assert prompt_msgs[0].content == "Hello world!"

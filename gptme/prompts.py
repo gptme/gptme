@@ -74,7 +74,8 @@ def get_prompt(
         )
     else:
         core_msgs = [Message("system", prompt)]
-        core_msgs.extend(prompt_tools(tools=tools, tool_format=tool_format))
+        if tools:
+            core_msgs.extend(prompt_tools(tools=tools, tool_format=tool_format))
 
     # Generate workspace messages separately
     workspace_msgs = (
