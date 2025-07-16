@@ -23,40 +23,22 @@ The tool will present an interactive menu allowing the user to select an option 
 """.strip()
 
 instructions_format = {
-    "markdown": "Use a code block with the language tag: `multi_choice` followed by each option on a separate line, or use kwargs with 'question' and 'options' parameters.",
+    "markdown": "Use a code block with the language tag: `choice` followed by each option on a separate line, or use kwargs with 'question' and 'options' parameters.",
 }
 
 
 def examples(tool_format):
     return f"""
-### Basic usage with options in code block
+### Basic usage with options
 
 > User: What should we do next?
 > Assistant: Let me present you with some options:
-{ToolUse("multi_choice", [], '''What would you like to do next?
+{ToolUse("choice", [], '''What would you like to do next?
 Write documentation
 Fix bugs
 Add new features
 Run tests''').to_output(tool_format)}
 > System: User selected: Add new features
-
-### Using with structured parameters
-
-> User: Help me choose a programming language
-> Assistant: I'll help you choose:
-{ToolUse("multi_choice", [], None, {"question": "Which programming language would you like to learn?", "options": "Python,JavaScript,Rust,Go"}).to_output(tool_format)}
-> System: User selected: Python
-
-### Quick selection with numbers
-
-> User: I want to select option 2 directly
-> Assistant: You can select options using numbers:
-{ToolUse("multi_choice", [], '''Choose your preferred editor:
-VS Code
-Vim
-Emacs
-Sublime Text''').to_output(tool_format)}
-> System: User selected: Vim
 """.strip()
 
 
@@ -78,7 +60,7 @@ def parse_options_from_content(content: str) -> tuple[str, list[str]]:
     return question, options
 
 
-def execute_multi_choice(
+def execute_choice(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
@@ -112,6 +94,14 @@ def execute_multi_choice(
         )
         return
 
+    # Strip out 1., 2., 3., etc numbers from options if they are present
+    options = [
+        opt
+        if not (opt[0].isdigit() and "." in opt.split()[0])
+        else " ".join(opt.split()[1:])
+        for opt in options
+    ]
+
     # Create the interactive selection
     try:
         # Use questionary to create interactive selection
@@ -133,28 +123,22 @@ def execute_multi_choice(
         yield Message("system", f"Error during selection: {e}")
 
 
-tool_multi_choice = ToolSpec(
-    name="multi_choice",
+tool_choice = ToolSpec(
+    name="choice",
     desc="Present multiple-choice options to the user for selection",
     instructions=instructions,
     instructions_format=instructions_format,
     examples=examples,
-    execute=execute_multi_choice,
-    block_types=["multi_choice"],
+    execute=execute_choice,
+    block_types=["choice"],
     parameters=[
-        Parameter(
-            name="question",
-            type="string",
-            description="The question to ask the user",
-            required=False,
-        ),
         Parameter(
             name="options",
             type="string",
-            description="Comma-separated list of options to choose from",
-            required=False,
+            description="The question to ask and a comma-separated list of options to choose from",
+            required=True,
         ),
     ],
 )
 
-__doc__ = tool_multi_choice.get_doc(__doc__)
+__doc__ = tool_choice.get_doc(__doc__)

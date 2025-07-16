@@ -74,6 +74,7 @@ def get_prompt(
         )
     else:
         core_msgs = [Message("system", prompt)]
+        core_msgs.extend(prompt_tools(tools=tools, tool_format=tool_format))
 
     # Generate workspace messages separately
     workspace_msgs = (
@@ -104,6 +105,8 @@ def get_prompt(
 
 def _join_messages(msgs: list[Message]) -> Message:
     """Combine several system prompt messages into one."""
+    role = msgs[0].role if msgs else "system"
+    assert [m.role == role for m in msgs], "All messages must be system messages"
     return Message(
         "system",
         "\n\n".join(m.content for m in msgs),
