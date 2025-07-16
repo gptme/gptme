@@ -553,7 +553,7 @@ to append the code block content to the file at the given path.
 
 <span class="sb">```txt</span>
 <span class="s">read_url(url: str) -&gt; str: Read a webpage in a text format.</span>
-<span class="s">search(query: str, engine: Literal[&quot;google&quot;, &quot;duckduckgo&quot;]) -&gt; str: Search for a query on a search engine.</span>
+<span class="s">search(query: str, engine: Literal[&quot;google&quot;, &quot;duckduckgo&quot;, &quot;perplexity&quot;]) -&gt; str: Search for a query on a search engine.</span>
 <span class="s">screenshot_url(url: str, path: Union[Path, str, NoneType]) -&gt; Path: Take a screenshot of a webpage.</span>
 <span class="s">read_logs() -&gt; str: Read browser console logs from the last read URL.</span>
 <span class="sb">```</span>
@@ -609,12 +609,25 @@ to append the code block content to the file at the given path.
 <span class="sb">```</span>
 <span class="sb">&gt; Assistant: The founder of ActivityWatch is Erik Bjäreholt.</span>
 
-<span class="sb">### Take screenshot of page</span>
+<span class="sb">### Searching with Perplexity</span>
 
-<span class="sb">&gt; User: take a screenshot of the ActivityWatch website</span>
-<span class="sb">&gt; Assistant: Certainly! I&#39;ll use the browser tool to screenshot the ActivityWatch website.</span>
+<span class="sb">&gt; User: what are the latest developments in AI?</span>
+<span class="sb">&gt; Assistant: Let me search for that using Perplexity AI.</span>
 <span class="sb">```ipython</span>
-<span class="sb">screenshot_url(&#39;https://activitywatch.net&#39;)</span>
+<span class="sb">search(&#39;latest developments in AI&#39;, &#39;perplexity&#39;)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System:</span>
+<span class="sb">```result</span>
+<span class="s">Based on recent developments, AI has seen significant advances...</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Based on the search results, here are the latest AI developments...</span>
+
+<span class="gu">### Take screenshot of page</span>
+
+<span class="k">&gt; </span><span class="ge">User: take a screenshot of the ActivityWatch website</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Certainly! I&#39;ll use the browser tool to screenshot the ActivityWatch website.</span>
+<span class="sb">```ipython</span>
+<span class="n">screenshot_url</span><span class="p">(</span><span class="s1">&#39;https://activitywatch.net&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System:</span>
 <span class="sb">```result</span>
@@ -1311,7 +1324,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 5593</p>
+<p>Tokens: 5692</p>
 </dd></dl>
 
 <dl class="py function">
