@@ -106,9 +106,9 @@ def get_prompt(
 def _join_messages(msgs: list[Message]) -> Message:
     """Combine several system prompt messages into one."""
     role = msgs[0].role if msgs else "system"
-    assert [m.role == role for m in msgs], "All messages must be system messages"
+    assert all([m.role == role for m in msgs]), "All messages must be of same role"
     return Message(
-        "system",
+        role,
         "\n\n".join(m.content for m in msgs),
         hide=any(m.hide for m in msgs),
         pinned=any(m.pinned for m in msgs),
