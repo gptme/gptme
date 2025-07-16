@@ -524,7 +524,7 @@ This is gptme
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Generator</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=[ToolSpec(append), ToolSpec(browser), ToolSpec(chats), ToolSpec(computer), ToolSpec(gh), ToolSpec(morph), ToolSpec(patch), ToolSpec(rag), ToolSpec(read), ToolSpec(save), ToolSpec(screenshot), ToolSpec(shell), ToolSpec(subagent), ToolSpec(tmux), ToolSpec(tts), ToolSpec(vision), ToolSpec(youtube), ToolSpec(ipython)], tool_format=’markdown’):</p>
+<p>Example output (tools=[ToolSpec(append), ToolSpec(browser), ToolSpec(chats), ToolSpec(choice), ToolSpec(computer), ToolSpec(gh), ToolSpec(morph), ToolSpec(patch), ToolSpec(rag), ToolSpec(read), ToolSpec(save), ToolSpec(screenshot), ToolSpec(shell), ToolSpec(subagent), ToolSpec(tmux), ToolSpec(tts), ToolSpec(vision), ToolSpec(youtube), ToolSpec(ipython)], tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -684,6 +684,40 @@ This domain is for use in illustrative examples...
 <span class="sb">```ipython</span>
 <span class="n">search_chats</span><span class="p">(</span><span class="s1">&#39;python&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
+
+<span class="gu">## choice</span>
+
+<span class="gs">**Description:**</span> Present multiple-choice options to the user for selection
+
+<span class="gs">**Instructions:**</span> The options can be provided as a question on the first line and each option on a separate line.
+
+The tool will present an interactive menu allowing the user to select an option using arrow keys and Enter, or by typing the number of the option.
+
+Use a code block with the language tag: <span class="sb">`choice`</span> followed by question and each option on a separate line.
+
+<span class="gu">### Examples</span>
+
+<span class="gu">### Basic usage with options</span>
+
+<span class="k">&gt; </span><span class="ge">User: What should we do next?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me present you with some options:</span>
+<span class="sb">```choice</span>
+<span class="s">What would you like to do next?</span>
+<span class="s">Write documentation</span>
+<span class="s">Fix bugs</span>
+<span class="s">Add new features</span>
+<span class="s">Run tests</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: User selected: Add new features</span>
+
+<span class="k">&gt; </span><span class="ge">User: What should we do next?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me present you with some options:</span>
+<span class="sb">```choice</span>
+<span class="s">Example question?</span>
+<span class="s">1. Option one</span>
+<span class="s">2. Option two</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: User selected: Option two</span>
 
 <span class="gu">## computer</span>
 
@@ -1277,7 +1311,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 5365</p>
+<p>Tokens: 5593</p>
 </dd></dl>
 
 <dl class="py function">
