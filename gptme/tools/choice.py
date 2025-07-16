@@ -13,17 +13,13 @@ from .base import (
 )
 
 instructions = """
-Present multiple-choice options to the user for selection.
-
-The options can be provided as:
-1. Each option on a separate line in the code block
-2. As a 'question' parameter and 'options' parameter (comma-separated)
+The options can be provided as question on the first line and each option on a separate line.
 
 The tool will present an interactive menu allowing the user to select an option using arrow keys and Enter, or by typing the number of the option.
 """.strip()
 
 instructions_format = {
-    "markdown": "Use a code block with the language tag: `choice` followed by each option on a separate line, or use kwargs with 'question' and 'options' parameters.",
+    "markdown": "Use a code block with the language tag: `choice` followed by question and each option on a separate line.",
 }
 
 
@@ -39,25 +35,44 @@ Fix bugs
 Add new features
 Run tests''').to_output(tool_format)}
 > System: User selected: Add new features
+
+> User: What should we do next?
+> Assistant: Let me present you with some options:
+{ToolUse("choice", [], '''Example question?
+1. Option one
+2. Option two''').to_output(tool_format)}
+> System: User selected: Option two
 """.strip()
 
 
-def parse_options_from_content(content: str) -> tuple[str, list[str]]:
+def parse_options_from_content(content: str) -> tuple[str | None, list[str]]:
     """Parse options from content, returning (question, options)."""
     lines = [line.strip() for line in content.strip().split("\n") if line.strip()]
 
     if not lines:
-        return "Please select an option:", []
+        return None, []
 
     # If first line ends with '?', treat it as the question
     if lines[0].endswith("?"):
         question = lines[0]
         options = lines[1:]
     else:
-        question = "Please select an option:"
+        question = None
         options = lines
 
     return question, options
+
+
+def parse_options_from_kwargs(kwargs: dict[str, str]) -> tuple[str | None, list[str]]:
+    """Parse options from args and kwargs, returning (question, options)."""
+    question = kwargs.get("question", None)
+    options_str = kwargs.get("options", "")
+    options = [opt.strip() for opt in options_str.split("\n") if opt.strip()]
+    if not question:
+        if options and options[0].endswith("?"):
+            question = options[0]
+            options = options[1:]
+    return (question, options)
 
 
 def execute_choice(
@@ -67,18 +82,16 @@ def execute_choice(
     confirm: ConfirmFunc,
 ) -> Generator[Message, None, None]:
     """Present multiple-choice options to the user and return their selection."""
+    DEFAULT_QUESTION = "Please select an option:"
 
-    question = "Please select an option:"
+    question: str | None = None
     options: list[str] = []
 
     # Parse options from different input formats
     if code:
         question, options = parse_options_from_content(code)
     elif kwargs:
-        question = kwargs.get("question", question)
-        options_str = kwargs.get("options", "")
-        if options_str:
-            options = [opt.strip() for opt in options_str.split(",") if opt.strip()]
+        question, options = parse_options_from_kwargs(kwargs)
 
     if not options:
         yield Message("system", "No options provided for selection")
@@ -106,7 +119,7 @@ def execute_choice(
     try:
         # Use questionary to create interactive selection
         selection = questionary.select(
-            question,
+            question or DEFAULT_QUESTION,
             choices=options,
             use_shortcuts=True,  # Allow number shortcuts
         ).ask()
@@ -131,6 +144,7 @@ tool_choice = ToolSpec(
     examples=examples,
     execute=execute_choice,
     block_types=["choice"],
+    disabled_by_default=True,
     parameters=[
         Parameter(
             name="options",
