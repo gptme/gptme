@@ -44,7 +44,7 @@ platformdirs = "^4.3"
 lxml = "*"
 json-repair = "^0.32.0"
 mcp = "^1.5.0"
-
+questionary = "^2.1.0"
 
 # providers
 openai = "^1.0"
