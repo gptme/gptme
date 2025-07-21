@@ -439,3 +439,18 @@ def test_tool_format_option(
 
     for not_expect in not_expected:
         assert not_expect not in result.output
+
+
+@pytest.mark.slow
+def test_nested_gptme_calls(args: list[str], runner: CliRunner):
+    """Test that gptme can call itself recursively, even without --non-interactive flag."""
+    # Run a nested gptme instance that echoes a message
+    args.append('/shell gptme "/shell echo we are testing nested gptme"')
+
+    print(f"running: gptme {' '.join(args)}")
+    result = runner.invoke(gptme.cli.main, args)
+
+    # Check that the nested echo output is present
+    assert "we are testing nested gptme" in result.output
+    # Check that both gptme instances exited successfully
+    assert result.exit_code == 0
