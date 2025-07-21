@@ -198,16 +198,14 @@ def main(
             # Attempt to switch to interactive mode
             # https://github.com/prompt-toolkit/python-prompt-toolkit/issues/502#issuecomment-466591259
             sys.stdin = sys.stdout
-
-            # Old code, doesn't work with prompt-toolkit
-            # sys.stdin.close()
-            # try:
-            #     sys.stdin = open("/dev/tty")
-            # except OSError:
-            #     # if we can't open /dev/tty, we're probably in a CI environment, so we should just continue
-            #     logger.warning(
-            #         "Failed to switch to interactive mode, continuing in non-interactive mode"
-            #     )
+        else:
+            # If stdin is not a tty and we have prompts provided as arguments,
+            # automatically switch to non-interactive mode to avoid termios errors
+            if prompts:
+                logger.info(
+                    "stdin is not a TTY and prompts provided, switching to non-interactive mode"
+                )
+                interactive = False
 
     # add prompts to prompt-toolkit history
     for prompt in prompts:

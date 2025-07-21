@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import select
+import shlex
 import signal
 import subprocess
 import sys
@@ -193,7 +194,15 @@ class ShellSession:
 
         # run the command, redirect stdin to /dev/null to prevent commands from
         # inheriting bash's pipe stdin (which causes issues with nested gptme calls)
-        full_command = f"{command} < /dev/null\n"
+        # only use this for commands that don't already redirect stdin, like << EOF
+        try:
+            command_parts = shlex.split(command, posix=True)
+            if not ("<" in command_parts or "<<" in command_parts):
+                command += " < /dev/null"
+        except ValueError as e:
+            logger.warning("Failed shlex parsing command, using raw command", e)
+
+        full_command = f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
         try:
             self.process.stdin.write(full_command)

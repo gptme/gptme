@@ -388,8 +388,9 @@ def step(
 
 def prompt_user(value=None) -> str:  # pragma: no cover
     print_bell()
-    # Flush stdin to clear any buffered input before prompting
-    termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    # Flush stdin to clear any buffered input before prompting (only if stdin is a TTY)
+    if sys.stdin.isatty():
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
     response = ""
     with terminal_state_title("⌨️ waiting for input"):
         while not response:
