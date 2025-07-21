@@ -196,8 +196,15 @@ class ShellSession:
         # inheriting bash's pipe stdin (which causes issues with nested gptme calls)
         # only use this for commands that don't already redirect stdin, like << EOF
         try:
-            command_parts = shlex.split(command, posix=True)
-            if not ("<" in command_parts or "<<" in command_parts):
+            command_parts = list(
+                shlex.shlex(command, posix=True, punctuation_chars=True)
+            )
+            if (
+                "<" not in command_parts
+                and "<<" not in command_parts
+                and "<<<" not in command_parts
+                and "|" not in command_parts
+            ):
                 command += " < /dev/null"
         except ValueError as e:
             logger.warning("Failed shlex parsing command, using raw command", e)
