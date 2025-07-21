@@ -191,8 +191,9 @@ class ShellSession:
     def _run(self, command: str, output=True, tries=0) -> tuple[int | None, str, str]:
         assert self.process.stdin
 
-        # run the command
-        full_command = f"{command}\n"
+        # run the command, redirect stdin to /dev/null to prevent commands from
+        # inheriting bash's pipe stdin (which causes issues with nested gptme calls)
+        full_command = f"{command} < /dev/null\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
         try:
             self.process.stdin.write(full_command)
