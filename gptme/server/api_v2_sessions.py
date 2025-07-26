@@ -30,6 +30,7 @@ from ..message import Message
 from ..tools import ToolUse, get_tools, init_tools
 from .api_v2_common import ErrorEvent, EventType, msg2dict
 from .openapi_docs import (
+    CONVERSATION_ID_PARAM,
     ErrorResponse,
     InterruptRequest,
     StatusResponse,
@@ -624,15 +625,7 @@ def api_conversation_step(conversation_id: str):
     description="Confirm, edit, skip, or auto-confirm a pending tool execution",
     request_body=ToolConfirmRequest,
     responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
-    parameters=[
-        {
-            "name": "conversation_id",
-            "in": "path",
-            "required": True,
-            "schema": {"type": "string"},
-            "description": "Conversation ID",
-        }
-    ],
+    parameters=[CONVERSATION_ID_PARAM],
     tags=["sessions"],
 )
 def api_conversation_tool_confirm(conversation_id: str):
@@ -728,15 +721,7 @@ def api_conversation_tool_confirm(conversation_id: str):
     description="Interrupt the current generation or tool execution in a conversation",
     request_body=InterruptRequest,
     responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
-    parameters=[
-        {
-            "name": "conversation_id",
-            "in": "path",
-            "required": True,
-            "schema": {"type": "string"},
-            "description": "Conversation ID",
-        }
-    ],
+    parameters=[CONVERSATION_ID_PARAM],
     tags=["sessions"],
 )
 def api_conversation_interrupt(conversation_id: str):

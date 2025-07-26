@@ -24,6 +24,7 @@ from .api_v2_common import msg2dict
 from .api_v2_sessions import SessionManager, sessions_api
 from .api_v2_agents import agents_api
 from .openapi_docs import (
+    CONVERSATION_ID_PARAM,
     ConversationCreateRequest,
     ConversationListResponse,
     ConversationResponse,
@@ -195,15 +196,7 @@ def api_conversation_put(conversation_id: str):
     description="Add a new message to an existing conversation using the V2 API",
     request_body=MessageCreateRequest,
     responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
-    parameters=[
-        {
-            "name": "conversation_id",
-            "in": "path",
-            "required": True,
-            "schema": {"type": "string"},
-            "description": "Conversation ID",
-        }
-    ],
+    parameters=[CONVERSATION_ID_PARAM],
     tags=["conversations-v2"],
 )
 def api_conversation_post(conversation_id: str):

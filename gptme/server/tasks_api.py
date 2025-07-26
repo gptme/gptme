@@ -49,6 +49,28 @@ class Task:
     archived: bool = False
 
 
+def _find_git_workspace(task: Task, manager: LogManager) -> Path:
+    """Find the git workspace directory for a task.
+
+    Args:
+        task: The task to find git workspace for
+        manager: The log manager with workspace information
+
+    Returns:
+        Path to the git workspace directory
+    """
+    git_workspace = manager.workspace
+
+    # If this is a cloned repo, the git repo might be in a subdirectory
+    if task.target_repo and "/" in task.target_repo:
+        repo_name = task.target_repo.split("/")[-1]
+        potential_repo_path = manager.workspace / repo_name
+        if potential_repo_path.exists() and (potential_repo_path / ".git").exists():
+            git_workspace = potential_repo_path
+
+    return git_workspace
+
+
 # Pydantic models for OpenAPI
 class TaskCreateRequest(BaseModel):
     """Request to create a new task."""
@@ -206,15 +228,7 @@ def derive_task_status(task: Task) -> TaskStatus:
         if manager.workspace and manager.workspace.exists():
             git_workspace = manager.workspace
 
-            # If this is a cloned repo, the git repo might be in a subdirectory
-            if task.target_repo and "/" in task.target_repo:
-                repo_name = task.target_repo.split("/")[-1]
-                potential_repo_path = manager.workspace / repo_name
-                if (
-                    potential_repo_path.exists()
-                    and (potential_repo_path / ".git").exists()
-                ):
-                    git_workspace = potential_repo_path
+            git_workspace = _find_git_workspace(task, manager)
 
             try:
                 git_info = get_git_status(git_workspace)
@@ -261,15 +275,7 @@ def get_task_info(task: Task) -> dict[str, Any]:
             # Try to get git info from the actual git repository
             git_workspace = manager.workspace
             if manager.workspace.exists():
-                # If this is a cloned repo, the git repo might be in a subdirectory
-                if task.target_repo and "/" in task.target_repo:
-                    repo_name = task.target_repo.split("/")[-1]
-                    potential_repo_path = manager.workspace / repo_name
-                    if (
-                        potential_repo_path.exists()
-                        and (potential_repo_path / ".git").exists()
-                    ):
-                        git_workspace = potential_repo_path
+                git_workspace = _find_git_workspace(task, manager)
 
                 try:
                     git_info = get_git_status(git_workspace)

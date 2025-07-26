@@ -1,10 +1,8 @@
-import base64
 import logging
 import os
 import time
 from collections.abc import Generator, Iterable
 from functools import wraps
-from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -15,8 +13,13 @@ from typing import (
 
 from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, msgs2dicts
-from ..tools.base import Parameter, ToolSpec, ToolUse
+from ..tools.base import ToolSpec
 from .models import ModelMeta, get_model
+from .utils import (
+    extract_tool_uses_from_assistant_message,
+    parameters2dict,
+    process_image_file,
+)
 
 if TYPE_CHECKING:
     # noreorder
@@ -278,62 +281,24 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
         # Find tool_use occurrences and format them as expected
         elif message["role"] == "assistant":
             modified_message = dict(message)
-            text = ""
-            content = []
 
-            # Some content are text, some are list
-            if isinstance(message["content"], list):
-                message_parts = message["content"]
-            else:
-                message_parts = [{"type": "text", "text": message["content"]}]
+            content_parts, tool_uses = extract_tool_uses_from_assistant_message(
+                message["content"]
+            )
 
-            for message_part in message_parts:
-                if message_part["type"] != "text":
-                    content.append(message_part)
-                    continue
+            # Add tool uses in Anthropic format
+            for tooluse in tool_uses:
+                content_parts.append(
+                    {
+                        "type": "tool_use",
+                        "id": tooluse.call_id or "",
+                        "name": tooluse.tool,
+                        "input": tooluse.kwargs or {},
+                    }
+                )
 
-                # For a message part of type `text`` we try to extract the tool_uses
-                # We search line by line to stop as soon as we have a tool call
-                # It makes it easier to split in multiple parts.
-                for line in message_part["text"].split("\n"):
-                    text += line + "\n"
-
-                    tooluses = [
-                        tooluse
-                        for tooluse in ToolUse.iter_from_content(text)
-                        if tooluse.is_runnable
-                    ]
-                    if not tooluses:
-                        continue
-
-                    # At that point we should always have exactly one tooluse
-                    # Because we remove the previous ones as soon as we encounter
-                    # them so we can't have more.
-                    assert len(tooluses) == 1
-                    tooluse = tooluses[0]
-                    # We only want to add a tool call if we have a call_id which
-                    # means it is a tool response
-                    if tooluse.call_id:
-                        before_tool = text[: tooluse.start]
-
-                        if before_tool.strip():
-                            content.append({"type": "text", "text": before_tool})
-
-                        content.append(
-                            {
-                                "type": "tool_use",
-                                "id": tooluse.call_id or "",
-                                "name": tooluse.tool,
-                                "input": tooluse.kwargs or {},
-                            }
-                        )
-                    else:
-                        content.append({"type": "text", "text": text})
-                    # The text is emptied to start over with the next lines if any.
-                    text = ""
-
-            if content:
-                modified_message["content"] = content
+            if content_parts:
+                modified_message["content"] = content_parts
 
             yield modified_message
         else:
@@ -355,39 +320,11 @@ def _process_file(message_dict: dict) -> dict:
     )
 
     for f in message_dict.pop("files", []):
-        f = Path(f).expanduser()
-        ext = f.suffix[1:]
-        if ext not in ALLOWED_FILE_EXTS:
-            logger.warning("Unsupported file type: %s", ext)
-            continue
-        if ext == "jpg":
-            ext = "jpeg"
-        media_type = f"image/{ext}"
-
-        content.append(
-            {
-                "type": "text",
-                "text": f"![{f.name}]({f.name}):",
-            }
-        )
-
-        # read file
-        data_bytes = f.read_bytes()
-        data = base64.b64encode(data_bytes).decode("utf-8")
-
-        # check that the file is not too large
-        # anthropic limit is 5MB, seems to measure the base64-encoded size instead of raw bytes
-        # TODO: use compression to reduce file size
-        # print(f"{len(data)=}")
-        if len(data) > 5 * 1_024 * 1_024:
-            content.append(
-                {
-                    "type": "text",
-                    "text": "Image size exceeds 5MB. Please upload a smaller image.",
-                }
-            )
+        result = process_image_file(f, content, max_size_mb=5, expand_user=True)
+        if result is None:
             continue
 
+        data, media_type = result
         content.append(
             {
                 "type": "image",
@@ -474,23 +411,6 @@ def _transform_system_messages(
     return messages, system_messages
 
 
-def _parameters2dict(parameters: list[Parameter]) -> dict[str, object]:
-    required = []
-    properties = {}
-
-    for param in parameters:
-        if param.required:
-            required.append(param.name)
-        properties[param.name] = {"type": param.type, "description": param.description}
-
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-        "additionalProperties": False,
-    }
-
-
 def _spec2tool(
     spec: ToolSpec,
 ) -> "anthropic.types.ToolParam":
@@ -502,7 +422,7 @@ def _spec2tool(
     return {
         "name": name,
         "description": spec.get_instructions("tool"),
-        "input_schema": _parameters2dict(spec.parameters),
+        "input_schema": parameters2dict(spec.parameters),
     }
 
 

@@ -1,9 +1,7 @@
-import base64
 import json
 import logging
 from collections.abc import Generator, Iterable
 from functools import lru_cache
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import requests
@@ -11,8 +9,13 @@ import requests
 from ..config import Config, get_config
 from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, msgs2dicts
-from ..tools import Parameter, ToolSpec, ToolUse
+from ..tools import ToolSpec
 from .models import ModelMeta, Provider
+from .utils import (
+    extract_tool_uses_from_assistant_message,
+    parameters2dict,
+    process_image_file,
+)
 
 if TYPE_CHECKING:
     # noreorder
@@ -319,63 +322,24 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
         # Find tool_use occurrences and format them as expected
         elif message["role"] == "assistant":
             modified_message = dict(message)
-            text = ""
-            content = []
+
+            content, tool_uses = extract_tool_uses_from_assistant_message(
+                message["content"]
+            )
+
+            # Format tool uses for OpenAI API
             tool_calls = []
-
-            # Some content are text, some are list
-            if isinstance(message["content"], list):
-                message_parts = message["content"]
-            else:
-                message_parts = [{"type": "text", "text": message["content"]}]
-
-            for message_part in message_parts:
-                if message_part["type"] != "text":
-                    content.append(message_part)
-                    continue
-
-                # For a message part of type `text`` we try to extract the tool_uses
-                # We search line by line to stop as soon as we have a tool call
-                # It makes it easier to split in multiple parts.
-                for line in message_part["text"].split("\n"):
-                    text += line + "\n"
-
-                    tooluses = [
-                        tooluse
-                        for tooluse in ToolUse.iter_from_content(text)
-                        if tooluse.is_runnable
-                    ]
-                    if not tooluses:
-                        continue
-
-                    # At that point we should always have exactly one tooluse
-                    # Because we remove the previous ones as soon as we encounter
-                    # them so we can't have more.
-                    assert len(tooluses) == 1
-                    tooluse = tooluses[0]
-
-                    # We only want to add a tool call if we have a call_id which
-                    # means it is a tool response
-                    if tooluse.call_id:
-                        before_tool = text[: tooluse.start]
-
-                        if before_tool.strip():
-                            content.append({"type": "text", "text": before_tool})
-
-                        tool_calls.append(
-                            {
-                                "id": tooluse.call_id or "",
-                                "type": "function",
-                                "function": {
-                                    "name": tooluse.tool,
-                                    "arguments": json.dumps(tooluse.kwargs or {}),
-                                },
-                            }
-                        )
-                    else:
-                        content.append({"type": "text", "text": text})
-                    # The text is emptied to start over with the next lines if any.
-                    text = ""
+            for tooluse in tool_uses:
+                tool_calls.append(
+                    {
+                        "id": tooluse.call_id or "",
+                        "type": "function",
+                        "function": {
+                            "name": tooluse.tool,
+                            "arguments": json.dumps(tooluse.kwargs or {}),
+                        },
+                    }
+                )
 
             if content:
                 modified_message["content"] = content
@@ -442,43 +406,21 @@ def _process_file(msg: dict, model: ModelMeta) -> dict:
     has_images = False
 
     for f in msg.get("files", []):
-        f = Path(f)
-        ext = f.suffix[1:]
-        if ext not in ALLOWED_FILE_EXTS:
-            logger.warning("Unsupported file type: %s", ext)
-            continue
-        if not model.supports_vision:
-            logger.warning("Model does not support vision")
-            continue
-        if ext == "jpg":
-            ext = "jpeg"
-        media_type = f"image/{ext}"
 
-        content.append(
-            {
-                "type": "text",
-                "text": f"![{f.name}]({f.name}):",
-            }
+        def check_vision():
+            return model.supports_vision
+
+        result = process_image_file(
+            f,
+            content,
+            max_size_mb=20,
+            expand_user=False,
+            check_vision_support=check_vision,
         )
-
-        # read file
-        data_bytes = f.read_bytes()
-        data = base64.b64encode(data_bytes).decode("utf-8")
-
-        # check that the file is not too large
-        # openai limit is 20MB
-        # TODO: use compression to reduce file size
-        # TODO: check that the limit is measured with the base64 for openai
-        # print(f"{len(data)=}")
-        if len(data) > 20 * 1_024 * 1_024:
-            content.append(
-                {
-                    "type": "text",
-                    "text": "Image size exceeds 20MB. Please upload a smaller image.",
-                }
-            )
+        if result is None:
             continue
 
+        data, media_type = result
         content.append(
             {
                 "type": "image_url",
@@ -505,23 +447,6 @@ def _transform_msgs_for_special_provider(
     return messages_dicts
 
 
-def _parameters2dict(parameters: list[Parameter]) -> dict[str, object]:
-    required = []
-    properties = {}
-
-    for param in parameters:
-        if param.required:
-            required.append(param.name)
-        properties[param.name] = {"type": param.type, "description": param.description}
-
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-        "additionalProperties": False,
-    }
-
-
 def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
     name = spec.name
     if spec.block_types:
@@ -542,7 +467,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
             "function": {
                 "name": name,
                 "description": description,
-                "parameters": _parameters2dict(spec.parameters),
+                "parameters": parameters2dict(spec.parameters),
                 # "strict": False,  # not supported by OpenRouter
             },
         }

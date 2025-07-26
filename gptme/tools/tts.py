@@ -52,7 +52,6 @@ port = 8000
 # Check for TTS-specific imports
 has_tts_imports = False
 try:
-    import numpy as np  # fmt: skip
     import scipy.io.wavfile as wavfile  # fmt: skip
 
     has_tts_imports = True
@@ -321,16 +320,6 @@ def _tts_processor_thread_fn():
             # Process audio response
             audio_data = io.BytesIO(response.content)
             sample_rate, data = wavfile.read(audio_data)
-
-            # Convert to float32 for consistent processing
-            if data.dtype != np.float32:
-                if data.dtype.kind == "i":  # integer
-                    data = data.astype(np.float32) / np.iinfo(data.dtype).max
-                elif data.dtype.kind == "f":  # floating point
-                    # Normalize to [-1, 1] if needed
-                    if np.max(np.abs(data)) > 1.0:
-                        data = data / np.max(np.abs(data))
-                    data = data.astype(np.float32)
 
             # Play audio using the sound utility
             play_audio_data(data, sample_rate, block=False)

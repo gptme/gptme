@@ -266,6 +266,31 @@ def stop_audio():
             break
 
 
+def convert_audio_to_float32(data: Any) -> Any:
+    """Convert audio data to float32 format for consistent processing.
+
+    Args:
+        data: Audio data as numpy array
+
+    Returns:
+        Audio data converted to float32 format
+    """
+    if not has_audio_imports:
+        return data
+
+    # Convert to float32 for consistent processing
+    if data.dtype != np.float32:
+        if data.dtype.kind == "i":  # integer
+            data = data.astype(np.float32) / np.iinfo(data.dtype).max
+        elif data.dtype.kind == "f":  # floating point
+            # Normalize to [-1, 1] if needed
+            if np.max(np.abs(data)) > 1.0:
+                data = data / np.max(np.abs(data))
+            data = data.astype(np.float32)
+
+    return data
+
+
 def play_audio_data(data: Any, sample_rate: int, block: bool = False):
     """Play audio data directly.
 
@@ -280,14 +305,7 @@ def play_audio_data(data: Any, sample_rate: int, block: bool = False):
 
     try:
         # Convert to float32 for consistent processing
-        if data.dtype != np.float32:
-            if data.dtype.kind == "i":  # integer
-                data = data.astype(np.float32) / np.iinfo(data.dtype).max
-            elif data.dtype.kind == "f":  # floating point
-                # Normalize to [-1, 1] if needed
-                if np.max(np.abs(data)) > 1.0:
-                    data = data / np.max(np.abs(data))
-                data = data.astype(np.float32)
+        data = convert_audio_to_float32(data)
 
         # Get output device for sample rate
         try:

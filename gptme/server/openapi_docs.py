@@ -355,6 +355,15 @@ def _infer_tags(func: Callable) -> list[str]:
 
 _endpoint_docs: dict[str, dict[str, Any]] = {}
 
+# Common parameter objects for reuse across endpoints
+CONVERSATION_ID_PARAM = {
+    "name": "conversation_id",
+    "in": "path",
+    "required": True,
+    "schema": {"type": "string"},
+    "description": "Conversation ID",
+}
+
 
 def api_doc(
     summary: str | None = None,

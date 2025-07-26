@@ -29,6 +29,21 @@ logger = logging.getLogger(__name__)
 #   pane: gptme_0:0.0
 
 
+def _run_tmux_command(cmd: list[str]) -> subprocess.CompletedProcess:
+    """Run a tmux command with consistent logging and error handling."""
+    print(" ".join(cmd))
+    result = subprocess.run(
+        " ".join(cmd),
+        check=True,
+        capture_output=True,
+        text=True,
+        shell=True,
+    )
+    assert result.returncode == 0
+    print(result.stdout, result.stderr)
+    return result
+
+
 def get_sessions() -> list[str]:
     output = subprocess.run(
         ["tmux", "has"],
@@ -63,39 +78,14 @@ def new_session(command: str) -> Message:
     session_id = f"gptme_{_max_session_id + 1}"
     # cmd = ["tmux", "new-session", "-d", "-s", session_id, command]
     cmd = ["tmux", "new-session", "-d", "-s", session_id, "bash"]
-    print(" ".join(cmd))
-    result = subprocess.run(
-        " ".join(cmd),
-        check=True,
-        capture_output=True,
-        text=True,
-        shell=True,
-    )
-    assert result.returncode == 0
-    print(result.stdout, result.stderr)
+    _run_tmux_command(cmd)
 
     # set session size
     cmd = ["tmux", "resize-window", "-t", session_id, "-x", "120", "-y", "40"]
-    print(" ".join(cmd))
-    result = subprocess.run(
-        " ".join(cmd),
-        check=True,
-        capture_output=True,
-        text=True,
-        shell=True,
-    )
+    _run_tmux_command(cmd)
 
     cmd = ["tmux", "send-keys", "-t", session_id, command, "Enter"]
-    print(" ".join(cmd))
-    result = subprocess.run(
-        " ".join(cmd),
-        check=True,
-        capture_output=True,
-        text=True,
-        shell=True,
-    )
-    assert result.returncode == 0
-    print(result.stdout, result.stderr)
+    _run_tmux_command(cmd)
 
     # sleep 1s and capture output
     sleep(1)
