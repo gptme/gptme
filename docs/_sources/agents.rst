@@ -92,6 +92,7 @@ Architecture
 - ``journal/`` - Daily activity logs (YYYY-MM-DD.md format)
 - ``tasks/`` - Individual task files with YAML metadata
 - ``knowledge/`` - Long-term documentation and insights
+- ``lessons/`` - Learned lessons and best practices
 - ``people/`` - Contact profiles and relationship management
 - ``projects/`` - Project-specific information
 
@@ -125,6 +126,12 @@ Key Systems
 - Long-term information storage organized by topic
 - Technical documentation, best practices, and insights
 - Cross-referenced with tasks and journal entries
+
+**Lessons System:**
+
+- Used to document learned lessons and best practices
+- Learned lessons are to be retrieved when the context arises
+- Helps avoid repeating mistakes and improves decision-making
 
 **People Directory:**
 
@@ -224,8 +231,10 @@ Bob, aka `@TimeToBuildBob <https://github.com/TimeToBuildBob>`_, is an experimen
 
 - Project management and task tracking
 - Code review and development assistance
-- Documentation and knowledge management
-- Community interaction and support
+- Documentation and knowledge management (he has a `website <https://timetobuildbob.github.io/>`_)
+- Community interaction and support (he reads and responds on the Discord server)
+
+Bob tries to be more than just a AI assistant, he tries to expand his own impact and seek autonomy to safely scale his efforts and improve the agent harness.
 
 **Creating Specialized Agents:**
 The template system enables creating agents for specific domains:
