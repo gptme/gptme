@@ -46,6 +46,14 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.6.3.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";import elkLayouts from "https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs";mermaid.registerLayoutLoaders(elkLayouts);mermaid.initialize({startOnLoad:false});</script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";
+window.addEventListener("load", () => mermaid.run());
+</script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'agents';</script>
     <link rel="canonical" href="https://gptme.org/docs/agents.html" />
     <link rel="icon" href="_static/logo.png"/>
@@ -381,6 +389,12 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#superpowers">✨ Superpowers</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-brain">🧠 Agent Brain</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#external-world">🌍 External World</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-systems">Key Systems</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
@@ -404,6 +418,78 @@
 <h1>Agents<a class="headerlink" href="#agents" title="Link to this heading">#</a></h1>
 <p>gptme supports highly customizable “agents”: persistent AI assistants with structured memory, identity, and workspace management capabilities.</p>
 <p>Each agent is implemented as a git repository that serves as their “brain,” containing all their data, configuration, and interaction history.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<section id="superpowers">
+<h3>✨ Superpowers<a class="headerlink" href="#superpowers" title="Link to this heading">#</a></h3>
+<pre  class="mermaid">
+        graph LR
+    Persistent[🔒 Persistent&lt;br/&gt;Complete history&lt;br/&gt;Version controlled]
+    Autonomous[🎯 Autonomous&lt;br/&gt;Long-term goals&lt;br/&gt;Proactive &amp; self-directed]
+    Evolving[🌱 Self-Improving&lt;br/&gt;Gets smarter over time&lt;br/&gt;Learns from experience]
+
+    %% Force left-to-right layout
+    Persistent --- Autonomous --- Evolving
+
+    classDef benefits fill:#fff8e1,stroke:#f57f17,stroke-width:3px,color:#000
+    class Persistent,Autonomous,Evolving benefits
+    </pre></section>
+<section id="agent-brain">
+<h3>🧠 Agent Brain<a class="headerlink" href="#agent-brain" title="Link to this heading">#</a></h3>
+<pre  class="mermaid">
+        graph TD
+    subgraph Core[💎 Core Identity]
+        Identity[Who am I?&lt;br/&gt;My goals &amp; capabilities]
+    end
+
+    subgraph LivingMemory[🔄 Living Memory Systems]
+        Journal[📔 Journal&lt;br/&gt;Every decision &amp; insight&lt;br/&gt;Continuous learning]
+        Tasks[🎯 Tasks&lt;br/&gt;Goals &amp; achievements&lt;br/&gt;Progress tracking]
+        Knowledge[📚 Knowledge&lt;br/&gt;Learned lessons&lt;br/&gt;Cross-referenced insights]
+        People[👥 Relationships&lt;br/&gt;Collaboration history&lt;br/&gt;Social intelligence]
+        Projects[🚀 Projects&lt;br/&gt;Active work &amp; outcomes&lt;br/&gt;Success patterns]
+    end
+
+    subgraph Intelligence[🤖 Dynamic Intelligence]
+        direction LR
+        Context[⚡ Live Context&lt;br/&gt;Situational awareness&lt;br/&gt;Current state]
+        Learning[📈 Continuous Learning&lt;br/&gt;Self-improvement&lt;br/&gt;Pattern recognition]
+    end
+
+    %% Internal intelligence flow
+    Core --&gt; LivingMemory
+    LivingMemory --&gt; Intelligence
+    Context --- Learning
+
+    %% Memory interconnections (selective)
+    Journal -.-&gt;|Informs| Tasks
+    Knowledge -.-&gt;|Supports| Projects
+    People -.-&gt;|Collaborate on| Projects
+
+    classDef core fill:#fff3e0,stroke:#ef6c00,stroke-width:3px,color:#000
+    classDef memory fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef intelligence fill:#fce4ec,stroke:#c2185b,stroke-width:3px,color:#000
+
+    class Core,Identity core
+    class LivingMemory,Journal,Tasks,Knowledge,People,Projects memory
+    class Intelligence,Context,Learning intelligence
+    </pre></section>
+<section id="external-world">
+<h3>🌍 External World<a class="headerlink" href="#external-world" title="Link to this heading">#</a></h3>
+<pre  class="mermaid">
+        graph LR
+    subgraph World
+        User[👤 User]
+        Web[🌐 Web &amp; APIs]
+        Files[📁 Files &amp; Code]
+        Social[✉️ Email &amp; Discord]
+    end
+
+    classDef world fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
+
+    class World,User,Web,Files,Social world
+    </pre></section>
+</section>
 <section id="architecture">
 <h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">#</a></h2>
 <p><strong>Git-based Repository Structure:</strong> Each agent is a complete git repository with a structured workspace.</p>
@@ -417,7 +503,7 @@
 </ul>
 <p><strong>Dynamic Context Generation:</strong> Agents use sophisticated context generation to maintain awareness.</p>
 <ul class="simple">
-<li><p><a class="reference internal" href="config.html"><span class="doc">Project configuration</span></a> (<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>) specifies core files always in context</p></li>
+<li><p><a class="reference internal" href="config.html"><span class="doc">Project configuration</span></a> (<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>) specifies core <code class="docutils literal notranslate"><span class="pre">files</span></code> always in context</p></li>
 <li><p>A <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> command specified in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> is used for dynamic context generation</p></li>
 <li><p>Each interaction includes recent journal entries, active tasks, and git status</p></li>
 <li><p>Provides comprehensive situational awareness across sessions</p></li>
@@ -455,6 +541,10 @@
 </section>
 <section id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>We are working on a graphical way to create and interact with agents using the <a class="reference internal" href="server.html#server-gptme-webui"><span class="std std-ref">gptme web interface</span></a>. Try it out and let us know what you think! Soon coming as a managed service.</p>
+</div>
 <p><strong>Creating an Agent:</strong></p>
 <p>Use the <a class="reference external" href="https://github.com/gptme/gptme-agent-template/">gptme-agent-template</a> to create new agents:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the template repository</span>
@@ -473,15 +563,29 @@ pipx<span class="w"> </span>install<span class="w"> </span>pre-commit
 make<span class="w"> </span>install
 
 <span class="c1"># Run the agent</span>
-./run.sh<span class="w"> </span><span class="s2">&quot;your prompt here&quot;</span>
+gptme<span class="w"> </span><span class="s2">&quot;your prompt here&quot;</span>
 </pre></div>
 </div>
 <p><strong>Execution Flow:</strong></p>
 <ol class="arabic simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">run.sh</span></code> builds dynamic context from all agent systems</p></li>
-<li><p>Context includes journal entries, task status, and current git state</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">gptme</span></code> runs with comprehensive situational awareness</p></li>
-<li><p>Agent can access and update all workspace components</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme</span></code> builds context from all systems</p>
+<ul class="simple">
+<li><p>Includes journal entries, tasks, knowledge, and people</p></li>
+<li><p>Static context is included using the <code class="docutils literal notranslate"><span class="pre">files</span></code> in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
+<li><p>Dynamic context is generated using the <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme</span></code> runs the agent</p>
+<ul class="simple">
+<li><p>With prompt, tools, and collected context</p></li>
+</ul>
+</li>
+<li><p>Agent processes the prompt</p>
+<ul class="simple">
+<li><p>Uses the context to inform decisions and responses</p></li>
+<li><p>Updates journal, tasks, and knowledge as needed</p></li>
+</ul>
+</li>
 </ol>
 </section>
 <section id="benefits">
@@ -647,6 +751,12 @@ The template system enables creating agents for specific domains:</p>
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#superpowers">✨ Superpowers</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-brain">🧠 Agent Brain</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#external-world">🌍 External World</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-systems">Key Systems</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>

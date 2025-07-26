@@ -1094,6 +1094,84 @@ gptme supports highly customizable "agents": persistent AI assistants with struc
 
 Each agent is implemented as a git repository that serves as their "brain," containing all their data, configuration, and interaction history.
 
+Overview
+--------
+
+✨ Superpowers
+^^^^^^^^^^^^^^
+
+.. mermaid::
+
+   graph LR
+       Persistent[🔒 Persistent<br/>Complete history<br/>Version controlled]
+       Autonomous[🎯 Autonomous<br/>Long-term goals<br/>Proactive & self-directed]
+       Evolving[🌱 Self-Improving<br/>Gets smarter over time<br/>Learns from experience]
+
+       %% Force left-to-right layout
+       Persistent --- Autonomous --- Evolving
+
+       classDef benefits fill:#fff8e1,stroke:#f57f17,stroke-width:3px,color:#000
+       class Persistent,Autonomous,Evolving benefits
+
+🧠 Agent Brain
+^^^^^^^^^^^^^^
+
+.. mermaid::
+
+   graph TD
+       subgraph Core[💎 Core Identity]
+           Identity[Who am I?<br/>My goals & capabilities]
+       end
+
+       subgraph LivingMemory[🔄 Living Memory Systems]
+           Journal[📔 Journal<br/>Every decision & insight<br/>Continuous learning]
+           Tasks[🎯 Tasks<br/>Goals & achievements<br/>Progress tracking]
+           Knowledge[📚 Knowledge<br/>Learned lessons<br/>Cross-referenced insights]
+           People[👥 Relationships<br/>Collaboration history<br/>Social intelligence]
+           Projects[🚀 Projects<br/>Active work & outcomes<br/>Success patterns]
+       end
+
+       subgraph Intelligence[🤖 Dynamic Intelligence]
+           direction LR
+           Context[⚡ Live Context<br/>Situational awareness<br/>Current state]
+           Learning[📈 Continuous Learning<br/>Self-improvement<br/>Pattern recognition]
+       end
+
+       %% Internal intelligence flow
+       Core --> LivingMemory
+       LivingMemory --> Intelligence
+       Context --- Learning
+
+       %% Memory interconnections (selective)
+       Journal -.->|Informs| Tasks
+       Knowledge -.->|Supports| Projects
+       People -.->|Collaborate on| Projects
+
+       classDef core fill:#fff3e0,stroke:#ef6c00,stroke-width:3px,color:#000
+       classDef memory fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#000
+       classDef intelligence fill:#fce4ec,stroke:#c2185b,stroke-width:3px,color:#000
+
+       class Core,Identity core
+       class LivingMemory,Journal,Tasks,Knowledge,People,Projects memory
+       class Intelligence,Context,Learning intelligence
+
+🌍 External World
+^^^^^^^^^^^^^^^^^
+
+.. mermaid::
+
+   graph LR
+       subgraph World
+           User[👤 User]
+           Web[🌐 Web & APIs]
+           Files[📁 Files & Code]
+           Social[✉️ Email & Discord]
+       end
+
+       classDef world fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
+
+       class World,User,Web,Files,Social world
+
 Architecture
 ------------
 
@@ -1108,7 +1186,7 @@ Architecture
 
 **Dynamic Context Generation:** Agents use sophisticated context generation to maintain awareness.
 
-- :doc:`Project configuration <config>` (``gptme.toml``) specifies core files always in context
+- :doc:`Project configuration <config>` (``gptme.toml``) specifies core ``files`` always in context
 - A ``context_cmd`` command specified in ``gptme.toml`` is used for dynamic context generation
 - Each interaction includes recent journal entries, active tasks, and git status
 - Provides comprehensive situational awareness across sessions
@@ -1146,6 +1224,10 @@ Key Systems
 Usage
 -----
 
+.. note::
+
+    We are working on a graphical way to create and interact with agents using the :ref:`gptme web interface <server:gptme-webui>`. Try it out and let us know what you think! Soon coming as a managed service.
+
 **Creating an Agent:**
 
 Use the `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ to create new agents:
@@ -1170,14 +1252,24 @@ Use the `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_
     make install
 
     # Run the agent
-    ./run.sh "your prompt here"
+    gptme "your prompt here"
 
 **Execution Flow:**
 
-1. ``run.sh`` builds dynamic context from all agent systems
-2. Context includes journal entries, task status, and current git state
-3. ``gptme`` runs with comprehensive situational awareness
-4. Agent can access and update all workspace components
+1. ``gptme`` builds context from all systems
+
+   - Includes journal entries, tasks, knowledge, and people
+   - Static context is included using the ``files`` in ``gptme.toml``
+   - Dynamic context is generated using the ``context_cmd`` in ``gptme.toml``
+
+2. ``gptme`` runs the agent
+
+   - With prompt, tools, and collected context
+
+3. Agent processes the prompt
+
+   - Uses the context to inform decisions and responses
+   - Updates journal, tasks, and knowledge as needed
 
 Benefits
 --------
