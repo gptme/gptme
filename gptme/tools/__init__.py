@@ -152,8 +152,10 @@ def init_tools(
 def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
     # Validate allowlist if provided
     # TODO: maybe check in CLI init instead, as this might hard error in the server when loading conversations where tools are not available
+    available_tools = get_available_tools()
+
+    # Validate allowlist against available tools
     if allowlist is not None:
-        available_tools = get_available_tools()
         available_tool_names = [tool.name for tool in available_tools]
 
         for tool_name in allowlist:
@@ -170,7 +172,7 @@ def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
                 )
 
     tools = []
-    for tool in get_available_tools():
+    for tool in available_tools:
         if allowlist is not None and not tool.is_mcp and tool.name not in allowlist:
             continue
         if not tool.is_available:
@@ -223,20 +225,29 @@ def is_supported_langtag(lang: str) -> bool:
 def get_available_tools() -> list[ToolSpec]:
     from gptme.tools.mcp_adapter import create_mcp_tools  # fmt: skip
 
-    available_tools = _get_available_tools_cache()
+    config = get_config()
 
-    if available_tools is None:
-        # We need to load tools first
-        config = get_config()
+    # Only use cache if we have complete config (project config indicates full config is loaded)
+    has_complete_config = config.project is not None
 
-        tool_modules: list[str] = list()
-        env_tool_modules = config.get_env("TOOL_MODULES", "gptme.tools")
+    if has_complete_config and (available_tools := _get_available_tools_cache()):
+        return available_tools
 
-        if env_tool_modules:
-            tool_modules = env_tool_modules.split(",")
+    # We need to load tools first
+    tool_modules: list[str] = list()
+    env_tool_modules = config.get_env("TOOL_MODULES", "gptme.tools")
 
-        available_tools = sorted(_discover_tools(tool_modules))
+    if env_tool_modules:
+        tool_modules = env_tool_modules.split(",")
+
+    available_tools = sorted(_discover_tools(tool_modules))
+
+    # Only initialize MCP tools if we have the complete config
+    if has_complete_config:
         available_tools.extend(create_mcp_tools(config))
+
+    # Only cache if we have complete config to avoid caching incomplete results
+    if has_complete_config:
         _set_available_tools_cache(available_tools)
 
     return available_tools
