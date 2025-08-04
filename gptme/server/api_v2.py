@@ -20,9 +20,9 @@ from ..logmanager import LogManager, get_user_conversations
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from .api import _abs_to_rel_workspace
+from .api_v2_agents import agents_api
 from .api_v2_common import msg2dict
 from .api_v2_sessions import SessionManager, sessions_api
-from .api_v2_agents import agents_api
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
     ConversationCreateRequest,
@@ -282,6 +282,69 @@ def api_conversation_delete(conversation_id: str):
     SessionManager.remove_all_sessions_for_conversation(conversation_id)
 
     return flask.jsonify({"status": "ok"})
+
+
+@v2_api.route("/api/v2/models")
+@api_doc_simple(
+    responses={200: StatusResponse, 500: ErrorResponse},
+    tags=["models"],
+)
+def api_models():
+    """Get available models.
+
+    Returns available models based on current configuration.
+    If proxy is configured, only returns proxy-supported models.
+    """
+    from gptme.config import Config
+    from gptme.llm.models import (
+        PROVIDERS,
+        Provider,
+        _get_models_for_provider,
+        get_default_model,
+    )
+
+    config = Config()
+
+    # Check if proxy is configured
+    proxy_url = config.get_env("LLM_PROXY_URL")
+    proxy_key = config.get_env("LLM_PROXY_API_KEY")
+    is_proxy = bool(proxy_url and proxy_key)
+
+    # Get default model
+    default_model = get_default_model()
+
+    # Get available models
+    models_data = []
+
+    # If proxy is configured (like gptme.ai), show supported providers
+    # The proxy now supports both OpenAI and Anthropic models
+    providers_to_check: list[Provider] = (
+        ["openai", "anthropic"] if is_proxy else PROVIDERS
+    )
+    for provider in providers_to_check:
+        models = _get_models_for_provider(provider, dynamic_fetch=True)
+        for model in models:
+            models_data.append(
+                {
+                    "id": model.full,
+                    "provider": model.provider,
+                    "model": model.model,
+                    "context": model.context,
+                    "max_output": model.max_output,
+                    "supports_streaming": model.supports_streaming,
+                    "supports_vision": model.supports_vision,
+                    "supports_reasoning": model.supports_reasoning,
+                    "price_input": model.price_input,
+                    "price_output": model.price_output,
+                }
+            )
+
+    return flask.jsonify(
+        {
+            "models": models_data,
+            "default": default_model.full if default_model else None,
+        }
+    )
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["GET"])
