@@ -55,9 +55,11 @@ def init(provider: Provider, config: Config):
             azure_endpoint=azure_endpoint,
         )
     elif provider == "openrouter":
-        api_key = config.get_env_required("OPENROUTER_API_KEY")
+        proxy_key = config.get_env("LLM_PROXY_API_KEY")
+        proxy_url = config.get_env("LLM_PROXY_URL")
+        api_key = proxy_key or config.get_env_required("OPENROUTER_API_KEY")
         clients[provider] = OpenAI(
-            api_key=api_key, base_url="https://openrouter.ai/api/v1"
+            api_key=api_key, base_url=proxy_url or "https://openrouter.ai/api/v1"
         )
     elif provider == "gemini":
         api_key = config.get_env_required("GEMINI_API_KEY")
@@ -158,6 +160,13 @@ def _is_reasoner(base_model: str) -> bool:
     return is_o1 or is_deepseek_reasoner
 
 
+@lru_cache(maxsize=2)
+def _is_proxy(client: "OpenAI") -> bool:
+    proxy_url = get_config().get_env("LLM_PROXY_URL")
+    # If client has the proxy URL set, it is using the proxy
+    return bool(proxy_url) and client.base_url == proxy_url
+
+
 def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> str:
     # This will generate code and such, so we need appropriate temperature and top_p params
     # top_p controls diversity, temperature controls randomness
@@ -166,15 +175,20 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
 
     provider = get_provider_from_model(model)
     client = get_client(provider)
+    is_proxy = _is_proxy(client)
+
     base_model = _get_base_model(model)
     is_reasoner = _is_reasoner(base_model)
+
+    # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
+    api_model = model if is_proxy else base_model
 
     from openai import NOT_GIVEN  # fmt: skip
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
 
     response = client.chat.completions.create(
-        model=base_model,
+        model=api_model,
         messages=messages_dicts,  # type: ignore
         temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
         top_p=TOP_P if not is_reasoner else NOT_GIVEN,
@@ -233,8 +247,13 @@ def stream(
 
     provider = get_provider_from_model(model)
     client = get_client(provider)
+    is_proxy = _is_proxy(client)
+
     base_model = _get_base_model(model)
     is_reasoner = _is_reasoner(base_model)
+
+    # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
+    api_model = model if is_proxy else base_model
 
     from openai import NOT_GIVEN  # fmt: skip
 
@@ -243,7 +262,7 @@ def stream(
     stop_reason = None
 
     for chunk_raw in client.chat.completions.create(
-        model=base_model,
+        model=api_model,
         messages=messages_dicts,  # type: ignore
         temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
         top_p=TOP_P if not is_reasoner else NOT_GIVEN,

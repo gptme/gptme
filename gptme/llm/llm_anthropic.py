@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _anthropic: "Anthropic | None" = None
+_is_proxy: bool = False
 
 
 def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) -> bool:
@@ -102,7 +103,8 @@ def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0)
 
 
 def init(config):
-    global _anthropic
+    global _anthropic, _is_proxy
+    proxy_url = config.get_env("LLM_PROXY_URL", None)
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
     api_key = proxy_key or config.get_env_required("ANTHROPIC_API_KEY")
     from anthropic import Anthropic  # fmt: skip
@@ -110,8 +112,9 @@ def init(config):
     _anthropic = Anthropic(
         api_key=api_key,
         max_retries=5,
-        base_url=config.get_env("LLM_PROXY_URL", None),
+        base_url=proxy_url or None,
     )
+    _is_proxy = proxy_url is not None
 
 
 def get_client() -> "Anthropic | None":
@@ -130,6 +133,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
     )
+    api_model = f"anthropic/{model}" if _is_proxy else model
 
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
@@ -139,7 +143,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
     )
 
     response = _anthropic.messages.create(
-        model=model,
+        model=api_model,
         messages=messages_dicts,
         system=system_messages,
         temperature=TEMPERATURE if not use_thinking else 1,
@@ -180,6 +184,7 @@ def stream(
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
     )
+    api_model = f"anthropic/{model}" if _is_proxy else model
 
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
@@ -189,7 +194,7 @@ def stream(
     )
 
     with _anthropic.messages.stream(
-        model=model,
+        model=api_model,
         messages=messages_dicts,
         system=system_messages,
         temperature=TEMPERATURE if not use_thinking else 1,
