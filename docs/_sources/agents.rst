@@ -146,6 +146,17 @@ Usage
 
     We are working on a graphical way to create and interact with agents using the :ref:`gptme web interface <server:gptme-webui>`. Try it out and let us know what you think! Soon coming as a managed service.
 
+**Installing dependencies:**
+
+First install the required dependencies using `pipx <https://pipx.pypa.io/>`_ (recommended) to ensure isolation and easy management:
+
+.. code-block:: bash
+
+    # Install required dependencies
+    pipx install gptme   # or `pipx install -e ./gptme` to install from local source
+    pipx install uv
+    pipx install pre-commit
+
 **Creating an Agent:**
 
 Use the `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ to create new agents:
@@ -160,14 +171,12 @@ Use the `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_
     ./fork.sh ../my-agent "MyAgent"
     cd ../my-agent
 
+    # (optional) set up pre-commit hooks
+    make install
+
 **Running an Agent:**
 
 .. code-block:: bash
-
-    # Install dependencies
-    pipx install gptme
-    pipx install pre-commit
-    make install
 
     # Run the agent
     gptme "your prompt here"

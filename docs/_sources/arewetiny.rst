@@ -28,9 +28,11 @@ To that end, in this document we will present some statistics about the current 
 Startup time
 ------------
 
-.. command-output:: make bench-importtime
+.. command-output:: make bench-import
    :cwd: ..
-   :ellipsis: 0,-10
+
+.. command-output:: make bench-startup
+   :cwd: ..
 
 
 Lines of code

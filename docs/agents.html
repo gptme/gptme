@@ -552,6 +552,14 @@ window.addEventListener("load", () => mermaid.run());
 <p class="admonition-title">Note</p>
 <p>We are working on a graphical way to create and interact with agents using the <a class="reference internal" href="server.html#server-gptme-webui"><span class="std std-ref">gptme web interface</span></a>. Try it out and let us know what you think! Soon coming as a managed service.</p>
 </div>
+<p><strong>Installing dependencies:</strong></p>
+<p>First install the required dependencies using <a class="reference external" href="https://pipx.pypa.io/">pipx</a> (recommended) to ensure isolation and easy management:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install required dependencies</span>
+pipx<span class="w"> </span>install<span class="w"> </span>gptme<span class="w">   </span><span class="c1"># or `pipx install -e ./gptme` to install from local source</span>
+pipx<span class="w"> </span>install<span class="w"> </span>uv
+pipx<span class="w"> </span>install<span class="w"> </span>pre-commit
+</pre></div>
+</div>
 <p><strong>Creating an Agent:</strong></p>
 <p>Use the <a class="reference external" href="https://github.com/gptme/gptme-agent-template/">gptme-agent-template</a> to create new agents:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the template repository</span>
@@ -561,15 +569,13 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme
 <span class="c1"># Fork the template</span>
 ./fork.sh<span class="w"> </span>../my-agent<span class="w"> </span><span class="s2">&quot;MyAgent&quot;</span>
 <span class="nb">cd</span><span class="w"> </span>../my-agent
+
+<span class="c1"># (optional) set up pre-commit hooks</span>
+make<span class="w"> </span>install
 </pre></div>
 </div>
 <p><strong>Running an Agent:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install dependencies</span>
-pipx<span class="w"> </span>install<span class="w"> </span>gptme
-pipx<span class="w"> </span>install<span class="w"> </span>pre-commit
-make<span class="w"> </span>install
-
-<span class="c1"># Run the agent</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run the agent</span>
 gptme<span class="w"> </span><span class="s2">&quot;your prompt here&quot;</span>
 </pre></div>
 </div>
