@@ -60,6 +60,9 @@ RUN pipx ensurepath
 # we need to manually add the pipx bin directory to PATH.
 ENV PATH="/home/appuser/.local/bin:${PATH}"
 
+git config --global user.name "gptme.ai"
+git config --global user.email "noreply@gptme.ai"
+
 WORKDIR /workspace
 
 ENTRYPOINT ["gptme"]
