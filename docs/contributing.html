@@ -458,33 +458,19 @@ make<span class="w"> </span>build
 </pre></div>
 </div>
 </li>
-<li><p>(Optional) Run Prometheus for metrics collection:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Simple default Prometheus</span>
-docker<span class="w"> </span>run<span class="w"> </span>--name<span class="w"> </span>prometheus<span class="w"> </span>-d<span class="w"> </span>-p<span class="w"> </span><span class="m">127</span>.0.0.1:9090:9090<span class="w"> </span>prom/prometheus
-
-<span class="c1"># Or with custom config to scrape gptme metrics on port 8000</span>
-cat<span class="w"> </span>&gt;<span class="w"> </span>scripts/prometheus.yml<span class="w"> </span><span class="s">&lt;&lt; EOF</span>
-<span class="s">global:</span>
-<span class="s">  scrape_interval: 15s</span>
-<span class="s">scrape_configs:</span>
-<span class="s">  - job_name: &#39;gptme&#39;</span>
-<span class="s">    static_configs:</span>
-<span class="s">      - targets: [&#39;host.docker.internal:8000&#39;]</span>
-<span class="s">    metrics_path: &#39;/metrics&#39;</span>
-<span class="s">EOF</span>
-
-docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--name<span class="w"> </span>prometheus<span class="w"> </span><span class="se">\</span>
+<li><p>Run Prometheus for metrics collection:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--name<span class="w"> </span>prometheus<span class="w"> </span><span class="se">\</span>
 <span class="w">          </span>-p<span class="w"> </span><span class="m">9090</span>:9090<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>-v<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/scripts/prometheus.yml:/etc/prometheus/prometheus.yml<span class="w"> </span><span class="se">\</span>
-<span class="w">          </span>prom/prometheus<span class="w"> </span>--enable-feature<span class="o">=</span>otlp-write-receive
+<span class="w">          </span>-v<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/scripts/prometheus.yml:/prometheus/prometheus.yml<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>prom/prometheus<span class="w"> </span>--web.enable-otlp-receiver
 </pre></div>
 </div>
 </li>
 <li><p>Set the telemetry environment variables:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_TELEMETRY_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://localhost:4317<span class="w">  </span><span class="c1"># optional (default)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PROMETHEUS_PORT</span><span class="o">=</span><span class="m">8000</span><span class="w">  </span><span class="c1"># optional (default)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://localhost:4317
 <span class="nb">export</span><span class="w"> </span><span class="nv">PROMETHEUS_ADDR</span><span class="o">=</span><span class="m">0</span>.0.0.0<span class="w">  </span><span class="c1"># optional (default: localhost, use 0.0.0.0 for Docker access)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PROMETHEUS_PORT</span><span class="o">=</span><span class="m">8000</span>
 </pre></div>
 </div>
 </li>
@@ -521,6 +507,10 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 </section>
 <section id="available-metrics">
 <h3>Available Metrics<a class="headerlink" href="#available-metrics" title="Link to this heading">#</a></h3>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>These metrics are still merely planned and may not be available yet, or be available in a different form.</p>
+</div>
 <p>The following metrics are automatically collected:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme_tokens_processed_total</span></code>: Counter of tokens processed by type</p></li>
@@ -535,6 +525,10 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 </section>
 <section id="example-prometheus-queries">
 <h3>Example Prometheus Queries<a class="headerlink" href="#example-prometheus-queries" title="Link to this heading">#</a></h3>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>These queries are aspirational and won’t actually work yet.</p>
+</div>
 <p>Here are some useful Prometheus queries for monitoring gptme:</p>
 <div class="highlight-promql notranslate"><div class="highlight"><pre><span></span><span class="c1"># Average tool execution time by tool</span>
 <span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tool_duration_seconds_sum</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tool_duration_seconds_count</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>

@@ -67,37 +67,23 @@ To enable telemetry during development:
                 -p 9411:9411 \
                 cr.jaegertracing.io/jaegertracing/jaeger:latest
 
-3. (Optional) Run Prometheus for metrics collection:
+3. Run Prometheus for metrics collection:
 
    .. code-block:: bash
 
-      # Simple default Prometheus
-      docker run --name prometheus -d -p 127.0.0.1:9090:9090 prom/prometheus
-
-      # Or with custom config to scrape gptme metrics on port 8000
-      cat > scripts/prometheus.yml << EOF
-      global:
-        scrape_interval: 15s
-      scrape_configs:
-        - job_name: 'gptme'
-          static_configs:
-            - targets: ['host.docker.internal:8000']
-          metrics_path: '/metrics'
-      EOF
-
       docker run --rm --name prometheus \
                 -p 9090:9090 \
-                -v $(pwd)/scripts/prometheus.yml:/etc/prometheus/prometheus.yml \
-                prom/prometheus --enable-feature=otlp-write-receive
+                -v $(pwd)/scripts/prometheus.yml:/prometheus/prometheus.yml \
+                prom/prometheus --web.enable-otlp-receiver
 
 4. Set the telemetry environment variables:
 
    .. code-block:: bash
 
       export GPTME_TELEMETRY_ENABLED=true
-      export OTLP_ENDPOINT=http://localhost:4317  # optional (default)
-      export PROMETHEUS_PORT=8000  # optional (default)
+      export OTLP_ENDPOINT=http://localhost:4317
       export PROMETHEUS_ADDR=0.0.0.0  # optional (default: localhost, use 0.0.0.0 for Docker access)
+      export PROMETHEUS_PORT=8000
 
 5. Run gptme:
 
@@ -131,6 +117,10 @@ The telemetry data helps identify:
 Available Metrics
 ~~~~~~~~~~~~~~~~~
 
+.. note::
+
+    These metrics are still merely planned and may not be available yet, or be available in a different form.
+
 The following metrics are automatically collected:
 
 - ``gptme_tokens_processed_total``: Counter of tokens processed by type
@@ -144,6 +134,10 @@ The following metrics are automatically collected:
 
 Example Prometheus Queries
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. note::
+
+    These queries are aspirational and won't actually work yet.
 
 Here are some useful Prometheus queries for monitoring gptme:
 
