@@ -1,3 +1,4 @@
+import functools
 import importlib
 import json
 import logging
@@ -294,6 +295,14 @@ class ToolUse:
         from ..telemetry import record_tool_call, trace_function  # fmt: skip
         from . import get_tool  # fmt: skip
 
+        # wrap confirm in trace_function
+        @functools.wraps(confirm)
+        def _confirm(content: str) -> bool:
+            return trace_function(
+                name=f"tool.{self.tool}.confirm",
+                attributes={"tool_name": self.tool},
+            )(confirm)(content)
+
         @trace_function(name=f"tool.{self.tool}", attributes={"tool_name": self.tool})
         def _execute_tool():
             tool = get_tool(self.tool)
@@ -309,7 +318,7 @@ class ToolUse:
                         self.content,
                         self.args,
                         self.kwargs,
-                        confirm,
+                        _confirm,
                     )
                     if isinstance(ex, Generator):
                         # Convert generator to list to measure execution time properly
@@ -319,11 +328,16 @@ class ToolUse:
                         yield ex
 
                     # Record successful tool call
-                    record_tool_call(self.tool)
+                    record_tool_call(self.tool, success=True)
 
                 except Exception as e:
-                    # Record failed tool call
-                    record_tool_call(self.tool)
+                    # Record failed tool call with error details
+                    record_tool_call(
+                        self.tool,
+                        success=False,
+                        error_type=type(e).__name__,
+                        error_message=str(e),
+                    )
 
                     # if we are testing, raise the exception
                     logger.exception(e)

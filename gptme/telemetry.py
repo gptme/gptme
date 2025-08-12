@@ -241,15 +241,29 @@ def record_request_duration(
     _request_histogram.record(duration, {"endpoint": endpoint, "method": method})
 
 
-def record_tool_call(tool_name: str, duration: float | None = None) -> None:
+def record_tool_call(
+    tool_name: str,
+    duration: float | None = None,
+    success: bool = True,
+    error_type: str | None = None,
+    error_message: str | None = None,
+) -> None:
     """Record tool call metrics."""
     if not is_telemetry_enabled() or _tool_counter is None:
         return
 
-    _tool_counter.add(1, {"tool_name": tool_name})
+    attributes = {"tool_name": tool_name, "success": str(success).lower()}
+
+    if error_type:
+        attributes["error_type"] = error_type
+    if error_message:
+        # Truncate long error messages
+        attributes["error_message"] = error_message[:200]
+
+    _tool_counter.add(1, attributes)
 
     if duration is not None and _tool_duration_histogram is not None:
-        _tool_duration_histogram.record(duration, {"tool_name": tool_name})
+        _tool_duration_histogram.record(duration, attributes)
 
 
 def record_conversation_change(delta: int) -> None:
