@@ -2,6 +2,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, TypedDict
 
+from typing_extensions import NotRequired
+
 Files = dict[str, str | bytes]
 Status = Literal["success", "error", "timeout"]
 
@@ -55,3 +57,4 @@ class EvalSpec(TypedDict):
     run: str
     prompt: str
     expect: dict[str, Callable[[ResultContext], bool]]
+    tools: NotRequired[list[str]]

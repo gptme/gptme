@@ -375,6 +375,10 @@ class ToolUse:
         for tool_use in tool_uses:
             yield tool_use
 
+        # don't continue unless tool format
+        if not tool_format == "tool":
+            return
+
         # check if its a toolcall and extract valid JSON
         if match := toolcall_re.search(content):
             tool_name = match.group(1)

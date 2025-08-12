@@ -84,10 +84,13 @@ def run_evals(
         for model, tool_format in model_configs:
             model_id = f"{model}@{tool_format}"
             for test in evals:
+                tools = test.get(
+                    "tools"
+                )  # Get tools from test spec, None if not specified
                 future = executor.submit(
                     execute,
                     test,
-                    GPTMe(model=model, tool_format=tool_format),
+                    GPTMe(model=model, tool_format=tool_format, tools=tools),
                     timeout,
                     parallel > 1,
                 )

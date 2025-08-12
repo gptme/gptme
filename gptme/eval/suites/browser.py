@@ -14,6 +14,7 @@ tests: list["EvalSpec"] = [
         "files": {},
         "run": "cat answer.txt",
         "prompt": "who is the CEO of Superuser Labs? write the answer to answer.txt",
+        "tools": ["browser", "save"],  # Only needs browser and file saving
         "expect": {
             "correct output": check_output_erik,
         },

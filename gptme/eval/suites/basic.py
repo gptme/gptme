@@ -34,6 +34,7 @@ tests: list["EvalSpec"] = [
         "files": {},
         "run": "python hello.py",
         "prompt": 'write a script hello.py which prints "Hello, world!"',
+        "tools": ["save"],  # Only needs file creation
         "expect": {
             "correct output": correct_output_hello_world,
             "correct file": check_exists_hello,
@@ -44,6 +45,7 @@ tests: list["EvalSpec"] = [
         "files": {"hello.py": 'print("Hello, world!")'},
         "run": "python hello.py",
         "prompt": 'Patch the code in hello.py to print "Hello, human!"',
+        "tools": ["patch"],  # Only needs patching
         "expect": {
             "correct output": correct_output_hello_human,
             "correct file": check_exists_hello,
@@ -53,8 +55,12 @@ tests: list["EvalSpec"] = [
         "name": "hello-ask",
         "files": {"hello.py": 'print("Hello, world!")'},
         "run": "echo 'Erik' | python hello.py",
-        # TODO: work around the "don't try to execute it" part by improving gptme such that it just gives EOF to stdin in non-interactive mode
-        "prompt": "modify hello.py to ask the user for their name and print 'Hello, <name>!'. don't try to execute it",
+        "prompt": "modify hello.py to ask the user for their name and print 'Hello, <name>!'",
+        "tools": [
+            "save",
+            "patch",
+            "shell",
+        ],  # Can use both save and patch
         "expect": {
             "correct output": check_output_hello_ask,
         },
@@ -63,7 +69,11 @@ tests: list["EvalSpec"] = [
         "name": "prime100",
         "files": {},
         "run": "python prime.py",
-        "prompt": "write a script prime.py that computes and prints the 100th prime number",
+        "prompt": "write a script prime.py that computes and prints the 100th prime number when called",
+        "tools": [
+            "save",
+            "shell",
+        ],
         "expect": {
             "correct output": check_prime_output,
         },

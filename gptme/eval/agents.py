@@ -19,9 +19,15 @@ class Agent:
     model: str
     tool_format: ToolFormat
 
-    def __init__(self, model: str, tool_format: ToolFormat = "markdown"):
+    def __init__(
+        self,
+        model: str,
+        tool_format: ToolFormat = "markdown",
+        tools: list[str] | None = None,
+    ):
         self.model = model
         self.tool_format = tool_format
+        self.tools = tools
 
     @abstractmethod
     def act(self, files: Files | None, prompt: str) -> Files:
@@ -48,12 +54,14 @@ class GPTMe(Agent):
         if files:
             store.upload(files)
 
-        # TODO: make eval toolset configurable
-        tools = init_tools()
+        # Use configured tools or default to all tools
+        tools = init_tools(allowlist=self.tools)
 
         print("\n--- Start of generation ---")
         logger.debug(f"Working in {store.working_dir}")
-        prompt_sys_msgs = get_prompt(tools=tools, workspace=workspace_dir)
+        prompt_sys_msgs = get_prompt(
+            tool_format=self.tool_format, tools=tools, workspace=workspace_dir
+        )
         # Modify the first (core) system prompt to add eval-specific instruction
         if prompt_sys_msgs:
             prompt_sys_msgs[0] = prompt_sys_msgs[0].replace(
@@ -70,6 +78,7 @@ class GPTMe(Agent):
                 interactive=False,
                 workspace=workspace_dir,
                 tool_format=self.tool_format,
+                tool_allowlist=self.tools,
             )
         # don't exit on sys.exit()
         except (SystemExit, KeyboardInterrupt):

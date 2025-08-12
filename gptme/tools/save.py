@@ -177,9 +177,17 @@ def _validate_and_execute(
     operation: Literal["save", "append"],
 ) -> Generator[Message, None, None]:
     """Common validation and execution logic for save and append operations."""
-    if not code:
+    # Get content from kwargs if available (tool format), otherwise use code (markdown format)
+    content = kwargs.get("content") if kwargs else None
+    if not content:
+        content = code
+
+    if not content:
         yield Message("system", "No content provided")
         return
+
+    # Use content instead of code for the rest of the function
+    code = content
 
     if check_for_placeholders(code):
         action = "Save" if operation == "save" else "Append"
