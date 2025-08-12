@@ -15,9 +15,10 @@ from contextlib import contextmanager
 from logging import getLogger
 from typing import TYPE_CHECKING, TypeVar
 
-from . import get_tools
 from ..message import Message
 from ..util.ask_execute import print_preview
+from . import get_tools
+from .attempt_complete import Completed
 from .base import (
     ConfirmFunc,
     Parameter,
@@ -138,6 +139,10 @@ def execute_python(
     if isinstance(result.result, Message):
         yield result.result
         return
+    if isinstance(result.result, Completed):
+        # when we get a completion error, we exit early
+        print("Completed signal received, exiting.")
+        sys.exit(0)
 
     if result.result is not None:
         output += f"Result:\n```\n{result.result}\n```\n\n"
