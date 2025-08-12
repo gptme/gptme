@@ -358,14 +358,19 @@ class ToolUse:
             return None
 
     @classmethod
-    def iter_from_content(cls, content: str) -> Generator["ToolUse", None, None]:
+    def iter_from_content(
+        cls, content: str, tool_format_override: ToolFormat | None = None
+    ) -> Generator["ToolUse", None, None]:
         """Returns all ToolUse in a message, markdown or XML, in order."""
+        # Use override if provided, otherwise use global tool_format
+        active_format = tool_format_override or tool_format
+
         # collect all tool uses
         tool_uses = []
-        if tool_format == "xml":
+        if active_format == "xml":
             for tool_use in cls._iter_from_xml(content):
                 tool_uses.append(tool_use)
-        if tool_format == "markdown":
+        if active_format == "markdown":
             for tool_use in cls._iter_from_markdown(content):
                 tool_uses.append(tool_use)
 
@@ -375,8 +380,8 @@ class ToolUse:
         for tool_use in tool_uses:
             yield tool_use
 
-        # don't continue unless tool format
-        if not tool_format == "tool":
+        # don't continue unless tool format (or override allows it)
+        if active_format != "tool":
             return
 
         # check if its a toolcall and extract valid JSON

@@ -7,11 +7,12 @@ import logging
 from pathlib import Path
 
 from ..tools import ToolUse
-from ..tools.base import Parameter
+from ..tools.base import Parameter, ToolFormat
 
 
 def extract_tool_uses_from_assistant_message(
     message_content: str | list[dict[str, str]],
+    tool_format_override: ToolFormat | None = None,
 ) -> tuple[list[dict], list[ToolUse]]:
     """Extract tool uses from assistant message content.
 
@@ -21,6 +22,7 @@ def extract_tool_uses_from_assistant_message(
 
     Args:
         message_content: The message content (string or list of content parts)
+        tool_format_override: Override the global tool format for parsing
 
     Returns:
         tuple: (content_parts, tool_uses) where:
@@ -50,7 +52,7 @@ def extract_tool_uses_from_assistant_message(
 
             tooluses = [
                 tooluse
-                for tooluse in ToolUse.iter_from_content(text)
+                for tooluse in ToolUse.iter_from_content(text, tool_format_override)
                 if tooluse.is_runnable
             ]
             if not tooluses:

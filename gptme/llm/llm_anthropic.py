@@ -288,7 +288,7 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             modified_message = dict(message)
 
             content_parts, tool_uses = extract_tool_uses_from_assistant_message(
-                message["content"]
+                message["content"], tool_format_override="tool"
             )
 
             # Add tool uses in Anthropic format
