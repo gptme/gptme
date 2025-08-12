@@ -385,6 +385,9 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests">Tests</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#telemetry">Telemetry</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">Setup</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#available-metrics">Available Metrics</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-prometheus-queries">Example Prometheus Queries</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
@@ -455,9 +458,33 @@ make<span class="w"> </span>build
 </pre></div>
 </div>
 </li>
-<li><p>Set the telemetry environment variable:</p>
+<li><p>(Optional) Run Prometheus for metrics collection:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Simple default Prometheus</span>
+docker<span class="w"> </span>run<span class="w"> </span>--name<span class="w"> </span>prometheus<span class="w"> </span>-d<span class="w"> </span>-p<span class="w"> </span><span class="m">127</span>.0.0.1:9090:9090<span class="w"> </span>prom/prometheus
+
+<span class="c1"># Or with custom config to scrape gptme metrics on port 8000</span>
+cat<span class="w"> </span>&gt;<span class="w"> </span>scripts/prometheus.yml<span class="w"> </span><span class="s">&lt;&lt; EOF</span>
+<span class="s">global:</span>
+<span class="s">  scrape_interval: 15s</span>
+<span class="s">scrape_configs:</span>
+<span class="s">  - job_name: &#39;gptme&#39;</span>
+<span class="s">    static_configs:</span>
+<span class="s">      - targets: [&#39;host.docker.internal:8000&#39;]</span>
+<span class="s">    metrics_path: &#39;/metrics&#39;</span>
+<span class="s">EOF</span>
+
+docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--name<span class="w"> </span>prometheus<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>-p<span class="w"> </span><span class="m">9090</span>:9090<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>-v<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/scripts/prometheus.yml:/etc/prometheus/prometheus.yml<span class="w"> </span><span class="se">\</span>
+<span class="w">          </span>prom/prometheus<span class="w"> </span>--enable-feature<span class="o">=</span>otlp-write-receive
+</pre></div>
+</div>
+</li>
+<li><p>Set the telemetry environment variables:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_TELEMETRY_ENABLED</span><span class="o">=</span><span class="nb">true</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://localhost:4317<span class="w">  </span><span class="c1"># optional (default)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PROMETHEUS_PORT</span><span class="o">=</span><span class="m">8000</span><span class="w">  </span><span class="c1"># optional (default)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PROMETHEUS_ADDR</span><span class="o">=</span><span class="m">0</span>.0.0.0<span class="w">  </span><span class="c1"># optional (default: localhost, use 0.0.0.0 for Docker access)</span>
 </pre></div>
 </div>
 </li>
@@ -468,10 +495,12 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 </pre></div>
 </div>
 </li>
-<li><p>View traces in Jaeger UI:</p>
-<blockquote>
-<div><p>You can view traces in the Jaeger UI at <a class="reference external" href="http://localhost:16686">http://localhost:16686</a>.</p>
-</div></blockquote>
+<li><p>View data:</p>
+<ul class="simple">
+<li><p><strong>Traces</strong>: Jaeger UI at <a class="reference external" href="http://localhost:16686">http://localhost:16686</a></p></li>
+<li><p><strong>Metrics</strong>: Prometheus UI at <a class="reference external" href="http://localhost:9090">http://localhost:9090</a></p></li>
+<li><p><strong>Raw metrics</strong>: Direct metrics endpoint at <a class="reference external" href="http://localhost:8000/metrics">http://localhost:8000/metrics</a></p></li>
+</ul>
 </li>
 </ol>
 <p>Once enabled, gptme will automatically:</p>
@@ -480,12 +509,60 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <li><p>Record token processing metrics</p></li>
 <li><p>Monitor request durations</p></li>
 <li><p>Instrument Flask and HTTP requests</p></li>
+<li><p>Expose Prometheus metrics at <cite>/metrics</cite> endpoint</p></li>
 </ul>
 <p>The telemetry data helps identify:</p>
 <ul class="simple">
 <li><p>Slow operations and bottlenecks</p></li>
 <li><p>Token processing rates</p></li>
 <li><p>Tool execution performance</p></li>
+<li><p>Resource usage patterns</p></li>
+</ul>
+</section>
+<section id="available-metrics">
+<h3>Available Metrics<a class="headerlink" href="#available-metrics" title="Link to this heading">#</a></h3>
+<p>The following metrics are automatically collected:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme_tokens_processed_total</span></code>: Counter of tokens processed by type</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme_request_duration_seconds</span></code>: Histogram of request durations by endpoint</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme_tool_calls_total</span></code>: Counter of tool calls made by tool name</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme_tool_duration_seconds</span></code>: Histogram of tool execution durations by tool name</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme_active_conversations</span></code>: Gauge of currently active conversations</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme_llm_requests_total</span></code>: Counter of LLM API requests by provider, model, and success status</p></li>
+<li><p>HTTP request metrics (from Flask instrumentation)</p></li>
+<li><p>OpenAI/Anthropic API call metrics (from LLM instrumentations)</p></li>
+</ul>
+</section>
+<section id="example-prometheus-queries">
+<h3>Example Prometheus Queries<a class="headerlink" href="#example-prometheus-queries" title="Link to this heading">#</a></h3>
+<p>Here are some useful Prometheus queries for monitoring gptme:</p>
+<div class="highlight-promql notranslate"><div class="highlight"><pre><span></span><span class="c1"># Average tool execution time by tool</span>
+<span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tool_duration_seconds_sum</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tool_duration_seconds_count</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
+
+<span class="c1"># Most used tools</span>
+<span class="k">topk</span><span class="o">(</span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tool_calls_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">))</span>
+
+<span class="c1"># LLM request success rate</span>
+<span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">{</span><span class="nl">success</span><span class="o">=</span><span class="p">&quot;</span><span class="s">true</span><span class="p">&quot;}[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
+
+<span class="c1"># Tokens processed per second</span>
+<span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tokens_processed_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
+
+<span class="c1"># Active conversations</span>
+<span class="nv">gptme_active_conversations</span>
+
+<span class="c1"># Request latency percentiles</span>
+<span class="kr">histogram_quantile</span><span class="o">(</span><span class="mf">0.95</span><span class="p">,</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_request_duration_seconds_bucket</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">))</span>
+</pre></div>
+</div>
+</section>
+<section id="environment-variables">
+<h3>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TELEMETRY_ENABLED</span></code>: Enable/disable telemetry (default: false)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">OTLP_ENDPOINT</span></code>: OTLP endpoint for traces (default: <a class="reference external" href="http://localhost:4317">http://localhost:4317</a>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PROMETHEUS_PORT</span></code>: Port for Prometheus metrics endpoint (default: 8000)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PROMETHEUS_ADDR</span></code>: Address for Prometheus metrics endpoint (default: localhost, use 0.0.0.0 for Docker access)</p></li>
 </ul>
 </section>
 </section>
@@ -545,6 +622,9 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests">Tests</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#telemetry">Telemetry</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">Setup</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#available-metrics">Available Metrics</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-prometheus-queries">Example Prometheus Queries</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
