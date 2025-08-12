@@ -1,0 +1,22 @@
+
+--- Start of generation ---
+[14:44:49] Using model: anthropic/claude-sonnet-4-20250514                      
+[14:44:50] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-08-12-gptme-evals-anthropic--claude-so
+           nnet-4-20250514-tool-382166                                          
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-08-12-gptme-evals-anthropic--claude-so
+           nnet-4-20250514-tool-382166/workspace                                
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+
+@save(toolu_015LXNbeBaDBEiRhSb2xaa88): {"path": "hello.py", "content": "print(\"Hello, world!\")"}                                                                                
+Preview
+print("Hello, world!")                                                          
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+I've created a Python script `hello.py` that prints "Hello, world!" exactly as requested.                                                                                --- Finished generation ---
+
