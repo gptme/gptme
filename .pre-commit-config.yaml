@@ -15,7 +15,7 @@ repos:
   rev: v1.12.0
   hooks:
   - id: mypy
-    additional_dependencies: [types-tabulate, types-docutils, tomli, tomli_w, opentelemetry-api, opentelemetry-sdk]
+    additional_dependencies: [types-tabulate, types-docutils, tomli, tomli_w, opentelemetry-api, opentelemetry-sdk, prometheus-client, prompt_toolkit, click, pytest, openai, rich, tomlkit]
     args: [--ignore-missing-imports, --check-untyped-defs]
 - repo: local
   hooks:

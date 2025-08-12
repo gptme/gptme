@@ -185,6 +185,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
     api_model = model if is_proxy else base_model
 
     from openai import NOT_GIVEN  # fmt: skip
+    from openai.types.chat import ChatCompletionMessageToolCall  # fmt: skip
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
 
@@ -201,6 +202,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
     result = []
     if choice.finish_reason == "tool_calls":
         for tool_call in choice.message.tool_calls or []:
+            assert isinstance(tool_call, ChatCompletionMessageToolCall)
             result.append(
                 f"@{tool_call.function.name}({tool_call.id}): {tool_call.function.arguments}"
             )

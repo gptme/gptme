@@ -45,6 +45,7 @@ lxml = "*"
 json-repair = "^0.32.0"
 mcp = "^1.5.0"
 questionary = "^2.1.0"
+deprecated = "^1.2.18"
 
 # providers
 openai = "^1.0"
@@ -82,7 +83,6 @@ opentelemetry-exporter-otlp = {version = "^1.34.1", optional=true}
 opentelemetry-exporter-prometheus = {version = "^0.55b1", optional=true}
 opentelemetry-instrumentation-anthropic = {version="^0.40.14", optional=true}
 opentelemetry-instrumentation-openai-v2 = {version="^2.1b0", optional=true}
-deprecated = "^1.2.18"
 
 [tool.poetry.group.dev.dependencies]
 # lint
