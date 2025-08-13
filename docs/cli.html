@@ -466,7 +466,7 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <div class="line">/impersonate  Impersonate the assistant</div>
 <div class="line">/tokens       Show the number of tokens used</div>
 <div class="line">/export       Export conversation as HTML</div>
-<div class="line">/commit       Commit staged changes to git</div>
+<div class="line">/commit       Ask assistant to git commit</div>
 <div class="line">/setup        Setup gptme with completions and configuration</div>
 <div class="line">/help         Show this help message</div>
 <div class="line">/exit         Exit the program</div>
@@ -490,7 +490,7 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-m">
 <span id="cmdoption-gptme-model"></span><span class="sig-name descname"><span class="pre">-m</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--model</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;model&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-m" title="Link to this definition">#</a></dt>
-<dd><p>Model to use, e.g. openai/gpt-4o, anthropic/claude-sonnet-4-20250514. If only provider given then a default is used.</p>
+<dd><p>Model to use, e.g. openai/gpt-5, anthropic/claude-sonnet-4-20250514. If only provider given then a default is used.</p>
 </dd></dl>
 
 <dl class="std option">
@@ -508,13 +508,13 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-r">
 <span id="cmdoption-gptme-resume"></span><span class="sig-name descname"><span class="pre">-r</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--resume</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-r" title="Link to this definition">#</a></dt>
-<dd><p>Load last conversation</p>
+<dd><p>Load most recent conversation.</p>
 </dd></dl>
 
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-y">
 <span id="cmdoption-gptme-no-confirm"></span><span class="sig-name descname"><span class="pre">-y</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--no-confirm</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-y" title="Link to this definition">#</a></dt>
-<dd><p>Skips all confirmation prompts.</p>
+<dd><p>Skip all confirmation prompts.</p>
 </dd></dl>
 
 <dl class="std option">
@@ -526,19 +526,19 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-system">
 <span class="sig-name descname"><span class="pre">--system</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;prompt_system&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-system" title="Link to this definition">#</a></dt>
-<dd><p>System prompt. Can be ‘full’, ‘short’, or something custom.</p>
+<dd><p>System prompt. Options: ‘full’, ‘short’, or something custom.</p>
 </dd></dl>
 
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-t">
 <span id="cmdoption-gptme-tools"></span><span class="sig-name descname"><span class="pre">-t</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--tools</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tool_allowlist&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-t" title="Link to this definition">#</a></dt>
-<dd><p>Comma-separated list of tools to allow. Available: append, browser, chats, choice, computer, gh, ipython, patch, read, save, screenshot, shell, subagent, tmux, vision.</p>
+<dd><p>Tools to allow as comma-separated list. Available: append, browser, chats, choice, computer, gh, ipython, patch, read, save, screenshot, shell, subagent, tmux, vision.</p>
 </dd></dl>
 
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-tool-format">
 <span class="sig-name descname"><span class="pre">--tool-format</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tool_format&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-tool-format" title="Link to this definition">#</a></dt>
-<dd><p>Tool parsing method. Can be ‘markdown’, ‘xml’, ‘tool’. (experimental)</p>
+<dd><p>Tool format to use. Options: markdown, xml, tool</p>
 </dd></dl>
 
 <dl class="std option">
