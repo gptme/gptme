@@ -1,0 +1,14 @@
+
+--- Start of generation ---
+[03:17:02] Using model: anthropic/claude-3-5-haiku-20241022                     
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-08-14-gptme-evals-anthropic--claude-3-
+           5-haiku-20241022-xml-865724                                          
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-08-14-gptme-evals-anthropic--claude-3-
+           5-haiku-20241022-xml-865724/workspace                                
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script prime.py that computes and prints the 100th prime number 
+when called
+Assistant: Thinking...                                                                                
