@@ -619,39 +619,97 @@ def _get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
         return None
 
     try:
-        result = subprocess.run(
+        # Get the issue content
+        issue_result = subprocess.run(
             ["gh", "issue", "view", number, "--repo", f"{owner}/{repo}"],
             capture_output=True,
             text=True,
             check=True,
         )
-        return result.stdout
+
+        # Get the comments
+        comments_result = subprocess.run(
+            ["gh", "issue", "view", number, "--repo", f"{owner}/{repo}", "--comments"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        # Combine issue and comments
+        content = issue_result.stdout
+        if comments_result.stdout.strip():
+            content += "\n\n" + comments_result.stdout
+
+        return content
     except subprocess.CalledProcessError as e:
         logger.warning(f"Failed to get GitHub issue content: {e}")
         return None
 
 
 def _get_github_pr_content(url: str) -> str | None:
-    """Get GitHub PR content with comments using the custom script."""
-    # Path to the PR viewing script relative to the gptme repo root
-    script_path = (
-        Path(__file__).parent.parent.parent
-        / "scripts"
-        / "gh-pr-view-with-pr-comments.py"
-    )
-
-    if not script_path.exists():
-        logger.debug(f"PR viewing script not found at {script_path}")
+    """Get GitHub PR content with comments and reviews using gh CLI."""
+    if not shutil.which("gh"):
+        logger.debug("gh CLI not available for GitHub PR handling")
         return None
 
+    github_info = _parse_github_url(url)
+    if not github_info:
+        return None
+
+    owner = github_info["owner"]
+    repo = github_info["repo"]
+    number = github_info["number"]
+
     try:
-        result = subprocess.run(
-            ["python3", str(script_path), url],
+        # Get the PR content
+        pr_result = subprocess.run(
+            ["gh", "pr", "view", number, "--repo", f"{owner}/{repo}"],
             capture_output=True,
             text=True,
             check=True,
         )
-        return result.stdout
+
+        # Get the PR comments
+        comments_result = subprocess.run(
+            ["gh", "pr", "view", number, "--repo", f"{owner}/{repo}", "--comments"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        # Get review comments (inline code comments) using GitHub API
+        review_comments_result = subprocess.run(
+            ["gh", "api", f"/repos/{owner}/{repo}/pulls/{number}/comments"],
+            capture_output=True,
+            text=True,
+            check=False,  # Don't fail if this doesn't work
+        )
+
+        # Combine all content
+        content = pr_result.stdout
+
+        if comments_result.stdout.strip():
+            content += "\n\n" + comments_result.stdout
+
+        # Format review comments if we got them
+        if (
+            review_comments_result.returncode == 0
+            and review_comments_result.stdout.strip()
+        ):
+            try:
+                review_comments = json.loads(review_comments_result.stdout)
+                if review_comments:
+                    content += "\n\n## Review Comments\n"
+                    for comment in review_comments:
+                        user = comment.get("user", {}).get("login", "unknown")
+                        body = comment.get("body", "")
+                        path = comment.get("path", "")
+                        line = comment.get("line", "")
+                        content += f"\n**@{user}** on {path}:{line}:\n{body}\n"
+            except (json.JSONDecodeError, KeyError):
+                logger.debug("Failed to parse review comments JSON")
+
+        return content
     except subprocess.CalledProcessError as e:
         logger.warning(f"Failed to get GitHub PR content: {e}")
         return None
