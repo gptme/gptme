@@ -1,3 +1,9 @@
+"""
+Fetches GitHub issue or PR content using the `gh` CLI tool, including essential info like comments and reviews.
+
+Inspired by scripts/gh-pr-view-with-pr-comments.py
+"""
+
 import json
 import logging
 import shutil
