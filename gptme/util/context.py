@@ -572,6 +572,91 @@ def _find_potential_paths(content: str) -> list[str]:
     return paths
 
 
+def _transform_github_url(url: str) -> str:
+    """
+    Transform GitHub blob URLs to raw URLs to get file content without UI.
+
+    Transforms:
+    https://github.com/{owner}/{repo}/blob/{branch}/{path}
+    to:
+    https://github.com/{owner}/{repo}/raw/refs/heads/{branch}/{path}
+    """
+    if "/blob/" in url and "github.com" in url:
+        return url.replace("/blob/", "/raw/refs/heads/")
+    return url
+
+
+def _parse_github_url(url: str) -> dict[str, str] | None:
+    """
+    Parse GitHub issue/PR URLs and return owner, repo, type, and number.
+
+    Returns:
+        Dict with 'owner', 'repo', 'type' ('issues' or 'pull'), 'number'
+        or None if not a GitHub issue/PR URL
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.netloc != "github.com":
+            return None
+
+        path_parts = parsed.path.strip("/").split("/")
+        if len(path_parts) >= 4 and path_parts[2] in ["issues", "pull"]:
+            return {
+                "owner": path_parts[0],
+                "repo": path_parts[1],
+                "type": path_parts[2],
+                "number": path_parts[3],
+            }
+    except Exception:
+        pass
+    return None
+
+
+def _get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
+    """Get GitHub issue content using gh CLI."""
+    if not shutil.which("gh"):
+        logger.debug("gh CLI not available for GitHub issue handling")
+        return None
+
+    try:
+        result = subprocess.run(
+            ["gh", "issue", "view", number, "--repo", f"{owner}/{repo}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to get GitHub issue content: {e}")
+        return None
+
+
+def _get_github_pr_content(url: str) -> str | None:
+    """Get GitHub PR content with comments using the custom script."""
+    # Path to the PR viewing script relative to the gptme repo root
+    script_path = (
+        Path(__file__).parent.parent.parent
+        / "scripts"
+        / "gh-pr-view-with-pr-comments.py"
+    )
+
+    if not script_path.exists():
+        logger.debug(f"PR viewing script not found at {script_path}")
+        return None
+
+    try:
+        result = subprocess.run(
+            ["python3", str(script_path), url],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to get GitHub PR content: {e}")
+        return None
+
+
 def _resource_to_codeblock(prompt: str) -> str | None:
     """
     Takes a string that might be a path or URL,
@@ -621,15 +706,34 @@ def _resource_to_codeblock(prompt: str) -> str | None:
     for path in paths:
         result += _resource_to_codeblock(path) or ""
 
-    if not has_tool("browser"):
-        logger.warning("Browser tool not available, skipping URL read")
-    else:
-        for url in urls:
+    for url in urls:
+        content = None
+
+        # First try to handle GitHub issues/PRs with specialized tools
+        github_info = _parse_github_url(url)
+        if github_info:
+            if github_info["type"] == "issues":
+                content = _get_github_issue_content(
+                    github_info["owner"], github_info["repo"], github_info["number"]
+                )
+            elif github_info["type"] == "pull":
+                content = _get_github_pr_content(url)
+
+        # If GitHub handling failed or not a GitHub issue/PR, fall back to browser
+        if not content and has_tool("browser"):
             try:
-                content = read_url(url)
-                result += f"```{url}\n{content}\n```"
+                # Transform GitHub blob URLs to raw URLs
+                transformed_url = _transform_github_url(url)
+                if transformed_url != url:
+                    logger.debug(f"Transformed GitHub URL: {url} -> {transformed_url}")
+                content = read_url(transformed_url)
             except Exception as e:
                 logger.warning(f"Failed to read URL {url}: {e}")
+        elif not content and not has_tool("browser"):
+            logger.warning("Browser tool not available, skipping URL read")
+
+        if content:
+            result += f"```{url}\n{content}\n```"
 
     return result
 
