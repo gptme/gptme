@@ -8,12 +8,20 @@ import logging
 import os
 import platform as platform_module
 import queue
+import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from ..config import get_config
+
+
+class AudioPlayer(TypedDict):
+    cmd: str
+    args: list[str]
+
 
 log = logging.getLogger(__name__)
 
@@ -37,10 +45,38 @@ current_volume = 0.7
 
 media_path = Path(__file__).parent.parent.parent / "media"
 
+# Available system audio players (in order of preference)
+AUDIO_PLAYERS: list[AudioPlayer] = [
+    {"cmd": "paplay", "args": []},  # PulseAudio player
+    {
+        "cmd": "ffplay",
+        "args": ["-nodisp", "-autoexit", "-loglevel", "quiet"],
+    },  # FFmpeg player
+]
+
 
 def is_audio_available() -> bool:
-    """Check if audio playback is available."""
+    """Check if audio playback is available via system tools or sounddevice."""
+    # Check if any system audio player is available
+    for player in AUDIO_PLAYERS:
+        if _check_command_available(player["cmd"]):
+            return True
+
+    # Fall back to checking sounddevice
     return has_audio_imports
+
+
+def _check_command_available(cmd: str) -> bool:
+    """Check if a command is available in the system PATH."""
+    try:
+        subprocess.run([cmd, "--help"], capture_output=True, timeout=2, check=False)
+        return True
+    except (
+        subprocess.TimeoutExpired,
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+    ):
+        return False
 
 
 def _check_device_override(devices) -> tuple[int, int] | None:
@@ -106,7 +142,33 @@ def _get_output_device_macos(devices) -> tuple[int, int]:
 
 def _get_output_device_linux(devices) -> tuple[int, int]:
     """Get the best output device for Linux."""
-    # Prefer PulseAudio - it handles user's audio routing preferences
+    # Try system default first
+    try:
+        default_output = sd.default.device[1]
+        if default_output is not None:
+            device_info = sd.query_devices(default_output)
+            if device_info["max_output_channels"] > 0:
+                log.debug(f"Using system default output device: {device_info['name']}")
+                return default_output, int(device_info["default_samplerate"])
+    except Exception as e:
+        log.debug(f"Could not use default device: {e}")
+
+    # Try ALSA devices (more reliable than PulseAudio for sounddevice)
+    alsa_device = next(
+        (
+            i
+            for i, d in enumerate(devices)
+            if ("alsa" in d["name"].lower() or "hw:" in d["name"].lower())
+            and d["max_output_channels"] > 0
+        ),
+        None,
+    )
+    if alsa_device is not None:
+        device_info = sd.query_devices(alsa_device)
+        log.debug(f"Using ALSA device: {device_info['name']}")
+        return alsa_device, int(device_info["default_samplerate"])
+
+    # Fallback to PulseAudio if ALSA not found
     pulse_device = next(
         (
             i
@@ -192,7 +254,7 @@ def _resample_audio(data, orig_sr, target_sr):
 
 
 def _audio_player_thread_fn() -> None:
-    """Background thread for playing audio."""
+    """Background thread for playing audio using system commands (preferred) or sounddevice (fallback)."""
     log.debug("Audio player thread started")
     while True:
         try:
@@ -211,31 +273,139 @@ def _audio_player_thread_fn() -> None:
                 f"Playing audio: shape={data.shape}, sr={sample_rate}, vol={current_volume}"
             )
 
-            # Get output device
+            # First try to save as temp file and play with system commands
+            success = False
             try:
-                output_device, _ = get_output_device()
-                if output_device is not None:
-                    log.debug(f"Playing on device: {output_device}")
-                else:
-                    log.debug("Playing on system default device")
-            except RuntimeError as e:
-                log.error(str(e))
-                audio_queue.task_done()
-                continue
+                import tempfile
 
-            sd.play(data, sample_rate, device=output_device)
-            sd.wait()  # Wait until audio is finished playing
-            log.debug("Finished playing audio chunk")
+                with tempfile.NamedTemporaryFile(
+                    suffix=".wav", delete=False
+                ) as tmp_file:
+                    tmp_path = Path(tmp_file.name)
+
+                    # Convert and save to temp WAV file
+                    data_int16 = (data * 32767).astype("int16")
+                    wavfile.write(tmp_path, sample_rate, data_int16)
+
+                    # Try to play with system commands
+                    if _play_with_system_command_blocking(tmp_path, current_volume):
+                        success = True
+
+                    # Clean up temp file
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
+
+            except Exception as e:
+                log.debug(f"System command playback failed: {e}")
+
+            # Fall back to sounddevice if system commands failed
+            if not success:
+                log.debug("System audio players failed, falling back to sounddevice")
+                try:
+                    # Get output device with timeout
+                    try:
+                        output_device, _ = get_output_device()
+                        if output_device is not None:
+                            log.debug(f"Playing on device: {output_device}")
+                        else:
+                            log.debug("Playing on system default device")
+                    except RuntimeError as e:
+                        log.error(f"Device error: {e}")
+                        audio_queue.task_done()
+                        continue
+
+                    # Play with timeout protection
+                    sd.play(data, sample_rate, device=output_device)
+
+                    # Wait with timeout
+                    start_time = time.time()
+                    timeout = 10.0  # 10 second timeout
+                    while sd.get_stream().active:
+                        if time.time() - start_time > timeout:
+                            log.warning("Audio playback timed out, stopping")
+                            sd.stop()
+                            break
+                        time.sleep(0.1)
+
+                    log.debug("Finished playing audio chunk")
+                except Exception as e:
+                    log.error(f"sounddevice playback error: {e}")
+                    try:
+                        sd.stop()
+                    except Exception:
+                        pass
 
             audio_queue.task_done()
         except Exception as e:
-            log.error(f"Error in audio playback: {e}")
+            log.error(f"Error in audio playback thread: {e}")
             if not audio_queue.empty():
                 audio_queue.task_done()
 
 
+def _play_with_system_command_blocking(file_path: Path, volume: float = 1.0) -> bool:
+    """Play audio file using system commands (blocking call for background thread).
+
+    Args:
+        file_path: Path to the audio file
+        volume: Volume level (0.0 to 1.0)
+
+    Returns:
+        True if successfully played, False if all system players failed
+    """
+    for player in AUDIO_PLAYERS:
+        if not _check_command_available(player["cmd"]):
+            continue
+
+        try:
+            cmd = [player["cmd"]] + player["args"]
+
+            # Add volume control if supported
+            if player["cmd"] == "paplay" and volume != 1.0:
+                # paplay uses --volume (0-65536, where 65536 = 100%)
+                vol_arg = str(int(volume * 65536))
+                cmd.extend(["--volume", vol_arg])
+            elif player["cmd"] == "ffplay" and volume != 1.0:
+                # ffplay uses -volume (0-100)
+                vol_arg = str(int(volume * 100))
+                cmd.extend(["-volume", vol_arg])
+
+            cmd.append(str(file_path))
+
+            log.debug(f"Playing audio with {player['cmd']}: {' '.join(cmd)}")
+
+            # Run the command with timeout (blocking in background thread)
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=10,  # 10 second timeout
+                check=False,
+            )
+
+            if result.returncode == 0:
+                log.debug(f"Successfully played audio with {player['cmd']}")
+                return True
+            else:
+                log.debug(
+                    f"{player['cmd']} failed with return code {result.returncode}"
+                )
+                if result.stderr:
+                    stderr = result.stderr.decode().strip()
+                    if stderr:
+                        log.debug(f"{player['cmd']} stderr: {stderr}")
+
+        except subprocess.TimeoutExpired:
+            log.warning(f"Audio playback with {player['cmd']} timed out")
+        except Exception as e:
+            log.debug(f"Failed to play audio with {player['cmd']}: {e}")
+
+    return False
+
+
 def ensure_playback_thread():
-    """Ensure the audio playback thread is running."""
+    """Ensure the audio playback thread is running (only for sounddevice fallback)."""
     global playback_thread
 
     if playback_thread is None or not playback_thread.is_alive():
@@ -252,10 +422,19 @@ def set_volume(volume: float):
 
 def stop_audio():
     """Stop audio playback and clear queue."""
-    if not has_audio_imports:
-        return
+    # Stop any running subprocess audio players
+    try:
+        subprocess.run(["pkill", "-f", "paplay"], capture_output=True, timeout=2)
+        subprocess.run(["pkill", "-f", "ffplay"], capture_output=True, timeout=2)
+    except Exception:
+        pass
 
-    sd.stop()
+    # Stop sounddevice if available
+    if has_audio_imports:
+        try:
+            sd.stop()
+        except Exception:
+            pass
 
     # Clear queue
     while not audio_queue.empty():
@@ -292,7 +471,7 @@ def convert_audio_to_float32(data: Any) -> Any:
 
 
 def play_audio_data(data: Any, sample_rate: int, block: bool = False):
-    """Play audio data directly.
+    """Play audio data directly (uses sounddevice as fallback).
 
     Args:
         data: Audio data as numpy array
@@ -332,29 +511,29 @@ def play_audio_data(data: Any, sample_rate: int, block: bool = False):
 
 
 def play_sound_file(file_path: Path, block: bool = False):
-    """Play a sound file.
+    """Play a sound file using the background audio system.
 
     Args:
         file_path: Path to the sound file
         block: If True, wait for audio to finish playing
     """
-    if not has_audio_imports:
-        log.debug("Audio not available, skipping sound file playback")
-        return
-
     if not file_path.exists():
         log.warning(f"Sound file not found: {file_path}")
         return
 
+    # Always use the background thread system for consistent non-blocking behavior
+    if not has_audio_imports:
+        log.warning("No audio playback methods available")
+        return
+
     try:
-        # Handle different audio formats
+        # Load the audio file and queue it for background playback
         if file_path.suffix.lower() == ".wav":
             sample_rate, data = wavfile.read(file_path)
             play_audio_data(data, sample_rate, block)
         elif file_path.suffix.lower() == ".mp3":
             # For MP3 files, we'd need additional libraries like pydub
-            # For now, log that MP3 is not supported directly
-            log.warning("MP3 files not directly supported yet, need to convert to WAV")
+            log.warning("MP3 files not directly supported, need to convert to WAV")
         else:
             log.warning(f"Unsupported audio format: {file_path.suffix}")
     except Exception as e:
@@ -442,6 +621,10 @@ def get_tool_sound_for_tool(tool_name: str) -> str | None:
 
 def wait_for_audio():
     """Wait for all audio playback to finish."""
+    # For system commands, we can't easily wait, so just give a short delay
+    time.sleep(0.1)
+
+    # For sounddevice fallback
     if has_audio_imports and playback_thread and playback_thread.is_alive():
         try:
             audio_queue.join()
