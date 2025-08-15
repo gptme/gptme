@@ -8,6 +8,7 @@ import logging
 import os
 import platform as platform_module
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -59,24 +60,11 @@ def is_audio_available() -> bool:
     """Check if audio playback is available via system tools or sounddevice."""
     # Check if any system audio player is available
     for player in AUDIO_PLAYERS:
-        if _check_command_available(player["cmd"]):
+        if shutil.which(player["cmd"]):
             return True
 
     # Fall back to checking sounddevice
     return has_audio_imports
-
-
-def _check_command_available(cmd: str) -> bool:
-    """Check if a command is available in the system PATH."""
-    try:
-        subprocess.run([cmd, "--help"], capture_output=True, timeout=2, check=False)
-        return True
-    except (
-        subprocess.TimeoutExpired,
-        subprocess.CalledProcessError,
-        FileNotFoundError,
-    ):
-        return False
 
 
 def _check_device_override(devices) -> tuple[int, int] | None:
@@ -355,7 +343,7 @@ def _play_with_system_command_blocking(file_path: Path, volume: float = 1.0) -> 
         True if successfully played, False if all system players failed
     """
     for player in AUDIO_PLAYERS:
-        if not _check_command_available(player["cmd"]):
+        if not shutil.which(player["cmd"]):
             continue
 
         try:
