@@ -70,7 +70,7 @@ def play_with_system_command_blocking(file_path: Path, volume: float = 1.0) -> b
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
-                timeout=10,  # 10 second timeout
+                timeout=60,  # 60 second timeout, to account for long TTS outputs
                 check=False,
             )
 
