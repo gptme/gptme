@@ -1,0 +1,15 @@
+
+--- Start of generation ---
+[03:18:10] Using model: openai/gpt-4o                                           
+[03:18:11] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-08-15-gptme-evals-openai--gpt-4o-xml-4
+           97848                                                                
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-08-15-gptme-evals-openai--gpt-4o-xml-4
+           97848/workspace                                                      
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+Sure, I'll create a script named `hello.py` that prints "Hello, world!".                                                                                --- Finished generation ---
+
