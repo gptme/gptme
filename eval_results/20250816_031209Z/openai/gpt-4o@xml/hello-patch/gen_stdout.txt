@@ -1,0 +1,34 @@
+
+--- Start of generation ---
+[03:11:32] Using model: openai/gpt-4o                                           
+[03:11:33] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-08-16-gptme-evals-openai--gpt-4o-xml-6
+           63357                                                                
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-08-16-gptme-evals-openai--gpt-4o-xml-6
+           63357/workspace                                                      
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: 
+Patch the code in hello.py to print "Hello, human!"
+
+```hello.py
+print("Hello, world!")
+```
+Assistant: Thinking...                                                                                Assistant: 
+To update the code in `hello.py` to print "Hello, human!" instead of "Hello, world!", I'll create a patch for you.
+
+```python
+print("Hello, world!")
+```
+
+Here's the patch:
+
+```python
+<<<<<<< ORIGINAL
+print("Hello, world!")
+=======
+print("Hello, human!")
+>>>>>>> UPDATED
+```                                                                                --- Finished generation ---
+

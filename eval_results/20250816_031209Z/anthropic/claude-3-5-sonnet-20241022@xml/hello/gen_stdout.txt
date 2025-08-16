@@ -1,0 +1,29 @@
+
+--- Start of generation ---
+[03:11:40] Using model: anthropic/claude-3-5-sonnet-20241022                    
+[03:11:41] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-08-16-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-xml-442678                                         
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-08-16-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-xml-442678/workspace                               
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+<thinking>          <thinking>
+Simple task - writing a basic Python script that prints "Hello, world!". I'll use the save tool to create the file.
+</thinking>           </thinking>
+
+<tool-use>
+<save args='hello.py'>
+print("Hello, world!")
+</save>
+</tool-use>                                                                                
+Preview
+print("Hello, world!")                                                          
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+The script has been created. You can run it with `python3 hello.py` to see the output.                                                                                --- Finished generation ---
+
