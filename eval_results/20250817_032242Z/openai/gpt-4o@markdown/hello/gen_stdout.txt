@@ -1,0 +1,31 @@
+
+--- Start of generation ---
+[03:22:07] Using model: openai/gpt-4o                                           
+[03:22:08] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-08-17-gptme-evals-openai--gpt-4o-markd
+           own-440834                                                           
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-08-17-gptme-evals-openai--gpt-4o-markd
+           own-440834/workspace                                                 
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+Here's a simple Python script that prints "Hello, world!":
+
+```save hello.py
+print("Hello, world!")
+```                                                                                
+Preview
+print("Hello, world!")                                                          
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+The script `hello.py` has been created. You can run it using the following command:
+
+```bash
+python3 hello.py
+```
+
+This will output "Hello, world!" to the console.                                                                                --- Finished generation ---
+
