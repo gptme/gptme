@@ -313,18 +313,6 @@ def main(
         shutdown_telemetry()
 
 
-def get_name(name: str) -> str:
-    """
-    Returns a name for the new conversation.
-
-    If name is "random", generates a random name.
-    If name is starts with a date, uses it as is.
-    Otherwise, prepends the current date to the name.
-    """
-    logsdir = get_logs_dir()
-    return generate_conversation_id(name=name, logs_dir=logsdir)
-
-
 def pick_log(limit=20) -> Path:  # pragma: no cover
     # let user select between starting a new conversation and loading a previous one
     # using the library
@@ -371,10 +359,11 @@ def pick_log(limit=20) -> Path:  # pragma: no cover
 
 
 def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
+    logs_dir = get_logs_dir()
     if logdir == "random":
-        logdir = get_logs_dir() / get_name("random")
+        logdir = logs_dir / generate_conversation_id(name="random", logs_dir=logs_dir)
     elif isinstance(logdir, str):
-        logdir = get_logs_dir() / logdir
+        logdir = logs_dir / logdir
 
     logdir.mkdir(parents=True, exist_ok=True)
     return logdir

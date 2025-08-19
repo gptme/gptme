@@ -4,9 +4,9 @@ from abc import abstractmethod
 from gptme import Message
 from gptme import chat as gptme_chat
 from gptme import get_prompt
-from gptme.cli import get_name
 from gptme.dirs import get_logs_dir
 from gptme.tools import init_tools
+from gptme.util.auto_naming import generate_conversation_id
 
 from ..tools import ToolFormat
 from .filestore import FileStore
@@ -41,7 +41,9 @@ class GPTMe(Agent):
     def act(self, files: Files | None, prompt: str):
         _id = abs(hash(prompt)) % 1000000
         model_fmt = f"{self.model.replace('/', '--')}-{self.tool_format}"
-        name = get_name(f"gptme-evals-{model_fmt}-{_id}")
+        name = generate_conversation_id(
+            f"gptme-evals-{model_fmt}-{_id}", get_logs_dir()
+        )
         log_dir = get_logs_dir() / name
         workspace_dir = log_dir / "workspace"
         if workspace_dir.exists():
