@@ -139,9 +139,10 @@ version:
 .PHONY: dist/CHANGELOG.md
 dist/CHANGELOG.md: ./scripts/build_changelog.py
 	VERSION=$$(git describe --tags) && \
-	make docs/changelog/$${VERSION}.md
+	make docs/release/$${VERSION}.md
+	cp docs/release/$${VERSION}.md $@
 
-docs/changelog/%.md: ./scripts/build_changelog.py
+docs/releases/%.md: ./scripts/build_changelog.py
 	@mkdir -p docs/changelog
 	# version is the % in the target
 	VERSION=$* && \
