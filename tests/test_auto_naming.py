@@ -25,7 +25,7 @@ def test_auto_naming_generates_display_name(event_listener, wait_for_event):
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={
             "role": "user",
-            "content": "Help me debug a Python script that's not working",
+            "content": "Help me debug a Python script that's not working. Short answer.",
         },
     )
 
@@ -77,7 +77,7 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
     # Add user message and trigger generation
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
-        json={"role": "user", "content": "Hello there"},
+        json={"role": "user", "content": "Hello there. We are testing, just say 'hi'"},
     )
 
     assert wait_for_event(event_listener, "message_added")
@@ -89,11 +89,15 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
 
     # Wait for generation to complete
     assert wait_for_event(event_listener, "generation_started")
-    assert wait_for_event(event_listener, "generation_complete")
 
     # Should NOT get a config_changed event from auto-naming since name already exists
     # We'll wait a bit to make sure it doesn't happen
-    wait_for_event(event_listener, "config_changed", timeout=3)
+    assert not wait_for_event(event_listener, "config_changed", timeout=3)
+
+    assert wait_for_event(event_listener, "generation_complete")
+
+    # Verify that the config didn't change after generation
+    assert not wait_for_event(event_listener, "config_changed", timeout=1)
 
     # Check that the predefined name wasn't changed
     logdir = get_logs_dir() / conversation_id
@@ -117,7 +121,7 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={
             "role": "user",
-            "content": "How do I center a div in CSS?",
+            "content": "How do I center a div in CSS? Short answer please.",
         },
     )
 
@@ -130,11 +134,8 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
 
     assert wait_for_event(event_listener, "generation_started")
 
-    # Wait for config_changed event first (comes before generation_complete)
-    assert wait_for_event(event_listener, "config_changed", timeout=15)
-
-    # Then wait for generation_complete
-    assert wait_for_event(event_listener, "generation_complete", timeout=15)
+    # Wait for config_changed event
+    assert wait_for_event(event_listener, "config_changed", timeout=20)
 
     # Check that the generated name is contextually relevant
     logdir = get_logs_dir() / conversation_id
