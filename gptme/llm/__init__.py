@@ -242,51 +242,6 @@ def _summarize_str(content: str) -> str:
     return summary
 
 
-@trace_function(name="llm.generate_name", attributes={"component": "llm"})
-def generate_name(msgs: list[Message]) -> str:
-    """
-    Generates a name for a given text/conversation using a LLM.
-    """
-    # filter out system messages
-    msgs = [m for m in msgs if m.role != "system"]
-
-    # TODO: filter out assistant messages? (only for long conversations? or always?)
-    # msgs = [m for m in msgs if m.role != "assistant"]
-
-    msgs = (
-        [
-            Message(
-                "system",
-                """
-The following is a conversation between a user and an assistant.
-You should generate a descriptive name for it.
-
-The name should be 3-6 words describing the conversation, separated by dashes. Examples:
- - install-llama
- - implement-game-of-life
- - capitalize-words-in-python
-
-Focus on the main and/or initial topic of the conversation. Avoid using names that are too generic or too specific.
-
-IMPORTANT: output only the name, no preamble or postamble.
-""",
-            )
-        ]
-        + msgs
-        + [
-            Message(
-                "user",
-                "That was the context of the conversation. Now, answer with a descriptive name for this conversation according to system instructions.",
-            )
-        ]
-    )
-
-    model = get_default_model_summary()
-    assert model, "No default model set"
-    name = _chat_complete(msgs, model.full, None).strip()
-    return name
-
-
 def summarize(msg: str | Message | list[Message]) -> Message:
     """Uses a cheap LLM to summarize long outputs."""
     # construct plaintext from message(s)

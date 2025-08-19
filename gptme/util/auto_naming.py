@@ -147,24 +147,18 @@ Conversation:
 
 Title:"""
 
-        # Try naming with fallback
-        for try_model in [naming_model, model]:
-            try:
-                response = _chat_complete(
-                    [
-                        Message("system", "Generate concise conversation titles."),
-                        Message("user", prompt),
-                    ],
-                    try_model,
-                    None,
-                )
-                name = response.strip().strip('"').strip("'").split("\n")[0][:50]
-                if name:
-                    return name
-            except Exception as e:
-                logger.debug(f"Naming failed with {try_model}: {e}")
-                if try_model == model:
-                    break
+        # Use summary model directly (no fallback)
+        response = _chat_complete(
+            [
+                Message("system", "Generate concise conversation titles."),
+                Message("user", prompt),
+            ],
+            naming_model,
+            None,
+        )
+        name = response.strip().strip('"').strip("'").split("\n")[0][:50]
+        if name:
+            return name
 
     except Exception as e:
         logger.debug(f"LLM naming failed: {e}")
