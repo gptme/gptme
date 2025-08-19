@@ -171,113 +171,11 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
 
 def auto_generate_display_name(messages: list[Message], model: str) -> str | None:
     """Generate a display name for the conversation based on the messages."""
-    # Use the cheaper summary model for the same provider
-    try:
-        from ..llm.models import get_model, get_summary_model
+    from ..util.auto_naming import (
+        auto_generate_display_name as _auto_generate_display_name,
+    )
 
-        # Get the provider from the current model
-        current_model = get_model(model)
-        provider = current_model.provider
-
-        # Use the summary model for this provider (cheaper and adequate for naming)
-        if provider != "unknown":
-            summary_model_name = get_summary_model(provider)
-            naming_model = f"{provider}/{summary_model_name}"
-        else:
-            # Fallback to original model if provider is unknown
-            naming_model = model
-
-    except Exception as e:
-        # Fallback to original model if anything goes wrong
-        logger.debug(f"Could not determine summary model, using original: {e}")
-        naming_model = model
-
-    # Create a prompt to generate a concise name
-    # We'll use the first few messages to understand the conversation topic
-    conversation_context = ""
-    for msg in messages[-4:]:  # Use last 4 messages for context
-        if msg.role in ["user", "assistant"]:
-            # Truncate long messages
-            content = (
-                msg.content[:200] + "..." if len(msg.content) > 200 else msg.content
-            )
-            conversation_context += f"{msg.role}: {content}\n"
-
-    prompt = f"""Your task: Create a 2-4 word title for this conversation.
-
-Rules:
-- Respond with ONLY the title
-- No explanations or extra text
-- Maximum 4 words
-- Capture the main topic
-
-Examples:
-- "Python debugging help"
-- "Website creation task"
-- "CSS layout issue"
-- "API integration guide"
-
-Conversation:
-{conversation_context}
-
-Title:"""
-
-    # Use a simple completion call to generate the name
-    try:
-        from ..llm import _chat_complete
-
-        logger.debug(f"Generating display name using model: {naming_model}")
-
-        # Create messages with a system message first (required by Anthropic)
-        messages = [
-            Message(
-                "system",
-                "You are a helpful assistant that generates concise conversation titles.",
-            ),
-            Message("user", prompt),
-        ]
-        response = _chat_complete(messages, naming_model, None)
-
-        # Clean up the response
-        name = response.strip().strip('"').strip("'")
-        # Limit length and remove any newlines
-        name = name.split("\n")[0][:50]  # Take first line, max 50 chars
-        return name if name else "New conversation"
-
-    except Exception as e:
-        logger.exception(
-            f"Failed to auto-generate display name with {naming_model}: {e}"
-        )
-
-        # If we used a summary model, try with the original model as fallback
-        if naming_model != model:
-            try:
-                logger.debug(
-                    f"Retrying display name generation with original model: {model}"
-                )
-
-                # Create messages with a system message first (required by Anthropic)
-                messages = [
-                    Message(
-                        "system",
-                        "You are a helpful assistant that generates concise conversation titles.",
-                    ),
-                    Message("user", prompt),
-                ]
-                response = _chat_complete(messages, model, None)
-
-                # Clean up the response
-                name = response.strip().strip('"').strip("'")
-                # Limit length and remove any newlines
-                name = name.split("\n")[0][:50]  # Take first line, max 50 chars
-                return name if name else "New conversation"
-
-            except Exception as retry_e:
-                logger.exception(
-                    f"Failed to auto-generate display name with fallback model {model}: {retry_e}"
-                )
-
-        return None
+    return _auto_generate_display_name(messages, model)
 
 
 @trace_function("api_v2.step", attributes={"component": "api_v2"})
