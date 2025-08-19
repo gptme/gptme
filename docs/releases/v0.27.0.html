@@ -1,0 +1,689 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>v0.27.0 &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=a3416100" />
+    <link rel="stylesheet" type="text/css" href="../_static/asciinema-player_3.6.3.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3a28e17f" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/asciinema-player_3.6.3.js"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'releases/v0.27.0';</script>
+    <link rel="canonical" href="https://gptme.org/docs/releases/v0.27.0.html" />
+    <link rel="icon" href="../_static/logo.png"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="v0.26.0" href="v0.26.0.html" />
+    <link rel="prev" title="v0.28.0" href="v0.28.0.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <img src="../_static/logo.png" class="logo__image only-dark pst-js-only" alt="gptme - Home"/>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../automation.html">Automation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../projects.html">Projects</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../tools.html">Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../config.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../providers.html">Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agents.html">Agents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../mcp.html">MCP</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../building.html">Building Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../prompts.html">Prompts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">API Reference</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../timeline.html">Timeline</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../changelog.html">Changelog</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.22.0.html">v0.22.0</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/releases/v0.27.0.md" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../_sources/releases/v0.27.0.md" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.md</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button>
+
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>v0.27.0</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contributors">Contributors</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changelog">Changelog</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">📦 gptme</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#features-19">✨ Features (19)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fixes-65">🐛 Fixes (65)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#misc-42">🔨 Misc (42)</a></li>
+</ul>
+</li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="v0-27-0">
+<h1>v0.27.0<a class="headerlink" href="#v0-27-0" title="Link to this heading">#</a></h1>
+<p>These are the release notes for gptme version v0.27.0.</p>
+<section id="contributors">
+<h2>Contributors<a class="headerlink" href="#contributors" title="Link to this heading">#</a></h2>
+<p>Thanks to everyone who contributed to this release:</p>
+<p>&#64;0xbrayo, &#64;erikbjare, &#64;jrmi, &#64;Miyou</p>
+</section>
+<section id="changelog">
+<h2>Changelog<a class="headerlink" href="#changelog" title="Link to this heading">#</a></h2>
+<p>Changes since v0.26.0:</p>
+</section>
+<section id="gptme">
+<h2>📦 gptme<a class="headerlink" href="#gptme" title="Link to this heading">#</a></h2>
+<section id="features-19">
+<h3>✨ Features (19)<a class="headerlink" href="#features-19" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>feat: added GPTME_CONTEXT_TREE which includes <code class="docutils literal notranslate"><span class="pre">tree</span> <span class="pre">--gitignore</span> <span class="pre">.</span></code> output in initial prompt (<a class="reference external" href="https://github.com/gptme/gptme/issues/461">#461</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/593ee900"><code class="docutils literal notranslate"><span class="pre">593ee900</span></code></a>)</p></li>
+<li><p>feat(style): print <code class="docutils literal notranslate"><span class="pre">&lt;think&gt;</span></code>/<code class="docutils literal notranslate"><span class="pre">&lt;thinking&gt;</span></code> in dimmed text (<a class="reference external" href="https://github.com/gptme/gptme/commit/dfab1e05"><code class="docutils literal notranslate"><span class="pre">dfab1e05</span></code></a>)</p></li>
+<li><p>feat: added basic files support to server API (<a class="reference external" href="https://github.com/gptme/gptme/issues/440">#440</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/24b9dc95"><code class="docutils literal notranslate"><span class="pre">24b9dc95</span></code></a>)</p></li>
+<li><p>feat: added script to auto-rename past conversations (<a class="reference external" href="https://github.com/gptme/gptme/issues/439">#439</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9a9f0114"><code class="docutils literal notranslate"><span class="pre">9a9f0114</span></code></a>)</p></li>
+<li><p>feat: added terminal title status output (<a class="reference external" href="https://github.com/gptme/gptme/issues/438">#438</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/37c877f3"><code class="docutils literal notranslate"><span class="pre">37c877f3</span></code></a>)</p></li>
+<li><p>feat: much improved RAG, added LLM post-processing of results (<a class="reference external" href="https://github.com/gptme/gptme/issues/435">#435</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f4b6f02e"><code class="docutils literal notranslate"><span class="pre">f4b6f02e</span></code></a>)</p></li>
+<li><p>feat: use gnome-screenshot in wayland (<a class="reference external" href="https://github.com/gptme/gptme/issues/436">#436</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/6d1d47a4"><code class="docutils literal notranslate"><span class="pre">6d1d47a4</span></code></a>)</p></li>
+<li><p>feat: add status emojis to system messages (<a class="reference external" href="https://github.com/gptme/gptme/issues/429">#429</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/69c5f011"><code class="docutils literal notranslate"><span class="pre">69c5f011</span></code></a>)</p></li>
+<li><p>feat: added support for nvidia provider (<a class="reference external" href="https://github.com/gptme/gptme/commit/7f387d33"><code class="docutils literal notranslate"><span class="pre">7f387d33</span></code></a>)</p></li>
+<li><p>feat: auto-enable pre-commit checks when config exists (<a class="reference external" href="https://github.com/gptme/gptme/issues/430">#430</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/5cd9b1e8"><code class="docutils literal notranslate"><span class="pre">5cd9b1e8</span></code></a>)</p></li>
+<li><p>feat: enhance vision tool with better image processing (<a class="reference external" href="https://github.com/gptme/gptme/commit/6a982987"><code class="docutils literal notranslate"><span class="pre">6a982987</span></code></a>)</p></li>
+<li><p>feat: add option to override base prompt (<a class="reference external" href="https://github.com/gptme/gptme/issues/426">#426</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/78e92091"><code class="docutils literal notranslate"><span class="pre">78e92091</span></code></a>)</p></li>
+<li><p>feat(computer): add macOS support for computer tool (<a class="reference external" href="https://github.com/gptme/gptme/issues/324">#324</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7a08e341"><code class="docutils literal notranslate"><span class="pre">7a08e341</span></code></a>)</p></li>
+<li><p>feat: added support for GPTME_BREAK_ON_TOOLUSE flag to not stop generation when tooluse occurs in stream (<a class="reference external" href="https://github.com/gptme/gptme/commit/e7021b9c"><code class="docutils literal notranslate"><span class="pre">e7021b9c</span></code></a>)</p></li>
+<li><p>feat: auto-run precommit checks when tooluse exhausted (<a class="reference external" href="https://github.com/gptme/gptme/issues/415">#415</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/254d1b61"><code class="docutils literal notranslate"><span class="pre">254d1b61</span></code></a>)</p></li>
+<li><p>feat: added support for deepseek-reasoner (<a class="reference external" href="https://github.com/gptme/gptme/issues/410">#410</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/ac3b8258"><code class="docutils literal notranslate"><span class="pre">ac3b8258</span></code></a>)</p></li>
+<li><p>feat: added /model command to list/switch models, support mixing providers (<a class="reference external" href="https://github.com/gptme/gptme/issues/409">#409</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a2bc4e00"><code class="docutils literal notranslate"><span class="pre">a2bc4e00</span></code></a>)</p></li>
+<li><p>feat: add env var feature flag for llm prompt suggestions (<a class="reference external" href="https://github.com/gptme/gptme/commit/978b1c4b"><code class="docutils literal notranslate"><span class="pre">978b1c4b</span></code></a>)</p></li>
+<li><p>feat: added gptme-wut (<a class="reference external" href="https://github.com/gptme/gptme/issues/402">#402</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/91bdce67"><code class="docutils literal notranslate"><span class="pre">91bdce67</span></code></a>)</p></li>
+</ul>
+</section>
+<section id="fixes-65">
+<h3>🐛 Fixes (65)<a class="headerlink" href="#fixes-65" title="Link to this heading">#</a></h3>
+<details><summary>Click to expand</summary>
+<p>
+<ul class="simple">
+<li><p>fix: fixed reduce_context script (<a class="reference external" href="https://github.com/gptme/gptme/commit/2f8246c6"><code class="docutils literal notranslate"><span class="pre">2f8246c6</span></code></a>)</p></li>
+<li><p>fix: added reduce_context.py script (<a class="reference external" href="https://github.com/gptme/gptme/commit/f0edadde"><code class="docutils literal notranslate"><span class="pre">f0edadde</span></code></a>)</p></li>
+<li><p>fix: added gh-pr-view-with-pr-comments.sh script (<a class="reference external" href="https://github.com/gptme/gptme/commit/3e0dd23d"><code class="docutils literal notranslate"><span class="pre">3e0dd23d</span></code></a>)</p></li>
+<li><p>fix: add gemini-2.0-flash-thinking-exp-01-21 to models (<a class="reference external" href="https://github.com/gptme/gptme/issues/465">#465</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/489f73e6"><code class="docutils literal notranslate"><span class="pre">489f73e6</span></code></a>)</p></li>
+<li><p>fix: fix /export command (<a class="reference external" href="https://github.com/gptme/gptme/issues/460">#460</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0ce55149"><code class="docutils literal notranslate"><span class="pre">0ce55149</span></code></a>)</p></li>
+<li><p>fix: fix missing dependency warning (<a class="reference external" href="https://github.com/gptme/gptme/issues/455">#455</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/ced1b9ac"><code class="docutils literal notranslate"><span class="pre">ced1b9ac</span></code></a>)</p></li>
+<li><p>fix: fixed incorrect reference to GPTME_FRESH_CONTEXT (now just GPTME_FRESH) (<a class="reference external" href="https://github.com/gptme/gptme/commit/ce626ed1"><code class="docutils literal notranslate"><span class="pre">ce626ed1</span></code></a>)</p></li>
+<li><p>fix: fix circular import (<a class="reference external" href="https://github.com/gptme/gptme/commit/417613c1"><code class="docutils literal notranslate"><span class="pre">417613c1</span></code></a>)</p></li>
+<li><p>fix: correctly handle too long path names (<a class="reference external" href="https://github.com/gptme/gptme/commit/ec1118c6"><code class="docutils literal notranslate"><span class="pre">ec1118c6</span></code></a>)</p></li>
+<li><p>fix: dont expand paths in user commands for tools, like /shell (<a class="reference external" href="https://github.com/gptme/gptme/issues/453">#453</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/96304695"><code class="docutils literal notranslate"><span class="pre">96304695</span></code></a>)</p></li>
+<li><p>fix: fixed a bunch of get_default_model uses, return None instead of exception if unset (<a class="reference external" href="https://github.com/gptme/gptme/commit/a3626c82"><code class="docutils literal notranslate"><span class="pre">a3626c82</span></code></a>)</p></li>
+<li><p>fix: make model fully optional in prompts.py, no fallback to possibly unset default (<a class="reference external" href="https://github.com/gptme/gptme/commit/29a0cb19"><code class="docutils literal notranslate"><span class="pre">29a0cb19</span></code></a>)</p></li>
+<li><p>fix: correct content block processing in Anthropic LLM module (<a class="reference external" href="https://github.com/gptme/gptme/commit/b4d2d962"><code class="docutils literal notranslate"><span class="pre">b4d2d962</span></code></a>)</p></li>
+<li><p>fix(anthropic): use model_meta.supports_reasoning to determine wether to use thinking (<a class="reference external" href="https://github.com/gptme/gptme/commit/91af56c1"><code class="docutils literal notranslate"><span class="pre">91af56c1</span></code></a>)</p></li>
+<li><p>fix: add supports_reasoning to model_meta, disabling <code class="docutils literal notranslate"><span class="pre">&lt;thinking&gt;</span></code> prompting for such models (<a class="reference external" href="https://github.com/gptme/gptme/commit/b15fb6a5"><code class="docutils literal notranslate"><span class="pre">b15fb6a5</span></code></a>)</p></li>
+<li><p>fix(anthropic): set max_tokens from model metadata (<a class="reference external" href="https://github.com/gptme/gptme/commit/a89ca157"><code class="docutils literal notranslate"><span class="pre">a89ca157</span></code></a>)</p></li>
+<li><p>fix: refactor only-once warning of unknown model metadata (<a class="reference external" href="https://github.com/gptme/gptme/commit/5d5f0e95"><code class="docutils literal notranslate"><span class="pre">5d5f0e95</span></code></a>)</p></li>
+<li><p>fix: disabled <code class="docutils literal notranslate"><span class="pre">tool</span></code> tooluse format for Sonnet 3.7 with thinking, for now (<a class="reference external" href="https://github.com/gptme/gptme/commit/4354f3e7"><code class="docutils literal notranslate"><span class="pre">4354f3e7</span></code></a>)</p></li>
+<li><p>fix: only log missing model metadata warning once (<a class="reference external" href="https://github.com/gptme/gptme/commit/ffb83789"><code class="docutils literal notranslate"><span class="pre">ffb83789</span></code></a>)</p></li>
+<li><p>fix: added model metadata for sonnet 3.7 (<a class="reference external" href="https://github.com/gptme/gptme/commit/1df392ac"><code class="docutils literal notranslate"><span class="pre">1df392ac</span></code></a>)</p></li>
+<li><p>fix: add support for sonnet 3.7 (<a class="reference external" href="https://github.com/gptme/gptme/commit/cb83725c"><code class="docutils literal notranslate"><span class="pre">cb83725c</span></code></a>)</p></li>
+<li><p>fix: add <code class="docutils literal notranslate"><span class="pre">model</span></code> parameter to <code class="docutils literal notranslate"><span class="pre">step</span></code> function (dont rely on global) (<a class="reference external" href="https://github.com/gptme/gptme/commit/ebc076bb"><code class="docutils literal notranslate"><span class="pre">ebc076bb</span></code></a>)</p></li>
+<li><p>fix: refactored get_project_dir helper function (<a class="reference external" href="https://github.com/gptme/gptme/commit/d231311e"><code class="docutils literal notranslate"><span class="pre">d231311e</span></code></a>)</p></li>
+<li><p>fix: prompt to prefer absolute paths (<a class="reference external" href="https://github.com/gptme/gptme/commit/ba11552a"><code class="docutils literal notranslate"><span class="pre">ba11552a</span></code></a>)</p></li>
+<li><p>fix: fixes after RAG improvement PR (<a class="reference external" href="https://github.com/gptme/gptme/commit/486d9858"><code class="docutils literal notranslate"><span class="pre">486d9858</span></code></a>)</p></li>
+<li><p>fix: refactor workspace initialization (<a class="reference external" href="https://github.com/gptme/gptme/commit/6936a4e1"><code class="docutils literal notranslate"><span class="pre">6936a4e1</span></code></a>)</p></li>
+<li><p>fix: fix support for explicitly disabling pre-commit checks (<a class="reference external" href="https://github.com/gptme/gptme/commit/603ecaae"><code class="docutils literal notranslate"><span class="pre">603ecaae</span></code></a>)</p></li>
+<li><p>fix: added basic <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">chats</span> <span class="pre">search</span></code> command, fixes to <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">chats</span></code> overall (<a class="reference external" href="https://github.com/gptme/gptme/issues/434">#434</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b9a64578"><code class="docutils literal notranslate"><span class="pre">b9a64578</span></code></a>)</p></li>
+<li><p>fix: adjust tts speed to 1.0 by default after tts_server.py updated to kokoro 1.0 which seems faster by default (<a class="reference external" href="https://github.com/gptme/gptme/commit/6e3af447"><code class="docutils literal notranslate"><span class="pre">6e3af447</span></code></a>)</p></li>
+<li><p>fix: upgrade tts_server.py to use kokoro 1.0, fix audio output device on linux (<a class="reference external" href="https://github.com/gptme/gptme/issues/432">#432</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/007a0750"><code class="docutils literal notranslate"><span class="pre">007a0750</span></code></a>)</p></li>
+<li><p>fix: improved status emojis in formatted messages (<a class="reference external" href="https://github.com/gptme/gptme/commit/964b5280"><code class="docutils literal notranslate"><span class="pre">964b5280</span></code></a>)</p></li>
+<li><p>fix: automatically clone Kokoro-82M repo in tts_server.py script (<a class="reference external" href="https://github.com/gptme/gptme/commit/a6109c71"><code class="docutils literal notranslate"><span class="pre">a6109c71</span></code></a>)</p></li>
+<li><p>fix: fixed support for o3 (<a class="reference external" href="https://github.com/gptme/gptme/commit/3a810109"><code class="docutils literal notranslate"><span class="pre">3a810109</span></code></a>)</p></li>
+<li><p>fix: log reasoning_content when available (i.e. Deepseek R1) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e13af3f3"><code class="docutils literal notranslate"><span class="pre">e13af3f3</span></code></a>)</p></li>
+<li><p>fix: added support for GPTME_PATCH_RECOVERY where file is returned in error for non-matching patches (<a class="reference external" href="https://github.com/gptme/gptme/commit/96ceec24"><code class="docutils literal notranslate"><span class="pre">96ceec24</span></code></a>)</p></li>
+<li><p>fix: minor improvements to ipython function description formatting (<a class="reference external" href="https://github.com/gptme/gptme/commit/7d2fec38"><code class="docutils literal notranslate"><span class="pre">7d2fec38</span></code></a>)</p></li>
+<li><p>fix: auto-step in server (wip), dont use logmanager lock in API (<a class="reference external" href="https://github.com/gptme/gptme/commit/c948e3b1"><code class="docutils literal notranslate"><span class="pre">c948e3b1</span></code></a>)</p></li>
+<li><p>fix: improve formatting for large patch warnings (<a class="reference external" href="https://github.com/gptme/gptme/commit/4ad126e3"><code class="docutils literal notranslate"><span class="pre">4ad126e3</span></code></a>)</p></li>
+<li><p>fix: handle None workspace in get_project_config to prevent TypeError (<a class="reference external" href="https://github.com/gptme/gptme/commit/d0fee8a6"><code class="docutils literal notranslate"><span class="pre">d0fee8a6</span></code></a>)</p></li>
+<li><p>fix: minor logging improvements (<a class="reference external" href="https://github.com/gptme/gptme/commit/48782fcd"><code class="docutils literal notranslate"><span class="pre">48782fcd</span></code></a>)</p></li>
+<li><p>fix(screenshot): add prompting for screenshot permissions on macos (<a class="reference external" href="https://github.com/gptme/gptme/commit/3bc328ea"><code class="docutils literal notranslate"><span class="pre">3bc328ea</span></code></a>)</p></li>
+<li><p>fix(vision): rescale large images passed to view_image (<a class="reference external" href="https://github.com/gptme/gptme/commit/1a1d969c"><code class="docutils literal notranslate"><span class="pre">1a1d969c</span></code></a>)</p></li>
+<li><p>fix(tts): fix logging output in tts server (<a class="reference external" href="https://github.com/gptme/gptme/commit/060b5d09"><code class="docutils literal notranslate"><span class="pre">060b5d09</span></code></a>)</p></li>
+<li><p>fix(tts): added GPTME_VOICE_FINISH flag to wait for speech to finish before exiting (<a class="reference external" href="https://github.com/gptme/gptme/commit/95042d40"><code class="docutils literal notranslate"><span class="pre">95042d40</span></code></a>)</p></li>
+<li><p>fix(tts): combine short sentences into larger chunks before sending to tts server (<a class="reference external" href="https://github.com/gptme/gptme/commit/d6a941ea"><code class="docutils literal notranslate"><span class="pre">d6a941ea</span></code></a>)</p></li>
+<li><p>fix: remove exclusive mode (<a class="reference external" href="https://github.com/gptme/gptme/issues/423">#423</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0c99cb8f"><code class="docutils literal notranslate"><span class="pre">0c99cb8f</span></code></a>)</p></li>
+<li><p>fix(tts): make tts server requests non-blocking, improve clean_for_speech (<a class="reference external" href="https://github.com/gptme/gptme/issues/422">#422</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/44c3dfe9"><code class="docutils literal notranslate"><span class="pre">44c3dfe9</span></code></a>)</p></li>
+<li><p>fix: improve pre-commit output message when files automatically fixed by hook (<a class="reference external" href="https://github.com/gptme/gptme/commit/9b4e9117"><code class="docutils literal notranslate"><span class="pre">9b4e9117</span></code></a>)</p></li>
+<li><p>fix: added support for knowledge cutoff in model metadata (<a class="reference external" href="https://github.com/gptme/gptme/commit/d166b4cb"><code class="docutils literal notranslate"><span class="pre">d166b4cb</span></code></a>)</p></li>
+<li><p>fix(eval): use seperate status emoji for timeouts (<a class="reference external" href="https://github.com/gptme/gptme/commit/00fdd187"><code class="docutils literal notranslate"><span class="pre">00fdd187</span></code></a>)</p></li>
+<li><p>fix: locate espeak library more intelligently on macOS (<a class="reference external" href="https://github.com/gptme/gptme/commit/583a6b43"><code class="docutils literal notranslate"><span class="pre">583a6b43</span></code></a>)</p></li>
+<li><p>fix: strip leading/trailing silence from tts output (<a class="reference external" href="https://github.com/gptme/gptme/issues/420">#420</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/96c54c41"><code class="docutils literal notranslate"><span class="pre">96c54c41</span></code></a>)</p></li>
+<li><p>fix: fix call_id regex format for deepseek (<a class="reference external" href="https://github.com/gptme/gptme/commit/ec30e9b0"><code class="docutils literal notranslate"><span class="pre">ec30e9b0</span></code></a>)</p></li>
+<li><p>fix: fixed tts_server.py on macOS (<a class="reference external" href="https://github.com/gptme/gptme/issues/418">#418</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/477a81e2"><code class="docutils literal notranslate"><span class="pre">477a81e2</span></code></a>)</p></li>
+<li><p>fix: enable <code class="docutils literal notranslate"><span class="pre">tool</span></code> format for deepseek provider (<a class="reference external" href="https://github.com/gptme/gptme/commit/7fda8bdc"><code class="docutils literal notranslate"><span class="pre">7fda8bdc</span></code></a>)</p></li>
+<li><p>fix: fixed summarization for openrouter and deepseek (<a class="reference external" href="https://github.com/gptme/gptme/commit/d8a9bec6"><code class="docutils literal notranslate"><span class="pre">d8a9bec6</span></code></a>)</p></li>
+<li><p>fix: added TODOs for better openrouter support (<a class="reference external" href="https://github.com/gptme/gptme/commit/e56491f1"><code class="docutils literal notranslate"><span class="pre">e56491f1</span></code></a>)</p></li>
+<li><p>fix: fixed output of codeblocks with unescaped rich [style] tags (<a class="reference external" href="https://github.com/gptme/gptme/commit/07ed85fd"><code class="docutils literal notranslate"><span class="pre">07ed85fd</span></code></a>)</p></li>
+<li><p>fix: detect tooluses with common path characters when cleaning for speech (<a class="reference external" href="https://github.com/gptme/gptme/issues/412">#412</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9124640b"><code class="docutils literal notranslate"><span class="pre">9124640b</span></code></a>)</p></li>
+<li><p>fix: improve default models+toolformats to run in evals (autodetect from available keys) (<a class="reference external" href="https://github.com/gptme/gptme/commit/598f4096"><code class="docutils literal notranslate"><span class="pre">598f4096</span></code></a>)</p></li>
+<li><p>fix: fixed broken openrouter support due to missing entry in model metadata (<a class="reference external" href="https://github.com/gptme/gptme/commit/0cd60a08"><code class="docutils literal notranslate"><span class="pre">0cd60a08</span></code></a>)</p></li>
+<li><p>fix: added gptme-eval-docker.sh helper script (<a class="reference external" href="https://github.com/gptme/gptme/commit/9e62c3d1"><code class="docutils literal notranslate"><span class="pre">9e62c3d1</span></code></a>)</p></li>
+<li><p>fix: broken mixed tool formats execution while using  <code class="docutils literal notranslate"><span class="pre">tool</span></code> format (<a class="reference external" href="https://github.com/gptme/gptme/issues/407">#407</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/bcf45cd5"><code class="docutils literal notranslate"><span class="pre">bcf45cd5</span></code></a>)</p></li>
+<li><p>fix: improved logging output for gptme-rag calls (incl time taken) (<a class="reference external" href="https://github.com/gptme/gptme/commit/33db67ec"><code class="docutils literal notranslate"><span class="pre">33db67ec</span></code></a>)</p></li>
+<li><p>fix: cleaned up tts tool, detect if tts server isnt running (<a class="reference external" href="https://github.com/gptme/gptme/issues/404">#404</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d27da5e0"><code class="docutils literal notranslate"><span class="pre">d27da5e0</span></code></a>)</p></li>
+</ul>
+</p>
+</details>
+</section>
+<section id="misc-42">
+<h3>🔨 Misc (42)<a class="headerlink" href="#misc-42" title="Link to this heading">#</a></h3>
+<details><summary>Click to expand</summary>
+<p>
+<ul class="simple">
+<li><p>chore: bump version to 0.27.0 (<a class="reference external" href="https://github.com/gptme/gptme/commit/96a5b54e"><code class="docutils literal notranslate"><span class="pre">96a5b54e</span></code></a>)</p></li>
+<li><p>docs: replaced github.com/ErikBjare/gptme links with github.com/gptme/gptme (<a class="reference external" href="https://github.com/gptme/gptme/commit/6ac6f6e7"><code class="docutils literal notranslate"><span class="pre">6ac6f6e7</span></code></a>)</p></li>
+<li><p>docs: reference both usage and examples in getting-started guide (<a class="reference external" href="https://github.com/gptme/gptme/commit/1bd6a607"><code class="docutils literal notranslate"><span class="pre">1bd6a607</span></code></a>)</p></li>
+<li><p>docs: fixed link (<a class="reference external" href="https://github.com/gptme/gptme/commit/bb1c3f3f"><code class="docutils literal notranslate"><span class="pre">bb1c3f3f</span></code></a>)</p></li>
+<li><p>docs: link to bob from README (<a class="reference external" href="https://github.com/gptme/gptme/commit/2349c046"><code class="docutils literal notranslate"><span class="pre">2349c046</span></code></a>)</p></li>
+<li><p>refactor: make computer tool share logic with screenshot tool (<a class="reference external" href="https://github.com/gptme/gptme/issues/442">#442</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/412bace5"><code class="docutils literal notranslate"><span class="pre">412bace5</span></code></a>)</p></li>
+<li><p>docs: mention Claude Code in alternatives (<a class="reference external" href="https://github.com/gptme/gptme/commit/05648fb4"><code class="docutils literal notranslate"><span class="pre">05648fb4</span></code></a>)</p></li>
+<li><p>refactor: refactored include_paths in chat.py by moving in and helpers into gptme.util.context (<a class="reference external" href="https://github.com/gptme/gptme/commit/f008b6a9"><code class="docutils literal notranslate"><span class="pre">f008b6a9</span></code></a>)</p></li>
+<li><p>docs: update the evals page to mention recommended model (sonnet) and available evals (<a class="reference external" href="https://github.com/gptme/gptme/issues/451">#451</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/92965cd1"><code class="docutils literal notranslate"><span class="pre">92965cd1</span></code></a>)</p></li>
+<li><p>refactor: extract get_default_model_summary (<a class="reference external" href="https://github.com/gptme/gptme/commit/161451e1"><code class="docutils literal notranslate"><span class="pre">161451e1</span></code></a>)</p></li>
+<li><p>docs: fixed broken document_prompt_function (<a class="reference external" href="https://github.com/gptme/gptme/commit/004ced9e"><code class="docutils literal notranslate"><span class="pre">004ced9e</span></code></a>)</p></li>
+<li><p>refactor: separate all get_default_model logic from get_model (<a class="reference external" href="https://github.com/gptme/gptme/commit/5e3aa80a"><code class="docutils literal notranslate"><span class="pre">5e3aa80a</span></code></a>)</p></li>
+<li><p>tests: uncomment test and mark to skip instead (<a class="reference external" href="https://github.com/gptme/gptme/commit/40dc44c1"><code class="docutils literal notranslate"><span class="pre">40dc44c1</span></code></a>)</p></li>
+<li><p>tests: disable broken search_ddg test (<a class="reference external" href="https://github.com/gptme/gptme/commit/4a241f4c"><code class="docutils literal notranslate"><span class="pre">4a241f4c</span></code></a>)</p></li>
+<li><p>refactor: refactored retry_(generator_)on_overloaded (almost-duplicate decorator) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e64006cc"><code class="docutils literal notranslate"><span class="pre">e64006cc</span></code></a>)</p></li>
+<li><p>docs: add OpenHands to alternatives (<a class="reference external" href="https://github.com/gptme/gptme/commit/1edf80d9"><code class="docutils literal notranslate"><span class="pre">1edf80d9</span></code></a>)</p></li>
+<li><p>docs: split sections from ‘dev guide’ into new ‘about’ toctree in index (<a class="reference external" href="https://github.com/gptme/gptme/commit/8845a1a6"><code class="docutils literal notranslate"><span class="pre">8845a1a6</span></code></a>)</p></li>
+<li><p>chore: updated gitignore (<a class="reference external" href="https://github.com/gptme/gptme/commit/2bdad1a7"><code class="docutils literal notranslate"><span class="pre">2bdad1a7</span></code></a>)</p></li>
+<li><p>docs: improved lead in README (<a class="reference external" href="https://github.com/gptme/gptme/commit/d07e799c"><code class="docutils literal notranslate"><span class="pre">d07e799c</span></code></a>)</p></li>
+<li><p>docs: improved tools page (<a class="reference external" href="https://github.com/gptme/gptme/commit/dae30218"><code class="docutils literal notranslate"><span class="pre">dae30218</span></code></a>)</p></li>
+<li><p>docs: updated page with alternatives/comparison (<a class="reference external" href="https://github.com/gptme/gptme/commit/5d53aa42"><code class="docutils literal notranslate"><span class="pre">5d53aa42</span></code></a>)</p></li>
+<li><p>test: fixed conversation search test (<a class="reference external" href="https://github.com/gptme/gptme/commit/8dfc3a06"><code class="docutils literal notranslate"><span class="pre">8dfc3a06</span></code></a>)</p></li>
+<li><p>refactor: move default rag post-process prompt from config.py into tools/rag.py (<a class="reference external" href="https://github.com/gptme/gptme/commit/0b9ea550"><code class="docutils literal notranslate"><span class="pre">0b9ea550</span></code></a>)</p></li>
+<li><p>docs: fixes to config docs (<a class="reference external" href="https://github.com/gptme/gptme/commit/2b11a3c7"><code class="docutils literal notranslate"><span class="pre">2b11a3c7</span></code></a>)</p></li>
+<li><p>test: add requires_api test mark to run tests without API keys (such as for untrusted PRs) (<a class="reference external" href="https://github.com/gptme/gptme/issues/433">#433</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/19895aa8"><code class="docutils literal notranslate"><span class="pre">19895aa8</span></code></a>)</p></li>
+<li><p>docs: improve documentation and code style (<a class="reference external" href="https://github.com/gptme/gptme/commit/8c536f17"><code class="docutils literal notranslate"><span class="pre">8c536f17</span></code></a>)</p></li>
+<li><p>docs: improve TTS documentation and update README (<a class="reference external" href="https://github.com/gptme/gptme/commit/00198a35"><code class="docutils literal notranslate"><span class="pre">00198a35</span></code></a>)</p></li>
+<li><p>docs: added complexity metrics with radon to arewetiny docs, as makefile target (<a class="reference external" href="https://github.com/gptme/gptme/issues/428">#428</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0bd43f3e"><code class="docutils literal notranslate"><span class="pre">0bd43f3e</span></code></a>)</p></li>
+<li><p>docs: fix RST formatting in config.rst (<a class="reference external" href="https://github.com/gptme/gptme/commit/2059dddf"><code class="docutils literal notranslate"><span class="pre">2059dddf</span></code></a>)</p></li>
+<li><p>docs: document potential DeepSeek/Gemini reasoning content support (<a class="reference external" href="https://github.com/gptme/gptme/commit/ab780b99"><code class="docutils literal notranslate"><span class="pre">ab780b99</span></code></a>)</p></li>
+<li><p>style: add newline between patch success message and warnings (<a class="reference external" href="https://github.com/gptme/gptme/commit/8698758b"><code class="docutils literal notranslate"><span class="pre">8698758b</span></code></a>)</p></li>
+<li><p>style: improve readability of base_prompt assignment (<a class="reference external" href="https://github.com/gptme/gptme/commit/79df878a"><code class="docutils literal notranslate"><span class="pre">79df878a</span></code></a>)</p></li>
+<li><p>refactor: improve imports and error handling in cli.py (<a class="reference external" href="https://github.com/gptme/gptme/commit/de764dac"><code class="docutils literal notranslate"><span class="pre">de764dac</span></code></a>)</p></li>
+<li><p>docs: document environment variables and feature flags (<a class="reference external" href="https://github.com/gptme/gptme/commit/693b3be0"><code class="docutils literal notranslate"><span class="pre">693b3be0</span></code></a>)</p></li>
+<li><p>chore: added config.toml to gitignore (<a class="reference external" href="https://github.com/gptme/gptme/commit/456d9661"><code class="docutils literal notranslate"><span class="pre">456d9661</span></code></a>)</p></li>
+<li><p>chore: added config.toml to gitignore (<a class="reference external" href="https://github.com/gptme/gptme/commit/87d23cfa"><code class="docutils literal notranslate"><span class="pre">87d23cfa</span></code></a>)</p></li>
+<li><p>tests: fixed tests for splitting/chunking sentences in tts (<a class="reference external" href="https://github.com/gptme/gptme/commit/af0d3588"><code class="docutils literal notranslate"><span class="pre">af0d3588</span></code></a>)</p></li>
+<li><p>test: generate unique run name for retries (<a class="reference external" href="https://github.com/gptme/gptme/commit/6ff8b94b"><code class="docutils literal notranslate"><span class="pre">6ff8b94b</span></code></a>)</p></li>
+<li><p>test: fixed test expecting ‘Cost’ which isn’t known for some models (<a class="reference external" href="https://github.com/gptme/gptme/commit/db212bd7"><code class="docutils literal notranslate"><span class="pre">db212bd7</span></code></a>)</p></li>
+<li><p>test: fixed missing argument in test (<a class="reference external" href="https://github.com/gptme/gptme/commit/0dbcf09e"><code class="docutils literal notranslate"><span class="pre">0dbcf09e</span></code></a>)</p></li>
+<li><p>test: disabled test_search_google since its failing, improved error logging for failed searches with playwright (<a class="reference external" href="https://github.com/gptme/gptme/commit/51f54e9a"><code class="docutils literal notranslate"><span class="pre">51f54e9a</span></code></a>)</p></li>
+<li><p>chore: updated contributor cache (<a class="reference external" href="https://github.com/gptme/gptme/commit/719da49f"><code class="docutils literal notranslate"><span class="pre">719da49f</span></code></a>)</p></li>
+</ul>
+</p>
+</details>
+<p><em>(excluded 9 less relevant <a class="reference external" href="https://github.com/gptme/gptme/compare/v0.26.0...v0.27.0">commits</a>)</em></p>
+<p><strong>Full Changelog</strong>: https://github.com/gptme/gptme/compare/v0.26.0…v0.27.0</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="v0.28.0.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">v0.28.0</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="v0.26.0.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">v0.26.0</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contributors">Contributors</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changelog">Changelog</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">📦 gptme</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#features-19">✨ Features (19)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fixes-65">🐛 Fixes (65)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#misc-42">🔨 Misc (42)</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2025, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

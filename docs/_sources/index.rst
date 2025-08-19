@@ -56,7 +56,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    alternatives
    arewetiny
    timeline
-   Changelog <https://github.com/gptme/gptme/releases>
+   changelog
 
 .. toctree::
    :caption: External
