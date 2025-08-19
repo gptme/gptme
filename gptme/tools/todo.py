@@ -11,14 +11,15 @@ Key principles:
 - Conversation Scoped: Resets between conversations, doesn't persist to disk
 """
 
+import shlex
 from collections.abc import Generator
 from datetime import datetime
-import shlex
 
 from ..message import Message
 from .base import ConfirmFunc, ToolSpec, ToolUse
 
 # Conversation-scoped storage for the current todo list
+# TODO: support persistence to support resuming conversations
 _current_todos: dict[str, dict] = {}
 
 
