@@ -203,14 +203,24 @@ def auto_generate_display_name(messages: list[Message], model: str) -> str | Non
             )
             conversation_context += f"{msg.role}: {content}\n"
 
-    prompt = f"""Based on this conversation, generate a very concise display name (2-4 words max) that captures the main topic or task being discussed.
+    prompt = f"""Your task: Create a 2-4 word title for this conversation.
 
-The name should be descriptive but brief, like "Python debugging help" or "Website creation task".
+Rules:
+- Respond with ONLY the title
+- No explanations or extra text
+- Maximum 4 words
+- Capture the main topic
+
+Examples:
+- "Python debugging help"
+- "Website creation task"
+- "CSS layout issue"
+- "API integration guide"
 
 Conversation:
 {conversation_context}
 
-Display name:"""
+Title:"""
 
     # Use a simple completion call to generate the name
     try:
