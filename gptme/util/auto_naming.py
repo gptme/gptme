@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from ..message import Message
+from ..telemetry import trace_function
 from .generate_name import generate_name
 
 logger = logging.getLogger(__name__)
@@ -181,6 +182,9 @@ def auto_generate_display_name(messages: list[Message], model: str) -> str | Non
     return generate_conversation_name(strategy="llm", messages=messages, model=model)
 
 
+@trace_function(
+    name="auto_naming.generate_llm_name", attributes={"component": "auto_naming"}
+)
 def generate_llm_name(messages: list[Message]) -> str:
     """Generate a dash-separated LLM name for conversation renaming."""
     try:
