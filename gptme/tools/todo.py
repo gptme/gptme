@@ -15,7 +15,7 @@ from collections.abc import Generator
 from datetime import datetime
 
 from ..message import Message
-from .base import ConfirmFunc, ToolSpec
+from .base import ConfirmFunc, ToolSpec, ToolUse
 
 # Conversation-scoped storage for the current todo list
 _current_todos: dict[str, dict] = {}
@@ -217,6 +217,40 @@ def execute_todowrite(
     yield Message("system", result)
 
 
+def examples_todoread(tool_format):
+    """Generate examples for todoread tool."""
+    return f"""
+> User: What's on my todo list?
+> Assistant: Let me check the current todo list.
+{ToolUse("todoread", [], "").to_output(tool_format)}
+> System: 📝 Current Todo List:
+...
+
+> User: I've been working on a complex task, can you show me progress?
+> Assistant: I'll check the todo list to see our progress.
+{ToolUse("todoread", [], "").to_output(tool_format)}
+""".strip()
+
+
+def examples_todowrite(tool_format):
+    """Generate examples for todowrite tool."""
+    return f"""
+> Assistant: I'll break this complex task into steps.
+{ToolUse("todowrite", [], 'add "Set up project structure"').to_output(tool_format)}
+{ToolUse("todowrite", [], 'add "Implement core functionality"').to_output(tool_format)}
+
+> Assistant: Starting the first task.
+{ToolUse("todowrite", [], "update 1 in_progress").to_output(tool_format)}
+
+> Assistant: Completed the project setup.
+{ToolUse("todowrite", [], "update 1 completed").to_output(tool_format)}
+{ToolUse("todowrite", [], "update 2 in_progress").to_output(tool_format)}
+
+> Assistant: Clearing completed todos to focus on remaining work.
+{ToolUse("todowrite", [], "clear completed").to_output(tool_format)}
+""".strip()
+
+
 # Tool specifications
 todoread = ToolSpec(
     name="todoread",
@@ -236,17 +270,7 @@ Use this frequently to:
 The todo list is conversation-scoped and resets between conversations.
 For long-term persistent tasks, use the task management system instead.
     """.strip(),
-    examples="""
-> User: What's on my todo list?
-> Assistant: Let me check the current todo list.
-<todoread>
-</todoread>
-
-> User: I've been working on a complex task, can you show me progress?
-> Assistant: I'll check the todo list to see our progress.
-<todoread>
-</todoread>
-    """.strip(),
+    examples=examples_todoread,
     execute=execute_todoread,
 )
 
@@ -275,33 +299,7 @@ Use this tool frequently for complex multi-step tasks to:
 The todo list is ephemeral and conversation-scoped.
 For persistent cross-conversation tasks, use the task management system.
     """.strip(),
-    examples="""
-> Assistant: I'll break this complex task into steps.
-<todowrite>
-add "Set up project structure"
-</todowrite>
-<todowrite>
-add "Implement core functionality"
-</todowrite>
-
-> Assistant: Starting the first task.
-<todowrite>
-update 1 in_progress
-</todowrite>
-
-> Assistant: Completed the project setup.
-<todowrite>
-update 1 completed
-</todowrite>
-<todowrite>
-update 2 in_progress
-</todowrite>
-
-> Assistant: Clearing completed todos to focus on remaining work.
-<todowrite>
-clear completed
-</todowrite>
-    """.strip(),
+    examples=examples_todowrite,
     execute=execute_todowrite,
 )
 
