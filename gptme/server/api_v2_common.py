@@ -44,6 +44,7 @@ class BaseEvent(TypedDict):
         "tool_executing",
         "interrupted",
         "error",
+        "config_changed",
     ]
 
 
@@ -107,6 +108,13 @@ class ErrorEvent(BaseEvent):
     error: str
 
 
+class ConfigChangedEvent(BaseEvent):
+    """Sent when the conversation config is updated."""
+
+    config: dict
+    changed_fields: list[str]
+
+
 # Union type for all possible events
 EventType = (
     ConnectedEvent
@@ -119,6 +127,7 @@ EventType = (
     | ToolExecutingEvent
     | InterruptedEvent
     | ErrorEvent
+    | ConfigChangedEvent
 )
 
 

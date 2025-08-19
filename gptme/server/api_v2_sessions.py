@@ -29,7 +29,7 @@ from ..logmanager import LogManager, prepare_messages
 from ..message import Message
 from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools, init_tools
-from .api_v2_common import ErrorEvent, EventType, msg2dict
+from .api_v2_common import ConfigChangedEvent, ErrorEvent, EventType, msg2dict
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
     ErrorResponse,
@@ -169,6 +169,69 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
     )
 
 
+def auto_generate_display_name(messages: list[Message], model: str) -> str:
+    """Generate a display name for the conversation based on the messages."""
+    # Use the cheaper summary model for the same provider
+    try:
+        from ..llm.models import get_model, get_summary_model
+
+        # Get the provider from the current model
+        current_model = get_model(model)
+        provider = current_model.provider
+
+        # Use the summary model for this provider (cheaper and adequate for naming)
+        if provider != "unknown":
+            summary_model_name = get_summary_model(provider)
+            naming_model = f"{provider}/{summary_model_name}"
+        else:
+            # Fallback to original model if provider is unknown
+            naming_model = model
+
+    except Exception as e:
+        # Fallback to original model if anything goes wrong
+        logger.debug(f"Could not determine summary model, using original: {e}")
+        naming_model = model
+
+    # Create a prompt to generate a concise name
+    # We'll use the first few messages to understand the conversation topic
+    conversation_context = ""
+    for msg in messages[-4:]:  # Use last 4 messages for context
+        if msg.role in ["user", "assistant"]:
+            # Truncate long messages
+            content = (
+                msg.content[:200] + "..." if len(msg.content) > 200 else msg.content
+            )
+            conversation_context += f"{msg.role}: {content}\n"
+
+    prompt = f"""Based on this conversation, generate a very concise display name (2-4 words max) that captures the main topic or task being discussed.
+
+The name should be descriptive but brief, like "Python debugging help" or "Website creation task".
+
+Conversation:
+{conversation_context}
+
+Display name:"""
+
+    # Use a simple completion call to generate the name
+    try:
+        from ..llm import _chat_complete
+
+        logger.debug(f"Generating display name using model: {naming_model}")
+        response = ""
+        for chunk in _chat_complete([Message("user", prompt)], naming_model, None):
+            response += chunk
+
+        # Clean up the response
+        name = response.strip().strip('"').strip("'")
+        # Limit length and remove any newlines
+        name = name.split("\n")[0][:50]  # Take first line, max 50 chars
+        return name if name else "New conversation"
+
+    except Exception as e:
+        logger.warning(f"Failed to auto-generate display name with {naming_model}: {e}")
+        return "New conversation"
+
+
 @trace_function("api_v2.step", attributes={"component": "api_v2"})
 def step(
     conversation_id: str,
@@ -283,6 +346,25 @@ def step(
         msg = Message("assistant", output)
         _append_and_notify(manager, session, msg)
         logger.debug("Persisted assistant message")
+
+        # Auto-generate display name for first assistant response if not already set
+        assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
+        if len(assistant_messages) == 1 and not chat_config.name:
+            try:
+                display_name = auto_generate_display_name(manager.log.messages, model)
+                chat_config.name = display_name
+                chat_config.save()
+                logger.info(f"Auto-generated display name: {display_name}")
+
+                # Notify clients about config change
+                config_event: ConfigChangedEvent = {
+                    "type": "config_changed",
+                    "config": chat_config.to_dict(),
+                    "changed_fields": ["name"],
+                }
+                SessionManager.add_event(conversation_id, config_event)
+            except Exception as e:
+                logger.warning(f"Failed to auto-generate display name: {e}")
 
         # Signal message generation complete
         logger.debug("Generation complete")
