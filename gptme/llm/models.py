@@ -377,7 +377,7 @@ def get_summary_model(provider: Provider) -> str:  # pragma: no cover
     elif provider == "gemini":
         return "gemini-2.5-flash"
     elif provider == "anthropic":
-        return "claude-3-haiku-20240307"
+        return "claude-3-5-haiku-20241022"
     elif provider == "deepseek":
         return "deepseek-chat"
     else:

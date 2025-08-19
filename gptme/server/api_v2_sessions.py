@@ -217,9 +217,16 @@ Display name:"""
         from ..llm import _chat_complete
 
         logger.debug(f"Generating display name using model: {naming_model}")
-        response = ""
-        for chunk in _chat_complete([Message("user", prompt)], naming_model, None):
-            response += chunk
+
+        # Create messages with a system message first (required by Anthropic)
+        messages = [
+            Message(
+                "system",
+                "You are a helpful assistant that generates concise conversation titles.",
+            ),
+            Message("user", prompt),
+        ]
+        response = _chat_complete(messages, naming_model, None)
 
         # Clean up the response
         name = response.strip().strip('"').strip("'")
@@ -228,7 +235,38 @@ Display name:"""
         return name if name else "New conversation"
 
     except Exception as e:
-        logger.warning(f"Failed to auto-generate display name with {naming_model}: {e}")
+        logger.exception(
+            f"Failed to auto-generate display name with {naming_model}: {e}"
+        )
+
+        # If we used a summary model, try with the original model as fallback
+        if naming_model != model:
+            try:
+                logger.debug(
+                    f"Retrying display name generation with original model: {model}"
+                )
+
+                # Create messages with a system message first (required by Anthropic)
+                messages = [
+                    Message(
+                        "system",
+                        "You are a helpful assistant that generates concise conversation titles.",
+                    ),
+                    Message("user", prompt),
+                ]
+                response = _chat_complete(messages, model, None)
+
+                # Clean up the response
+                name = response.strip().strip('"').strip("'")
+                # Limit length and remove any newlines
+                name = name.split("\n")[0][:50]  # Take first line, max 50 chars
+                return name if name else "New conversation"
+
+            except Exception as retry_e:
+                logger.exception(
+                    f"Failed to auto-generate display name with fallback model {model}: {retry_e}"
+                )
+
         return "New conversation"
 
 
