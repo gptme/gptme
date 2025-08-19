@@ -56,7 +56,7 @@ def test_event_stream_with_generation(event_listener, wait_for_event):
     # Use a real model
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-        json={"session_id": session_id, "model": "openai/gpt-4o-mini"},
+        json={"session_id": session_id},
     )
 
     # Wait for events

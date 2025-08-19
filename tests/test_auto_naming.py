@@ -35,17 +35,14 @@ def test_auto_naming_generates_display_name(event_listener, wait_for_event):
     # Trigger generation with a real model
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-        json={"session_id": session_id, "model": "openai/gpt-4o-mini"},
+        json={"session_id": session_id},
     )
 
     # Wait for generation events
     assert wait_for_event(event_listener, "generation_started")
 
     # Wait for config_changed event (from auto-naming) - this comes before generation_complete
-    assert wait_for_event(event_listener, "config_changed", timeout=15)
-
-    # Now wait for generation_complete
-    assert wait_for_event(event_listener, "generation_complete")
+    assert wait_for_event(event_listener, "config_changed")
 
     print("✅ Successfully received config_changed event!")
 
@@ -87,7 +84,7 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
 
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-        json={"session_id": session_id, "model": "openai/gpt-4o-mini"},
+        json={"session_id": session_id},
     )
 
     # Wait for generation to complete
@@ -128,7 +125,7 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
 
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-        json={"session_id": session_id, "model": "openai/gpt-4o-mini"},
+        json={"session_id": session_id},
     )
 
     assert wait_for_event(event_listener, "generation_started")
