@@ -169,7 +169,7 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
     )
 
 
-def auto_generate_display_name(messages: list[Message], model: str) -> str:
+def auto_generate_display_name(messages: list[Message], model: str) -> str | None:
     """Generate a display name for the conversation based on the messages."""
     # Use the cheaper summary model for the same provider
     try:
@@ -267,7 +267,7 @@ Display name:"""
                     f"Failed to auto-generate display name with fallback model {model}: {retry_e}"
                 )
 
-        return "New conversation"
+        return None
 
 
 @trace_function("api_v2.step", attributes={"component": "api_v2"})
@@ -390,17 +390,22 @@ def step(
         if len(assistant_messages) == 1 and not chat_config.name:
             try:
                 display_name = auto_generate_display_name(manager.log.messages, model)
-                chat_config.name = display_name
-                chat_config.save()
-                logger.info(f"Auto-generated display name: {display_name}")
+                if display_name:
+                    chat_config.name = display_name
+                    chat_config.save()
+                    logger.info(f"Auto-generated display name: {display_name}")
 
-                # Notify clients about config change
-                config_event: ConfigChangedEvent = {
-                    "type": "config_changed",
-                    "config": chat_config.to_dict(),
-                    "changed_fields": ["name"],
-                }
-                SessionManager.add_event(conversation_id, config_event)
+                    # Notify clients about config change
+                    config_event: ConfigChangedEvent = {
+                        "type": "config_changed",
+                        "config": chat_config.to_dict(),
+                        "changed_fields": ["name"],
+                    }
+                    SessionManager.add_event(conversation_id, config_event)
+                else:
+                    logger.info(
+                        "Auto-naming failed, leaving conversation name unset for future retry"
+                    )
             except Exception as e:
                 logger.warning(f"Failed to auto-generate display name: {e}")
 
