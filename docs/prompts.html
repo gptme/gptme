@@ -535,7 +535,7 @@ This is gptme
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Generator</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=[ToolSpec(append), ToolSpec(browser), ToolSpec(chats), ToolSpec(choice), ToolSpec(computer), ToolSpec(gh), ToolSpec(morph), ToolSpec(patch), ToolSpec(rag), ToolSpec(read), ToolSpec(save), ToolSpec(screenshot), ToolSpec(shell), ToolSpec(subagent), ToolSpec(tmux), ToolSpec(tts), ToolSpec(vision), ToolSpec(youtube), ToolSpec(ipython)], tool_format=’markdown’):</p>
+<p>Example output (tools=[ToolSpec(append), ToolSpec(browser), ToolSpec(chats), ToolSpec(choice), ToolSpec(computer), ToolSpec(gh), ToolSpec(morph), ToolSpec(patch), ToolSpec(rag), ToolSpec(read), ToolSpec(save), ToolSpec(screenshot), ToolSpec(shell), ToolSpec(subagent), ToolSpec(tmux), ToolSpec(todoread), ToolSpec(todowrite), ToolSpec(tts), ToolSpec(vision), ToolSpec(youtube), ToolSpec(ipython)], tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1242,6 +1242,93 @@ Available commands:
 <span class="s">send_keys 2 &#39;print(&quot;Hello, world!&quot;)&#39; Enter</span>
 <span class="sb">```</span>
 
+<span class="gu">## todoread</span>
+
+<span class="gs">**Description:**</span> Read and display the current todo list
+
+<span class="gs">**Instructions:**</span> Use this tool to read and display the current todo list.
+
+This shows all todos organized by state (pending, in_progress, completed)
+and provides a summary of progress.
+
+Use this frequently to:
+<span class="k">-</span><span class="w"> </span>Check current progress
+<span class="k">-</span><span class="w"> </span>See what needs to be done next
+<span class="k">-</span><span class="w"> </span>Review completed work
+<span class="k">-</span><span class="w"> </span>Plan next steps
+
+The todo list is conversation-scoped and resets between conversations.
+For long-term persistent tasks, use the task management system instead.
+
+<span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">User: What&#39;s on my todo list?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me check the current todo list.</span>
+<span class="sb">```todoread</span>
+
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: 📝 Current Todo List:</span>
+...
+
+<span class="k">&gt; </span><span class="ge">User: I&#39;ve been working on a complex task, can you show me progress?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll check the todo list to see our progress.</span>
+<span class="sb">```todoread</span>
+
+<span class="sb">```</span>
+
+<span class="gu">## todowrite</span>
+
+<span class="gs">**Description:**</span> Write, update, or manage todos in the current conversation
+
+<span class="gs">**Instructions:**</span> Use this tool to manage todos in the current conversation context.
+
+Operations:
+<span class="k">-</span><span class="w"> </span>add &quot;todo text&quot; - Add a new todo item
+<span class="k">-</span><span class="w"> </span>update ID state - Update todo state (pending/in_progress/completed)
+<span class="k">-</span><span class="w"> </span>update ID &quot;new text&quot; - Update todo text
+<span class="k">-</span><span class="w"> </span>remove ID - Remove a todo item
+<span class="k">-</span><span class="w"> </span>clear - Clear all todos
+<span class="k">-</span><span class="w"> </span>clear completed - Clear only completed todos
+
+States: pending, in_progress, completed
+
+Use this tool frequently for complex multi-step tasks to:
+<span class="k">-</span><span class="w"> </span>Break down large tasks into smaller steps
+<span class="k">-</span><span class="w"> </span>Track progress through complex workflows
+<span class="k">-</span><span class="w"> </span>Provide visibility into your work plan
+<span class="k">-</span><span class="w"> </span>Stay organized during long conversations
+
+The todo list is ephemeral and conversation-scoped.
+For persistent cross-conversation tasks, use the task management system.
+
+<span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll break this complex task into steps.</span>
+<span class="sb">```todowrite</span>
+<span class="s">add &quot;Set up project structure&quot;</span>
+<span class="sb">```</span>
+<span class="sb">```todowrite</span>
+<span class="s">add &quot;Implement core functionality&quot;</span>
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">Assistant: Starting the first task.</span>
+<span class="sb">```todowrite</span>
+<span class="s">update 1 in_progress</span>
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">Assistant: Completed the project setup.</span>
+<span class="sb">```todowrite</span>
+<span class="s">update 1 completed</span>
+<span class="sb">```</span>
+<span class="sb">```todowrite</span>
+<span class="s">update 2 in_progress</span>
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">Assistant: Clearing completed todos to focus on remaining work.</span>
+<span class="sb">```todowrite</span>
+<span class="s">clear completed</span>
+<span class="sb">```</span>
+
 <span class="gu">## tts</span>
 
 <span class="gs">**Description:**</span> Text-to-speech (TTS) tool for generating audio from text.
@@ -1341,7 +1428,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 5774</p>
+<p>Tokens: 6319</p>
 </dd></dl>
 
 <dl class="py function">
