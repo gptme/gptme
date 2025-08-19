@@ -201,7 +201,7 @@ def execute_todowrite(
         return
 
     # Parse the operation from code content
-    parts = code.strip().split()
+    parts = shlex.split(code.strip())
     if not parts:
         yield Message(
             "system",
