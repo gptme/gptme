@@ -13,6 +13,7 @@ Key principles:
 
 from collections.abc import Generator
 from datetime import datetime
+import shlex
 
 from ..message import Message
 from .base import ConfirmFunc, ToolSpec, ToolUse
