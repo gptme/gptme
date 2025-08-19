@@ -115,12 +115,12 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
     conversation_id = event_listener["conversation_id"]
     session_id = event_listener["session_id"]
 
-    # Use a very specific user message to test contextual naming
+    # Use a simple but specific user message to test contextual naming
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={
             "role": "user",
-            "content": "Create a React component for a todo list with drag and drop functionality",
+            "content": "How do I center a div in CSS?",
         },
     )
 
@@ -134,10 +134,10 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
     assert wait_for_event(event_listener, "generation_started")
 
     # Wait for config_changed event first (comes before generation_complete)
-    assert wait_for_event(event_listener, "config_changed", timeout=20)
+    assert wait_for_event(event_listener, "config_changed", timeout=15)
 
     # Then wait for generation_complete
-    assert wait_for_event(event_listener, "generation_complete", timeout=20)
+    assert wait_for_event(event_listener, "generation_complete", timeout=15)
 
     # Check that the generated name is contextually relevant
     logdir = get_logs_dir() / conversation_id
@@ -149,15 +149,13 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
 
     # Should contain relevant keywords (being flexible since LLM might use different terms)
     relevant_keywords = [
-        "react",
-        "todo",
-        "component",
-        "drag",
-        "drop",
-        "list",
-        "task",
-        "ui",
-        "interface",
+        "css",
+        "div",
+        "center",
+        "centering",
+        "layout",
+        "styling",
+        "web",
     ]
     has_relevant_content = any(keyword in name for keyword in relevant_keywords)
     assert has_relevant_content, f"Generated name '{chat_config.name}' doesn't seem contextually relevant. Expected keywords: {relevant_keywords}"
