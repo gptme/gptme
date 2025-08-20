@@ -7,7 +7,6 @@ When prompting, it is important to provide clear instructions and avoid any ambi
 
 import logging
 import platform
-import shutil
 import subprocess
 import time
 from collections.abc import Generator
@@ -22,7 +21,7 @@ from .llm.models import get_model, get_recommended_model
 from .message import Message
 from .tools import ToolFormat, ToolSpec, get_available_tools
 from .util import document_prompt_function
-from .util.context import md_codeblock
+from .util.context import get_tree_output, md_codeblock
 
 # Default files to include in context when no gptme.toml is present or files list is empty
 DEFAULT_CONTEXT_FILES = [
@@ -343,62 +342,6 @@ def prompt_timeinfo() -> Generator[Message, None, None]:
         f"## Current Date\n\n**UTC:** {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
     )
     yield Message("system", prompt)
-
-
-def get_tree_output(workspace: Path) -> str | None:
-    """Get the output of `tree --gitignore .` if available."""
-    # TODO: don't depend on `tree` command being installed
-    # TODO: default to True (get_config().get_env_bool("GPTME_CONTEXT_TREE") is False)
-    if not get_config().get_env_bool("GPTME_CONTEXT_TREE"):
-        return None
-
-    # Check if tree command is available
-    if shutil.which("tree") is None:
-        logger.warning(
-            "GPTME_CONTEXT_TREE is enabled, but 'tree' command is not available. Install it to use this feature."
-        )
-        return None
-
-    # Check if in a git repository
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
-            cwd=workspace,
-            capture_output=True,
-            text=True,
-            timeout=1,
-        )
-        if result.returncode != 0:
-            logger.debug("Not in a git repository, skipping tree output")
-            return None
-    except Exception as e:
-        logger.warning(f"Error checking git repository: {e}")
-        return None
-
-    # TODO: use `git ls-files` instead? (respects .gitignore better)
-    try:
-        # Run tree command with --gitignore option
-        # is -fi more effective? probably
-        result = subprocess.run(
-            ["tree", "-fi", "--gitignore", "."],
-            cwd=workspace,
-            capture_output=True,
-            text=True,
-            timeout=5,  # Add timeout to prevent hangs
-        )
-        if result.returncode != 0:
-            logger.warning(f"Failed to run tree command: {result.stderr}")
-            return None
-        # we allocate roughly a ~5000 token budget (~20000 characters)
-        # TODO: if budged exceeded or command times out, try running tree with less depth
-        if len(result.stdout) > 20000:
-            logger.warning("Tree output listing files is too long, skipping.")
-            return None
-
-        return result.stdout.strip()
-    except Exception as e:
-        logger.warning(f"Error running tree command: {e}")
-        return None
 
 
 def prompt_workspace(
