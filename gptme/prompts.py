@@ -21,7 +21,8 @@ from .llm.models import get_model, get_recommended_model
 from .message import Message
 from .tools import ToolFormat, ToolSpec, get_available_tools
 from .util import document_prompt_function
-from .util.context import get_tree_output, md_codeblock
+from .util.context import md_codeblock
+from .util.tree import get_tree_output
 
 # Default files to include in context when no gptme.toml is present or files list is empty
 DEFAULT_CONTEXT_FILES = [
