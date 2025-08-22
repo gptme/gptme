@@ -199,8 +199,13 @@ def test_reduce_tree_output_by_depth():
         ]
     )
 
-    # Should reduce to depth 1 when budget is tight
+    # Should reduce to depth 2 when budget allows it (47 chars < 50)
     result = _reduce_tree_output_by_depth(output, budget=50)
+    lines = result.split("\n") if result else []
+    assert all(line.count("/") <= 2 for line in lines)
+
+    # Should reduce to depth 1 when budget is tighter
+    result = _reduce_tree_output_by_depth(output, budget=30)
     lines = result.split("\n") if result else []
     assert all(line.count("/") <= 1 for line in lines)
 

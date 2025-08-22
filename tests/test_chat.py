@@ -17,21 +17,21 @@ def test_find_potential_paths(tmp_path):
 
         # Test various path formats
         content = """
-        Here are some paths:
-        /absolute/path
-        ~/home/path
-        ./relative/path
-        test.txt
-        subdir/file.py
-        http://example.com
-        https://example.com/path
+Here are some paths:
+/absolute/path
+~/home/path
+./relative/path
+test.txt
+subdir/file.py
+http://example.com
+https://example.com/path
 
-        ```python
-        # This path should be ignored
-        ignored_path = "/path/in/codeblock"
-        ```
+```python
+# This path should be ignored
+ignored_path = "/path/in/codeblock"
+```
 
-        More text with `wrapped/path` and path.with.dots
+More text with `wrapped/path` and path.with.dots
         """
 
         paths = _find_potential_paths(content)
