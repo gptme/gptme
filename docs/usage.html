@@ -474,6 +474,7 @@
 </section>
 <section id="features">
 <h2>Features<a class="headerlink" href="#features" title="Link to this heading">#</a></h2>
+<p>Here is a very quick overview of the main features of gptme.</p>
 <p class="rubric">Tools</p>
 <p>gptme comes with a variety of tools for different tasks:</p>
 <ul class="simple">
@@ -491,7 +492,7 @@
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">create a new file named life.py implementing the game of life</pre>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">implement game of life in life.py</pre>
   </td>
 </tr>
 <tr>
@@ -515,7 +516,7 @@ from matplotlib.animation import FuncAnimation
 <section id="making-changes">
 <h3>Making Changes<a class="headerlink" href="#making-changes" title="Link to this heading">#</a></h3>
 <p>You can start chats and request changes directly from the command line. The contents of any mentioned text files will be included as context, and the assistant will generate patches to apply the requested changes:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;make improvements to life.py so that dead cells fade out over time&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;make improvements to life.py so dead cells fade out over time&#39;</span>
 </pre></div>
 </div>
 <table style="width: 100%; margin-bottom: 1em">
@@ -523,7 +524,7 @@ from matplotlib.animation import FuncAnimation
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">make improvements to life.py so that dead cells fade out over time<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">life.py</div>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">make improvements to life.py so dead cells fade out over time<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">life.py</div>
 <pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">...
 </pre></div></pre>
   </td>

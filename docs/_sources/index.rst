@@ -3,7 +3,7 @@ gptme documentation
 
 Welcome to the documentation for ``gptme``!
 
-``gptme`` is an ecosystem of tools for interacting with AI agents equipped with powerful local tools, acting as a copilot for your computer. The core components include:
+``gptme`` is a personal AI assistant and agent platform that runs in your terminal and browser, equipped with powerful tools to execute code, edit files, browse the web, and more - acting as an intelligent copilot for your computer. The core components include:
 
 - **gptme CLI**: The main :doc:`command-line interface <cli>` for terminal-based interactions
 - **gptme-server**: A :doc:`server component <server>` for running gptme as a service

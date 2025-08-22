@@ -55,6 +55,8 @@ For more detailed information about specific features, check out:
 Features
 --------
 
+Here is a very quick overview of the main features of gptme.
+
 .. rubric:: Tools
 
 gptme comes with a variety of tools for different tasks:
@@ -73,7 +75,7 @@ You can ask the assistant to create new files or modify existing ones:
 
 .. chat::
 
-   User: create a new file named life.py implementing the game of life
+   User: implement game of life in life.py
 
    Assistant: Certainly! I'll create a new file named `life.py` implementing Conway's Game of Life. This implementation will use NumPy for efficient array operations and Matplotlib for visualization. Here's the code:
    ```life.py
@@ -92,11 +94,11 @@ You can start chats and request changes directly from the command line. The cont
 
 .. code-block:: bash
 
-   gptme 'make improvements to life.py so that dead cells fade out over time'
+   gptme 'make improvements to life.py so dead cells fade out over time'
 
 .. chat::
 
-   User: make improvements to life.py so that dead cells fade out over time
+   User: make improvements to life.py so dead cells fade out over time
    ```life.py
    ...
    ```
