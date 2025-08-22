@@ -29,7 +29,7 @@ Decent alternatives include:
 Usage
 -----
 
-You can run the simple ``hello`` eval with Claude 3.7 Sonnet like this:
+You can run the simple ``hello`` eval like this:
 
 .. code-block:: bash
 
