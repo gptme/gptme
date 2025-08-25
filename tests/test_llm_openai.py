@@ -1,6 +1,9 @@
+import threading
+from unittest.mock import Mock, patch
+
 import pytest
 from gptme.config import get_config
-from gptme.llm.llm_openai import _prepare_messages_for_api
+from gptme.llm.llm_openai import _prepare_messages_for_api, stream
 from gptme.llm.models import get_default_model, get_model, set_default_model
 from gptme.message import Message
 from gptme.tools import get_tool, init_tools
@@ -270,3 +273,67 @@ def test_message_conversion_with_tool_and_non_tool():
             ],
         },
     ]
+
+
+def test_stream_cancellation():
+    """Test that stream function respects cancellation events."""
+    cancel_event = threading.Event()
+    messages = [Message(role="user", content="Test prompt")]
+
+    # Mock streaming response chunks
+    mock_chunks = []
+    for i in range(10):
+        mock_chunk = Mock()
+        mock_chunk.choices = [Mock()]
+        mock_chunk.choices[0].finish_reason = None if i < 9 else "stop"
+        mock_chunk.choices[0].delta = Mock()
+        mock_chunk.choices[0].delta.content = f"chunk_{i} "
+        # No reasoning content for simplicity
+        mock_chunk.choices[0].delta.reasoning_content = None
+        mock_chunk.choices[0].delta.reasoning = None
+        mock_chunk.choices[0].delta.tool_calls = None
+        mock_chunks.append(mock_chunk)
+
+    # Mock the OpenAI client
+    with patch("gptme.llm.llm_openai.get_client") as mock_get_client:
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        # Mock the streaming response
+        mock_stream_response = Mock()
+        mock_stream_response.__iter__ = lambda self: iter(mock_chunks)
+        mock_stream_response.close = Mock()
+
+        mock_client.chat.completions.create.return_value = mock_stream_response
+
+        # Test normal streaming (no cancellation)
+        chunks = list(stream(messages, "openai/gpt-4o", None, None))
+        assert len(chunks) == 10
+        assert "chunk_0" in chunks[0]
+
+        # Test cancellation after 3 chunks
+        cancel_event.clear()
+        chunks_cancelled = []
+
+        def cancel_after_chunks():
+            # Cancel after receiving a few chunks
+            import time
+
+            time.sleep(0.01)  # Small delay to let streaming start
+            cancel_event.set()
+
+        cancel_thread = threading.Thread(target=cancel_after_chunks)
+        cancel_thread.start()
+
+        for chunk in stream(messages, "openai/gpt-4o", None, cancel_event):
+            chunks_cancelled.append(chunk)
+            # If we get too many chunks, cancellation didn't work
+            if len(chunks_cancelled) > 5:
+                break
+
+        cancel_thread.join()
+
+        # Should have received fewer chunks due to cancellation
+        assert len(chunks_cancelled) < 10
+        # Verify cleanup was called
+        mock_stream_response.close.assert_called()
