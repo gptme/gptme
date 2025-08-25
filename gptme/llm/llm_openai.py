@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 from collections.abc import Generator, Iterable
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast
@@ -244,7 +245,10 @@ def extra_body(provider: Provider) -> dict[str, Any]:
 
 
 def stream(
-    messages: list[Message], model: str, tools: list[ToolSpec] | None
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    cancel_event: threading.Event | None = None,
 ) -> Generator[str, None, None]:
     from . import _get_base_model, get_provider_from_model  # fmt: skip
 
@@ -264,7 +268,8 @@ def stream(
     in_reasoning_block = False
     stop_reason = None
 
-    for chunk_raw in client.chat.completions.create(
+    # Create the stream
+    stream_response = client.chat.completions.create(
         model=api_model,
         messages=messages_dicts,  # type: ignore
         temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
@@ -273,59 +278,77 @@ def stream(
         tools=tools_dict if tools_dict else NOT_GIVEN,
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider),
-    ):
-        from openai.types.chat import ChatCompletionChunk  # fmt: skip
-        from openai.types.chat.chat_completion_chunk import (  # fmt: skip
-            ChoiceDeltaToolCall,
-            ChoiceDeltaToolCallFunction,
-        )
+    )
 
-        # Cast the chunk to the correct type
-        chunk = cast(ChatCompletionChunk, chunk_raw)
+    try:
+        for chunk_raw in stream_response:
+            # Check for cancellation before processing each chunk
+            if cancel_event and cancel_event.is_set():
+                break
 
-        if not chunk.choices:
-            continue
+            from openai.types.chat import ChatCompletionChunk  # fmt: skip
+            from openai.types.chat.chat_completion_chunk import (  # fmt: skip
+                ChoiceDeltaToolCall,
+                ChoiceDeltaToolCallFunction,
+            )
 
-        choice = chunk.choices[0]
-        stop_reason = choice.finish_reason
-        delta = choice.delta
+            # Cast the chunk to the correct type
+            chunk = cast(ChatCompletionChunk, chunk_raw)
 
-        # Handle reasoning content
-        # OpenRouter API uses delta.reasoning
-        # DeepSeek API uses delta.reasoning_content
-        if reasoning_content := (
-            getattr(delta, "reasoning_content", None)
-            or getattr(delta, "reasoning", None)
-        ):
-            if not in_reasoning_block:
-                yield "<think>\n"
-                in_reasoning_block = True
-            yield reasoning_content
-        elif in_reasoning_block:
-            yield "\n</think>\n\n"
-            in_reasoning_block = False
-            if delta.content is not None:
+            if not chunk.choices:
+                continue
+
+            choice = chunk.choices[0]
+            stop_reason = choice.finish_reason
+            delta = choice.delta
+
+            # Handle reasoning content
+            # OpenRouter API uses delta.reasoning
+            # DeepSeek API uses delta.reasoning_content
+            if reasoning_content := (
+                getattr(delta, "reasoning_content", None)
+                or getattr(delta, "reasoning", None)
+            ):
+                if not in_reasoning_block:
+                    yield "<think>\n"
+                    in_reasoning_block = True
+                yield reasoning_content
+            elif in_reasoning_block:
+                yield "\n</think>\n\n"
+                in_reasoning_block = False
+                if delta.content is not None:
+                    yield delta.content
+            elif delta.content is not None:
                 yield delta.content
-        elif delta.content is not None:
-            yield delta.content
 
-        # Handle tool calls
-        if delta.tool_calls:
-            for tool_call in delta.tool_calls:
-                if isinstance(tool_call, ChoiceDeltaToolCall) and tool_call.function:
-                    func = tool_call.function
-                    if isinstance(func, ChoiceDeltaToolCallFunction):
-                        if func.name:
-                            yield f"\n@{func.name}({tool_call.id}): "
-                        if func.arguments:
-                            yield func.arguments
+            # Handle tool calls
+            if delta.tool_calls:
+                for tool_call in delta.tool_calls:
+                    if (
+                        isinstance(tool_call, ChoiceDeltaToolCall)
+                        and tool_call.function
+                    ):
+                        func = tool_call.function
+                        if isinstance(func, ChoiceDeltaToolCallFunction):
+                            if func.name:
+                                yield f"\n@{func.name}({tool_call.id}): "
+                            if func.arguments:
+                                yield func.arguments
 
-        # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
-        # if delta.type == "response.reasoning_summary.delta":
-        #     if not in_reasoning_block:
-        #         yield "<think>\n"
-        #         in_reasoning_block = True
-        #     yield delta.text
+            # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
+            # if delta.type == "response.reasoning_summary.delta":
+            #     if not in_reasoning_block:
+            #         yield "<think>\n"
+            #         in_reasoning_block = True
+            #     yield delta.text
+
+    finally:
+        # Ensure stream is properly closed on cancellation or completion
+        if hasattr(stream_response, "close"):
+            try:
+                stream_response.close()
+            except Exception:
+                pass  # Ignore errors during cleanup
 
     if in_reasoning_block:
         yield "\n</think>\n"
