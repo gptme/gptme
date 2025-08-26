@@ -398,18 +398,18 @@
 <p>We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Deepseek, Azure, and any OpenAI-compatible server (e.g. <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">llama-cpp-python</span></code>).</p>
 <p>You can find our model recommendations on the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> page.</p>
 <p>To select a provider and model, run <code class="docutils literal notranslate"><span class="pre">gptme</span></code> with the <code class="docutils literal notranslate"><span class="pre">-m</span></code>/<code class="docutils literal notranslate"><span class="pre">--model</span></code> flag set to <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model&gt;</span></code>, for example:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--model<span class="w"> </span>openai/gpt-4o<span class="w"> </span><span class="s2">&quot;hello&quot;</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>anthropic<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w">  </span><span class="c1"># if model part unspecified, will fall back to the provider default</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>openrouter/meta-llama/llama-3.1-70b-instruct<span class="w"> </span><span class="s2">&quot;hello&quot;</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>deepseek/deepseek-reasoner<span class="w"> </span><span class="s2">&quot;hello&quot;</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>gemini/gemini-1.5-flash-latest<span class="w"> </span><span class="s2">&quot;hello&quot;</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>groq/llama-3.3-70b-versatile<span class="w"> </span><span class="s2">&quot;hello&quot;</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>xai/grok-beta<span class="w"> </span><span class="s2">&quot;hello&quot;</span>
-gptme<span class="w"> </span>--model<span class="w"> </span>local/llama3.2:1b<span class="w"> </span><span class="s2">&quot;hello&quot;</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic<span class="w">  </span><span class="c1"># will use provider default</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>deepseek/deepseek-reasoner
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-2.5-flash
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>xai/grok-beta
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b
 </pre></div>
 </div>
-<p>On first startup, if <code class="docutils literal notranslate"><span class="pre">--model</span></code> is not set, and no API keys are set in the config or environment it will be prompted for. It will then auto-detect the provider, and save the key in the configuration file.</p>
 <p>You can list the models known to gptme using <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'/models'</span> <span class="pre">-</span> <span class="pre">'/exit'</span></code></p>
+<p>On first startup API key will be prompted for if no model and no API keys are set in the config/environment. The key will be saved in the configuration file, the provider will be inferred, and its default model used.</p>
 <p>Use the <code class="docutils literal notranslate"><span class="pre">[env]</span></code> section in the <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> file to store API keys using the same format as the environment variables:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
