@@ -5,11 +5,12 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
-from collections.abc import Callable
 
 from playwright.sync_api import Browser, ElementHandle
 
@@ -22,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 def _restart_browser() -> None:
     """Restart the browser by resetting the global instance"""
-    import time
 
     global _browser
     start_time = time.time()
@@ -183,7 +183,7 @@ def search_google(query: str) -> str:
 
 
 def _search_duckduckgo(browser: Browser, query: str) -> str:
-    url = f"https://duckduckgo.com/?q={query}"
+    url = f"https://html.duckduckgo.com/html?q={query}"
 
     context = browser.new_context(
         locale="en-US",
@@ -278,15 +278,21 @@ def _list_results_google(page) -> str:
 
 
 def _list_results_duckduckgo(page) -> str:
+    if "Unfortunately, bots use DuckDuckGo too" in page.inner_text("body"):
+        logger.error("Blocked by DuckDuckGo bot detection")
+        logger.debug(f"{page.inner_text('body')=}")
+        return "Error: blocked by DuckDuckGo bot detection."
+
     # fetch the results
-    results = page.query_selector(".react-results--main")
+    sel_results = "div#links"
+    results = page.query_selector(sel_results)
     if not results:
-        logger.error("Unable to find selector `.react-results--main` in results")
+        logger.error(f"Unable to find selector `{sel_results}` with results")
         logger.debug(f"{page.inner_text('body')=}")
         return "Error: something went wrong with the search."
-    results = results.query_selector_all("article")
+    results = results.query_selector_all(".result")
     if not results:
-        logger.error("Unable to find selector `article` in results")
+        logger.error("Unable to find selector `.result` in results")
         logger.debug(f"{page.inner_text('body')=}")
         return "Error: something went wrong with the search."
 

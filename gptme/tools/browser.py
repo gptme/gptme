@@ -67,9 +67,7 @@ except ImportError:
 if browser == "playwright":
     from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
     from ._browser_playwright import read_url as read_url_playwright  # fmt: skip
-    from ._browser_playwright import (
-        screenshot_url as screenshot_url_playwright,  # fmt: skip
-    )
+    from ._browser_playwright import screenshot_url as screenshot_url_pw  # fmt: skip
     from ._browser_playwright import search_duckduckgo, search_google  # fmt: skip
 elif browser == "lynx":
     from ._browser_lynx import read_url as read_url_lynx  # fmt: skip
@@ -190,7 +188,7 @@ def screenshot_url(url: str, path: Path | str | None = None) -> Path:
     """Take a screenshot of a webpage."""
     assert browser
     if browser == "playwright":
-        return screenshot_url_playwright(url, path)  # type: ignore
+        return screenshot_url_pw(url, path)  # type: ignore
     raise ValueError("Screenshot not supported with lynx backend")
 
 

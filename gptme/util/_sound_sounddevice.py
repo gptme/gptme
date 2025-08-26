@@ -268,7 +268,7 @@ def play_with_sounddevice(data: Any, sample_rate: int, volume: float = 1.0):
 
         # Wait with timeout
         start_time = time.time()
-        timeout = 10.0  # 10 second timeout
+        timeout = 30.0
         while sd.get_stream().active:
             if time.time() - start_time > timeout:
                 log.warning("Audio playback timed out, stopping")

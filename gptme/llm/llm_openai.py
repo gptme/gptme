@@ -137,18 +137,6 @@ def _merge_consecutive(msgs: Iterable[Message]) -> Generator[Message, None, None
         yield last_message
 
 
-assert (
-    len(
-        list(
-            _merge_consecutive(
-                [Message(role="user", content="a"), Message(role="user", content="b")]
-            )
-        )
-    )
-    == 1
-)
-
-
 def _prep_deepseek_reasoner(msgs: list[Message]) -> Generator[Message, None, None]:
     yield msgs[0]
     yield from _merge_consecutive(_prep_o1(msgs[1:]))
@@ -165,7 +153,10 @@ def _is_reasoner(base_model: str) -> bool:
 def _is_proxy(client: "OpenAI") -> bool:
     proxy_url = get_config().get_env("LLM_PROXY_URL")
     # If client has the proxy URL set, it is using the proxy
-    return bool(proxy_url) and client.base_url == proxy_url
+    if not proxy_url:
+        return False
+    # Normalize URLs for comparison (remove trailing slashes)
+    return str(client.base_url).rstrip("/") == proxy_url.rstrip("/")
 
 
 def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> str:
@@ -379,31 +370,34 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
 
 def _merge_tool_results_with_same_call_id(
     messages_dicts: Iterable[dict],
-) -> list[dict]:  # Generator[dict, None, None]:
+) -> list[dict]:
     """
     When we call a tool, this tool can potentially yield multiple messages. However
     the API expect to have only one tool result per tool call. This function tries
     to merge subsequent tool results with the same call ID as expected by
     the API.
     """
-
-    messages_dicts = iter(messages_dicts)
-
     messages_new: list[dict] = []
-    while message := next(messages_dicts, None):
+
+    for message in messages_dicts:
         if messages_new and (
             message["role"] == "tool"
             and messages_new[-1]["role"] == "tool"
             and message["tool_call_id"] == messages_new[-1]["tool_call_id"]
         ):
             prev_msg = messages_new[-1]
-            content = message["content"]
-            if not isinstance(content, list):
-                content = {"type": "text", "text": content}
+            prev_content = prev_msg["content"]
+            current_content = message["content"]
+
+            # Ensure both contents are lists of content parts
+            if not isinstance(prev_content, list):
+                prev_content = [{"type": "text", "text": prev_content}]
+            if not isinstance(current_content, list):
+                current_content = [{"type": "text", "text": current_content}]
 
             messages_new[-1] = {
                 "role": "tool",
-                "content": prev_msg["content"] + content,
+                "content": prev_content + current_content,
                 "tool_call_id": prev_msg["tool_call_id"],
             }
         else:
