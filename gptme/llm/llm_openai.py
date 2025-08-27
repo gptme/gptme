@@ -126,7 +126,7 @@ def _merge_consecutive(msgs: Iterable[Message]) -> Generator[Message, None, None
 
         if last_message.role == msg.role:
             last_message = last_message.replace(
-                content=f"{last_message.content}\n{msg.content}"
+                content=f"{last_message.content}\n\n{msg.content}"
             )
             continue
         else:
@@ -187,7 +187,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
         top_p=TOP_P if not is_reasoner else NOT_GIVEN,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         extra_headers=extra_headers(provider),
-        extra_body=extra_body(provider),
+        extra_body=extra_body(provider, base_model),
     )
     choice = response.choices[0]
     result = []
@@ -212,26 +212,27 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
 
 def extra_headers(provider: Provider) -> dict[str, str]:
     """Return extra headers for the OpenAI API based on the model."""
+    headers: dict[str, str] = {}
     if provider == "openrouter":
         # Shows in rankings on openrouter.ai
-        return {
+        headers |= {
             "HTTP-Referer": "https://github.com/gptme/gptme",
             "X-Title": "gptme",
         }
-    return {}
+    return headers
 
 
-def extra_body(provider: Provider) -> dict[str, Any]:
+def extra_body(provider: Provider, base_model: str) -> dict[str, Any]:
     """Return extra body for the OpenAI API based on the model."""
+    body: dict[str, Any] = {}
     if provider == "openrouter":
-        return {
-            # "provider": {
-            #     "order": ["groq"],
-            #     "sort": "throughput",
-            #     "allow_fallbacks": False,
-            # }
-        }
-    return {}
+        if ":" in base_model:
+            provider_override = base_model.split(":")[1]
+            body["provider"] = {
+                "order": [provider_override],
+                "allow_fallbacks": False,
+            }
+    return body
 
 
 def stream(
@@ -263,7 +264,7 @@ def stream(
         stream=True,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         extra_headers=extra_headers(provider),
-        extra_body=extra_body(provider),
+        extra_body=extra_body(provider, base_model),
     ):
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
         from openai.types.chat.chat_completion_chunk import (  # fmt: skip
@@ -408,9 +409,6 @@ def _merge_tool_results_with_same_call_id(
 
 def _process_file(msg: dict, model: ModelMeta) -> dict:
     message_content = msg["content"]
-    if model.provider == "deepseek":
-        # deepseek does not support files
-        return msg
 
     # combines a content message with a list of files
     content: list[dict[str, Any]] = (
@@ -421,7 +419,8 @@ def _process_file(msg: dict, model: ModelMeta) -> dict:
 
     has_images = False
 
-    for f in msg.get("files", []):
+    files = msg.pop("files", [])
+    for f in files:
 
         def check_vision():
             return model.supports_vision
@@ -434,6 +433,12 @@ def _process_file(msg: dict, model: ModelMeta) -> dict:
             check_vision_support=check_vision,
         )
         if result is None:
+            content.append(
+                {
+                    "type": "text",
+                    "text": f"[WARNING: Model doesn't support viewing file: {f}]",
+                }
+            )
             continue
 
         data, media_type = result
@@ -447,8 +452,8 @@ def _process_file(msg: dict, model: ModelMeta) -> dict:
 
     msg["content"] = content
 
+    # Images must come from user with openai
     if msg["role"] == "system" and has_images:
-        # Images must come from user with openai
         msg["role"] = "user"
 
     return msg
@@ -457,9 +462,18 @@ def _process_file(msg: dict, model: ModelMeta) -> dict:
 def _transform_msgs_for_special_provider(
     messages_dicts: Iterable[dict], model: ModelMeta
 ):
-    if model.provider == "groq":
-        # groq needs message.content to be a string
-        return [{**msg, "content": msg["content"][0]["text"]} for msg in messages_dicts]
+    # groq and deepseek needs message.content to be a string
+    if model.provider == "groq" or model.provider == "deepseek":
+        return [
+            {
+                **msg,
+                "content": "\n\n".join(part["text"] for part in msg["content"])
+                if isinstance(msg["content"], list)
+                else msg["content"],
+            }
+            for msg in messages_dicts
+        ]
+
     return messages_dicts
 
 
@@ -553,7 +567,14 @@ def _prepare_messages_for_api(
     is_o1 = _get_base_model(model).startswith("o1")
     if is_o1:
         messages = list(_prep_o1(messages))
-    if model_meta.model == "deepseek-reasoner":
+
+    # without this, deepseek-chat and reasoner can start outputting gibberish after tool calls
+    # similarly, kimi-k2-instruct doesn't acknowledge tool responses/system messages without it
+    # it probably applies to more models/providers, we should figure out which and perhaps make it default behavior
+    if any(
+        m in model_meta.model
+        for m in ["deepseek-reasoner", "deepseek-chat", "kimi-k2-instruct"]
+    ):
         messages = list(_prep_deepseek_reasoner(messages))
 
     messages_dicts: Iterable[dict] = (

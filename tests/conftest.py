@@ -167,7 +167,7 @@ def setup_conversation(server_thread, tmp_path):
     assert resp.status_code == 200
     session_id = resp.json()["session_id"]
 
-    return port, conversation_id, session_id
+    yield port, conversation_id, session_id
 
 
 @pytest.fixture(scope="function")
