@@ -24,10 +24,12 @@ class Agent:
         model: str,
         tool_format: ToolFormat = "markdown",
         tools: list[str] | None = None,
+        system_prompt: str | None = None,
     ):
         self.model = model
         self.tool_format = tool_format
         self.tools = tools
+        self.system_prompt = system_prompt
 
     @abstractmethod
     def act(self, files: Files | None, prompt: str) -> Files:
@@ -61,9 +63,14 @@ class GPTMe(Agent):
 
         print("\n--- Start of generation ---")
         logger.debug(f"Working in {store.working_dir}")
+
         prompt_sys_msgs = get_prompt(
-            tool_format=self.tool_format, tools=tools, workspace=workspace_dir
+            tool_format=self.tool_format,
+            tools=tools,
+            workspace=workspace_dir,
+            prompt=self.system_prompt or "full",  # this only replaces the base prompt
         )
+
         # Modify the first (core) system prompt to add eval-specific instruction
         if prompt_sys_msgs:
             prompt_sys_msgs[0] = prompt_sys_msgs[0].replace(

@@ -9,6 +9,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from gptme.eval.agents import GPTMe
+from gptme.eval.run import execute
 from gptme.eval.types import EvalResult, EvalSpec
 from gptme.message import Message
 
@@ -251,11 +253,8 @@ def evaluate_prompt_on_task(
         Dictionary containing evaluation results and metrics
     """
     try:
-        from gptme.eval.run import execute
-        from gptme.eval.agents import GPTMe
-
         # Create a GPTMe agent
-        agent = GPTMe(model=model, tool_format="markdown")
+        agent = GPTMe(model=model, tool_format="markdown", system_prompt=system_prompt)
 
         # Run actual gptme evaluation
         result = execute(test=task_spec, agent=agent, timeout=60, parallel=False)

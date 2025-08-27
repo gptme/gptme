@@ -139,9 +139,12 @@ class GptmeModule(dspy.Module):
             else:
                 model = dspy_model
 
-            # Create a GPTMe agent with the custom system prompt
-            # TODO: Need to properly integrate system prompt into agent creation
-            agent = GPTMe(model=model, tool_format="markdown")
+            # Create a GPTMe agent with the custom optimized system prompt
+            agent = GPTMe(
+                model=model,
+                tool_format="markdown",
+                system_prompt=self.system_prompt_template,
+            )
 
             # Run the evaluation
             result = execute(
@@ -302,8 +305,10 @@ class PromptOptimizer:
         for example in val_data:
             print(f"DEBUG: Evaluating example: {example.task_description[:50]}...")
 
-            # Actually run the evaluation
-            pred = module.forward(example.task_description, example.context)
+            # Actually run the evaluation (use DSPy's preferred calling pattern)
+            pred = module(
+                task_description=example.task_description, context=example.context
+            )
             print(f"DEBUG: Got prediction: {hasattr(pred, 'eval_result')}")
 
             score = metric(example, pred, None)
