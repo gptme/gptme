@@ -436,38 +436,30 @@ custom_tasks = [
 
 ### Integration with CI/CD
 
-Automate prompt optimization in your development workflow:
+The gptme repository includes a GitHub Actions workflow for automated prompt optimization. The workflow runs weekly and can also be triggered manually with custom parameters.
 
-```yaml
-# .github/workflows/optimize-prompts.yml
-name: Optimize gptme Prompts
-on:
-  schedule:
-    - cron: '0 2 * * 0'  # Weekly
-  workflow_dispatch:
+**Workflow file:** [`.github/workflows/optimize-prompts.yml`](../../.github/workflows/optimize-prompts.yml)
 
-jobs:
-  optimize:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Install dependencies
-        run: pip install -e . dspy
-      - name: Run optimization
-        run: |
-          python -m gptme.eval.dspy.cli optimize \
-            --name "automated_optimization_$(date +%Y%m%d)" \
-            --output-dir ./optimization_results
-      - name: Upload results
-        uses: actions/upload-artifact@v3
-        with:
-          name: optimization-results
-          path: ./optimization_results/
+**Features:**
+- **Scheduled runs**: Automatic weekly optimization on Sundays at 2 AM UTC
+- **Manual dispatch**: Run optimization on-demand with custom parameters
+- **Multiple optimizers**: Supports MIPROv2, BootstrapFewShot, and others
+- **Configurable parameters**: Model selection, number of trials, demonstrations
+- **Result artifacts**: Automatically uploads optimization results and reports
+- **Failure notifications**: Creates GitHub issues when optimization fails
+- **Environment support**: Configured for multiple LLM providers (OpenAI, Anthropic, OpenRouter)
+
+**Manual trigger example:**
+```bash
+# Via GitHub CLI
+gh workflow run optimize-prompts.yml \
+  -f model="anthropic/claude-sonnet-4-20250514" \
+  -f optimizers="miprov2,bootstrap" \
+  -f num_trials="15" \
+  -f max_demos="4"
 ```
+
+The workflow generates comprehensive reports and stores them as GitHub Actions artifacts, making it easy to track optimization progress over time.
 
 ## Contributing
 
