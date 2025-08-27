@@ -1,0 +1,14 @@
+
+--- Start of generation ---
+[17:22:29] Using model: groq/qwen/qwen3-32b                                     
+[17:22:30] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-08-27-gptme-evals-groq--qwen--qwen3-32
+           b-tool-994260                                                        
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-08-27-gptme-evals-groq--qwen--qwen3-32
+           b-tool-994260/workspace                                              
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script prime.py that computes and prints the 100th prime number 
+when called
+Assistant: Thinking...                                                                                
