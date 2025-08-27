@@ -40,7 +40,7 @@ jobs:
     - name: Install dependencies
       run: |
         make build
-        poetry install -E server -E browser -E telemetry
+        poetry install -E server -E browser -E telemetry -E dspy
         poetry run pip install tomli tomli_w
     - name: Typecheck
       run: |
