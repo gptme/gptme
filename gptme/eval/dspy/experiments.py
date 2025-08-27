@@ -242,7 +242,8 @@ class OptimizationExperiment:
 
         report_text = "\n".join(report)
 
-        # Save report
+        # Ensure output directory exists and save report
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         report_file = self.output_dir / f"{self.name}_report.md"
         with open(report_file, "w") as f:
             f.write(report_text)

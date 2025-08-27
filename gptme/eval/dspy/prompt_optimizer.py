@@ -6,10 +6,15 @@ optimization techniques to automatically improve gptme system prompts.
 """
 
 import logging
+import os
+import re
 from collections.abc import Callable
 from typing import Any
 
+from gptme.eval.agents import GPTMe
+from gptme.eval.run import execute
 from gptme.eval.suites import tests as gptme_eval_tests
+from gptme.eval.suites.basic import tests
 from gptme.eval.types import EvalSpec
 from gptme.prompts import prompt_gptme
 
@@ -32,8 +37,6 @@ class PromptDataset:
     def __init__(self, eval_specs: list[EvalSpec], limit: int | None = None):
         # Use actual gptme eval specs instead of custom DSPy ones
         if not eval_specs:
-            from gptme.eval.suites.basic import tests
-
             eval_specs = tests
         self.eval_specs = eval_specs[:limit] if limit else eval_specs
 
@@ -95,10 +98,6 @@ class GptmeModule(dspy.Module):
         This integrates with gptme's actual execution engine.
         """
         try:
-            from gptme.eval.run import execute
-            from gptme.eval.agents import GPTMe
-            from gptme.eval.types import EvalSpec
-
             # Use a proper eval spec with real expect conditions
             eval_spec: EvalSpec = {
                 "name": "dspy_eval_task",
@@ -116,7 +115,6 @@ class GptmeModule(dspy.Module):
             # Parse context to extract files if any
             if "```" in context:
                 # Extract file contents from context
-                import re
 
                 file_blocks = re.findall(
                     r"```(\w+\.?\w*)\n(.*?)\n```", context, re.DOTALL
@@ -199,17 +197,7 @@ class PromptOptimizer:
         # Map gptme model names to DSPy/litellm format
         if self.model.startswith("anthropic/"):
             # Extract the actual model name and map to litellm format
-            base_model = self.model.replace("anthropic/", "")
-            if "claude-sonnet-4" in base_model:
-                dspy_model = "claude-3-5-sonnet-20241022"  # Latest Sonnet
-            elif "claude-sonnet-3.5" in base_model:
-                dspy_model = "claude-3-5-sonnet-20241022"
-            elif "haiku" in base_model:
-                dspy_model = "claude-3-5-haiku-20241022"
-            elif "claude-opus" in base_model:
-                dspy_model = "claude-3-opus-20240229"
-            else:
-                dspy_model = "claude-3-5-sonnet-20241022"  # Default to latest Sonnet
+            dspy_model = self.model.replace("anthropic/", "")
         elif self.model.startswith("openai/"):
             # Remove openai/ prefix for OpenAI models
             dspy_model = self.model.replace("openai/", "")
@@ -218,8 +206,6 @@ class PromptOptimizer:
             dspy_model = self.model
 
         # Configure DSPy with reduced logging
-        import os
-
         os.environ["DSPY_LOGGING_LEVEL"] = "ERROR"
 
         # Configure DSPy
@@ -250,8 +236,6 @@ class PromptOptimizer:
 
         # Get evaluation specs if not provided
         if eval_specs is None:
-            from gptme.eval.suites.basic import tests
-
             eval_specs = tests[: train_size + val_size]  # Use real gptme tests
 
         # Create datasets
