@@ -60,6 +60,7 @@ python-xlib = {version = "^0.33", optional=true}  # for X11 interaction
 
 # evals
 multiprocessing-logging = "^0.3.4"
+dspy = {version = "^3.0.2", python = "<=3.13", optional=true}
 
 # datascience essentials
 pillow = {version = "*"}  # non-optional, needed for image scaling in vision
@@ -103,9 +104,6 @@ pytest-timeout = "^2.2.0"
 pytest-retry = "^1.6.3"
 pytest-mock = "*"
 greenlet = "*"  # dependency of playwright, but needed for coverage
-
-# eval
-dspy = {version = "^3.0.2", python = "<=3.13", optional=true}
 
 # build
 pyinstaller = {version="^6.15", python=">=3.10,<3.15"}  # not yet compatible with Python 3.15+
