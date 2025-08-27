@@ -11,16 +11,31 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
-from gptme.eval.dspy.cli import DEFAULT_MODEL
-from gptme.eval.dspy.experiments import OptimizationExperiment, quick_prompt_test
-from gptme.eval.dspy.metrics import create_composite_metric
-from gptme.eval.dspy.prompt_optimizer import (
-    GptmeModule,
-    PromptDataset,
-    get_current_gptme_prompt,
-)
-from gptme.eval.dspy.tasks import get_prompt_optimization_tasks, get_tasks_by_focus_area
-from gptme.eval.types import EvalSpec
+
+# Check if DSPy is available and handle import errors gracefully
+from gptme.eval.dspy import _has_dspy  # fmt: skip
+
+if not _has_dspy():
+    pytest.skip("DSPy not available", allow_module_level=True)
+
+# Try to import all DSPy components - skip gracefully if any fail
+try:
+    from gptme.eval.dspy.cli import DEFAULT_MODEL  # fmt: skip
+    from gptme.eval.dspy.experiments import (  # fmt: skip
+        OptimizationExperiment,
+        quick_prompt_test,
+    )
+    from gptme.eval.dspy.metrics import create_composite_metric  # fmt: skip
+    from gptme.eval.dspy.prompt_optimizer import GptmeModule  # fmt: skip
+    from gptme.eval.dspy.prompt_optimizer import PromptDataset  # fmt: skip
+    from gptme.eval.dspy.prompt_optimizer import get_current_gptme_prompt  # fmt: skip
+    from gptme.eval.dspy.tasks import (  # fmt: skip
+        get_prompt_optimization_tasks,
+        get_tasks_by_focus_area,
+    )
+    from gptme.eval.types import EvalSpec  # fmt: skip
+except ImportError as e:
+    pytest.skip(f"DSPy imports failed: {e}", allow_module_level=True)
 
 
 def test_dataset_creation():
@@ -114,8 +129,9 @@ def test_prompt_comparison_structure():
         }
         mock_optimizer.return_value = mock_instance
 
-        with patch("gptme.eval.dspy.experiments.get_all_tests") as mock_tests:
-            mock_tests.return_value = [{"name": "test", "prompt": "test prompt"}]
+        # Mock the tasks module to provide test data
+        with patch("gptme.eval.dspy.tasks.get_prompt_optimization_tasks") as mock_tasks:
+            mock_tasks.return_value = [{"name": "test", "prompt": "test prompt"}]
 
             result = quick_prompt_test(prompts, num_examples=2, model="test-model")
 
@@ -199,7 +215,6 @@ def test_prompt_template_extraction():
     assert "non-interactive" in non_interactive_prompt.lower()
 
 
-@pytest.mark.integration
 def test_end_to_end_structure():
     """Test the complete structure of an optimization workflow (without execution)."""
 

@@ -177,15 +177,21 @@ class OptimizationExperiment:
         if "baseline" in self.results:
             baseline = self.results["baseline"]
             report.append("## Baseline Performance")
-            report.append(
-                f"- Average Score: {baseline.get('average_score', 'N/A'):.3f}"
-            )
-            report.append(
-                f"- Task Success Rate: {baseline.get('task_success_rate', 'N/A'):.3f}"
-            )
-            report.append(
-                f"- Tool Usage Score: {baseline.get('tool_usage_score', 'N/A'):.3f}"
-            )
+            avg_score = baseline.get("average_score", "N/A")
+            if isinstance(avg_score, int | float):
+                report.append(f"- Average Score: {avg_score:.3f}")
+            else:
+                report.append(f"- Average Score: {avg_score}")
+            success_rate = baseline.get("task_success_rate", "N/A")
+            if isinstance(success_rate, int | float):
+                report.append(f"- Task Success Rate: {success_rate:.3f}")
+            else:
+                report.append(f"- Task Success Rate: {success_rate}")
+            tool_score = baseline.get("tool_usage_score", "N/A")
+            if isinstance(tool_score, int | float):
+                report.append(f"- Tool Usage Score: {tool_score:.3f}")
+            else:
+                report.append(f"- Tool Usage Score: {tool_score}")
             report.append("")
 
         # Optimization results
@@ -203,7 +209,8 @@ class OptimizationExperiment:
         # Comparison results
         if "comparisons" in self.results:
             report.append("## Final Comparison")
-            comparison = self.results["comparisons"]["results"]
+            comparisons_data = self.results["comparisons"]
+            comparison = comparisons_data.get("results", {})
 
             # Sort by average score
             sorted_results = sorted(
@@ -222,23 +229,26 @@ class OptimizationExperiment:
 
         # Best performing prompt
         if "comparisons" in self.results:
-            comparison = self.results["comparisons"]["results"]
-            best_name = max(
-                comparison.keys(), key=lambda k: comparison[k].get("average_score", 0)
-            )
-            best_score = comparison[best_name].get("average_score", 0)
-
-            report.append("## Recommendations")
-            report.append(
-                f"**Best performing prompt:** {best_name} (score: {best_score:.3f})"
-            )
-
-            if best_name != "baseline":
-                improvement = best_score - comparison.get("baseline", {}).get(
-                    "average_score", 0
+            comparisons_data = self.results["comparisons"]
+            comparison = comparisons_data.get("results", {})
+            if comparison:  # Only proceed if we have comparison results
+                best_name = max(
+                    comparison.keys(),
+                    key=lambda k: comparison[k].get("average_score", 0),
                 )
-                report.append(f"**Improvement over baseline:** +{improvement:.3f}")
-            report.append("")
+                best_score = comparison[best_name].get("average_score", 0)
+
+                report.append("## Recommendations")
+                report.append(
+                    f"**Best performing prompt:** {best_name} (score: {best_score:.3f})"
+                )
+
+                if best_name != "baseline":
+                    improvement = best_score - comparison.get("baseline", {}).get(
+                        "average_score", 0
+                    )
+                    report.append(f"**Improvement over baseline:** +{improvement:.3f}")
+                report.append("")
 
         report_text = "\n".join(report)
 

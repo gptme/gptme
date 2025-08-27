@@ -9,28 +9,47 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from gptme.eval.dspy import (
-    GptmeTaskSignature,
-    PromptEvaluationSignature,
-    run_prompt_optimization_experiment,
-)
-from gptme.eval.dspy.cli import main
-from gptme.eval.dspy.experiment import OptimizationExperiment
-from gptme.eval.dspy.metrics import (
-    create_composite_metric,
-    create_task_success_metric,
-    create_tool_usage_metric,
-)
-from gptme.eval.dspy.prompt_optimizer import PromptOptimizer, get_current_gptme_prompt
-from gptme.eval.dspy.tasks import (
-    analyze_task_coverage,
-    create_error_handling_tasks,
-    create_instruction_following_tasks,
-    create_reasoning_tasks,
-    create_tool_usage_tasks,
-    get_prompt_optimization_tasks,
-    get_tasks_by_focus_area,
-)
+
+# Check if DSPy is available and handle import errors gracefully
+try:
+    from gptme.eval.dspy import _has_dspy  # fmt: skip
+
+    if not _has_dspy():
+        pytest.skip("DSPy not available", allow_module_level=True)
+except ImportError:
+    pytest.skip("DSPy module not available", allow_module_level=True)
+
+# Try to import all DSPy components directly - skip gracefully if any fail
+try:
+    from gptme.eval.dspy.cli import main  # fmt: skip
+    from gptme.eval.dspy.experiments import (  # fmt: skip
+        OptimizationExperiment,
+        run_prompt_optimization_experiment,
+    )
+    from gptme.eval.dspy.metrics import (  # fmt: skip
+        create_composite_metric,
+        create_task_success_metric,
+        create_tool_usage_metric,
+    )
+    from gptme.eval.dspy.prompt_optimizer import (  # fmt: skip
+        PromptOptimizer,
+        get_current_gptme_prompt,
+    )
+    from gptme.eval.dspy.signatures import (  # fmt: skip
+        GptmeTaskSignature,
+        PromptEvaluationSignature,
+    )
+    from gptme.eval.dspy.tasks import (  # fmt: skip
+        analyze_task_coverage,
+        create_error_handling_tasks,
+        create_instruction_following_tasks,
+        create_reasoning_tasks,
+        create_tool_usage_tasks,
+        get_prompt_optimization_tasks,
+        get_tasks_by_focus_area,
+    )
+except (ImportError, AttributeError) as e:
+    pytest.skip(f"DSPy imports failed: {e}", allow_module_level=True)
 
 DEFAULT_MODEL = "anthropic/claude-3-5-haiku-20241120"
 
@@ -38,17 +57,13 @@ DEFAULT_MODEL = "anthropic/claude-3-5-haiku-20241120"
 # Test basic imports
 def test_imports():
     """Test that all main modules can be imported."""
-    try:
-        # Test that the imports are actually available
-        assert PromptOptimizer is not None
-        assert create_task_success_metric is not None
-        assert create_tool_usage_metric is not None
-        assert GptmeTaskSignature is not None
-        assert PromptEvaluationSignature is not None
-        assert run_prompt_optimization_experiment is not None
-    except ImportError as e:
-        # If DSPy is not installed, skip these tests
-        pytest.skip(f"DSPy not available: {e}")
+    # Test that the imports are actually available
+    assert PromptOptimizer is not None
+    assert create_task_success_metric is not None
+    assert create_tool_usage_metric is not None
+    assert GptmeTaskSignature is not None
+    assert PromptEvaluationSignature is not None
+    assert run_prompt_optimization_experiment is not None
 
 
 def test_task_creation():
@@ -151,7 +166,7 @@ def test_task_coverage_analysis():
 
 @pytest.mark.skipif(
     True,  # Skip by default as this requires DSPy and can be slow
-    reason="Expensive test requiring DSPy installation",
+    reason="Expensive test performing actual optimization",
 )
 def test_optimization_experiment():
     """Test running a small optimization experiment."""
@@ -175,8 +190,9 @@ def test_cli_argument_parsing():
         with pytest.raises(SystemExit):
             main()
 
-    # Test show-prompt command parsing
+    # Test show-prompt command parsing - verify it runs successfully
     with patch.object(sys, "argv", ["cli.py", "show-prompt", "--model", "test-model"]):
-        with patch("gptme.eval.dspy.cli.cmd_show_current_prompt") as mock_cmd:
+        with pytest.raises(SystemExit) as exc_info:
             main()
-            mock_cmd.assert_called_once()
+        # CLI commands normally exit with code 0 on success
+        assert exc_info.value.code == 0

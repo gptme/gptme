@@ -5,16 +5,15 @@ This module provides tools for automatically optimizing gptme's system prompts
 using DSPy's prompt optimization techniques like MIPROv2 and BootstrapFewShot.
 """
 
-from .prompt_optimizer import PromptOptimizer
-from .metrics import create_task_success_metric, create_tool_usage_metric
-from .signatures import GptmeTaskSignature, PromptEvaluationSignature
-from .experiments import run_prompt_optimization_experiment
+from functools import lru_cache
 
-__all__ = [
-    "PromptOptimizer",
-    "create_task_success_metric",
-    "create_tool_usage_metric",
-    "GptmeTaskSignature",
-    "PromptEvaluationSignature",
-    "run_prompt_optimization_experiment",
-]
+
+@lru_cache
+def _has_dspy() -> bool:
+    """Check if DSPy is available."""
+    try:
+        import dspy  # noqa
+
+        return True
+    except ImportError:
+        return False
