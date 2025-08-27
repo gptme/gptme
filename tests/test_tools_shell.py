@@ -16,7 +16,11 @@ def shell() -> Generator[ShellSession, None, None]:
     shell.close()
 
     # change back to the original directory
-    os.chdir(orig_cwd)
+    try:
+        os.chdir(orig_cwd)
+    except (FileNotFoundError, OSError):
+        # If the original directory no longer exists, change to a safe directory
+        os.chdir(os.path.expanduser("~"))
 
 
 def test_echo(shell):

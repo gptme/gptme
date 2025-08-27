@@ -23,10 +23,10 @@ def test_dir(tmp_path):
     return tmp_path
 
 
-def test_is_valid_path(test_dir):
+def test_is_valid_path(test_dir, monkeypatch):
     """Test path validation function."""
     # Change to test directory
-    os.chdir(test_dir)
+    monkeypatch.chdir(test_dir)
 
     # Test absolute paths
     assert is_valid_path(str(test_dir / "file.txt"))
@@ -71,10 +71,10 @@ PATH_LEXER_CASES = [
 
 
 @pytest.mark.parametrize("text_template,expected_token", PATH_LEXER_CASES)
-def test_path_lexer(test_dir, text_template, expected_token):
+def test_path_lexer(test_dir, text_template, expected_token, monkeypatch):
     """Test path highlighting in the lexer."""
     lexer = PathLexer()
-    os.chdir(test_dir)
+    monkeypatch.chdir(test_dir)
 
     # Format the text with test_dir if needed
     text = text_template.format(test_dir)
@@ -111,9 +111,9 @@ def test_path_lexer_caching():
         assert cache_info2.hits == cache_info1.hits + 1
 
 
-def test_symlink_handling(test_dir):
+def test_symlink_handling(test_dir, monkeypatch):
     """Test handling of symlinks."""
-    os.chdir(test_dir)
+    monkeypatch.chdir(test_dir)
     check_cwd()  # we should run this automatically somehow
 
     # Create a symlink
