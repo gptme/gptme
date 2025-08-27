@@ -127,7 +127,13 @@ def context():
 @click.argument("path", type=click.Path(exists=True))
 def context_index(path: str):
     """Index a file or directory for context retrieval."""
-    from ..tools.rag import init, rag_index  # fmt: skip
+    from ..tools.rag import _has_gptme_rag, init, rag_index  # fmt: skip
+
+    if not _has_gptme_rag():
+        print(
+            "Error: gptme-rag is not installed. Please install it to use this feature."
+        )
+        sys.exit(1)
 
     # Initialize RAG
     init()
@@ -142,7 +148,13 @@ def context_index(path: str):
 @click.option("--full", is_flag=True, help="Show full context of search results")
 def context_retrieve(query: str, full: bool):
     """Search indexed documents for relevant context."""
-    from ..tools.rag import init, rag_search  # fmt: skip
+    from ..tools.rag import _has_gptme_rag, init, rag_search  # fmt: skip
+
+    if not _has_gptme_rag():
+        print(
+            "Error: gptme-rag is not installed. Please install it to use this feature."
+        )
+        sys.exit(1)
 
     # Initialize RAG
     init()

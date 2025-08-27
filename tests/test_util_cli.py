@@ -9,7 +9,7 @@ from gptme.logmanager import ConversationMeta
 from gptme.util.cli import main
 
 
-def test_tokens_count():
+def test_tokens_count(tmp_path):
     """Test the tokens count command."""
     runner = CliRunner()
 
@@ -27,11 +27,11 @@ def test_tokens_count():
     assert "not supported" in result.output
 
     # Test file input
-    with runner.isolated_filesystem():
-        Path("test.txt").write_text("Hello from file!")
-        result = runner.invoke(main, ["tokens", "count", "-f", "test.txt"])
-        assert result.exit_code == 0
-        assert "Token count" in result.output
+    tmp_file = Path(tmp_path) / "test.txt"
+    tmp_file.write_text("Hello from file!")
+    result = runner.invoke(main, ["tokens", "count", "-f", str(tmp_file)])
+    assert result.exit_code == 0
+    assert "Token count" in result.output
 
 
 def test_chats_list(tmp_path, mocker):
@@ -102,7 +102,7 @@ def test_chats_list(tmp_path, mocker):
     assert "Messages: 2" in result.output  # Second chat has 2 messages
 
 
-def test_context_index_and_retrieve(tmp_path, monkeypatch):
+def test_context_index_and_retrieve(tmp_path):
     """Test the context index and retrieve commands."""
     # Skip if gptme-rag not available
     from gptme.tools.rag import _has_gptme_rag
@@ -113,7 +113,6 @@ def test_context_index_and_retrieve(tmp_path, monkeypatch):
     # Create a test file
     test_file = tmp_path / "test.txt"
     test_file.write_text("Hello, world!")
-    monkeypatch.chdir(tmp_path)
 
     runner = CliRunner()
     result = runner.invoke(main, ["context", "index", str(test_file)])
@@ -142,8 +141,8 @@ def test_tools_list():
 
     # Test basic list
     result = runner.invoke(main, ["tools", "list"])
-    assert result.exit_code == 0
     assert "Available tools:" in result.output
+    assert result.exit_code == 0
 
     # Test langtags
     result = runner.invoke(main, ["tools", "list", "--langtags"])
