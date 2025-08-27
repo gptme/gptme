@@ -59,7 +59,7 @@ class OptimizationExperiment:
         if eval_specs is None:
             eval_specs = gptme_eval_tests
 
-        current_prompt = get_current_gptme_prompt(model=self.model)
+        current_prompt = get_current_gptme_prompt(interactive=False, model=self.model)
 
         # TODO: Actually run evaluation with gptme's eval framework
         # This would integrate with gptme.eval.run to execute tasks
@@ -94,7 +94,7 @@ class OptimizationExperiment:
             eval_specs = gptme_eval_tests
 
         # Get baseline prompt
-        base_prompt = get_current_gptme_prompt(model=self.model)
+        base_prompt = get_current_gptme_prompt(interactive=False, model=self.model)
 
         # Initialize optimizer
         optimizer = PromptOptimizer(model=self.model, **optimizer_config)

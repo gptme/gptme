@@ -11,6 +11,7 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from gptme.eval.dspy.cli import DEFAULT_MODEL
 from gptme.eval.dspy.experiments import OptimizationExperiment, quick_prompt_test
 from gptme.eval.dspy.metrics import create_composite_metric
 from gptme.eval.dspy.prompt_optimizer import (
@@ -182,8 +183,10 @@ def test_prompt_template_extraction():
     """Test extracting prompts from gptme's prompt system."""
 
     # Test both interactive and non-interactive modes
-    interactive_prompt = get_current_gptme_prompt(interactive=True)
-    non_interactive_prompt = get_current_gptme_prompt(interactive=False)
+    interactive_prompt = get_current_gptme_prompt(interactive=True, model=DEFAULT_MODEL)
+    non_interactive_prompt = get_current_gptme_prompt(
+        interactive=False, model=DEFAULT_MODEL
+    )
 
     assert isinstance(interactive_prompt, str)
     assert isinstance(non_interactive_prompt, str)

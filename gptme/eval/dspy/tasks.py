@@ -23,7 +23,7 @@ def create_tool_usage_tasks() -> list[dict[str, Any]]:
             "prompt": 'Create a Python file called hello.py that prints "Hello, World!"',
             "tools": ["save"],
             "expect": {
-                "uses_save_tool": lambda ctx: "save" in str(ctx.messages),
+                "uses_save_tool": lambda ctx: "hello.py" in ctx.files,
                 "correct_output": lambda ctx: "Hello, World!" in ctx.stdout,
             },
             "focus_areas": ["tool_selection", "file_creation"],

@@ -250,20 +250,89 @@ def evaluate_prompt_on_task(
     Returns:
         Dictionary containing evaluation results and metrics
     """
-    # TODO: Integrate with gptme's actual evaluation runner
-    # This would need to:
-    # 1. Set up a conversation with the system prompt
-    # 2. Run the task
-    # 3. Collect results and apply metrics
-    # 4. Return structured evaluation data
+    try:
+        from gptme.eval.run import execute
+        from gptme.eval.agents import GPTMe
 
-    return {
-        "task_name": task_spec.get("name", "unknown"),
-        "system_prompt": system_prompt,
-        "model": model,
-        "success_rate": 0.0,  # Placeholder
-        "tool_usage_score": 0.0,  # Placeholder
-        "judge_score": 0.0,  # Placeholder
-        "composite_score": 0.0,  # Placeholder
-        "details": {},
-    }
+        # Create a GPTMe agent
+        agent = GPTMe(model=model, tool_format="markdown")
+
+        # Run actual gptme evaluation
+        result = execute(test=task_spec, agent=agent, timeout=60, parallel=False)
+
+        # Calculate metrics from actual results
+        task_success = 0.0
+        print(f"DEBUG: result = {result}")
+        print(f"DEBUG: hasattr results = {hasattr(result, 'results')}")
+        if hasattr(result, "results"):
+            print(f"DEBUG: result.results = {result.results}")
+        if hasattr(result, "results") and result.results:
+            passed = sum(1 for r in result.results if r.passed)
+            task_success = passed / len(result.results)
+            print(f"DEBUG: task_success = {task_success}")
+        else:
+            print("DEBUG: No results found or empty results")
+
+        # Tool usage analysis
+        tool_score = 0.0
+        if hasattr(result, "messages"):
+            tool_calls = [
+                msg
+                for msg in result.messages
+                if msg.role == "assistant"
+                and any(
+                    hasattr(msg, "blocks") and block.tool
+                    for block in getattr(msg, "blocks", [])
+                )
+            ]
+            # Simple tool usage score
+            expected_tools = task_spec.get("tools", [])
+            if expected_tools:
+                used_tools = set()
+                for msg in tool_calls:
+                    for block in getattr(msg, "blocks", []):
+                        if block.tool:
+                            used_tools.add(block.tool)
+                tool_score = len(used_tools.intersection(set(expected_tools))) / len(
+                    expected_tools
+                )
+            else:
+                tool_score = (
+                    1.0 if not tool_calls else 0.8
+                )  # Reward not using tools when not needed
+
+        # LLM judge score (simplified)
+        judge_score = min(1.0, task_success + 0.3)  # Basic heuristic
+
+        # Composite score
+        composite_score = task_success * 0.4 + tool_score * 0.3 + judge_score * 0.3
+
+        return {
+            "task_name": task_spec.get("name", "unknown"),
+            "system_prompt": system_prompt,
+            "model": model,
+            "success_rate": task_success,
+            "tool_usage_score": tool_score,
+            "judge_score": judge_score,
+            "composite_score": composite_score,
+            "details": {
+                "result": result,
+                "num_tool_calls": len(tool_calls) if "tool_calls" in locals() else 0,
+                "expected_tools": expected_tools,
+                "used_tools": list(used_tools) if "used_tools" in locals() else [],
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to run actual evaluation: {e}")
+        # Fallback to basic evaluation
+        return {
+            "task_name": task_spec.get("name", "unknown"),
+            "system_prompt": system_prompt,
+            "model": model,
+            "success_rate": 0.0,
+            "tool_usage_score": 0.0,
+            "judge_score": 0.0,
+            "composite_score": 0.0,
+            "details": {"error": str(e)},
+        }

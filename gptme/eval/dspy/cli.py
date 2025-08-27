@@ -18,7 +18,7 @@ from .tasks import analyze_task_coverage, get_prompt_optimization_tasks
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "anthropic/claude-sonnet-4-20250514"
+DEFAULT_MODEL = "anthropic/claude-3-5-haiku-20241022"
 
 
 def cmd_optimize(args) -> None:
@@ -87,7 +87,7 @@ def cmd_quick_test(args) -> None:
     prompts = {}
 
     # Add current prompt as baseline
-    current_prompt = get_current_gptme_prompt(model=args.model)
+    current_prompt = get_current_gptme_prompt(interactive=True, model=args.model)
     prompts["current"] = current_prompt
 
     # Add prompt files if specified
@@ -275,10 +275,18 @@ Examples:
     args = parser.parse_args()
 
     # Configure logging
+    log_format = (
+        "%(levelname)s: %(message)s"
+        if not args.verbose
+        else "%(name)s - %(levelname)s: %(message)s"
+    )
+
     if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG, format=log_format)
     else:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.WARNING, format=log_format)
+        # Specifically quiet down our DSPy modules
+        logging.getLogger("gptme.eval.dspy").setLevel(logging.ERROR)
 
     # Run command
     if hasattr(args, "func"):
