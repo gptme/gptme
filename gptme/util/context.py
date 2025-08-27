@@ -248,7 +248,10 @@ def get_mentioned_files(msgs: list[Message], workspace: Path | None) -> list[Pat
 
 
 def gather_fresh_context(
-    msgs: list[Message], workspace: Path | None, git=True
+    msgs: list[Message],
+    workspace: Path | None,
+    git=True,
+    precommit=False,
 ) -> Message:
     """Gather fresh context from files and git status."""
 
@@ -256,9 +259,10 @@ def gather_fresh_context(
     sections = []
 
     # Add pre-commit check results if there are issues
-    success, precommit_output = run_precommit_checks()
-    if not success and precommit_output:
-        sections.append(precommit_output)
+    if precommit:
+        success, precommit_output = run_precommit_checks()
+        if not success and precommit_output:
+            sections.append(precommit_output)
 
     if git and (git_status_output := git_status()):
         sections.append(git_status_output)
