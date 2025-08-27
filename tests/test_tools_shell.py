@@ -9,18 +9,10 @@ from gptme.tools.shell import ShellSession, split_commands
 
 @pytest.fixture
 def shell() -> Generator[ShellSession, None, None]:
-    orig_cwd = os.getcwd()
-
     shell = ShellSession()
     yield shell
     shell.close()
-
-    # change back to the original directory
-    try:
-        os.chdir(orig_cwd)
-    except (FileNotFoundError, OSError):
-        # If the original directory no longer exists, change to a safe directory
-        os.chdir(os.path.expanduser("~"))
+    # Don't change directories - let each test manage its own directory state
 
 
 def test_echo(shell):
