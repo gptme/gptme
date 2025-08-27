@@ -367,100 +367,6 @@ Optimization reports include:
 **Improvement over baseline:** +0.073
 ```
 
-## Troubleshooting
-
-### Common Issues
-
-1. **DSPy Import Error**
-   ```bash
-   pip install dspy
-   ```
-
-2. **Model Configuration Issues**
-   - Ensure API keys are set correctly
-   - Check model name format (e.g., "anthropic/claude-sonnet-4-20250514")
-
-3. **Evaluation Task Failures**
-   - Verify task dependencies are installed
-   - Check file permissions in workspace
-
-4. **Memory Issues with Large Optimizations**
-   - Reduce `--num-trials` and `--max-demos`
-   - Use fewer evaluation examples
-
-### Debug Mode
-
-Enable verbose logging:
-```bash
-python -m gptme.eval.dspy.cli optimize --verbose --name "debug_run"
-```
-
-## Advanced Configuration
-
-### Custom Metrics
-
-Define custom evaluation metrics:
-
-```python
-def custom_metric(gold, pred, trace=None):
-    # Custom evaluation logic
-    return score_between_0_and_1
-
-optimizer = PromptOptimizer(model="anthropic/claude-sonnet-4-20250514")
-metric = create_composite_metric(
-    task_weight=0.5,
-    tool_weight=0.3,
-    judge_weight=0.2
-)
-```
-
-### Custom Tasks
-
-Add domain-specific evaluation tasks:
-
-```python
-custom_tasks = [
-    {
-        "name": "custom-task",
-        "files": {"input.txt": "test data"},
-        "run": "python process.py",
-        "prompt": "Process the input file and generate output",
-        "tools": ["save", "shell"],
-        "expect": {
-            "creates_output": lambda ctx: "output.txt" in ctx.files
-        },
-        "focus_areas": ["custom_domain"]
-    }
-]
-```
-
-### Integration with CI/CD
-
-The gptme repository includes a GitHub Actions workflow for automated prompt optimization. The workflow runs weekly and can also be triggered manually with custom parameters.
-
-**Workflow file:** [`.github/workflows/optimize-prompts.yml`](../../.github/workflows/optimize-prompts.yml)
-
-**Features:**
-- **Scheduled runs**: Automatic weekly optimization on Sundays at 2 AM UTC
-- **Manual dispatch**: Run optimization on-demand with custom parameters
-- **Multiple optimizers**: Supports MIPROv2, BootstrapFewShot, and others
-- **Configurable parameters**: Model selection, number of trials, demonstrations
-- **Result artifacts**: Automatically uploads optimization results and reports
-- **Failure notifications**: Creates GitHub issues when optimization fails
-- **Environment support**: Configured for multiple LLM providers (OpenAI, Anthropic, OpenRouter)
-
-**Manual trigger example:**
-```bash
-# Via GitHub CLI
-gh workflow run optimize-prompts.yml \
-  -f model="anthropic/claude-sonnet-4-20250514" \
-  -f optimizers="miprov2,bootstrap" \
-  -f num_trials="15" \
-  -f max_demos="4"
-```
-
-The workflow generates comprehensive reports and stores them as GitHub Actions artifacts, making it easy to track optimization progress over time.
-
 ## Contributing
 
 To contribute to the DSPy integration:
@@ -475,17 +381,8 @@ To contribute to the DSPy integration:
 
 ```bash
 # Run DSPy-specific tests
-python -m pytest gptme/eval/dspy/tests/ -v
-
-# Run with optimization tasks
-python -m pytest gptme/eval/dspy/tests/ -v --run-optimization
+python -m pytest tests/test_dspy*.py -v
 ```
-
-## Related Work
-
-- **DSPy Framework**: https://github.com/stanfordnlp/dspy
-- **Prompt Engineering Guide**: https://www.promptingguide.ai/
-- **gptme Documentation**: https://gptme.org/docs/
 
 ## License
 
