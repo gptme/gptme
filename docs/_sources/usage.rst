@@ -78,7 +78,7 @@ You can ask the assistant to create new files or modify existing ones:
    User: implement game of life in life.py
 
    Assistant: Certainly! I'll create a new file named `life.py` implementing Conway's Game of Life. This implementation will use NumPy for efficient array operations and Matplotlib for visualization. Here's the code:
-   ```life.py
+   ```save life.py
    import numpy as np
    import matplotlib.pyplot as plt
    from matplotlib.animation import FuncAnimation
