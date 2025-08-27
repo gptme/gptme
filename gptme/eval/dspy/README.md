@@ -12,31 +12,83 @@ The DSPy integration allows you to:
 - **Generate reports** on optimization results
 - **Test specific aspects** like tool usage, reasoning, and instruction following
 
-## Quick Start
+## Module Structure
 
-### Installation
-
-First, ensure DSPy is installed:
-
-```bash
-pip install dspy
+```text
+gptme/eval/dspy/
+├── __init__.py           # Module exports and initialization
+├── signatures.py         # DSPy signatures for optimization tasks
+├── metrics.py            # Evaluation metrics for prompt performance
+├── prompt_optimizer.py   # Core optimization logic using DSPy
+├── experiments.py        # High-level experiment management
+├── tasks.py              # Specialized evaluation tasks
+├── cli.py                # Command-line interface
+└── README.md             # Comprehensive documentation
 ```
+
+## Key Features
+
+### 1. Automatic Prompt Optimization
+- **MIPROv2**: Advanced Bayesian optimization for system prompts
+- **BootstrapFewShot**: Optimizes few-shot examples and instructions
+- **Custom Metrics**: Task success, tool usage effectiveness, LLM judges
+- **Multi-objective**: Balances different aspects of prompt performance
+
+### 2. Comprehensive Evaluation Framework
+- **Task Success Rate**: Measures completion of evaluation tasks
+- **Tool Usage Analysis**: Evaluates appropriate tool selection and usage
+- **LLM Judge Scoring**: Uses language models to assess response quality
+- **Composite Metrics**: Combines multiple evaluation aspects
+
+### 3. Specialized Tasks
+- **Tool Usage Tasks**: Test appropriate tool selection patterns
+- **Reasoning Tasks**: Evaluate problem-solving approaches
+- **Instruction Following**: Test adherence to specific guidelines
+- **Error Handling**: Assess recovery and correction abilities
+
+### 4. User-Friendly Interface
+```bash
+# Quick optimization
+python -m gptme.eval.dspy optimize --name "my_experiment"
+
+# Compare prompt variations
+python -m gptme.eval.dspy quick-test --prompt-files prompt1.txt prompt2.txt
+
+# Show current system prompt
+python -m gptme.eval.dspy show-prompt
+```
+
+## Installation
+
+DSPy is an optional dependency added in pyproject.toml under `[tool.poetry.extras]`.
+
+Install with:
+```bash
+pip install gptme[dspy]
+```
+
+Or for all features:
+```bash
+pip install gptme[all]
+```
+
+## Quick Start
 
 ### Basic Usage
 
 1. **Show current system prompt:**
 ```bash
-python -m gptme.eval.dspy.cli show-prompt
+python -m gptme.eval.dspy show-prompt
 ```
 
 2. **Run a quick test:**
 ```bash
-python -m gptme.eval.dspy.cli quick-test --num-examples 5
+python -m gptme.eval.dspy quick-test --num-examples 5
 ```
 
 3. **Run full optimization:**
 ```bash
-python -m gptme.eval.dspy.cli optimize --name "my_experiment"
+python -m gptme.eval.dspy optimize --name "my_experiment"
 ```
 
 ### Python API
@@ -47,7 +99,7 @@ from gptme.eval.dspy import run_prompt_optimization_experiment
 # Run optimization experiment
 experiment = run_prompt_optimization_experiment(
     experiment_name="gptme_optimization_v1",
-    model="anthropic/claude-sonnet-4-20250514"
+    model="anthropic/claude-3-5-haiku-20241022"
 )
 
 # Check results
@@ -113,7 +165,7 @@ results = quick_prompt_test(prompts, num_examples=10)
 from gptme.eval.dspy import PromptOptimizer
 
 optimizer = PromptOptimizer(
-    model="anthropic/claude-sonnet-4-20250514",
+    model="anthropic/claude-3-5-haiku-20241022",
     optimizer_type="miprov2",
     max_demos=3,
     num_trials=15
@@ -148,9 +200,9 @@ reasoning_tasks = get_tasks_by_focus_area("reasoning")
 Run a comprehensive optimization experiment:
 
 ```bash
-python -m gptme.eval.dspy.cli optimize \
+python -m gptme.eval.dspy optimize \
     --name "gptme_v1_optimization" \
-    --model "anthropic/claude-sonnet-4-20250514" \
+    --model "anthropic/claude-3-5-haiku-20241022" \
     --max-demos 3 \
     --num-trials 15 \
     --optimizers miprov2 bootstrap \
@@ -162,10 +214,10 @@ python -m gptme.eval.dspy.cli optimize \
 Quickly compare different prompt variations:
 
 ```bash
-python -m gptme.eval.dspy.cli quick-test \
+python -m gptme.eval.dspy quick-test \
     --prompt-files prompt1.txt prompt2.txt \
     --num-examples 8 \
-    --model "anthropic/claude-sonnet-4-20250514"
+    --model "anthropic/claude-3-5-haiku-20241022"
 ```
 
 ### `show-prompt` - View Current Prompt
@@ -173,7 +225,7 @@ python -m gptme.eval.dspy.cli quick-test \
 Display the current gptme system prompt:
 
 ```bash
-python -m gptme.eval.dspy.cli show-prompt --model "anthropic/claude-sonnet-4-20250514"
+python -m gptme.eval.dspy show-prompt --model "anthropic/claude-3-5-haiku-20241022"
 ```
 
 ### `list-tasks` - View Available Tasks
@@ -182,10 +234,10 @@ List evaluation tasks:
 
 ```bash
 # Standard eval tasks
-python -m gptme.eval.dspy.cli list-tasks
+python -m gptme.eval.dspy list-tasks
 
 # Prompt optimization specific tasks
-python -m gptme.eval.dspy.cli list-tasks --optimization-tasks
+python -m gptme.eval.dspy list-tasks --optimization-tasks
 ```
 
 ### `analyze-coverage` - Task Coverage Analysis
@@ -193,8 +245,31 @@ python -m gptme.eval.dspy.cli list-tasks --optimization-tasks
 Analyze what areas are covered by evaluation tasks:
 
 ```bash
-python -m gptme.eval.dspy.cli analyze-coverage
+python -m gptme.eval.dspy analyze-coverage
 ```
+
+## Technical Approach
+
+### DSPy Integration
+
+1. **Signature Definitions**: Formal input/output specifications for optimization
+2. **Metric Functions**: Evaluation functions that return 0-1 scores
+3. **Dataset Conversion**: Transform gptme eval specs to DSPy format
+4. **Optimization Loop**: Use DSPy algorithms to improve prompts iteratively
+
+### Evaluation Metrics
+
+- **Task Success**: Binary success on evaluation tasks
+- **Tool Effectiveness**: Appropriate tool selection and usage
+- **Response Quality**: LLM-judged quality assessments
+- **Composite Scoring**: Weighted combination of multiple metrics
+
+### Experiment Management
+
+- **Baseline Evaluation**: Test current prompt performance
+- **Multi-optimizer Comparison**: Test different optimization strategies
+- **Results Analysis**: Statistical comparison and reporting
+- **Artifact Storage**: Save optimized prompts and detailed results
 
 ## Optimization Strategies
 
@@ -261,12 +336,31 @@ Combines multiple metrics with configurable weights:
 
 ## Integration with gptme
 
-The DSPy module integrates seamlessly with gptme's existing evaluation framework:
+### Seamless Integration
 
-- **Reuses evaluation tasks** from `gptme/eval/suites/`
-- **Compatible with all models** supported by gptme
-- **Respects configuration** from gptme config files
-- **Generates gptme-compatible** optimized prompts
+- Uses existing evaluation framework from `gptme/eval/suites/`
+- Compatible with all gptme-supported models
+- Respects gptme configuration and preferences
+- Generates prompts compatible with gptme's prompt system
+
+### Optional Dependency
+
+- DSPy is optional - doesn't affect core gptme functionality
+- Clean import handling with graceful fallbacks
+- Only loaded when explicitly used
+
+## Testing
+
+Comprehensive test suite covering:
+- **Unit Tests**: Individual component functionality
+- **Integration Tests**: Cross-component interactions
+- **CLI Tests**: Command-line interface behavior
+- **Mock Tests**: Expensive operations avoided in CI
+
+Run tests:
+```bash
+python -m pytest tests/test_dspy*.py -v
+```
 
 ## Best Practices
 
@@ -275,7 +369,7 @@ The DSPy module integrates seamlessly with gptme's existing evaluation framework
 Always run baseline evaluation before optimization:
 
 ```bash
-python -m gptme.eval.dspy.cli optimize --name "baseline_first"
+python -m gptme.eval.dspy optimize --name "baseline_first"
 ```
 
 ### 2. Use Multiple Optimizers
@@ -317,13 +411,14 @@ Run multiple optimization rounds:
 Optimization experiments generate:
 
 ### Results Directory Structure
-### Results Directory Structure
+```text
 experiment_results/
 ├── experiment_name_results.json     # Complete results data
 ├── experiment_name_report.md        # Human-readable report
 ├── miprov2_prompt.txt              # Optimized prompt from MIPROv2
 ├── bootstrap_prompt.txt            # Optimized prompt from Bootstrap
 └── baseline_evaluation.json        # Baseline performance data
+```
 
 ### Report Contents
 
@@ -338,7 +433,7 @@ Optimization reports include:
 
 ```markdown
 # Prompt Optimization Report: gptme_v1_optimization
-**Model:** anthropic/claude-sonnet-4-20250514
+**Model:** anthropic/claude-3-5-haiku-20241022
 **Timestamp:** 2024-08-26T15:30:00
 
 ## Baseline Performance
@@ -366,6 +461,37 @@ Optimization reports include:
 **Best performing prompt:** miprov2 (score: 0.745)
 **Improvement over baseline:** +0.073
 ```
+
+## Benefits
+
+### For gptme Development
+- **Data-Driven**: Objective measurement of prompt quality
+- **Automated**: Reduces manual prompt engineering effort
+- **Systematic**: Comprehensive evaluation across multiple dimensions
+- **Reproducible**: Consistent methodology and metrics
+
+### For Users
+- **Better Performance**: Optimized prompts work more effectively
+- **Customization**: Optimize for specific use cases or domains
+- **Transparency**: Clear metrics and evaluation criteria
+- **Accessibility**: Easy-to-use CLI and Python API
+
+## Future Enhancements
+
+- **Model-Specific Optimization**: Tailor prompts for different LLM providers
+- **Domain Adaptation**: Optimize for specific programming languages or tasks
+- **Continuous Learning**: Incorporate user feedback and interaction data
+- **A/B Testing**: Built-in experimentation framework
+- **Prompt Templates**: Generate reusable prompt components
+
+## Research Applications
+
+This implementation enables research into:
+- Prompt engineering best practices
+- Task-specific optimization strategies
+- Cross-model prompt transferability
+- Automated prompt evolution
+- Performance prediction and modeling
 
 ## Contributing
 
