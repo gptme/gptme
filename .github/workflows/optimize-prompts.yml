@@ -1,0 +1,171 @@
+name: Optimize gptme Prompts
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly on Sundays at 2 AM UTC
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'LLM model to use for optimization'
+        required: false
+        default: 'anthropic/claude-sonnet-4-20250514'
+        type: string
+      optimizers:
+        description: 'Optimization strategies (comma-separated)'
+        required: false
+        default: 'miprov2,bootstrap'
+        type: string
+      num_trials:
+        description: 'Number of optimization trials'
+        required: false
+        default: '10'
+        type: string
+      max_demos:
+        description: 'Maximum number of few-shot demonstrations'
+        required: false
+        default: '3'
+        type: string
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  GPTME_CONFIG_DIR: ${{ github.workspace }}/.config/gptme
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install dspy
+
+      - name: Create config directory
+        run: |
+          mkdir -p $GPTME_CONFIG_DIR
+
+      - name: Set up environment variables
+        run: |
+          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> $GITHUB_ENV
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
+          echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> $GITHUB_ENV
+
+      - name: Run baseline evaluation
+        run: |
+          python -m gptme.eval.dspy.cli show-prompt \
+            --model "${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}"
+
+      - name: Run quick test
+        run: |
+          python -m gptme.eval.dspy.cli quick-test \
+            --num-examples 5 \
+            --model "${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}" \
+            --verbose
+
+      - name: Run prompt optimization
+        run: |
+          EXPERIMENT_NAME="automated_optimization_$(date +%Y%m%d_%H%M%S)"
+          python -m gptme.eval.dspy.cli optimize \
+            --name "$EXPERIMENT_NAME" \
+            --model "${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}" \
+            --max-demos "${{ github.event.inputs.max_demos || '3' }}" \
+            --num-trials "${{ github.event.inputs.num_trials || '10' }}" \
+            --optimizers "${{ github.event.inputs.optimizers || 'miprov2,bootstrap' }}" \
+            --output-dir ./optimization_results \
+            --verbose
+        continue-on-error: true
+
+      - name: Analyze task coverage
+        run: |
+          python -m gptme.eval.dspy.cli analyze-coverage
+        continue-on-error: true
+
+      - name: Generate summary report
+        if: always()
+        run: |
+          echo "# Prompt Optimization Summary" > optimization_summary.md
+          echo "**Date:** $(date)" >> optimization_summary.md
+          echo "**Model:** ${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}" >> optimization_summary.md
+          echo "**Optimizers:** ${{ github.event.inputs.optimizers || 'miprov2,bootstrap' }}" >> optimization_summary.md
+          echo "**Trials:** ${{ github.event.inputs.num_trials || '10' }}" >> optimization_summary.md
+          echo "" >> optimization_summary.md
+
+          if [ -d "./optimization_results" ]; then
+            echo "## Generated Files" >> optimization_summary.md
+            find ./optimization_results -name "*.json" -o -name "*.md" -o -name "*.txt" | sort >> optimization_summary.md
+            echo "" >> optimization_summary.md
+
+            # Include the main report if it exists
+            REPORT_FILE=$(find ./optimization_results -name "*_report.md" | head -1)
+            if [ -f "$REPORT_FILE" ]; then
+              echo "## Optimization Report" >> optimization_summary.md
+              cat "$REPORT_FILE" >> optimization_summary.md
+            fi
+          else
+            echo "❌ No optimization results generated" >> optimization_summary.md
+          fi
+
+      - name: Upload optimization results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: prompt-optimization-results-${{ github.run_number }}
+          path: |
+            ./optimization_results/
+            optimization_summary.md
+          retention-days: 30
+
+      - name: Create issue with results (on failure)
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## Prompt Optimization Failed\n\n';
+            body += `**Run:** ${context.runNumber}\n`;
+            body += `**Model:** ${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}\n`;
+            body += `**Workflow:** [${context.workflow}](${context.payload.repository.html_url}/actions/runs/${context.runId})\n\n`;
+
+            if (fs.existsSync('optimization_summary.md')) {
+              const summary = fs.readFileSync('optimization_summary.md', 'utf8');
+              body += '## Summary\n\n' + summary;
+            }
+
+            body += '\n\nPlease investigate the workflow failure and check the logs.';
+
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Prompt Optimization Failed - Run ${context.runNumber}`,
+              body: body,
+              labels: ['automation', 'dspy', 'prompt-optimization']
+            });
+
+  notify-success:
+    needs: optimize
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Notify successful optimization
+        uses: actions/github-script@v6
+        with:
+          script: |
+            console.log('✅ Prompt optimization completed successfully!');
+            console.log(`Artifacts available in workflow run: ${context.runId}`);

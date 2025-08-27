@@ -19,7 +19,7 @@ The DSPy integration allows you to:
 First, ensure DSPy is installed:
 
 ```bash
-pip install dspy-ai
+pip install dspy
 ```
 
 ### Basic Usage
@@ -373,7 +373,7 @@ Optimization reports include:
 
 1. **DSPy Import Error**
    ```bash
-   pip install dspy-ai
+   pip install dspy
    ```
 
 2. **Model Configuration Issues**
@@ -456,7 +456,7 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        run: pip install -e . dspy-ai
+        run: pip install -e . dspy
       - name: Run optimization
         run: |
           python -m gptme.eval.dspy.cli optimize \
