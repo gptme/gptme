@@ -20,6 +20,10 @@ def check_exists_main(ctx):
     return "main.py" in ctx.files
 
 
+def check_prime_exists(ctx):
+    return "prime.py" in ctx.files
+
+
 def check_prime_output(ctx):
     return "541" in ctx.stdout.split()
 
@@ -69,12 +73,13 @@ tests: list["EvalSpec"] = [
         "name": "prime100",
         "files": {},
         "run": "python prime.py",
-        "prompt": "write a script prime.py that computes and prints the 100th prime number when called",
+        "prompt": "write a script prime.py that computes and prints the 100th prime number when called, then call it",
         "tools": [
             "save",
             "shell",
         ],
         "expect": {
+            "correct file": check_prime_exists,
             "correct output": check_prime_output,
         },
     },
