@@ -1,0 +1,51 @@
+
+--- Start of generation ---
+[2;36m[17:04:21][0m[2;36m [0mUsing project configuration at ~[35m/Programming/gptme/[0m[95mgptme.toml[0m                                                                      
+[2;36m          [0m[2;36m [0mUsing model: deepseek/deepseek-reasoner                                                                                            
+[2;36m          [0m[2;36m [0mUsing logdir: ~[35m/.local/share/gptme/logs/[0m[95m2025-08-28-gptme-evals-deepseek--deepseek-reasoner-xml-193469[0m                              
+[2;36m          [0m[2;36m [0mUsing workspace: ~[35m/.local/share/gptme/logs/2025-08-28-gptme-evals-deepseek--deepseek-reasoner-xml-193469/[0m[95mworkspace[0m                 
+[38;5;239mSkipped [0m[1;38;5;239m1[0m[38;5;239m hidden system messages, show with --show-hidden[0m
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints [32m"Hello, world!"[0m
+Assistant: Thinking...                                                                                                                                              Assistant: 
+<think>       <think>
+We are in the directory /Users/erb/Programming/gptme
+ We are to write a script hello.py that prints "Hello, world!"
+ We can use the save tool to create the file.
+</think>        </think>
+
+<thinking>          <thinking>
+The user wants me to write a simple Python script that prints "Hello, world!" to a file called hello.py. This is a straightforward task that I can accomplish using the save tool.
+</thinking>           </thinking>
+
+I'll create a simple Python script that prints "Hello, world!" to hello.py.
+
+<tool-use>
+<save args='hello.py'>
+print("Hello, world!")
+</save>
+</tool-use>                                                                                                                                              
+Preview
+print("Hello, world!")                                                                                                                        
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                                                                              Assistant: 
+<think>       <think>
+First, the user asked me to write a script called hello.py that prints "Hello, world!". I used the save tool to create the file with the content:
+
+print("Hello, world!")
+
+The system responded with "Saved to hello.py", which means the file was successfully created.
+
+Now, since the task is complete, I should confirm that the script has been written and is ready to use. I might also suggest running it to verify, but the user didn't ask for that, so I'll keep it concise.
+
+Finally, I'll respond to the user to let them know it's done.
+</think>        </think>
+
+I've created the `hello.py` script that prints "Hello, world!". The file has been saved successfully.
+
+You can run it with:
+```bash
+python hello.py
+```                                                                                                                                              --- Finished generation ---
+

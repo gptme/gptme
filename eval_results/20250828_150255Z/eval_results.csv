@@ -1,0 +1,2 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash
+deepseek/deepseek-chat@markdown,hello,true,10.75,10.72,0.03,0.0,v0.28.0-41-ge9ff2efc

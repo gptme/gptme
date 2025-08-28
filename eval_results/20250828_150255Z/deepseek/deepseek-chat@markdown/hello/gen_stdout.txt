@@ -1,0 +1,28 @@
+
+--- Start of generation ---
+[2;36m[17:02:44][0m[2;36m [0mUsing project configuration at ~[35m/Programming/gptme/[0m[95mgptme.toml[0m                                                                      
+[2;36m          [0m[2;36m [0mUsing model: deepseek/deepseek-chat                                                                                                
+[2;36m          [0m[2;36m [0mUsing logdir: ~[35m/.local/share/gptme/logs/[0m[95m2025-08-28-gptme-evals-deepseek--deepseek-chat-markdown-263058[0m                             
+[2;36m          [0m[2;36m [0mUsing workspace: ~[35m/.local/share/gptme/logs/2025-08-28-gptme-evals-deepseek--deepseek-chat-markdown-263058/[0m[95mworkspace[0m                
+[38;5;239mSkipped [0m[1;38;5;239m1[0m[38;5;239m hidden system messages, show with --show-hidden[0m
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints [32m"Hello, world!"[0m
+Assistant: Thinking...                                                                                                                                              Assistant: 
+I'll write a simple Python script that prints "Hello, world!" to a file called hello.py.
+
+```save hello.py
+print("Hello, world!")
+```
+                                                                                                                                              
+Preview
+print("Hello, world!")                                                                                                                        
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                                                                              Assistant: 
+Great! I've created the `hello.py` file with the "Hello, world!" script. The file has been saved successfully.
+
+You can now run it with:
+```bash
+python hello.py
+```                                                                                                                                              --- Finished generation ---
+
