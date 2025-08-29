@@ -6,13 +6,18 @@ in practice across different tasks and scenarios.
 """
 
 import logging
+import traceback
 from collections.abc import Callable
 from typing import Any
 
+from gptme.codeblock import Codeblock
 from gptme.eval.agents import GPTMe
 from gptme.eval.run import execute
 from gptme.eval.types import EvalResult, EvalSpec
+from gptme.logmanager import LogManager
 from gptme.message import Message
+from gptme.tools import get_tool_for_langtag, init_tools
+from gptme.tools.base import ToolUse
 
 import dspy
 
@@ -96,10 +101,6 @@ def _analyze_tool_usage(log_dir_path: str | None, result: EvalResult) -> dict[st
     """Analyze tool usage patterns from conversation log."""
     if log_dir_path:
         try:
-            from gptme.logmanager import LogManager
-            from gptme.codeblock import Codeblock
-            from gptme.tools import get_tool_for_langtag
-
             # Load the conversation log
             log_manager = LogManager.load(log_dir_path, lock=False)
             messages = log_manager.log
@@ -139,7 +140,6 @@ def _analyze_tool_usage(log_dir_path: str | None, result: EvalResult) -> dict[st
         except Exception as e:
             logger.warning(f"Failed to analyze tool usage from log: {e}")
             # Fall back to basic analysis
-            pass
 
     # Fallback: basic analysis from stdout/stderr
     tool_calls = []
@@ -168,8 +168,6 @@ def _analyze_reasoning_quality(
     """Analyze reasoning quality from conversation log."""
     if log_dir_path:
         try:
-            from gptme.logmanager import LogManager
-
             # Load the conversation log
             log_manager = LogManager.load(log_dir_path, lock=False)
             messages = log_manager.log
@@ -207,7 +205,6 @@ def _analyze_reasoning_quality(
         except Exception as e:
             logger.warning(f"Failed to analyze reasoning from log: {e}")
             # Fall back to basic analysis
-            pass
 
     # Fallback: basic analysis from stdout
     all_output = result.gen_stdout + result.run_stdout
@@ -229,8 +226,6 @@ def _analyze_error_handling(
     """Analyze error handling and recovery from conversation log."""
     if log_dir_path:
         try:
-            from gptme.logmanager import LogManager
-
             # Load the conversation log
             log_manager = LogManager.load(log_dir_path, lock=False)
             messages = log_manager.log
@@ -266,7 +261,6 @@ def _analyze_error_handling(
         except Exception as e:
             logger.warning(f"Failed to analyze error handling from log: {e}")
             # Fall back to basic analysis
-            pass
 
     # Fallback: basic analysis from stderr
     all_stderr = result.gen_stderr + result.run_stderr
@@ -479,9 +473,6 @@ def create_tool_usage_metric() -> Callable[[Any, Any, Any | None], float]:
         tool_calls = []
         used_tools = set()
 
-        from gptme.tools import init_tools
-        from gptme.tools.base import ToolUse
-
         # Initialize tools first (they're not loaded in this context)
         init_tools(["save", "shell", "patch", "read", "ipython"])
 
@@ -592,7 +583,6 @@ def create_llm_judge_metric(
 
         except Exception as e:
             logger.error(f"Error in LLM judge metric: {e}")
-            import traceback
 
             traceback.print_exc()
             return 0.0
@@ -680,6 +670,7 @@ def evaluate_prompt_on_task(
 
         # Tool usage analysis
         tool_score = 0.0
+
         # EvalResult doesn't have messages attribute, so we can't analyze tool usage here
         tool_calls: list = []
         # Simple tool usage score
