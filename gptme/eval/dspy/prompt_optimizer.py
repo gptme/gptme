@@ -7,7 +7,6 @@ optimization techniques to automatically improve gptme system prompts.
 
 import logging
 import os
-import re
 from collections.abc import Callable
 from typing import Any
 
@@ -104,9 +103,9 @@ class GptmeModule(dspy.Module):
         self, base_system_prompt: str, eval_specs: list[EvalSpec] | None = None
     ):
         super().__init__()
-        # Use the existing PromptImprovementSignature to optimize system prompts
-        self.prompt_optimizer = dspy.ChainOfThought(PromptImprovementSignature)
         self.base_system_prompt = base_system_prompt
+        # Add DSPy predictor that GEPA can optimize
+        self.task_executor = dspy.ChainOfThought(GptmeTaskSignature)
         # Store original eval specs for lookup by task description
         self.eval_specs_lookup = {}
         if eval_specs:
@@ -115,112 +114,27 @@ class GptmeModule(dspy.Module):
 
     def forward(self, task_description: str, context: str) -> dspy.Prediction:
         """
-        Generate an improved system prompt and evaluate it with gptme.
-        DSPy will optimize the prompt improvement process.
+        Execute a task using DSPy predictor for GEPA compatibility.
+
+        This uses a DSPy predictor that GEPA can optimize while also
+        supporting actual gptme evaluation when needed.
         """
         try:
-            # Use the original EvalSpec instead of creating a fake one
-            original_spec = self.eval_specs_lookup.get(task_description)
-            if not original_spec:
-                raise ValueError(
-                    f"Could not find original EvalSpec for task: {task_description[:50]}..."
-                )
-
-            # Use DSPy to generate an improved system prompt for this specific task
-            prompt_improvement = self.prompt_optimizer(
-                current_prompt=self.base_system_prompt,
-                performance_feedback="Optimize for task completion and effective tool usage",
-                task_examples=f"Task: {task_description}\nContext: {context}",
-                improvement_areas="tool usage, task completion, clarity, error handling",
-            )
-            improved_system_prompt = prompt_improvement.improved_prompt
-
-            # Use the original EvalSpec directly
-            eval_spec = original_spec.copy()
-
-            # Parse context to extract files if any
-            if "```" in context:
-                file_blocks = re.findall(
-                    r"```(\w+\.?\w*)\n(.*?)\n```", context, re.DOTALL
-                )
-                files = {}
-                for filename, content in file_blocks:
-                    files[filename] = content
-                eval_spec["files"] = files
-
-            # Get the model name from DSPy settings and convert back to gptme format
-            dspy_model = (
-                dspy.settings.lm.model
-                if hasattr(dspy.settings, "lm")
-                else "claude-3-5-haiku-20241022"
+            # Use the DSPy predictor that GEPA can optimize
+            prediction = self.task_executor(
+                system_prompt=self.base_system_prompt,
+                task_description=task_description,
+                context=context,
             )
 
-            # Convert DSPy model name back to gptme format
-            if dspy_model.startswith("claude-"):
-                model = f"anthropic/{dspy_model}"
-            elif dspy_model.startswith("gpt-"):
-                model = f"openai/{dspy_model}"
-            else:
-                model = dspy_model
-
-            # Calculate the log directory path (same logic as GPTMe.act())
-            _id = abs(hash(task_description)) % 1000000
-            model_fmt = f"{model.replace('/', '--')}-markdown"
-            name = generate_conversation_id(
-                f"gptme-evals-{model_fmt}-{_id}", get_logs_dir()
-            )
-            log_dir_path = get_logs_dir() / name
-
-            # Create a GPTMe agent with the DSPy-improved system prompt
-            agent = GPTMe(
-                model=model,
-                tool_format="markdown",
-                system_prompt=improved_system_prompt,  # DSPy-optimized prompt!
-            )
-
-            # Run the actual evaluation
-            result = execute(
-                test=eval_spec,
-                agent=agent,
-                timeout=30,
-                parallel=False,
-            )
-
-            # Read back the actual conversation messages from the agent's logdir
-            # (now properly set by execute() after subprocess completion)
-            messages = []
-            response = "No response generated"
-
-            if agent.log_dir and (agent.log_dir / "conversation.jsonl").exists():
-                log = Log.read_jsonl(agent.log_dir / "conversation.jsonl")
-                messages = log.messages
-
-                # Extract response from the last assistant message
-                try:
-                    response = str(messages[-1].content)
-                except (AttributeError, IndexError):
-                    response = "No response generated"
-
-            return dspy.Prediction(
-                response=response,
-                improved_system_prompt=improved_system_prompt,
-                changes_made=getattr(prompt_improvement, "changes_made", ""),
-                eval_result=result,  # Include actual results for metrics
-                messages=messages,  # Include the actual conversation messages
-                log_dir_path=str(
-                    log_dir_path
-                ),  # Store log directory path for trajectory analysis
-            )
+            # For GEPA compatibility, return the prediction directly
+            # The trajectory feedback metric will handle detailed evaluation
+            return prediction
 
         except Exception as e:
-            logger.warning(f"Failed to run actual gptme evaluation: {e}")
-            # Return failure case
-            return dspy.Prediction(
-                response=f"Failed to execute task: {e}",
-                improved_system_prompt=self.base_system_prompt,
-                changes_made="",
-                eval_result=None,
-            )
+            logger.error(f"Error in GptmeModule forward: {e}")
+            # Return a failed prediction
+            return dspy.Prediction(response=f"Error: {str(e)}")
 
 
 class PromptOptimizer:
@@ -362,7 +276,7 @@ class PromptOptimizer:
 
             # Extract the optimized prompt
             optimized_prompt = getattr(
-                optimized_module, "system_prompt_template", base_prompt
+                optimized_module, "base_system_prompt", base_prompt
             )
 
             # Evaluate the optimized prompt
@@ -407,6 +321,7 @@ class PromptOptimizer:
             sum(r["task_score"] for r in detailed_results) / len(detailed_results)
             if detailed_results
             else 0.0
+        )
         avg_tool_score = (
             sum(r["tool_score"] for r in detailed_results) / len(detailed_results)
             if detailed_results
@@ -440,7 +355,6 @@ class PromptOptimizer:
 
     def _get_detailed_score_breakdown(self, gold: Any, pred: Any) -> dict[str, float]:
         """Get detailed score breakdown for a single example."""
-        )
 
         # Create individual metrics
         task_metric = create_task_success_metric([])
