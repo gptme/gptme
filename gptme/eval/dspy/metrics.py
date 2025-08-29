@@ -175,7 +175,8 @@ def _analyze_reasoning_quality(
                     )
 
             avg_reasoning_length: float = (
-                sum(step["length"] for step in reasoning_steps) / len(reasoning_steps)  # type: ignore
+                sum((step["length"] for step in reasoning_steps), 0)  # type: ignore[misc]
+                / len(reasoning_steps)
                 if reasoning_steps
                 else 0.0
             )
