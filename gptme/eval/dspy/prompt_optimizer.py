@@ -11,6 +11,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from gptme.dirs import get_logs_dir
 from gptme.eval.agents import GPTMe
 from gptme.eval.run import execute
 from gptme.eval.suites import tests as gptme_eval_tests
@@ -18,12 +19,20 @@ from gptme.eval.suites.basic import tests
 from gptme.eval.types import EvalSpec
 from gptme.logmanager import Log
 from gptme.prompts import prompt_gptme
+from gptme.util.auto_naming import generate_conversation_id
 
 import dspy
+from dspy import GEPA
 from dspy.teleprompt import BootstrapFewShot, MIPROv2
 
-from .metrics import create_composite_metric
-from .signatures import PromptImprovementSignature
+from .metrics import (
+    create_composite_metric,
+    create_llm_judge_metric,
+    create_task_success_metric,
+    create_tool_usage_metric,
+    create_trajectory_feedback_metric,
+)
+from .signatures import GptmeTaskSignature, PromptImprovementSignature
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +163,14 @@ class GptmeModule(dspy.Module):
             else:
                 model = dspy_model
 
+            # Calculate the log directory path (same logic as GPTMe.act())
+            _id = abs(hash(task_description)) % 1000000
+            model_fmt = f"{model.replace('/', '--')}-markdown"
+            name = generate_conversation_id(
+                f"gptme-evals-{model_fmt}-{_id}", get_logs_dir()
+            )
+            log_dir_path = get_logs_dir() / name
+
             # Create a GPTMe agent with the DSPy-improved system prompt
             agent = GPTMe(
                 model=model,
@@ -190,6 +207,9 @@ class GptmeModule(dspy.Module):
                 changes_made=getattr(prompt_improvement, "changes_made", ""),
                 eval_result=result,  # Include actual results for metrics
                 messages=messages,  # Include the actual conversation messages
+                log_dir_path=str(
+                    log_dir_path
+                ),  # Store log directory path for trajectory analysis
             )
 
         except Exception as e:
@@ -244,6 +264,27 @@ class PromptOptimizer:
         dspy.configure(lm=lm)
         logger.debug(f"Configured DSPy with model: {dspy_model}")
 
+    def _get_reflection_model(self) -> str:
+        """Get an appropriate reflection model for GEPA optimization."""
+        # Use a more powerful model for reflection than the base model
+        if self.model.startswith("anthropic/"):
+            # Use Claude Sonnet for reflection if available
+            if "haiku" in self.model.lower():
+                return "claude-3-5-sonnet-20241022"  # Upgrade from haiku to sonnet
+            elif "sonnet" in self.model.lower():
+                return "claude-3-5-sonnet-20241022"  # Use latest sonnet
+            else:
+                return "claude-3-5-sonnet-20241022"  # Default to sonnet
+        elif self.model.startswith("openai/"):
+            # Use GPT-4o for reflection
+            if "gpt-3.5" in self.model.lower() or "gpt-4o-mini" in self.model.lower():
+                return "gpt-4o"  # Upgrade to full GPT-4o
+            else:
+                return "gpt-4o"  # Use GPT-4o as default
+        else:
+            # For other providers, use the same model
+            return self.model.replace("anthropic/", "").replace("openai/", "")
+
     def optimize_prompt(
         self,
         base_prompt: str,
@@ -290,6 +331,22 @@ class PromptOptimizer:
         elif self.optimizer_type.lower() == "bootstrap":
             optimizer = BootstrapFewShot(
                 metric=metric, max_bootstrapped_demos=self.max_demos
+            )
+        elif self.optimizer_type.lower() == "gepa":
+            # GEPA requires trajectory feedback metric instead of scalar metric
+            trajectory_metric = create_trajectory_feedback_metric(eval_specs=eval_specs)
+
+            # Configure reflection LM (use a more powerful model for reflection)
+            reflection_model = self._get_reflection_model()
+            reflection_lm = dspy.LM(reflection_model)
+
+            optimizer = GEPA(
+                metric=trajectory_metric,
+                auto="light",  # Start with light mode for efficiency
+                num_threads=4,  # Reasonable parallelism
+                track_stats=True,  # Enable tracking for debugging
+                reflection_minibatch_size=3,  # Small batch for reflection
+                reflection_lm=reflection_lm,  # Dedicated reflection model
             )
         else:
             raise ValueError(f"Unknown optimizer type: {self.optimizer_type}")
@@ -350,7 +407,6 @@ class PromptOptimizer:
             sum(r["task_score"] for r in detailed_results) / len(detailed_results)
             if detailed_results
             else 0.0
-        )
         avg_tool_score = (
             sum(r["tool_score"] for r in detailed_results) / len(detailed_results)
             if detailed_results
@@ -384,10 +440,6 @@ class PromptOptimizer:
 
     def _get_detailed_score_breakdown(self, gold: Any, pred: Any) -> dict[str, float]:
         """Get detailed score breakdown for a single example."""
-        from .metrics import (
-            create_llm_judge_metric,
-            create_task_success_metric,
-            create_tool_usage_metric,
         )
 
         # Create individual metrics

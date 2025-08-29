@@ -21,6 +21,386 @@ from .signatures import PromptEvaluationSignature
 logger = logging.getLogger(__name__)
 
 
+def create_trajectory_feedback_metric(
+    eval_specs: list[EvalSpec] | None = None,
+) -> Callable[[Any, Any, Any | None], dspy.Prediction]:
+    """
+    Create a trajectory feedback metric for GEPA optimization.
+
+    This metric analyzes gptme execution traces and provides rich textual
+    feedback instead of just scalar scores, enabling GEPA's reflective optimization.
+
+    Args:
+        eval_specs: List of evaluation specifications
+
+    Returns:
+        A metric function that returns dspy.Prediction with score and feedback
+    """
+
+    def trajectory_feedback_metric(
+        gold: Any, pred: Any, trace: Any | None = None
+    ) -> dspy.Prediction:
+        """
+        Analyze gptme execution trajectory and provide rich feedback.
+        """
+        if not hasattr(pred, "eval_result") or not pred.eval_result:
+            return dspy.Prediction(
+                score=0.0, feedback="No evaluation result available for analysis."
+            )
+
+        result: EvalResult = pred.eval_result
+        log_dir_path = getattr(pred, "log_dir_path", None)
+
+        # Extract trajectory components using log directory path when available
+        tool_usage_analysis = _analyze_tool_usage(log_dir_path, result)
+        reasoning_analysis = _analyze_reasoning_quality(log_dir_path, result)
+        error_analysis = _analyze_error_handling(log_dir_path, result)
+        task_completion_analysis = _analyze_task_completion(result)
+
+        # Calculate composite score
+        score = _calculate_trajectory_score(
+            tool_usage_analysis,
+            reasoning_analysis,
+            error_analysis,
+            task_completion_analysis,
+        )
+
+        # Generate rich textual feedback
+        feedback = _generate_trajectory_feedback(
+            tool_usage_analysis,
+            reasoning_analysis,
+            error_analysis,
+            task_completion_analysis,
+        )
+
+        return dspy.Prediction(score=score, feedback=feedback)
+
+    return trajectory_feedback_metric
+
+
+def _analyze_tool_usage(log_dir_path: str | None, result: EvalResult) -> dict[str, Any]:
+    """Analyze tool usage patterns from conversation log."""
+    if log_dir_path:
+        try:
+            from gptme.logmanager import LogManager
+            from gptme.codeblock import Codeblock
+            from gptme.tools import get_tool_for_langtag
+
+            # Load the conversation log
+            log_manager = LogManager.load(log_dir_path, lock=False)
+            messages = log_manager.log
+
+            tool_calls = []
+
+            for message in messages:
+                if message.role == "assistant" and message.content:
+                    # Extract codeblocks using gptme's parser
+                    codeblocks = Codeblock.iter_from_markdown(message.content)
+
+                    for codeblock in codeblocks:
+                        tool = get_tool_for_langtag(codeblock.lang)
+                        if tool:
+                            tool_calls.append(
+                                {
+                                    "type": tool.name,
+                                    "lang_tag": codeblock.lang,
+                                    "content": codeblock.content[:100] + "..."
+                                    if len(codeblock.content) > 100
+                                    else codeblock.content,
+                                    "length": len(codeblock.content),
+                                    "path": codeblock.path,
+                                }
+                            )
+
+            tool_types = [call["type"] for call in tool_calls]
+
+            return {
+                "tool_calls": tool_calls,
+                "num_tools_used": len(tool_calls),
+                "tool_variety": len(set(tool_types)),
+                "tool_types": list(set(tool_types)),
+                "effectiveness": "good" if len(tool_calls) > 0 else "poor",
+            }
+
+        except Exception as e:
+            logger.warning(f"Failed to analyze tool usage from log: {e}")
+            # Fall back to basic analysis
+            pass
+
+    # Fallback: basic analysis from stdout/stderr
+    tool_calls = []
+    all_output = result.gen_stdout + result.run_stdout
+
+    if "```shell" in all_output:
+        tool_calls.append({"type": "shell", "content": "shell commands detected"})
+    if "```python" in all_output or "```ipython" in all_output:
+        tool_calls.append({"type": "python", "content": "python code detected"})
+    if "```patch" in all_output:
+        tool_calls.append({"type": "patch", "content": "patch operations detected"})
+    if "```save" in all_output:
+        tool_calls.append({"type": "save", "content": "file operations detected"})
+
+    return {
+        "tool_calls": tool_calls,
+        "num_tools_used": len(tool_calls),
+        "tool_variety": len(set(call["type"] for call in tool_calls)),
+        "effectiveness": "good" if len(tool_calls) > 0 else "poor",
+    }
+
+
+def _analyze_reasoning_quality(
+    log_dir_path: str | None, result: EvalResult
+) -> dict[str, Any]:
+    """Analyze reasoning quality from conversation log."""
+    if log_dir_path:
+        try:
+            from gptme.logmanager import LogManager
+
+            # Load the conversation log
+            log_manager = LogManager.load(log_dir_path, lock=False)
+            messages = log_manager.log
+
+            reasoning_steps = []
+
+            for message in messages:
+                if message.role == "assistant" and message.content:
+                    # Analyze reasoning content
+                    reasoning_steps.append(
+                        {
+                            "length": len(str(message.content)),
+                            "content": str(message.content)[:200] + "..."
+                            if len(str(message.content)) > 200
+                            else str(message.content),
+                        }
+                    )
+
+            avg_reasoning_length: float = (
+                sum(step["length"] for step in reasoning_steps) / len(reasoning_steps)  # type: ignore
+                if reasoning_steps
+                else 0.0
+            )
+
+            return {
+                "reasoning_steps": reasoning_steps,
+                "num_steps": len(reasoning_steps),
+                "avg_step_length": avg_reasoning_length,
+                "quality": "good"
+                if avg_reasoning_length > 100
+                else "needs_improvement",
+            }
+
+        except Exception as e:
+            logger.warning(f"Failed to analyze reasoning from log: {e}")
+            # Fall back to basic analysis
+            pass
+
+    # Fallback: basic analysis from stdout
+    all_output = result.gen_stdout + result.run_stdout
+    reasoning_length = len(all_output)
+
+    return {
+        "reasoning_steps": [
+            {"length": reasoning_length, "content": all_output[:200] + "..."}
+        ],
+        "num_steps": 1 if reasoning_length > 0 else 0,
+        "avg_step_length": reasoning_length,
+        "quality": "good" if reasoning_length > 100 else "needs_improvement",
+    }
+
+
+def _analyze_error_handling(
+    log_dir_path: str | None, result: EvalResult
+) -> dict[str, Any]:
+    """Analyze error handling and recovery from conversation log."""
+    if log_dir_path:
+        try:
+            from gptme.logmanager import LogManager
+
+            # Load the conversation log
+            log_manager = LogManager.load(log_dir_path, lock=False)
+            messages = log_manager.log
+
+            errors_found = []
+            recovery_attempts = []
+
+            for message in messages:
+                if message.role == "assistant" and message.content:
+                    content = str(message.content).lower()
+                    if any(
+                        error_word in content
+                        for error_word in ["error", "failed", "exception"]
+                    ):
+                        errors_found.append(message.content)
+                    if any(
+                        recovery_word in content
+                        for recovery_word in ["try again", "fix", "correct", "retry"]
+                    ):
+                        recovery_attempts.append(message.content)
+
+            return {
+                "errors_encountered": len(errors_found),
+                "recovery_attempts": len(recovery_attempts),
+                "recovery_ratio": len(recovery_attempts) / len(errors_found)
+                if errors_found
+                else 1.0,
+                "effectiveness": "good"
+                if len(recovery_attempts) >= len(errors_found)
+                else "needs_improvement",
+            }
+
+        except Exception as e:
+            logger.warning(f"Failed to analyze error handling from log: {e}")
+            # Fall back to basic analysis
+            pass
+
+    # Fallback: basic analysis from stderr
+    all_stderr = result.gen_stderr + result.run_stderr
+    error_keywords = ["error", "failed", "exception"]
+    errors_in_stderr = len(
+        [
+            line
+            for line in all_stderr.split("\n")
+            if any(error_word in line.lower() for error_word in error_keywords)
+        ]
+    )
+
+    return {
+        "errors_encountered": errors_in_stderr,
+        "recovery_attempts": 0,  # Can't detect recovery attempts from stderr alone
+        "recovery_ratio": 0.0 if errors_in_stderr > 0 else 1.0,
+        "effectiveness": "needs_improvement" if errors_in_stderr > 0 else "good",
+    }
+
+
+def _analyze_task_completion(result: EvalResult) -> dict[str, Any]:
+    """Analyze overall task completion quality."""
+    total_expectations = len(result.results)
+    passed_expectations = sum(1 for r in result.results if r.passed)
+    success_rate = (
+        passed_expectations / total_expectations if total_expectations > 0 else 0.0
+    )
+
+    return {
+        "success_rate": success_rate,
+        "total_expectations": total_expectations,
+        "passed_expectations": passed_expectations,
+        "quality": "excellent"
+        if success_rate >= 0.9
+        else "good"
+        if success_rate >= 0.7
+        else "needs_improvement",
+    }
+
+
+def _calculate_trajectory_score(
+    tool_analysis: dict,
+    reasoning_analysis: dict,
+    error_analysis: dict,
+    completion_analysis: dict,
+) -> float:
+    """Calculate composite trajectory score."""
+    # Weight the different aspects
+    tool_score = 0.8 if tool_analysis["effectiveness"] == "good" else 0.4
+    reasoning_score = 0.8 if reasoning_analysis["quality"] == "good" else 0.4
+    error_score = 0.9 if error_analysis["effectiveness"] == "good" else 0.5
+    completion_score = completion_analysis["success_rate"]
+
+    # Composite score with weights
+    return (
+        tool_score * 0.25
+        + reasoning_score * 0.25
+        + error_score * 0.25
+        + completion_score * 0.25
+    )
+
+
+def _generate_trajectory_feedback(
+    tool_analysis: dict,
+    reasoning_analysis: dict,
+    error_analysis: dict,
+    completion_analysis: dict,
+) -> str:
+    """Generate rich textual feedback for GEPA optimization."""
+    feedback_parts = []
+
+    # Tool usage feedback
+    feedback_parts.append("=== TOOL USAGE ANALYSIS ===")
+    feedback_parts.append(f"Tools used: {tool_analysis['num_tools_used']}")
+    feedback_parts.append(
+        f"Tool variety: {tool_analysis['tool_variety']} different tool types"
+    )
+    feedback_parts.append(f"Tool effectiveness: {tool_analysis['effectiveness']}")
+
+    if tool_analysis["effectiveness"] != "good":
+        feedback_parts.append(
+            "IMPROVEMENT: Consider using more diverse tools for better task completion"
+        )
+
+    # Reasoning feedback
+    feedback_parts.append("\n=== REASONING ANALYSIS ===")
+    feedback_parts.append(f"Reasoning steps: {reasoning_analysis['num_steps']}")
+    feedback_parts.append(
+        f"Average step length: {reasoning_analysis['avg_step_length']:.0f} characters"
+    )
+    feedback_parts.append(f"Reasoning quality: {reasoning_analysis['quality']}")
+
+    if reasoning_analysis["quality"] != "good":
+        feedback_parts.append(
+            "IMPROVEMENT: Provide more detailed step-by-step reasoning and explanations"
+        )
+
+    # Error handling feedback
+    feedback_parts.append("\n=== ERROR HANDLING ANALYSIS ===")
+    feedback_parts.append(f"Errors encountered: {error_analysis['errors_encountered']}")
+    feedback_parts.append(f"Recovery attempts: {error_analysis['recovery_attempts']}")
+    feedback_parts.append(f"Recovery ratio: {error_analysis['recovery_ratio']:.2f}")
+    feedback_parts.append(f"Error handling: {error_analysis['effectiveness']}")
+
+    if error_analysis["effectiveness"] != "good":
+        feedback_parts.append(
+            "IMPROVEMENT: Better error detection and recovery strategies needed"
+        )
+
+    # Task completion feedback
+    feedback_parts.append("\n=== TASK COMPLETION ANALYSIS ===")
+    feedback_parts.append(f"Success rate: {completion_analysis['success_rate']:.1%}")
+    feedback_parts.append(
+        f"Expectations met: {completion_analysis['passed_expectations']}/{completion_analysis['total_expectations']}"
+    )
+    feedback_parts.append(f"Overall quality: {completion_analysis['quality']}")
+
+    # Generate specific recommendations
+    feedback_parts.append("\n=== OPTIMIZATION RECOMMENDATIONS ===")
+    recommendations = []
+
+    if tool_analysis["num_tools_used"] < 2:
+        recommendations.append(
+            "- Use more tools to solve complex problems systematically"
+        )
+
+    if reasoning_analysis["avg_step_length"] < 50:
+        recommendations.append(
+            "- Provide more detailed explanations of reasoning steps"
+        )
+
+    if error_analysis["recovery_ratio"] < 0.8:
+        recommendations.append(
+            "- Improve error detection and implement recovery strategies"
+        )
+
+    if completion_analysis["success_rate"] < 0.8:
+        recommendations.append(
+            "- Focus on meeting all task expectations, not just partial completion"
+        )
+
+    if not recommendations:
+        recommendations.append("- Continue current approach, performance is good")
+
+    feedback_parts.extend(recommendations)
+
+    return "\n".join(feedback_parts)
+
+
 def create_task_success_metric(
     eval_specs: list[EvalSpec],
 ) -> Callable[[Any, Any, Any | None], float]:
