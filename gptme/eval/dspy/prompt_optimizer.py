@@ -114,26 +114,75 @@ class GptmeModule(dspy.Module):
 
     def forward(self, task_description: str, context: str) -> dspy.Prediction:
         """
-        Execute a task using DSPy predictor for GEPA compatibility.
+        Execute a task using DSPy predictor + actual gptme evaluation.
 
-        This uses a DSPy predictor that GEPA can optimize while also
-        supporting actual gptme evaluation when needed.
+        This runs both DSPy predictor (for GEPA optimization) and actual gptme
+        evaluation (for trajectory analysis).
         """
         try:
-            # Use the DSPy predictor that GEPA can optimize
-            prediction = self.task_executor(
+            # 1. Use DSPy predictor for optimizable instructions
+            predictor_response = self.task_executor(
                 system_prompt=self.base_system_prompt,
                 task_description=task_description,
                 context=context,
             )
 
-            # For GEPA compatibility, return the prediction directly
-            # The trajectory feedback metric will handle detailed evaluation
-            return prediction
+            # 2. Run actual gptme evaluation for trajectory analysis
+            from gptme.eval.agents import GPTMe
+            from gptme.eval.run import execute
+            from gptme.eval.types import EvalSpec
+
+            # Create eval spec from inputs
+            eval_spec: EvalSpec = {
+                "name": "gepa_eval_task",
+                "prompt": task_description,
+                "files": {},
+                "run": "python hello.py" if "hello" in task_description.lower() else "",
+                "expect": {
+                    "task_completed": lambda ctx: len(ctx.files) > 0
+                    or "Hello" in ctx.stdout,
+                    "no_errors": lambda ctx: ctx.stderr == "" or not ctx.stderr.strip(),
+                },
+                "tools": ["save", "shell", "patch"],
+            }
+
+            # Parse context to extract files if any
+            if "```" in context:
+                import re
+
+                file_blocks = re.findall(
+                    r"```(\w+\.?\w*)\n(.*?)\n```", context, re.DOTALL
+                )
+                files = {}
+                for filename, content in file_blocks:
+                    files[filename] = content
+                eval_spec["files"] = files
+
+            # Run gptme evaluation with optimized system prompt
+            agent = GPTMe(
+                model="anthropic/claude-3-5-haiku-20241022",
+                tool_format="markdown",
+                system_prompt=self.base_system_prompt,
+            )
+
+            eval_result = execute(
+                test=eval_spec,
+                agent=agent,
+                timeout=30,
+                parallel=False,
+            )
+
+            # 3. Return prediction with both predictor response and evaluation results
+            return dspy.Prediction(
+                response=predictor_response.response
+                if hasattr(predictor_response, "response")
+                else str(predictor_response),
+                eval_result=eval_result,  # For trajectory analysis
+                system_prompt=self.base_system_prompt,
+            )
 
         except Exception as e:
             logger.error(f"Error in GptmeModule forward: {e}")
-            # Return a failed prediction
             return dspy.Prediction(response=f"Error: {str(e)}")
 
 
