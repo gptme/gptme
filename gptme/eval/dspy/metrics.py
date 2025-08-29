@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 def create_trajectory_feedback_metric(
     eval_specs: list[EvalSpec] | None = None,
-) -> Callable[[Any, Any, Any | None], dspy.Prediction]:
+) -> Callable[[Any, Any, Any | None, str | None, Any | None], dspy.Prediction]:
     """
     Create a trajectory feedback metric for GEPA optimization.
 
@@ -38,10 +38,24 @@ def create_trajectory_feedback_metric(
     """
 
     def trajectory_feedback_metric(
-        gold: Any, pred: Any, trace: Any | None = None
+        gold: Any,
+        pred: Any,
+        trace: Any | None = None,
+        pred_name: str | None = None,
+        pred_trace: Any | None = None,
     ) -> dspy.Prediction:
         """
-        Analyze gptme execution trajectory and provide rich feedback.
+        Analyze gptme execution trajectory and provide rich feedback for GEPA.
+
+        Args:
+            gold: The gold example
+            pred: The predicted output
+            trace: Optional full program execution trace
+            pred_name: Optional name of target predictor being optimized
+            pred_trace: Optional trace of target predictor's execution
+
+        Returns:
+            dspy.Prediction with score and feedback for GEPA optimization
         """
         if not hasattr(pred, "eval_result") or not pred.eval_result:
             return dspy.Prediction(
