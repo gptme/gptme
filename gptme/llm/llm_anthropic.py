@@ -13,6 +13,7 @@ from typing import (
 
 from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, msgs2dicts
+from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec
 from .models import ModelMeta, get_model
 from .utils import (
@@ -30,6 +31,41 @@ logger = logging.getLogger(__name__)
 
 _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
+
+
+def _record_usage(usage: "anthropic.types.Usage", model: str) -> None:
+    """Record usage metrics as telemetry."""
+    if not usage:
+        return None
+
+    # Extract token counts
+    input_tokens = getattr(usage, "input_tokens", None)
+    output_tokens = getattr(usage, "output_tokens", None)
+    cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
+    cache_read_tokens = getattr(usage, "cache_read_input_tokens", None)
+
+    # Calculate total tokens
+    total_tokens = 0
+    if input_tokens:
+        total_tokens += input_tokens
+    if output_tokens:
+        total_tokens += output_tokens
+    if cache_creation_tokens:
+        total_tokens += cache_creation_tokens
+    if cache_read_tokens:
+        total_tokens += cache_read_tokens
+
+    # Record the LLM request with token usage
+    record_llm_request(
+        provider="anthropic",
+        model=model,
+        success=True,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_creation_tokens=cache_creation_tokens,
+        cache_read_tokens=cache_read_tokens,
+        total_tokens=total_tokens if total_tokens > 0 else None,
+    )
 
 
 def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) -> bool:
@@ -155,7 +191,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
         ),
     )
     content = response.content
-    logger.debug(response.usage)
+    _record_usage(response.usage, model)
 
     parsed_block = []
     for block in content:
@@ -256,10 +292,11 @@ def stream(
                         anthropic.types.MessageStartEvent,
                         chunk,
                     )
-                    logger.debug(chunk.message.usage)
+                    # Don't record usage here, wait for message_delta with final usage
                 case "message_delta":
                     chunk = cast(anthropic.types.MessageDeltaEvent, chunk)
-                    logger.debug(chunk.usage)
+                    # Record usage from message_delta which contains the final/cumulative usage
+                    _record_usage(chunk.usage, model)
                 case "message_stop":
                     pass
                 case _:

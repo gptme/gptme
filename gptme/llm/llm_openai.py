@@ -9,6 +9,7 @@ import requests
 from ..config import Config, get_config
 from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, msgs2dicts
+from ..telemetry import record_llm_request
 from ..tools import ToolSpec
 from .models import ModelMeta, Provider
 from .utils import (
@@ -25,6 +26,35 @@ if TYPE_CHECKING:
 # Dictionary to store clients for each provider
 clients: dict[Provider, "OpenAI"] = {}
 logger = logging.getLogger(__name__)
+
+
+def _record_usage(usage, model: str) -> None:
+    """Record usage metrics as telemetry."""
+    if not usage:
+        return
+
+    # Extract token counts (OpenAI uses different field names than Anthropic)
+    input_tokens = getattr(usage, "prompt_tokens", None)
+    output_tokens = getattr(usage, "completion_tokens", None)
+    details = getattr(usage, "prompt_tokens_details", None)
+    cache_read_tokens = getattr(details, "cached_tokens", None)
+    total_tokens = getattr(usage, "total_tokens", None)
+
+    # subtract cache_read_tokens from input_tokens to avoid double counting
+    if input_tokens is not None:
+        input_tokens -= cache_read_tokens or 0
+
+    # Record the LLM request with token usage
+    record_llm_request(
+        provider="openai",
+        model=model,
+        success=True,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        total_tokens=total_tokens,
+    )
+
 
 # TODO: improve provider routing for openrouter: https://openrouter.ai/docs/provider-routing
 # TODO: set required-parameters: https://openrouter.ai/docs/provider-routing#required-parameters-_beta_
@@ -189,6 +219,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, base_model),
     )
+    _record_usage(response.usage, base_model)
     choice = response.choices[0]
     result = []
     if choice.finish_reason == "tool_calls":
@@ -265,6 +296,7 @@ def stream(
         tools=tools_dict if tools_dict else NOT_GIVEN,
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, base_model),
+        stream_options={"include_usage": True},
     ):
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
         from openai.types.chat.chat_completion_chunk import (  # fmt: skip
@@ -274,6 +306,10 @@ def stream(
 
         # Cast the chunk to the correct type
         chunk = cast(ChatCompletionChunk, chunk_raw)
+
+        # Record usage if available (typically in final chunk)
+        if hasattr(chunk, "usage") and chunk.usage:
+            _record_usage(chunk.usage, base_model)
 
         if not chunk.choices:
             continue
