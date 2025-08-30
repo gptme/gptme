@@ -191,8 +191,8 @@ def _calculate_llm_cost(
     if not (meta and input_tokens and output_tokens):
         return 0.0
 
-    price_in = (meta.price_input or 0.0) / 10e6
-    price_out = (meta.price_output or 0.0) / 10e6
+    price_in = (meta.price_input or 0.0) / 1e6
+    price_out = (meta.price_output or 0.0) / 1e6
     cost = input_tokens * price_in + output_tokens * price_out
 
     # Cache pricing per provider
@@ -238,7 +238,7 @@ def record_llm_request(
     )
     logger.debug(
         f"tokens out: {output_tokens}"
-        + (" + {cache_creation_tokens} cache created" if cache_creation_tokens else "")
+        + (f" + {cache_creation_tokens} cache created" if cache_creation_tokens else "")
     )
 
     if total_tokens:

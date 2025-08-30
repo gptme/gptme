@@ -34,15 +34,14 @@ def _record_usage(usage, model: str) -> None:
         return
 
     # Extract token counts (OpenAI uses different field names than Anthropic)
-    input_tokens = getattr(usage, "prompt_tokens", None)
+    prompt_tokens = getattr(usage, "prompt_tokens", None)
     output_tokens = getattr(usage, "completion_tokens", None)
     details = getattr(usage, "prompt_tokens_details", None)
     cache_read_tokens = getattr(details, "cached_tokens", None)
     total_tokens = getattr(usage, "total_tokens", None)
 
-    # subtract cache_read_tokens from input_tokens to avoid double counting
-    if input_tokens is not None:
-        input_tokens -= cache_read_tokens or 0
+    # subtract cache_read_tokens from prompt_tokens to avoid double counting
+    input_tokens = (prompt_tokens - (cache_read_tokens or 0)) if prompt_tokens else None
 
     # Record the LLM request with token usage
     record_llm_request(

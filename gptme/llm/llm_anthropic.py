@@ -8,6 +8,7 @@ from typing import (
     Any,
     Literal,
     TypedDict,
+    Union,
     cast,
 )
 
@@ -33,7 +34,10 @@ _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
 
 
-def _record_usage(usage: "anthropic.types.Usage", model: str) -> None:
+def _record_usage(
+    usage: Union["anthropic.types.Usage", "anthropic.types.MessageDeltaUsage"],
+    model: str,
+) -> None:
     """Record usage metrics as telemetry."""
     if not usage:
         return None
@@ -46,14 +50,10 @@ def _record_usage(usage: "anthropic.types.Usage", model: str) -> None:
 
     # Calculate total tokens
     total_tokens = 0
-    if input_tokens:
-        total_tokens += input_tokens
-    if output_tokens:
-        total_tokens += output_tokens
-    if cache_creation_tokens:
-        total_tokens += cache_creation_tokens
-    if cache_read_tokens:
-        total_tokens += cache_read_tokens
+    total_tokens += input_tokens or 0
+    total_tokens += output_tokens or 0
+    total_tokens += cache_creation_tokens or 0
+    total_tokens += cache_read_tokens or 0
 
     # Record the LLM request with token usage
     record_llm_request(
