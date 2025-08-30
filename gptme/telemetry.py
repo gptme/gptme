@@ -223,7 +223,31 @@ def record_llm_request(
     total_tokens: int | None = None,
 ) -> None:
     """Record LLM API request metrics with optional token usage."""
-    # Calculate cost for metrics
+    logger.debug(
+        f"Recording LLM request: provider={provider}, model={model}, success={success}"
+    )
+    total_in = (input_tokens or 0) + (cache_read_tokens or 0)
+    total_out = (output_tokens or 0) + (cache_creation_tokens or 0)
+    logger.debug(
+        f"tokens in:  {input_tokens}"
+        + (
+            f" + {cache_read_tokens} cached ({100*(cache_read_tokens or 0)/(total_in):.1f}%)"
+            if cache_read_tokens
+            else ""
+        )
+    )
+    logger.debug(
+        f"tokens out: {output_tokens}"
+        + (" + {cache_creation_tokens} cache created" if cache_creation_tokens else "")
+    )
+
+    if total_tokens:
+        # check that total_tokens matches sum of parts
+        if not total_tokens == total_in + total_out:
+            logger.warning(
+                f"Total tokens {total_tokens} does not match sum of parts {total_in + total_out}, this is an implementation issue."
+            )
+
     cost = _calculate_llm_cost(
         provider=provider,
         model=model,
@@ -232,6 +256,7 @@ def record_llm_request(
         cache_creation_tokens=cache_creation_tokens,
         cache_read_tokens=cache_read_tokens,
     )
+    logger.debug(f"LLM request cost: ${cost:.6f}")
 
     if not is_telemetry_enabled():
         return
