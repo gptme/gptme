@@ -1,0 +1,13 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash
+openrouter/x-ai/grok-code-fast-1@markdown,hello,true,7.48,7.47,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@markdown,hello-patch,false,8.3,8.29,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@markdown,hello-ask,true,4.27,4.26,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@markdown,prime100,true,7.45,7.44,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@tool,hello,true,6.49,6.48,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@tool,hello-patch,false,23.28,23.24,0.03,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@tool,hello-ask,false,8.02,8.01,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@tool,prime100,true,14.97,14.96,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@xml,hello,false,5.69,5.68,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@xml,hello-patch,false,14.2,14.19,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@xml,hello-ask,true,3.67,3.66,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/x-ai/grok-code-fast-1@xml,prime100,true,7.76,7.75,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
