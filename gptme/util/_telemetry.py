@@ -179,7 +179,7 @@ def init_telemetry(
         _telemetry_enabled = True
 
         # Import console for user-visible messages
-        from .util import console  # fmt: skip
+        from . import console  # fmt: skip
 
         # Log to console so users know telemetry is active
         console.log("📊 Telemetry enabled - performance metrics will be collected")
@@ -200,9 +200,6 @@ def shutdown_telemetry() -> None:
         return
 
     try:
-        # Import here to avoid heavy imports if not needed
-        from opentelemetry import metrics, trace
-
         # Force flush any pending spans before shutdown
         tracer_provider = trace.get_tracer_provider()
         if hasattr(tracer_provider, "force_flush"):
