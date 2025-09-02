@@ -34,6 +34,13 @@ class MCPServerConfig:
     command: str = ""
     args: list[str] = field(default_factory=list)
     env: dict = field(default_factory=dict)
+    url: str = ""
+    headers: dict = field(default_factory=dict)
+
+    @property
+    def is_http(self) -> bool:
+        """Check if this is an HTTP MCP server."""
+        return bool(self.url and self.url.startswith(("http://", "https://")))
 
 
 @dataclass

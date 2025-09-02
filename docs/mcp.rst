@@ -25,6 +25,13 @@ You can configure MCP in your :ref:`global-config` (``~/.config/gptme/config.tom
     args = ["--arg1", "--arg2"]
     env = { API_KEY = "your-key" }
 
+    # HTTP MCP Server example
+    [[mcp.servers]]
+    name = "http-server"
+    enabled = true
+    url = "https://example.com/mcp"
+    headers = { Authorization = "Bearer your-token" }
+
 We also intend to support specifying it in the :ref:`project-config`, and the ability to set it per-conversation.
 
 Configuration Options
@@ -36,8 +43,10 @@ Configuration Options
 
   - ``name``: Unique identifier for the server
   - ``enabled``: Enable/disable individual server
-  - ``command``: Command to start the server
-  - ``args``: List of command-line arguments
+  - ``command``: Command to start the server (for stdio servers)
+  - ``args``: List of command-line arguments (for stdio servers)
+  - ``url``: HTTP endpoint URL (for HTTP servers)
+  - ``headers``: HTTP headers dictionary (for HTTP servers)
   - ``env``: Environment variables for the server
 
 MCP Server Examples
