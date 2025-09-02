@@ -107,3 +107,21 @@ MCP servers can be run in several ways:
     Be cautious when using MCP servers from unknown sources, as they run with the same privileges as your user.
 
 You can find a list of available MCP servers in the `example servers <https://modelcontextprotocol.io/examples>`_ and MCP directories like `MCP.so <https://mcp.so/>`_.
+
+Managing MCP Servers
+--------------------
+
+gptme provides CLI commands to manage and test your MCP servers:
+
+.. code-block:: bash
+
+    # List all configured MCP servers and check their health
+    gptme-util mcp list
+
+    # Test connection to a specific server
+    gptme-util mcp test server-name
+
+    # Show detailed information about a server
+    gptme-util mcp info server-name
+
+These commands help you verify that your MCP servers are properly configured and accessible.
