@@ -93,7 +93,7 @@ class MCPClient:
             transport = await self.stack.enter_async_context(
                 streamablehttp_client(url, headers=headers)
             )
-            read, write = transport
+            read, write, get_session_id = transport
 
             csession = ClientSession(read, write)
             session = await self.stack.enter_async_context(csession)
