@@ -14,12 +14,12 @@ def test_mcp_cli_commands():
     """Test MCP CLI command logic"""
     from click.testing import CliRunner
     from gptme.util.cli import mcp_info
-    
+
     # Test with mock data - this would normally use the config system
     runner = CliRunner()
-    
+
     # Test info command with non-existent server
-    result = runner.invoke(mcp_info, ['nonexistent'])
+    result = runner.invoke(mcp_info, ["nonexistent"])
     assert "not found in config" in result.output
 
 
@@ -29,18 +29,14 @@ def test_mcp_server_config_http():
     http_server = MCPServerConfig(
         name="test-http",
         url="https://example.com/mcp",
-        headers={"Authorization": "Bearer token"}
+        headers={"Authorization": "Bearer token"},
     )
     assert http_server.is_http is True
     assert http_server.url == "https://example.com/mcp"
     assert http_server.headers["Authorization"] == "Bearer token"
 
     # Test stdio server
-    stdio_server = MCPServerConfig(
-        name="test-stdio",
-        command="echo",
-        args=["hello"]
-    )
+    stdio_server = MCPServerConfig(name="test-stdio", command="echo", args=["hello"])
     assert stdio_server.is_http is False
     assert stdio_server.command == "echo"
 
