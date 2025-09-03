@@ -486,6 +486,7 @@
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig.__init__"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig.is_http"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig.is_http</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig"><code class="docutils literal notranslate"><span class="pre">ProjectConfig</span></code></a><ul class="nav section-nav flex-column">
@@ -988,8 +989,14 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 <dd><p>Configuration for a MCP server.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.MCPServerConfig.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name:</span> <span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enabled:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">args:</span> <span class="pre">list[str]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">env:</span> <span class="pre">dict</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#gptme.config.MCPServerConfig.__init__" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name:</span> <span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enabled:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">command:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">args:</span> <span class="pre">list[str]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">env:</span> <span class="pre">dict</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">url:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">headers:</span> <span class="pre">dict</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#gptme.config.MCPServerConfig.__init__" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="gptme.config.MCPServerConfig.is_http">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_http</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><a class="headerlink" href="#gptme.config.MCPServerConfig.is_http" title="Link to this definition">#</a></dt>
+<dd><p>Check if this is an HTTP MCP server.</p>
+</dd></dl>
 
 </dd></dl>
 
@@ -1356,6 +1363,7 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig.__init__"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig.is_http"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig.is_http</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig"><code class="docutils literal notranslate"><span class="pre">ProjectConfig</span></code></a><ul class="nav section-nav flex-column">

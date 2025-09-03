@@ -400,6 +400,7 @@
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-mcp-servers">Running MCP Servers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-mcp-servers">Managing MCP Servers</a></li>
 </ul>
             </nav>
         </div>
@@ -428,6 +429,13 @@
 <span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;server-command&quot;</span>
 <span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;--arg1&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--arg2&quot;</span><span class="p">]</span>
 <span class="n">env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">API_KEY</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;your-key&quot;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="c1"># HTTP MCP Server example</span>
+<span class="k">[[mcp.servers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http-server&quot;</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://example.com/mcp&quot;</span>
+<span class="n">headers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Authorization</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;Bearer your-token&quot;</span><span class="w"> </span><span class="p">}</span>
 </pre></div>
 </div>
 <p>We also intend to support specifying it in the <a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a>, and the ability to set it per-conversation.</p>
@@ -440,8 +448,10 @@
 <ul>
 <li><p><code class="docutils literal notranslate"><span class="pre">name</span></code>: Unique identifier for the server</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">enabled</span></code>: Enable/disable individual server</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">command</span></code>: Command to start the server</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">args</span></code>: List of command-line arguments</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">command</span></code>: Command to start the server (for stdio servers)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">args</span></code>: List of command-line arguments (for stdio servers)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">url</span></code>: HTTP endpoint URL (for HTTP servers)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">headers</span></code>: HTTP headers dictionary (for HTTP servers)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">env</span></code>: Environment variables for the server</p></li>
 </ul>
 </li>
@@ -502,6 +512,21 @@
 </div>
 <p>You can find a list of available MCP servers in the <a class="reference external" href="https://modelcontextprotocol.io/examples">example servers</a> and MCP directories like <a class="reference external" href="https://mcp.so/">MCP.so</a>.</p>
 </section>
+<section id="managing-mcp-servers">
+<h2>Managing MCP Servers<a class="headerlink" href="#managing-mcp-servers" title="Link to this heading">#</a></h2>
+<p>gptme provides CLI commands to manage and test your MCP servers:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># List all configured MCP servers and check their health</span>
+gptme-util<span class="w"> </span>mcp<span class="w"> </span>list
+
+<span class="c1"># Test connection to a specific server</span>
+gptme-util<span class="w"> </span>mcp<span class="w"> </span><span class="nb">test</span><span class="w"> </span>server-name
+
+<span class="c1"># Show detailed information about a server</span>
+gptme-util<span class="w"> </span>mcp<span class="w"> </span>info<span class="w"> </span>server-name
+</pre></div>
+</div>
+<p>These commands help you verify that your MCP servers are properly configured and accessible.</p>
+</section>
 </section>
 
 
@@ -559,6 +584,7 @@
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-mcp-servers">Running MCP Servers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-mcp-servers">Managing MCP Servers</a></li>
 </ul>
   </nav></div>
 
