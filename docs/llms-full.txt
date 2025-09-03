@@ -1020,6 +1020,7 @@ Besides the configuration files, gptme supports several environment variables to
 .. rubric:: Feature Flags
 
 - ``GPTME_CHECK`` - Enable ``pre-commit`` checks (default: true if ``.pre-commit-config.yaml`` present, see :ref:`pre-commit`)
+- ``GPTME_CHAT_HISTORY`` - Enable cross-conversation context (default: false)
 - ``GPTME_COSTS`` - Enable cost reporting for API calls (default: false)
 - ``GPTME_FRESH`` - Enable fresh context mode (default: false)
 - ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream (default: true)
@@ -1036,6 +1037,27 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_LOGS_HOME`` - Override the default logs folder location
 
 All boolean flags accept "1", "true" (case-insensitive) as truthy values.
+
+Cross-Conversation Context
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When ``GPTME_CHAT_HISTORY=true`` is set, gptme will automatically include summaries from recent conversations in new chat sessions, providing continuity across conversations.
+
+**What it includes:**
+
+- Summaries of the 3 most recent substantial conversations (4+ messages)
+- Initial user requests and follow-ups from each conversation
+- Last meaningful assistant response from each conversation
+- Filters out test conversations and very short interactions
+
+**Benefits:**
+
+- Better continuity for ongoing projects and work
+- Understanding of user preferences and communication style
+- Context for follow-up questions without manual references
+- Awareness of previous technical discussions and solutions
+
+The context is automatically included as a system message when starting new conversations, enabling much better continuity without needing to manually reference previous conversations or maintain persistent notes.
 
 
 Providers

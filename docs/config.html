@@ -394,7 +394,10 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chat-config">Chat config</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-conversation-context">Cross-Conversation Context</a></li>
+</ul>
+</li>
 </ul>
             </nav>
         </div>
@@ -489,6 +492,7 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <p class="rubric">Feature Flags</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_CHECK</span></code> - Enable <code class="docutils literal notranslate"><span class="pre">pre-commit</span></code> checks (default: true if <code class="docutils literal notranslate"><span class="pre">.pre-commit-config.yaml</span></code> present, see <a class="reference internal" href="usage.html#pre-commit"><span class="std std-ref">Pre-commit Integration</span></a>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_CHAT_HISTORY</span></code> - Enable cross-conversation context (default: false)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_COSTS</span></code> - Enable cost reporting for API calls (default: false)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_FRESH</span></code> - Enable fresh context mode (default: false)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_BREAK_ON_TOOLUSE</span></code> - Interrupt generation when tool use occurs in stream (default: true)</p></li>
@@ -505,6 +509,25 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_LOGS_HOME</span></code> - Override the default logs folder location</p></li>
 </ul>
 <p>All boolean flags accept “1”, “true” (case-insensitive) as truthy values.</p>
+<section id="cross-conversation-context">
+<h3>Cross-Conversation Context<a class="headerlink" href="#cross-conversation-context" title="Link to this heading">#</a></h3>
+<p>When <code class="docutils literal notranslate"><span class="pre">GPTME_CHAT_HISTORY=true</span></code> is set, gptme will automatically include summaries from recent conversations in new chat sessions, providing continuity across conversations.</p>
+<p><strong>What it includes:</strong></p>
+<ul class="simple">
+<li><p>Summaries of the 3 most recent substantial conversations (4+ messages)</p></li>
+<li><p>Initial user requests and follow-ups from each conversation</p></li>
+<li><p>Last meaningful assistant response from each conversation</p></li>
+<li><p>Filters out test conversations and very short interactions</p></li>
+</ul>
+<p><strong>Benefits:</strong></p>
+<ul class="simple">
+<li><p>Better continuity for ongoing projects and work</p></li>
+<li><p>Understanding of user preferences and communication style</p></li>
+<li><p>Context for follow-up questions without manual references</p></li>
+<li><p>Awareness of previous technical discussions and solutions</p></li>
+</ul>
+<p>The context is automatically included as a system message when starting new conversations, enabling much better continuity without needing to manually reference previous conversations or maintain persistent notes.</p>
+</section>
 </section>
 </section>
 
@@ -557,7 +580,10 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chat-config">Chat config</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-conversation-context">Cross-Conversation Context</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 
