@@ -21,6 +21,7 @@ from .llm.models import get_model, get_recommended_model
 from .message import Message
 from .tools import ToolFormat, ToolSpec, get_available_tools
 from .util import document_prompt_function
+from .util.content import extract_content_summary
 from .util.context import md_codeblock
 from .util.tree import get_tree_output
 
@@ -98,6 +99,10 @@ def get_prompt(
 
     # Add workspace messages separately
     result.extend(workspace_msgs)
+
+    # Generate cross-conversation context if enabled
+    # Add chat history context
+    result.extend(prompt_chat_history())
 
     # Set hide=True, pinned=True for all messages
     for i, msg in enumerate(result):
@@ -444,6 +449,136 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
     return None
 
 
+def use_chat_history_context() -> bool:
+    """Check if cross-conversation context is enabled."""
+    config = get_config()
+    flag: str = config.get_env("GPTME_CHAT_HISTORY", "")  # type: ignore
+    return flag.lower() in ("1", "true", "yes")
+
+
+def prompt_chat_history() -> Generator[Message, None, None]:
+    """
+    Generate cross-conversation context from recent conversations.
+
+    Provides continuity by including key information from recent conversations,
+    helping the assistant understand context across conversation boundaries.
+    """
+    if not use_chat_history_context():
+        return
+
+    try:
+        from .logmanager import LogManager, list_conversations  # fmt: skip
+
+        # Get recent conversations (we'll filter further)
+        recent_conversations = list_conversations(limit=20, include_test=False)
+
+        if not recent_conversations:
+            return
+
+        # Filter out very short conversations (likely tests or brief interactions)
+        substantial_conversations = [
+            conv
+            for conv in recent_conversations
+            if conv.messages >= 4  # At least 2 exchanges
+        ]
+
+        if not substantial_conversations:
+            return
+
+        # Take the 3 most recent substantial conversations
+        conversations_to_summarize = substantial_conversations[:3]
+
+        context_parts = []
+
+        for _, conv in enumerate(conversations_to_summarize, 1):
+            try:
+                # Load the conversation
+                log_manager = LogManager.load(Path(conv.path).parent, lock=False)
+                messages = log_manager.log.messages
+
+                # Extract key messages: first few user messages and last assistant message
+                user_messages = [msg for msg in messages if msg.role == "user"]
+                assistant_messages = [
+                    msg for msg in messages if msg.role == "assistant"
+                ]
+
+                if not user_messages:
+                    continue
+
+                # Get first 2 user messages (captures the main task/context)
+                first_user_msgs = user_messages[:2]
+
+                # Find the best assistant message to use as "last response"
+                best_assistant_msg = None
+                for msg in reversed(assistant_messages):
+                    content = extract_content_summary(msg.content)
+                    if content and len(content.split()) >= 10:  # At least 10 words
+                        best_assistant_msg = msg
+                        break
+
+                # Create a concise summary
+                summary_parts = []
+
+                # Add conversation metadata
+                summary_parts.append(f"## {conv.name}")
+                summary_parts.append(
+                    f"Modified: {datetime.fromtimestamp(conv.modified).strftime('%Y-%m-%d %H:%M')}"
+                )
+
+                # Add key user requests (first ~100 words each)
+                for msg in user_messages[:1]:
+                    content = extract_content_summary(msg.content)
+                    if content:
+                        summary_parts.append(f"User: {content}")
+
+                # Second user message if available
+                for msg in user_messages[1:2]:
+                    content = extract_content_summary(msg.content)
+                    if content:
+                        # Add placeholder assistant response
+                        summary_parts.append("Assistant: (response omitted)")
+                        summary_parts.append(f"User: {content}")
+
+                # Add placeholder message containing number of omitted messages
+                omitted_count = (
+                    len(messages)
+                    - len(first_user_msgs)
+                    - (1 if best_assistant_msg else 0)
+                )
+                if omitted_count > 0:
+                    summary_parts.append(f"... ({omitted_count} messages omitted) ...")
+
+                # Add best assistant response if available
+                if best_assistant_msg:
+                    outcome = extract_content_summary(best_assistant_msg.content)
+                    if outcome:
+                        summary_parts.append(f"Assistant: {outcome}")
+
+                if len(summary_parts) > 2:  # More than just metadata
+                    context_parts.append("\n".join(summary_parts))
+
+            except Exception as e:
+                logger.debug(f"Failed to process conversation {conv.name}: {e}")
+                continue
+
+        sep = "\n---\n"
+        if context_parts:
+            context_content = f"""# Recent Conversation Context
+
+The following is a summary of your recent conversations with the user to provide continuity:
+
+---
+{sep.join(part for part in context_parts)}
+---
+
+Use this context to understand ongoing projects, preferences, and previous discussions.
+"""
+            yield Message("system", context_content)
+
+    except Exception as e:
+        logger.debug(f"Failed to generate chat history context: {e}")
+
+
 document_prompt_function(
     interactive=True,
     model=get_recommended_model("anthropic"),
@@ -456,3 +591,4 @@ document_prompt_function(tools=get_available_tools(), tool_format="markdown")(
 # document_prompt_function(tool_format="xml")(prompt_tools)
 # document_prompt_function(tool_format="tool")(prompt_tools)
 document_prompt_function()(prompt_systeminfo)
+document_prompt_function()(prompt_chat_history)
