@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from .__version__ import __version__
-from .config import get_config, get_project_config
+from .config import get_config, get_project_config, config_path
 from .dirs import get_project_git_dir
 from .llm.models import get_model, get_recommended_model
 from .message import Message
@@ -400,6 +400,39 @@ def prompt_workspace(
                 logger.warning(
                     f"File glob '{fileglob}' specified in project config does not match any files."
                 )
+
+    # Also include user-level files from ~/.config/gptme/config.toml
+    # Resolution rules:
+    # - Absolute paths: used as-is
+    # - ~ expansion supported
+    # - Relative paths: resolved relative to the config directory (e.g. ~/.config/gptme)
+    try:
+        user_files = (
+            get_config().user.prompt.files
+            if get_config().user and get_config().user.prompt
+            else []
+        )
+    except Exception:
+        user_files = []
+    if user_files:
+        config_dir = Path(config_path).expanduser().resolve().parent
+        existing = {str(Path(p).resolve()) for p in files if Path(p).exists()}
+        for entry in user_files:
+            p = Path(entry).expanduser()
+            if not p.is_absolute():
+                p = config_dir / entry
+            try:
+                p = p.resolve()
+            except Exception:
+                # If resolve fails (e.g., path doesn’t exist yet), keep as-is
+                pass
+            if p.exists():
+                rp = str(p)
+                if rp not in existing:
+                    files.append(p)
+                    existing.add(rp)
+            else:
+                logger.debug(f"User-configured file not found: {p}")
 
     # Get tree output if enabled
     if tree_output := get_tree_output(workspace):

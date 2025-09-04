@@ -73,6 +73,11 @@ class UserPromptConfig:
     about_user: str | None = None
     response_preference: str | None = None
     project: dict[str, str] = field(default_factory=dict)
+    # Additional files to include in context. Supports:
+    # - Absolute paths
+    # - ~ expansion
+    # - Relative paths (resolved against the config directory, e.g. ~/.config/gptme)
+    files: list[str] = field(default_factory=list)
 
 
 @dataclass
