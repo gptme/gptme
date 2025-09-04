@@ -484,6 +484,22 @@ Optimization reports include:
 - **A/B Testing**: Built-in experimentation framework
 - **Prompt Templates**: Generate reusable prompt components
 
+## Known Issues and Findings
+
+### Tool Usage Metric Bug
+**Issue**: Tool usage score always shows `0.000` even for successful tasks that use tools correctly.
+
+**Expected**: If tasks complete successfully (`task: 1.000`) and use required tools, `tool` score should be `1.0`.
+
+**Current behavior**: Tool usage score is `0.000` for all tasks.
+
+**Needs investigation**: The tool usage metric in `metrics.py` likely has a bug in detecting tool usage from evaluation results.
+
+### Meta-Optimization Behavior
+**Finding**: MIPROv2 can improve performance scores (60% → 65%) even when final prompt text remains identical. This indicates optimization of the improvement *process* rather than just the final output.
+
+**Recommendation**: For significant prompt text changes, test with more complex tasks that require sophisticated prompting.
+
 ## Research Applications
 
 This implementation enables research into:

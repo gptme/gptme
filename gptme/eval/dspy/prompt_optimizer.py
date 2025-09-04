@@ -22,7 +22,7 @@ import dspy
 from dspy.teleprompt import BootstrapFewShot, MIPROv2
 
 from .metrics import create_composite_metric
-from .signatures import GptmeTaskSignature, PromptImprovementSignature
+from .signatures import PromptImprovementSignature
 
 logger = logging.getLogger(__name__)
 
@@ -80,42 +80,51 @@ class PromptDataset:
 
 class GptmeModule(dspy.Module):
     """
-    DSPy module that wraps gptme's core functionality.
+    DSPy module that optimizes gptme system prompts.
 
-    This allows DSPy to optimize the system prompt by testing different
-    variations against evaluation tasks.
+    Uses PromptImprovementSignature to generate improved system prompt variations.
     """
 
-    def __init__(self, system_prompt_template: str):
+    def __init__(
+        self, base_system_prompt: str, eval_specs: list[EvalSpec] | None = None
+    ):
         super().__init__()
-        self.system_prompt_template = system_prompt_template
-        self.signature = GptmeTaskSignature
+        # Use the existing PromptImprovementSignature to optimize system prompts
+        self.prompt_optimizer = dspy.ChainOfThought(PromptImprovementSignature)
+        self.base_system_prompt = base_system_prompt
+        # Store original eval specs for lookup by task description
+        self.eval_specs_lookup = {}
+        if eval_specs:
+            for spec in eval_specs:
+                self.eval_specs_lookup[spec.get("prompt", "")] = spec
 
     def forward(self, task_description: str, context: str) -> dspy.Prediction:
         """
-        Execute a task with the current system prompt.
-
-        This integrates with gptme's actual execution engine.
+        Generate an improved system prompt and evaluate it with gptme.
+        DSPy will optimize the prompt improvement process.
         """
         try:
-            # Use a proper eval spec with real expect conditions
-            eval_spec: EvalSpec = {
-                "name": "dspy_eval_task",
-                "prompt": task_description,
-                "files": {},
-                "run": "python hello.py" if "hello" in task_description.lower() else "",
-                "expect": {
-                    "task_completed": lambda ctx: len(ctx.files) > 0
-                    or "Hello" in ctx.stdout,
-                    "no_errors": lambda ctx: ctx.stderr == "" or not ctx.stderr.strip(),
-                },
-                "tools": ["save", "shell", "patch"],
-            }
+            # Use the original EvalSpec instead of creating a fake one
+            original_spec = self.eval_specs_lookup.get(task_description)
+            if not original_spec:
+                raise ValueError(
+                    f"Could not find original EvalSpec for task: {task_description[:50]}..."
+                )
+
+            # Use DSPy to generate an improved system prompt for this specific task
+            prompt_improvement = self.prompt_optimizer(
+                current_prompt=self.base_system_prompt,
+                performance_feedback="Optimize for task completion and effective tool usage",
+                task_examples=f"Task: {task_description}\nContext: {context}",
+                improvement_areas="tool usage, task completion, clarity, error handling",
+            )
+            improved_system_prompt = prompt_improvement.improved_prompt
+
+            # Use the original EvalSpec directly
+            eval_spec = original_spec.copy()
 
             # Parse context to extract files if any
             if "```" in context:
-                # Extract file contents from context
-
                 file_blocks = re.findall(
                     r"```(\w+\.?\w*)\n(.*?)\n```", context, re.DOTALL
                 )
@@ -139,18 +148,18 @@ class GptmeModule(dspy.Module):
             else:
                 model = dspy_model
 
-            # Create a GPTMe agent with the custom optimized system prompt
+            # Create a GPTMe agent with the DSPy-improved system prompt
             agent = GPTMe(
                 model=model,
                 tool_format="markdown",
-                system_prompt=self.system_prompt_template,
+                system_prompt=improved_system_prompt,  # DSPy-optimized prompt!
             )
 
-            # Run the evaluation
+            # Run the actual evaluation
             result = execute(
                 test=eval_spec,
                 agent=agent,
-                timeout=30,  # Short timeout for optimization
+                timeout=30,
                 parallel=False,
             )
 
@@ -162,16 +171,19 @@ class GptmeModule(dspy.Module):
 
             return dspy.Prediction(
                 response=response,
-                system_prompt=self.system_prompt_template,
-                eval_result=result,
+                improved_system_prompt=improved_system_prompt,
+                changes_made=getattr(prompt_improvement, "changes_made", ""),
+                eval_result=result,  # Include actual results for metrics
             )
 
         except Exception as e:
             logger.warning(f"Failed to run actual gptme evaluation: {e}")
-            # Fallback to placeholder
-            response = f"Executed task: {task_description}"
+            # Return failure case
             return dspy.Prediction(
-                response=response, system_prompt=self.system_prompt_template
+                response=f"Failed to execute task: {e}",
+                improved_system_prompt=self.base_system_prompt,
+                changes_made="",
+                eval_result=None,
             )
 
 
@@ -249,7 +261,7 @@ class PromptOptimizer:
         metric = create_composite_metric(eval_specs=eval_specs)
 
         # Create the module to optimize
-        module = GptmeModule(base_prompt)
+        module = GptmeModule(base_prompt, eval_specs)
 
         # Choose optimizer
         if self.optimizer_type.lower() == "miprov2":
@@ -299,8 +311,8 @@ class PromptOptimizer:
         """Evaluate a prompt against validation data."""
         scores = []
 
-        # Create GptmeModule with the prompt to test
-        module = GptmeModule(prompt)
+        # Create GptmeModule with the prompt to test as the base system prompt
+        module = GptmeModule(prompt, val_data.eval_specs)
 
         for example in val_data:
             print(f"DEBUG: Evaluating example: {example.task_description[:50]}...")
