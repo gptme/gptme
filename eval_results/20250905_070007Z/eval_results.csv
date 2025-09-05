@@ -1,0 +1,13 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash
+openrouter/moonshotai/kimi-k2-0905@markdown,hello,true,4.17,4.16,0.01,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@markdown,hello-patch,true,11.29,11.28,0.01,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@markdown,hello-ask,true,6.46,6.45,0.01,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@markdown,prime100,false,60,60,0,0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@tool,hello,false,5.36,5.35,0.01,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@tool,hello-patch,false,5.71,5.65,0.05,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@tool,hello-ask,false,2.05,2.04,0.01,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@tool,prime100,true,20.07,20.06,0.01,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@xml,hello,true,3.95,3.94,0.01,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@xml,hello-patch,true,8.52,8.51,0.01,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@xml,hello-ask,true,14.03,14.01,0.01,0.0,v0.28.0-47-g21dc660a-dirty
+openrouter/moonshotai/kimi-k2-0905@xml,prime100,false,20.17,20.16,0.01,0.0,v0.28.0-47-g21dc660a-dirty

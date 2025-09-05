@@ -1,0 +1,55 @@
+
+--- Start of generation ---
+[2;36m[08:59:21][0m[2;36m [0mUsing project configuration at ~[35m/Programming/gptme/[0m[95mgptme.toml[0m                                                                                                                                                                                                                                                        
+[2;36m          [0m[2;36m [0mUsing model: openrouter/moonshotai/kimi-k2-[1;36m0905[0m                                                                                                                                                                                                                                                                      
+[2;36m          [0m[2;36m [0mUsing logdir: ~[35m/.local/share/gptme/logs/[0m[95m2025-09-05-gptme-evals-openrouter--moonshotai--kimi-k2-0905-xml-817625[0m                                                                                                                                                                                                       
+[2;36m          [0m[2;36m [0mUsing workspace: ~[35m/.local/share/gptme/logs/2025-09-05-gptme-evals-openrouter--moonshotai--kimi-k2-0905-xml-817625/[0m[95mworkspace[0m                                                                                                                                                                                          
+[38;5;239mSkipped [0m[1;38;5;239m2[0m[38;5;239m hidden system messages, show with --show-hidden[0m
+--- ^^^ past messages ^^^ ---
+User: write a script prime.py that computes and prints the 100th prime number when called
+Assistant: Thinking...                                                                                                                                                                                                                                                                                                                                Assistant: 
+I'll write a script that computes and prints the 100th prime number.
+
+<save args="prime.py">
+def is_prime(n):
+    """Check if a number is prime."""
+    if n < 2:
+        return False
+    if n == 2:
+        return True
+    if n % 2 == 0:
+        return False
+    
+    # Check odd divisors up to sqrt(n)
+    for i in range(3, int(n**0.5) + 1, 2):
+        if n % i == 0:
+            return False
+    return True
+
+def nth_prime(n):
+    """Find the nth prime number."""
+    count = 0
+    num = 2
+    
+    while count < n:
+        if is_prime(num):
+            count += 1
+            if count == n:
+                return num
+        num += 1
+    
+    return None
+
+if __name__ == "__main__":
+    prime_100 = nth_prime(100)
+    print(prime_100)
+</save>
+</tool-use>
+
+Now let's run it to verify it works:
+
+<shell>
+python prime.py
+</shell>
+</tool-use>                                                                                                                                                                                                                                                                                                                                --- Finished generation ---
+
