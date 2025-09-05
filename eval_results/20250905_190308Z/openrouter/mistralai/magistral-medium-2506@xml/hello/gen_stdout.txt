@@ -1,0 +1,29 @@
+
+--- Start of generation ---
+[2;36m[21:02:54][0m[2;36m [0mUsing project configuration at ~[35m/Programming/gptme/[0m[95mgptme.toml[0m                                                                      
+[2;36m          [0m[2;36m [0mUsing project configuration at ~[35m/Programming/gptme-bob/[0m[95mgptme.toml[0m                                                                  
+[2;36m          [0m[2;36m [0mUsing model: openrouter/mistralai/magistral-medium-[1;36m2506[0m                                                                            
+[2;36m          [0m[2;36m [0mUsing logdir: ~[35m/.local/share/gptme/logs/[0m[95m2025-09-05-gptme-evals-openrouter--mistralai--magistral-medium-2506-xml-934589[0m             
+[2;36m          [0m[2;36m [0mUsing workspace: ~[35m/.local/share/gptme/logs/2025-09-05-gptme-evals-openrouter--mistralai--magistral-medium-2506-xml-934589/[0m[95mworkspace[0m
+[38;5;239mSkipped [0m[1;38;5;239m2[0m[38;5;239m hidden system messages, show with --show-hidden[0m
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints [32m"Hello, world!"[0m
+Assistant: Thinking...                                                                                                                                              Assistant: 
+<tool-use>
+<save args='hello.py'>
+print("Hello, world!")
+</save>
+</tool-use>                                                                                                                                              
+Preview
+print("Hello, world!")                                                                                                                        
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                                                                              Assistant: 
+I've created a file named `hello.py` with the following content:
+
+```python
+print("Hello, world!")
+```
+
+You can run this script using Python by executing `python hello.py` in your terminal. Would you like to try running it or make any modifications to the script?                                                                                                                                              --- Finished generation ---
+
