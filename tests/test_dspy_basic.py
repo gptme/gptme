@@ -43,6 +43,7 @@ try:
         analyze_task_coverage,
         create_error_handling_tasks,
         create_instruction_following_tasks,
+        create_multistep_debugging_tasks,
         create_reasoning_tasks,
         create_tool_usage_tasks,
         get_prompt_optimization_tasks,
@@ -87,10 +88,14 @@ def test_task_creation():
     assert isinstance(error_tasks, list)
     assert len(error_tasks) > 0
 
+    multistep_tasks = create_multistep_debugging_tasks()
+    assert isinstance(multistep_tasks, list)
+    assert len(multistep_tasks) > 0
+
     all_tasks = get_prompt_optimization_tasks()
     assert len(all_tasks) == len(tool_tasks) + len(reasoning_tasks) + len(
         instruction_tasks
-    ) + len(error_tasks)
+    ) + len(error_tasks) + len(multistep_tasks)
 
 
 def test_task_structure():
