@@ -1,0 +1,25 @@
+
+--- Start of generation ---
+[2;36m[16:38:50][0m[2;36m [0mUsing project configuration at ~[35m/Programming/gptme/[0m[95mgptme.toml[0m                                                                                        
+[2;36m[16:38:51][0m[2;36m [0mUsing model: openrouter/qwen/qwen3-max                                                                                                               
+[2;36m          [0m[2;36m [0mUsing logdir: ~[35m/.local/share/gptme/logs/[0m[95m2025-09-07-gptme-evals-openrouter--qwen--qwen3-max-tool-632796[0m                                               
+[2;36m          [0m[2;36m [0mUsing workspace: ~[35m/.local/share/gptme/logs/2025-09-07-gptme-evals-openrouter--qwen--qwen3-max-tool-632796/[0m[95mworkspace[0m                                  
+[38;5;239mSkipped [0m[1;38;5;239m2[0m[38;5;239m hidden system messages, show with --show-hidden[0m
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints [32m"Hello, world!"[0m
+Assistant: Thinking...                                                                                                                                                                Assistant: 
+
+@save(call_bd2302ea84314100a05bc3): {"path": "hello.py", "content": "print(\"Hello, world!\")"}                                                                                                                                                                
+Preview
+print("Hello, world!")                                                                                                                                          
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                                                                                                Assistant: 
+The script `hello.py` has been created successfully. You can run it using:
+
+```bash
+python hello.py
+```
+
+Let me know if you need any modifications!                                                                                                                                                                --- Finished generation ---
+

@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/erb/.local/share/gptme/logs/2025-09-07-gptme-evals-openrouter--qwen--qwen3-max-markdown-935106/workspace/hello.py", line 1, in <module>
+    name = input("What is your name? ")
+EOFError: EOF when reading a line

@@ -1,0 +1,2 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash
+openrouter/qwen/qwen3-max@markdown,hello-ask,true,16.43,16.42,0.01,0.0,v0.28.0-49-g59dce119-dirty
