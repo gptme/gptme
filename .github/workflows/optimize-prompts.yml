@@ -144,7 +144,7 @@ jobs:
 
       - name: Create issue with results (on failure)
         if: failure()
-        uses: actions/github-script@v6
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -175,7 +175,7 @@ jobs:
 
     steps:
       - name: Notify successful optimization
-        uses: actions/github-script@v6
+        uses: actions/github-script@v8
         with:
           script: |
             console.log('✅ Prompt optimization completed successfully!');
