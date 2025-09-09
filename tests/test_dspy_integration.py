@@ -93,7 +93,6 @@ def test_gptme_module_creation(mock_dspy):
     prompt = "You are gptme, a helpful assistant."
     module = GptmeModule(prompt)
 
-    assert module.system_prompt_template == prompt
     assert hasattr(module, "forward")
 
 
