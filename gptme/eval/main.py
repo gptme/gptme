@@ -366,6 +366,8 @@ def read_results_from_csv(filename: str) -> dict[str, list[EvalResult]]:
                 gen_stderr=read_log_file(test_dir / "gen_stderr.txt"),
                 run_stdout=read_log_file(test_dir / "run_stdout.txt"),
                 run_stderr=read_log_file(test_dir / "run_stderr.txt"),
+                log_dir=Path(row.get("Log Dir", test_dir)),
+                workspace_dir=Path(row.get("Workspace Dir", test_dir)),
             )
             model_results[model].append(result)
     return dict(model_results)
@@ -398,6 +400,8 @@ def write_results(model_results: dict[str, list[EvalResult]]):
             "Run Time",
             "Eval Time",
             "Commit Hash",
+            "Log Dir",
+            "Workspace Dir",
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames, lineterminator="\n")
 
@@ -428,6 +432,8 @@ def write_results(model_results: dict[str, list[EvalResult]]):
                     "Run Time": round(result.timings["run"], 2),
                     "Eval Time": round(result.timings["eval"], 2),
                     "Commit Hash": commit_hash,
+                    "Log Dir": str(result.log_dir),
+                    "Workspace Dir": str(result.workspace_dir),
                 }
                 writer.writerow(row)
                 _write_case_results(test_dir / "cases.csv", result.results)

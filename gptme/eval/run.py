@@ -9,6 +9,7 @@ import time
 from collections import defaultdict
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from multiprocessing import Manager, Process
+from pathlib import Path
 from typing import TypedDict
 
 from tqdm import tqdm
@@ -33,8 +34,8 @@ class ProcessSuccess(TypedDict):
     stdout: str
     stderr: str
     duration: float
-    log_dir: str | None
-    workspace_dir: str | None
+    log_dir: Path
+    workspace_dir: Path
 
 
 class ProcessError(TypedDict):
@@ -89,18 +90,19 @@ def run_evals(
                 tools = test.get(
                     "tools"
                 )  # Get tools from test spec, None if not specified
+                agent = GPTMe(model=model, tool_format=tool_format, tools=tools)
                 future = executor.submit(
                     execute,
                     test,
-                    GPTMe(model=model, tool_format=tool_format, tools=tools),
+                    agent,
                     timeout,
                     parallel > 1,
                 )
                 futures.append(future)
-                future_to_model_test[future] = (model_id, test)
+                future_to_model_test[future] = (model_id, test, agent)
 
         def _handle_future(future: Future):
-            model, test = future_to_model_test[future]
+            model, test, agent = future_to_model_test[future]
             test_name = test["name"]
             try:
                 result = future.result(timeout=0.1)
@@ -126,6 +128,8 @@ def run_evals(
                     gen_stderr="",
                     run_stdout="",
                     run_stderr="",
+                    log_dir=agent.log_dir,
+                    workspace_dir=agent.workspace_dir,
                 )
             model_results[model][test_name] = result
 
@@ -218,16 +222,8 @@ def execute(test: EvalSpec, agent: Agent, timeout: int, parallel: bool) -> EvalR
             files = result.get("files", {})
             gen_stdout = result.get("stdout", "")
             gen_stderr = result.get("stderr", "")
-
-            # Set the log_dir and workspace_dir back on the agent from subprocess result
-            if result.get("log_dir"):
-                from pathlib import Path
-
-                agent.log_dir = Path(result["log_dir"])
-            if result.get("workspace_dir"):
-                from pathlib import Path
-
-                agent.workspace_dir = Path(result["workspace_dir"])
+            log_dir = result.get("log_dir") or agent.log_dir
+            workspace_dir = result.get("workspace_dir") or agent.workspace_dir
         else:
             logger.error("No result in shared dictionary")
             return EvalResult(
@@ -239,6 +235,8 @@ def execute(test: EvalSpec, agent: Agent, timeout: int, parallel: bool) -> EvalR
                 gen_stderr="",
                 run_stdout="",
                 run_stderr="",
+                log_dir=agent.log_dir,
+                workspace_dir=agent.workspace_dir,
             )
 
         logger.debug("Got result")
@@ -285,6 +283,8 @@ def execute(test: EvalSpec, agent: Agent, timeout: int, parallel: bool) -> EvalR
             gen_stderr=gen_stderr,
             run_stdout=stdout_run,
             run_stderr=stderr_run,
+            log_dir=log_dir,
+            workspace_dir=workspace_dir,
         )
 
 
@@ -366,8 +366,8 @@ def act_process(
         "stdout": stdout.getvalue(),
         "stderr": stderr.getvalue(),
         "duration": duration,
-        "log_dir": str(agent.log_dir) if agent.log_dir else None,
-        "workspace_dir": str(agent.workspace_dir) if agent.workspace_dir else None,
+        "log_dir": agent.log_dir,
+        "workspace_dir": agent.workspace_dir,
     }
     sync_dict["result"] = result_success
     subprocess_logger.info("Success")

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, TypedDict
 
 from typing_extensions import NotRequired
@@ -45,6 +46,8 @@ class EvalResult:
     gen_stderr: str
     run_stdout: str
     run_stderr: str
+    log_dir: Path
+    workspace_dir: Path
 
 
 class EvalSpec(TypedDict):

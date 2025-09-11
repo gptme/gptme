@@ -28,6 +28,11 @@ from .signatures import PromptImprovementSignature
 logger = logging.getLogger(__name__)
 
 
+task_weight = 0.4
+tool_weight = 0.3
+judge_weight = 0.3
+
+
 class PromptDataset:
     """
     Dataset wrapper for gptme evaluation tasks.
@@ -358,9 +363,9 @@ class PromptOptimizer:
         )
 
         print("\n=== OVERALL SCORE BREAKDOWN ===")
-        print(f"Task Success:  {avg_task_score:.3f} (weight: 0.4)")
-        print(f"Tool Usage:    {avg_tool_score:.3f} (weight: 0.3)")
-        print(f"LLM Judge:     {avg_judge_score:.3f} (weight: 0.3)")
+        print(f"Task Success:  {avg_task_score:.3f} (weight: {task_weight})")
+        print(f"Tool Usage:    {avg_tool_score:.3f} (weight: {tool_weight})")
+        print(f"LLM Judge:     {avg_judge_score:.3f} (weight: {judge_weight})")
         print(f"Composite:     {avg_score:.3f}")
         print("================================")
 
@@ -396,7 +401,11 @@ class PromptOptimizer:
         judge_score = judge_metric(gold, pred, None)
 
         # Calculate composite with weights
-        composite_score = task_score * 0.4 + tool_score * 0.3 + judge_score * 0.3
+        composite_score = (
+            task_score * task_weight
+            + tool_score * tool_weight
+            + judge_score * judge_weight
+        )
 
         return {
             "task_score": task_score,

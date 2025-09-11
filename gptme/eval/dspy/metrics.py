@@ -12,6 +12,7 @@ from typing import Any
 from gptme.eval.agents import GPTMe
 from gptme.eval.run import execute
 from gptme.eval.types import EvalResult, EvalSpec
+from gptme.message import Message
 
 import dspy
 
@@ -75,16 +76,7 @@ def create_tool_usage_metric() -> Callable[[Any, Any, Any | None], float]:
         - Whether tool usage followed best practices
         """
         # Get messages from pred (added by GptmeModule)
-        messages = None
-        try:
-            messages = pred.messages
-        except AttributeError:
-            try:
-                # Fallback to eval_result messages
-                messages = pred.eval_result.messages
-            except AttributeError:
-                return 0.0
-
+        messages: list[Message] = pred.messages  # type: ignore
         if not messages:
             return 0.0
 
@@ -178,10 +170,6 @@ def create_llm_judge_metric(
             response = str(pred) if pred else ""
             expected = getattr(gold, "expected_outcome", "")
 
-            print(
-                f"DEBUG LLM Judge: task='{task[:50]}...', response_len={len(response)}"
-            )
-
             # Get LLM judgment
             judgment = judge(
                 original_prompt=original_prompt,
@@ -190,8 +178,6 @@ def create_llm_judge_metric(
                 expected_outcome=expected,
                 evaluation_criteria=judge_criteria,
             )
-
-            print(f"DEBUG LLM Judge: judgment.score='{judgment.score}'")
 
             # Extract numeric score (1-10) and normalize to 0-1
             score_str = judgment.score.strip()
@@ -204,15 +190,12 @@ def create_llm_judge_metric(
 
                 normalized_score = (score - 1) / 9  # Convert 1-10 to 0-1
                 final_score = max(0.0, min(1.0, normalized_score))
-                print(f"DEBUG LLM Judge: raw_score={score}, normalized={final_score}")
                 return final_score
             except ValueError:
-                print(f"DEBUG LLM Judge: Could not parse score: '{score_str}'")
                 logger.warning(f"Could not parse LLM judge score: {score_str}")
                 return 0.0
 
         except Exception as e:
-            print(f"DEBUG LLM Judge: Exception occurred: {e}")
             logger.error(f"Error in LLM judge metric: {e}")
             import traceback
 
@@ -294,16 +277,11 @@ def evaluate_prompt_on_task(
 
         # Calculate metrics from actual results
         task_success = 0.0
-        print(f"DEBUG: result = {result}")
-        print(f"DEBUG: hasattr results = {hasattr(result, 'results')}")
-        if hasattr(result, "results"):
-            print(f"DEBUG: result.results = {result.results}")
-        if hasattr(result, "results") and result.results:
-            passed = sum(1 for r in result.results if r.passed)
-            task_success = passed / len(result.results)
-            print(f"DEBUG: task_success = {task_success}")
-        else:
-            print("DEBUG: No results found or empty results")
+        if not hasattr(result, "results"):
+            raise ValueError("EvalResult missing results attribute")
+
+        passed = sum(1 for r in result.results if r.passed)
+        task_success = passed / len(result.results)
 
         # Tool usage analysis
         tool_score = 0.0
