@@ -1,5 +1,6 @@
 import logging
 from abc import abstractmethod
+from pathlib import Path
 
 from gptme import Message
 from gptme import chat as gptme_chat
@@ -18,6 +19,10 @@ logger = logging.getLogger(__name__)
 class Agent:
     model: str
     tool_format: ToolFormat
+    tools: list[str] | None = None
+    system_prompt: str | None = None
+    log_dir: Path | None = None
+    workspace_dir: Path | None = None
 
     def __init__(
         self,
@@ -53,6 +58,9 @@ class GPTMe(Agent):
                 f"Workspace directory {workspace_dir} already exists."
             )
         workspace_dir.mkdir(parents=True)
+
+        self.log_dir = log_dir
+        self.workspace_dir = workspace_dir
 
         store = FileStore(working_dir=workspace_dir)
         if files:

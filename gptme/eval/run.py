@@ -33,6 +33,8 @@ class ProcessSuccess(TypedDict):
     stdout: str
     stderr: str
     duration: float
+    log_dir: str | None
+    workspace_dir: str | None
 
 
 class ProcessError(TypedDict):
@@ -216,6 +218,16 @@ def execute(test: EvalSpec, agent: Agent, timeout: int, parallel: bool) -> EvalR
             files = result.get("files", {})
             gen_stdout = result.get("stdout", "")
             gen_stderr = result.get("stderr", "")
+
+            # Set the log_dir and workspace_dir back on the agent from subprocess result
+            if result.get("log_dir"):
+                from pathlib import Path
+
+                agent.log_dir = Path(result["log_dir"])
+            if result.get("workspace_dir"):
+                from pathlib import Path
+
+                agent.workspace_dir = Path(result["workspace_dir"])
         else:
             logger.error("No result in shared dictionary")
             return EvalResult(
@@ -354,6 +366,8 @@ def act_process(
         "stdout": stdout.getvalue(),
         "stderr": stderr.getvalue(),
         "duration": duration,
+        "log_dir": str(agent.log_dir) if agent.log_dir else None,
+        "workspace_dir": str(agent.workspace_dir) if agent.workspace_dir else None,
     }
     sync_dict["result"] = result_success
     subprocess_logger.info("Success")

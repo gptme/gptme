@@ -12,7 +12,6 @@ from typing import Any
 from gptme.eval.agents import GPTMe
 from gptme.eval.run import execute
 from gptme.eval.types import EvalResult, EvalSpec
-from gptme.message import Message
 
 import dspy
 
@@ -40,10 +39,7 @@ def create_task_success_metric(
 
         Returns a score between 0 and 1 indicating success rate.
         """
-        if not hasattr(pred, "eval_result") or not pred.eval_result:
-            return 0.0
-
-        result: EvalResult = pred.eval_result
+        result: EvalResult = pred.eval_result  # type: ignore
 
         # Calculate success rate based on passed expectations
         total_expectations = len(result.results)
@@ -74,43 +70,66 @@ def create_tool_usage_metric() -> Callable[[Any, Any, Any | None], float]:
         Evaluate how effectively tools were used.
 
         Considers:
-        - Whether appropriate tools were selected
+        - Whether appropriate tools were used
         - Whether tools were used efficiently
         - Whether tool usage followed best practices
         """
-        if not hasattr(pred, "messages") or not pred.messages:
+        # Get messages from pred (added by GptmeModule)
+        messages = None
+        try:
+            messages = pred.messages
+        except AttributeError:
+            try:
+                # Fallback to eval_result messages
+                messages = pred.eval_result.messages
+            except AttributeError:
+                return 0.0
+
+        if not messages:
             return 0.0
 
-        messages: list[Message] = pred.messages
-        tool_calls = [
-            msg
-            for msg in messages
-            if msg.role == "assistant"
-            and any(block.tool for block in getattr(msg, "blocks", []))
-        ]
+        # Count tool calls
+        tool_calls = []
+        used_tools = set()
+
+        from gptme.tools import init_tools
+        from gptme.tools.base import ToolUse
+
+        # Initialize tools first (they're not loaded in this context)
+        init_tools(["save", "shell", "patch", "read", "ipython"])
+
+        for msg in messages:
+            if msg.role == "assistant":
+                # Parse tool uses from assistant messages
+                tool_uses = list(
+                    ToolUse.iter_from_content(
+                        msg.content, tool_format_override="markdown"
+                    )
+                )
+
+                for tool_use in tool_uses:
+                    tool_calls.append(msg)
+                    used_tools.add(tool_use.tool)
 
         if not tool_calls:
-            # No tools used - could be good or bad depending on task
             expected_tools = getattr(gold, "tools", [])
             return 1.0 if not expected_tools else 0.0
+
+        # Get expected tools
+        expected_tools = getattr(gold, "tools", [])
 
         # Analyze tool usage patterns
         score = 0.0
         total_weight = 0.0
 
         # Check if required tools were used
-        if hasattr(gold, "tools") and gold.tools:
-            required_tools = set(gold.tools)
-            used_tools = set()
-            for msg in tool_calls:
-                for block in getattr(msg, "blocks", []):
-                    if block.tool:
-                        used_tools.add(block.tool)
-
+        if expected_tools:
+            required_tools = set(expected_tools)
             tool_coverage = len(used_tools.intersection(required_tools)) / len(
                 required_tools
             )
-            score += tool_coverage * 0.4
+            coverage_score = tool_coverage * 0.4
+            score += coverage_score
             total_weight += 0.4
 
         # Check for efficient tool usage (not too many redundant calls)
@@ -118,20 +137,16 @@ def create_tool_usage_metric() -> Callable[[Any, Any, Any | None], float]:
         efficiency_score = (
             max(0.0, 1.0 - (tool_call_count - 3) * 0.1) if tool_call_count > 3 else 1.0
         )
-        score += efficiency_score * 0.3
+        efficiency_contribution = efficiency_score * 0.3
+        score += efficiency_contribution
         total_weight += 0.3
 
-        # Check for appropriate tool sequencing (if we have trace data)
-        if trace:
-            # TODO: Analyze tool call sequence for logical progression
-            pass
-
         # General tool usage score
-        score += 0.5  # Base score for using tools at all
+        base_contribution = 0.5 * 0.3
+        score += base_contribution
         total_weight += 0.3
 
         final_score = score / total_weight if total_weight > 0 else 0.0
-        logger.debug(f"Tool usage score: {final_score}")
         return final_score
 
     return tool_usage_metric
@@ -163,6 +178,10 @@ def create_llm_judge_metric(
             response = str(pred) if pred else ""
             expected = getattr(gold, "expected_outcome", "")
 
+            print(
+                f"DEBUG LLM Judge: task='{task[:50]}...', response_len={len(response)}"
+            )
+
             # Get LLM judgment
             judgment = judge(
                 original_prompt=original_prompt,
@@ -172,18 +191,32 @@ def create_llm_judge_metric(
                 evaluation_criteria=judge_criteria,
             )
 
+            print(f"DEBUG LLM Judge: judgment.score='{judgment.score}'")
+
             # Extract numeric score (1-10) and normalize to 0-1
             score_str = judgment.score.strip()
             try:
-                score = float(score_str)
+                # Handle "9/10" format
+                if "/" in score_str:
+                    score = float(score_str.split("/")[0])
+                else:
+                    score = float(score_str)
+
                 normalized_score = (score - 1) / 9  # Convert 1-10 to 0-1
-                return max(0.0, min(1.0, normalized_score))
+                final_score = max(0.0, min(1.0, normalized_score))
+                print(f"DEBUG LLM Judge: raw_score={score}, normalized={final_score}")
+                return final_score
             except ValueError:
+                print(f"DEBUG LLM Judge: Could not parse score: '{score_str}'")
                 logger.warning(f"Could not parse LLM judge score: {score_str}")
                 return 0.0
 
         except Exception as e:
+            print(f"DEBUG LLM Judge: Exception occurred: {e}")
             logger.error(f"Error in LLM judge metric: {e}")
+            import traceback
+
+            traceback.print_exc()
             return 0.0
 
     return llm_judge_metric
@@ -274,31 +307,23 @@ def evaluate_prompt_on_task(
 
         # Tool usage analysis
         tool_score = 0.0
-        if hasattr(result, "messages"):
-            tool_calls = [
-                msg
-                for msg in result.messages
-                if msg.role == "assistant"
-                and any(
-                    hasattr(msg, "blocks") and block.tool
-                    for block in getattr(msg, "blocks", [])
-                )
-            ]
-            # Simple tool usage score
-            expected_tools = task_spec.get("tools", [])
-            if expected_tools:
-                used_tools = set()
-                for msg in tool_calls:
-                    for block in getattr(msg, "blocks", []):
-                        if block.tool:
-                            used_tools.add(block.tool)
-                tool_score = len(used_tools.intersection(set(expected_tools))) / len(
-                    expected_tools
-                )
-            else:
-                tool_score = (
-                    1.0 if not tool_calls else 0.8
-                )  # Reward not using tools when not needed
+        # EvalResult doesn't have messages attribute, so we can't analyze tool usage here
+        tool_calls: list = []
+        # Simple tool usage score
+        expected_tools = task_spec.get("tools", [])
+        if expected_tools:
+            used_tools = set()
+            for msg in tool_calls:
+                for block in getattr(msg, "blocks", []):
+                    if block.tool:
+                        used_tools.add(block.tool)
+            tool_score = len(used_tools.intersection(set(expected_tools))) / len(
+                expected_tools
+            )
+        else:
+            tool_score = (
+                1.0 if not tool_calls else 0.8
+            )  # Reward not using tools when not needed
 
         # LLM judge score (simplified)
         judge_score = min(1.0, task_success + 0.3)  # Basic heuristic
