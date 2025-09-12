@@ -59,7 +59,6 @@ def _record_usage(usage, model: str) -> None:
 # TODO: set required-parameters: https://openrouter.ai/docs/provider-routing#required-parameters-_beta_
 # TODO: set quantization: https://openrouter.ai/docs/provider-routing#quantization
 
-
 ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif"]
 
 
@@ -89,6 +88,11 @@ def init(provider: Provider, config: Config):
         api_key = proxy_key or config.get_env_required("OPENROUTER_API_KEY")
         clients[provider] = OpenAI(
             api_key=api_key, base_url=proxy_url or "https://openrouter.ai/api/v1"
+        )
+    elif provider == "aimlapi":
+        api_key = config.get_env_required("AIML_API_KEY")
+        clients[provider] = OpenAI(
+            api_key=api_key, base_url="https://api.aimlapi.com/v1"
         )
     elif provider == "gemini":
         api_key = config.get_env_required("GEMINI_API_KEY")
@@ -243,8 +247,8 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
 def extra_headers(provider: Provider) -> dict[str, str]:
     """Return extra headers for the OpenAI API based on the model."""
     headers: dict[str, str] = {}
-    if provider == "openrouter":
-        # Shows in rankings on openrouter.ai
+    if provider in {"openrouter", "aimlapi"}:
+        # Shows in rankings on openrouter.ai and helps identify aimlapi usage
         headers |= {
             "HTTP-Referer": "https://github.com/gptme/gptme",
             "X-Title": "gptme",
@@ -543,32 +547,57 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
 @lru_cache(maxsize=1)
 def get_available_models(provider: Provider) -> list[ModelMeta]:
     """Get available models from a provider."""
-    if provider != "openrouter":
-        raise ValueError(f"Provider {provider} does not support listing models")
-
     config = get_config()
-    api_key = config.get_env_required("OPENROUTER_API_KEY")
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-    }
+    if provider == "openrouter":
+        api_key = config.get_env_required("OPENROUTER_API_KEY")
+        headers = {"Authorization": f"Bearer {api_key}"}
 
-    try:
-        response = requests.get(
-            "https://openrouter.ai/api/v1/models", headers=headers, timeout=30
-        )
-        response.raise_for_status()
-        data = response.json()
+        try:
+            response = requests.get(
+                "https://openrouter.ai/api/v1/models", headers=headers, timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
 
-        # Convert raw models to ModelMeta objects
-        raw_models = data.get("data", [])
-        return [openrouter_model_to_modelmeta(model) for model in raw_models]
-    except requests.RequestException as e:
-        logger.error(f"Failed to retrieve models from {provider}: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error retrieving models from {provider}: {e}")
-        raise
+            # Convert raw models to ModelMeta objects
+            raw_models = data.get("data", [])
+            return [openrouter_model_to_modelmeta(model) for model in raw_models]
+        except requests.RequestException as e:
+            logger.error(f"Failed to retrieve models from {provider}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving models from {provider}: {e}")
+            raise
+    elif provider == "aimlapi":
+        api_key = config.get_env_required("AIML_API_KEY")
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        try:
+            response = requests.get(
+                "https://api.aimlapi.com/v1/models", headers=headers, timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            raw_models = data.get("data", [])
+            return [
+                ModelMeta(
+                    provider="aimlapi",
+                    model=model.get("id", ""),
+                    context=128_000,
+                    supports_streaming=True,
+                )
+                for model in raw_models
+            ]
+        except requests.RequestException as e:
+            logger.error(f"Failed to retrieve models from {provider}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving models from {provider}: {e}")
+            raise
+    else:
+        raise ValueError(f"Provider {provider} does not support listing models")
 
 
 def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:

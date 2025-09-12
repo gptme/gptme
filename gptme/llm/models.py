@@ -20,6 +20,7 @@ Provider = Literal[
     "anthropic",
     "azure",
     "openrouter",
+    "aimlapi",
     "gemini",
     "groq",
     "xai",
@@ -33,6 +34,7 @@ PROVIDERS_OPENAI = [
     "openai",
     "azure",
     "openrouter",
+    "aimlapi",
     "gemini",
     "xai",
     "groq",
@@ -307,6 +309,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
         },
     },
+    "aimlapi": {},
     "nvidia": {},
     "azure": {},
     "local": {},
@@ -376,6 +379,8 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
         return "gpt-5"
     elif provider == "openrouter":
         return "meta-llama/llama-3.1-405b-instruct"
+    elif provider == "aimlapi":
+        return "openai/gpt-4o-mini"
     elif provider == "gemini":
         return "gemini-2.5-pro"
     elif provider == "anthropic":
@@ -389,6 +394,8 @@ def get_summary_model(provider: Provider) -> str:  # pragma: no cover
         return "gpt-5-mini"
     elif provider == "openrouter":
         return "meta-llama/llama-3.1-8b-instruct"
+    elif provider == "aimlapi":
+        return "openai/gpt-4o-mini"
     elif provider == "gemini":
         return "gemini-2.5-flash"
     elif provider == "anthropic":
@@ -408,7 +415,7 @@ def _get_models_for_provider(
     models_to_show = []
 
     # Try dynamic fetching first for supported providers
-    if dynamic_fetch and provider == "openrouter":
+    if dynamic_fetch and provider in ["openrouter", "aimlapi"]:
         try:
             dynamic_models = get_available_models(provider)
             models_to_show = dynamic_models

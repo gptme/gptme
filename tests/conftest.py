@@ -29,6 +29,7 @@ def has_api_key() -> bool:
         config.get_env("OPENAI_API_KEY", "")
         or config.get_env("ANTHROPIC_API_KEY", "")
         or config.get_env("OPENROUTER_API_KEY", "")
+        or config.get_env("AIML_API_KEY", "")
         or config.get_env("DEEPSEEK_API_KEY", "")
     )
 

@@ -1,7 +1,7 @@
 Providers
 =========
 
-We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
+We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, AI/ML API, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
 
 You can find our model recommendations on the :doc:`evals` page.
 
@@ -12,6 +12,7 @@ To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag s
     gptme "hello" -m openai/gpt-5
     gptme "hello" -m anthropic  # will use provider default
     gptme "hello" -m openrouter/x-ai/grok-4
+    gptme "hello" -m aimlapi/openai/gpt-4o-mini
     gptme "hello" -m deepseek/deepseek-reasoner
     gptme "hello" -m gemini/gemini-2.5-flash
     gptme "hello" -m groq/llama-3.3-70b-versatile
@@ -27,6 +28,7 @@ Use the ``[env]`` section in the :ref:`global-config` file to store API keys usi
 - ``OPENAI_API_KEY="your-api-key"``
 - ``ANTHROPIC_API_KEY="your-api-key"``
 - ``OPENROUTER_API_KEY="your-api-key"``
+- ``AIML_API_KEY="your-api-key"``
 - ``GEMINI_API_KEY="your-api-key"``
 - ``XAI_API_KEY="your-api-key"``
 - ``GROQ_API_KEY="your-api-key"``
