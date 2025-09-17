@@ -96,7 +96,7 @@ def _format_todo_list() -> str:
     # Summary
     total = len(_current_todos)
     state_counter = Counter(t["state"] for t in _current_todos.values())
-    breakdown = ", ".join([f"{k}: {v}" for k, v in [state_counter.items()]])
+    breakdown = ", ".join([f"{k}: {v}" for k, v in state_counter.items()])
 
     output.append("")
     output.append(f"Summary: {total} total ({breakdown})")
