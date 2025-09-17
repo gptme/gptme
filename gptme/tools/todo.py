@@ -14,6 +14,7 @@ Key principles:
 
 import logging
 import shlex
+from collections import Counter
 from collections.abc import Generator
 from datetime import datetime
 
@@ -43,7 +44,7 @@ class TodoItem:
     ):
         self.id = id
         self.text = text
-        self.state = state  # pending, in_progress, completed
+        self.state = state  # pending, in_progress, completed, paused
         self.created = created or datetime.now()
         self.updated = datetime.now()
 
@@ -80,6 +81,7 @@ def _format_todo_list() -> str:
         "pending": "🔲",
         "in_progress": "🔄",
         "completed": "✅",
+        "paused": "⏸️",
     }
 
     output = ["Todo List:"]
@@ -93,16 +95,11 @@ def _format_todo_list() -> str:
 
     # Summary
     total = len(_current_todos)
-    completed = len([t for t in _current_todos.values() if t["state"] == "completed"])
-    pending = len([t for t in _current_todos.values() if t["state"] == "pending"])
-    in_progress = len(
-        [t for t in _current_todos.values() if t["state"] == "in_progress"]
-    )
+    state_counter = Counter(t["state"] for t in _current_todos.values())
+    breakdown = ", ".join([f"{k}: {v}" for k, v in [state_counter.items()]])
 
     output.append("")
-    output.append(
-        f"Summary: {total} total ({completed} completed, {in_progress} in progress, {pending} pending)"
-    )
+    output.append(f"Summary: {total} total ({breakdown})")
 
     return "\n".join(output)
 
