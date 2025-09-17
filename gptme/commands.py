@@ -8,10 +8,10 @@ from time import sleep
 from typing import Literal
 
 from . import llm
-from .util.auto_naming import generate_llm_name
+from .config import ChatConfig
 from .constants import INTERRUPT_CONTENT
-from .llm.models import get_default_model, set_default_model
-from .logmanager import LogManager, prepare_messages
+from .llm.models import get_default_model, list_models, set_default_model
+from .logmanager import Log, LogManager, prepare_messages
 from .message import (
     Message,
     len_tokens,
@@ -27,6 +27,9 @@ from .tools import (
     get_tool_format,
     get_tools,
 )
+from .util.auto_compact import auto_compact_log, should_auto_compact
+from .util.auto_naming import generate_llm_name
+from .util.context import autocommit
 from .util.cost import log_costs
 from .util.export import export_chat_to_html
 from .util.useredit import edit_text_with_editor
@@ -44,6 +47,7 @@ Actions = Literal[
     "replay",
     "impersonate",
     "summarize",
+    "compact",
     "tokens",
     "export",
     "commit",
@@ -61,6 +65,7 @@ action_descriptions: dict[Actions, str] = {
     "rename": "Rename the conversation",
     "fork": "Copy the conversation using a new name",
     "summarize": "Summarize the conversation",
+    "compact": "Compact conversation using auto-compacting or LLM resume generation",
     "replay": "Rerun tools in the conversation, won't store output",
     "impersonate": "Impersonate the assistant",
     "tokens": "Show the number of tokens used",
@@ -156,6 +161,131 @@ def cmd_summarize(ctx: CommandContext) -> None:
     print_msg(llm.summarize(msgs))
 
 
+@command("compact")
+def cmd_compact(ctx: CommandContext) -> Generator[Message, None, None]:
+    """Compact the conversation using auto-compacting or LLM-powered resume generation."""
+    ctx.manager.undo(1, quiet=True)
+
+    # Parse arguments
+    method = ctx.args[0] if ctx.args else "auto"
+
+    if method not in ["auto", "resume"]:
+        yield Message(
+            "system",
+            "Invalid compact method. Use 'auto' for auto-compacting or 'resume' for LLM-powered resume generation.\n"
+            "Usage: /compact [auto|resume]",
+        )
+        return
+
+    msgs = ctx.manager.log.messages[:-1]  # Exclude the /compact command itself
+
+    if method == "auto":
+        yield from _compact_auto(ctx, msgs)
+    elif method == "resume":
+        yield from _compact_resume(ctx, msgs)
+
+
+def _compact_auto(
+    ctx: CommandContext, msgs: list[Message]
+) -> Generator[Message, None, None]:
+    """Auto-compact using the aggressive compacting algorithm."""
+    if not should_auto_compact(msgs):
+        yield Message(
+            "system",
+            "Auto-compacting not needed. Conversation doesn't contain massive tool results or isn't close to context limits.",
+        )
+        return
+
+    # Apply auto-compacting
+    compacted_msgs = list(auto_compact_log(msgs))
+
+    # Calculate reduction stats
+    original_count = len(msgs)
+    compacted_count = len(compacted_msgs)
+    m = get_default_model()
+    original_tokens = len_tokens(msgs, m.model) if m else 0
+    compacted_tokens = len_tokens(compacted_msgs, m.model) if m else 0
+
+    # Replace the conversation history
+    ctx.manager.log = Log(compacted_msgs)
+    ctx.manager.write()
+
+    yield Message(
+        "system",
+        f"✅ Auto-compacting completed:\n"
+        f"• Messages: {original_count} → {compacted_count}\n"
+        f"• Tokens: {original_tokens:,} → {compacted_tokens:,} "
+        f"({((original_tokens - compacted_tokens) / original_tokens * 100):.1f}% reduction)",
+    )
+
+
+def _compact_resume(
+    ctx: CommandContext, msgs: list[Message]
+) -> Generator[Message, None, None]:
+    """LLM-powered compact that creates RESUME.md, suggests files to include, and starts a new conversation with the context."""
+
+    # Prepare messages for summarization
+    prepared_msgs = prepare_messages(msgs)
+    visible_msgs = [m for m in prepared_msgs if not m.hide]
+
+    if len(visible_msgs) < 3:
+        yield Message(
+            "system", "Not enough conversation history to create a meaningful resume."
+        )
+        return
+
+    # Generate conversation summary using LLM
+    yield Message("system", "🔄 Generating conversation resume with LLM...")
+
+    resume_prompt = """Please create a comprehensive resume of this conversation that includes:
+
+1. **Conversation Summary**: Key topics, decisions made, and progress achieved
+2. **Technical Context**: Important code changes, configurations, or technical details
+3. **Current State**: What was accomplished and what remains to be done
+4. **Context Files**: Suggest which files should be included in future context (with brief rationale)
+
+Format the response as a structured document that could serve as a RESUME.md file."""
+
+    # Create a temporary message for the LLM prompt
+    resume_request = Message("user", resume_prompt)
+    llm_msgs = visible_msgs + [resume_request]
+
+    try:
+        # Generate the resume using LLM
+        m = get_default_model()
+        assert m
+        resume_response = llm.reply(llm_msgs, model=m.model, tools=[])
+        resume_content = resume_response.content
+
+        # Save RESUME.md file
+        resume_path = Path("RESUME.md")
+        with open(resume_path, "w") as f:
+            f.write(resume_content)
+
+        # Create a compact conversation with just the resume
+        system_msg = Message(
+            "system", f"Previous conversation resumed from {resume_path}:"
+        )
+        resume_msg = Message("assistant", resume_content)
+
+        # Replace conversation history with resume
+        # TODO: fork into a new conversation?
+        ctx.manager.log = Log([system_msg, resume_msg])
+        ctx.manager.write()
+
+        yield Message(
+            "system",
+            f"✅ LLM-powered resume completed:\n"
+            f"• Original conversation ({len(visible_msgs)} messages) compressed to resume\n"
+            f"• Resume saved to: {resume_path.absolute()}\n"
+            f"• Conversation history replaced with resume\n"
+            f"• Review the RESUME.md file for suggested context files",
+        )
+
+    except Exception as e:
+        yield Message("system", f"❌ Failed to generate resume: {e}")
+
+
 @command("edit")
 def cmd_edit(ctx: CommandContext) -> Generator[Message, None, None]:
     """Edit previous messages."""
@@ -214,7 +344,6 @@ def cmd_replay(ctx: CommandContext) -> None:
         last_with_tools = None
         for msg in reversed(assistant_messages):
             # Check if message has any tool uses by trying to execute it
-            from .tools import ToolUse
 
             if any(ToolUse.iter_from_content(msg.content)):
                 last_with_tools = msg
@@ -307,7 +436,6 @@ def cmd_export(ctx: CommandContext) -> None:
 def cmd_commit(ctx: CommandContext) -> Generator[Message, None, None]:
     """Commit staged changes to git."""
     ctx.manager.undo(1, quiet=True)
-    from .util.context import autocommit
 
     yield autocommit()
 
@@ -389,8 +517,6 @@ def edit(manager: LogManager) -> Generator[Message, None, None]:  # pragma: no c
 
 
 def rename(manager: LogManager, new_name: str, confirm: ConfirmFunc) -> None:
-    from .config import ChatConfig
-
     if new_name in ["", "auto"]:
         msgs = prepare_messages(manager.log.messages)[1:]  # skip system message
         new_name = generate_llm_name(msgs)
@@ -445,7 +571,6 @@ def help():
 
 def print_available_models() -> None:
     """Print all available models from all providers."""
-    from .llm.models import list_models
 
     list_models(dynamic_fetch=True)
 
