@@ -5,6 +5,7 @@ Handles agent creation and management endpoints.
 """
 
 import logging
+import re
 import shlex
 import shutil
 import subprocess
@@ -28,6 +29,18 @@ from .openapi_docs import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Store the initial working directory when the module is imported
+INITIAL_WORKING_DIRECTORY = Path.cwd()
+
+
+def slugify_name(name: str) -> str:
+    """Convert agent name to a filesystem-safe slug."""
+    # Convert to lowercase and replace spaces/special chars with hyphens
+    slug = re.sub(r"[^\w\s-]", "", name.lower())
+    slug = re.sub(r"[-\s]+", "-", slug)
+    return slug.strip("-")
+
 
 agents_api = flask.Blueprint("agents_api", __name__)
 
@@ -64,9 +77,14 @@ def api_agents_put():
 
     path = req_json.get("path")
     if not path:
-        return flask.jsonify({"error": "path is required"}), 400
+        # Auto-generate path from initial directory + slugified agent name
+        agent_slug = slugify_name(agent_name)
+        path = INITIAL_WORKING_DIRECTORY / agent_slug
     else:
         path = Path(path).expanduser().resolve()
+
+    # Ensure path is a Path object and resolved
+    path = Path(path).expanduser().resolve()
 
     # Ensure the folder is empty
     if path.exists():
