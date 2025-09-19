@@ -207,5 +207,6 @@ def api_agents_put():
             "status": "ok",
             "message": "Agent created",
             "initial_conversation_id": conversation_id,
+            "agent_path": str(path),
         }
     )
