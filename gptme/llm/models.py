@@ -366,7 +366,7 @@ def get_model(model: str) -> ModelMeta:
         return get_model(f"{provider}/{model}")
 
     # Check if model has provider/model format
-    if any(f"{provider}/" in model for provider in PROVIDERS):
+    if any(model.startswith(f"{provider}/") for provider in PROVIDERS):
         provider_str, model_name = model.split("/", 1)
 
         # Check if provider is known
