@@ -306,6 +306,20 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.3,
             "supports_vision": True,
         },
+        "moonshotai/kimi-k2": {
+            "context": 262_144,
+            "max_output": 262_144,
+            "price_input": 0.38,
+            "price_output": 1.52,
+            "supports_vision": True,
+        },
+        "moonshotai/kimi-k2-0905": {
+            "context": 262_144,
+            "max_output": 262_144,
+            "price_input": 0.38,
+            "price_output": 1.52,
+            "supports_vision": True,
+        },
     },
     "nvidia": {},
     "azure": {},
@@ -351,24 +365,58 @@ def get_model(model: str) -> ModelMeta:
         model = get_recommended_model(provider)
         return get_model(f"{provider}/{model}")
 
+    # Check if model has provider/model format
     if any(f"{provider}/" in model for provider in PROVIDERS):
-        provider, model = cast(tuple[Provider, str], model.split("/", 1))
-        if provider not in MODELS or model not in MODELS[provider]:
+        provider_str, model_name = model.split("/", 1)
+
+        # Check if provider is known
+        if provider_str in PROVIDERS:
+            provider = cast(Provider, provider_str)
+
+            # First try static MODELS dict for performance
+            if provider in MODELS and model_name in MODELS[provider]:
+                return ModelMeta(provider, model_name, **MODELS[provider][model_name])
+
+            # For providers that support dynamic fetching, use _get_models_for_provider
+            if provider == "openrouter":
+                try:
+                    models = _get_models_for_provider(provider, dynamic_fetch=True)
+                    for model_meta in models:
+                        if model_meta.model == model_name:
+                            return model_meta
+                except Exception:
+                    # Fall back to unknown model metadata
+                    pass
+
+            # Unknown model, use fallback metadata
             if provider not in ["openrouter", "local"]:
                 log_warn_once(
-                    f"Unknown model: using fallback metadata for {provider}/{model}"
+                    f"Unknown model: using fallback metadata for {provider}/{model_name}"
                 )
-            return ModelMeta(provider, model, context=128_000)
-    else:
-        # try to find model in all providers
-        for provider in MODELS:
-            if model in MODELS[provider]:
-                break
+            return ModelMeta(provider, model_name, context=128_000)
         else:
+            # Unknown provider
             logger.warning(f"Unknown model {model}, using fallback metadata")
             return ModelMeta(provider="unknown", model=model, context=128_000)
+    else:
+        # try to find model in all providers, starting with static models
+        for provider in cast(list[Provider], MODELS.keys()):
+            if model in MODELS[provider]:
+                return ModelMeta(provider, model, **MODELS[provider][model])
 
-    return ModelMeta(provider, model, **MODELS[provider][model])
+        # For model name without provider, also try dynamic fetching for openrouter
+        try:
+            openrouter_models = _get_models_for_provider(
+                "openrouter", dynamic_fetch=True
+            )
+            for model_meta in openrouter_models:
+                if model_meta.model == model:
+                    return model_meta
+        except Exception:
+            pass
+
+        logger.warning(f"Unknown model {model}, using fallback metadata")
+        return ModelMeta(provider="unknown", model=model, context=128_000)
 
 
 def get_recommended_model(provider: Provider) -> str:  # pragma: no cover

@@ -171,13 +171,6 @@ def _prep_deepseek_reasoner(msgs: list[Message]) -> Generator[Message, None, Non
     yield from _merge_consecutive(_prep_o1(msgs[1:]))
 
 
-def _is_reasoner(base_model: str) -> bool:
-    is_o1 = any(base_model.startswith(om) for om in ["o1", "o3", "o4"])
-    is_deepseek_reasoner = base_model == "deepseek-reasoner"
-    is_gpt5 = base_model.startswith("gpt-5")
-    return is_o1 or is_deepseek_reasoner or is_gpt5
-
-
 @lru_cache(maxsize=2)
 def _is_proxy(client: "OpenAI") -> bool:
     proxy_url = get_config().get_env("LLM_PROXY_URL")
@@ -193,13 +186,15 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
     # top_p controls diversity, temperature controls randomness
 
     from . import _get_base_model, get_provider_from_model  # fmt: skip
+    from .models import get_model  # fmt: skip
 
     provider = get_provider_from_model(model)
     client = get_client(provider)
     is_proxy = _is_proxy(client)
 
     base_model = _get_base_model(model)
-    is_reasoner = _is_reasoner(base_model)
+    model_meta = get_model(model)
+    is_reasoner = model_meta.supports_reasoning
 
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
     api_model = model if is_proxy else base_model
@@ -216,9 +211,9 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
         top_p=TOP_P if not is_reasoner else NOT_GIVEN,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         extra_headers=extra_headers(provider),
-        extra_body=extra_body(provider, base_model),
+        extra_body=extra_body(provider, model_meta),
     )
-    _record_usage(response.usage, base_model)
+    _record_usage(response.usage, model)
     choice = response.choices[0]
     result = []
     if choice.finish_reason == "tool_calls":
@@ -252,12 +247,14 @@ def extra_headers(provider: Provider) -> dict[str, str]:
     return headers
 
 
-def extra_body(provider: Provider, base_model: str) -> dict[str, Any]:
+def extra_body(provider: Provider, model_meta: ModelMeta) -> dict[str, Any]:
     """Return extra body for the OpenAI API based on the model."""
     body: dict[str, Any] = {}
     if provider == "openrouter":
-        if ":" in base_model:
-            provider_override = base_model.split(":")[1]
+        if model_meta.supports_reasoning:
+            body["reasoning"] = {"enabled": True, "max_tokens": 20000}
+        if "@" in model_meta.model:
+            provider_override = model_meta.model.split("@")[1]
             body["provider"] = {
                 "order": [provider_override],
                 "allow_fallbacks": False,
@@ -269,13 +266,15 @@ def stream(
     messages: list[Message], model: str, tools: list[ToolSpec] | None
 ) -> Generator[str, None, None]:
     from . import _get_base_model, get_provider_from_model  # fmt: skip
+    from .models import get_model  # fmt: skip
 
     provider = get_provider_from_model(model)
     client = get_client(provider)
     is_proxy = _is_proxy(client)
 
     base_model = _get_base_model(model)
-    is_reasoner = _is_reasoner(base_model)
+    model_meta = get_model(model)
+    is_reasoner = model_meta.supports_reasoning
 
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
     api_model = model if is_proxy else base_model
@@ -294,7 +293,7 @@ def stream(
         stream=True,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         extra_headers=extra_headers(provider),
-        extra_body=extra_body(provider, base_model),
+        extra_body=extra_body(provider, model_meta),
         stream_options={"include_usage": True},
     ):
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
@@ -308,7 +307,7 @@ def stream(
 
         # Record usage if available (typically in final chunk)
         if hasattr(chunk, "usage") and chunk.usage:
-            _record_usage(chunk.usage, base_model)
+            _record_usage(chunk.usage, model)
 
         if not chunk.choices:
             continue
@@ -574,6 +573,13 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
 def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
     """Convert OpenRouter model data to ModelMeta object."""
     pricing = model_data.get("pricing", {})
+    price_input = float(pricing.get("prompt", 0)) * 1_000_000
+    price_output = float(pricing.get("completion", 0)) * 1_000_000
+    vision = "vision" in model_data.get("architecture", {}).get("modality", "")
+    reasoning = "reasoning" in model_data.get("supported_parameters", [])
+    include_reasoning = "include_reasoning" in model_data.get(
+        "supported_parameters", []
+    )
 
     return ModelMeta(
         provider="openrouter",
@@ -581,40 +587,37 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
         context=model_data.get("context_length", 128_000),
         max_output=model_data.get("max_completion_tokens"),
         supports_streaming=True,  # Most OpenRouter models support streaming
-        supports_vision="vision"
-        in model_data.get("architecture", {}).get("modality", ""),
-        supports_reasoning=False,  # Would need to check model-specific capabilities
-        price_input=float(pricing.get("prompt", 0))
-        * 1_000_000,  # Convert to per-1M tokens
-        price_output=float(pricing.get("completion", 0))
-        * 1_000_000,  # Convert to per-1M tokens
+        supports_vision=vision,
+        supports_reasoning=reasoning and include_reasoning,
+        price_input=price_input,
+        price_output=price_output,
     )
 
 
 def _prepare_messages_for_api(
     messages: list[Message], model: str, tools: list[ToolSpec] | None
 ) -> tuple[Iterable[dict], Iterable["ChatCompletionToolParam"] | None]:
-    from . import _get_base_model  # fmt: skip
     from .models import get_model  # fmt: skip
 
     model_meta = get_model(model)
 
-    is_o1 = _get_base_model(model).startswith("o1")
-    if is_o1:
-        messages = list(_prep_o1(messages))
-
-    # without this, deepseek-chat and reasoner can start outputting gibberish after tool calls
-    # similarly, kimi-k2-instruct doesn't acknowledge tool responses/system messages without it, same with magistral
-    # it probably applies to more models/providers, we should figure out which and perhaps make it default behavior
-    # TODO: it seems to apply to a lot of reasoning models, should maybe be default behavior for all reasoning models?
+    # o1 models need _prep_o1 applied to ALL messages (including first), but no merging
     if any(
-        m in model_meta.model
-        for m in [
-            "deepseek-reasoner",
-            "deepseek-chat",
-            "kimi-k2-instruct",
-            "magistral-medium-2506",
-        ]
+        model_meta.model.startswith(om) for om in ["o1", "o3", "o4"]
+    ) or model_meta.model.startswith("gpt-5"):
+        messages = list(_prep_o1(messages))
+    # other reasoning models use deepseek reasoner prep (first message unchanged, then _prep_o1 on rest)
+    elif (
+        any(
+            m in model_meta.model
+            for m in [
+                "deepseek-reasoner",
+                "deepseek-chat",
+                "kimi-k2",
+                "magistral",
+            ]
+        )
+        or model_meta.supports_reasoning
     ):
         messages = list(_prep_deepseek_reasoner(messages))
 
