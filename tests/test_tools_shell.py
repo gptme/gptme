@@ -275,3 +275,129 @@ def test_shorten_stdout_blanklines():
 
 l2"""
     assert _shorten_stdout(s) == s
+
+
+def test_is_denylisted_pattern_matches():
+    """Test that commands matching the deny group patterns are properly handled."""
+    from gptme.tools.shell import is_denylisted
+
+    # Test commands that should match the regex patterns in deny_groups
+    pattern_matching_commands = [
+        "git add .",
+        "git add -A",
+        "git add --all",
+        "git commit -a",
+        "git commit --all",
+        "rm -rf /",
+        "sudo rm -rf /",  # Fixed: this actually matches the pattern
+        "rm -rf *",
+        "chmod -R 777",
+        "chmod 777",
+    ]
+
+    for cmd in pattern_matching_commands:
+        is_denied, reason = is_denylisted(cmd)
+        assert is_denied, f"Pattern-matching command should be denied: {cmd}"
+        assert reason is not None, f"Should have reason for: {cmd}"
+
+
+def test_is_denylisted_git_bulk_operations():
+    """Test that git bulk operations are properly denied with correct reason."""
+    from gptme.tools.shell import is_denylisted
+
+    dangerous_git_commands = [
+        "git add .",
+        "git add -A",
+        "git add --all",
+        "git commit -a",
+        "git commit --all",
+        "Git Add .",  # case insensitive
+        "  git   add   .  ",  # whitespace normalization
+    ]
+
+    expected_reason = "Instead of bulk git operations, use selective commands: `git add <specific-files>` to stage only intended files, then `git commit`."
+
+    for cmd in dangerous_git_commands:
+        is_denied, reason = is_denylisted(cmd)
+        assert is_denied, f"Command should be denied: {cmd}"
+        assert reason == expected_reason, f"Wrong reason for: {cmd}"
+
+
+def test_is_denylisted_destructive_file_operations():
+    """Test that destructive file operations are properly denied with correct reason."""
+    from gptme.tools.shell import is_denylisted
+
+    dangerous_file_commands = [
+        "rm -rf /",
+        "sudo rm -rf /",
+        "rm -rf *",
+        "RM -RF /",  # case insensitive
+    ]
+
+    expected_reason = "Destructive file operations are blocked. Specify exact paths and avoid operations that could delete system files or entire directories."
+
+    for cmd in dangerous_file_commands:
+        is_denied, reason = is_denylisted(cmd)
+        assert is_denied, f"Command should be denied: {cmd}"
+        assert reason == expected_reason, f"Wrong reason for: {cmd}"
+
+
+def test_is_denylisted_dangerous_permissions():
+    """Test that dangerous permission operations are properly denied with correct reason."""
+    from gptme.tools.shell import is_denylisted
+
+    dangerous_chmod_commands = [
+        "chmod 777",
+        "chmod -R 777",
+        "chmod 777 file.txt",
+        "CHMOD 777",  # case insensitive
+    ]
+
+    expected_reason = "Overly permissive chmod operations are blocked. Use safer permissions like `chmod 755` or `chmod 644` and be specific about target files."
+
+    for cmd in dangerous_chmod_commands:
+        is_denied, reason = is_denylisted(cmd)
+        assert is_denied, f"Command should be denied: {cmd}"
+        assert reason == expected_reason, f"Wrong reason for: {cmd}"
+
+
+def test_is_denylisted_safe_commands():
+    """Test that safe commands are allowed through."""
+    from gptme.tools.shell import is_denylisted
+
+    safe_commands = [
+        "git add specific-file.py",
+        "git add src/file.py tests/test.py",
+        "git commit -m 'message'",
+        "git status",
+        "chmod 755 file.txt",
+        "chmod 644 config.json",
+        "rm specific-file.txt",
+        "rm -rf build/",  # specific directory, not root
+        "ls -la",
+        "echo 'hello'",
+    ]
+
+    for cmd in safe_commands:
+        is_denied, reason = is_denylisted(cmd)
+        assert not is_denied, f"Safe command should be allowed: {cmd}"
+        assert reason is None, f"Safe command should have no reason: {cmd}"
+
+
+def test_is_denylisted_edge_cases():
+    """Test edge cases and boundary conditions."""
+    from gptme.tools.shell import is_denylisted
+
+    # Test that similar but safe variations are allowed
+    safe_variations = [
+        "git add file.py",  # specific file, not bulk
+        "git add src/",  # specific directory, not all
+        "chmod 755",  # safe permissions
+        "rm -rf build/target/",  # specific path, not root
+        "git commit --amend",  # different flag
+    ]
+
+    for cmd in safe_variations:
+        is_denied, reason = is_denylisted(cmd)
+        assert not is_denied, f"Safe variation should be allowed: {cmd}"
+        assert reason is None, f"Safe variation should have no reason: {cmd}"

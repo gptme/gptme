@@ -17,15 +17,6 @@ from pathlib import Path
 
 import bashlex
 
-# ANSI escape sequence pattern for stripping terminal formatting
-ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
-
-
-def strip_ansi_codes(text: str) -> str:
-    """Strip ANSI escape sequences from text."""
-    return ANSI_ESCAPE_PATTERN.sub("", text)
-
-
 from ..message import Message
 from ..util import get_installed_programs, get_tokenizer
 from ..util.ask_execute import execute_with_confirmation
@@ -35,6 +26,15 @@ from .base import (
     ToolSpec,
     ToolUse,
 )
+
+# ANSI escape sequence pattern for stripping terminal formatting
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def strip_ansi_codes(text: str) -> str:
+    """Strip ANSI escape sequences from text."""
+    return ANSI_ESCAPE_PATTERN.sub("", text)
+
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,36 @@ allowlist_commands = [
     "tree",
     "du",
     "df",
+]
+
+# Commands that should be denied without user confirmation due to their dangerous nature
+# Define deny groups with shared reasons
+deny_groups = [
+    (
+        [
+            r"git\s+add\s+\.",
+            r"git\s+add\s+-A",
+            r"git\s+add\s+--all",
+            r"git\s+commit\s+-a",
+            r"git\s+commit\s+--all",
+        ],
+        "Instead of bulk git operations, use selective commands: `git add <specific-files>` to stage only intended files, then `git commit`.",
+    ),
+    (
+        [
+            r"rm\s+-rf\s+/",
+            r"sudo\s+rm\s+-rf\s+/",
+            r"rm\s+-rf\s+\*",
+        ],
+        "Destructive file operations are blocked. Specify exact paths and avoid operations that could delete system files or entire directories.",
+    ),
+    (
+        [
+            r"chmod\s+-R\s+777",
+            r"chmod\s+777",
+        ],
+        "Overly permissive chmod operations are blocked. Use safer permissions like `chmod 755` or `chmod 644` and be specific about target files.",
+    ),
 ]
 
 candidates = (
@@ -393,6 +423,23 @@ def is_allowlisted(cmd: str) -> bool:
     return True
 
 
+def is_denylisted(cmd: str) -> tuple[bool, str | None]:
+    """Check if a command contains dangerous patterns that should be denied.
+
+    Returns:
+        tuple[bool, str | None]: (is_denied, reason_if_denied)
+    """
+    cmd_normalized = " ".join(cmd.split())  # normalize whitespace
+
+    # Check deny groups
+    for patterns, reason in deny_groups:
+        for pattern in patterns:
+            if re.search(pattern, cmd_normalized, re.IGNORECASE):
+                return True, reason
+
+    return False, None
+
+
 def _format_shell_output(
     cmd: str,
     stdout: str,
@@ -545,6 +592,12 @@ def execute_shell(
                 f"Invalid GPTME_SHELL_TIMEOUT value: {timeout_env}, using default 60s"
             )
             timeout = 60.0
+
+    # Check if command is denylisted - these are blocked entirely
+    is_denied, deny_reason = is_denylisted(cmd)
+    if is_denied:
+        yield Message("system", f"Command denied: `{cmd}`\n\n{deny_reason}")
+        return
 
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
