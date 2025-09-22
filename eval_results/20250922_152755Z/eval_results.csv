@@ -1,0 +1,2 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash,Log Dir,Workspace Dir
+openrouter/x-ai/grok-4-fast:free@markdown,hello-patch,true,8.3,8.21,0.09,0.0,v0.28.0-59-g5b977846,/Users/erb/.local/share/gptme/logs/2025-09-22-gptme-evals-openrouter--x-ai--grok-4-fast:free-markdown-45123,/Users/erb/.local/share/gptme/logs/2025-09-22-gptme-evals-openrouter--x-ai--grok-4-fast:free-markdown-45123/workspace
