@@ -456,83 +456,83 @@ docker<span class="w"> </span>run<span class="w"> </span><span class="se">\</spa
 <h2>Results<a class="headerlink" href="#results" title="Link to this heading">#</a></h2>
 <p>Here are the results of the evals we have run so far:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>$ gptme-eval eval_results/*/eval_results.csv
-Model                                          hello           hello-patch     hello-ask       prime100        init-git         init-rust      whois-superuserlabs-ceo
----------------------------------------------  --------------  --------------  --------------  --------------  ---------------  -------------  -------------------------
-anthropic/claude-3-5-haiku-20241022            ✅ 55/57 473tk  ✅ 56/57 386tk  ✅ 56/57 468tk  ✅ 56/57 912tk  ✅ 54/56 922tk   ❓ N/A         ✅ 1/1 2619tk
-anthropic/claude-3-5-haiku-20241022@markdown   ✅ 11/12 373tk  ✅ 12/12 332tk  ✅ 12/12 407tk  ✅ 11/12 758tk  ✅ 11/12 830tk   ❓ N/A         ❓ N/A
-anthropic/claude-3-5-haiku-20241022@tool       🔶 41/99 280tk  🔶 43/99 320tk  🔶 43/99 414tk  ❌ 11/99 582tk  🔶 47/99 602tk   ❓ N/A         ❓ N/A
-anthropic/claude-3-5-haiku-20241022@xml        🔶 41/87 292tk  🔶 42/87 316tk  🔶 29/87 426tk  ❌ 11/87 689tk  🔶 37/87 581tk   ❓ N/A         ❓ N/A
-anthropic/claude-3-5-sonnet-20240620           ✅ 34/34 630tk  ✅ 34/34 542tk  ✅ 34/34 710tk  ✅ 34/34 924tk  ✅ 34/34 1098tk  ✅ 4/4 1504tk  🔶 3/4 1306tk
-anthropic/claude-3-5-sonnet-20241022           ✅ 54/56 378tk  ✅ 54/56 371tk  ✅ 54/56 416tk  ✅ 55/56 869tk  ✅ 55/56 754tk   ❓ N/A         ❓ N/A
-anthropic/claude-3-5-sonnet-20241022@markdown  🔶 73/99 336tk  ✅ 94/99 338tk  ✅ 98/99 390tk  ✅ 98/99 760tk  ✅ 98/99 703tk   ❓ N/A         ❓ N/A
-anthropic/claude-3-5-sonnet-20241022@tool      🔶 42/99 252tk  🔶 34/99 322tk  🔶 42/99 373tk  🔶 42/99 547tk  🔶 42/99 523tk   ❓ N/A         ❓ N/A
-anthropic/claude-3-5-sonnet-20241022@xml       ❌ 10/87 286tk  🔶 42/87 299tk  🔶 39/87 363tk  ❌ 11/87 624tk  🔶 18/87 607tk   ❓ N/A         ❓ N/A
-anthropic/claude-3-haiku-20240307              ✅ 34/34 388tk  ✅ 34/34 375tk  ✅ 34/34 432tk  ❌ 6/34 781tk   🔶 24/34 903tk   🔶 3/4 670tk   ✅ 4/4 1535tk
-anthropic/claude-opus-4-1-20250805@markdown    🔶 1/2 393tk    ❌ 0/1 197tk    ❌ 0/1 204tk    ❌ 0/1 190tk    ❌ 0/1 186tk     ❓ N/A         ❓ N/A
-anthropic/claude-opus-4-1-20250805@tool        ❌ 0/1 181tk    ❌ 0/1 196tk    ❌ 0/1 202tk    ❌ 0/1 188tk    ❌ 0/1 184tk     ❓ N/A         ❓ N/A
-anthropic/claude-opus-4-1-20250805@xml         🔶 1/2 372tk    ❌ 0/1 197tk    ❌ 0/1 205tk    ❌ 0/1 191tk    ❌ 0/1 187tk     ❓ N/A         ❓ N/A
-anthropic/claude-sonnet-4-20250514@markdown    ✅ 1/1 439tk    ✅ 1/1 480tk    ✅ 1/1 532tk    ✅ 1/1 1180tk   ✅ 1/1 2006tk    ❓ N/A         ❓ N/A
-anthropic/claude-sonnet-4-20250514@tool        ✅ 1/1 283tk    ✅ 1/1 320tk    ✅ 1/1 471tk    ✅ 1/1 1133tk   ✅ 1/1 1070tk    ❓ N/A         ❓ N/A
-anthropic/claude-sonnet-4-20250514@xml         ✅ 1/1 404tk    ✅ 1/1 495tk    ✅ 1/1 584tk    ✅ 1/1 1223tk   ❌ 0/1 1422tk    ❓ N/A         ❓ N/A
-deepseek/deepseek-chat@markdown                ✅ 1/1 429tk    ❓ N/A          ❓ N/A          ❓ N/A          ❓ N/A           ❓ N/A         ❓ N/A
-deepseek/deepseek-reasoner@markdown            ✅ 1/1 742tk    ❓ N/A          ❓ N/A          ❓ N/A          ❓ N/A           ❓ N/A         ❓ N/A
-deepseek/deepseek-reasoner@xml                 ✅ 1/1 680tk    ❓ N/A          ❓ N/A          ❓ N/A          ❓ N/A           ❓ N/A         ❓ N/A
-gemini/gemini-1.5-flash-latest                 ❌ 0/42 28tk    ❌ 0/42 28tk    ❌ 0/42 28tk    ❌ 0/42 28tk    ❌ 0/42 28tk     ❓ N/A         ❓ N/A
-gemini/gemini-1.5-flash-latest@markdown        ❌ 0/12 29tk    ❌ 0/12 29tk    ❌ 0/12 29tk    ❌ 0/12 29tk    ❌ 0/12 29tk     ❓ N/A         ❓ N/A
-gemini/gemini-1.5-flash-latest@tool            ❌ 0/12 29tk    ❌ 0/12 29tk    ❌ 0/12 29tk    ❌ 0/12 29tk    ❌ 0/12 29tk     ❓ N/A         ❓ N/A
-gemini/gemini-2.5-flash@markdown               ✅ 1/1 419tk    ✅ 1/1 450tk    ✅ 1/1 516tk    ✅ 1/1 735tk    ❓ N/A           ❓ N/A         ❓ N/A
-gemini/gemini-2.5-flash@xml                    ✅ 1/1 432tk    ✅ 1/1 468tk    ✅ 1/1 534tk    ✅ 1/1 836tk    ❓ N/A           ❓ N/A         ❓ N/A
-groq/moonshotai/kimi-k2-instruct@markdown      ✅ 1/1 407tk    ✅ 1/1 497tk    ✅ 1/1 575tk    ✅ 1/1 1079tk   ❓ N/A           ❓ N/A         ❓ N/A
-groq/moonshotai/kimi-k2-instruct@xml           ✅ 1/1 424tk    ✅ 1/1 498tk    ✅ 1/1 587tk    ✅ 1/1 1150tk   ❓ N/A           ❓ N/A         ❓ N/A
-groq/qwen/qwen3-32b@markdown                   ✅ 1/1 709tk    ✅ 1/1 711tk    ❌ 0/1 0tk      ❌ 0/1 0tk      ✅ 1/1 2609tk    ❓ N/A         ❓ N/A
-groq/qwen/qwen3-32b@tool                       ❌ 0/1 172tk    ❌ 0/1 187tk    ❌ 0/1 194tk    ❌ 0/1 179tk    ❌ 0/1 175tk     ❓ N/A         ❓ N/A
-groq/qwen/qwen3-32b@xml                        ✅ 1/1 1918tk   ✅ 1/1 725tk    ✅ 1/1 1115tk   ❌ 0/1 5171tk   ❌ 0/1 4367tk    ❓ N/A         ❓ N/A
-openai/gpt-4-turbo                             ✅ 3/3 255tk    ✅ 3/3 312tk    ✅ 3/3 376tk    ✅ 3/3 527tk    ✅ 4/4 590tk     ✅ 4/4 784tk   ✅ 6/7 819tk
-openai/gpt-4o                                  ✅ 90/91 325tk  ✅ 90/91 313tk  🔶 65/91 337tk  🔶 35/91 441tk  🔶 67/91 626tk   ✅ 5/5 663tk   ✅ 5/5 1253tk
-openai/gpt-4o-mini                             🔶 60/92 269tk  ✅ 91/92 321tk  ✅ 91/92 377tk  🔶 62/92 510tk  ✅ 80/92 759tk   ✅ 6/6 813tk   ✅ 6/6 951tk
-openai/gpt-4o-mini@markdown                    ❌ 1/12 217tk   ✅ 12/12 302tk  ✅ 12/12 361tk  🔶 3/12 440tk   ✅ 12/12 823tk   ❓ N/A         ❓ N/A
-openai/gpt-4o-mini@tool                        ✅ 90/99 276tk  ✅ 92/99 294tk  ✅ 99/99 388tk  ✅ 85/99 560tk  ✅ 99/99 659tk   ❓ N/A         ❓ N/A
-openai/gpt-4o@markdown                         🔶 69/99 275tk  🔶 70/99 331tk  ✅ 96/99 366tk  ❌ 7/99 460tk   🔶 20/99 418tk   ❓ N/A         ❓ N/A
-openai/gpt-4o@tool                             🔶 43/99 273tk  ✅ 81/99 371tk  ✅ 80/99 390tk  🔶 67/99 673tk  ✅ 99/99 756tk   ❓ N/A         ❓ N/A
-openai/gpt-4o@xml                              ❌ 8/87 222tk   ❌ 9/87 244tk   ❌ 4/87 260tk   ❌ 0/87 415tk   ❌ 2/87 294tk    ❓ N/A         ❓ N/A
-openai/gpt-5-mini@markdown                     ✅ 1/1 379tk    ✅ 1/1 358tk    ✅ 1/1 884tk    ❌ 0/1 0tk      ❌ 0/1 715tk     ❓ N/A         ❓ N/A
-openai/gpt-5-mini@tool                         ✅ 1/1 286tk    ✅ 1/1 294tk    ✅ 1/1 1150tk   ❌ 0/1 0tk      ❌ 0/1 0tk       ❓ N/A         ❓ N/A
-openai/gpt-5-mini@xml                          ❌ 0/1 331tk    ✅ 1/1 386tk    ✅ 1/1 922tk    ✅ 1/1 1369tk   ✅ 1/1 1614tk    ❓ N/A         ❓ N/A
-openai/gpt-5@markdown                          ✅ 1/1 228tk    ✅ 1/1 273tk    ✅ 1/1 367tk    ✅ 1/1 695tk    ❌ 0/1 0tk       ❓ N/A         ❓ N/A
-openai/gpt-5@tool                              ✅ 1/1 306tk    ✅ 1/1 299tk    ✅ 1/1 348tk    ❌ 0/1 0tk      ❌ 0/1 0tk       ❓ N/A         ❓ N/A
-openai/gpt-5@xml                               ✅ 1/1 237tk    ❌ 0/1 218tk    ❌ 0/1 217tk    ❌ 0/1 678tk    ❌ 0/1 255tk     ❓ N/A         ❓ N/A
-openai/o1-mini                                 ✅ 3/3 354tk    ✅ 3/3 431tk    ✅ 3/3 460tk    🔶 2/3 567tk    🔶 3/5 2222tk    🔶 1/5 1412tk  🔶 2/3 813tk
-openai/o1-preview                              ✅ 2/2 308tk    ✅ 2/2 570tk    🔶 1/2 549tk    ✅ 2/2 490tk    ✅ 3/3 823tk     ✅ 1/1 656tk   ✅ 1/1 1998tk
-google/gemini-flash-1.5                        ✅ 2/2 225tk    ✅ 2/2 401tk    ✅ 2/2 430tk    ❌ 0/2 296tk    ✅ 1/1 686tk     ❌ 0/1 661tk   ✅ 1/1 1014tk
-google/gemini-pro-1.5                          ✅ 1/1 341tk    ✅ 1/1 419tk    ✅ 1/1 456tk    ✅ 1/1 676tk    🔶 2/3 431tk     🔶 1/2 1016tk  ✅ 2/2 1308tk
-google/gemma-2-27b-it                          ✅ 1/1 288tk    ✅ 1/1 384tk    ✅ 1/1 446tk    ✅ 1/1 714tk    ✅ 1/1 570tk     ❌ 0/1 535tk   ❌ 0/1 235tk
-google/gemma-2-9b-it                           ❌ 0/2 186tk    ✅ 2/2 370tk    ✅ 2/2 368tk    ❌ 0/2 545tk    ✅ 1/1 492tk     ❌ 0/1 1730tk  ❌ 0/1 352tk
-meta-llama/llama-3.1-405b-instruct             🔶 69/91 244tk  ✅ 74/91 417tk  ✅ 73/91 364tk  🔶 71/91 440tk  🔶 60/91 488tk   🔶 2/5 255tk   ❌ 0/5 85tk
-meta-llama/llama-3.1-405b-instruct@markdown    ✅ 11/12 318tk  ✅ 10/12 269tk  ✅ 10/12 366tk  🔶 8/12 516tk   ✅ 11/12 600tk   ❓ N/A         ❓ N/A
-meta-llama/llama-3.1-405b-instruct@tool        ❌ 0/12 184tk   ❌ 0/12 198tk   ❌ 0/12 214tk   ❌ 0/12 190tk   ❌ 0/12 189tk    ❓ N/A         ❓ N/A
-meta-llama/llama-3.1-70b-instruct              ✅ 5/6 367tk    ✅ 5/6 424tk    ✅ 6/6 452tk    🔶 2/6 546tk    ✅ 5/6 813tk     🔶 3/4 682tk   🔶 2/3 1461tk
-meta-llama/llama-3.1-70b-instruct@xml          🔶 43/87 247tk  ❌ 8/87 315tk   ❌ 15/87 349tk  ❌ 5/87 268tk   🔶 24/87 352tk   ❓ N/A         ❓ N/A
-meta-llama/llama-3.1-8b-instruct               ✅ 1/1 277tk    ✅ 1/1 441tk    ❌ 0/1 400tk    ❌ 0/1 5095tk   ✅ 1/1 2266tk    ❓ N/A         ❓ N/A
-meta-llama/llama-3.2-11b-vision-instruct       ✅ 2/2 352tk    ✅ 2/2 493tk    ❌ 0/2 479tk    ✅ 2/2 2643tk   ❓ N/A           ❓ N/A         ❓ N/A
-meta-llama/llama-3.2-90b-vision-instruct       🔶 2/4 237tk    🔶 2/4 288tk    🔶 3/4 336tk    🔶 1/4 233tk    ❓ N/A           ❓ N/A         ❓ N/A
-mistralai/magistral-medium-2506@markdown       ✅ 1/1 531tk    ✅ 1/1 569tk    ✅ 1/1 666tk    ✅ 1/1 1106tk   ❓ N/A           ❓ N/A         ❓ N/A
-mistralai/magistral-medium-2506@tool           ❌ 0/1 465tk    ❌ 0/1 604tk    ❌ 0/1 0tk      ❌ 0/1 0tk      ❓ N/A           ❓ N/A         ❓ N/A
-mistralai/magistral-medium-2506@xml            ✅ 1/1 516tk    ✅ 1/1 568tk    ❌ 0/1 552tk    ✅ 1/1 1075tk   ❓ N/A           ❓ N/A         ❓ N/A
-moonshotai/kimi-k2-0905@markdown               ✅ 1/1 436tk    ✅ 1/1 600tk    ✅ 1/1 591tk    ❌ 0/1 0tk      ❓ N/A           ❓ N/A         ❓ N/A
-moonshotai/kimi-k2-0905@tool                   ❌ 0/1 397tk    ❌ 0/1 483tk    ❌ 0/1 592tk    ✅ 1/1 990tk    ❓ N/A           ❓ N/A         ❓ N/A
-moonshotai/kimi-k2-0905@xml                    ✅ 1/1 441tk    ✅ 1/1 563tk    ✅ 1/1 848tk    ❌ 0/1 598tk    ❓ N/A           ❓ N/A         ❓ N/A
-nousresearch/hermes-2-pro-llama-3-8b           ✅ 1/1 341tk    ❌ 0/1 4274tk   ❌ 0/1 3760tk   ❌ 0/1 659tk    ❓ N/A           ❓ N/A         ❓ N/A
-nousresearch/hermes-3-llama-3.1-405b           ✅ 2/2 317tk    ✅ 2/2 420tk    ✅ 2/2 325tk    ✅ 2/2 410tk    ✅ 1/1 821tk     ✅ 1/1 758tk   ✅ 1/1 1039tk
-nousresearch/hermes-3-llama-3.1-70b            ❌ 0/2 173tk    ❌ 0/2 187tk    ❌ 0/2 202tk    ❌ 0/2 177tk    ❓ N/A           ❓ N/A         ❓ N/A
-nousresearch/hermes-4-70b@markdown             ❌ 0/1 439tk    ✅ 1/1 612tk    ✅ 1/1 1235tk   ❌ 0/1 0tk      ❓ N/A           ❓ N/A         ❓ N/A
-nousresearch/hermes-4-70b@tool                 ✅ 1/1 476tk    ✅ 1/1 536tk    ❌ 0/1 1310tk   ❌ 0/1 0tk      ❓ N/A           ❓ N/A         ❓ N/A
-nousresearch/hermes-4-70b@xml                  ✅ 1/1 466tk    ✅ 1/1 516tk    ✅ 1/1 631tk    ❌ 0/1 1255tk   ❓ N/A           ❓ N/A         ❓ N/A
-qwen/qwen3-max@markdown                        ✅ 1/1 422tk    ✅ 1/1 492tk    🔶 1/2 615tk    ✅ 1/1 949tk    ❓ N/A           ❓ N/A         ❓ N/A
-qwen/qwen3-max@tool                            ✅ 1/1 436tk    ✅ 1/1 519tk    ✅ 1/1 546tk    ✅ 1/1 663tk    ❓ N/A           ❓ N/A         ❓ N/A
-qwen/qwen3-max@xml                             ✅ 1/1 437tk    ✅ 1/1 530tk    ✅ 1/1 580tk    ✅ 1/1 901tk    ❓ N/A           ❓ N/A         ❓ N/A
-x-ai/grok-code-fast-1@markdown                 ✅ 1/1 661tk    ❌ 0/1 1385tk   ✅ 1/1 829tk    ✅ 1/1 955tk    ❓ N/A           ❓ N/A         ❓ N/A
-x-ai/grok-code-fast-1@tool                     ✅ 1/1 663tk    ❌ 0/1 2590tk   ❌ 0/1 1415tk   ✅ 1/1 1807tk   ❓ N/A           ❓ N/A         ❓ N/A
-x-ai/grok-code-fast-1@xml                      ❌ 0/1 485tk    ❌ 0/1 1652tk   ✅ 1/1 759tk    ✅ 1/1 1112tk   ❓ N/A           ❓ N/A         ❓ N/A
+Model                                          hello            hello-patch      hello-ask         prime100          init-git          init-rust      whois-superuserlabs-ceo
+---------------------------------------------  ---------------  ---------------  ----------------  ----------------  ----------------  -------------  -------------------------
+anthropic/claude-3-5-haiku-20241022            ✅ 55/57 473tk   ✅ 56/57 386tk   ✅ 56/57 468tk    ✅ 56/57 912tk    ✅ 54/56 922tk    ❓ N/A         ✅ 1/1 2619tk
+anthropic/claude-3-5-haiku-20241022@markdown   ✅ 11/12 373tk   ✅ 12/12 332tk   ✅ 12/12 407tk    ✅ 11/12 758tk    ✅ 11/12 830tk    ❓ N/A         ❓ N/A
+anthropic/claude-3-5-haiku-20241022@tool       🔶 44/102 282tk  🔶 45/102 318tk  🔶 45/102 412tk   ❌ 11/102 576tk   🔶 50/102 608tk   ❓ N/A         ❓ N/A
+anthropic/claude-3-5-haiku-20241022@xml        🔶 44/90 293tk   🔶 45/90 318tk   🔶 32/90 435tk    ❌ 11/90 686tk    🔶 39/90 580tk    ❓ N/A         ❓ N/A
+anthropic/claude-3-5-sonnet-20240620           ✅ 34/34 630tk   ✅ 34/34 542tk   ✅ 34/34 710tk    ✅ 34/34 924tk    ✅ 34/34 1098tk   ✅ 4/4 1504tk  🔶 3/4 1306tk
+anthropic/claude-3-5-sonnet-20241022           ✅ 54/56 378tk   ✅ 54/56 371tk   ✅ 54/56 416tk    ✅ 55/56 869tk    ✅ 55/56 754tk    ❓ N/A         ❓ N/A
+anthropic/claude-3-5-sonnet-20241022@markdown  🔶 73/102 335tk  ✅ 97/102 339tk  ✅ 101/102 389tk  ✅ 101/102 756tk  ✅ 101/102 703tk  ❓ N/A         ❓ N/A
+anthropic/claude-3-5-sonnet-20241022@tool      🔶 45/102 253tk  🔶 36/102 323tk  🔶 45/102 376tk   🔶 45/102 552tk   🔶 45/102 531tk   ❓ N/A         ❓ N/A
+anthropic/claude-3-5-sonnet-20241022@xml       ❌ 10/90 288tk   🔶 45/90 301tk   🔶 42/90 365tk    ❌ 11/90 627tk    🔶 18/90 621tk    ❓ N/A         ❓ N/A
+anthropic/claude-3-haiku-20240307              ✅ 34/34 388tk   ✅ 34/34 375tk   ✅ 34/34 432tk    ❌ 6/34 781tk     🔶 24/34 903tk    🔶 3/4 670tk   ✅ 4/4 1535tk
+anthropic/claude-opus-4-1-20250805@markdown    🔶 1/2 393tk     ❌ 0/1 197tk     ❌ 0/1 204tk      ❌ 0/1 190tk      ❌ 0/1 186tk      ❓ N/A         ❓ N/A
+anthropic/claude-opus-4-1-20250805@tool        ❌ 0/1 181tk     ❌ 0/1 196tk     ❌ 0/1 202tk      ❌ 0/1 188tk      ❌ 0/1 184tk      ❓ N/A         ❓ N/A
+anthropic/claude-opus-4-1-20250805@xml         🔶 1/2 372tk     ❌ 0/1 197tk     ❌ 0/1 205tk      ❌ 0/1 191tk      ❌ 0/1 187tk      ❓ N/A         ❓ N/A
+anthropic/claude-sonnet-4-20250514@markdown    ✅ 1/1 439tk     ✅ 1/1 480tk     ✅ 1/1 532tk      ✅ 1/1 1180tk     ✅ 1/1 2006tk     ❓ N/A         ❓ N/A
+anthropic/claude-sonnet-4-20250514@tool        ✅ 1/1 283tk     ✅ 1/1 320tk     ✅ 1/1 471tk      ✅ 1/1 1133tk     ✅ 1/1 1070tk     ❓ N/A         ❓ N/A
+anthropic/claude-sonnet-4-20250514@xml         ✅ 1/1 404tk     ✅ 1/1 495tk     ✅ 1/1 584tk      ✅ 1/1 1223tk     ❌ 0/1 1422tk     ❓ N/A         ❓ N/A
+deepseek/deepseek-chat@markdown                ✅ 1/1 429tk     ❓ N/A           ❓ N/A            ❓ N/A            ❓ N/A            ❓ N/A         ❓ N/A
+deepseek/deepseek-reasoner@markdown            ✅ 1/1 742tk     ❓ N/A           ❓ N/A            ❓ N/A            ❓ N/A            ❓ N/A         ❓ N/A
+deepseek/deepseek-reasoner@xml                 ✅ 1/1 680tk     ❓ N/A           ❓ N/A            ❓ N/A            ❓ N/A            ❓ N/A         ❓ N/A
+gemini/gemini-1.5-flash-latest                 ❌ 0/42 28tk     ❌ 0/42 28tk     ❌ 0/42 28tk      ❌ 0/42 28tk      ❌ 0/42 28tk      ❓ N/A         ❓ N/A
+gemini/gemini-1.5-flash-latest@markdown        ❌ 0/12 29tk     ❌ 0/12 29tk     ❌ 0/12 29tk      ❌ 0/12 29tk      ❌ 0/12 29tk      ❓ N/A         ❓ N/A
+gemini/gemini-1.5-flash-latest@tool            ❌ 0/12 29tk     ❌ 0/12 29tk     ❌ 0/12 29tk      ❌ 0/12 29tk      ❌ 0/12 29tk      ❓ N/A         ❓ N/A
+gemini/gemini-2.5-flash@markdown               ✅ 1/1 419tk     ✅ 1/1 450tk     ✅ 1/1 516tk      ✅ 1/1 735tk      ❓ N/A            ❓ N/A         ❓ N/A
+gemini/gemini-2.5-flash@xml                    ✅ 1/1 432tk     ✅ 1/1 468tk     ✅ 1/1 534tk      ✅ 1/1 836tk      ❓ N/A            ❓ N/A         ❓ N/A
+groq/moonshotai/kimi-k2-instruct@markdown      ✅ 1/1 407tk     ✅ 1/1 497tk     ✅ 1/1 575tk      ✅ 1/1 1079tk     ❓ N/A            ❓ N/A         ❓ N/A
+groq/moonshotai/kimi-k2-instruct@xml           ✅ 1/1 424tk     ✅ 1/1 498tk     ✅ 1/1 587tk      ✅ 1/1 1150tk     ❓ N/A            ❓ N/A         ❓ N/A
+groq/qwen/qwen3-32b@markdown                   ✅ 1/1 709tk     ✅ 1/1 711tk     ❌ 0/1 0tk        ❌ 0/1 0tk        ✅ 1/1 2609tk     ❓ N/A         ❓ N/A
+groq/qwen/qwen3-32b@tool                       ❌ 0/1 172tk     ❌ 0/1 187tk     ❌ 0/1 194tk      ❌ 0/1 179tk      ❌ 0/1 175tk      ❓ N/A         ❓ N/A
+groq/qwen/qwen3-32b@xml                        ✅ 1/1 1918tk    ✅ 1/1 725tk     ✅ 1/1 1115tk     ❌ 0/1 5171tk     ❌ 0/1 4367tk     ❓ N/A         ❓ N/A
+openai/gpt-4-turbo                             ✅ 3/3 255tk     ✅ 3/3 312tk     ✅ 3/3 376tk      ✅ 3/3 527tk      ✅ 4/4 590tk      ✅ 4/4 784tk   ✅ 6/7 819tk
+openai/gpt-4o                                  ✅ 90/91 325tk   ✅ 90/91 313tk   🔶 65/91 337tk    🔶 35/91 441tk    🔶 67/91 626tk    ✅ 5/5 663tk   ✅ 5/5 1253tk
+openai/gpt-4o-mini                             🔶 60/92 269tk   ✅ 91/92 321tk   ✅ 91/92 377tk    🔶 62/92 510tk    ✅ 80/92 759tk    ✅ 6/6 813tk   ✅ 6/6 951tk
+openai/gpt-4o-mini@markdown                    ❌ 1/12 217tk    ✅ 12/12 302tk   ✅ 12/12 361tk    🔶 3/12 440tk     ✅ 12/12 823tk    ❓ N/A         ❓ N/A
+openai/gpt-4o-mini@tool                        ✅ 93/102 276tk  ✅ 95/102 295tk  ✅ 102/102 389tk  ✅ 88/102 562tk   ✅ 102/102 659tk  ❓ N/A         ❓ N/A
+openai/gpt-4o@markdown                         🔶 69/102 276tk  🔶 70/102 333tk  ✅ 99/102 366tk   ❌ 9/102 478tk    ❌ 20/102 413tk   ❓ N/A         ❓ N/A
+openai/gpt-4o@tool                             🔶 43/102 273tk  ✅ 83/102 374tk  ✅ 82/102 393tk   🔶 67/102 673tk   ✅ 102/102 763tk  ❓ N/A         ❓ N/A
+openai/gpt-4o@xml                              ❌ 8/90 222tk    ❌ 9/90 244tk    ❌ 4/90 260tk     ❌ 0/90 416tk     ❌ 2/90 294tk     ❓ N/A         ❓ N/A
+openai/gpt-5-mini@markdown                     ✅ 1/1 379tk     ✅ 1/1 358tk     ✅ 1/1 884tk      ❌ 0/1 0tk        ❌ 0/1 715tk      ❓ N/A         ❓ N/A
+openai/gpt-5-mini@tool                         ✅ 1/1 286tk     ✅ 1/1 294tk     ✅ 1/1 1150tk     ❌ 0/1 0tk        ❌ 0/1 0tk        ❓ N/A         ❓ N/A
+openai/gpt-5-mini@xml                          ❌ 0/1 331tk     ✅ 1/1 386tk     ✅ 1/1 922tk      ✅ 1/1 1369tk     ✅ 1/1 1614tk     ❓ N/A         ❓ N/A
+openai/gpt-5@markdown                          ✅ 1/1 228tk     ✅ 1/1 273tk     ✅ 1/1 367tk      ✅ 1/1 695tk      ❌ 0/1 0tk        ❓ N/A         ❓ N/A
+openai/gpt-5@tool                              ✅ 1/1 306tk     ✅ 1/1 299tk     ✅ 1/1 348tk      ❌ 0/1 0tk        ❌ 0/1 0tk        ❓ N/A         ❓ N/A
+openai/gpt-5@xml                               ✅ 1/1 237tk     ❌ 0/1 218tk     ❌ 0/1 217tk      ❌ 0/1 678tk      ❌ 0/1 255tk      ❓ N/A         ❓ N/A
+openai/o1-mini                                 ✅ 3/3 354tk     ✅ 3/3 431tk     ✅ 3/3 460tk      🔶 2/3 567tk      🔶 3/5 2222tk     🔶 1/5 1412tk  🔶 2/3 813tk
+openai/o1-preview                              ✅ 2/2 308tk     ✅ 2/2 570tk     🔶 1/2 549tk      ✅ 2/2 490tk      ✅ 3/3 823tk      ✅ 1/1 656tk   ✅ 1/1 1998tk
+google/gemini-flash-1.5                        ✅ 2/2 225tk     ✅ 2/2 401tk     ✅ 2/2 430tk      ❌ 0/2 296tk      ✅ 1/1 686tk      ❌ 0/1 661tk   ✅ 1/1 1014tk
+google/gemini-pro-1.5                          ✅ 1/1 341tk     ✅ 1/1 419tk     ✅ 1/1 456tk      ✅ 1/1 676tk      🔶 2/3 431tk      🔶 1/2 1016tk  ✅ 2/2 1308tk
+google/gemma-2-27b-it                          ✅ 1/1 288tk     ✅ 1/1 384tk     ✅ 1/1 446tk      ✅ 1/1 714tk      ✅ 1/1 570tk      ❌ 0/1 535tk   ❌ 0/1 235tk
+google/gemma-2-9b-it                           ❌ 0/2 186tk     ✅ 2/2 370tk     ✅ 2/2 368tk      ❌ 0/2 545tk      ✅ 1/1 492tk      ❌ 0/1 1730tk  ❌ 0/1 352tk
+meta-llama/llama-3.1-405b-instruct             🔶 69/91 244tk   ✅ 74/91 417tk   ✅ 73/91 364tk    🔶 71/91 440tk    🔶 60/91 488tk    🔶 2/5 255tk   ❌ 0/5 85tk
+meta-llama/llama-3.1-405b-instruct@markdown    ✅ 11/12 318tk   ✅ 10/12 269tk   ✅ 10/12 366tk    🔶 8/12 516tk     ✅ 11/12 600tk    ❓ N/A         ❓ N/A
+meta-llama/llama-3.1-405b-instruct@tool        ❌ 0/12 184tk    ❌ 0/12 198tk    ❌ 0/12 214tk     ❌ 0/12 190tk     ❌ 0/12 189tk     ❓ N/A         ❓ N/A
+meta-llama/llama-3.1-70b-instruct              ✅ 5/6 367tk     ✅ 5/6 424tk     ✅ 6/6 452tk      🔶 2/6 546tk      ✅ 5/6 813tk      🔶 3/4 682tk   🔶 2/3 1461tk
+meta-llama/llama-3.1-70b-instruct@xml          🔶 46/90 249tk   ❌ 8/90 317tk    ❌ 15/90 358tk    ❌ 6/90 273tk     🔶 27/90 363tk    ❓ N/A         ❓ N/A
+meta-llama/llama-3.1-8b-instruct               ✅ 1/1 277tk     ✅ 1/1 441tk     ❌ 0/1 400tk      ❌ 0/1 5095tk     ✅ 1/1 2266tk     ❓ N/A         ❓ N/A
+meta-llama/llama-3.2-11b-vision-instruct       ✅ 2/2 352tk     ✅ 2/2 493tk     ❌ 0/2 479tk      ✅ 2/2 2643tk     ❓ N/A            ❓ N/A         ❓ N/A
+meta-llama/llama-3.2-90b-vision-instruct       🔶 2/4 237tk     🔶 2/4 288tk     🔶 3/4 336tk      🔶 1/4 233tk      ❓ N/A            ❓ N/A         ❓ N/A
+mistralai/magistral-medium-2506@markdown       ✅ 1/1 531tk     ✅ 1/1 569tk     ✅ 1/1 666tk      ✅ 1/1 1106tk     ❓ N/A            ❓ N/A         ❓ N/A
+mistralai/magistral-medium-2506@tool           ❌ 0/1 465tk     ❌ 0/1 604tk     ❌ 0/1 0tk        ❌ 0/1 0tk        ❓ N/A            ❓ N/A         ❓ N/A
+mistralai/magistral-medium-2506@xml            ✅ 1/1 516tk     ✅ 1/1 568tk     ❌ 0/1 552tk      ✅ 1/1 1075tk     ❓ N/A            ❓ N/A         ❓ N/A
+moonshotai/kimi-k2-0905@markdown               ✅ 1/1 436tk     ✅ 1/1 600tk     ✅ 1/1 591tk      ❌ 0/1 0tk        ❓ N/A            ❓ N/A         ❓ N/A
+moonshotai/kimi-k2-0905@tool                   ❌ 0/1 397tk     ❌ 0/1 483tk     ❌ 0/1 592tk      ✅ 1/1 990tk      ❓ N/A            ❓ N/A         ❓ N/A
+moonshotai/kimi-k2-0905@xml                    ✅ 1/1 441tk     ✅ 1/1 563tk     ✅ 1/1 848tk      ❌ 0/1 598tk      ❓ N/A            ❓ N/A         ❓ N/A
+nousresearch/hermes-2-pro-llama-3-8b           ✅ 1/1 341tk     ❌ 0/1 4274tk    ❌ 0/1 3760tk     ❌ 0/1 659tk      ❓ N/A            ❓ N/A         ❓ N/A
+nousresearch/hermes-3-llama-3.1-405b           ✅ 2/2 317tk     ✅ 2/2 420tk     ✅ 2/2 325tk      ✅ 2/2 410tk      ✅ 1/1 821tk      ✅ 1/1 758tk   ✅ 1/1 1039tk
+nousresearch/hermes-3-llama-3.1-70b            ❌ 0/2 173tk     ❌ 0/2 187tk     ❌ 0/2 202tk      ❌ 0/2 177tk      ❓ N/A            ❓ N/A         ❓ N/A
+nousresearch/hermes-4-70b@markdown             ❌ 0/1 439tk     ✅ 1/1 612tk     ✅ 1/1 1235tk     ❌ 0/1 0tk        ❓ N/A            ❓ N/A         ❓ N/A
+nousresearch/hermes-4-70b@tool                 ✅ 1/1 476tk     ✅ 1/1 536tk     ❌ 0/1 1310tk     ❌ 0/1 0tk        ❓ N/A            ❓ N/A         ❓ N/A
+nousresearch/hermes-4-70b@xml                  ✅ 1/1 466tk     ✅ 1/1 516tk     ✅ 1/1 631tk      ❌ 0/1 1255tk     ❓ N/A            ❓ N/A         ❓ N/A
+qwen/qwen3-max@markdown                        ✅ 1/1 422tk     ✅ 1/1 492tk     🔶 1/2 615tk      ✅ 1/1 949tk      ❓ N/A            ❓ N/A         ❓ N/A
+qwen/qwen3-max@tool                            ✅ 1/1 436tk     ✅ 1/1 519tk     ✅ 1/1 546tk      ✅ 1/1 663tk      ❓ N/A            ❓ N/A         ❓ N/A
+qwen/qwen3-max@xml                             ✅ 1/1 437tk     ✅ 1/1 530tk     ✅ 1/1 580tk      ✅ 1/1 901tk      ❓ N/A            ❓ N/A         ❓ N/A
+x-ai/grok-code-fast-1@markdown                 ✅ 1/1 661tk     ❌ 0/1 1385tk    ✅ 1/1 829tk      ✅ 1/1 955tk      ❓ N/A            ❓ N/A         ❓ N/A
+x-ai/grok-code-fast-1@tool                     ✅ 1/1 663tk     ❌ 0/1 2590tk    ❌ 0/1 1415tk     ✅ 1/1 1807tk     ❓ N/A            ❓ N/A         ❓ N/A
+x-ai/grok-code-fast-1@xml                      ❌ 0/1 485tk     ❌ 0/1 1652tk    ✅ 1/1 759tk      ✅ 1/1 1112tk     ❓ N/A            ❓ N/A         ❓ N/A
 </pre></div>
 </div>
 <p>We are working on making the evals more robust, informative, and challenging.</p>
