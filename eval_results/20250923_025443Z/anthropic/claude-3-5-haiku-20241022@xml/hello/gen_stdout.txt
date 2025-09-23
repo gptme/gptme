@@ -1,0 +1,38 @@
+
+--- Start of generation ---
+[02:54:26] Using model: anthropic/claude-3-5-haiku-20241022                     
+[02:54:27] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-09-23-gptme-evals-anthropic--claude-3-
+           5-haiku-20241022-xml-95456                                           
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-09-23-gptme-evals-anthropic--claude-3-
+           5-haiku-20241022-xml-95456/workspace                                 
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+I'll use the `save` tool to create the `hello.py` script:
+
+<tool-use>
+<save args='hello.py'>
+print("Hello, world!")
+</save>
+</tool-use>
+                                                                                
+Preview
+print("Hello, world!")                                                          
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+Great! I'll verify the contents of the file:
+
+<tool-use>
+<run>cat hello.py</run>
+</tool-use>
+
+The script is now ready. Would you like me to run it to demonstrate?
+
+<tool-use>
+<run>python3 hello.py</run>
+</tool-use>                                                                                --- Finished generation ---
+
