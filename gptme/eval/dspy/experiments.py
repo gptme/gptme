@@ -1,8 +1,7 @@
 """
 High-level experiments for gptme prompt optimization.
 
-This module provides pre-configured experiments and analysis tools
-for systematically optimizing gptme's system prompts.
+Refactored to use composition and single responsibility principle.
 """
 
 import json
@@ -19,65 +18,188 @@ from .prompt_optimizer import PromptOptimizer, get_current_gptme_prompt
 logger = logging.getLogger(__name__)
 
 
-class OptimizationExperiment:
-    """
-    A systematic prompt optimization experiment.
+class ExperimentReporter:
+    """Handles report generation for optimization experiments."""
 
-    Manages the full lifecycle of prompt optimization including:
-    - Baseline evaluation
-    - Optimization runs
-    - Results comparison
-    - Report generation
-    """
+    def __init__(self, experiment_data: dict[str, Any]):
+        self.data = experiment_data
 
-    def __init__(
+    def generate_report(self) -> str:
+        """Generate a comprehensive optimization report."""
+        sections = [
+            self._header_section(),
+            self._baseline_section(),
+            self._optimizations_section(),
+            self._comparison_section(),
+            self._recommendations_section(),
+        ]
+        return "\n\n".join(filter(None, sections))
+
+    def _header_section(self) -> str:
+        return f"""# Prompt Optimization Report: {self.data['experiment_name']}
+**Model:** {self.data['model']}
+**Timestamp:** {self.data['timestamp']}"""
+
+    def _baseline_section(self) -> str:
+        if "baseline" not in self.data:
+            return ""
+
+        baseline = self.data["baseline"]
+        return f"""## Baseline Performance
+- Average Score: {baseline.get('average_score', 'N/A')}
+- Task Success Rate: {baseline.get('task_success_rate', 'N/A')}
+- Tool Usage Score: {baseline.get('tool_usage_score', 'N/A')}"""
+
+    def _optimizations_section(self) -> str:
+        if "optimizations" not in self.data:
+            return ""
+
+        lines = ["## Optimization Results"]
+        for name, opt_data in self.data["optimizations"].items():
+            results = opt_data.get("results", {})
+            lines.extend(
+                [
+                    f"### {name}",
+                    f"- Average Score: {results.get('average_score', 'N/A')}",
+                    f"- Config: {opt_data.get('optimizer_config', {})}",
+                    "",
+                ]
+            )
+        return "\n".join(lines)
+
+    def _comparison_section(self) -> str:
+        if "comparisons" not in self.data:
+            return ""
+
+        comparison = self.data["comparisons"].get("results", {})
+        if not comparison:
+            return ""
+
+        sorted_results = sorted(
+            comparison.items(),
+            key=lambda x: x[1].get("average_score", 0),
+            reverse=True,
+        )
+
+        lines = [
+            "## Final Comparison",
+            "| Prompt | Average Score | Examples |",
+            "|--------|---------------|----------|",
+        ]
+
+        for name, result in sorted_results:
+            score = result.get("average_score", 0)
+            num_ex = result.get("num_examples", 0)
+            lines.append(f"| {name} | {score:.3f} | {num_ex} |")
+
+        return "\n".join(lines)
+
+    def _recommendations_section(self) -> str:
+        if "comparisons" not in self.data:
+            return ""
+
+        comparison = self.data["comparisons"].get("results", {})
+        if not comparison:
+            return ""
+
+        best_name = max(
+            comparison.keys(), key=lambda k: comparison[k].get("average_score", 0)
+        )
+        best_score = comparison[best_name].get("average_score", 0)
+
+        lines = [
+            "## Recommendations",
+            f"**Best performing prompt:** {best_name} (score: {best_score:.3f})",
+        ]
+
+        if best_name != "baseline":
+            baseline_score = comparison.get("baseline", {}).get("average_score", 0)
+            improvement = best_score - baseline_score
+            lines.append(f"**Improvement over baseline:** +{improvement:.3f}")
+
+        return "\n".join(lines)
+
+
+class ExperimentRunner:
+    """Handles the execution of optimization experiments."""
+
+    def __init__(self, model: str):
+        self.model = model
+
+    def run_baseline(
+        self, eval_specs: list[EvalSpec], num_examples: int = 20
+    ) -> dict[str, Any]:
+        """Run baseline evaluation with current prompt."""
+        logger.info("Running baseline evaluation...")
+        current_prompt = get_current_gptme_prompt(interactive=False, model=self.model)
+
+        # TODO: Integrate with actual gptme evaluation
+        return {
+            "prompt": current_prompt,
+            "average_score": 0.65,  # Placeholder
+            "task_success_rate": 0.70,
+            "tool_usage_score": 0.60,
+            "num_examples": num_examples,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def run_optimization(
         self,
-        name: str,
-        output_dir: Path,
-        model: str,
-    ):
+        optimizer_config: dict[str, Any],
+        base_prompt: str,
+        eval_specs: list[EvalSpec],
+        train_size: int = 15,
+        val_size: int = 10,
+    ) -> tuple[str, dict[str, Any]]:
+        """Run a single optimization."""
+        optimizer = PromptOptimizer(model=self.model, **optimizer_config)
+        return optimizer.optimize_prompt(
+            base_prompt=base_prompt,
+            eval_specs=eval_specs,
+            train_size=train_size,
+            val_size=val_size,
+        )
+
+    def compare_prompts(
+        self,
+        prompts: dict[str, str],
+        eval_specs: list[EvalSpec],
+        num_examples: int = 15,
+    ) -> dict[str, Any]:
+        """Compare multiple prompts."""
+        optimizer = PromptOptimizer(model=self.model)
+        return optimizer.compare_prompts(
+            prompts=prompts, eval_specs=eval_specs, num_examples=num_examples
+        )
+
+
+class OptimizationExperiment:
+    """Simplified experiment orchestrator using composition."""
+
+    def __init__(self, name: str, output_dir: Path, model: str):
         self.name = name
         self.model = model
         self.output_dir = output_dir
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
+        self.runner = ExperimentRunner(model)
         self.results: dict[str, Any] = {
             "experiment_name": name,
             "model": model,
             "timestamp": datetime.now().isoformat(),
-            "baseline": {},
-            "optimizations": {},
-            "comparisons": {},
         }
 
     def run_baseline_evaluation(
         self, eval_specs: list[EvalSpec] | None = None, num_examples: int = 20
     ) -> dict[str, Any]:
-        """Run baseline evaluation with current prompt."""
-        logger.info("Running baseline evaluation...")
-
+        """Run baseline evaluation."""
         if eval_specs is None:
             eval_specs = gptme_eval_tests
 
-        current_prompt = get_current_gptme_prompt(interactive=False, model=self.model)
-
-        # TODO: Actually run evaluation with gptme's eval framework
-        # This would integrate with gptme.eval.run to execute tasks
-
-        # Placeholder baseline results
-        baseline_results = {
-            "prompt": current_prompt,
-            "average_score": 0.65,  # Placeholder
-            "task_success_rate": 0.70,  # Placeholder
-            "tool_usage_score": 0.60,  # Placeholder
-            "num_examples": num_examples,
-            "timestamp": datetime.now().isoformat(),
-        }
-
-        self.results["baseline"] = baseline_results
-
-        logger.info(f"Baseline average score: {baseline_results['average_score']:.3f}")
-        return baseline_results
+        baseline = self.runner.run_baseline(eval_specs, num_examples)
+        self.results["baseline"] = baseline
+        logger.info(f"Baseline average score: {baseline['average_score']:.3f}")
+        return baseline
 
     def run_optimization(
         self,
@@ -93,21 +215,12 @@ class OptimizationExperiment:
         if eval_specs is None:
             eval_specs = gptme_eval_tests
 
-        # Get baseline prompt
         base_prompt = get_current_gptme_prompt(interactive=False, model=self.model)
 
-        # Initialize optimizer
-        optimizer = PromptOptimizer(model=self.model, **optimizer_config)
-
-        # Run optimization
-        optimized_prompt, optimization_results = optimizer.optimize_prompt(
-            base_prompt=base_prompt,
-            eval_specs=eval_specs,
-            train_size=train_size,
-            val_size=val_size,
+        optimized_prompt, optimization_results = self.runner.run_optimization(
+            optimizer_config, base_prompt, eval_specs, train_size, val_size
         )
 
-        # Store results
         optimization_data = {
             "optimizer_name": optimizer_name,
             "optimizer_config": optimizer_config,
@@ -117,44 +230,43 @@ class OptimizationExperiment:
             "timestamp": datetime.now().isoformat(),
         }
 
-        self.results["optimizations"][optimizer_name] = optimization_data
+        if "optimizations" not in self.results:
+            self.results["optimizations"] = {}
+        optimizations = self.results["optimizations"]
+        assert isinstance(optimizations, dict)
+        optimizations[optimizer_name] = optimization_data
 
         # Save optimized prompt
         prompt_file = self.output_dir / f"{optimizer_name}_prompt.txt"
-        with open(prompt_file, "w") as f:
-            f.write(optimized_prompt)
+        prompt_file.write_text(optimized_prompt)
 
         logger.info(
-            f"Optimization {optimizer_name} completed. "
-            f"Score: {optimization_results.get('average_score', 0):.3f}"
+            f"Optimization {optimizer_name} completed. Score: {optimization_results.get('average_score', 0):.3f}"
         )
-
         return optimization_data
 
     def compare_all_optimizations(
         self, eval_specs: list[EvalSpec] | None = None, num_examples: int = 15
     ) -> dict[str, Any]:
-        """Compare all optimized prompts against baseline and each other."""
+        """Compare all optimized prompts."""
         logger.info("Running comprehensive comparison...")
 
         if eval_specs is None:
             eval_specs = gptme_eval_tests
 
-        # Collect all prompts to compare
+        # Collect prompts
         prompts = {}
-
-        # Add baseline
         if "baseline" in self.results:
-            prompts["baseline"] = self.results["baseline"]["prompt"]
+            baseline = self.results["baseline"]
+            assert isinstance(baseline, dict)
+            prompts["baseline"] = baseline["prompt"]
 
-        # Add optimized prompts
-        for opt_name, opt_data in self.results["optimizations"].items():
+        for opt_name, opt_data in self.results.get("optimizations", {}).items():
+            assert isinstance(opt_data, dict)
             prompts[opt_name] = opt_data["optimized_prompt"]
 
-        # Compare prompts
-        optimizer = PromptOptimizer(model=self.model)
-        comparison_results = optimizer.compare_prompts(
-            prompts=prompts, eval_specs=eval_specs, num_examples=num_examples
+        comparison_results = self.runner.compare_prompts(
+            prompts, eval_specs, num_examples
         )
 
         self.results["comparisons"] = {
@@ -166,105 +278,19 @@ class OptimizationExperiment:
         return comparison_results
 
     def generate_report(self) -> str:
-        """Generate a comprehensive optimization report."""
-        report = []
-        report.append(f"# Prompt Optimization Report: {self.name}")
-        report.append(f"**Model:** {self.model}")
-        report.append(f"**Timestamp:** {self.results['timestamp']}")
-        report.append("")
+        """Generate experiment report."""
+        reporter = ExperimentReporter(self.results)
+        report = reporter.generate_report()
 
-        # Baseline results
-        if "baseline" in self.results:
-            baseline = self.results["baseline"]
-            report.append("## Baseline Performance")
-            avg_score = baseline.get("average_score", "N/A")
-            if isinstance(avg_score, int | float):
-                report.append(f"- Average Score: {avg_score:.3f}")
-            else:
-                report.append(f"- Average Score: {avg_score}")
-            success_rate = baseline.get("task_success_rate", "N/A")
-            if isinstance(success_rate, int | float):
-                report.append(f"- Task Success Rate: {success_rate:.3f}")
-            else:
-                report.append(f"- Task Success Rate: {success_rate}")
-            tool_score = baseline.get("tool_usage_score", "N/A")
-            if isinstance(tool_score, int | float):
-                report.append(f"- Tool Usage Score: {tool_score:.3f}")
-            else:
-                report.append(f"- Tool Usage Score: {tool_score}")
-            report.append("")
-
-        # Optimization results
-        if "optimizations" in self.results:
-            report.append("## Optimization Results")
-            for opt_name, opt_data in self.results["optimizations"].items():
-                results = opt_data.get("results", {})
-                report.append(f"### {opt_name}")
-                report.append(f"- Average Score: {results.get('average_score', 'N/A')}")
-                report.append(
-                    f"- Optimizer Config: {opt_data.get('optimizer_config', {})}"
-                )
-                report.append("")
-
-        # Comparison results
-        if "comparisons" in self.results:
-            report.append("## Final Comparison")
-            comparisons_data = self.results["comparisons"]
-            comparison = comparisons_data.get("results", {})
-
-            # Sort by average score
-            sorted_results = sorted(
-                comparison.items(),
-                key=lambda x: x[1].get("average_score", 0),
-                reverse=True,
-            )
-
-            report.append("| Prompt | Average Score | Examples |")
-            report.append("|--------|---------------|----------|")
-            for name, result in sorted_results:
-                score = result.get("average_score", 0)
-                num_ex = result.get("num_examples", 0)
-                report.append(f"| {name} | {score:.3f} | {num_ex} |")
-            report.append("")
-
-        # Best performing prompt
-        if "comparisons" in self.results:
-            comparisons_data = self.results["comparisons"]
-            comparison = comparisons_data.get("results", {})
-            if comparison:  # Only proceed if we have comparison results
-                best_name = max(
-                    comparison.keys(),
-                    key=lambda k: comparison[k].get("average_score", 0),
-                )
-                best_score = comparison[best_name].get("average_score", 0)
-
-                report.append("## Recommendations")
-                report.append(
-                    f"**Best performing prompt:** {best_name} (score: {best_score:.3f})"
-                )
-
-                if best_name != "baseline":
-                    improvement = best_score - comparison.get("baseline", {}).get(
-                        "average_score", 0
-                    )
-                    report.append(f"**Improvement over baseline:** +{improvement:.3f}")
-                report.append("")
-
-        report_text = "\n".join(report)
-
-        # Ensure output directory exists and save report
-        self.output_dir.mkdir(parents=True, exist_ok=True)
         report_file = self.output_dir / f"{self.name}_report.md"
-        with open(report_file, "w") as f:
-            f.write(report_text)
+        report_file.write_text(report)
 
-        return report_text
+        return report
 
     def save_results(self) -> Path:
-        """Save complete experiment results to JSON."""
+        """Save experiment results."""
         results_file = self.output_dir / f"{self.name}_results.json"
-        with open(results_file, "w") as f:
-            json.dump(self.results, f, indent=2)
+        results_file.write_text(json.dumps(self.results, indent=2))
         return results_file
 
 

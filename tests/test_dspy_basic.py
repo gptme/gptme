@@ -41,13 +41,10 @@ try:
     )
     from gptme.eval.dspy.tasks import (  # fmt: skip
         analyze_task_coverage,
-        create_error_handling_tasks,
-        create_instruction_following_tasks,
-        create_multistep_debugging_tasks,
-        create_reasoning_tasks,
-        create_tool_usage_tasks,
         get_prompt_optimization_tasks,
         get_tasks_by_focus_area,
+        create_essential_tasks,
+        create_advanced_tasks,
     )
 except (ImportError, AttributeError) as e:
     pytest.skip(f"DSPy imports failed: {e}", allow_module_level=True)
@@ -70,45 +67,57 @@ def test_imports():
 def test_task_creation():
     """Test creation of evaluation tasks."""
 
-    tool_tasks = create_tool_usage_tasks()
+    # Test new essential tasks API
+    essential_tasks = create_essential_tasks()
+    assert isinstance(essential_tasks, list)
+    assert len(essential_tasks) > 0
+    assert all("name" in task for task in essential_tasks)
+    assert all("prompt" in task for task in essential_tasks)
+
+    # Test new advanced tasks API
+    advanced_tasks = create_advanced_tasks()
+    assert isinstance(advanced_tasks, list)
+    assert len(advanced_tasks) > 0
+    assert all("name" in task for task in advanced_tasks)
+    assert all("prompt" in task for task in advanced_tasks)
+
+    # Test focus area filtering
+    from gptme.eval.dspy.tasks import get_task_metadata
+
+    tool_tasks = get_tasks_by_focus_area("tool_selection")
     assert isinstance(tool_tasks, list)
-    assert len(tool_tasks) > 0
-    assert all("name" in task for task in tool_tasks)
-    assert all("prompt" in task for task in tool_tasks)
+    # May be empty if no tasks have this focus area
+    if tool_tasks:
+        # Verify all returned tasks have metadata with this focus area
+        for task in tool_tasks:
+            metadata = get_task_metadata(task["name"])
+            assert "focus_areas" in metadata
+            assert "tool_selection" in metadata["focus_areas"]
 
-    reasoning_tasks = create_reasoning_tasks()
-    assert isinstance(reasoning_tasks, list)
-    assert len(reasoning_tasks) > 0
+    debugging_tasks = get_tasks_by_focus_area("debugging")
+    assert isinstance(debugging_tasks, list)
 
-    instruction_tasks = create_instruction_following_tasks()
-    assert isinstance(instruction_tasks, list)
-    assert len(instruction_tasks) > 0
-
-    error_tasks = create_error_handling_tasks()
-    assert isinstance(error_tasks, list)
-    assert len(error_tasks) > 0
-
-    multistep_tasks = create_multistep_debugging_tasks()
-    assert isinstance(multistep_tasks, list)
-    assert len(multistep_tasks) > 0
-
+    # Test getting all tasks
     all_tasks = get_prompt_optimization_tasks()
-    assert len(all_tasks) == len(tool_tasks) + len(reasoning_tasks) + len(
-        instruction_tasks
-    ) + len(error_tasks) + len(multistep_tasks)
+    assert isinstance(all_tasks, list)
+    assert len(all_tasks) > 0
 
 
 def test_task_structure():
     """Test that tasks have required structure."""
+    from gptme.eval.dspy.tasks import get_task_metadata
 
     tasks = get_prompt_optimization_tasks()
 
     for task in tasks:
         assert "name" in task
         assert "prompt" in task
-        assert "focus_areas" in task
-        assert isinstance(task["focus_areas"], list)
-        assert len(task["focus_areas"]) > 0
+
+        # Check that metadata contains focus_areas
+        metadata = get_task_metadata(task["name"])
+        assert "focus_areas" in metadata
+        assert isinstance(metadata["focus_areas"], list)
+        assert len(metadata["focus_areas"]) > 0
 
 
 def test_metrics_creation():

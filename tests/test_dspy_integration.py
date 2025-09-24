@@ -141,13 +141,15 @@ def test_prompt_comparison_structure():
 
 def test_task_focus_areas():
     """Test that tasks properly define focus areas."""
+    from gptme.eval.dspy.tasks import get_task_metadata
 
     all_tasks = get_prompt_optimization_tasks()
 
-    # Collect all focus areas
-    focus_areas = set()
+    # Collect all focus areas using metadata
+    focus_areas: set[str] = set()
     for task in all_tasks:
-        focus_areas.update(task.get("focus_areas", []))
+        metadata = get_task_metadata(task["name"])
+        focus_areas.update(metadata.get("focus_areas", []))
 
     assert len(focus_areas) > 0
 
@@ -156,9 +158,10 @@ def test_task_focus_areas():
         filtered_tasks = get_tasks_by_focus_area(area)
         assert len(filtered_tasks) > 0
 
-        # Verify all returned tasks actually have this focus area
+        # Verify all returned tasks actually have this focus area in metadata
         for task in filtered_tasks:
-            assert area in task.get("focus_areas", [])
+            metadata = get_task_metadata(task["name"])
+            assert area in metadata.get("focus_areas", [])
 
 
 def test_cli_commands_structure():
