@@ -135,7 +135,6 @@ class ExperimentRunner:
 
         # Use existing evaluation infrastructure with rich results
         from gptme.eval.dspy.prompt_optimizer import PromptOptimizer, PromptDataset
-        from gptme.eval.dspy.metrics import create_composite_metric
 
         # Reuse the existing prompt evaluation system
         optimizer = PromptOptimizer(model=self.model)
@@ -147,12 +146,9 @@ class ExperimentRunner:
             limited_specs = tests[:num_examples]
 
         val_data = PromptDataset(limited_specs)
-        metric = create_composite_metric(
-            eval_specs=limited_specs
-        )  # Not used, but kept for compatibility
 
         # _evaluate_prompt now returns rich breakdown results
-        baseline_results = optimizer._evaluate_prompt(current_prompt, val_data, metric)
+        baseline_results = optimizer._evaluate_prompt(current_prompt, val_data)
 
         return {
             "prompt": current_prompt,

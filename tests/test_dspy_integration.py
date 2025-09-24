@@ -25,12 +25,12 @@ try:
         OptimizationExperiment,
         quick_prompt_test,
     )
-    from gptme.eval.dspy.metrics import create_composite_metric  # fmt: skip
     from gptme.eval.dspy.prompt_optimizer import GptmeModule  # fmt: skip
     from gptme.eval.dspy.prompt_optimizer import PromptDataset  # fmt: skip
     from gptme.eval.dspy.prompt_optimizer import get_current_gptme_prompt  # fmt: skip
     from gptme.eval.dspy.tasks import (  # fmt: skip
         get_prompt_optimization_tasks,
+        get_task_metadata,
         get_tasks_by_focus_area,
     )
     from gptme.eval.types import EvalSpec  # fmt: skip
@@ -141,7 +141,6 @@ def test_prompt_comparison_structure():
 
 def test_task_focus_areas():
     """Test that tasks properly define focus areas."""
-    from gptme.eval.dspy.tasks import get_task_metadata
 
     all_tasks = get_prompt_optimization_tasks()
 
@@ -178,23 +177,6 @@ def test_cli_commands_structure():
     # Parse some test arguments
     args = parser.parse_args(["test", "--model", "anthropic/claude-sonnet-4-20250514"])
     assert args.model == "anthropic/claude-sonnet-4-20250514"
-
-
-def test_metric_composition():
-    """Test that metrics can be properly composed."""
-
-    # Test creating composite metric with different weights
-    metric1 = create_composite_metric(
-        task_weight=0.5, tool_weight=0.3, judge_weight=0.2
-    )
-    metric2 = create_composite_metric(
-        task_weight=0.7, tool_weight=0.2, judge_weight=0.1
-    )
-
-    assert callable(metric1)
-    assert callable(metric2)
-
-    # Test that weights are properly handled (would need actual execution to fully verify)
 
 
 def test_prompt_template_extraction():

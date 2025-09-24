@@ -397,19 +397,27 @@ def create_llm_judge_metric(
     return llm_judge_metric
 
 
-def create_composite_metric(
+def compose_metric_scores(
+    task_score: float,
+    tool_score: float,
+    judge_score: float,
     task_weight: float = 0.4,
     tool_weight: float = 0.3,
     judge_weight: float = 0.3,
+) -> float:
+    """Compose individual metric scores into composite score using specified weights."""
+    return (
+        task_score * task_weight + tool_score * tool_weight + judge_score * judge_weight
+    )
+
+
+def create_composite_metric(
     eval_specs: list[EvalSpec] | None = None,
 ) -> Callable[[Any, Any, Any | None], float]:
     """
     Create a composite metric that combines multiple evaluation aspects.
 
     Args:
-        task_weight: Weight for task success metric
-        tool_weight: Weight for tool usage metric
-        judge_weight: Weight for LLM judge metric
         eval_specs: Evaluation specifications for task success metric
 
     Returns:
@@ -428,11 +436,7 @@ def create_composite_metric(
         tool_score = tool_metric(gold, pred, trace)
         judge_score = judge_metric(gold, pred, trace)
 
-        composite_score = (
-            task_score * task_weight
-            + tool_score * tool_weight
-            + judge_score * judge_weight
-        )
+        composite_score = compose_metric_scores(task_score, tool_score, judge_score)
 
         logger.info(
             f"Composite score: {composite_score:.3f} "

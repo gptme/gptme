@@ -7,7 +7,6 @@ optimization techniques to automatically improve gptme system prompts.
 
 import logging
 import os
-from collections.abc import Callable
 from typing import Any
 
 from gptme.eval.agents import GPTMe
@@ -225,9 +224,8 @@ class PromptOptimizer:
                 optimized_module, "base_system_prompt", base_prompt
             )
 
-            # Evaluate results
-            metric = create_composite_metric(eval_specs=eval_specs)
-            results = self._evaluate_prompt(optimized_prompt, val_data, metric)
+            # Evaluate results (now uses individual metrics internally)
+            results = self._evaluate_prompt(optimized_prompt, val_data)
 
             logger.info("Prompt optimization completed successfully")
             return optimized_prompt, results
@@ -267,23 +265,22 @@ class PromptOptimizer:
         else:
             raise ValueError(f"Unknown optimizer type: {self.optimizer_type}")
 
-    def _evaluate_prompt(
-        self, prompt: str, val_data: PromptDataset, metric: Callable
-    ) -> dict[str, Any]:
+    def _evaluate_prompt(self, prompt: str, val_data: PromptDataset) -> dict[str, Any]:
         """Evaluate a prompt against validation data with individual metric breakdowns."""
         from .metrics import (
             create_task_success_metric,
             create_tool_usage_metric,
             create_llm_judge_metric,
+            compose_metric_scores,
         )
 
-        # Create individual metrics to get breakdown (run once, not duplicate)
+        # Create individual metrics - no duplication, single source of truth
         eval_specs = [example.eval_spec for example in val_data]
         task_metric = create_task_success_metric(eval_specs)
         tool_metric = create_tool_usage_metric()
         judge_metric = create_llm_judge_metric()
 
-        # Collect individual scores
+        # Run evaluation once per example
         task_scores = []
         tool_scores = []
         judge_scores = []
@@ -296,28 +293,29 @@ class PromptOptimizer:
                 eval_spec=example.eval_spec,
             )
 
-            # Run individual metrics (not the composite - avoid duplication)
+            # Run individual metrics once - no duplication
             task_scores.append(task_metric(example, pred, None))
             tool_scores.append(tool_metric(example, pred, None))
             judge_scores.append(judge_metric(example, pred, None))
 
-        # Calculate individual averages
+        # Calculate averages
         avg_task = sum(task_scores) / len(task_scores) if task_scores else 0.0
         avg_tool = sum(tool_scores) / len(tool_scores) if tool_scores else 0.0
         avg_judge = sum(judge_scores) / len(judge_scores) if judge_scores else 0.0
 
-        # Calculate composite score manually (same weights as create_composite_metric)
-        avg_composite = avg_task * 0.4 + avg_tool * 0.3 + avg_judge * 0.3
+        # Calculate composite using shared composition function
+        avg_composite = compose_metric_scores(avg_task, avg_tool, avg_judge)
+        composite_scores = [
+            compose_metric_scores(t, tool, j)
+            for t, tool, j in zip(task_scores, tool_scores, judge_scores)
+        ]
 
         return {
             "average_score": avg_composite,
             "task_success_rate": avg_task,
             "tool_usage_score": avg_tool,
             "judge_score": avg_judge,
-            "individual_scores": [
-                t * 0.4 + tool * 0.3 + j * 0.3
-                for t, tool, j in zip(task_scores, tool_scores, judge_scores)
-            ],
+            "individual_scores": composite_scores,
             "individual_task_scores": task_scores,
             "individual_tool_scores": tool_scores,
             "individual_judge_scores": judge_scores,
@@ -336,12 +334,11 @@ class PromptOptimizer:
             eval_specs = tests[:num_examples]
 
         val_data = PromptDataset(eval_specs)
-        metric = create_composite_metric(eval_specs=eval_specs)
 
         results = {}
         for name, prompt in prompts.items():
             logger.info(f"Evaluating prompt: {name}")
-            results[name] = self._evaluate_prompt(prompt, val_data, metric)
+            results[name] = self._evaluate_prompt(prompt, val_data)
 
         return results
 
