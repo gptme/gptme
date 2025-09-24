@@ -133,14 +133,36 @@ class ExperimentRunner:
         logger.info("Running baseline evaluation...")
         current_prompt = get_current_gptme_prompt(interactive=False, model=self.model)
 
-        # TODO: Integrate with actual gptme evaluation
+        # Use existing evaluation infrastructure with rich results
+        from gptme.eval.dspy.prompt_optimizer import PromptOptimizer, PromptDataset
+        from gptme.eval.dspy.metrics import create_composite_metric
+
+        # Reuse the existing prompt evaluation system
+        optimizer = PromptOptimizer(model=self.model)
+        limited_specs = eval_specs[:num_examples] if eval_specs else []
+
+        if not limited_specs:
+            from gptme.eval.suites.basic import tests
+
+            limited_specs = tests[:num_examples]
+
+        val_data = PromptDataset(limited_specs)
+        metric = create_composite_metric(
+            eval_specs=limited_specs
+        )  # Not used, but kept for compatibility
+
+        # _evaluate_prompt now returns rich breakdown results
+        baseline_results = optimizer._evaluate_prompt(current_prompt, val_data, metric)
+
         return {
             "prompt": current_prompt,
-            "average_score": 0.65,  # Placeholder
-            "task_success_rate": 0.70,
-            "tool_usage_score": 0.60,
-            "num_examples": num_examples,
+            "average_score": baseline_results["average_score"],
+            "task_success_rate": baseline_results["task_success_rate"],
+            "tool_usage_score": baseline_results["tool_usage_score"],
+            "judge_score": baseline_results["judge_score"],
+            "num_examples": baseline_results["num_examples"],
             "timestamp": datetime.now().isoformat(),
+            "detailed_results": baseline_results,
         }
 
     def run_optimization(
@@ -386,13 +408,19 @@ def quick_prompt_test(
         prompts=prompt_variations, eval_specs=eval_specs, num_examples=num_examples
     )
 
-    # Print quick summary
+    # Print detailed breakdown
     print("\n=== Quick Prompt Test Results ===")
     for name, result in sorted(
         results.items(), key=lambda x: x[1].get("average_score", 0), reverse=True
     ):
-        score = result.get("average_score", 0)
-        print(f"{name:20} | Score: {score:.3f}")
+        composite = result.get("average_score", 0)
+        task = result.get("task_success_rate", 0)
+        tool = result.get("tool_usage_score", 0)
+        judge = result.get("judge_score", 0)
+
+        print(
+            f"{name:15} | Composite: {composite:.3f} | Task: {task:.3f} | Tool: {tool:.3f} | Judge: {judge:.3f}"
+        )
 
     return results
 

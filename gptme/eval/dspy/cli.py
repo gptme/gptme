@@ -166,7 +166,7 @@ def quick_test(prompt_files: tuple[str, ...], num_examples: int, model: str) -> 
 
     # Add current prompt as baseline
     current_prompt = get_current_gptme_prompt(interactive=True, model=model)
-    prompts["current"] = current_prompt
+    prompts["baseline"] = current_prompt
 
     # Add prompt files if specified
     if prompt_files:

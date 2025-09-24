@@ -270,8 +270,23 @@ class PromptOptimizer:
     def _evaluate_prompt(
         self, prompt: str, val_data: PromptDataset, metric: Callable
     ) -> dict[str, Any]:
-        """Evaluate a prompt against validation data."""
-        scores = []
+        """Evaluate a prompt against validation data with individual metric breakdowns."""
+        from .metrics import (
+            create_task_success_metric,
+            create_tool_usage_metric,
+            create_llm_judge_metric,
+        )
+
+        # Create individual metrics to get breakdown (run once, not duplicate)
+        eval_specs = [example.eval_spec for example in val_data]
+        task_metric = create_task_success_metric(eval_specs)
+        tool_metric = create_tool_usage_metric()
+        judge_metric = create_llm_judge_metric()
+
+        # Collect individual scores
+        task_scores = []
+        tool_scores = []
+        judge_scores = []
         module = GptmeModule(prompt, self.model)
 
         for example in val_data:
@@ -280,15 +295,33 @@ class PromptOptimizer:
                 context=example.context,
                 eval_spec=example.eval_spec,
             )
-            score = metric(example, pred, None)
-            scores.append(score)
 
-        avg_score = sum(scores) / len(scores) if scores else 0.0
+            # Run individual metrics (not the composite - avoid duplication)
+            task_scores.append(task_metric(example, pred, None))
+            tool_scores.append(tool_metric(example, pred, None))
+            judge_scores.append(judge_metric(example, pred, None))
+
+        # Calculate individual averages
+        avg_task = sum(task_scores) / len(task_scores) if task_scores else 0.0
+        avg_tool = sum(tool_scores) / len(tool_scores) if tool_scores else 0.0
+        avg_judge = sum(judge_scores) / len(judge_scores) if judge_scores else 0.0
+
+        # Calculate composite score manually (same weights as create_composite_metric)
+        avg_composite = avg_task * 0.4 + avg_tool * 0.3 + avg_judge * 0.3
 
         return {
-            "average_score": avg_score,
-            "individual_scores": scores,
-            "num_examples": len(scores),
+            "average_score": avg_composite,
+            "task_success_rate": avg_task,
+            "tool_usage_score": avg_tool,
+            "judge_score": avg_judge,
+            "individual_scores": [
+                t * 0.4 + tool * 0.3 + j * 0.3
+                for t, tool, j in zip(task_scores, tool_scores, judge_scores)
+            ],
+            "individual_task_scores": task_scores,
+            "individual_tool_scores": tool_scores,
+            "individual_judge_scores": judge_scores,
+            "num_examples": len(task_scores),
             "optimized_prompt": prompt,
         }
 
