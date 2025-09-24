@@ -3,6 +3,7 @@
 import dspy
 from gptme.eval.dspy.prompt_optimizer import GptmeModule
 from gptme.eval.dspy.metrics import create_trajectory_feedback_metric
+from gptme.eval.types import EvalSpec
 
 
 def test_gepa_integration():
@@ -14,8 +15,20 @@ def test_gepa_integration():
     module = GptmeModule("You are a helpful AI assistant.")
     metric = create_trajectory_feedback_metric()
 
-    # Test with a simple task
-    prediction = module("Write hello.py that prints Hello World", "")
+    # Create a proper EvalSpec for testing
+    test_eval_spec: EvalSpec = {
+        "name": "test-hello-world",
+        "prompt": "Write hello.py that prints Hello World",
+        "files": {},
+        "run": "python hello.py",
+        "expect": {
+            "file_created": lambda ctx: "hello.py" in ctx.files,
+            "correct_output": lambda ctx: "Hello World" in ctx.stdout,
+        },
+    }
+
+    # Test with a simple task using the new signature
+    prediction = module("Write hello.py that prints Hello World", "", test_eval_spec)
 
     # Verify evaluation ran
     assert hasattr(
@@ -23,9 +36,9 @@ def test_gepa_integration():
     ), "Should have eval_result from gptme evaluation"
 
     # Test metric with the prediction
-    example = dspy.Example(task_description="Write hello.py", context="").with_inputs(
-        "task_description", "context"
-    )
+    example = dspy.Example(
+        task_description="Write hello.py", context="", eval_spec=test_eval_spec
+    ).with_inputs("task_description", "context")
 
     score = metric(example, prediction, None, None, None)
     actual_score = score.score if hasattr(score, "score") else score
