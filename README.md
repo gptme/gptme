@@ -201,7 +201,7 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 - 🔄 Self-correcting
   - Output is fed back to the assistant, allowing it to respond and self-correct.
 - 🤖 Support for several LLM [providers][docs-providers]
-  - Use OpenAI, Anthropic, OpenRouter, or serve locally with `llama.cpp`
+  - Use OpenAI, Anthropic, OpenRouter, AI/ML API, or serve locally with `llama.cpp`
 - 🌐 Web UI and REST API
   - Modern web interface at [chat.gptme.org](https://chat.gptme.org) ([gptme-webui])
   - Simple built-in web UI included in the Python package

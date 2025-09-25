@@ -1,4 +1,5 @@
 import logging
+import re
 import shutil
 import sys
 import time
@@ -289,6 +290,7 @@ def list_available_providers() -> list[tuple[Provider, str]]:
         ("openai", "OPENAI_API_KEY"),
         ("anthropic", "ANTHROPIC_API_KEY"),
         ("openrouter", "OPENROUTER_API_KEY"),
+        ("aimlapi", "AIML_API_KEY"),
         ("gemini", "GEMINI_API_KEY"),
         ("groq", "GROQ_API_KEY"),
         ("xai", "XAI_API_KEY"),
@@ -324,6 +326,8 @@ def get_model_from_api_key(api_key: str) -> tuple[str, Provider, str] | None:
         return api_key, "anthropic", "ANTHROPIC_API_KEY"
     elif api_key.startswith("sk-or-"):
         return api_key, "openrouter", "OPENROUTER_API_KEY"
+    elif api_key.startswith("sk-aiml-") or re.fullmatch(r"[0-9a-fA-F]{32}", api_key):
+        return api_key, "aimlapi", "AIML_API_KEY"
     elif api_key.startswith("sk-"):
         return api_key, "openai", "OPENAI_API_KEY"
 

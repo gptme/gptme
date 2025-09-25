@@ -35,6 +35,7 @@ Here is an example:
     OPENAI_API_KEY = ""
     ANTHROPIC_API_KEY = ""
     OPENROUTER_API_KEY = ""
+    AIML_API_KEY = ""
     XAI_API_KEY = ""
     GEMINI_API_KEY = ""
     GROQ_API_KEY = ""

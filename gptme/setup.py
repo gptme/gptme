@@ -604,6 +604,7 @@ def ask_for_api_key():  # pragma: no cover
     providers_table.add_row("Anthropic", "https://console.anthropic.com/settings/keys")
     providers_table.add_row("OpenRouter", "https://openrouter.ai/settings/keys")
     providers_table.add_row("Gemini", "https://aistudio.google.com/app/apikey")
+    providers_table.add_row("AI/ML API", "https://aimlapi.com/")
 
     console.print()
     console.print(providers_table)
