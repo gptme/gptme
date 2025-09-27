@@ -537,10 +537,27 @@ def _prepare_messages_for_api(
                     item = cast(anthropic.types.TextBlockParam, item)
                     item["text"] = item["text"].rstrip()
 
+        # Filter out empty text blocks to prevent API errors
+        filtered_parts = []
+        for part in content_parts:
+            if part.get("type") == "text":
+                text_content = part.get("text", "")
+                # Skip empty text blocks
+                if isinstance(text_content, str) and text_content.strip():
+                    filtered_parts.append(part)
+            else:
+                # Keep all non-text parts
+                filtered_parts.append(part)
+        content_parts = filtered_parts
+
         messages_dicts_new.append({"role": msg["role"], "content": content_parts})
 
     # set for the first system message (static between sessions)
-    system_messages[0]["cache_control"] = {"type": "ephemeral"}
+    # Only set cache_control if the system message has non-empty content
+    if system_messages:
+        system_text = system_messages[0].get("text")
+        if system_text and isinstance(system_text, str) and system_text.strip():
+            system_messages[0]["cache_control"] = {"type": "ephemeral"}
 
     # set cache points at the two last user messages, as suggested in Anthropic docs:
     # > The conversation history (previous messages) is included in the messages array.
@@ -549,6 +566,14 @@ def _prepare_messages_for_api(
     # https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching#continuing-a-multi-turn-conversation
     for msgp in [msg for msg in messages_dicts_new if msg["role"] == "user"][-2:]:
         assert isinstance(msgp["content"], list)
-        msgp["content"][-1]["cache_control"] = {"type": "ephemeral"}  # type: ignore
+        if msgp["content"]:  # Ensure content list is not empty
+            last_content = msgp["content"][-1]
+            # Only set cache_control if this isn't an empty text block
+            if last_content.get("type") != "text" or (
+                last_content.get("text")
+                and isinstance(last_content.get("text"), str)
+                and last_content.get("text").strip()
+            ):
+                last_content["cache_control"] = {"type": "ephemeral"}
 
     return messages_dicts_new, system_messages, tools_dict
