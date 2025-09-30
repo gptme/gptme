@@ -399,6 +399,66 @@ def get_prompt_session() -> PromptSession:
             """Insert newline on Ctrl+J"""
             event.current_buffer.insert_text("\n")
 
+        @kb.add("c-v")  # Add Ctrl+V support for pasting images
+        def _(event):
+            """Paste image from clipboard on Ctrl+V"""
+            from ..util.clipboard import paste_image, paste_text
+            import re
+
+            # First, try to get an image from clipboard
+            image_result = paste_image()
+            if image_result:
+                # Insert a natural message asking to view the image
+                text_to_insert = f"View this image: {image_result}"
+                event.current_buffer.insert_text(text_to_insert)
+                return
+
+            # No image data - check if text might be an image URL or path
+            text = paste_text()
+            if text:
+                text_stripped = text.strip()
+                # Check if it's an image URL (be more lenient with detection)
+                if re.match(r"https?://", text_stripped):
+                    # Check if URL ends with image extension or contains image indicators
+                    is_likely_image = any(
+                        ext in text_stripped.lower()
+                        for ext in [
+                            ".png",
+                            ".jpg",
+                            ".jpeg",
+                            ".gif",
+                            ".bmp",
+                            ".webp",
+                            ".svg",
+                        ]
+                    ) or any(
+                        indicator in text_stripped.lower()
+                        for indicator in ["image", "img", "photo", "picture"]
+                    )
+                    if is_likely_image:
+                        text_to_insert = f"View this image: {text_stripped}"
+                        event.current_buffer.insert_text(text_to_insert)
+                        return
+                # Check if it's a local image path
+                elif Path(text_stripped).exists() and Path(
+                    text_stripped
+                ).suffix.lower() in [
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                    ".gif",
+                    ".bmp",
+                    ".webp",
+                    ".svg",
+                ]:
+                    text_to_insert = f"View this image: {text_stripped}"
+                    event.current_buffer.insert_text(text_to_insert)
+                    return
+
+            # Default: paste text as-is
+            if text:
+                event.current_buffer.insert_text(text)
+
         @kb.add("enter")
         def _(event):
             """Submit on Enter."""
