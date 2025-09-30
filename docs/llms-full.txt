@@ -3016,6 +3016,7 @@ The changelog is also available in the repository releases <https://github.com/g
 .. toctree::
    :maxdepth: 1
 
+   releases/v0.28.2.md
    releases/v0.28.1.md
    releases/v0.28.0.md
    releases/v0.27.0.md
@@ -3025,6 +3026,86 @@ The changelog is also available in the repository releases <https://github.com/g
    releases/v0.24.0.md
    releases/v0.23.0.md
    releases/v0.22.0.md
+   releases/v0.21.0.md
+   releases/v0.20.0.md
+   releases/v0.19.0.md
+   releases/v0.18.0.md
+   releases/v0.17.0.md
+   releases/v0.16.0.md
+   releases/v0.15.0.md
+   releases/v0.14.0.md
+   releases/v0.13.0.md
+   releases/v0.12.0.md
+   releases/v0.11.0.md
+   releases/v0.10.5.md
+   releases/v0.10.4.md
+   releases/v0.10.3.md
+   releases/v0.10.2.md
+   releases/v0.10.1.md
+   releases/v0.10.0.md
+   releases/v0.9.4.md
+   releases/v0.9.3.md
+   releases/v0.9.2.md
+   releases/v0.9.1.md
+   releases/v0.9.0.md
+   releases/v0.8.1.md
+   releases/v0.8.0.md
+   releases/v0.7.0.md
+   releases/v0.6.1.md
+   releases/v0.6.0.md
+   releases/v0.5.0.md
+   releases/v0.4.2.md
+   releases/v0.4.1.md
+   releases/v0.4.0.md
+   releases/v0.3.3.md
+   releases/v0.3.2.md
+   releases/v0.3.1.md
+   releases/v0.3.0.md
+   releases/v0.2.2.md
+   releases/v0.2.1.md
+   releases/v0.1.1.md
+
+
+# v0.28.2
+
+These are the release notes for gptme version v0.28.2.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.28.1:
+
+
+## 📦 gptme
+
+### ✨ Features (3)
+
+ - feat: add dry-run mode for DSPy optimization commands ([`bd8861c5`](https://github.com/gptme/gptme/commit/bd8861c5))
+ - feat: add dedicated gptme-dspy command entry point ([`4c400d9f`](https://github.com/gptme/gptme/commit/4c400d9f))
+ - feat: GEPA in DSPy ([#651](https://github.com/gptme/gptme/issues/651)) ([`014121ce`](https://github.com/gptme/gptme/commit/014121ce))
+
+### 🐛 Fixes (5)
+
+ - fix: add support for sonnet 4.5 ([`991e8ac0`](https://github.com/gptme/gptme/commit/991e8ac0))
+ - fix: fixes to proxy openrouter support ([`7f4e7bf7`](https://github.com/gptme/gptme/commit/7f4e7bf7))
+ - fix(llm): respect LLM_PROXY_URL for OpenRouter models endpoint ([`17b903c9`](https://github.com/gptme/gptme/commit/17b903c9))
+ - fix: make num_trials parameter actually control DSPy optimizers and add CLI options for dataset sizes ([`c447ed5c`](https://github.com/gptme/gptme/commit/c447ed5c))
+ - fix: improvements to evals/dspy/gepa ([#652](https://github.com/gptme/gptme/issues/652)) ([`a1a17ea5`](https://github.com/gptme/gptme/commit/a1a17ea5))
+
+### 🔨 Misc (5)
+
+ - chore: bump version to 0.28.2 ([`3b7d5fc5`](https://github.com/gptme/gptme/commit/3b7d5fc5))
+ - refactor: split GEPA into separate optimize-gepa subcommand with proper budget configuration ([`67588b16`](https://github.com/gptme/gptme/commit/67588b16))
+ - docs: added release notes to index ([`4229c49a`](https://github.com/gptme/gptme/commit/4229c49a))
+ - docs: added release notes for v0.28.1 ([`9836de12`](https://github.com/gptme/gptme/commit/9836de12))
+ - chore: updated changelog_contributors.csv cache ([`41f40093`](https://github.com/gptme/gptme/commit/41f40093))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.28.1...v0.28.2
 
 
 # v0.28.1
@@ -3969,6 +4050,1709 @@ Changes since v0.21.0:
 *(excluded 2 less relevant [commits](https://github.com/gptme/gptme/compare/v0.21.0...v0.22.0))*
 
 **Full Changelog**: https://github.com/gptme/gptme/compare/v0.21.0...v0.22.0
+
+
+# v0.21.0
+
+These are the release notes for gptme version v0.21.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@0xbrayo, @erikbjare
+
+## Changelog
+
+Changes since v0.20.0:
+
+
+## 📦 gptme
+
+### ✨ Features (4)
+
+ - feat: added support for groq provider ([`4299cd02`](https://github.com/gptme/gptme/commit/4299cd02))
+ - feat:whitelist some commands ([`7f1ba2be`](https://github.com/gptme/gptme/commit/7f1ba2be))
+ - feat: added support for xAI/grok ([`d7cebbae`](https://github.com/gptme/gptme/commit/d7cebbae))
+ - feat: started working on ncurses ui ([`d3413eab`](https://github.com/gptme/gptme/commit/d3413eab))
+
+### 🐛 Fixes (19)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: added 'head' to allowlisted commands in shell tool ([`7cc752f6`](https://github.com/gptme/gptme/commit/7cc752f6))
+ - fix: compile cmd_regex ([#222](https://github.com/gptme/gptme/issues/222)) ([`623a52d1`](https://github.com/gptme/gptme/commit/623a52d1))
+ - fix: print used model on startup ([`6cf4001d`](https://github.com/gptme/gptme/commit/6cf4001d))
+ - fix: better error if attempting to run on Windows, refactor readline stuff ([#221](https://github.com/gptme/gptme/issues/221)) ([`bd8b746b`](https://github.com/gptme/gptme/commit/bd8b746b))
+ - fix: update to use latest Sonnet model by default, improve typing ([`6e701686`](https://github.com/gptme/gptme/commit/6e701686))
+ - fix: dont catch interrupts until conversation has begun ([`2be45a88`](https://github.com/gptme/gptme/commit/2be45a88))
+ - fix: added ncgptme and gptme-nc script entrypoints for ncurses tui ([`7b19b760`](https://github.com/gptme/gptme/commit/7b19b760))
+ - fix: fixed typing in ncurses.py ([`f018c6c1`](https://github.com/gptme/gptme/commit/f018c6c1))
+ - fix: improved shell tool preview format ([`756e4207`](https://github.com/gptme/gptme/commit/756e4207))
+ - fix: change OPENAI_API_BASE to OPENAI_BASE_URL ([`30e3f01e`](https://github.com/gptme/gptme/commit/30e3f01e))
+ - fix: ensure subagent logdir unique ([`f735111e`](https://github.com/gptme/gptme/commit/f735111e))
+ - fix: changed subagent tool param order and example ([`2bdb48fa`](https://github.com/gptme/gptme/commit/2bdb48fa))
+ - fix: fixed display bug in confirm prompt ([`b9f8cd89`](https://github.com/gptme/gptme/commit/b9f8cd89))
+ - fix: fixed bug where user prompt not included in request ([`53d160eb`](https://github.com/gptme/gptme/commit/53d160eb))
+ - fix: fixed prompt_user returning empty string when interrupted ([`440aedb0`](https://github.com/gptme/gptme/commit/440aedb0))
+ - fix: fixed leftover call to ask_execute instead of confirm func ([`b7d2a3fe`](https://github.com/gptme/gptme/commit/b7d2a3fe))
+ - fix: fixed incorrectly asking for confirmation when impersonating ([`94983436`](https://github.com/gptme/gptme/commit/94983436))
+ - fix: more fixes/improvements to treeofthoughts.py ([`d54df51d`](https://github.com/gptme/gptme/commit/d54df51d))
+ - fix: re-raise tool use errors in tests ([`0ada191e`](https://github.com/gptme/gptme/commit/0ada191e))
+
+</p>
+</details>
+
+### 🔨 Misc (14)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: bump version to 0.21.0 ([`852e6f40`](https://github.com/gptme/gptme/commit/852e6f40))
+ - docs: added more WIP features to README ([`2d8b6020`](https://github.com/gptme/gptme/commit/2d8b6020))
+ - docs: added note about Windows support ([`b8ce0406`](https://github.com/gptme/gptme/commit/b8ce0406))
+ - docs: added docstring to ncurses.py ([`5bb00249`](https://github.com/gptme/gptme/commit/5bb00249))
+ - docs: add note about limitations of small local models, convert page to rst ([`f521c71b`](https://github.com/gptme/gptme/commit/f521c71b))
+ - format: fixed lints ([`ff2277ca`](https://github.com/gptme/gptme/commit/ff2277ca))
+ - refactor: refactor ncurses.py and add --no-color cli argument ([`942996c9`](https://github.com/gptme/gptme/commit/942996c9))
+ - docs: added basic docs for configuration files (fixes [#173](https://github.com/gptme/gptme/issues/173)) ([`acd0ceee`](https://github.com/gptme/gptme/commit/acd0ceee))
+ - docs(README): removed old ToC link ([`5801bbff`](https://github.com/gptme/gptme/commit/5801bbff))
+ - docs: fixed docs building after refactor ([`52eaed9f`](https://github.com/gptme/gptme/commit/52eaed9f))
+ - refactor: refactor how confirmation works, enabling LLM-guided confirmation and simplifying confirmation support in server ([`b843e889`](https://github.com/gptme/gptme/commit/b843e889))
+ - refactor: work on programmatic interface, refactored LogManager into mutable manager and immutable Log dataclass, added wip treeofthought script ([`d421cc8c`](https://github.com/gptme/gptme/commit/d421cc8c))
+ - format: fixed formatting after pre-commit setup ([`4ee9761a`](https://github.com/gptme/gptme/commit/4ee9761a))
+ - docs: fixed incorrect OPENAI_API_BASE url ([`732c5b85`](https://github.com/gptme/gptme/commit/732c5b85))
+
+</p>
+</details>
+
+*(excluded 4 less relevant [commits](https://github.com/gptme/gptme/compare/v0.20.0...v0.21.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.20.0...v0.21.0
+
+
+# v0.20.0
+
+These are the release notes for gptme version v0.20.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.19.2:
+
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat: updated webui style, with sidebar ([`bd44e5c3`](https://github.com/gptme/gptme/commit/bd44e5c3))
+
+### 🐛 Fixes (10)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: use importlib.util.find_spec instead of attempting costly imports at startup, reducing startup time by ~1s ([`7b755202`](https://github.com/gptme/gptme/commit/7b755202))
+ - fix(webui): put `<thinking>` tags into `<details>`, minor style improvements ([`04b3109a`](https://github.com/gptme/gptme/commit/04b3109a))
+ - fix(webui): switch to marked over showdown, improved styling and misc fixes ([`0a868ba3`](https://github.com/gptme/gptme/commit/0a868ba3))
+ - fix: catch exceptions when executing tools ([`9560660e`](https://github.com/gptme/gptme/commit/9560660e))
+ - fix: handle bad patches better ([`771734c4`](https://github.com/gptme/gptme/commit/771734c4))
+ - fix: limit image size, fixes exception for large images (fixes [#185](https://github.com/gptme/gptme/issues/185)) ([#188](https://github.com/gptme/gptme/issues/188)) ([`45cfbaca`](https://github.com/gptme/gptme/commit/45cfbaca))
+ - fix: fixed incorrectly nested string in f-string ([`4aa3f2da`](https://github.com/gptme/gptme/commit/4aa3f2da))
+ - fix: made shell tool more strict, now requires exact 'shell' langtag to run ([`578adcc9`](https://github.com/gptme/gptme/commit/578adcc9))
+ - fix: use stdout/stderr as langtags in shell output, instead of as headings ([`c102806d`](https://github.com/gptme/gptme/commit/c102806d))
+ - fix: log warning if allowlisted tool could not be found ([`f1864c75`](https://github.com/gptme/gptme/commit/f1864c75))
+
+</p>
+</details>
+
+### 🔨 Misc (9)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: bump version to 0.20.0 ([`5d0b138c`](https://github.com/gptme/gptme/commit/5d0b138c))
+ - docs: added startup time to 'Are we tiny?' page ([`cde7937d`](https://github.com/gptme/gptme/commit/cde7937d))
+ - refactor: extracted js part of webui into seperate file ([`919fe93a`](https://github.com/gptme/gptme/commit/919fe93a))
+ - docs: improved styling of demos ([`018e6ff6`](https://github.com/gptme/gptme/commit/018e6ff6))
+ - docs: more use of rubric::, use sphinxcontrib.asciinema to embed player ([`fdfc6589`](https://github.com/gptme/gptme/commit/fdfc6589))
+ - docs: improved getting started, tool docs, and docstrings ([`5c827eb4`](https://github.com/gptme/gptme/commit/5c827eb4))
+ - docs: updated docs for running with ollama (litellm no longer needed) ([`f2586024`](https://github.com/gptme/gptme/commit/f2586024))
+ - docs: updated docs for running locally with ollama/litellm ([`fa59310f`](https://github.com/gptme/gptme/commit/fa59310f))
+ - improve: enhance API key setup UX and error handling ([`7231aa96`](https://github.com/gptme/gptme/commit/7231aa96))
+
+</p>
+</details>
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.19.2...v0.20.0
+
+
+# v0.19.0
+
+These are the release notes for gptme version v0.19.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.18.2:
+
+
+## 📦 gptme
+
+### ✨ Features (3)
+
+ - feat: added screenshot tool ([#92](https://github.com/gptme/gptme/issues/92)) ([`f4c63c2a`](https://github.com/gptme/gptme/commit/f4c63c2a))
+ - feat: added vision tool ([`597c66c5`](https://github.com/gptme/gptme/commit/597c66c5))
+ - feat: added -t/--tools option to specify which tools to load ([`48d559b4`](https://github.com/gptme/gptme/commit/48d559b4))
+
+### 🐛 Fixes (13)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: fixed lint ([`a3bcf495`](https://github.com/gptme/gptme/commit/a3bcf495))
+ - fix: removed incorrect calls to register_function, removed dead code ([`a4fa62ef`](https://github.com/gptme/gptme/commit/a4fa62ef))
+ - fix: more patch tool refactor ([`9627b73b`](https://github.com/gptme/gptme/commit/9627b73b))
+ - fix: removed emoji from ask_execute, added secret `auto` answer in ask_execute ([`5eddc6a5`](https://github.com/gptme/gptme/commit/5eddc6a5))
+ - fix: added patch previews ([`dd7be0dd`](https://github.com/gptme/gptme/commit/dd7be0dd))
+ - fix: completed diff_minimal ([`df9d83cf`](https://github.com/gptme/gptme/commit/df9d83cf))
+ - fix: flush stdin before asking to execute (prevent unread input from answering before asked) ([`6ab4dbe2`](https://github.com/gptme/gptme/commit/6ab4dbe2))
+ - fix: implemented example_to_xml to support xml-ify prompt ([#146](https://github.com/gptme/gptme/issues/146)) ([`5f37d104`](https://github.com/gptme/gptme/commit/5f37d104))
+ - fix: init tools in evals ([`44e76ff4`](https://github.com/gptme/gptme/commit/44e76ff4))
+ - fix: improved patch warning message on large patches ([`5e635b6c`](https://github.com/gptme/gptme/commit/5e635b6c))
+ - fix: froze more dataclasses ([`953f8016`](https://github.com/gptme/gptme/commit/953f8016))
+ - fix: improve tool init logic for tools needing it (python), added toolspec args docs ([`f8e5cd68`](https://github.com/gptme/gptme/commit/f8e5cd68))
+ - fix: use prompt chaining in subagent task to improve reliability ([`0dd6583c`](https://github.com/gptme/gptme/commit/0dd6583c))
+
+</p>
+</details>
+
+### 🔨 Misc (8)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: bump version to 0.19.0 ([`bbe3586a`](https://github.com/gptme/gptme/commit/bbe3586a))
+ - docs: remove completed TODOs ([`337b025c`](https://github.com/gptme/gptme/commit/337b025c))
+ - refactor: refactor patch tool, with plans for producing minimal diffs to replace inefficient diffs in log ([`e2b2d6a0`](https://github.com/gptme/gptme/commit/e2b2d6a0))
+ - docs: fixed docstring for gptme.prompts ([`027cb06f`](https://github.com/gptme/gptme/commit/027cb06f))
+ - docs: keep copyright year up-to-date ([`1ac4aee0`](https://github.com/gptme/gptme/commit/1ac4aee0))
+ - docs: fixed automation docs ([`a70b5b5e`](https://github.com/gptme/gptme/commit/a70b5b5e))
+ - docs: changed erik.bjareholt.com/gptme/ links to gptme.org/ ([`52baf5b9`](https://github.com/gptme/gptme/commit/52baf5b9))
+ - docs: added minimal automation docs ([#144](https://github.com/gptme/gptme/issues/144)) ([`3902b865`](https://github.com/gptme/gptme/commit/3902b865))
+
+</p>
+</details>
+
+*(excluded 2 less relevant [commits](https://github.com/gptme/gptme/compare/v0.18.2...v0.19.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.18.2...v0.19.0
+
+
+# v0.18.0
+
+These are the release notes for gptme version v0.18.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.17.0:
+
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat: added better interrupt handling, requiring two interrupts within 1 sec to exit (when not generating response or executing tools) ([`70290590`](https://github.com/gptme/gptme/commit/70290590))
+
+### 🐛 Fixes (16)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: nit to python tool instructions ([`94b1aaf1`](https://github.com/gptme/gptme/commit/94b1aaf1))
+ - fix: refactored cli params, removed special 'ask' value for name ([`cbf1d12b`](https://github.com/gptme/gptme/commit/cbf1d12b))
+ - fix: persist pinned and hide to jsonl, only include files, pinned, etc in toml output if set ([`c54c1f24`](https://github.com/gptme/gptme/commit/c54c1f24))
+ - fix: fixed bug in refactor ([`43f912eb`](https://github.com/gptme/gptme/commit/43f912eb))
+ - fix: fix resume after refactor ([`5d1a7612`](https://github.com/gptme/gptme/commit/5d1a7612))
+ - fix: minor fixes, set Console.log_path=False, undo /exit message before exit ([`711cab4c`](https://github.com/gptme/gptme/commit/711cab4c))
+ - fix: fixes to cli, improved interrupt, refactored conversation picking to not run when piped, dont run assistant until user message present (project context fix) ([`417b319b`](https://github.com/gptme/gptme/commit/417b319b))
+ - fix: improve rich usage, change calls to use gptme.util.console.{print,input,log} ([`8cf53cbd`](https://github.com/gptme/gptme/commit/8cf53cbd))
+ - fix: improved browser tool search output, if python tool had result then skip stdout in msg ([`4aaf2023`](https://github.com/gptme/gptme/commit/4aaf2023))
+ - fix: updated system prompt to mention `<thinking>` tags ([`c686dab8`](https://github.com/gptme/gptme/commit/c686dab8))
+ - fix: limit shell output ([`8a62859b`](https://github.com/gptme/gptme/commit/8a62859b))
+ - fix: limited default number of listed conversations to 20 in webui ([`84ab2201`](https://github.com/gptme/gptme/commit/84ab2201))
+ - fix: added OpenRouter url when asking for API key ([`87280127`](https://github.com/gptme/gptme/commit/87280127))
+ - fix: fix conversation list order in picker, lazily load conversation metadata, add get_user_conversations(), add ?limit=`<int>` to /api/conversations and use it in webui ([`9c53aa0f`](https://github.com/gptme/gptme/commit/9c53aa0f))
+ - fix: set gptme.__version__ ([`abcfec0a`](https://github.com/gptme/gptme/commit/abcfec0a))
+ - fix: fixed prompt chaining, added test (fixes [#106](https://github.com/gptme/gptme/issues/106)) ([`deac8dba`](https://github.com/gptme/gptme/commit/deac8dba))
+
+</p>
+</details>
+
+### 🔨 Misc (15)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: bump version to 0.18.0 ([`4a7404f4`](https://github.com/gptme/gptme/commit/4a7404f4))
+ - refactor: separated cli/interactive stuff from chat() into main() ([`9808166d`](https://github.com/gptme/gptme/commit/9808166d))
+ - docs: added more examples ([`da88a5f5`](https://github.com/gptme/gptme/commit/da88a5f5))
+ - docs: improved docs config, fixed warnings, build in strict mode in CI (no warning allowed) ([`ae45141f`](https://github.com/gptme/gptme/commit/ae45141f))
+ - tests: fixed browser search test ([`a106d5c0`](https://github.com/gptme/gptme/commit/a106d5c0))
+ - docs(README): added ToC ([`e88d4265`](https://github.com/gptme/gptme/commit/e88d4265))
+ - docs: added link to examples from intro ([`6d1471e0`](https://github.com/gptme/gptme/commit/6d1471e0))
+ - refactor: renamed function to remove 'private' underscore prefix ([`a7a5cf66`](https://github.com/gptme/gptme/commit/a7a5cf66))
+ - docs: updated README ([`5983f5b5`](https://github.com/gptme/gptme/commit/5983f5b5))
+ - tests: fixed test ([`d0a946b2`](https://github.com/gptme/gptme/commit/d0a946b2))
+ - docs: added TODO comment ([`8ad35e15`](https://github.com/gptme/gptme/commit/8ad35e15))
+ - docs: minor improved examples ([`1158d95b`](https://github.com/gptme/gptme/commit/1158d95b))
+ - docs: improved docs structure (User & Dev guide), improved CLI & API Reference, extracted Prompts as new page, added Examples ([`e1b881a3`](https://github.com/gptme/gptme/commit/e1b881a3))
+ - format: fixed formatting and typing ([`68c25526`](https://github.com/gptme/gptme/commit/68c25526))
+ - docs: added external link to docs index/sidebar ([`c9bc4884`](https://github.com/gptme/gptme/commit/c9bc4884))
+
+</p>
+</details>
+
+*(excluded 8 less relevant [commits](https://github.com/gptme/gptme/compare/v0.17.0...v0.18.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.17.0...v0.18.0
+
+
+# v0.17.0
+
+These are the release notes for gptme version v0.17.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.16.0:
+
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat: add support for XML-formatted tool calls ([#121](https://github.com/gptme/gptme/issues/121)) ([`d0b070fc`](https://github.com/gptme/gptme/commit/d0b070fc))
+
+### 🐛 Fixes (23)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: changed warning log to debug ([`0c4c1869`](https://github.com/gptme/gptme/commit/0c4c1869))
+ - fix: minor eval refactor (improved type names), clarified python tool instructions ([`e0c79a41`](https://github.com/gptme/gptme/commit/e0c79a41))
+ - fix: disable tqdm in tests ([`77ef4fa1`](https://github.com/gptme/gptme/commit/77ef4fa1))
+ - fix: reduced number of decimals in eval output ([`b216179b`](https://github.com/gptme/gptme/commit/b216179b))
+ - fix: removed spammy message when not in a git repo ([`be3d0232`](https://github.com/gptme/gptme/commit/be3d0232))
+ - fix: futher reliability improvements to evals ([`622e5744`](https://github.com/gptme/gptme/commit/622e5744))
+ - fix: added tqdm progress bar to eval ([`cd33e06d`](https://github.com/gptme/gptme/commit/cd33e06d))
+ - fix: nitpick ([`11f1e7ee`](https://github.com/gptme/gptme/commit/11f1e7ee))
+ - fix: improved typing in gptme.evals.run ([`6d00be7a`](https://github.com/gptme/gptme/commit/6d00be7a))
+ - fix: more fixes, speed up list_chats and search_chats by lazily searching chronologically ([`8c3cb778`](https://github.com/gptme/gptme/commit/8c3cb778))
+ - fix: more fixes and store eval case results in result directory ([`1e23ecbb`](https://github.com/gptme/gptme/commit/1e23ecbb))
+ - fix: comment out warning for unknown codeblock types, add lru_cache to frequently called get_tool_for_langtag, added wip llm_openai.list_models ([`aff213f6`](https://github.com/gptme/gptme/commit/aff213f6))
+ - fix: refactored evals, fixed leaked semaphore warnings, read logs and naively compute tokens from output ([`3bbd88b4`](https://github.com/gptme/gptme/commit/3bbd88b4))
+ - fix: improved system prompt, added system prompt to docs ([#123](https://github.com/gptme/gptme/issues/123)) ([`62220b1a`](https://github.com/gptme/gptme/commit/62220b1a))
+ - fix: refactored and improved evals ([#122](https://github.com/gptme/gptme/issues/122)) ([`e4eb81ca`](https://github.com/gptme/gptme/commit/e4eb81ca))
+ - fix: improved eval stream capturing logic ([`eecabac8`](https://github.com/gptme/gptme/commit/eecabac8))
+ - fix: improved evals output capturing, don't capture by default if a single test is run, and write streams to results directory ([`8e9ad4c1`](https://github.com/gptme/gptme/commit/8e9ad4c1))
+ - fix: process eval run futures in the order they are finished, instead of waiting in order ([`5601fae5`](https://github.com/gptme/gptme/commit/5601fae5))
+ - fix: remove the missing datascience packages warning at python tool init ([`09f115f2`](https://github.com/gptme/gptme/commit/09f115f2))
+ - fix: add ignorelist for certain known non-executable codeblock langs ([`7b82b033`](https://github.com/gptme/gptme/commit/7b82b033))
+ - fix: lowered logging level for some spammy messages ([`9a729af0`](https://github.com/gptme/gptme/commit/9a729af0))
+ - fix: disable placeholder-aware patching if placeholders in original file, improve error message if file not found ([`1a1e9fb6`](https://github.com/gptme/gptme/commit/1a1e9fb6))
+ - fix: dont ask for version in bump_version script if already on tag and pyproject updated ([`68aae660`](https://github.com/gptme/gptme/commit/68aae660))
+
+</p>
+</details>
+
+### 🔨 Misc (11)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: bump version to 0.17.0 ([`3044149e`](https://github.com/gptme/gptme/commit/3044149e))
+ - tests: fixed test_search_chats test ([`56ffb5a7`](https://github.com/gptme/gptme/commit/56ffb5a7))
+ - docs: updated README ([`a837b327`](https://github.com/gptme/gptme/commit/a837b327))
+ - tests: added particle effect integration-test example ([`5aa79555`](https://github.com/gptme/gptme/commit/5aa79555))
+ - tests: fixed broken test in CI ([`49472653`](https://github.com/gptme/gptme/commit/49472653))
+ - refactor: refactored Message into a frozen dataclass ([`8887ca8b`](https://github.com/gptme/gptme/commit/8887ca8b))
+ - refactor: moved openai model metadata into seperate file, added make update-models to use gptme to update it ([`11221dbc`](https://github.com/gptme/gptme/commit/11221dbc))
+ - chore: updated gitignore ([`f2b8be1b`](https://github.com/gptme/gptme/commit/f2b8be1b))
+ - docs: updated README ([`ee875999`](https://github.com/gptme/gptme/commit/ee875999))
+ - tests: fixed test_eval_cli running on models than intended, and not the tested provider ([`d0ab0429`](https://github.com/gptme/gptme/commit/d0ab0429))
+ - refactor: refactored eval TypedDict types to dataclasses ([`25de7f71`](https://github.com/gptme/gptme/commit/25de7f71))
+
+</p>
+</details>
+
+*(excluded 5 less relevant [commits](https://github.com/gptme/gptme/compare/v0.16.0...v0.17.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.16.0...v0.17.0
+
+
+# v0.16.0
+
+These are the release notes for gptme version v0.16.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.15.0:
+
+
+## 📦 gptme
+
+### ✨ Features (7)
+
+ - feat: basic support for openai/o1-preview and openai/o1-mini ([#117](https://github.com/gptme/gptme/issues/117)) ([`cf13bae8`](https://github.com/gptme/gptme/commit/cf13bae8))
+ - feat: added youtube tool ([#116](https://github.com/gptme/gptme/issues/116)) ([`ad669920`](https://github.com/gptme/gptme/commit/ad669920))
+ - feat: support placeholders in patches ([#114](https://github.com/gptme/gptme/issues/114)) ([`2e08a3a1`](https://github.com/gptme/gptme/commit/2e08a3a1))
+ - feat: added read_chat function to chats tool ([#115](https://github.com/gptme/gptme/issues/115)) ([`527ce5ad`](https://github.com/gptme/gptme/commit/527ce5ad))
+ - feat: added list_chats to chats tool, and cleaned up/refactored non-ToolSpec-using tools ([#110](https://github.com/gptme/gptme/issues/110)) ([`5cb3936d`](https://github.com/gptme/gptme/commit/5cb3936d))
+ - feat: added a basic tool to search past conversation logs ([#109](https://github.com/gptme/gptme/issues/109)) ([`4e361093`](https://github.com/gptme/gptme/commit/4e361093))
+ - feat: added terminal bell to alert the user they have been returned control ([`1da7d047`](https://github.com/gptme/gptme/commit/1da7d047))
+
+### 🐛 Fixes (13)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: support multiple patches in a single codeblock ([#118](https://github.com/gptme/gptme/issues/118)) ([`ae3ea89b`](https://github.com/gptme/gptme/commit/ae3ea89b))
+ - fix: made eval harness more reliable, using Manager ([#119](https://github.com/gptme/gptme/issues/119)) ([`0787f597`](https://github.com/gptme/gptme/commit/0787f597))
+ - fix: remove spammy log message when youtube tool not available ([`6ab895c2`](https://github.com/gptme/gptme/commit/6ab895c2))
+ - fix: extended the patch tool prompt to not strictly forbid placeholders, mention scoping strategies and fallback to save ([`7cf2119f`](https://github.com/gptme/gptme/commit/7cf2119f))
+ - fix: added ./projects and ./demos to gitignore ([`ef7d9fd8`](https://github.com/gptme/gptme/commit/ef7d9fd8))
+ - fix: change error on unknown codeblock langtags into warning, dont warn on empty langtag ([`481ab38e`](https://github.com/gptme/gptme/commit/481ab38e))
+ - fix: minor improvements to --help output, updated --help example output in README ([`78f461ca`](https://github.com/gptme/gptme/commit/78f461ca))
+ - fix: fixed excessive whitespace in patch example prompt ([`f0818c3d`](https://github.com/gptme/gptme/commit/f0818c3d))
+ - fix: fixed formatting in tools/base.py ([`e3987bdd`](https://github.com/gptme/gptme/commit/e3987bdd))
+ - fix: added gptme/server/__init__.py ([`02a3ecf4`](https://github.com/gptme/gptme/commit/02a3ecf4))
+ - fix: improved how ToolUse examples are formatted ([`1e6574f1`](https://github.com/gptme/gptme/commit/1e6574f1))
+ - fix: fixed bug in how examples were generated for patch tool ([`c8489ecc`](https://github.com/gptme/gptme/commit/c8489ecc))
+ - fix: dont crash on unknown shell syntax ([`dd6fff7c`](https://github.com/gptme/gptme/commit/dd6fff7c))
+
+</p>
+</details>
+
+### 🔨 Misc (5)
+
+ - chore: bump version to 0.16.0 ([`d7f170cd`](https://github.com/gptme/gptme/commit/d7f170cd))
+ - tests: bumped short token allowed token length ([`0208e76a`](https://github.com/gptme/gptme/commit/0208e76a))
+ - refactor: refactor tools, codeblock, and tooluse ([#113](https://github.com/gptme/gptme/issues/113)) ([`0cad5ca7`](https://github.com/gptme/gptme/commit/0cad5ca7))
+ - tests: added minimal tests for chats tool ([`d079af43`](https://github.com/gptme/gptme/commit/d079af43))
+ - format: formatted codebase ([`740f1329`](https://github.com/gptme/gptme/commit/740f1329))
+
+*(excluded 3 less relevant [commits](https://github.com/gptme/gptme/compare/v0.15.0...v0.16.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.15.0...v0.16.0
+
+
+# v0.15.0
+
+These are the release notes for gptme version v0.15.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.14.2:
+
+
+## 📦 gptme
+
+### ✨ Features (4)
+
+ - feat: added `screenshot_url` function to browser tool ([`9cd38500`](https://github.com/gptme/gptme/commit/9cd38500))
+ - feat(bot): support non-change questions/answers ([`de9844d6`](https://github.com/gptme/gptme/commit/de9844d6))
+ - feat: added special prompting for --non-interactive ([`9d912c37`](https://github.com/gptme/gptme/commit/9d912c37))
+ - feat(github-action): use Docker for gptme execution ([`97f87247`](https://github.com/gptme/gptme/commit/97f87247))
+
+### 🐛 Fixes (11)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: minor improvement to patch tool prompt ([`722b2c4a`](https://github.com/gptme/gptme/commit/722b2c4a))
+ - fix: fixed bug with extra 'Skipped hidden system messages' lines from workspace prompt ([`5937cb7a`](https://github.com/gptme/gptme/commit/5937cb7a))
+ - fix(anthropic): fixed vision and other issues with preparing messages ([`b9b84554`](https://github.com/gptme/gptme/commit/b9b84554))
+ - fix: don't include paths for slash-command arguments, dont inlude workspace prompt on resume ([`4900d190`](https://github.com/gptme/gptme/commit/4900d190))
+ - fix: catch rich.print() errors and fall back to builtins.print() when printing messages ([`8698befd`](https://github.com/gptme/gptme/commit/8698befd))
+ - fix: fixed bug checking for browser tool when not available ([`f86569df`](https://github.com/gptme/gptme/commit/f86569df))
+ - fix: set session size for tmux tool, fixed wrong tmux examples (terminal instead of tmux) ([`1ef45875`](https://github.com/gptme/gptme/commit/1ef45875))
+ - fix: changed tabulate tablefmt in eval output ([`42518547`](https://github.com/gptme/gptme/commit/42518547))
+ - fix: fixed docker workspace permissions in bot action ([`aee7f95b`](https://github.com/gptme/gptme/commit/aee7f95b))
+ - fix: switch from timeout-minutes to using `timeout` command in bot action step ([`fa23c669`](https://github.com/gptme/gptme/commit/fa23c669))
+ - fix: add 'shell' to shell tool's block_types ([`d2c48790`](https://github.com/gptme/gptme/commit/d2c48790))
+
+</p>
+</details>
+
+### 🔨 Misc (9)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: bump version to 0.15.0 ([`01c48121`](https://github.com/gptme/gptme/commit/01c48121))
+ - docs: added TODO comment in python tool about which venv the repl should ideally run in ([`0d8eb85f`](https://github.com/gptme/gptme/commit/0d8eb85f))
+ - docs: fixed bad reference ([`780b3c85`](https://github.com/gptme/gptme/commit/780b3c85))
+ - refactor(eval): refactored gptme.eval module, splitting gptme.eval.evals into gptme.eval.suites.{basic, init-project, browser} ([`bfe5e1b8`](https://github.com/gptme/gptme/commit/bfe5e1b8))
+ - docs: removed Inputs section from bot.md ([`e18dcb1e`](https://github.com/gptme/gptme/commit/e18dcb1e))
+ - docs: renamed webui.rst to server.rst, added bot.md to index and updated instructions ([`18b7268d`](https://github.com/gptme/gptme/commit/18b7268d))
+ - docs: added example of eval run output ([`c1987fa3`](https://github.com/gptme/gptme/commit/c1987fa3))
+ - tests: fixed blinking test ([`c6953b39`](https://github.com/gptme/gptme/commit/c6953b39))
+ - tests: clarified that we're testing so that it doesnt try to show runnable examples ([`8514bd33`](https://github.com/gptme/gptme/commit/8514bd33))
+
+</p>
+</details>
+
+*(excluded 20 less relevant [commits](https://github.com/gptme/gptme/compare/v0.14.2...v0.15.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.14.2...v0.15.0
+
+
+# v0.14.0
+
+These are the release notes for gptme version v0.14.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.13.2:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: anthropic prompt caching beta ([`bb3d9a58`](https://github.com/gptme/gptme/commit/bb3d9a58))
+ - feat: started working on vision ([`7b0c5b0f`](https://github.com/gptme/gptme/commit/7b0c5b0f))
+
+### 🐛 Fixes (25)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: improved test flakiness ([`0758c4d4`](https://github.com/gptme/gptme/commit/0758c4d4))
+ - fix: check if gitignore exists ([`d664f4b2`](https://github.com/gptme/gptme/commit/d664f4b2))
+ - fix: moved vue@create example into bash tool (dont try to do it interactively) ([`5ed36eb8`](https://github.com/gptme/gptme/commit/5ed36eb8))
+ - fix: switch to ```ipython syntax for executing with python tool, to differentiate from code samples (see [#67](https://github.com/gptme/gptme/issues/67)) ([`42ee56ab`](https://github.com/gptme/gptme/commit/42ee56ab))
+ - fix: changed save format to be more explicit ([`68077b6d`](https://github.com/gptme/gptme/commit/68077b6d))
+ - fix: removed spammy warning ([`90aa4a62`](https://github.com/gptme/gptme/commit/90aa4a62))
+ - fix: removed use of NotRequired for TypedDict (not in Python 3.10) ([`cfce1303`](https://github.com/gptme/gptme/commit/cfce1303))
+ - fix: use anthropic api max_retries instead of custom retry_anthropic decorator ([`008f58c5`](https://github.com/gptme/gptme/commit/008f58c5))
+ - fix: added retry_anthropic decorator for rate limits ([`d37d7fbc`](https://github.com/gptme/gptme/commit/d37d7fbc))
+ - fix: fixed to evals, capture eval output on timeout/terminate ([`cd0862a7`](https://github.com/gptme/gptme/commit/cd0862a7))
+ - fix: fixed spammy prints ([`855a46b0`](https://github.com/gptme/gptme/commit/855a46b0))
+ - fix: clarified return format for subagent ([`e5e2a9ab`](https://github.com/gptme/gptme/commit/e5e2a9ab))
+ - fix: fixed bug in transform_examples_to_chat_directives ([`2997aa43`](https://github.com/gptme/gptme/commit/2997aa43))
+ - fix: print logs dir with --version command ([`1ca6127f`](https://github.com/gptme/gptme/commit/1ca6127f))
+ - fix: enabled stricter linting and fixed lints (apparently needed given a25aa7d369dec79341500bcf735e4237def53052) ([`bf67b323`](https://github.com/gptme/gptme/commit/bf67b323))
+ - fix: fixed nasty bug with mutable argument default ([`a25aa7d3`](https://github.com/gptme/gptme/commit/a25aa7d3))
+ - fix: switch recommended openai model to gpt-4o ([`b3582aca`](https://github.com/gptme/gptme/commit/b3582aca))
+ - fix: moved len_tokens and msgs2dicts from util.py to message.py ([`94bade33`](https://github.com/gptme/gptme/commit/94bade33))
+ - fix: support nested codeblocks, rewrote/refactored codeblock parsing/management ([`3e291a4f`](https://github.com/gptme/gptme/commit/3e291a4f))
+ - fix: fixed incorrect storage format for `Message.to_dict` ([`07f1cbbf`](https://github.com/gptme/gptme/commit/07f1cbbf))
+ - fix: added preliminary nested codeblock support ([`885e544b`](https://github.com/gptme/gptme/commit/885e544b))
+ - fix: added openai vision support ([`6bbec93b`](https://github.com/gptme/gptme/commit/6bbec93b))
+ - fix: completed basic vision support ([`f1846079`](https://github.com/gptme/gptme/commit/f1846079))
+ - fix: correct extremely short 'Thinking...' message, now wait until first character ([`b25e576c`](https://github.com/gptme/gptme/commit/b25e576c))
+ - fix: typing for subagent tool, added --check-untypes-defs to mypy ([`d94a71e5`](https://github.com/gptme/gptme/commit/d94a71e5))
+
+</p>
+</details>
+
+### 🔨 Misc (20)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: bumped version to v0.14.0 ([`d4c55b61`](https://github.com/gptme/gptme/commit/d4c55b61))
+ - refactor: renamed terminal tool to tmux ([`79355bc6`](https://github.com/gptme/gptme/commit/79355bc6))
+ - tests: increase max tokens for full system prompt significantly ([`c785cfef`](https://github.com/gptme/gptme/commit/c785cfef))
+ - tests: made test_subprocess less flaky ([`34234742`](https://github.com/gptme/gptme/commit/34234742))
+ - tests: added difficult but reasonably simple integration test example (create vite project, build simple app) ([`57b6febb`](https://github.com/gptme/gptme/commit/57b6febb))
+ - docs(README): minor improvements ([`c43cc8a1`](https://github.com/gptme/gptme/commit/c43cc8a1))
+ - docs(README): misc minor improvements ([`c705c801`](https://github.com/gptme/gptme/commit/c705c801))
+ - tests: removed uninteresting examples from test-integration.sh ([`18c1afa0`](https://github.com/gptme/gptme/commit/18c1afa0))
+ - docs: added links to top of README ([`b15d6865`](https://github.com/gptme/gptme/commit/b15d6865))
+ - docs(README): added mention that vision works, 'GPTMe' -> 'gptme' for title, mention OpenRouter support ([`4e39f634`](https://github.com/gptme/gptme/commit/4e39f634))
+ - tests: run both eval tests (cli and direct call) for better coverage somehow ([`859efbec`](https://github.com/gptme/gptme/commit/859efbec))
+ - tests: fixed tests failing due to new file ([`706f13c9`](https://github.com/gptme/gptme/commit/706f13c9))
+ - refactor: refactored provider-specific code into new files llm_openai.py and llm_anthropic.py ([`eec82155`](https://github.com/gptme/gptme/commit/eec82155))
+ - tests: fix coverage for eval tests (multiprocessing workaround) ([`9ef1ec46`](https://github.com/gptme/gptme/commit/9ef1ec46))
+ - tests: added test_eval_cli and cleaned up eval code ([`c0e5c874`](https://github.com/gptme/gptme/commit/c0e5c874))
+ - tests: basic test for evals ([`770ed2ca`](https://github.com/gptme/gptme/commit/770ed2ca))
+ - tests: fix --version test ([`4ca5078a`](https://github.com/gptme/gptme/commit/4ca5078a))
+ - tests: remove ambiguity in subagent fib test prompt ([`fe063ec1`](https://github.com/gptme/gptme/commit/fe063ec1))
+ - tests: added test for vision ([`a740194b`](https://github.com/gptme/gptme/commit/a740194b))
+ - refactor: moved eval code into `gptme.eval`, added `gptme-eval` entrypoint, fixed typing ([`8a1bb097`](https://github.com/gptme/gptme/commit/8a1bb097))
+
+</p>
+</details>
+
+*(excluded 14 less relevant [commits](https://github.com/gptme/gptme/compare/v0.13.2...v0.14.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.13.2...v0.14.0
+
+
+# v0.13.0
+
+These are the release notes for gptme version v0.13.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.12.8:
+
+
+## 📦 gptme
+
+### 🔨 Misc (1)
+
+ - test: added basic extract json tests for terminal tool ([`34865902`](https://github.com/gptme/gptme/commit/34865902))
+
+*(excluded 2 less relevant [commits](https://github.com/gptme/gptme/compare/v0.12.8...v0.13.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.12.8...v0.13.0
+
+
+# v0.12.0
+
+These are the release notes for gptme version v0.12.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.11.1:
+
+
+## 📦 gptme
+
+### ✨ Features (3)
+
+ - feat: added ToolSpec for all tools, added basic XML-callstyle for tools ([`40905b0e`](https://github.com/gptme/gptme/commit/40905b0e))
+ - feat(wip): started work on subagent ([`78aa1734`](https://github.com/gptme/gptme/commit/78aa1734))
+ - feat: improvements to browsing, including link-following ([`15bd0acb`](https://github.com/gptme/gptme/commit/15bd0acb))
+
+### 🐛 Fixes (25)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: removed order-sensitivity for test ([`c435b30b`](https://github.com/gptme/gptme/commit/c435b30b))
+ - fix: added support for gpt-4o and gpt-4o-mini ([`9d81b319`](https://github.com/gptme/gptme/commit/9d81b319))
+ - fix: fixed issues with applying patches ([`120233c0`](https://github.com/gptme/gptme/commit/120233c0))
+ - fix: fix loading of base tools when browser tool not available ([`74e4b189`](https://github.com/gptme/gptme/commit/74e4b189))
+ - fix: fixed typing ([`4c955ffa`](https://github.com/gptme/gptme/commit/4c955ffa))
+ - fix: disabled test for search with duckduckgo ([`1411c8d3`](https://github.com/gptme/gptme/commit/1411c8d3))
+ - fix: simplified `is_supported_codeblock` ([`cf30c44f`](https://github.com/gptme/gptme/commit/cf30c44f))
+ - fix: added debug logging for test ([`0f3c0654`](https://github.com/gptme/gptme/commit/0f3c0654))
+ - fix: leftover change leading to test failure ([`a4042d27`](https://github.com/gptme/gptme/commit/a4042d27))
+ - fix: disable stripping dates and common prefixes from stdout/stderr in shell tool ([`3803f33b`](https://github.com/gptme/gptme/commit/3803f33b))
+ - fix: fixed escaping when serializing messages to toml ([`50e81598`](https://github.com/gptme/gptme/commit/50e81598))
+ - fix: fixed model metadata (added gpt-4-turbo) ([`9d74bf5d`](https://github.com/gptme/gptme/commit/9d74bf5d))
+ - fix(nit): fixed comment and unused call ([`f9441b7c`](https://github.com/gptme/gptme/commit/f9441b7c))
+ - fix: construct prompt from ToolSpec ([`0c76b975`](https://github.com/gptme/gptme/commit/0c76b975))
+ - fix: include a summary of function-tools registered in the Python REPL ([`0eb5d5a8`](https://github.com/gptme/gptme/commit/0eb5d5a8))
+ - fix: renamed register_function_conditional to register_function_if ([`e256fc96`](https://github.com/gptme/gptme/commit/e256fc96))
+ - fix: let other tools register functions in the Python tool REPL ([`f4688aef`](https://github.com/gptme/gptme/commit/f4688aef))
+ - fix: fixed imports in test_eval.py ([`83a747c2`](https://github.com/gptme/gptme/commit/83a747c2))
+ - fix: strip ANSI escape sequences in Python output ([`a41a3145`](https://github.com/gptme/gptme/commit/a41a3145))
+ - fix: fixed bug where Python output is duplicated in result message ([`a8cc4ef4`](https://github.com/gptme/gptme/commit/a8cc4ef4))
+ - fix: fixed bug where tool prompts wouldn't show on installs without browser extras ([`92d0f75c`](https://github.com/gptme/gptme/commit/92d0f75c))
+ - fix: use browser tools by writing Python code, added stripping of data:image's ([`bd32bc7a`](https://github.com/gptme/gptme/commit/bd32bc7a))
+ - fix: reraise exception if over `tries` ([`b3de8f90`](https://github.com/gptme/gptme/commit/b3de8f90))
+ - fix: cleaned up code that is now run as test ([`99d3d3d0`](https://github.com/gptme/gptme/commit/99d3d3d0))
+ - fix: restart shell on broken pipe, handle composite expressions ([#70](https://github.com/gptme/gptme/issues/70)) ([`8612ca2b`](https://github.com/gptme/gptme/commit/8612ca2b))
+
+</p>
+</details>
+
+### 🔨 Misc (6)
+
+ - test: fixed _shorten_stdout tests ([`edb82ded`](https://github.com/gptme/gptme/commit/edb82ded))
+ - nit: renamed func loop -> step ([`cafede58`](https://github.com/gptme/gptme/commit/cafede58))
+ - refactor: refactored eval/main.py into seperate files ([`3eb49f22`](https://github.com/gptme/gptme/commit/3eb49f22))
+ - test: increase system prompt token allowance in tests ([`f1655f63`](https://github.com/gptme/gptme/commit/f1655f63))
+ - test: marked evals, disable running by default ([`14097057`](https://github.com/gptme/gptme/commit/14097057))
+ - docs: fixed link ([`d3238e36`](https://github.com/gptme/gptme/commit/d3238e36))
+
+*(excluded 2 less relevant [commits](https://github.com/gptme/gptme/compare/v0.11.1...v0.12.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.11.1...v0.12.0
+
+
+# v0.11.0
+
+These are the release notes for gptme version v0.11.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@AntonOsika, @erikbjare
+
+## Changelog
+
+Changes since v0.10.5:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: mirror working directory in shell and Python process ([#49](https://github.com/gptme/gptme/issues/49)) ([`0b9c3228`](https://github.com/gptme/gptme/commit/0b9c3228))
+ - feat: support paths/URLs in any prompt, refactored entrypoint to call a new public API with core logic ([#37](https://github.com/gptme/gptme/issues/37)) ([`aaf60e57`](https://github.com/gptme/gptme/commit/aaf60e57))
+
+### 🐛 Fixes (9)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: exit with appropriate exitcode if evals pass/fail ([`3a0e4dca`](https://github.com/gptme/gptme/commit/3a0e4dca))
+ - fix: fixed shell cd test ([`9932b27a`](https://github.com/gptme/gptme/commit/9932b27a))
+ - fix: fixed bugs in eval, upload/download binary files, cd to cwd before every shell command ([`cefbbe86`](https://github.com/gptme/gptme/commit/cefbbe86))
+ - fix: fixed shell output printing (no extra newlines) ([`cf91873c`](https://github.com/gptme/gptme/commit/cf91873c))
+ - fix: fixed a spelling error ([`8c1eadab`](https://github.com/gptme/gptme/commit/8c1eadab))
+ - fix: import NotRequired from typing_extensions ([`2718ebac`](https://github.com/gptme/gptme/commit/2718ebac))
+ - fix: improved path detection in prompt ([`3f74635d`](https://github.com/gptme/gptme/commit/3f74635d))
+ - fix: add price_input and price_output to model metadata, refactored ModelDict TypedDict into ModelMeta dataclass ([`a0f1a731`](https://github.com/gptme/gptme/commit/a0f1a731))
+ - fix: switched to ipython for handling Python execution ([#41](https://github.com/gptme/gptme/issues/41)) ([`b75182c7`](https://github.com/gptme/gptme/commit/b75182c7))
+
+</p>
+</details>
+
+### 🔨 Misc (14)
+<details><summary>Click to expand</summary>
+<p>
+
+ - docs: improved entrypoints' docs for better cli docs ([`89506507`](https://github.com/gptme/gptme/commit/89506507))
+ - docs: added demos page to docs ([`ab2687c9`](https://github.com/gptme/gptme/commit/ab2687c9))
+ - test: run evals as tests, refactor evals, added python-xdist for parallel testing ([`14ca2df6`](https://github.com/gptme/gptme/commit/14ca2df6))
+ - test: switch from gpt-3.5-turbo to gpt-4-1106-preview ("gpt-4-turbo") in cli tests ([`75e79bda`](https://github.com/gptme/gptme/commit/75e79bda))
+ - refactor: made eval abstractions more general ([#48](https://github.com/gptme/gptme/issues/48)) ([`bf64f208`](https://github.com/gptme/gptme/commit/bf64f208))
+ - refactor: moved init code into init.py ([`0e1a0f5e`](https://github.com/gptme/gptme/commit/0e1a0f5e))
+ - test: minor improvements to eval ([`e3aa3363`](https://github.com/gptme/gptme/commit/e3aa3363))
+ - test: further eval improvements ([`bfc2f14f`](https://github.com/gptme/gptme/commit/bfc2f14f))
+ - test: added eval test that accepts stdin ([`28e3a3cc`](https://github.com/gptme/gptme/commit/28e3a3cc))
+ - test: fixed bugs and improved output in evals ([`953614f5`](https://github.com/gptme/gptme/commit/953614f5))
+ - test: continued work on evals ([`0c070ec2`](https://github.com/gptme/gptme/commit/0c070ec2))
+ - test: added basic eval code ([`be678f3a`](https://github.com/gptme/gptme/commit/be678f3a))
+ - docs: fixed link to demo ([`66e9e49a`](https://github.com/gptme/gptme/commit/66e9e49a))
+ - docs: added more demos ([`7de6c74a`](https://github.com/gptme/gptme/commit/7de6c74a))
+
+</p>
+</details>
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.10.5...v0.11.0
+
+
+# v0.10.5
+
+These are the release notes for gptme version v0.10.5.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.10.4:
+
+
+## 📦 gptme
+
+### 🐛 Fixes (4)
+
+ - fix: fixed regression in 78e5f52 ([`7160b974`](https://github.com/gptme/gptme/commit/7160b974))
+ - fix: output stdout/stderr directly for shell commands, to indicate progress ([`be40f10c`](https://github.com/gptme/gptme/commit/be40f10c))
+ - fix: fixed handling codeblocks that contain triple backticks ([`78e5f52d`](https://github.com/gptme/gptme/commit/78e5f52d))
+ - fix: fix uncaught assert when patching missing file (fixes [#39](https://github.com/gptme/gptme/issues/39)) ([`e34fb2c9`](https://github.com/gptme/gptme/commit/e34fb2c9))
+
+### 🔨 Misc (2)
+
+ - docs: added link to issue ([`0a0f7ca7`](https://github.com/gptme/gptme/commit/0a0f7ca7))
+ - test: added complex plotting example to test-integration.sh ([`3c1524e1`](https://github.com/gptme/gptme/commit/3c1524e1))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.10.4...v0.10.5
+
+
+# v0.10.4
+
+These are the release notes for gptme version v0.10.4.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.10.3:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: added branching to logmanager ([#33](https://github.com/gptme/gptme/issues/33)) ([`808a8abd`](https://github.com/gptme/gptme/commit/808a8abd))
+ - feat: added /tokens command ([`e8415ecc`](https://github.com/gptme/gptme/commit/e8415ecc))
+
+### 🐛 Fixes (4)
+
+ - fix: allow unknown models (again) ([`a89c385d`](https://github.com/gptme/gptme/commit/a89c385d))
+ - fix: add missing param to init in tests ([`86d5d747`](https://github.com/gptme/gptme/commit/86d5d747))
+ - fix: more improvements to, and integration of, models.py ([`107c57ce`](https://github.com/gptme/gptme/commit/107c57ce))
+ - fix: added models.py with metadata about model context lengths ([`c76211d7`](https://github.com/gptme/gptme/commit/c76211d7))
+
+### 🔨 Misc (3)
+
+ - docs: remove mentions of 'Advanced Data Analysis' (now only 'Code Interpreter') ([`923c9280`](https://github.com/gptme/gptme/commit/923c9280))
+ - docs: removed old & outdated docstring ([`d29d6457`](https://github.com/gptme/gptme/commit/d29d6457))
+ - docs: fixed links to issues in README ([`3217439b`](https://github.com/gptme/gptme/commit/3217439b))
+
+*(excluded 5 less relevant [commits](https://github.com/gptme/gptme/compare/v0.10.3...v0.10.4))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.10.3...v0.10.4
+
+
+# v0.10.3
+
+These are the release notes for gptme version v0.10.3.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.10.2:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: ask for API key on first run, and save to config ([`bd48a565`](https://github.com/gptme/gptme/commit/bd48a565))
+ - feat: added early interrupt of generation for completed patches ([`6f4b88b7`](https://github.com/gptme/gptme/commit/6f4b88b7))
+
+### 🐛 Fixes (2)
+
+ - fix: added typing-extensions to allow use of Self ([`20f97c74`](https://github.com/gptme/gptme/commit/20f97c74))
+ - fix: don't persist quiet property to logfile ([`909e37ff`](https://github.com/gptme/gptme/commit/909e37ff))
+
+### 🔨 Misc (4)
+
+ - docs: added getting started guide ([`d085d07f`](https://github.com/gptme/gptme/commit/d085d07f))
+ - refactor: refactored msg_to_toml and toml_to_message into Message methods ([`11b711fd`](https://github.com/gptme/gptme/commit/11b711fd))
+ - docs: switched to sphinx-book-theme, minor improvements to docs ([`c237ddec`](https://github.com/gptme/gptme/commit/c237ddec))
+ - scripts: added build_changelog.sh script ([`68b592b2`](https://github.com/gptme/gptme/commit/68b592b2))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.10.2...v0.10.3
+
+
+# v0.10.2
+
+These are the release notes for gptme version v0.10.2.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.10.1:
+
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat: added support for fetching URLs in initial prompt ([`c580e82d`](https://github.com/gptme/gptme/commit/c580e82d))
+
+### 🐛 Fixes (1)
+
+ - fix: propagate error as message if patch fails ([`a47407f0`](https://github.com/gptme/gptme/commit/a47407f0))
+
+### 🔨 Misc (1)
+
+ - style: applied `pyupgrade --py310-plus` ([`dfd5a1aa`](https://github.com/gptme/gptme/commit/dfd5a1aa))
+
+*(excluded 2 less relevant [commits](https://github.com/gptme/gptme/compare/v0.10.1...v0.10.2))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.10.1...v0.10.2
+
+
+# v0.10.1
+
+These are the release notes for gptme version v0.10.1.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.10.0:
+
+
+## 📦 gptme
+
+### 🐛 Fixes (6)
+
+ - fix: added some comments, and strip.sh ([`d2f65d21`](https://github.com/gptme/gptme/commit/d2f65d21))
+ - fix: added pragma no cover to gptme-server entrypoint ([`c8fbb1e7`](https://github.com/gptme/gptme/commit/c8fbb1e7))
+ - fix: major improvements to reduce tool: added tests, added truncate codeblocks, disabled summarize in reduce_log ([`bb5f9dab`](https://github.com/gptme/gptme/commit/bb5f9dab))
+ - fix: fixed don't show 'test-server-...' in convo picker ([`656e8d38`](https://github.com/gptme/gptme/commit/656e8d38))
+ - fix: fixed error when /dev/tty cannot be opened (such as in CI) ([`aaf5d9eb`](https://github.com/gptme/gptme/commit/aaf5d9eb))
+ - fix(tools): set GIT_PAGER=cat on shell init ([`a9257984`](https://github.com/gptme/gptme/commit/a9257984))
+
+### 🔨 Misc (18)
+<details><summary>Click to expand</summary>
+<p>
+
+ - test: fixed coverage for playwright tests ([`38183d1b`](https://github.com/gptme/gptme/commit/38183d1b))
+ - test: added test for /rename ([`12d922f4`](https://github.com/gptme/gptme/commit/12d922f4))
+ - test: set `--log-level INFO` in `make test`, add logging to browser tool ([`c24b18d6`](https://github.com/gptme/gptme/commit/c24b18d6))
+ - test: added tests and fixes to browser tool ([`e94f7f64`](https://github.com/gptme/gptme/commit/e94f7f64))
+ - test: added pragma nocover to interactive lines, added cli test for context via stdin and --version ([`2ee73af0`](https://github.com/gptme/gptme/commit/2ee73af0))
+ - test: added test for patch ([`328fa16d`](https://github.com/gptme/gptme/commit/328fa16d))
+ - test: improved testing for utils, removed unused functions ([`b7b57b89`](https://github.com/gptme/gptme/commit/b7b57b89))
+ - test: improved test_fileblock and fixed --no-confirm for overwrite ([`cbc0ffec`](https://github.com/gptme/gptme/commit/cbc0ffec))
+ - test: mark slow tests as slow, print 5 slowest tests on `make test` ([`6d580af3`](https://github.com/gptme/gptme/commit/6d580af3))
+ - test: added test fileblock ([`df9c6a17`](https://github.com/gptme/gptme/commit/df9c6a17))
+ - test: improved testing for server ([`e66d05b9`](https://github.com/gptme/gptme/commit/e66d05b9))
+ - test: improved command testing, fixed prompt parsing when passed command with path ([`ef6b472f`](https://github.com/gptme/gptme/commit/ef6b472f))
+ - test: refactored commands and improved testing ([`50c028db`](https://github.com/gptme/gptme/commit/50c028db))
+ - refactor: refactored prompts and get_codeblock ([`d0a22453`](https://github.com/gptme/gptme/commit/d0a22453))
+ - docs: more wip stuff on finetuning doc ([`32df0155`](https://github.com/gptme/gptme/commit/32df0155))
+ - test: fix blinking test ([`dad5a255`](https://github.com/gptme/gptme/commit/dad5a255))
+ - docs: added logo to README ([`6d3aa92d`](https://github.com/gptme/gptme/commit/6d3aa92d))
+ - chore: added logo ([`4879d652`](https://github.com/gptme/gptme/commit/4879d652))
+
+</p>
+</details>
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.10.0...v0.10.1
+
+
+# v0.10.0
+
+These are the release notes for gptme version v0.10.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.9.4:
+
+
+## 📦 gptme
+
+### 🐛 Fixes (3)
+
+ - fix: handle non-terminating ``` in LLM output better ([`509b6a47`](https://github.com/gptme/gptme/commit/509b6a47))
+ - fix: include files mentioned within prompt (fixes [#25](https://github.com/gptme/gptme/issues/25)) ([`441add66`](https://github.com/gptme/gptme/commit/441add66))
+ - fix: fixed auto-continue in non-interactive mode after codeblock execution ([`0601def2`](https://github.com/gptme/gptme/commit/0601def2))
+
+### 🔨 Misc (3)
+
+ - docs: mention GitHub bot and WIP tree-based convos ([`2fdea105`](https://github.com/gptme/gptme/commit/2fdea105))
+ - docs: added WIP docs about finetuning, improved collect.py script ([`eb42f186`](https://github.com/gptme/gptme/commit/eb42f186))
+ - docs: improved README ([`f59d4ac7`](https://github.com/gptme/gptme/commit/f59d4ac7))
+
+*(excluded 14 less relevant [commits](https://github.com/gptme/gptme/compare/v0.9.4...v0.10.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.9.4...v0.10.0
+
+
+# v0.9.4
+
+These are the release notes for gptme version v0.9.4.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.9.3:
+
+
+## 📦 gptme
+
+### 🐛 Fixes (4)
+
+ - fix: include instructions for append in system prompt ([`50b00a00`](https://github.com/gptme/gptme/commit/50b00a00))
+ - fix: removed /continue and /load commands ([`9ba41f54`](https://github.com/gptme/gptme/commit/9ba41f54))
+ - fix: fixed ctags test ([`fa7d4092`](https://github.com/gptme/gptme/commit/fa7d4092))
+ - fix: improved tabcomplete and added tests ([`e8aa4a96`](https://github.com/gptme/gptme/commit/e8aa4a96))
+
+### 🔨 Misc (4)
+
+ - docs: added docs badge ([`fae03209`](https://github.com/gptme/gptme/commit/fae03209))
+ - refactor: extracted server stuff to seperate script `gptme-server` ([`e871a2ce`](https://github.com/gptme/gptme/commit/e871a2ce))
+ - test: fixed tabcomplete test in ci ([`9ac4fa00`](https://github.com/gptme/gptme/commit/9ac4fa00))
+ - docs: fixed !NOTE ([`86167180`](https://github.com/gptme/gptme/commit/86167180))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.9.3...v0.9.4
+
+
+# v0.9.3
+
+These are the release notes for gptme version v0.9.3.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.9.2:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: added append tool, fixed patch tool ([`0b698c3e`](https://github.com/gptme/gptme/commit/0b698c3e))
+ - feat: added wip finetuning script train/collect.py to collect conversations for use in training ([`2b2476df`](https://github.com/gptme/gptme/commit/2b2476df))
+
+### 🐛 Fixes (1)
+
+ - fix: hide test conversations when selecting a conversation ([`f86c1d21`](https://github.com/gptme/gptme/commit/f86c1d21))
+
+### 🔨 Misc (6)
+
+ - docs: updated the local models doc ([`b658aa9d`](https://github.com/gptme/gptme/commit/b658aa9d))
+ - docs: added cli and api docs, improved docstrings ([`de1e94f0`](https://github.com/gptme/gptme/commit/de1e94f0))
+ - test: fixed context tool test if ctags missing, install ctags in CI ([`c8c0ec90`](https://github.com/gptme/gptme/commit/c8c0ec90))
+ - test: added basic tests for server ([`7f1b3d70`](https://github.com/gptme/gptme/commit/7f1b3d70))
+ - docs: added codecov badge ([`a035a321`](https://github.com/gptme/gptme/commit/a035a321))
+ - test: wrote tests for context tool ([`d7f0e349`](https://github.com/gptme/gptme/commit/d7f0e349))
+
+*(excluded 6 less relevant [commits](https://github.com/gptme/gptme/compare/v0.9.2...v0.9.3))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.9.2...v0.9.3
+
+
+# v0.9.2
+
+These are the release notes for gptme version v0.9.2.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.9.1:
+
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat: include context about included programs and packages ([`9ccb0a3b`](https://github.com/gptme/gptme/commit/9ccb0a3b))
+
+### 🐛 Fixes (4)
+
+ - fix: fixed ROLE_COLOR for assistant, darker red background for confirm prompt ([`a7e866b9`](https://github.com/gptme/gptme/commit/a7e866b9))
+ - fix: minor improvement to load command, added mandelbrot video test to integration test examples ([`f26469cf`](https://github.com/gptme/gptme/commit/f26469cf))
+ - fix: fixed bug in codeblock handling, use gpt-3.5-turbo in tests, improved testing ([`99eda23c`](https://github.com/gptme/gptme/commit/99eda23c))
+ - fix: made verbose tabcomplete init prints into debug logs ([`84e68c6f`](https://github.com/gptme/gptme/commit/84e68c6f))
+
+### 🔨 Misc (2)
+
+ - test: added test for is_supported_codeblock ([`c1ba742c`](https://github.com/gptme/gptme/commit/c1ba742c))
+ - chore: updated pyproject version to 0.9.1.dev0 ([`264b6098`](https://github.com/gptme/gptme/commit/264b6098))
+
+*(excluded 3 less relevant [commits](https://github.com/gptme/gptme/compare/v0.9.1...v0.9.2))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.9.1...v0.9.2
+
+
+# v0.9.1
+
+These are the release notes for gptme version v0.9.1.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.9.0:
+
+
+## 📦 gptme
+
+### 🐛 Fixes (2)
+
+ - fix: fixed passing non-text files on cli, fixed recursive import, fixed len() call which should be len_tokens(), only stop generation on executable/supported codeblocks ([`0aebbffd`](https://github.com/gptme/gptme/commit/0aebbffd))
+ - fix: fixed support for local models (specifically through litellm proxy) ([`a0460047`](https://github.com/gptme/gptme/commit/a0460047))
+
+### 🔨 Misc (1)
+
+ - docs: updated local-models doc with better instructions ([`23644af2`](https://github.com/gptme/gptme/commit/23644af2))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.9.0...v0.9.1
+
+
+# v0.9.0
+
+These are the release notes for gptme version v0.9.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.8.1:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: added automatic naming of conversations ([`46320507`](https://github.com/gptme/gptme/commit/46320507))
+ - feat: added patch tool, added more integration test examples ([`2c2a6c0d`](https://github.com/gptme/gptme/commit/2c2a6c0d))
+
+### 🐛 Fixes (5)
+
+ - fix: fixed bug where assistant replied before user prompt ([`4e78303b`](https://github.com/gptme/gptme/commit/4e78303b))
+ - fix: respect whitespace in shell output ([`7f5c01a1`](https://github.com/gptme/gptme/commit/7f5c01a1))
+ - fix: improved --help output ([`3e6d4fb0`](https://github.com/gptme/gptme/commit/3e6d4fb0))
+ - fix: improved /help output ([`16dd27bd`](https://github.com/gptme/gptme/commit/16dd27bd))
+ - fix: improved input prompt for ask_execute ([`b68d7d47`](https://github.com/gptme/gptme/commit/b68d7d47))
+
+### 🔨 Misc (6)
+
+ - docs: added placeholder content to index ([`87a26d1b`](https://github.com/gptme/gptme/commit/87a26d1b))
+ - docs: added first docs page (moved from README), and markdown support ([`32b86b3e`](https://github.com/gptme/gptme/commit/32b86b3e))
+ - docs: init ./docs with sphinx-quickstart ([`36792fcd`](https://github.com/gptme/gptme/commit/36792fcd))
+ - docs: improved README and CONTRIBUTING ([`b21870ab`](https://github.com/gptme/gptme/commit/b21870ab))
+ - test: moved stray tests into tests dir ([`6c9e7fc2`](https://github.com/gptme/gptme/commit/6c9e7fc2))
+ - test: added a new integration-test case ([`a48bc205`](https://github.com/gptme/gptme/commit/a48bc205))
+
+*(excluded 2 less relevant [commits](https://github.com/gptme/gptme/compare/v0.8.1...v0.9.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.8.1...v0.9.0
+
+
+# v0.8.1
+
+These are the release notes for gptme version v0.8.1.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.8.0:
+
+
+## 📦 gptme
+
+### ✨ Features (3)
+
+ - feat: auto-continue/recover after code execution/system messages ([`c23a5ce8`](https://github.com/gptme/gptme/commit/c23a5ce8))
+ - feat(wip): added wip ctags stuff to build project context ([`8b2342a1`](https://github.com/gptme/gptme/commit/8b2342a1))
+ - feat: added ability to create new conversations in web UI, better error output, capture command output, fixed fork, fixed logpath handling ([`3e88e76a`](https://github.com/gptme/gptme/commit/3e88e76a))
+
+### 🐛 Fixes (1)
+
+ - fix: minor misc command fixes, improved integration tests ([`f77a34a0`](https://github.com/gptme/gptme/commit/f77a34a0))
+
+### 🔨 Misc (2)
+
+ - docs: fixed broken link ([`9bd452bb`](https://github.com/gptme/gptme/commit/9bd452bb))
+ - docs: added release instructions to CONTRIBUTING ([`a359510a`](https://github.com/gptme/gptme/commit/a359510a))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.8.0...v0.8.1
+
+
+# v0.8.0
+
+These are the release notes for gptme version v0.8.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.7.0:
+
+
+## 📦 gptme
+
+### ✨ Features (4)
+
+ - feat: improved web UI responsiveness, added checkbox to toggle hiding initial system messages ([`a01c442f`](https://github.com/gptme/gptme/commit/a01c442f))
+ - feat: added ability to send messages and generate replies in web UI, refactored commands ([`4e9ff475`](https://github.com/gptme/gptme/commit/4e9ff475))
+ - feat: added wip web UI for conversations ([`19567d41`](https://github.com/gptme/gptme/commit/19567d41))
+ - feat: added rename and fork commands, refactor commands and tabcomplete ([`6eb763c6`](https://github.com/gptme/gptme/commit/6eb763c6))
+
+### 🐛 Fixes (7)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: show convo metadata in web UI, remember conversation on page reload using window.location.hash ([`b2adcc62`](https://github.com/gptme/gptme/commit/b2adcc62))
+ - fix: save timestamps in logs, show correct 'created' timestamp in web UI, improvements to web UI ([`8dd938c6`](https://github.com/gptme/gptme/commit/8dd938c6))
+ - fix: fixed root route handler ([`b5042800`](https://github.com/gptme/gptme/commit/b5042800))
+ - fix: fix invalid writing of None to config ([`d4d0c820`](https://github.com/gptme/gptme/commit/d4d0c820))
+ - fix: check for common datascience packages, added them as optional deps, warn if not available ([`9fcaab23`](https://github.com/gptme/gptme/commit/9fcaab23))
+ - fix: attempt at fixing test caused by tabcomplete ([`b02804b1`](https://github.com/gptme/gptme/commit/b02804b1))
+ - fix: refactor summarize, added /save command ([`a78cc91c`](https://github.com/gptme/gptme/commit/a78cc91c))
+
+</p>
+</details>
+
+### 🔨 Misc (1)
+
+ - docs: document server/web UI usage ([`b3053b24`](https://github.com/gptme/gptme/commit/b3053b24))
+
+*(excluded 3 less relevant [commits](https://github.com/gptme/gptme/compare/v0.7.0...v0.8.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.7.0...v0.8.0
+
+
+# v0.7.0
+
+These are the release notes for gptme version v0.7.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.6.1:
+
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat: changed command prefix from `.` to `/`, added tab completion, fixed bugs ([`e26fc64b`](https://github.com/gptme/gptme/commit/e26fc64b))
+
+### 🐛 Fixes (1)
+
+ - fix: removed dependency on joblib (in favor of lru_cache) and toml (in favor of tomlkit), marked optionals properly in pyproject ([`43a6d2e5`](https://github.com/gptme/gptme/commit/43a6d2e5))
+
+### 🔨 Misc (1)
+
+ - chore: release v0.7.0 ([`05f74ad8`](https://github.com/gptme/gptme/commit/05f74ad8))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.6.1...v0.7.0
+
+
+# v0.6.1
+
+These are the release notes for gptme version v0.6.1.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.6.0:
+
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat: added --version option to CLI ([`edb19820`](https://github.com/gptme/gptme/commit/edb19820))
+
+### 🐛 Fixes (2)
+
+ - fix: improved main loop logic, squashed bugs ([`fbd55ffe`](https://github.com/gptme/gptme/commit/fbd55ffe))
+ - fix: fixed error when no OPENAI_API_KEY set ([`9b8f4e10`](https://github.com/gptme/gptme/commit/9b8f4e10))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.6.0...v0.6.1
+
+
+# v0.6.0
+
+These are the release notes for gptme version v0.6.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.5.0:
+
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat: added flag `--(non-)interactive`, refactored main loop ([`3122f460`](https://github.com/gptme/gptme/commit/3122f460))
+
+### 🐛 Fixes (1)
+
+ - fix: further improvements to main loop ([`827adcc5`](https://github.com/gptme/gptme/commit/827adcc5))
+
+### 🔨 Misc (1)
+
+ - chore: release v0.6.0 ([`a025c1c3`](https://github.com/gptme/gptme/commit/a025c1c3))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.5.0...v0.6.0
+
+
+# v0.5.0
+
+These are the release notes for gptme version v0.5.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.4.2:
+
+
+## 📦 gptme
+
+### ✨ Features (3)
+
+ - feat: added .edit command to edit conversation in $EDITOR ([`b39fd1b5`](https://github.com/gptme/gptme/commit/b39fd1b5))
+ - feat: added 'file blocks' for better saving, better prompt, fixed reduce bug ([`dc7e3152`](https://github.com/gptme/gptme/commit/dc7e3152))
+ - feat: added browser tool, misc refactoring ([`1fc1f3e1`](https://github.com/gptme/gptme/commit/1fc1f3e1))
+
+### 🐛 Fixes (1)
+
+ - fix: started describe_api.py, added ability to pipe in files as system prompt ([`26612e43`](https://github.com/gptme/gptme/commit/26612e43))
+
+### 🔨 Misc (5)
+
+ - chore: release v0.5.0 ([`c670d352`](https://github.com/gptme/gptme/commit/c670d352))
+ - docs(README): added mention of ability to pipe in context ([`6551f858`](https://github.com/gptme/gptme/commit/6551f858))
+ - refactor: minor refactor ([`34bed1d4`](https://github.com/gptme/gptme/commit/34bed1d4))
+ - refactor: misc refactoring, improved '.continue' behavior with undo ([`2863a7ff`](https://github.com/gptme/gptme/commit/2863a7ff))
+ - test: mark browser tests as slow ([`4ec79c96`](https://github.com/gptme/gptme/commit/4ec79c96))
+
+*(excluded 4 less relevant [commits](https://github.com/gptme/gptme/compare/v0.4.2...v0.5.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.4.2...v0.5.0
+
+
+# v0.4.2
+
+These are the release notes for gptme version v0.4.2.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.4.1:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: implemented .continue and .summarize ([`a7d3d345`](https://github.com/gptme/gptme/commit/a7d3d345))
+ - feat: added support for multiple prompts args, that are run in sequence ([`6090443f`](https://github.com/gptme/gptme/commit/6090443f))
+
+### 🔨 Misc (3)
+
+ - chore: release v0.4.2 ([`48e53703`](https://github.com/gptme/gptme/commit/48e53703))
+ - docs: minor additions ([`2de28ffb`](https://github.com/gptme/gptme/commit/2de28ffb))
+ - chore: release v0.4.1 ([`a6cec3e8`](https://github.com/gptme/gptme/commit/a6cec3e8))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.4.1...v0.4.2
+
+
+# v0.4.1
+
+These are the release notes for gptme version v0.4.1.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.4.0:
+
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat: added config support for 'custom instructions', for both the user and projects, more prompting improvements ([`b75c7906`](https://github.com/gptme/gptme/commit/b75c7906))
+
+### 🐛 Fixes (1)
+
+ - fix: prompt improvement to avoid overly eager shell file-writing ([`250def1d`](https://github.com/gptme/gptme/commit/250def1d))
+
+### 🔨 Misc (2)
+
+ - refactor: renamed test_gptme.py to test_cli.py ([`79e5a565`](https://github.com/gptme/gptme/commit/79e5a565))
+ - chore: release v0.4.0 ([`616a4689`](https://github.com/gptme/gptme/commit/616a4689))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.4.0...v0.4.1
+
+
+# v0.4.0
+
+These are the release notes for gptme version v0.4.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.3.3:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: added impersonate command ([`ccb25cf6`](https://github.com/gptme/gptme/commit/ccb25cf6))
+ - feat: lots and lots of changes ([`0e3a7c5b`](https://github.com/gptme/gptme/commit/0e3a7c5b))
+
+### 🐛 Fixes (11)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: improved codeblock formatting in tools ([`599cb141`](https://github.com/gptme/gptme/commit/599cb141))
+ - fix: fixed code block output ([`da1da3b4`](https://github.com/gptme/gptme/commit/da1da3b4))
+ - fix: fixed bug where shell didn't output newlines ([`e6004a5f`](https://github.com/gptme/gptme/commit/e6004a5f))
+ - fix: fixed type error ([`07da76ae`](https://github.com/gptme/gptme/commit/07da76ae))
+ - fix: improved path constants ([`02f63384`](https://github.com/gptme/gptme/commit/02f63384))
+ - fix: fixed bug on ask ([`7605ce97`](https://github.com/gptme/gptme/commit/7605ce97))
+ - fix: readline setup fixes ([`e4009987`](https://github.com/gptme/gptme/commit/e4009987))
+ - fix: fixed bug where browsing readline history would clear the prompt ([`3bf2f831`](https://github.com/gptme/gptme/commit/3bf2f831))
+ - fix: set max_tokens if not using OpenAI ([`8b559236`](https://github.com/gptme/gptme/commit/8b559236))
+ - fix: moved context message to second-to-last place in msg log ([`9017f7eb`](https://github.com/gptme/gptme/commit/9017f7eb))
+ - fix: fixed context message ([`946d88ed`](https://github.com/gptme/gptme/commit/946d88ed))
+
+</p>
+</details>
+
+### 🔨 Misc (8)
+<details><summary>Click to expand</summary>
+<p>
+
+ - test: improved testing for output formatting ([`a9a659cc`](https://github.com/gptme/gptme/commit/a9a659cc))
+ - docs: improved README with emojis and more ([`4bc1ede1`](https://github.com/gptme/gptme/commit/4bc1ede1))
+ - refactor: moved/renamed logmanager.print_log to messages.print_msg ([`50545dda`](https://github.com/gptme/gptme/commit/50545dda))
+ - test: added test for shell multiline output ([`4f8407e0`](https://github.com/gptme/gptme/commit/4f8407e0))
+ - test: added profiling ([`8a32552b`](https://github.com/gptme/gptme/commit/8a32552b))
+ - docs: improved instructions for how to run models locally ([`3c347901`](https://github.com/gptme/gptme/commit/3c347901))
+ - chore: updated .gitignore ([`b5457edb`](https://github.com/gptme/gptme/commit/b5457edb))
+ - docs: moved download badges to top ([`0a4a2668`](https://github.com/gptme/gptme/commit/0a4a2668))
+
+</p>
+</details>
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.3.3...v0.4.0
+
+
+# v0.3.3
+
+These are the release notes for gptme version v0.3.3.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.3.2:
+
+
+## 📦 gptme
+
+### 🐛 Fixes (1)
+
+ - fix: fixed bug in shell tool ([`a8e6a028`](https://github.com/gptme/gptme/commit/a8e6a028))
+
+### 🔨 Misc (1)
+
+ - chore: release v0.3.3 ([`cc69a483`](https://github.com/gptme/gptme/commit/cc69a483))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.3.2...v0.3.3
+
+
+# v0.3.2
+
+These are the release notes for gptme version v0.3.2.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.3.1:
+
+
+## 📦 gptme
+
+### 🐛 Fixes (1)
+
+ - fix: minor fixes to shell tool ([`a13fb942`](https://github.com/gptme/gptme/commit/a13fb942))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.3.1...v0.3.2
+
+
+# v0.3.1
+
+These are the release notes for gptme version v0.3.1.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.3.0:
+
+
+## 📦 gptme
+
+### 🐛 Fixes (1)
+
+ - fix: check if gh installed before adding to prompt ([`7cfa25f5`](https://github.com/gptme/gptme/commit/7cfa25f5))
+
+### 🔨 Misc (5)
+
+ - chore: release v0.3.1 ([`012657e1`](https://github.com/gptme/gptme/commit/012657e1))
+ - docs: add PyPi version badge ([`c1ac2133`](https://github.com/gptme/gptme/commit/c1ac2133))
+ - docs: added stats and links, updated usage ([`e7a0ca60`](https://github.com/gptme/gptme/commit/e7a0ca60))
+ - chore: added LICENSE ([`4e7dc71c`](https://github.com/gptme/gptme/commit/4e7dc71c))
+ - chore: updated gitignore ([`ee8da7c9`](https://github.com/gptme/gptme/commit/ee8da7c9))
+
+*(excluded 2 less relevant [commits](https://github.com/gptme/gptme/compare/v0.3.0...v0.3.1))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.3.0...v0.3.1
+
+
+# v0.3.0
+
+These are the release notes for gptme version v0.3.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.2.2:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: added config, refactoring, hide initial system messages, better context awareness ([`9b54cec0`](https://github.com/gptme/gptme/commit/9b54cec0))
+ - feat: make OpenAI model configurable ([#4](https://github.com/gptme/gptme/issues/4)) ([`3f8f2383`](https://github.com/gptme/gptme/commit/3f8f2383))
+
+### 🐛 Fixes (1)
+
+ - fix: better error if OPENAI_API_KEY not set ([`93ce1c44`](https://github.com/gptme/gptme/commit/93ce1c44))
+
+### 🔨 Misc (5)
+
+ - chore: release v0.3.0 ([`26f3e915`](https://github.com/gptme/gptme/commit/26f3e915))
+ - docs: added 'Shell Copilot' usecase ([`6797ca64`](https://github.com/gptme/gptme/commit/6797ca64))
+ - docs: added note about Python 3.10+ ([`52934f8e`](https://github.com/gptme/gptme/commit/52934f8e))
+ - docs: updated README ([`c8579538`](https://github.com/gptme/gptme/commit/c8579538))
+ - docs: added mention of OPENAI_API_KEY ([`1641a70e`](https://github.com/gptme/gptme/commit/1641a70e))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.2.2...v0.3.0
+
+
+# v0.2.2
+
+These are the release notes for gptme version v0.2.2.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.2.1:
+
+
+## 📦 gptme
+
+### 🐛 Fixes (1)
+
+ - fix: minor fixes ([`b173fb86`](https://github.com/gptme/gptme/commit/b173fb86))
+
+### 🔨 Misc (7)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: release v0.2.2 ([`eb8c8f7f`](https://github.com/gptme/gptme/commit/eb8c8f7f))
+ - docs: improved README, added usecases ([`7309be2b`](https://github.com/gptme/gptme/commit/7309be2b))
+ - docs: added demo gif ([`12cece93`](https://github.com/gptme/gptme/commit/12cece93))
+ - docs: added screencast demo ([`46347d3f`](https://github.com/gptme/gptme/commit/46347d3f))
+ - chore: cleaned up old files ([`1d04c311`](https://github.com/gptme/gptme/commit/1d04c311))
+ - docs: added instructions for installing with pip ([`a3fd368c`](https://github.com/gptme/gptme/commit/a3fd368c))
+ - chore: renamed python package due to pypi complaining about name similarity ([`45b933c2`](https://github.com/gptme/gptme/commit/45b933c2))
+
+</p>
+</details>
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.2.1...v0.2.2
+
+
+# v0.2.1
+
+These are the release notes for gptme version v0.2.1.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare
+
+## Changelog
+
+Changes since v0.1.1:
+
+
+## 📦 gptme
+
+### ✨ Features (2)
+
+ - feat: added persistent shell session ([`ac68470d`](https://github.com/gptme/gptme/commit/ac68470d))
+ - feat: many major improvements, changed repo name to gptme ([`c6af7f63`](https://github.com/gptme/gptme/commit/c6af7f63))
+
+### 🐛 Fixes (5)
+
+ - fix: fixed type errors ([`627a278f`](https://github.com/gptme/gptme/commit/627a278f))
+ - fix: fixed missing dir ([`ce57b1ab`](https://github.com/gptme/gptme/commit/ce57b1ab))
+ - fix: fixed tests and some broken behavior ([`6175d050`](https://github.com/gptme/gptme/commit/6175d050))
+ - fix: added file and tests I forgot to add in `e787ff8` ([`ad616de5`](https://github.com/gptme/gptme/commit/ad616de5))
+ - fix: added .replay, fixed printing Python exceptions, improved docstring ([`78bdffeb`](https://github.com/gptme/gptme/commit/78bdffeb))
+
+### 🔨 Misc (3)
+
+ - chore: release v0.2.1 ([`39e85ceb`](https://github.com/gptme/gptme/commit/39e85ceb))
+ - docs: updated README with new usage and clearer instructions ([`2d034692`](https://github.com/gptme/gptme/commit/2d034692))
+ - docs: updated README with TODO demo section ([`4f08ca5b`](https://github.com/gptme/gptme/commit/4f08ca5b))
+
+*(excluded 6 less relevant [commits](https://github.com/gptme/gptme/compare/v0.1.1...v0.2.1))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.1.1...v0.2.1
+
+
+# v0.1.1
+
+These are the release notes for gptme version v0.1.1.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+## Changelog
+
+Changes since v0.1.1:
+
+
+## 📦 gptme
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.1.1...v0.1.1
 
 
 .. rubric:: Example: Daily Activity Summary
