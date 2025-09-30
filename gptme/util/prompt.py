@@ -18,6 +18,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI, HTML, to_formatted_text
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import CompleteStyle
@@ -33,6 +34,16 @@ __all__ = ["clear_path_cache", "check_cwd", "is_valid_path", "PathLexer"]
 
 
 logger = logging.getLogger(__name__)
+
+# Module-level variable to store attachments directory for the current session
+_attachments_dir: Path | None = None
+
+
+def set_attachments_dir(attachments_dir: Path | None) -> None:
+    """Set the attachments directory for saving pasted images."""
+    global _attachments_dir
+    _attachments_dir = attachments_dir
+
 
 # Cache management
 _last_cwd: str | None = None
@@ -403,10 +414,9 @@ def get_prompt_session() -> PromptSession:
         def _(event):
             """Paste image from clipboard on Ctrl+V"""
             from ..util.clipboard import paste_image, paste_text
-            import re
 
             # First, try to get an image from clipboard
-            image_result = paste_image()
+            image_result = paste_image(_attachments_dir)
             if image_result:
                 # Insert a natural message asking to view the image
                 text_to_insert = f"View this image: {image_result}"
@@ -416,48 +426,36 @@ def get_prompt_session() -> PromptSession:
             # No image data - check if text might be an image URL or path
             text = paste_text()
             if text:
-                text_stripped = text.strip()
-                # Check if it's an image URL (be more lenient with detection)
-                if re.match(r"https?://", text_stripped):
-                    # Check if URL ends with image extension or contains image indicators
-                    is_likely_image = any(
-                        ext in text_stripped.lower()
-                        for ext in [
-                            ".png",
-                            ".jpg",
-                            ".jpeg",
-                            ".gif",
-                            ".bmp",
-                            ".webp",
-                            ".svg",
-                        ]
-                    ) or any(
-                        indicator in text_stripped.lower()
-                        for indicator in ["image", "img", "photo", "picture"]
-                    )
-                    if is_likely_image:
-                        text_to_insert = f"View this image: {text_stripped}"
-                        event.current_buffer.insert_text(text_to_insert)
-                        return
-                # Check if it's a local image path
-                elif Path(text_stripped).exists() and Path(
-                    text_stripped
-                ).suffix.lower() in [
-                    ".png",
-                    ".jpg",
-                    ".jpeg",
-                    ".gif",
-                    ".bmp",
-                    ".webp",
-                    ".svg",
-                ]:
-                    text_to_insert = f"View this image: {text_stripped}"
+                from ..util.image import is_image_content
+
+                is_image, image_path = is_image_content(text)
+                if is_image and image_path:
+                    text_to_insert = f"View this image: {image_path}"
                     event.current_buffer.insert_text(text_to_insert)
                     return
 
             # Default: paste text as-is
             if text:
                 event.current_buffer.insert_text(text)
+
+        @kb.add(Keys.BracketedPaste)  # Handle bracketed paste (including drag-and-drop)
+        def _(event):
+            """Handle pasted/dragged text, detecting images automatically."""
+            from ..util.image import is_image_content
+
+            # Get the pasted data
+            data = event.data
+
+            # Check if it's an image URL or path
+            is_image, image_path = is_image_content(data)
+
+            # If it's an image, insert a view command instead of the raw path
+            if is_image and image_path:
+                text_to_insert = f"View this image: {image_path}"
+                event.current_buffer.insert_text(text_to_insert)
+            else:
+                # Regular paste - insert as-is
+                event.current_buffer.insert_text(data)
 
         @kb.add("enter")
         def _(event):
