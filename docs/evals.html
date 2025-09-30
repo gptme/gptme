@@ -457,7 +457,7 @@
 </div>
 <section id="recommended-model">
 <h2>Recommended Model<a class="headerlink" href="#recommended-model" title="Link to this heading">#</a></h2>
-<p>The recommended model is <strong>Claude Sonnet 4</strong> (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-20250514</span></code> and <code class="docutils literal notranslate"><span class="pre">openrouter/anthropic/claude-sonnet-4</span></code>) for its:</p>
+<p>The recommended model is <strong>Claude Sonnet 4.5</strong> (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-5</span></code> and <code class="docutils literal notranslate"><span class="pre">openrouter/anthropic/claude-sonnet-4-5</span></code>) for its:</p>
 <ul class="simple">
 <li><p>Strong agentic capabilities</p></li>
 <li><p>Strong coder capabilities</p></li>
@@ -476,7 +476,7 @@
 <section id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
 <p>You can run the simple <code class="docutils literal notranslate"><span class="pre">hello</span></code> eval like this:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-20250514
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-5
 </pre></div>
 </div>
 <p>However, we recommend running it in Docker to improve isolation and reproducibility:</p>
@@ -484,7 +484,7 @@
 docker<span class="w"> </span>run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-e<span class="w"> </span><span class="s2">&quot;ANTHROPIC_API_KEY=&lt;your api key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/eval_results:/app/eval_results<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-20250514
+<span class="w">    </span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-5
 </pre></div>
 </div>
 </section>
