@@ -18,6 +18,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI, HTML, to_formatted_text
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import CompleteStyle
@@ -458,6 +459,59 @@ def get_prompt_session() -> PromptSession:
             # Default: paste text as-is
             if text:
                 event.current_buffer.insert_text(text)
+
+        @kb.add(Keys.BracketedPaste)  # Handle bracketed paste (including drag-and-drop)
+        def _(event):
+            """Handle pasted/dragged text, detecting images automatically."""
+            import re
+
+            # Get the pasted data
+            data = event.data
+            text = data.strip()
+
+            # Remove quotes if present (drag-drop often adds quotes)
+            if text.startswith(("'", '"')) and text.endswith(text[0]):
+                text_unquoted = text[1:-1]
+            else:
+                text_unquoted = text
+
+            # Check if it's a local image file path
+            is_image = False
+            if Path(text_unquoted).exists() and Path(text_unquoted).suffix.lower() in [
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".gif",
+                ".bmp",
+                ".webp",
+                ".svg",
+            ]:
+                is_image = True
+            # Check if it's an image URL
+            elif re.match(r"https?://", text_unquoted):
+                is_image = any(
+                    ext in text_unquoted.lower()
+                    for ext in [
+                        ".png",
+                        ".jpg",
+                        ".jpeg",
+                        ".gif",
+                        ".bmp",
+                        ".webp",
+                        ".svg",
+                    ]
+                ) or any(
+                    indicator in text_unquoted.lower()
+                    for indicator in ["image", "img", "photo", "picture"]
+                )
+
+            # If it's an image, insert a view command instead of the raw path
+            if is_image:
+                text_to_insert = f"View this image: {text_unquoted}"
+                event.current_buffer.insert_text(text_to_insert)
+            else:
+                # Regular paste - insert as-is
+                event.current_buffer.insert_text(data)
 
         @kb.add("enter")
         def _(event):
