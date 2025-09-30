@@ -33,3 +33,6 @@ def prompt_assistant(name: str | None) -> str:
 
 
 INTERRUPT_CONTENT = "Interrupted by user"
+
+# Image file extensions
+IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"]

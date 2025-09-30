@@ -1,9 +1,14 @@
+import logging
 import platform
 import subprocess
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
+from ..constants import IMAGE_EXTENSIONS
 from . import get_installed_programs
+
+logger = logging.getLogger(__name__)
 
 text = ""
 
@@ -47,9 +52,12 @@ def copy() -> bool:
     return False
 
 
-def paste_image() -> Path | str | None:
+def paste_image(attachments_dir: Path | None = None) -> Path | str | None:
     """
-    Get image from clipboard and save to a temporary file, or return path/URL.
+    Get image from clipboard and save to a file, or return path/URL.
+
+    Args:
+        attachments_dir: Directory to save clipboard images. If None, uses tempfile.
 
     Returns:
         - Path to the saved image file if image data was in clipboard
@@ -76,27 +84,30 @@ def paste_image() -> Path | str | None:
             # On Windows, grabclipboard can return a list of file paths
             for item in img:
                 path = Path(item)
-                if path.exists() and path.suffix.lower() in [
-                    ".png",
-                    ".jpg",
-                    ".jpeg",
-                    ".gif",
-                    ".bmp",
-                    ".webp",
-                ]:
+                if path.exists() and path.suffix.lower() in IMAGE_EXTENSIONS:
                     return str(path)
             return None
 
-        # If we have an actual image object, save it to temporary file
+        # If we have an actual image object, save it to file
         if isinstance(img, Image.Image):
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                img.save(tmp.name, "PNG")
-                return Path(tmp.name)
+            if attachments_dir:
+                # Save to attachments directory with timestamp-based filename
+                attachments_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                image_path = attachments_dir / f"pasted_{timestamp}.png"
+                img.save(image_path, "PNG")
+                return image_path
+            else:
+                # Fall back to temporary file
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    img.save(tmp.name, "PNG")
+                    return Path(tmp.name)
 
         return None
 
-    except Exception:
-        # Silently fail on any error
+    except Exception as e:
+        # Log error instead of silently failing
+        logger.warning(f"Failed to paste image from clipboard: {e}")
         return None
 
 
@@ -132,14 +143,17 @@ def paste_text() -> str | None:
             if result.returncode == 0:
                 return result.stdout
         elif platform.system() == "Windows":
-            import tkinter as tk
-
-            root = tk.Tk()
-            root.withdraw()
-            try:
-                return root.clipboard_get()
-            finally:
-                root.destroy()
-    except Exception:
-        pass
-    return None
+            # Use PowerShell Get-Clipboard command for Windows
+            result = subprocess.run(
+                ["powershell", "-command", "Get-Clipboard"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                return result.stdout
+        # No clipboard tool available or subprocess failed
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to paste text from clipboard: {e}")
+        return None
