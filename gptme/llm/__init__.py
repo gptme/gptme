@@ -184,9 +184,10 @@ def _reply_stream(
             if break_on_tooluse and char == "\n":
                 # TODO: make this more robust/general, maybe with a callback that runs on each char/chunk
                 # pause inference on finished code-block, letting user run the command before continuing
+                # Use streaming=True to require blank line after code blocks during streaming
                 tooluses = [
                     tooluse
-                    for tooluse in ToolUse.iter_from_content(output)
+                    for tooluse in ToolUse.iter_from_content(output, streaming=True)
                     if tooluse.is_runnable
                 ]
                 if tooluses:

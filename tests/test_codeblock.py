@@ -239,9 +239,12 @@ def test_extract_codeblocks_incomplete_streaming():
 {fence}"""
 
     # During streaming, this appears incomplete - we shouldn't extract it yet
-    # The ``` after "**Output Format:**" should be treated as opening a nested block,
-    # not closing the outer block, because the prev line suggests an example follows
-    blocks = list(_extract_codeblocks(incomplete_markdown))
+    # With streaming=True, requires blank line after ``` to confirm closure
+    blocks = list(_extract_codeblocks(incomplete_markdown, streaming=True))
 
-    # Should not extract incomplete blocks
+    # Should not extract incomplete blocks during streaming
     assert len(blocks) == 0, "Should not extract incomplete block during streaming"
+
+    # But without streaming flag (completed message), should extract
+    blocks_complete = list(_extract_codeblocks(incomplete_markdown, streaming=False))
+    assert len(blocks_complete) == 1, "Should extract when message is complete"

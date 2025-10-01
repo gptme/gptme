@@ -387,9 +387,18 @@ class ToolUse:
 
     @classmethod
     def iter_from_content(
-        cls, content: str, tool_format_override: ToolFormat | None = None
+        cls,
+        content: str,
+        tool_format_override: ToolFormat | None = None,
+        streaming: bool = False,
     ) -> Generator["ToolUse", None, None]:
-        """Returns all ToolUse in a message, markdown or XML, in order."""
+        """Returns all ToolUse in a message, markdown or XML, in order.
+
+        Args:
+            content: The message content to parse
+            tool_format_override: Optional tool format override
+            streaming: If True, requires blank line after code blocks for completion
+        """
         # Use override if provided, otherwise use global tool_format
         active_format = tool_format_override or tool_format
 
@@ -399,7 +408,7 @@ class ToolUse:
             for tool_use in cls._iter_from_xml(content):
                 tool_uses.append(tool_use)
         if active_format == "markdown":
-            for tool_use in cls._iter_from_markdown(content):
+            for tool_use in cls._iter_from_markdown(content, streaming=streaming):
                 tool_uses.append(tool_use)
 
         # return them in the order they appear
@@ -435,15 +444,21 @@ class ToolUse:
                     logger.debug(f"Failed to parse JSON: {json_str}")
 
     @classmethod
-    def _iter_from_markdown(cls, content: str) -> Generator["ToolUse", None, None]:
+    def _iter_from_markdown(
+        cls, content: str, streaming: bool = False
+    ) -> Generator["ToolUse", None, None]:
         """Returns all markdown-style ToolUse in a message.
+
+        Args:
+            content: The message content to parse
+            streaming: If True, requires blank line after code blocks for completion
 
         Example:
           ```ipython
           print("Hello, world!")
           ```
         """
-        for codeblock in Codeblock.iter_from_markdown(content):
+        for codeblock in Codeblock.iter_from_markdown(content, streaming=streaming):
             if tool_use := cls._from_codeblock(codeblock):
                 yield tool_use
 
