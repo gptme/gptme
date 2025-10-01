@@ -114,17 +114,37 @@ def _extract_codeblocks(markdown: str) -> Generator[Codeblock, None, None]:
                 # Check if this line starts with ``` (potential opening or closing)
                 if line.startswith("```"):
                     if line.strip() == "```":
-                        # Bare ``` - check if it's opening or closing based on next line
-                        if (
-                            i + 1 < len(lines)
-                            and lines[i + 1].strip() != ""
-                            and not lines[i + 1].startswith("```")
-                        ):
+                        # Bare ``` - determine if opening or closing based on context
+
+                        # Primary heuristic: check next line
+                        has_next_line = i + 1 < len(lines)
+                        next_has_content = has_next_line and lines[i + 1].strip() != ""
+                        next_is_fence = has_next_line and lines[i + 1].startswith("```")
+
+                        # Secondary heuristic: check if prev line suggests a nested block is starting
+                        # (e.g., descriptive text ending with colon, markdown heading, etc.)
+                        prev_line = content_lines[-1] if content_lines else ""
+                        prev_suggests_example = (
+                            prev_line.strip().endswith(":")
+                            or prev_line.strip().startswith("#")
+                            or "**" in prev_line  # Bold markdown
+                        )
+
+                        # Decision logic:
+                        # 1. If next line has content and isn't a fence -> opening
+                        # 2. If no next line BUT prev line suggests example -> likely opening (streaming case)
+                        # 3. Otherwise -> closing
+                        if next_has_content and not next_is_fence:
                             # Next line has content, this is an opening tag
                             nesting_depth += 1
                             content_lines.append(line)
+                        elif not has_next_line and prev_suggests_example:
+                            # No next line yet (streaming), but context suggests nested block
+                            # Treat as opening to avoid premature closure
+                            nesting_depth += 1
+                            content_lines.append(line)
                         else:
-                            # Next line is empty/EOF or starts with ```, this is closing tag
+                            # This closes a block
                             nesting_depth -= 1
                             if nesting_depth == 0:
                                 # This closes our top-level block
