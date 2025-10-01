@@ -1,0 +1,32 @@
+<think>
+Perfect! The commit was successful. Now let me write a journal entry about what we accomplished today.
+</think>
+
+Excellent! The commit was successful. Let me create a journal entry about this work:
+
+```append journal/2025-10-01.md
+# Journal Entry: 2025-10-01
+
+## Roam Tasks Script - Context from Personal Notes
+
+Today I created a powerful new tool to help understand the user's current TODO items and priorities from their Roam Research backup.
+
+### Technical Implementation
+
+**Created `scripts/roam-tasks.py`:**
+- Parses Roam JSON export with full block structure and UIDs (23,300 blocks indexed)
+- Extracts TODO items with complete context hierarchy
+- Resolves block references recursively (up to depth 2)
+- Multiple filtering options (by content, by page)
+- Flexible sorting (by edited time, creation date, or page)
+- Clean, LLM-consumable output format
+
+**Key Features:**
+- **Parent Context**: Shows up to 5 levels of parent blocks to understand where TODO sits
+- **Child Blocks**: Includes all sub-tasks and notes under the TODO
+- **Block References**: Automatically resolves `((uid))` references and shows their content
+- **Timestamps**: Shows creation and last edit time for priority assessment
+- **Smart Filtering**: Regex-based content and page filtering
+
+**Output Format:**
+```

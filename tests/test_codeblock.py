@@ -161,8 +161,9 @@ def test_extract_codeblocks_streaming_interrupted():
     Reproduces issue where bare ``` after descriptive text was incorrectly
     treated as closing delimiter instead of opening a nested code block.
     """
-    # Read the actual interrupted example
-    with open("example-interrupted.txt") as f:
+    # Read the actual interrupted example relative to this test file
+    script_dir = __file__.rsplit("/", 1)[0]
+    with open(f"{script_dir}/data/example-interrupted.txt") as f:
         content = f.read()
 
     # Extract just the markdown part (after "create a journal entry")
