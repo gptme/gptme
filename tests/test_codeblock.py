@@ -248,3 +248,109 @@ def test_extract_codeblocks_incomplete_streaming():
     # But without streaming flag (completed message), should extract
     blocks_complete = list(_extract_codeblocks(incomplete_markdown, streaming=False))
     assert len(blocks_complete) == 1, "Should extract when message is complete"
+
+
+def test_streaming_parameter_comprehensive():
+    """
+    Comprehensive test for streaming parameter behavior.
+
+    Tests both positive and negative cases:
+    - Streaming=True with blank line → should extract
+    - Streaming=True without blank line → should NOT extract
+    - Streaming=False with blank line → should extract
+    - Streaming=False without blank line → should extract
+    """
+    fence = "```"
+
+    # Case 1: Streaming=True, WITH blank line (positive case)
+    # Should extract because blank line confirms completion
+    markdown_with_blank = f"""{fence}shell
+echo "hello"
+{fence}
+
+"""
+    blocks = list(_extract_codeblocks(markdown_with_blank, streaming=True))
+    assert len(blocks) == 1, "Should extract block when streaming=True with blank line"
+    assert blocks[0].lang == "shell"
+    assert blocks[0].content == 'echo "hello"'
+
+    # Case 2: Streaming=True, WITHOUT blank line (negative case)
+    # Should NOT extract because no blank line to confirm completion
+    markdown_without_blank = f"""{fence}shell
+echo "hello"
+{fence}"""
+    blocks = list(_extract_codeblocks(markdown_without_blank, streaming=True))
+    assert (
+        len(blocks) == 0
+    ), "Should NOT extract block when streaming=True without blank line"
+
+    # Case 3: Streaming=False, WITH blank line (positive case)
+    # Should extract normally
+    blocks = list(_extract_codeblocks(markdown_with_blank, streaming=False))
+    assert len(blocks) == 1, "Should extract block when streaming=False with blank line"
+    assert blocks[0].lang == "shell"
+
+    # Case 4: Streaming=False, WITHOUT blank line (positive case)
+    # Should extract because message is complete (not streaming)
+    blocks = list(_extract_codeblocks(markdown_without_blank, streaming=False))
+    assert (
+        len(blocks) == 1
+    ), "Should extract block when streaming=False even without blank line"
+    assert blocks[0].lang == "shell"
+    assert blocks[0].content == 'echo "hello"'
+
+
+def test_streaming_nested_blocks():
+    """
+    Test streaming behavior with nested code blocks.
+
+    Ensures that nested blocks don't cause premature extraction during streaming.
+    """
+    fence = "```"
+
+    # Case 1: Nested block without blank line during streaming
+    # Should NOT extract because the outer block isn't confirmed complete
+    nested_markdown = f"""{fence}save example.md
+# Example
+
+Usage:
+{fence}
+npm install
+{fence}
+
+Done!
+{fence}"""
+
+    # During streaming: should NOT extract without blank line
+    blocks = list(_extract_codeblocks(nested_markdown, streaming=True))
+    assert (
+        len(blocks) == 0
+    ), "Should NOT extract nested block during streaming without blank line"
+
+    # After completion: should extract
+    blocks = list(_extract_codeblocks(nested_markdown, streaming=False))
+    assert len(blocks) == 1, "Should extract nested block when complete"
+    assert "npm install" in blocks[0].content
+    assert "Done!" in blocks[0].content
+
+    # Case 2: Nested block WITH blank line during streaming
+    # Should extract because blank line confirms completion
+    nested_with_blank = f"""{fence}save example.md
+# Example
+
+Usage:
+{fence}
+npm install
+{fence}
+
+Done!
+{fence}
+
+"""
+
+    blocks = list(_extract_codeblocks(nested_with_blank, streaming=True))
+    assert (
+        len(blocks) == 1
+    ), "Should extract nested block with blank line during streaming"
+    assert "npm install" in blocks[0].content
+    assert "Done!" in blocks[0].content
