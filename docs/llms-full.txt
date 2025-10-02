@@ -3067,15 +3067,17 @@ The changelog is also available in the repository releases <https://github.com/g
    releases/v0.1.1.md
 
 
+# v0.28.3
+
 These are the release notes for gptme version v0.28.3.
 
-# Contributors
+## Contributors
 
 Thanks to everyone who contributed to this release:
 
 @erikbjare, @TimeToBuildBob
 
-# Changelog
+## Changelog
 
 Changes since v0.28.2:
 
