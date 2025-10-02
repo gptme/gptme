@@ -86,6 +86,17 @@ def chat(
     console.log(f"Using logdir: {path_with_tilde(logdir)}")
     manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
 
+    # Auto-replay todowrite operations when resuming to restore state
+    if manager.log and any(
+        tooluse.tool == "todowrite"
+        for msg in manager.log
+        for tooluse in ToolUse.iter_from_content(msg.content)
+    ):
+        from .commands import _replay_tool
+
+        logger.info("Detected todowrite operations, replaying to restore state...")
+        _replay_tool(manager.log, "todowrite")
+
     # tool_format should already be resolved by this point
     assert (
         tool_format is not None
