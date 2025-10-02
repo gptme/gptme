@@ -28,6 +28,7 @@
 - [Are we tiny?](https://gptme.org/docs/arewetiny.html)
 - [Timeline](https://gptme.org/docs/timeline.html)
 - [Changelog](https://gptme.org/docs/changelog.html)
+- [Contributors](https://gptme.org/docs/releases/v0.28.3.html)
 - [v0.28.2](https://gptme.org/docs/releases/v0.28.2.html)
 - [v0.28.1](https://gptme.org/docs/releases/v0.28.1.html)
 - [v0.28.0](https://gptme.org/docs/releases/v0.28.0.html)
