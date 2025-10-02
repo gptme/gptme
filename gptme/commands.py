@@ -193,7 +193,7 @@ def cmd_replay(ctx: CommandContext) -> None:
     ctx.manager.write()
 
     # Check if replaying a specific tool
-    if ctx.args and ctx.args[0] not in ["last", "all"]:
+    if ctx.args and ctx.args[0].lower() not in ["last", "all"]:
         tool_name = ctx.args[0]
         _replay_tool(ctx.manager.log, tool_name)
         return
@@ -285,7 +285,7 @@ def _replay_tool(log, tool_name: str) -> None:
                                 if result:
                                     print(f"  {result}")
                     except Exception as e:
-                        logger.warning(f"Failed to replay {tool_name} operation: {e}")
+                        logger.warning(f"Failed to replay {tool_name} operation '{line}': {e}")
 
     if count == 0:
         print(f"No '{tool_name}' operations found to replay.")
