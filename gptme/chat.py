@@ -26,7 +26,7 @@ from .tools import (
 from .tools.tts import speak, stop, tts_request_queue
 from .util import console, path_with_tilde
 from .util.ask_execute import ask_execute
-from .util.context import autocommit, include_paths, run_precommit_checks
+from .util.context import include_paths
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
@@ -330,43 +330,12 @@ def _process_message_conversation(
             break
 
     # Trigger post-process hooks after message processing completes
+    # Note: pre-commit checks and autocommit are now handled by hooks
     if post_msgs := trigger_hook(
         HookType.MESSAGE_POST_PROCESS, log=manager.log, workspace=workspace
     ):
         for msg in post_msgs:
             manager.append(msg)
-
-    # After all tools are executed, check for modifications and run autocommit/pre-commit
-    _check_and_handle_modifications(manager)
-
-
-def _check_and_handle_modifications(manager: LogManager) -> None:
-    """Check for modifications and handle autocommit/pre-commit after conversation is done."""
-    global _recently_interrupted
-
-    # Skip automatic actions if we were recently interrupted
-    if _recently_interrupted:
-        return
-
-    if check_for_modifications(manager.log):
-        try:
-            set_interruptible()
-
-            success, failed_check_message = check_changes()
-            if success:
-                if get_config().get_env_bool("GPTME_AUTOCOMMIT"):
-                    autocommit_msg = autocommit()
-                    manager.append(autocommit_msg)
-                    return
-            elif failed_check_message:
-                manager.append(Message("system", failed_check_message, quiet=False))
-                return
-
-        except KeyboardInterrupt:
-            console.log("Interrupted during pre-commit/autocommit.")
-            _recently_interrupted = True
-        finally:
-            clear_interruptible()
 
 
 def _should_prompt_for_input(log: Log) -> bool:
@@ -547,8 +516,3 @@ def check_for_modifications(log: Log) -> bool:
     #     f"Found {len(messages_since_user)} messages since user ({found_user_message=}, {has_modifications=})"
     # )
     return has_modifications
-
-
-def check_changes() -> tuple[bool, str | None]:
-    """Run lint/pre-commit checks after file modifications."""
-    return run_precommit_checks()

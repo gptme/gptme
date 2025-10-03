@@ -48,13 +48,17 @@ Modified `ToolSpec` to support hooks:
 - `FILE_PRE_SAVE`: Triggered before saving a file
 - `FILE_POST_SAVE`: Triggered after successfully saving a file
 
-### Example Tools Using Hooks
+### Tools Using Hooks
 
 #### 1. Pre-commit Hook Tool (`gptme/tools/precommit.py`)
 
-Automatically runs pre-commit checks after files are saved:
-- Hooks into `FILE_POST_SAVE` event
-- Runs `pre-commit run --files <path>` on saved files
+Automatically runs pre-commit checks in two scenarios:
+- **Per-file checks**: Hooks into `FILE_POST_SAVE` event
+  - Runs `pre-commit run --files <path>` on saved files
+  - Provides immediate feedback
+- **Full checks**: Hooks into `MESSAGE_POST_PROCESS` event
+  - Runs `pre-commit run --all-files` after message processing
+  - Ensures all changes pass before auto-commit
 - Reports failures with detailed output
 - Hides success messages to reduce noise
 - Disabled by default (enable with `--tools precommit`)
@@ -67,11 +71,36 @@ Automatically replays todowrite operations at session start:
 - Calls `_replay_tool()` to restore todo state
 - Replaces hard-coded todowrite replay in chat.py
 
+#### 3. Autocommit Hook Tool (`gptme/tools/autocommit.py`)
+
+Automatically commits changes after message processing:
+- Hooks into `MESSAGE_POST_PROCESS` event
+- Checks if GPTME_AUTOCOMMIT environment variable is enabled
+- Checks for file modifications
+- Returns message asking LLM to review and commit changes
+- Replaces hard-coded autocommit logic in chat.py
+
+#### 4. Enhanced Pre-commit Hook Tool (`gptme/tools/precommit.py`)
+
+Extended to support both per-file and full pre-commit checks:
+- **Per-file checks**: Hooks into `FILE_POST_SAVE` event
+  - Runs pre-commit on specific saved file
+  - Provides immediate feedback
+- **Full checks**: Hooks into `MESSAGE_POST_PROCESS` event
+  - Runs pre-commit on all modified files
+  - Ensures all changes pass before auto-commit
+  - Replaces hard-coded pre-commit logic in chat.py
+
 ### Removed Hard-coded Logic
 
 **In `gptme/chat.py`:**
 - Removed hard-coded todowrite replay (lines 102-111)
-- Now handled by the `todo_replay` tool via `SESSION_START` hook
+  - Now handled by the `todo_replay` tool via `SESSION_START` hook
+- Removed hard-coded `_check_and_handle_modifications()` function
+  - Pre-commit checks now handled by `precommit` tool via `MESSAGE_POST_PROCESS` hook
+  - Auto-commit now handled by `autocommit` tool via `MESSAGE_POST_PROCESS` hook
+- Removed `check_changes()` function (no longer needed)
+- Updated imports to remove unused `autocommit` and `run_precommit_checks` from util.context
 
 ## Files Changed
 
@@ -90,6 +119,9 @@ Automatically replays todowrite operations at session start:
    - Added `SESSION_END` hook triggers at exit points
    - Added `MESSAGE_PRE_PROCESS` and `MESSAGE_POST_PROCESS` hook triggers
    - Removed hard-coded todowrite replay logic
+   - Removed hard-coded `_check_and_handle_modifications()` function
+   - Removed `check_changes()` function
+   - Updated imports to remove unused `autocommit` and `run_precommit_checks`
 
 4. **gptme/tools/save.py**
    - Added `FILE_PRE_SAVE` and `FILE_POST_SAVE` hook triggers
@@ -100,11 +132,12 @@ Automatically replays todowrite operations at session start:
 ### New Files
 
 1. **gptme/hooks.py** - Core hook system implementation
-2. **gptme/tools/precommit.py** - Example pre-commit hook tool
+2. **gptme/tools/precommit.py** - Pre-commit hook tool (per-file + full checks)
 3. **gptme/tools/todo_replay.py** - Todo replay hook tool
-4. **docs/hooks.rst** - Comprehensive hooks documentation
-5. **tests/test_hooks.py** - Hook system tests
-6. **HOOKS_IMPLEMENTATION.md** - This implementation summary
+4. **gptme/tools/autocommit.py** - Auto-commit hook tool
+5. **docs/hooks.rst** - Comprehensive hooks documentation
+6. **tests/test_hooks.py** - Hook system tests
+7. **HOOKS_IMPLEMENTATION.md** - This implementation summary
 
 ## Usage Examples
 
