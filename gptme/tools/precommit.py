@@ -200,7 +200,8 @@ Or configure pre-commit checks via: GPTME_CHECK=true
     commands={
         "pre-commit": handle_precommit_command,
     },
-    disabled_by_default=True,  # Disabled by default, enable with --tools precommit
+    # Note: Tool is enabled by default but hooks check use_checks() to determine if they should run
+    # This matches previous behavior where pre-commit runs if GPTME_CHECK=true or .pre-commit-config.yaml exists
 )
 
 __all__ = ["tool"]

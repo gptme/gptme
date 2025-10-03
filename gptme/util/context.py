@@ -375,6 +375,8 @@ def run_precommit_checks() -> tuple[bool, str | None]:
         )
 
 
+# Note: These functions provide core implementation that is called by the precommit and autocommit tools.
+# The tools provide the hook/command interface layer, while these functions provide the reusable core logic.
 def autocommit() -> Message:
     """
     Auto-commit changes made by gptme.

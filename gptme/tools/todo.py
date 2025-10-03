@@ -9,16 +9,22 @@ Key principles:
 - Complements Persistent Tasks: Works alongside existing task files without conflicts
 - Simple State Model: pending, in_progress, completed
 - Conversation Scoped: Resets between conversations, doesn't persist to disk
+- Auto-replay: Automatically restores todo state when resuming conversations
 """
 
+import logging
 import shlex
 from collections.abc import Generator
 from datetime import datetime
 
 from dateutil.parser import isoparse
 
+from ..hooks import HookType
+from ..logmanager import Log
 from ..message import Message
 from .base import ConfirmFunc, ToolSpec, ToolUse
+
+logger = logging.getLogger(__name__)
 
 # Conversation-scoped storage for the current todo list
 # TODO: support persistence to support resuming conversations
@@ -99,6 +105,55 @@ def _format_todo_list() -> str:
     )
 
     return "\n".join(output)
+
+
+def replay_todowrite_on_session_start(
+    logdir, workspace, initial_msgs, **kwargs
+) -> Generator[Message, None, None]:
+    """Hook function that replays todowrite operations at session start.
+
+    This ensures todo state is restored when resuming a conversation.
+
+    Args:
+        logdir: Log directory path
+        workspace: Workspace directory path
+        initial_msgs: Initial messages in the log
+
+    Yields:
+        Messages about replay status (hidden)
+    """
+    if not initial_msgs:
+        return
+
+    # Check if there are any todowrite operations in the log
+    has_todowrite = any(
+        tooluse.tool == "todowrite"
+        for msg in initial_msgs
+        for tooluse in ToolUse.iter_from_content(msg.content)
+    )
+
+    if not has_todowrite:
+        return
+
+    logger.info("Detected todowrite operations, replaying to restore state...")
+
+    try:
+        # Import here to avoid circular dependency
+        from ..commands import _replay_tool
+
+        # Create a minimal Log object for replay
+        log = Log(initial_msgs)
+
+        # Replay todowrite operations
+        _replay_tool(log, "todowrite")
+
+        yield Message("system", "Restored todo state from previous session", hide=True)
+
+    except Exception as e:
+        logger.exception(f"Error replaying todowrite operations: {e}")
+        yield Message(
+            "system", f"Warning: Failed to restore todo state: {e}", hide=True
+        )
 
 
 def _todoread() -> str:
@@ -320,9 +375,19 @@ Use this tool frequently for complex multi-step tasks to:
 
 The todo list is ephemeral and conversation-scoped.
 For persistent cross-conversation tasks, use the task management system.
+
+Auto-replay: Todo operations are automatically replayed when resuming conversations
+to restore your todo list state.
     """.strip(),
     examples=examples_todowrite,
     execute=execute_todowrite,
+    hooks={
+        "replay_todos": (
+            HookType.SESSION_START.value,
+            replay_todowrite_on_session_start,
+            10,  # High priority: run early in session start
+        )
+    },
 )
 
 
