@@ -39,6 +39,10 @@ def pytest_configure(config):
         "markers",
         "requires_api: mark test as requiring an API key",
     )
+    # Disable pre-commit checks during tests to avoid interference
+    os.environ["GPTME_CHECK"] = "false"
+    # Disable chat history context during tests for predictable prompts
+    os.environ["GPTME_CHAT_HISTORY"] = "false"
 
 
 def pytest_collection_modifyitems(config, items):

@@ -59,6 +59,13 @@ def run_precommit_on_file(
     Yields:
         Messages with pre-commit results
     """
+    # Check if pre-commit checks should run
+    from ..util.context import use_checks
+
+    if not use_checks():
+        logger.debug("Pre-commit checks not enabled, skipping hook")
+        return
+
     try:
         # Check if pre-commit is available
         check_result = subprocess.run(
@@ -131,6 +138,13 @@ def run_full_precommit_checks(
     Yields:
         Messages with pre-commit check results
     """
+    # Check if pre-commit checks should run
+    from ..util.context import use_checks
+
+    if not use_checks():
+        logger.debug("Pre-commit checks not enabled, skipping hook")
+        return
+
     # Check if there are modifications
     from ..chat import check_for_modifications
 
