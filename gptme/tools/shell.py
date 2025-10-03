@@ -1,5 +1,12 @@
 """
 The assistant can execute shell commands with bash by outputting code blocks with `shell` as the language.
+
+Configuration:
+    GPTME_SHELL_TIMEOUT: Environment variable to configure command timeout (set before starting gptme)
+        - Set to a number (e.g., 30) for timeout in seconds
+        - Set to 0 to disable timeout
+        - Invalid values default to 60 seconds
+        - If not set, commands run without timeout
 """
 
 import atexit
@@ -127,12 +134,6 @@ is_macos = sys.platform == "darwin"
 instructions = f"""
 The given command will be executed in a stateful bash shell.
 The shell tool will respond with the output of the execution.
-
-Shell commands can be configured to timeout by setting the GPTME_SHELL_TIMEOUT environment variable.
-- Set GPTME_SHELL_TIMEOUT=30 for a 30-second timeout
-- Set GPTME_SHELL_TIMEOUT=0 to disable timeout
-- Invalid values default to 60 seconds
-- If not set, commands run without timeout
 
 These programs are available, among others:
 {shell_programs_str}
