@@ -238,14 +238,50 @@ Comprehensive documentation in `docs/hooks.rst`:
 - Migration guide
 - API reference
 
+## Command Registration
+
+In addition to hooks, tools can now register custom commands that users can invoke with `/command` syntax.
+
+### Implementation
+
+**Command Registry** (`gptme/commands.py`):
+- Added `register_command()` and `unregister_command()` functions
+- Added `get_registered_commands()` for introspection
+- Existing `_command_registry` now supports dynamic registration
+
+**ToolSpec Extension** (`gptme/tools/base.py`):
+- Added `commands` field to ToolSpec
+- Added `register_commands()` method
+- Commands registered automatically when tools load
+
+**Example Commands**:
+- `/commit` - Registered by autocommit tool (moved from hard-coded)
+- `/pre-commit` - Registered by precommit tool (new)
+
+### Usage
+
+```python
+from gptme.commands import CommandContext
+
+def handle_my_command(ctx: CommandContext):
+    ctx.manager.undo(1, quiet=True)  # Remove command message
+    yield Message("system", "Command executed!")
+
+tool = ToolSpec(
+    name="my_tool",
+    commands={"my-command": handle_my_command}
+)
+```
+
 ## Benefits
 
 1. **Extensibility**: Easy to add new functionality without modifying core code
-2. **Modularity**: Tools can register hooks independently
+2. **Modularity**: Tools can register hooks and commands independently
 3. **Flexibility**: Multiple hooks per type, priority ordering
 4. **Clean Architecture**: Separates concerns, reduces hard-coded logic
-5. **Testability**: Hooks can be tested in isolation
-6. **Discoverability**: Hooks are documented and centrally managed
+5. **Testability**: Hooks and commands can be tested in isolation
+6. **Discoverability**: Hooks and commands are documented and centrally managed
+7. **Command Registration**: Tools can add custom user commands dynamically
 
 ## Future Enhancements
 

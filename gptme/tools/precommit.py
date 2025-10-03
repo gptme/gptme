@@ -7,11 +7,43 @@ import subprocess
 from collections.abc import Generator
 from pathlib import Path
 
+from ..commands import CommandContext
 from ..hooks import HookType
 from ..message import Message
 from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+
+def handle_precommit_command(ctx: CommandContext) -> Generator[Message, None, None]:
+    """Handle the /pre-commit command to manually run pre-commit checks.
+
+    Args:
+        ctx: Command context with manager and confirm function
+
+    Yields:
+        Messages with pre-commit check results
+    """
+    # Undo the command message itself
+    ctx.manager.undo(1, quiet=True)
+
+    try:
+        # Import here to avoid circular dependency
+        from ..util.context import run_precommit_checks
+
+        # Run pre-commit checks on all files
+        success, failed_check_message = run_precommit_checks()
+
+        if not success and failed_check_message:
+            yield Message("system", failed_check_message, quiet=False)
+        elif success:
+            yield Message("system", "Pre-commit checks passed ✓")
+        else:
+            yield Message("system", "Pre-commit checks not enabled or no issues found")
+
+    except Exception as e:
+        logger.exception(f"Error running pre-commit checks: {e}")
+        yield Message("system", f"Pre-commit check failed: {e}")
 
 
 def run_precommit_on_file(
@@ -146,6 +178,9 @@ Pre-commit checks include:
 
 The tool will report any failures and suggest fixes.
 
+Commands:
+- /pre-commit: Manually run pre-commit checks
+
 Enable with: --tools precommit
 Or configure pre-commit checks via: GPTME_CHECK=true
 """.strip(),
@@ -161,6 +196,9 @@ Or configure pre-commit checks via: GPTME_CHECK=true
             run_full_precommit_checks,
             5,  # Priority: run before autocommit (priority 1)
         ),
+    },
+    commands={
+        "pre-commit": handle_precommit_command,
     },
     disabled_by_default=True,  # Disabled by default, enable with --tools precommit
 )

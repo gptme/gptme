@@ -136,8 +136,9 @@ def init_tools(
             if tool.init:
                 tool = tool.init()
 
-            # Register tool's hooks
+            # Register tool's hooks and commands
             tool.register_hooks()
+            tool.register_commands()
 
             loaded_tools.append(tool)
 

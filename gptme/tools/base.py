@@ -181,6 +181,7 @@ class ToolSpec:
     disabled_by_default: bool = False
     is_mcp: bool = False
     hooks: dict[str, tuple[str, Callable, int]] = field(default_factory=dict)
+    commands: dict[str, Callable] = field(default_factory=dict)
 
     def __repr__(self):
         return f"ToolSpec({self.name})"
@@ -198,6 +199,20 @@ class ToolSpec:
             except (ValueError, KeyError) as e:
                 logger.warning(
                     f"Failed to register hook '{hook_name}' for tool '{self.name}': {e}"
+                )
+
+    def register_commands(self) -> None:
+        """Register all commands defined in this tool with the global command registry."""
+        # Avoid circular import
+        from ..commands import register_command
+
+        for cmd_name, handler in self.commands.items():
+            try:
+                register_command(cmd_name, handler)
+                logger.debug(f"Registered command '{cmd_name}' from tool '{self.name}'")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register command '{cmd_name}' for tool '{self.name}': {e}"
                 )
 
     def get_doc(self, doc: str | None = None) -> str:

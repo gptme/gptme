@@ -30,7 +30,6 @@ from .tools import (
     get_tools,
 )
 from .util.auto_naming import generate_llm_name
-from .util.context import autocommit
 from .util.cost import log_costs
 from .util.export import export_chat_to_html
 from .util.useredit import edit_text_with_editor
@@ -118,6 +117,41 @@ def command(name: str, aliases: list[str] | None = None):
         return func
 
     return decorator
+
+
+def register_command(
+    name: str, handler: CommandHandler, aliases: list[str] | None = None
+) -> None:
+    """Register a command handler dynamically (for tools).
+
+    Args:
+        name: Command name (without leading /)
+        handler: Function that takes CommandContext and yields Messages
+        aliases: Optional list of command aliases
+    """
+    _command_registry[name] = handler
+    if aliases:
+        for alias in aliases:
+            _command_registry[alias] = handler
+    logger.debug(
+        f"Registered command: {name}" + (f" (aliases: {aliases})" if aliases else "")
+    )
+
+
+def unregister_command(name: str) -> None:
+    """Unregister a command handler.
+
+    Args:
+        name: Command name to unregister
+    """
+    if name in _command_registry:
+        del _command_registry[name]
+        logger.debug(f"Unregistered command: {name}")
+
+
+def get_registered_commands() -> list[str]:
+    """Get list of all registered command names."""
+    return list(_command_registry.keys())
 
 
 @command("log")
@@ -285,7 +319,9 @@ def _replay_tool(log, tool_name: str) -> None:
                                 if result:
                                     print(f"  {result}")
                     except Exception as e:
-                        logger.warning(f"Failed to replay {tool_name} operation '{line}': {e}")
+                        logger.warning(
+                            f"Failed to replay {tool_name} operation '{line}': {e}"
+                        )
 
     if count == 0:
         print(f"No '{tool_name}' operations found to replay.")
@@ -361,12 +397,8 @@ def cmd_export(ctx: CommandContext) -> None:
     print(f"Exported conversation to {output_path}")
 
 
-@command("commit")
-def cmd_commit(ctx: CommandContext) -> Generator[Message, None, None]:
-    """Commit staged changes to git."""
-    ctx.manager.undo(1, quiet=True)
-
-    yield autocommit()
+# Note: /commit command is now registered by the autocommit tool
+# Note: /pre-commit command is registered by the precommit tool
 
 
 @command("setup")

@@ -5,6 +5,7 @@ Autocommit hook tool that automatically commits changes after message processing
 import logging
 from collections.abc import Generator
 
+from ..commands import CommandContext
 from ..config import get_config
 from ..hooks import HookType
 from ..logmanager import Log
@@ -12,6 +13,24 @@ from ..message import Message
 from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+
+def handle_commit_command(ctx: CommandContext) -> Generator[Message, None, None]:
+    """Handle the /commit command to manually trigger commit.
+
+    Args:
+        ctx: Command context with manager and confirm function
+
+    Yields:
+        Message asking LLM to review and commit changes
+    """
+    # Undo the command message itself
+    ctx.manager.undo(1, quiet=True)
+
+    # Import here to avoid circular dependency
+    from ..util.context import autocommit
+
+    yield autocommit()
 
 
 def autocommit_on_message_complete(
@@ -76,6 +95,9 @@ export GPTME_AUTOCOMMIT=true
             autocommit_on_message_complete,
             1,  # Low priority: run after pre-commit checks (priority 5)
         )
+    },
+    commands={
+        "commit": handle_commit_command,
     },
 )
 
