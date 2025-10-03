@@ -3,16 +3,117 @@ Pre-commit hook tool that automatically runs pre-commit checks after file saves.
 """
 
 import logging
+import shutil
 import subprocess
+import time
 from collections.abc import Generator
 from pathlib import Path
 
 from ..commands import CommandContext
+from ..config import get_config
 from ..hooks import HookType, StopPropagation
 from ..message import Message
 from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+
+def use_checks() -> bool:
+    """Check if pre-commit checks are enabled.
+
+    Pre-commit checks are enabled when either:
+    1. GPTME_CHECK=true is set explicitly, or
+    2. A .pre-commit-config.yaml file exists in any parent directory
+
+    Any issues found are included in the context, helping catch and fix code quality
+    issues before the user continues the conversation.
+    """
+    flag: str = get_config().get_env("GPTME_CHECK", "")  # type: ignore
+    explicit_enabled = flag.lower() in ("1", "true", "yes")
+    explicit_disabled = flag.lower() in ("0", "false", "no")
+    if explicit_disabled:
+        return False
+
+    # Check for .pre-commit-config.yaml in any parent directory
+    has_config = any(
+        parent.joinpath(".pre-commit-config.yaml").exists()
+        for parent in [Path.cwd(), *Path.cwd().parents]
+    )
+
+    if explicit_enabled and not has_config:
+        logger.warning(
+            "GPTME_CHECK is enabled but no .pre-commit-config.yaml found in any parent directory"
+        )
+
+    enabled = explicit_enabled or has_config
+
+    # Check for pre-commit availability
+    if enabled and not shutil.which("pre-commit"):
+        logger.warning("pre-commit not found, disabling pre-commit checks")
+        return False
+
+    return enabled
+
+
+def run_precommit_checks() -> tuple[bool, str | None]:
+    """Run pre-commit checks on modified files and return output if there are issues.
+
+    Pre-commit checks will run if either:
+    1. GPTME_CHECK=true is set explicitly, or
+    2. A .pre-commit-config.yaml file exists in any parent directory
+
+    Returns:
+        A tuple (True, None) if no issues found,
+        or (False, output) if issues found,
+        or (False, None) if interrupted.
+        If pre-commit checks are not enabled, returns (False, None).
+    """
+    if not use_checks():
+        logger.debug("Pre-commit checks not enabled")
+        return False, None
+
+    # cmd = "pre-commit run --files $(git ls-files -m)"
+    cmd = "pre-commit run --all-files"
+    start_time = time.monotonic()
+    logger.info(f"Running pre-commit checks: {cmd}")
+    try:
+        subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+        return True, None  # No issues found
+    except subprocess.CalledProcessError as e:
+        # if exit code is 130, it means the user interrupted the process
+        if e.returncode == 130:
+            logger.info("Pre-commit checks interrupted by user")
+            return False, None
+        # If no pre-commit config found
+        # Can happen in nested git repos, since we check parent dirs but pre-commit only checks the current repo.
+        if ".pre-commit-config.yaml is not a file" in e.stdout:
+            return False, None
+
+        logger.error(f"Pre-commit checks failed: {e}")
+
+        from ..util.context import md_codeblock
+
+        output = "Pre-commit checks failed\n\n"
+
+        # Add stdout if present
+        if e.stdout.strip():
+            output += md_codeblock("stdout", e.stdout.rstrip()) + "\n\n"
+
+        # Add stderr if present
+        if e.stderr.strip():
+            output += md_codeblock("stderr", e.stderr.rstrip()) + "\n\n"
+
+        # Add guidance about automated fixes
+        if "files were modified by this hook" in e.stdout:
+            output += "Note: Some issues were automatically fixed by the pre-commit hooks. No manual fixes needed for those changes."
+        else:
+            output += "Note: The above issues require manual fixes as they were not automatically resolved."
+
+        return False, output.strip()
+    finally:
+        logger.info(
+            f"Pre-commit checks completed in {time.monotonic() - start_time:.2f}s"
+        )
 
 
 def handle_precommit_command(ctx: CommandContext) -> Generator[Message, None, None]:
@@ -28,9 +129,6 @@ def handle_precommit_command(ctx: CommandContext) -> Generator[Message, None, No
     ctx.manager.undo(1, quiet=True)
 
     try:
-        # Import here to avoid circular dependency
-        from ..util.context import run_precommit_checks
-
         # Run pre-commit checks on all files
         success, failed_check_message = run_precommit_checks()
 
@@ -60,8 +158,6 @@ def run_precommit_on_file(
         Messages with pre-commit results
     """
     # Check if pre-commit checks should run
-    from ..util.context import use_checks
-
     if not use_checks():
         logger.debug("Pre-commit checks not enabled, skipping hook")
         return
@@ -139,8 +235,6 @@ def run_full_precommit_checks(
         Messages with pre-commit check results
     """
     # Check if pre-commit checks should run
-    from ..util.context import use_checks
-
     if not use_checks():
         logger.debug("Pre-commit checks not enabled, skipping hook")
         return
@@ -153,17 +247,12 @@ def run_full_precommit_checks(
         return
 
     try:
-        # Import here to avoid circular dependency
-        from ..util.context import run_precommit_checks
-
         # Run pre-commit checks on all files
         success, failed_check_message = run_precommit_checks()
 
         if not success and failed_check_message:
             yield Message("system", failed_check_message, quiet=False)
             # Stop propagation to prevent autocommit from running with failed checks
-            from ..hooks import StopPropagation
-
             yield StopPropagation()
         elif success:
             yield Message("system", "Pre-commit checks passed", hide=True)
