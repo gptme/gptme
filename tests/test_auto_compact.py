@@ -20,8 +20,12 @@ def create_test_conversation():
     model = get_default_model() or get_model("gpt-4")
     target_tokens = int(0.85 * model.context)  # 85% of context limit
 
-    # Create a very large tool output
-    repeated_content = "x" * (target_tokens * 4)  # Much larger than context
+    # Create a very large tool output with varied content that tokenizes to target_tokens
+    # Use varied text so it doesn't compress well during tokenization
+    words = [
+        f"file_{i}.txt" for i in range(target_tokens // 2)
+    ]  # ~2 tokens per filename
+    repeated_content = "\n".join(words)
     tool_output = f"Ran command: `find /usr -type f`\n{repeated_content}"
 
     return [
