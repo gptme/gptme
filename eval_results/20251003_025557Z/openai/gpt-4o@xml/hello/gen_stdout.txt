@@ -1,0 +1,23 @@
+
+--- Start of generation ---
+[02:53:22] Using model: openai/gpt-4o                                           
+[02:53:23] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-10-03-gptme-evals-openai--gpt-4o-xml-2
+           7705                                                                 
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-10-03-gptme-evals-openai--gpt-4o-xml-2
+           7705/workspace                                                       
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+Let's create the `hello.py` script with the desired content. I'll write the script for you.                                                                                [02:53:25] Auto-reply: Assistant message had no tools. Asking for               
+           confirmation...                                                      
+User: Are you sure? If you're finished, use the `complete` tool to end the 
+session.
+Assistant: Thinking...                                                                                Assistant: 
+I apologize for the confusion. Let me write the script for you. 
+
+I'll create the `hello.py` file with the content that prints "Hello, world!".                                                                                [02:53:26] Autonomous mode: No tools used after confirmation. Exiting.          
+--- Finished generation ---
+
