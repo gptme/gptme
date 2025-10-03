@@ -1,0 +1,1307 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Hooks &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=a3416100" />
+    <link rel="stylesheet" type="text/css" href="_static/asciinema-player_3.6.3.css" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=3a28e17f" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/asciinema-player_3.6.3.js"></script>
+    <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'hooks';</script>
+    <link rel="canonical" href="https://gptme.org/docs/hooks.html" />
+    <link rel="icon" href="_static/logo.png"/>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API Reference" href="api.html" />
+    <link rel="prev" title="Custom Tools" href="custom_tool.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <img src="_static/logo.png" class="logo__image only-dark pst-js-only" alt="gptme - Home"/>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html">Projects</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="providers.html">Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/hooks.rst" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="_sources/hooks.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button>
+
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Hooks</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-lifecycle-hooks">Message Lifecycle Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-lifecycle-hooks">Tool Lifecycle Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-operation-hooks">File Operation Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-lifecycle-hooks">Session Lifecycle Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#generation-hooks">Generation Hooks</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-from-tools">Registering Hooks from Tools</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-hooks">Managing Hooks</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#query-hooks">Query Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#enable-disable-hooks">Enable/Disable Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#unregister-hooks">Unregister Hooks</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-hook">Pre-commit Hook</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-context-hook">Memory/Context Hook</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#linting-hook">Linting Hook</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#thread-safety">Thread Safety</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-guide">Migration Guide</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#converting-existing-features-to-hooks">Converting Existing Features to Hooks</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#example-converting-pre-commit-checks-to-a-hook">Example: Converting pre-commit checks to a hook</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-gptme.hooks">API Reference</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook"><code class="docutils literal notranslate"><span class="pre">Hook</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.__init__"><code class="docutils literal notranslate"><span class="pre">Hook.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.enabled"><code class="docutils literal notranslate"><span class="pre">Hook.enabled</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.func"><code class="docutils literal notranslate"><span class="pre">Hook.func</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.hook_type"><code class="docutils literal notranslate"><span class="pre">Hook.hook_type</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.name"><code class="docutils literal notranslate"><span class="pre">Hook.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.priority"><code class="docutils literal notranslate"><span class="pre">Hook.priority</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry"><code class="docutils literal notranslate"><span class="pre">HookRegistry</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.__init__"><code class="docutils literal notranslate"><span class="pre">HookRegistry.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.disable_hook"><code class="docutils literal notranslate"><span class="pre">HookRegistry.disable_hook()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.enable_hook"><code class="docutils literal notranslate"><span class="pre">HookRegistry.enable_hook()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.get_hooks"><code class="docutils literal notranslate"><span class="pre">HookRegistry.get_hooks()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.hooks"><code class="docutils literal notranslate"><span class="pre">HookRegistry.hooks</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.register"><code class="docutils literal notranslate"><span class="pre">HookRegistry.register()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.trigger"><code class="docutils literal notranslate"><span class="pre">HookRegistry.trigger()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.unregister"><code class="docutils literal notranslate"><span class="pre">HookRegistry.unregister()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType"><code class="docutils literal notranslate"><span class="pre">HookType</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.FILE_POST_PATCH"><code class="docutils literal notranslate"><span class="pre">HookType.FILE_POST_PATCH</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.FILE_POST_SAVE"><code class="docutils literal notranslate"><span class="pre">HookType.FILE_POST_SAVE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.FILE_PRE_PATCH"><code class="docutils literal notranslate"><span class="pre">HookType.FILE_PRE_PATCH</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.FILE_PRE_SAVE"><code class="docutils literal notranslate"><span class="pre">HookType.FILE_PRE_SAVE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.GENERATION_INTERRUPT"><code class="docutils literal notranslate"><span class="pre">HookType.GENERATION_INTERRUPT</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.GENERATION_POST"><code class="docutils literal notranslate"><span class="pre">HookType.GENERATION_POST</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.GENERATION_PRE"><code class="docutils literal notranslate"><span class="pre">HookType.GENERATION_PRE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.MESSAGE_POST_PROCESS"><code class="docutils literal notranslate"><span class="pre">HookType.MESSAGE_POST_PROCESS</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.MESSAGE_PRE_PROCESS"><code class="docutils literal notranslate"><span class="pre">HookType.MESSAGE_PRE_PROCESS</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.MESSAGE_TRANSFORM"><code class="docutils literal notranslate"><span class="pre">HookType.MESSAGE_TRANSFORM</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.SESSION_END"><code class="docutils literal notranslate"><span class="pre">HookType.SESSION_END</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.SESSION_START"><code class="docutils literal notranslate"><span class="pre">HookType.SESSION_START</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.TOOL_POST_EXECUTE"><code class="docutils literal notranslate"><span class="pre">HookType.TOOL_POST_EXECUTE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.TOOL_PRE_EXECUTE"><code class="docutils literal notranslate"><span class="pre">HookType.TOOL_PRE_EXECUTE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.TOOL_TRANSFORM"><code class="docutils literal notranslate"><span class="pre">HookType.TOOL_TRANSFORM</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.__new__"><code class="docutils literal notranslate"><span class="pre">HookType.__new__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.StopPropagation"><code class="docutils literal notranslate"><span class="pre">StopPropagation</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.clear_hooks"><code class="docutils literal notranslate"><span class="pre">clear_hooks()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.disable_hook"><code class="docutils literal notranslate"><span class="pre">disable_hook()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.enable_hook"><code class="docutils literal notranslate"><span class="pre">enable_hook()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.get_hooks"><code class="docutils literal notranslate"><span class="pre">get_hooks()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.register_hook"><code class="docutils literal notranslate"><span class="pre">register_hook()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.trigger_hook"><code class="docutils literal notranslate"><span class="pre">trigger_hook()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.unregister_hook"><code class="docutils literal notranslate"><span class="pre">unregister_hook()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="hooks">
+<h1>Hooks<a class="headerlink" href="#hooks" title="Link to this heading">#</a></h1>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is a new feature added in response to <a class="reference external" href="https://github.com/gptme/gptme/issues/156">issue #156</a>.</p>
+</div>
+<p>The hook system allows tools and plugins to register callbacks that execute at various points in gptme’s lifecycle. This enables powerful extensions like automatic linting, memory management, pre-commit checks, and more.</p>
+<section id="hook-types">
+<h2>Hook Types<a class="headerlink" href="#hook-types" title="Link to this heading">#</a></h2>
+<p>The following hook types are available:</p>
+<section id="message-lifecycle-hooks">
+<h3>Message Lifecycle Hooks<a class="headerlink" href="#message-lifecycle-hooks" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_PRE_PROCESS</span></code>: Before processing a user message</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_POST_PROCESS</span></code>: After message processing completes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_TRANSFORM</span></code>: Transform message content before processing</p></li>
+</ul>
+</section>
+<section id="tool-lifecycle-hooks">
+<h3>Tool Lifecycle Hooks<a class="headerlink" href="#tool-lifecycle-hooks" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_PRE_EXECUTE</span></code>: Before executing any tool</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_POST_EXECUTE</span></code>: After executing any tool</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_TRANSFORM</span></code>: Transform tool execution</p></li>
+</ul>
+</section>
+<section id="file-operation-hooks">
+<h3>File Operation Hooks<a class="headerlink" href="#file-operation-hooks" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PRE_SAVE</span></code>: Before saving a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_POST_SAVE</span></code>: After saving a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PRE_PATCH</span></code>: Before patching a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_POST_PATCH</span></code>: After patching a file</p></li>
+</ul>
+</section>
+<section id="session-lifecycle-hooks">
+<h3>Session Lifecycle Hooks<a class="headerlink" href="#session-lifecycle-hooks" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">SESSION_START</span></code>: At session start</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">SESSION_END</span></code>: At session end</p></li>
+</ul>
+</section>
+<section id="generation-hooks">
+<h3>Generation Hooks<a class="headerlink" href="#generation-hooks" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_PRE</span></code>: Before generating response</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_POST</span></code>: After generating response</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_INTERRUPT</span></code>: Interrupt generation</p></li>
+</ul>
+</section>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
+<section id="registering-hooks-from-tools">
+<h3>Registering Hooks from Tools<a class="headerlink" href="#registering-hooks-from-tools" title="Link to this heading">#</a></h3>
+<p>Tools can register hooks in their <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> definition:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span>
+<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+
+<span class="k">def</span> <span class="nf">on_file_save</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span> <span class="n">created</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hook function called after a file is saved.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">==</span> <span class="s2">&quot;.py&quot;</span><span class="p">:</span>
+        <span class="c1"># Run linting on Python files</span>
+        <span class="k">return</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Linted </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;linter&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic linting tool&quot;</span><span class="p">,</span>
+    <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;file_save&quot;</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_POST_SAVE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>  <span class="c1"># Hook type</span>
+            <span class="n">on_file_save</span><span class="p">,</span>                    <span class="c1"># Hook function</span>
+            <span class="mi">10</span>                               <span class="c1"># Priority (higher = runs first)</span>
+        <span class="p">)</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="registering-hooks-programmatically">
+<h3>Registering Hooks Programmatically<a class="headerlink" href="#registering-hooks-programmatically" title="Link to this heading">#</a></h3>
+<p>You can also register hooks directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">register_hook</span><span class="p">,</span> <span class="n">HookType</span>
+
+<span class="k">def</span> <span class="nf">my_hook_function</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom hook function.&quot;&quot;&quot;</span>
+    <span class="c1"># Do something</span>
+    <span class="k">return</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Hook executed!&quot;</span><span class="p">)</span>
+
+<span class="n">register_hook</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_custom_hook&quot;</span><span class="p">,</span>
+    <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">MESSAGE_PRE_PROCESS</span><span class="p">,</span>
+    <span class="n">func</span><span class="o">=</span><span class="n">my_hook_function</span><span class="p">,</span>
+    <span class="n">priority</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">enabled</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="hook-function-signatures">
+<h3>Hook Function Signatures<a class="headerlink" href="#hook-function-signatures" title="Link to this heading">#</a></h3>
+<p>Hook functions receive different arguments depending on the hook type:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Message hooks</span>
+<span class="k">def</span> <span class="nf">message_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+<span class="c1"># Tool hooks</span>
+<span class="k">def</span> <span class="nf">tool_hook</span><span class="p">(</span><span class="n">tool_name</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+<span class="c1"># File hooks</span>
+<span class="k">def</span> <span class="nf">file_hook</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span> <span class="n">created</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+<span class="c1"># Session hooks</span>
+<span class="k">def</span> <span class="nf">session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">manager</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">pass</span>
+</pre></div>
+</div>
+<p>Hook functions can:</p>
+<ul class="simple">
+<li><p>Return <code class="docutils literal notranslate"><span class="pre">None</span></code> (no action)</p></li>
+<li><p>Return a single <code class="docutils literal notranslate"><span class="pre">Message</span></code> object</p></li>
+<li><p>Return a generator that yields <code class="docutils literal notranslate"><span class="pre">Message</span></code> objects</p></li>
+<li><p>Raise exceptions (which are caught and logged)</p></li>
+</ul>
+</section>
+</section>
+<section id="managing-hooks">
+<h2>Managing Hooks<a class="headerlink" href="#managing-hooks" title="Link to this heading">#</a></h2>
+<section id="query-hooks">
+<h3>Query Hooks<a class="headerlink" href="#query-hooks" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">get_hooks</span><span class="p">,</span> <span class="n">HookType</span>
+
+<span class="c1"># Get all hooks</span>
+<span class="n">all_hooks</span> <span class="o">=</span> <span class="n">get_hooks</span><span class="p">()</span>
+
+<span class="c1"># Get hooks of a specific type</span>
+<span class="n">tool_hooks</span> <span class="o">=</span> <span class="n">get_hooks</span><span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_POST_EXECUTE</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="enable-disable-hooks">
+<h3>Enable/Disable Hooks<a class="headerlink" href="#enable-disable-hooks" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">enable_hook</span><span class="p">,</span> <span class="n">disable_hook</span>
+
+<span class="c1"># Disable a hook</span>
+<span class="n">disable_hook</span><span class="p">(</span><span class="s2">&quot;linter.file_save&quot;</span><span class="p">)</span>
+
+<span class="c1"># Re-enable it</span>
+<span class="n">enable_hook</span><span class="p">(</span><span class="s2">&quot;linter.file_save&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="unregister-hooks">
+<h3>Unregister Hooks<a class="headerlink" href="#unregister-hooks" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">unregister_hook</span><span class="p">,</span> <span class="n">HookType</span>
+
+<span class="c1"># Unregister from specific type</span>
+<span class="n">unregister_hook</span><span class="p">(</span><span class="s2">&quot;my_hook&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_POST_SAVE</span><span class="p">)</span>
+
+<span class="c1"># Unregister from all types</span>
+<span class="n">unregister_hook</span><span class="p">(</span><span class="s2">&quot;my_hook&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="examples">
+<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h2>
+<section id="pre-commit-hook">
+<h3>Pre-commit Hook<a class="headerlink" href="#pre-commit-hook" title="Link to this heading">#</a></h3>
+<p>Automatically run pre-commit checks after files are saved:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span>
+<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+<span class="kn">import</span> <span class="nn">subprocess</span>
+
+<span class="k">def</span> <span class="nf">run_precommit</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">created</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run pre-commit on saved file.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+            <span class="p">[</span><span class="s2">&quot;pre-commit&quot;</span><span class="p">,</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;--files&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)],</span>
+            <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Pre-commit checks failed:</span><span class="se">\n</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Pre-commit checks passed&quot;</span><span class="p">,</span> <span class="n">hide</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">TimeoutExpired</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Pre-commit checks timed out&quot;</span><span class="p">,</span> <span class="n">hide</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;precommit&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic pre-commit checks&quot;</span><span class="p">,</span>
+    <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;precommit_check&quot;</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_POST_SAVE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+            <span class="n">run_precommit</span><span class="p">,</span>
+            <span class="mi">5</span>  <span class="c1"># Run after other hooks</span>
+        <span class="p">)</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="memory-context-hook">
+<h3>Memory/Context Hook<a class="headerlink" href="#memory-context-hook" title="Link to this heading">#</a></h3>
+<p>Automatically add context at session start:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">add_context</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Add relevant context at session start.&quot;&quot;&quot;</span>
+    <span class="n">context</span> <span class="o">=</span> <span class="n">load_relevant_context</span><span class="p">(</span><span class="n">workspace</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">context</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Loaded context:</span><span class="se">\n</span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">pinned</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;memory&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic context loading&quot;</span><span class="p">,</span>
+    <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;load_context&quot;</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">HookType</span><span class="o">.</span><span class="n">SESSION_START</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+            <span class="n">add_context</span><span class="p">,</span>
+            <span class="mi">10</span>
+        <span class="p">)</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="linting-hook">
+<h3>Linting Hook<a class="headerlink" href="#linting-hook" title="Link to this heading">#</a></h3>
+<p>Automatically lint files after saving:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">lint_file</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">created</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Lint Python files.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">!=</span> <span class="s2">&quot;.py&quot;</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="kn">import</span> <span class="nn">subprocess</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+        <span class="p">[</span><span class="s2">&quot;ruff&quot;</span><span class="p">,</span> <span class="s2">&quot;check&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)],</span>
+        <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">text</span><span class="o">=</span><span class="kc">True</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Linting issues:</span><span class="se">\n</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;linter&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic Python linting&quot;</span><span class="p">,</span>
+    <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;lint&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">FILE_POST_SAVE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">lint_file</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Keep hooks fast</strong>: Hooks run synchronously and can slow down operations</p></li>
+<li><p><strong>Handle errors gracefully</strong>: Use try-except to prevent hook failures from breaking the system</p></li>
+<li><p><strong>Use priorities wisely</strong>: Higher priority hooks run first (use for dependencies)</p></li>
+<li><p><strong>Return Messages appropriately</strong>: Use <code class="docutils literal notranslate"><span class="pre">hide=True</span></code> for verbose/debug messages</p></li>
+<li><p><strong>Test hooks thoroughly</strong>: Hooks run in the main execution path</p></li>
+<li><p><strong>Document hook behavior</strong>: Explain what your hooks do and when they run</p></li>
+<li><p><strong>Consider disabling hooks</strong>: Make hooks easy to disable via configuration</p></li>
+</ol>
+</section>
+<section id="thread-safety">
+<h2>Thread Safety<a class="headerlink" href="#thread-safety" title="Link to this heading">#</a></h2>
+<p>The hook registry is thread-safe. Each thread maintains its own tool state, and hooks are registered per-thread.</p>
+<p>When running in server mode with multiple workers, hooks must be registered in each worker process.</p>
+</section>
+<section id="configuration">
+<h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
+<p>Hooks can be configured via environment variables:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Example: disable specific hooks</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_HOOKS_DISABLED</span><span class="o">=</span><span class="s2">&quot;linter.lint,precommit.precommit_check&quot;</span>
+
+<span class="c1"># Example: set hook priorities</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_HOOK_PRIORITY_LINTER</span><span class="o">=</span><span class="m">20</span>
+</pre></div>
+</div>
+</section>
+<section id="migration-guide">
+<h2>Migration Guide<a class="headerlink" href="#migration-guide" title="Link to this heading">#</a></h2>
+<section id="converting-existing-features-to-hooks">
+<h3>Converting Existing Features to Hooks<a class="headerlink" href="#converting-existing-features-to-hooks" title="Link to this heading">#</a></h3>
+<p>If you have features that should be hooks:</p>
+<ol class="arabic simple">
+<li><p><strong>Identify the appropriate hook type</strong>: Choose from the available hook types</p></li>
+<li><p><strong>Extract the logic</strong>: Move the feature logic into a hook function</p></li>
+<li><p><strong>Register the hook</strong>: Add it to a ToolSpec or register programmatically</p></li>
+<li><p><strong>Test thoroughly</strong>: Ensure the hook works in all scenarios</p></li>
+<li><p><strong>Update documentation</strong>: Document the new hook</p></li>
+</ol>
+<section id="example-converting-pre-commit-checks-to-a-hook">
+<h4>Example: Converting pre-commit checks to a hook<a class="headerlink" href="#example-converting-pre-commit-checks-to-a-hook" title="Link to this heading">#</a></h4>
+<p><strong>Before</strong> (hard-coded in chat.py):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In chat.py</span>
+<span class="k">if</span> <span class="n">check_for_modifications</span><span class="p">(</span><span class="n">log</span><span class="p">):</span>
+    <span class="n">run_precommit_checks</span><span class="p">()</span>
+</pre></div>
+</div>
+<p><strong>After</strong> (as a hook):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In a tool</span>
+<span class="k">def</span> <span class="nf">precommit_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">check_for_modifications</span><span class="p">(</span><span class="n">log</span><span class="p">):</span>
+        <span class="n">run_precommit_checks</span><span class="p">()</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;precommit&quot;</span><span class="p">,</span>
+    <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;check&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">MESSAGE_POST_PROCESS</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">precommit_hook</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="module-gptme.hooks">
+<span id="api-reference"></span><h2>API Reference<a class="headerlink" href="#module-gptme.hooks" title="Link to this heading">#</a></h2>
+<p>Hook system for extending gptme functionality at various lifecycle points.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="gptme.hooks.Hook">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">Hook</span></span><a class="headerlink" href="#gptme.hooks.Hook" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>A registered hook.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.hooks.Hook.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">func</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.13)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.Hook.__init__" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.Hook.enabled">
+<span class="sig-name descname"><span class="pre">enabled</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></em><a class="headerlink" href="#gptme.hooks.Hook.enabled" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.Hook.func">
+<span class="sig-name descname"><span class="pre">func</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.13)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#gptme.hooks.Hook.func" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.Hook.hook_type">
+<span class="sig-name descname"><span class="pre">hook_type</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a></em><a class="headerlink" href="#gptme.hooks.Hook.hook_type" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.Hook.name">
+<span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></em><a class="headerlink" href="#gptme.hooks.Hook.name" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.Hook.priority">
+<span class="sig-name descname"><span class="pre">priority</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#gptme.hooks.Hook.priority" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="gptme.hooks.HookRegistry">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">HookRegistry</span></span><a class="headerlink" href="#gptme.hooks.HookRegistry" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Registry for managing hooks.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.hooks.HookRegistry.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hooks:</span> <span class="pre">dict[~gptme.hooks.HookType</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">list[~gptme.hooks.Hook]]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_lock:</span> <span class="pre">~typing.Any</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.HookRegistry.__init__" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.hooks.HookRegistry.disable_hook">
+<span class="sig-name descname"><span class="pre">disable_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.HookRegistry.disable_hook" title="Link to this definition">#</a></dt>
+<dd><p>Disable a hook by name.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.hooks.HookRegistry.enable_hook">
+<span class="sig-name descname"><span class="pre">enable_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.HookRegistry.enable_hook" title="Link to this definition">#</a></dt>
+<dd><p>Enable a hook by name.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.hooks.HookRegistry.get_hooks">
+<span class="sig-name descname"><span class="pre">get_hooks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#gptme.hooks.Hook" title="gptme.hooks.Hook"><span class="pre">Hook</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.hooks.HookRegistry.get_hooks" title="Link to this definition">#</a></dt>
+<dd><p>Get all registered hooks, optionally filtered by type.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookRegistry.hooks">
+<span class="sig-name descname"><span class="pre">hooks</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#gptme.hooks.Hook" title="gptme.hooks.Hook"><span class="pre">Hook</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#gptme.hooks.HookRegistry.hooks" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.hooks.HookRegistry.register">
+<span class="sig-name descname"><span class="pre">register</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">func</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.13)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.HookRegistry.register" title="Link to this definition">#</a></dt>
+<dd><p>Register a hook.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.hooks.HookRegistry.trigger">
+<span class="sig-name descname"><span class="pre">trigger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.13)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.hooks.HookRegistry.trigger" title="Link to this definition">#</a></dt>
+<dd><p>Trigger all hooks of a given type.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>hook_type</strong> – The type of hook to trigger</p></li>
+<li><p><strong>*args</strong> – Variable positional arguments to pass to hook functions</p></li>
+<li><p><strong>**kwargs</strong> – Variable keyword arguments to pass to hook functions</p></li>
+</ul>
+</dd>
+<dt class="field-even">Yields<span class="colon">:</span></dt>
+<dd class="field-even"><p>Messages from hooks</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.hooks.HookRegistry.unregister">
+<span class="sig-name descname"><span class="pre">unregister</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.HookRegistry.unregister" title="Link to this definition">#</a></dt>
+<dd><p>Unregister a hook by name, optionally filtering by type.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="gptme.hooks.HookType">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">HookType</span></span><a class="headerlink" href="#gptme.hooks.HookType" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/enum.html#enum.Enum" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></a></p>
+<p>Types of hooks that can be registered.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.FILE_POST_PATCH">
+<span class="sig-name descname"><span class="pre">FILE_POST_PATCH</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'file_post_patch'</span></em><a class="headerlink" href="#gptme.hooks.HookType.FILE_POST_PATCH" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.FILE_POST_SAVE">
+<span class="sig-name descname"><span class="pre">FILE_POST_SAVE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'file_post_save'</span></em><a class="headerlink" href="#gptme.hooks.HookType.FILE_POST_SAVE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.FILE_PRE_PATCH">
+<span class="sig-name descname"><span class="pre">FILE_PRE_PATCH</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'file_pre_patch'</span></em><a class="headerlink" href="#gptme.hooks.HookType.FILE_PRE_PATCH" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.FILE_PRE_SAVE">
+<span class="sig-name descname"><span class="pre">FILE_PRE_SAVE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'file_pre_save'</span></em><a class="headerlink" href="#gptme.hooks.HookType.FILE_PRE_SAVE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.GENERATION_INTERRUPT">
+<span class="sig-name descname"><span class="pre">GENERATION_INTERRUPT</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'generation_interrupt'</span></em><a class="headerlink" href="#gptme.hooks.HookType.GENERATION_INTERRUPT" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.GENERATION_POST">
+<span class="sig-name descname"><span class="pre">GENERATION_POST</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'generation_post'</span></em><a class="headerlink" href="#gptme.hooks.HookType.GENERATION_POST" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.GENERATION_PRE">
+<span class="sig-name descname"><span class="pre">GENERATION_PRE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'generation_pre'</span></em><a class="headerlink" href="#gptme.hooks.HookType.GENERATION_PRE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.MESSAGE_POST_PROCESS">
+<span class="sig-name descname"><span class="pre">MESSAGE_POST_PROCESS</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'message_post_process'</span></em><a class="headerlink" href="#gptme.hooks.HookType.MESSAGE_POST_PROCESS" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.MESSAGE_PRE_PROCESS">
+<span class="sig-name descname"><span class="pre">MESSAGE_PRE_PROCESS</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'message_pre_process'</span></em><a class="headerlink" href="#gptme.hooks.HookType.MESSAGE_PRE_PROCESS" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.MESSAGE_TRANSFORM">
+<span class="sig-name descname"><span class="pre">MESSAGE_TRANSFORM</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'message_transform'</span></em><a class="headerlink" href="#gptme.hooks.HookType.MESSAGE_TRANSFORM" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.SESSION_END">
+<span class="sig-name descname"><span class="pre">SESSION_END</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'session_end'</span></em><a class="headerlink" href="#gptme.hooks.HookType.SESSION_END" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.SESSION_START">
+<span class="sig-name descname"><span class="pre">SESSION_START</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'session_start'</span></em><a class="headerlink" href="#gptme.hooks.HookType.SESSION_START" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.TOOL_POST_EXECUTE">
+<span class="sig-name descname"><span class="pre">TOOL_POST_EXECUTE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'tool_post_execute'</span></em><a class="headerlink" href="#gptme.hooks.HookType.TOOL_POST_EXECUTE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.TOOL_PRE_EXECUTE">
+<span class="sig-name descname"><span class="pre">TOOL_PRE_EXECUTE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'tool_pre_execute'</span></em><a class="headerlink" href="#gptme.hooks.HookType.TOOL_PRE_EXECUTE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.TOOL_TRANSFORM">
+<span class="sig-name descname"><span class="pre">TOOL_TRANSFORM</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'tool_transform'</span></em><a class="headerlink" href="#gptme.hooks.HookType.TOOL_TRANSFORM" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.hooks.HookType.__new__">
+<span class="sig-name descname"><span class="pre">__new__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#gptme.hooks.HookType.__new__" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="gptme.hooks.StopPropagation">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">StopPropagation</span></span><a class="headerlink" href="#gptme.hooks.StopPropagation" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Sentinel class that hooks can yield to stop execution of lower-priority hooks.</p>
+<p>Usage:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">my_hook</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">some_condition_failed</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Error occurred&quot;</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="n">StopPropagation</span><span class="p">()</span>  <span class="c1"># Stop remaining hooks</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.hooks.clear_hooks">
+<span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">clear_hooks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.clear_hooks" title="Link to this definition">#</a></dt>
+<dd><p>Clear all hooks, optionally filtered by type.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.hooks.disable_hook">
+<span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">disable_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.disable_hook" title="Link to this definition">#</a></dt>
+<dd><p>Disable a hook.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.hooks.enable_hook">
+<span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">enable_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.enable_hook" title="Link to this definition">#</a></dt>
+<dd><p>Enable a hook.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.hooks.get_hooks">
+<span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">get_hooks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#gptme.hooks.Hook" title="gptme.hooks.Hook"><span class="pre">Hook</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.hooks.get_hooks" title="Link to this definition">#</a></dt>
+<dd><p>Get all registered hooks.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.hooks.register_hook">
+<span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">register_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">func</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.13)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.register_hook" title="Link to this definition">#</a></dt>
+<dd><p>Register a hook with the global registry.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.hooks.trigger_hook">
+<span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">trigger_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.13)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.hooks.trigger_hook" title="Link to this definition">#</a></dt>
+<dd><p>Trigger hooks of a given type.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.hooks.unregister_hook">
+<span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">unregister_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.hooks.HookType" title="gptme.hooks.HookType"><span class="pre">HookType</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.hooks.unregister_hook" title="Link to this definition">#</a></dt>
+<dd><p>Unregister a hook from the global registry.</p>
+</dd></dl>
+
+</section>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="tools.html"><span class="doc">Tools</span></a> - Tool system documentation</p></li>
+<li><p><a class="reference internal" href="config.html"><span class="doc">Configuration</span></a> - Configuration options</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/156">Issue #156</a> - Original feature request</p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="custom_tool.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Custom Tools</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="api.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">API Reference</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-lifecycle-hooks">Message Lifecycle Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-lifecycle-hooks">Tool Lifecycle Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-operation-hooks">File Operation Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-lifecycle-hooks">Session Lifecycle Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#generation-hooks">Generation Hooks</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-from-tools">Registering Hooks from Tools</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-hooks">Managing Hooks</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#query-hooks">Query Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#enable-disable-hooks">Enable/Disable Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#unregister-hooks">Unregister Hooks</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-hook">Pre-commit Hook</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-context-hook">Memory/Context Hook</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#linting-hook">Linting Hook</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#thread-safety">Thread Safety</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-guide">Migration Guide</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#converting-existing-features-to-hooks">Converting Existing Features to Hooks</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#example-converting-pre-commit-checks-to-a-hook">Example: Converting pre-commit checks to a hook</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-gptme.hooks">API Reference</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook"><code class="docutils literal notranslate"><span class="pre">Hook</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.__init__"><code class="docutils literal notranslate"><span class="pre">Hook.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.enabled"><code class="docutils literal notranslate"><span class="pre">Hook.enabled</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.func"><code class="docutils literal notranslate"><span class="pre">Hook.func</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.hook_type"><code class="docutils literal notranslate"><span class="pre">Hook.hook_type</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.name"><code class="docutils literal notranslate"><span class="pre">Hook.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.Hook.priority"><code class="docutils literal notranslate"><span class="pre">Hook.priority</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry"><code class="docutils literal notranslate"><span class="pre">HookRegistry</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.__init__"><code class="docutils literal notranslate"><span class="pre">HookRegistry.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.disable_hook"><code class="docutils literal notranslate"><span class="pre">HookRegistry.disable_hook()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.enable_hook"><code class="docutils literal notranslate"><span class="pre">HookRegistry.enable_hook()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.get_hooks"><code class="docutils literal notranslate"><span class="pre">HookRegistry.get_hooks()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.hooks"><code class="docutils literal notranslate"><span class="pre">HookRegistry.hooks</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.register"><code class="docutils literal notranslate"><span class="pre">HookRegistry.register()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.trigger"><code class="docutils literal notranslate"><span class="pre">HookRegistry.trigger()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookRegistry.unregister"><code class="docutils literal notranslate"><span class="pre">HookRegistry.unregister()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType"><code class="docutils literal notranslate"><span class="pre">HookType</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.FILE_POST_PATCH"><code class="docutils literal notranslate"><span class="pre">HookType.FILE_POST_PATCH</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.FILE_POST_SAVE"><code class="docutils literal notranslate"><span class="pre">HookType.FILE_POST_SAVE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.FILE_PRE_PATCH"><code class="docutils literal notranslate"><span class="pre">HookType.FILE_PRE_PATCH</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.FILE_PRE_SAVE"><code class="docutils literal notranslate"><span class="pre">HookType.FILE_PRE_SAVE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.GENERATION_INTERRUPT"><code class="docutils literal notranslate"><span class="pre">HookType.GENERATION_INTERRUPT</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.GENERATION_POST"><code class="docutils literal notranslate"><span class="pre">HookType.GENERATION_POST</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.GENERATION_PRE"><code class="docutils literal notranslate"><span class="pre">HookType.GENERATION_PRE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.MESSAGE_POST_PROCESS"><code class="docutils literal notranslate"><span class="pre">HookType.MESSAGE_POST_PROCESS</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.MESSAGE_PRE_PROCESS"><code class="docutils literal notranslate"><span class="pre">HookType.MESSAGE_PRE_PROCESS</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.MESSAGE_TRANSFORM"><code class="docutils literal notranslate"><span class="pre">HookType.MESSAGE_TRANSFORM</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.SESSION_END"><code class="docutils literal notranslate"><span class="pre">HookType.SESSION_END</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.SESSION_START"><code class="docutils literal notranslate"><span class="pre">HookType.SESSION_START</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.TOOL_POST_EXECUTE"><code class="docutils literal notranslate"><span class="pre">HookType.TOOL_POST_EXECUTE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.TOOL_PRE_EXECUTE"><code class="docutils literal notranslate"><span class="pre">HookType.TOOL_PRE_EXECUTE</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.TOOL_TRANSFORM"><code class="docutils literal notranslate"><span class="pre">HookType.TOOL_TRANSFORM</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.HookType.__new__"><code class="docutils literal notranslate"><span class="pre">HookType.__new__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.StopPropagation"><code class="docutils literal notranslate"><span class="pre">StopPropagation</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.clear_hooks"><code class="docutils literal notranslate"><span class="pre">clear_hooks()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.disable_hook"><code class="docutils literal notranslate"><span class="pre">disable_hook()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.enable_hook"><code class="docutils literal notranslate"><span class="pre">enable_hook()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.get_hooks"><code class="docutils literal notranslate"><span class="pre">get_hooks()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.register_hook"><code class="docutils literal notranslate"><span class="pre">register_hook()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.trigger_hook"><code class="docutils literal notranslate"><span class="pre">trigger_hook()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.hooks.unregister_hook"><code class="docutils literal notranslate"><span class="pre">unregister_hook()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2025, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

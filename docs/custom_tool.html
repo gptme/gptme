@@ -51,7 +51,7 @@
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="API Reference" href="api.html" />
+    <link rel="next" title="Hooks" href="hooks.html" />
     <link rel="prev" title="Finetuning" href="finetuning.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -175,6 +175,7 @@
 <li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
 <li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
@@ -439,6 +440,13 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-custom-tool-example">Basic Custom Tool Example</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-registration">Command Registration</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-commands-in-tools">Registering Commands in Tools</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-examples">Command Examples</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-context">Command Context</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-best-practices">Command Best Practices</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-an-approach">Choosing an Approach</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-the-tool">Registering the Tool</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-tools">Community Tools</a></li>
@@ -565,6 +573,82 @@
 </div>
 </section>
 </section>
+<section id="command-registration">
+<h2>Command Registration<a class="headerlink" href="#command-registration" title="Link to this heading">#</a></h2>
+<p>In addition to defining tools, you can register custom commands that users can invoke with <code class="docutils literal notranslate"><span class="pre">/command</span></code> syntax.</p>
+<section id="registering-commands-in-tools">
+<h3>Registering Commands in Tools<a class="headerlink" href="#registering-commands-in-tools" title="Link to this heading">#</a></h3>
+<p>Tools can register commands in their <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> definition:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span> <span class="nn">gptme.commands</span> <span class="kn">import</span> <span class="n">CommandContext</span>
+<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+
+<span class="k">def</span> <span class="nf">handle_my_command</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">Message</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle the /my-command.&quot;&quot;&quot;</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">undo</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># Remove command message</span>
+    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Command executed!&quot;</span><span class="p">)</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_tool&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Tool with custom command&quot;</span><span class="p">,</span>
+    <span class="n">commands</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;my-command&quot;</span><span class="p">:</span> <span class="n">handle_my_command</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="command-examples">
+<h3>Command Examples<a class="headerlink" href="#command-examples" title="Link to this heading">#</a></h3>
+<p><strong>Commit Command (autocommit tool):</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">handle_commit_command</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">Message</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle the /commit command.&quot;&quot;&quot;</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">undo</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="kn">from</span> <span class="nn">..util.context</span> <span class="kn">import</span> <span class="n">autocommit</span>
+    <span class="k">yield</span> <span class="n">autocommit</span><span class="p">()</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;autocommit&quot;</span><span class="p">,</span>
+    <span class="n">commands</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;commit&quot;</span><span class="p">:</span> <span class="n">handle_commit_command</span><span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Pre-commit Command (precommit tool):</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">handle_precommit_command</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">Message</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle the /pre-commit command.&quot;&quot;&quot;</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">undo</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="kn">from</span> <span class="nn">..util.context</span> <span class="kn">import</span> <span class="n">run_precommit_checks</span>
+    <span class="n">success</span><span class="p">,</span> <span class="n">message</span> <span class="o">=</span> <span class="n">run_precommit_checks</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">success</span> <span class="ow">and</span> <span class="n">message</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="n">message</span><span class="p">)</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;precommit&quot;</span><span class="p">,</span>
+    <span class="n">commands</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;pre-commit&quot;</span><span class="p">:</span> <span class="n">handle_precommit_command</span><span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="command-context">
+<h3>Command Context<a class="headerlink" href="#command-context" title="Link to this heading">#</a></h3>
+<p>Command handlers receive a <code class="docutils literal notranslate"><span class="pre">CommandContext</span></code> with:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">args</span></code>: List of command arguments</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">full_args</span></code>: Full argument string</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">manager</span></code>: LogManager for accessing conversation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">confirm</span></code>: Function for user confirmation</p></li>
+</ul>
+</section>
+<section id="command-best-practices">
+<h3>Command Best Practices<a class="headerlink" href="#command-best-practices" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p><strong>Undo command message</strong>: Always call <code class="docutils literal notranslate"><span class="pre">ctx.manager.undo(1,</span> <span class="pre">quiet=True)</span></code> to remove the command from log</p></li>
+<li><p><strong>Yield Messages</strong>: Return system messages to provide feedback</p></li>
+<li><p><strong>Handle errors</strong>: Use try-except to handle failures gracefully</p></li>
+<li><p><strong>Document commands</strong>: Mention commands in tool’s <code class="docutils literal notranslate"><span class="pre">instructions</span></code> field</p></li>
+</ol>
+</section>
+</section>
 <section id="choosing-an-approach">
 <h2>Choosing an Approach<a class="headerlink" href="#choosing-an-approach" title="Link to this heading">#</a></h2>
 <p>Use <strong>script-based tools</strong> when you need:</p>
@@ -639,11 +723,11 @@ This makes it easier to:</p>
       </div>
     </a>
     <a class="right-next"
-       href="api.html"
+       href="hooks.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">API Reference</p>
+        <p class="prev-next-title">Hooks</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -669,6 +753,13 @@ This makes it easier to:</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-a-custom-tool">Creating a Custom Tool</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-custom-tool-example">Basic Custom Tool Example</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-registration">Command Registration</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-commands-in-tools">Registering Commands in Tools</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-examples">Command Examples</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-context">Command Context</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-best-practices">Command Best Practices</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-an-approach">Choosing an Approach</a></li>
