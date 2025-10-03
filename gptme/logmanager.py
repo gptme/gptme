@@ -24,7 +24,6 @@ from .config import ChatConfig, get_project_config
 from .dirs import get_logs_dir
 from .message import Message, len_tokens, print_msg
 from .util.context import enrich_messages_with_context
-from .util.auto_compact import auto_compact_log, should_auto_compact
 from .util.reduce import limit_log, reduce_log
 
 PathLike: TypeAlias = str | Path
@@ -353,13 +352,8 @@ def prepare_messages(
     # Enrich with enabled context enhancements (RAG, fresh context)
     msgs = enrich_messages_with_context(msgs, workspace)
 
-    # Check if auto-compacting should be used for massive tool results
-    if should_auto_compact(msgs):
-        logger.info("Using auto-compacting for conversation with massive tool results")
-        msgs_reduced = list(auto_compact_log(msgs))
-    else:
-        # Use regular reduction as before
-        msgs_reduced = list(reduce_log(msgs))
+    # Use regular reduction
+    msgs_reduced = list(reduce_log(msgs))
 
     model = get_default_model()
     assert model is not None, "No model loaded"

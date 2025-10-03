@@ -128,13 +128,56 @@ def chat(
     # Convert prompt_msgs to a queue for unified handling
     prompt_queue = list(prompt_msgs)
 
+    # Import SessionCompleteException for clean exit handling
+    from .tools.complete import SessionCompleteException
+
     # main loop
+    try:
+        _run_chat_loop(
+            manager,
+            prompt_queue,
+            stream,
+            confirm_func,
+            tool_format,
+            workspace,
+            model,
+            interactive,
+            logdir,
+        )
+    except SessionCompleteException:
+        console.log("Autonomous mode: Complete tool detected. Exiting cleanly.")
+        _wait_for_tts_if_enabled()
+
+        # Trigger session end hooks
+        if session_end_msgs := trigger_hook(
+            HookType.SESSION_END, logdir=logdir, manager=manager
+        ):
+            for msg in session_end_msgs:
+                manager.append(msg)
+        return
+
+
+def _run_chat_loop(
+    manager,
+    prompt_queue,
+    stream,
+    confirm_func,
+    tool_format,
+    workspace,
+    model,
+    interactive,
+    logdir,
+):
+    """Main chat loop - extracted to allow clean exception handling."""
+    from .hooks import HookType, trigger_hook
+
     while True:
         msg: Message | None = None
         try:
             # Process next message (either from prompt queue or user input)
             if prompt_queue:
                 msg = prompt_queue.pop(0)
+                assert msg is not None, "prompt_queue contained None"
                 msg = include_paths(msg, workspace)
                 manager.append(msg)
 
@@ -192,28 +235,8 @@ def chat(
                         model,
                     )
 
-            # Check if complete tool was used - if so, exit cleanly
-            if not prompt_queue:
-                # Check last few messages for complete tool usage
-                if any(
-                    tu.tool == "complete"
-                    for msg in reversed(manager.log.messages[-5:])
-                    if msg.role == "assistant"
-                    for tu in ToolUse.iter_from_content(msg.content)
-                ):
-                    console.log(
-                        "Autonomous mode: Complete tool detected. Exiting cleanly."
-                    )
-                    _wait_for_tts_if_enabled()
-
-                    # Trigger session end hooks
-                    if session_end_msgs := trigger_hook(
-                        HookType.SESSION_END, logdir=logdir, manager=manager
-                    ):
-                        for msg in session_end_msgs:
-                            manager.append(msg)
-
-                    return
+            # Note: Complete tool detection now handled by complete tool's hook
+            # which raises SessionCompleteException
 
             # Auto-reply mechanism for autonomous operation
             # If in non-interactive mode and last assistant message had no tools,
@@ -332,7 +355,10 @@ def _process_message_conversation(
     # Trigger post-process hooks after message processing completes
     # Note: pre-commit checks and autocommit are now handled by hooks
     if post_msgs := trigger_hook(
-        HookType.MESSAGE_POST_PROCESS, log=manager.log, workspace=workspace
+        HookType.MESSAGE_POST_PROCESS,
+        log=manager.log,
+        workspace=workspace,
+        manager=manager,
     ):
         for msg in post_msgs:
             manager.append(msg)
