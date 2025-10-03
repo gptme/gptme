@@ -115,6 +115,88 @@ Here's a minimal example of a custom tool:
         ],
     )
 
+Command Registration
+--------------------
+
+In addition to defining tools, you can register custom commands that users can invoke with ``/command`` syntax.
+
+Registering Commands in Tools
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Tools can register commands in their ``ToolSpec`` definition:
+
+.. code-block:: python
+
+   from gptme.tools.base import ToolSpec
+   from gptme.commands import CommandContext
+   from gptme.message import Message
+
+   def handle_my_command(ctx: CommandContext) -> Generator[Message, None, None]:
+       """Handle the /my-command."""
+       ctx.manager.undo(1, quiet=True)  # Remove command message
+       yield Message("system", "Command executed!")
+
+   tool = ToolSpec(
+       name="my_tool",
+       desc="Tool with custom command",
+       commands={
+           "my-command": handle_my_command,
+       }
+   )
+
+Command Examples
+~~~~~~~~~~~~~~~~
+
+**Commit Command (autocommit tool):**
+
+.. code-block:: python
+
+   def handle_commit_command(ctx: CommandContext) -> Generator[Message, None, None]:
+       """Handle the /commit command."""
+       ctx.manager.undo(1, quiet=True)
+       from ..util.context import autocommit
+       yield autocommit()
+
+   tool = ToolSpec(
+       name="autocommit",
+       commands={"commit": handle_commit_command}
+   )
+
+**Pre-commit Command (precommit tool):**
+
+.. code-block:: python
+
+   def handle_precommit_command(ctx: CommandContext) -> Generator[Message, None, None]:
+       """Handle the /pre-commit command."""
+       ctx.manager.undo(1, quiet=True)
+       from ..util.context import run_precommit_checks
+       success, message = run_precommit_checks()
+       if not success and message:
+           yield Message("system", message)
+
+   tool = ToolSpec(
+       name="precommit",
+       commands={"pre-commit": handle_precommit_command}
+   )
+
+Command Context
+~~~~~~~~~~~~~~~
+
+Command handlers receive a ``CommandContext`` with:
+
+- ``args``: List of command arguments
+- ``full_args``: Full argument string
+- ``manager``: LogManager for accessing conversation
+- ``confirm``: Function for user confirmation
+
+Command Best Practices
+~~~~~~~~~~~~~~~~~~~~~~
+
+1. **Undo command message**: Always call ``ctx.manager.undo(1, quiet=True)`` to remove the command from log
+2. **Yield Messages**: Return system messages to provide feedback
+3. **Handle errors**: Use try-except to handle failures gracefully
+4. **Document commands**: Mention commands in tool's ``instructions`` field
+
 Choosing an Approach
 --------------------
 Use **script-based tools** when you need:
