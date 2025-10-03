@@ -14,13 +14,12 @@ logger = logging.getLogger(__name__)
 class StopPropagation:
     """Sentinel class that hooks can yield to stop execution of lower-priority hooks.
 
-    Usage:
-        ```python
+    Usage::
+
         def my_hook():
             if some_condition_failed:
                 yield Message("system", "Error occurred")
                 yield StopPropagation()  # Stop remaining hooks
-        ```
     """
 
     pass
@@ -139,7 +138,8 @@ class HookRegistry:
 
         Args:
             hook_type: The type of hook to trigger
-            *args, **kwargs: Arguments to pass to hook functions
+            \*args: Variable positional arguments to pass to hook functions
+            \*\*kwargs: Variable keyword arguments to pass to hook functions
 
         Yields:
             Messages from hooks
