@@ -87,6 +87,7 @@ extensions = [
     "myst_parser",
     "sphinx.ext.napoleon",
     "sphinx.ext.autodoc",
+    "sphinx.ext.intersphinx",
     "sphinx.ext.extlinks",
     "sphinx.ext.autosectionlabel",
     "sphinxcontrib.mermaid",
@@ -96,6 +97,11 @@ extensions = [
     "sphinx_sitemap",
     "sphinx_llms_txt",
 ]
+
+# Intersphinx mapping for cross-references to Python standard library
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+}
 
 html_baseurl = "https://gptme.org/docs/"  # used to build sitemap
 sitemap_url_scheme = "{link}"
