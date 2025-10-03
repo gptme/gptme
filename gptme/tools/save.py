@@ -99,11 +99,19 @@ def execute_save_impl(
     content: str, path: Path | None, confirm: ConfirmFunc
 ) -> Generator[Message, None, None]:
     """Actual save implementation."""
+    from ..hooks import HookType, trigger_hook
+
     assert path
     path_display = path
 
     # Print full path to give agent feedback about where exactly the file is saved
     path = path.expanduser().resolve()
+
+    # Trigger pre-save hooks
+    if pre_save_msgs := trigger_hook(
+        HookType.FILE_PRE_SAVE, path=path, content=content
+    ):
+        yield from pre_save_msgs
 
     # Ensure content ends with newline
     if not content.endswith("\n"):
@@ -133,6 +141,12 @@ def execute_save_impl(
     # Save the file
     with open(path, "w") as f:
         f.write(content)
+
+    # Trigger post-save hooks
+    if post_save_msgs := trigger_hook(
+        HookType.FILE_POST_SAVE, path=path, content=content, created=not overwrite
+    ):
+        yield from post_save_msgs
 
     # Check if this was an inefficient overwrite (minimal changes)
     hint = ""

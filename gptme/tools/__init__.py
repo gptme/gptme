@@ -136,6 +136,9 @@ def init_tools(
             if tool.init:
                 tool = tool.init()
 
+            # Register tool's hooks
+            tool.register_hooks()
+
             loaded_tools.append(tool)
 
         for tool_name in allowlist or []:

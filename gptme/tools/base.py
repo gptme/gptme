@@ -163,6 +163,7 @@ class ToolSpec:
         parameters: Descriptor of parameters use by this tool.
         load_priority: Influence the loading order of this tool. The higher the later.
         disabled_by_default: Whether this tool should be disabled by default.
+        hooks: Hooks to register when this tool is loaded.
     """
 
     name: str
@@ -179,9 +180,25 @@ class ToolSpec:
     load_priority: int = 0
     disabled_by_default: bool = False
     is_mcp: bool = False
+    hooks: dict[str, tuple[str, Callable, int]] = field(default_factory=dict)
 
     def __repr__(self):
         return f"ToolSpec({self.name})"
+
+    def register_hooks(self) -> None:
+        """Register all hooks defined in this tool with the global hook registry."""
+        # Avoid circular import
+        from ..hooks import register_hook, HookType
+
+        for hook_name, (hook_type_str, func, priority) in self.hooks.items():
+            try:
+                hook_type = HookType(hook_type_str)
+                full_hook_name = f"{self.name}.{hook_name}"
+                register_hook(full_hook_name, hook_type, func, priority)
+            except (ValueError, KeyError) as e:
+                logger.warning(
+                    f"Failed to register hook '{hook_name}' for tool '{self.name}': {e}"
+                )
 
     def get_doc(self, doc: str | None = None) -> str:
         """Returns an updated docstring with examples."""
@@ -292,6 +309,7 @@ class ToolUse:
     def execute(self, confirm: ConfirmFunc) -> Generator[Message, None, None]:
         """Executes a tool-use tag and returns the output."""
         # noreorder
+        from ..hooks import HookType, trigger_hook  # fmt: skip
         from ..telemetry import record_tool_call, trace_function  # fmt: skip
         from . import get_tool  # fmt: skip
 
@@ -308,6 +326,14 @@ class ToolUse:
             tool = get_tool(self.tool)
             if tool and tool.execute:
                 try:
+                    # Trigger pre-execution hooks
+                    if pre_hook_msgs := trigger_hook(
+                        HookType.TOOL_PRE_EXECUTE,
+                        tool_name=self.tool,
+                        tool_use=self,
+                    ):
+                        yield from pre_hook_msgs
+
                     # Play tool sound if enabled
                     from ..util.sound import get_tool_sound_for_tool, play_tool_sound
 
@@ -329,6 +355,14 @@ class ToolUse:
 
                     # Record successful tool call
                     record_tool_call(self.tool, success=True)
+
+                    # Trigger post-execution hooks
+                    if post_hook_msgs := trigger_hook(
+                        HookType.TOOL_POST_EXECUTE,
+                        tool_name=self.tool,
+                        tool_use=self,
+                    ):
+                        yield from post_hook_msgs
 
                 except Exception as e:
                     # Record failed tool call with error details
