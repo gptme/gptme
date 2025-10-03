@@ -11,6 +11,21 @@ from .message import Message
 logger = logging.getLogger(__name__)
 
 
+class StopPropagation:
+    """Sentinel class that hooks can yield to stop execution of lower-priority hooks.
+
+    Usage:
+        ```python
+        def my_hook():
+            if some_condition_failed:
+                yield Message("system", "Error occurred")
+                yield StopPropagation()  # Stop remaining hooks
+        ```
+    """
+
+    pass
+
+
 class HookType(str, Enum):
     """Types of hooks that can be registered."""
 
@@ -149,7 +164,10 @@ class HookRegistry:
                 if hasattr(result, "__iter__") and not isinstance(result, str | bytes):
                     try:
                         for msg in result:
-                            if isinstance(msg, Message):
+                            if isinstance(msg, StopPropagation):
+                                logger.debug(f"Hook '{hook.name}' stopped propagation")
+                                return  # Stop processing remaining hooks
+                            elif isinstance(msg, Message):
                                 yield msg
                     except TypeError:
                         # Not actually iterable, continue
@@ -157,6 +175,10 @@ class HookRegistry:
                 # If hook returns a Message, yield it
                 elif isinstance(result, Message):
                     yield result
+                # If hook returns StopPropagation, stop
+                elif isinstance(result, StopPropagation):
+                    logger.debug(f"Hook '{hook.name}' stopped propagation")
+                    return
 
             except Exception as e:
                 logger.exception(f"Error executing hook '{hook.name}': {e}")

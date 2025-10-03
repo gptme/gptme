@@ -93,7 +93,9 @@ export GPTME_AUTOCOMMIT=true
         "autocommit": (
             HookType.MESSAGE_POST_PROCESS.value,
             autocommit_on_message_complete,
-            1,  # Low priority: run after pre-commit checks (priority 5)
+            # Low priority (1) ensures this runs after pre-commit checks (priority 5)
+            # If pre-commit fails, it yields StopPropagation() to prevent autocommit from running
+            1,
         )
     },
     commands={

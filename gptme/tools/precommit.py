@@ -8,7 +8,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from ..commands import CommandContext
-from ..hooks import HookType
+from ..hooks import HookType, StopPropagation
 from ..message import Message
 from .base import ToolSpec
 
@@ -121,7 +121,7 @@ def check_precommit_available() -> bool:
 
 def run_full_precommit_checks(
     log, workspace, **kwargs
-) -> Generator[Message, None, None]:
+) -> Generator[Message | StopPropagation, None, None]:
     """Hook function that runs full pre-commit checks after message processing.
 
     Args:
@@ -147,6 +147,10 @@ def run_full_precommit_checks(
 
         if not success and failed_check_message:
             yield Message("system", failed_check_message, quiet=False)
+            # Stop propagation to prevent autocommit from running with failed checks
+            from ..hooks import StopPropagation
+
+            yield StopPropagation()
         elif success:
             yield Message("system", "Pre-commit checks passed", hide=True)
 

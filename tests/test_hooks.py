@@ -236,3 +236,30 @@ def test_hook_no_return():
 
     assert len(called) == 1
     assert len(results) == 0  # No messages returned
+
+
+def test_hook_stop_propagation():
+    """Test that hooks can stop propagation of lower-priority hooks."""
+    from gptme.hooks import StopPropagation
+
+    execution_order = []
+
+    def high_priority_hook():
+        execution_order.append("high")
+        yield Message("system", "High priority")
+        yield StopPropagation()  # Stop further hooks
+
+    def low_priority_hook():
+        execution_order.append("low")
+        yield Message("system", "Low priority")
+
+    register_hook("high", HookType.MESSAGE_PRE_PROCESS, high_priority_hook, priority=10)
+    register_hook("low", HookType.MESSAGE_PRE_PROCESS, low_priority_hook, priority=1)
+
+    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS))
+
+    # Only high priority hook should have run
+    assert execution_order == ["high"]
+    # Only one message (from high priority hook)
+    assert len(results) == 1
+    assert results[0].content == "High priority"
