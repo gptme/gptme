@@ -185,7 +185,7 @@ class HookRegistry:
 
             except Exception:
                 # logger.exception already includes exception info and traceback
-                logger.exception(f"Error executing hook '{hook.name}'")
+                logger.error(f"Error executing hook '{hook.name}'")
                 return
                 # Disable printing system message to prevent infinite loops
                 # yield Message("system", f"Hook '{hook.name}' failed: {e}", hide=True)

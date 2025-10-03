@@ -7,7 +7,7 @@ from datetime import datetime
 import pytest
 from gptme.llm.models import get_default_model, get_model
 from gptme.message import Message, len_tokens
-from gptme.util.auto_compact import (
+from gptme.tools.autocompact import (
     _create_tool_result_summary,
     auto_compact_log,
     should_auto_compact,
