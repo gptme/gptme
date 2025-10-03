@@ -138,8 +138,8 @@ class HookRegistry:
 
         Args:
             hook_type: The type of hook to trigger
-            \*args: Variable positional arguments to pass to hook functions
-            \*\*kwargs: Variable keyword arguments to pass to hook functions
+            \\*args: Variable positional arguments to pass to hook functions
+            \\*\\*kwargs: Variable keyword arguments to pass to hook functions
 
         Yields:
             Messages from hooks
