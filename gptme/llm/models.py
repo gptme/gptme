@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+import os
 from typing import (
     Literal,
     TypedDict,
@@ -89,7 +90,9 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     # https://docs.anthropic.com/en/docs/about-claude/models
     "anthropic": {
         "claude-sonnet-4-5": {
-            "context": 200_000,
+            "context": 200_000
+            if os.environ.get("GPTME_ANTHROPIC_1M", "").lower() in ["1", "true"]
+            else 1_000_000,
             "max_output": 64_000,
             "price_input": 3,
             "price_output": 15,
@@ -116,7 +119,9 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "knowledge_cutoff": datetime(2025, 3, 1),
         },
         "claude-sonnet-4-20250514": {
-            "context": 200_000,
+            "context": 200_000
+            if os.environ.get("GPTME_ANTHROPIC_1M", "").lower() in ["1", "true"]
+            else 1_000_000,
             "max_output": 64_000,
             "price_input": 3,
             "price_output": 15,
