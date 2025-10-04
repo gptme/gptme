@@ -137,51 +137,33 @@ def init_telemetry(
         if hasattr(tracer_provider, "add_span_processor"):
             tracer_provider.add_span_processor(span_processor)  # type: ignore
 
-        # Check for Pushgateway URL first
-        pushgateway_url = os.getenv("PUSHGATEWAY_URL")
-
-        if pushgateway_url:
-            # Use Pushgateway instead of HTTP server
-            from prometheus_client import REGISTRY, push_to_gateway as _push_to_gateway
-            import atexit
-            import threading
-
-            prometheus_enabled = True
-            job_name = f"gptme-{os.getpid()}"
-
-            def push_metrics():
-                """Push metrics to Pushgateway."""
-                try:
-                    _push_to_gateway(
-                        pushgateway_url,
-                        job=job_name,
-                        registry=REGISTRY,
+        # Try OTLP metrics first (unified with traces)
+        use_otlp_metrics = os.getenv("GPTME_OTLP_METRICS", "true").lower() in ("true", "1", "yes")
+        
+        if use_otlp_metrics and otlp_endpoint:
+            # Use OTLP for metrics (same endpoint as traces)
+            try:
+                from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+                from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+                
+                otlp_metric_exporter = OTLPMetricExporter(endpoint=otlp_endpoint)
+                metric_reader = PeriodicExportingMetricReader(
+                    otlp_metric_exporter,
+                    export_interval_millis=30000,  # Export every 30 seconds
+                )
+                metrics.set_meter_provider(
+                    MeterProvider(
+                        resource=resource,
+                        metric_readers=[metric_reader]
                     )
-                    logger.debug(f"Pushed metrics to {pushgateway_url}")
-                except Exception as e:
-                    logger.warning(f"Failed to push metrics to Pushgateway: {e}")
-
-            # Push metrics every 30 seconds
-            def periodic_push():
-                while _telemetry_enabled:
-                    push_metrics()
-                    import time
-
-                    time.sleep(30)
-
-            # Start background thread for periodic pushing
-            push_thread = threading.Thread(target=periodic_push, daemon=True)
-            push_thread.start()
-
-            # Register cleanup to push final metrics on exit
-            atexit.register(push_metrics)
-
-            # Initialize PrometheusMetricReader for metric collection
-            prometheus_reader = PrometheusMetricReader()
-            metrics.set_meter_provider(
-                MeterProvider(metric_readers=[prometheus_reader])
-            )
-        else:
+                )
+                prometheus_enabled = False  # Using OTLP, not Prometheus HTTP
+                logger.info("Using OTLP for metrics export")
+            except ImportError as e:
+                logger.warning(f"OTLP metric exporter not available: {e}")
+                use_otlp_metrics = False
+        
+        if not use_otlp_metrics:
             # Original HTTP server approach with automatic port selection
             prometheus_port_requested = int(
                 os.getenv("PROMETHEUS_PORT", prometheus_port)
@@ -286,10 +268,8 @@ def init_telemetry(
         console.log("📊 Telemetry enabled - performance metrics will be collected")
         console.log(f"🔍 Traces will be sent via OTLP to {otlp_endpoint}")
 
-        if pushgateway_url:
-            console.log(
-                f"📤 Metrics will be pushed to Pushgateway at {pushgateway_url}"
-            )
+        if use_otlp_metrics:
+            console.log(f"📊 Metrics will be sent via OTLP to {otlp_endpoint}")
         elif prometheus_enabled:
             console.log(
                 f"📈 Prometheus metrics available at http://{prometheus_addr}:{prometheus_port_actual}/metrics"
