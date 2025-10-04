@@ -137,46 +137,93 @@ def init_telemetry(
         if hasattr(tracer_provider, "add_span_processor"):
             tracer_provider.add_span_processor(span_processor)  # type: ignore
 
-        # Initialize metrics with Prometheus reader
-        prometheus_port_requested = int(os.getenv("PROMETHEUS_PORT", prometheus_port))
-        prometheus_addr = os.getenv("PROMETHEUS_ADDR", "localhost")
+        # Check for Pushgateway URL first
+        pushgateway_url = os.getenv("PUSHGATEWAY_URL")
 
-        # Find an available port for Prometheus metrics
-        prometheus_port_actual = _find_available_port(
-            prometheus_port_requested, prometheus_addr
-        )
+        if pushgateway_url:
+            # Use Pushgateway instead of HTTP server
+            from prometheus_client import REGISTRY, push_to_gateway as _push_to_gateway
+            import atexit
+            import threading
 
-        prometheus_enabled = False
-        if prometheus_port_actual is not None:
-            try:
-                # Start Prometheus HTTP server to expose metrics
-                start_http_server(port=prometheus_port_actual, addr=prometheus_addr)
-                prometheus_enabled = True
+            prometheus_enabled = True
+            job_name = f"gptme-{os.getpid()}"
 
-                if prometheus_port_actual != prometheus_port_requested:
-                    logger.info(
-                        f"Prometheus port {prometheus_port_requested} was in use, "
-                        f"using port {prometheus_port_actual} instead"
+            def push_metrics():
+                """Push metrics to Pushgateway."""
+                try:
+                    _push_to_gateway(
+                        pushgateway_url,
+                        job=job_name,
+                        registry=REGISTRY,
                     )
-            except Exception as e:
-                logger.warning(f"Failed to start Prometheus HTTP server: {e}")
-                prometheus_enabled = False
-        else:
-            logger.warning(
-                f"Could not find available port starting from {prometheus_port_requested}, "
-                "Prometheus metrics will be disabled"
-            )
+                    logger.debug(f"Pushed metrics to {pushgateway_url}")
+                except Exception as e:
+                    logger.warning(f"Failed to push metrics to Pushgateway: {e}")
 
-        # Initialize PrometheusMetricReader and metrics only if Prometheus is enabled
-        if prometheus_enabled:
+            # Push metrics every 30 seconds
+            def periodic_push():
+                while _telemetry_enabled:
+                    push_metrics()
+                    import time
+
+                    time.sleep(30)
+
+            # Start background thread for periodic pushing
+            push_thread = threading.Thread(target=periodic_push, daemon=True)
+            push_thread.start()
+
+            # Register cleanup to push final metrics on exit
+            atexit.register(push_metrics)
+
+            # Initialize PrometheusMetricReader for metric collection
             prometheus_reader = PrometheusMetricReader()
             metrics.set_meter_provider(
                 MeterProvider(metric_readers=[prometheus_reader])
             )
         else:
-            # Initialize without Prometheus reader - metrics won't be exposed via HTTP
-            # but OTLP tracing will still work
-            metrics.set_meter_provider(MeterProvider())
+            # Original HTTP server approach with automatic port selection
+            prometheus_port_requested = int(
+                os.getenv("PROMETHEUS_PORT", prometheus_port)
+            )
+            prometheus_addr = os.getenv("PROMETHEUS_ADDR", "localhost")
+
+            # Find an available port for Prometheus metrics
+            prometheus_port_actual = _find_available_port(
+                prometheus_port_requested, prometheus_addr
+            )
+
+            prometheus_enabled = False
+            if prometheus_port_actual is not None:
+                try:
+                    # Start Prometheus HTTP server to expose metrics
+                    start_http_server(port=prometheus_port_actual, addr=prometheus_addr)
+                    prometheus_enabled = True
+
+                    if prometheus_port_actual != prometheus_port_requested:
+                        logger.info(
+                            f"Prometheus port {prometheus_port_requested} was in use, "
+                            f"using port {prometheus_port_actual} instead"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to start Prometheus HTTP server: {e}")
+                    prometheus_enabled = False
+            else:
+                logger.warning(
+                    f"Could not find available port starting from {prometheus_port_requested}, "
+                    "Prometheus metrics will be disabled"
+                )
+
+            # Initialize PrometheusMetricReader and metrics only if Prometheus is enabled
+            if prometheus_enabled:
+                prometheus_reader = PrometheusMetricReader()
+                metrics.set_meter_provider(
+                    MeterProvider(metric_readers=[prometheus_reader])
+                )
+            else:
+                # Initialize without Prometheus reader - metrics won't be exposed via HTTP
+                # but OTLP tracing will still work
+                metrics.set_meter_provider(MeterProvider())
 
         _meter = metrics.get_meter(service_name)
 
@@ -239,7 +286,11 @@ def init_telemetry(
         console.log("📊 Telemetry enabled - performance metrics will be collected")
         console.log(f"🔍 Traces will be sent via OTLP to {otlp_endpoint}")
 
-        if prometheus_enabled:
+        if pushgateway_url:
+            console.log(
+                f"📤 Metrics will be pushed to Pushgateway at {pushgateway_url}"
+            )
+        elif prometheus_enabled:
             console.log(
                 f"📈 Prometheus metrics available at http://{prometheus_addr}:{prometheus_port_actual}/metrics"
             )
