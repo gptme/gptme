@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
 
+BETAS = (
+    ["context-1m-2025-08-07"]
+    if os.environ.get("GPTME_ANTHROPIC_1M", "").lower() in ["1", "true"]
+    else [],
+)
+
 
 def _record_usage(
     usage: Union["anthropic.types.Usage", "anthropic.types.MessageDeltaUsage"],
@@ -179,7 +185,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
     thinking_budget = int(os.environ.get(ENV_REASONING_BUDGET, "16000"))
     max_tokens = model_meta.max_output or 4096
 
-    response = _anthropic.messages.create(
+    response = _anthropic.beta.messages.create(
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
@@ -192,6 +198,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
             if use_thinking
             else NOT_GIVEN
         ),
+        betas=BETAS,
     )
     content = response.content
     _record_usage(response.usage, model)
@@ -229,7 +236,7 @@ def stream(
     thinking_budget = int(os.environ.get(ENV_REASONING_BUDGET, "16000"))
     max_tokens = model_meta.max_output or 4096
 
-    with _anthropic.messages.stream(
+    with _anthropic.beta.messages.stream(
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
@@ -242,6 +249,7 @@ def stream(
             if use_thinking
             else NOT_GIVEN
         ),
+        betas=BETAS,
     ) as stream:
         for chunk in stream:
             match chunk.type:
