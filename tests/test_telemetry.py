@@ -5,9 +5,6 @@ from unittest.mock import patch
 import pytest
 
 
-
-
-
 @pytest.mark.skipif(
     not pytest.importorskip(
         "opentelemetry", reason="telemetry dependencies not installed"
@@ -17,7 +14,6 @@ import pytest
 def test_init_telemetry_with_pushgateway(monkeypatch):
     """Test telemetry initialization with Pushgateway."""
     import time
-    from unittest.mock import patch
 
     monkeypatch.setenv("GPTME_TELEMETRY_ENABLED", "true")
     monkeypatch.setenv("PUSHGATEWAY_URL", "http://localhost:9091")
@@ -45,7 +41,6 @@ def test_init_telemetry_with_pushgateway(monkeypatch):
 def test_pushgateway_periodic_push(monkeypatch):
     """Test that metrics are pushed periodically to Pushgateway."""
     import time
-    from unittest.mock import patch
 
     monkeypatch.setenv("GPTME_TELEMETRY_ENABLED", "true")
     monkeypatch.setenv("PUSHGATEWAY_URL", "http://localhost:9091")

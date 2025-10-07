@@ -37,9 +37,6 @@ def init_telemetry(
     service_name: str = "gptme",
     enable_flask_instrumentation: bool = True,
     enable_requests_instrumentation: bool = True,
-    enable_openai_instrumentation: bool = True,
-    enable_anthropic_instrumentation: bool = True,
-    prometheus_port: int = 8000,
 ) -> None:
     """Initialize OpenTelemetry tracing and metrics."""
     try:
@@ -47,9 +44,6 @@ def init_telemetry(
             service_name=service_name,
             enable_flask_instrumentation=enable_flask_instrumentation,
             enable_requests_instrumentation=enable_requests_instrumentation,
-            enable_openai_instrumentation=enable_openai_instrumentation,
-            enable_anthropic_instrumentation=enable_anthropic_instrumentation,
-            prometheus_port=prometheus_port,
         )
     except ImportError:
         logger.warning(
