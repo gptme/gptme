@@ -12,7 +12,9 @@ from pathlib import Path
 from ..commands import CommandContext
 from ..config import get_config
 from ..hooks import HookType, StopPropagation
+from ..logmanager import check_for_modifications
 from ..message import Message
+from ..util.context import md_codeblock
 from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -55,6 +57,20 @@ def use_checks() -> bool:
     return enabled
 
 
+def run_checks_per_file() -> bool:
+    """
+    Wether to support running pre-commit checks on each modified file immediately after save.
+    Not always a good idea for multi-step/multi-file changes, so disabled by default.
+    """
+    # TODO: also support checking only modified files in the full run after step complete?
+    flag: str = get_config().get_env("GPTME_CHECK_PER_FILE", "false")  # type: ignore
+    return flag.lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 def run_precommit_checks() -> tuple[bool, str | None]:
     """Run pre-commit checks on modified files and return output if there are issues.
 
@@ -90,8 +106,6 @@ def run_precommit_checks() -> tuple[bool, str | None]:
             return False, None
 
         logger.error(f"Pre-commit checks failed: {e}")
-
-        from ..util.context import md_codeblock
 
         output = "Pre-commit checks failed\n\n"
 
@@ -160,6 +174,10 @@ def run_precommit_on_file(
     # Check if pre-commit checks should run
     if not use_checks():
         logger.debug("Pre-commit checks not enabled, skipping hook")
+        return
+
+    if not run_checks_per_file():
+        logger.debug("Per-file pre-commit checks disabled, skipping hook")
         return
 
     try:
@@ -240,7 +258,6 @@ def run_full_precommit_checks(
         return
 
     # Check if there are modifications
-    from ..chat import check_for_modifications
 
     if not check_for_modifications(log):
         logger.debug("No modifications, skipping pre-commit checks")

@@ -327,8 +327,8 @@ def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
         return
 
     # Handle both Log objects and list[Message]
-    messages = log.messages if hasattr(log, 'messages') else log
-    
+    messages = log.messages if hasattr(log, "messages") else log
+
     if not should_auto_compact(messages):
         return
 

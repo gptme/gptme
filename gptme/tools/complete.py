@@ -31,28 +31,39 @@ def execute_complete(
 
 def complete_hook(log: list[Message], workspace, manager=None):
     """
-    Hook that detects complete tool result and prevents next generation.
+    Hook that detects complete tool call and prevents next generation.
 
     Runs at GENERATION_PRE (before generating response) to stop the session
-    immediately after complete tool executes.
+    immediately after complete tool is called.
     """
     # Handle both Log objects and list[Message]
-    messages = log.messages if hasattr(log, 'messages') else log
-    
+    messages = log.messages if hasattr(log, "messages") else log
+
     logger.debug(f"complete_hook: checking {len(messages) if messages else 0} messages")
-    
-    # Check if the last message is a system message from complete tool
+
     if not messages:
         logger.debug("complete_hook: no messages")
         return
 
-    last_msg = messages[-1]
-    logger.debug(f"complete_hook: last msg role={last_msg.role}, content preview={last_msg.content[:50] if last_msg.content else 'empty'}")
-    
-    if last_msg.role == "system" and "Task complete" in last_msg.content:
-        logger.info("Complete tool result detected, stopping session immediately")
-        raise SessionCompleteException("Session completed via complete tool")
-    
+    # Look for complete tool call in the last assistant message
+    last_assistant_msg = next(
+        (m for m in reversed(messages) if m.role == "assistant"), None
+    )
+    if not last_assistant_msg:
+        logger.debug("complete_hook: no assistant messages")
+        return
+
+    logger.debug(
+        "complete_hook: checking last assistant message for complete tool call"
+    )
+
+    # Check if the assistant called the complete tool
+    tool_uses = list(ToolUse.iter_from_content(last_assistant_msg.content))
+    for tool_use in tool_uses:
+        if tool_use.tool == "complete":
+            logger.info("Complete tool call detected, stopping session immediately")
+            raise SessionCompleteException("Session completed via complete tool")
+
     logger.debug("complete_hook: complete tool not detected")
 
 

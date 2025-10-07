@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from enum import Enum
+from time import time
 from typing import Any
 
 from .message import Message
@@ -21,8 +22,6 @@ class StopPropagation:
                 yield Message("system", "Error occurred")
                 yield StopPropagation()  # Stop remaining hooks
     """
-
-    pass
 
 
 class HookType(str, Enum):
@@ -161,7 +160,16 @@ class HookRegistry:
         # Collect all results
         for hook in hooks:
             try:
+                # TODO: emit span for tracing
+                t_start = time()
                 result = hook.func(*args, **kwargs)
+                t_end = time()
+                t_delta = t_end - t_start
+                logger.debug(f"Hook '{hook.name}' took {t_delta:.4f}s")
+                if t_delta > 5.0:
+                    logger.warning(
+                        f"Hook '{hook.name}' is taking a long time ({t_delta:.4f}s)"
+                    )
 
                 # If hook returns a generator, yield from it
                 if hasattr(result, "__iter__") and not isinstance(result, str | bytes):
@@ -188,7 +196,7 @@ class HookRegistry:
                 if e.__class__.__name__ == "SessionCompleteException":
                     logger.info(f"Hook '{hook.name}' signaled session completion")
                     raise  # Propagate session complete signal
-                
+
                 # Log other exceptions with full traceback for debugging
                 logger.exception(f"Error executing hook '{hook.name}'")
                 continue  # Skip this hook but continue with others

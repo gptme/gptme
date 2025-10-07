@@ -8,6 +8,7 @@ from pathlib import Path
 from .commands import execute_cmd
 from .config import get_config
 from .constants import INTERRUPT_CONTENT, PROMPT_USER
+from .hooks import HookType, trigger_hook
 from .init import init
 from .llm import reply
 from .llm.models import get_default_model, get_model
@@ -23,6 +24,7 @@ from .tools import (
     has_tool,
     set_tool_format,
 )
+from .tools.complete import SessionCompleteException
 from .tools.tts import speak, stop, tts_request_queue
 from .util import console, path_with_tilde
 from .util.ask_execute import ask_execute
@@ -73,7 +75,6 @@ def chat(
     init(model, interactive, tool_allowlist)
 
     # Trigger session start hooks
-    from .hooks import HookType, trigger_hook
 
     if session_start_msgs := trigger_hook(
         HookType.SESSION_START,
@@ -129,7 +130,6 @@ def chat(
     prompt_queue = list(prompt_msgs)
 
     # Import SessionCompleteException for clean exit handling
-    from .tools.complete import SessionCompleteException
 
     # main loop
     try:
@@ -169,7 +169,6 @@ def _run_chat_loop(
     logdir,
 ):
     """Main chat loop - extracted to allow clean exception handling."""
-    from .hooks import HookType, trigger_hook
 
     while True:
         msg: Message | None = None
@@ -219,7 +218,6 @@ def _run_chat_loop(
                     manager.append(msg)
 
                     # Reset interrupt flag since user provided new input
-                    _recently_interrupted = False
 
                     # Handle user commands
                     if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
@@ -253,7 +251,6 @@ def _run_chat_loop(
 
         except KeyboardInterrupt:
             console.log("Interrupted.")
-            _recently_interrupted = True
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
             prompt_queue.clear()
@@ -276,7 +273,6 @@ def _process_message_conversation(
     model: str | None,
 ) -> None:
     """Process a message and generate responses until no more tools to run."""
-    from .hooks import HookType, trigger_hook
 
     while True:
         try:
@@ -490,30 +486,3 @@ def prompt_input(prompt: str, value=None) -> str:  # pragma: no cover
         return value
 
     return get_input(prompt)
-
-
-def check_for_modifications(log: Log) -> bool:
-    """Check if there are any file modifications in last 3 messages or since last user message."""
-    messages_since_user = []
-    found_user_message = False
-
-    for m in reversed(log):
-        if m.role == "user":
-            found_user_message = True
-            break
-        messages_since_user.append(m)
-
-    # If no user message found, skip the check (only system messages so far)
-    if not found_user_message:
-        return False
-
-    # FIXME: this is hacky and unreliable
-    has_modifications = any(
-        tu.tool in ["save", "patch", "append", "morph"]
-        for m in messages_since_user[:3]
-        for tu in ToolUse.iter_from_content(m.content)
-    )
-    # logger.debug(
-    #     f"Found {len(messages_since_user)} messages since user ({found_user_message=}, {has_modifications=})"
-    # )
-    return has_modifications

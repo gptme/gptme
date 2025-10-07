@@ -23,6 +23,7 @@ from rich import print
 from .config import ChatConfig, get_project_config
 from .dirs import get_logs_dir
 from .message import Message, len_tokens, print_msg
+from .tools import ToolUse
 from .util.context import enrich_messages_with_context
 from .util.reduce import limit_log, reduce_log
 
@@ -470,6 +471,36 @@ def list_conversations(
         get_conversations() if include_test else get_user_conversations()
     )
     return list(islice(conversation_iter, limit))
+
+
+def check_for_modifications(log: Log) -> bool:
+    """Check if there are any file modifications in last 3 assistant messages since last user message."""
+    messages_since_user = []
+    found_user_message = False
+
+    for m in reversed(log):
+        if m.role == "user":
+            found_user_message = True
+            break
+        if m.role == "system":
+            continue
+        messages_since_user.append(m)
+
+    # If no user message found, skip the check (only system messages so far)
+    if not found_user_message:
+        return False
+
+    # FIXME: this is hacky and unreliable
+
+    has_modifications = any(
+        tu.tool in ["save", "patch", "append", "morph"]
+        for m in messages_since_user[:3]
+        for tu in ToolUse.iter_from_content(m.content)
+    )
+    # logger.debug(
+    #     f"Found {len(messages_since_user)} messages since user ({found_user_message=}, {has_modifications=})"
+    # )
+    return has_modifications
 
 
 def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:

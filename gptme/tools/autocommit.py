@@ -115,7 +115,7 @@ def autocommit_on_message_complete(
         return
 
     # Check if there are modifications
-    from ..chat import check_for_modifications
+    from ..logmanager import check_for_modifications
 
     if not check_for_modifications(log):
         logger.debug("No modifications detected, skipping autocommit")
