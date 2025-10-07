@@ -39,33 +39,9 @@ try:
     from opentelemetry.instrumentation.requests import RequestsInstrumentor  # fmt: skip
     from opentelemetry.sdk.metrics import MeterProvider  # fmt: skip
     from opentelemetry.sdk.resources import Resource  # fmt: skip
-    from opentelemetry.sdk.trace import TracerProvider, ReadableSpan  # fmt: skip
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanProcessor  # fmt: skip
-    from opentelemetry.trace import Span  # fmt: skip
+    from opentelemetry.sdk.trace import TracerProvider  # fmt: skip
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor  # fmt: skip
     from prometheus_client import start_http_server  # fmt: skip
-
-    class FilterNoneAttributesProcessor(SpanProcessor):
-        """Span processor that filters out None attribute values."""
-
-        def on_start(self, span: Span, parent_context=None) -> None:
-            """Called when a span is started."""
-            pass
-
-        def on_end(self, span: ReadableSpan) -> None:
-            """Called when a span ends - filter out None attributes."""
-            if hasattr(span, "_attributes") and span._attributes:
-                # Filter out None values
-                span._attributes = {
-                    k: v for k, v in span._attributes.items() if v is not None
-                }
-
-        def shutdown(self) -> None:
-            """Called when the processor is shut down."""
-            pass
-
-        def force_flush(self, timeout_millis: int = 30000) -> bool:
-            """Force flush - no-op for this processor."""
-            return True
 
     TELEMETRY_AVAILABLE = True
 except ImportError as e:
@@ -158,6 +134,7 @@ def init_telemetry(
         otlp_exporter = OTLPSpanExporter(
             endpoint=otlp_endpoint,
             timeout=10,  # 10 second timeout for exports
+            insecure=True,  # Use insecure connection (no TLS)
         )
         span_processor = BatchSpanProcessor(
             otlp_exporter,
@@ -166,9 +143,6 @@ def init_telemetry(
         )
         tracer_provider = trace.get_tracer_provider()
         if hasattr(tracer_provider, "add_span_processor"):
-            # Add filter processor first to clean up None values
-            tracer_provider.add_span_processor(FilterNoneAttributesProcessor())  # type: ignore
-            # Then add the batch processor for export
             tracer_provider.add_span_processor(span_processor)  # type: ignore
 
         # Try OTLP metrics first (unified with traces)
@@ -191,6 +165,7 @@ def init_telemetry(
                 otlp_metric_exporter = OTLPMetricExporter(
                     endpoint=otlp_endpoint,
                     timeout=10,  # 10 second timeout for exports
+                    insecure=True,  # Use insecure connection (no TLS)
                 )
                 metric_reader = PeriodicExportingMetricReader(
                     otlp_metric_exporter,
@@ -296,11 +271,19 @@ def init_telemetry(
         if enable_requests_instrumentation:
             RequestsInstrumentor().instrument()
 
+        # Disable OpenAI/Anthropic instrumentation due to None value encoding issues
+        # TODO: Re-enable when fixed upstream or with proper attribute filtering
         if enable_openai_instrumentation:
-            OpenAIInstrumentor().instrument()
+            logger.warning(
+                "OpenAI instrumentation disabled due to None value encoding issues"
+            )
+            # OpenAIInstrumentor().instrument()
 
         if enable_anthropic_instrumentation:
-            AnthropicInstrumentor().instrument()
+            logger.warning(
+                "Anthropic instrumentation disabled due to None value encoding issues"
+            )
+            # AnthropicInstrumentor().instrument()
 
         _telemetry_enabled = True
 
