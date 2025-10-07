@@ -95,9 +95,8 @@ The interface provides user commands that can be used to interact with the syste
 @click.option(
     "-n",
     "--non-interactive",
-    "interactive",
-    default=True,
-    flag_value=False,
+    "non_interactive",
+    is_flag=True,
     help="Non-interactive mode. Implies --no-confirm.",
 )
 @click.option(
@@ -120,11 +119,10 @@ The interface provides user commands that can be used to interact with the syste
     help="Tool format to use. Options: markdown, xml, tool",
 )
 @click.option(
-    "--no-stream",
+    "--stream/--no-stream",
     "stream",
     default=True,
-    flag_value=False,
-    help="Don't stream responses",
+    help="Stream responses",
 )
 @click.option(
     "--show-hidden",
@@ -152,7 +150,7 @@ def main(
     stream: bool,
     verbose: bool,
     no_confirm: bool,
-    interactive: bool,
+    non_interactive: bool,
     show_hidden: bool,
     version: bool,
     resume: bool,
@@ -160,6 +158,7 @@ def main(
     agent_path: str | None,
 ):
     """Main entrypoint for the CLI."""
+    interactive = not non_interactive
     if version:
         # print version
 
