@@ -39,9 +39,33 @@ try:
     from opentelemetry.instrumentation.requests import RequestsInstrumentor  # fmt: skip
     from opentelemetry.sdk.metrics import MeterProvider  # fmt: skip
     from opentelemetry.sdk.resources import Resource  # fmt: skip
-    from opentelemetry.sdk.trace import TracerProvider  # fmt: skip
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor  # fmt: skip
+    from opentelemetry.sdk.trace import TracerProvider, ReadableSpan  # fmt: skip
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanProcessor  # fmt: skip
+    from opentelemetry.trace import Span  # fmt: skip
     from prometheus_client import start_http_server  # fmt: skip
+
+    class FilterNoneAttributesProcessor(SpanProcessor):
+        """Span processor that filters out None attribute values."""
+
+        def on_start(self, span: Span, parent_context=None) -> None:
+            """Called when a span is started."""
+            pass
+
+        def on_end(self, span: ReadableSpan) -> None:
+            """Called when a span ends - filter out None attributes."""
+            if hasattr(span, "_attributes") and span._attributes:
+                # Filter out None values
+                span._attributes = {
+                    k: v for k, v in span._attributes.items() if v is not None
+                }
+
+        def shutdown(self) -> None:
+            """Called when the processor is shut down."""
+            pass
+
+        def force_flush(self, timeout_millis: int = 30000) -> bool:
+            """Force flush - no-op for this processor."""
+            return True
 
     TELEMETRY_AVAILABLE = True
 except ImportError as e:
@@ -131,38 +155,57 @@ def init_telemetry(
         # Set up OTLP exporter if endpoint provided (for Jaeger or other OTLP-compatible backends)
         # OTLP uses different default ports: 4317 for gRPC, 4318 for HTTP
         otlp_endpoint = os.getenv("OTLP_ENDPOINT") or "http://localhost:4317"
-        otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
-        span_processor = BatchSpanProcessor(otlp_exporter)
+        otlp_exporter = OTLPSpanExporter(
+            endpoint=otlp_endpoint,
+            timeout=10,  # 10 second timeout for exports
+        )
+        span_processor = BatchSpanProcessor(
+            otlp_exporter,
+            max_export_batch_size=512,
+            schedule_delay_millis=5000,  # Export every 5 seconds
+        )
         tracer_provider = trace.get_tracer_provider()
         if hasattr(tracer_provider, "add_span_processor"):
+            # Add filter processor first to clean up None values
+            tracer_provider.add_span_processor(FilterNoneAttributesProcessor())  # type: ignore
+            # Then add the batch processor for export
             tracer_provider.add_span_processor(span_processor)  # type: ignore
 
         # Try OTLP metrics first (unified with traces)
-        use_otlp_metrics = os.getenv("GPTME_OTLP_METRICS", "true").lower() in ("true", "1", "yes")
-        
+        use_otlp_metrics = os.getenv("GPTME_OTLP_METRICS", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+
         if use_otlp_metrics and otlp_endpoint:
             # Use OTLP for metrics (same endpoint as traces)
             try:
-                from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-                from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-                
-                otlp_metric_exporter = OTLPMetricExporter(endpoint=otlp_endpoint)
+                from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+                    OTLPMetricExporter,
+                )
+                from opentelemetry.sdk.metrics.export import (
+                    PeriodicExportingMetricReader,
+                )
+
+                otlp_metric_exporter = OTLPMetricExporter(
+                    endpoint=otlp_endpoint,
+                    timeout=10,  # 10 second timeout for exports
+                )
                 metric_reader = PeriodicExportingMetricReader(
                     otlp_metric_exporter,
-                    export_interval_millis=30000,  # Export every 30 seconds
+                    export_interval_millis=10000,  # Export every 10 seconds (faster feedback)
+                    export_timeout_millis=10000,  # 10 second timeout for export
                 )
                 metrics.set_meter_provider(
-                    MeterProvider(
-                        resource=resource,
-                        metric_readers=[metric_reader]
-                    )
+                    MeterProvider(resource=resource, metric_readers=[metric_reader])
                 )
                 prometheus_enabled = False  # Using OTLP, not Prometheus HTTP
                 logger.info("Using OTLP for metrics export")
             except ImportError as e:
                 logger.warning(f"OTLP metric exporter not available: {e}")
                 use_otlp_metrics = False
-        
+
         if not use_otlp_metrics:
             # Original HTTP server approach with automatic port selection
             prometheus_port_requested = int(
@@ -299,9 +342,13 @@ def shutdown_telemetry() -> None:
         if hasattr(tracer_provider, "shutdown"):
             tracer_provider.shutdown()
 
-        # Shutdown meter provider
+        # Force flush and shutdown meter provider
         meter_provider = metrics.get_meter_provider()
+        if hasattr(meter_provider, "force_flush"):
+            logger.debug("Flushing pending metrics...")
+            meter_provider.force_flush(timeout_millis=5000)  # 5 second timeout
         if hasattr(meter_provider, "shutdown"):
+            logger.debug("Shutting down meter provider...")
             meter_provider.shutdown()
 
         _telemetry_enabled = False
