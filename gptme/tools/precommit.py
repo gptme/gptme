@@ -59,7 +59,7 @@ def use_checks() -> bool:
 
 def run_checks_per_file() -> bool:
     """
-    Wether to support running pre-commit checks on each modified file immediately after save.
+    Whether to support running pre-commit checks on each modified file immediately after save.
     Not always a good idea for multi-step/multi-file changes, so disabled by default.
     """
     # TODO: also support checking only modified files in the full run after step complete?
