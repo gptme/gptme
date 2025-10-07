@@ -14,7 +14,7 @@ env:
 
 jobs:
   test:
-    name: Test with `${{ matrix.extras }}` and ${{ matrix.model }} on ${{ matrix.os }}
+    name: Test with `${{ matrix.extras }}` and ${{ matrix.model }} on ${{ matrix.os }}${{ matrix.lockfile == 'false' && ' (no lock)' || '' }}
     runs-on: ${{ matrix.os }}
     env:
       RELEASE: false
@@ -25,7 +25,15 @@ jobs:
         python_version: ['3.10']
         extras: ['-E all']
         model: ['openai/gpt-4o-mini', 'anthropic/claude-3-5-haiku-20241022']
-        #include:
+        lockfile: ['true']
+        include:
+          # Runs with latest Python and latest allowed package versions (no lockfile)
+          - os: ubuntu-latest
+            python_version: '3.13'
+            extras: '-E all'
+            model: 'anthropic/claude-3-5-haiku-20241022'
+            lockfile: 'false'
+
           # deepseek, no extras, latest python
           #- os: ubuntu-latest
           #  python_version: '3.13'
@@ -46,6 +54,7 @@ jobs:
     - uses: actions/checkout@v5
       with:
         submodules: 'recursive'
+
     - name: Install apt dependencies
       run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb
 
@@ -56,6 +65,11 @@ jobs:
 
     - name: Install poetry
       run: pipx install poetry
+
+    # Clear lockfile so poetry regenerates it with latest allowed versions
+    - name: Clear lockfile
+      if: matrix.lockfile == 'false'
+      run: rm poetry.lock
 
     - name: Set up Python
       uses: actions/setup-python@v6
