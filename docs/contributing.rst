@@ -81,9 +81,8 @@ To enable telemetry during development:
    .. code-block:: bash
 
       export GPTME_TELEMETRY_ENABLED=true
-      export OTLP_ENDPOINT=http://localhost:4317
-      export PROMETHEUS_ADDR=0.0.0.0  # optional (default: localhost, use 0.0.0.0 for Docker access)
-      export PROMETHEUS_PORT=8000
+      export OTLP_ENDPOINT=http://localhost:4318  # HTTP OTLP (port 4318)
+      export GPTME_OTLP_METRICS=true  # Send metrics via OTLP
 
 5. Run gptme:
 
@@ -97,7 +96,6 @@ To enable telemetry during development:
 
    - **Traces**: Jaeger UI at http://localhost:16686
    - **Metrics**: Prometheus UI at http://localhost:9090
-   - **Raw metrics**: Direct metrics endpoint at http://localhost:8000/metrics
 
 Once enabled, gptme will automatically:
 
@@ -165,52 +163,30 @@ Environment Variables
 ~~~~~~~~~~~~~~~~~~~~~
 
 - ``GPTME_TELEMETRY_ENABLED``: Enable/disable telemetry (default: false)
-- ``OTLP_ENDPOINT``: OTLP endpoint for traces (default: http://localhost:4317)
-- ``PROMETHEUS_PORT``: Port for Prometheus metrics endpoint (default: 8000)
-- ``PROMETHEUS_ADDR``: Address for Prometheus metrics endpoint (default: localhost, use 0.0.0.0 for Docker access)
-- ``PUSHGATEWAY_URL``: URL for Prometheus Pushgateway (optional, for multiple concurrent instances)
+- ``OTLP_ENDPOINT``: OTLP endpoint for traces and metrics (default: http://localhost:4318)
+- ``GPTME_OTLP_METRICS``: Send metrics via OTLP instead of Prometheus HTTP (default: true)
 
 Multiple Instances
 ~~~~~~~~~~~~~~~~~~
 
-When running multiple gptme instances with telemetry enabled, the automatic port selection feature will try to find available ports starting from ``PROMETHEUS_PORT``. However, this creates a challenge for Prometheus which needs to know which ports to scrape.
+When running multiple gptme instances with telemetry enabled, they can all send data to the same OTLP endpoint without port conflicts:
 
-For production deployments with multiple instances, we recommend using **Prometheus Pushgateway**:
+.. code-block:: bash
 
-1. Deploy Pushgateway:
+   # All instances use the same configuration
+   export GPTME_TELEMETRY_ENABLED=true
+   export OTLP_ENDPOINT=http://your-collector:4318
+   export GPTME_OTLP_METRICS=true
 
-   .. code-block:: bash
-
-      docker run -d --name pushgateway \
-                -p 9091:9091 \
-                prom/pushgateway:latest
-
-2. Configure Prometheus to scrape Pushgateway:
-
-   .. code-block:: yaml
-
-      scrape_configs:
-        - job_name: 'gptme-pushgateway'
-          honor_labels: true
-          static_configs:
-            - targets: ['localhost:9091']
-
-3. Set the Pushgateway URL:
-
-   .. code-block:: bash
-
-      export PUSHGATEWAY_URL=http://localhost:9091
-
-When ``PUSHGATEWAY_URL`` is set, gptme will push metrics to the gateway instead of exposing its own HTTP endpoint. This allows all instances to push to a single endpoint that Prometheus can scrape.
+The OpenTelemetry Collector aggregates metrics from all instances and exports them to Prometheus on a single port that Prometheus can scrape.
 
 **Benefits:**
 
 - No port conflicts between instances
-- Single endpoint for Prometheus to scrape
-- Metrics persist in gateway even after instance terminates
+- Centralized telemetry collection and processing
+- Single Prometheus scrape target (the collector)
 - Works across network boundaries
-
-**Note:** OTLP tracing (via ``OTLP_ENDPOINT``) works for all instances regardless of port configuration, as it uses a push model.
+- Supports traces and metrics through the same endpoint
 
 Release
 -------
