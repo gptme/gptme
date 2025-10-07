@@ -440,6 +440,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#available-metrics">Available Metrics</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-prometheus-queries">Example Prometheus Queries</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiple-instances">Multiple Instances</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
@@ -520,9 +521,8 @@ make<span class="w"> </span>build
 </li>
 <li><p>Set the telemetry environment variables:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_TELEMETRY_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://localhost:4317
-<span class="nb">export</span><span class="w"> </span><span class="nv">PROMETHEUS_ADDR</span><span class="o">=</span><span class="m">0</span>.0.0.0<span class="w">  </span><span class="c1"># optional (default: localhost, use 0.0.0.0 for Docker access)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PROMETHEUS_PORT</span><span class="o">=</span><span class="m">8000</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://localhost:4318<span class="w">  </span><span class="c1"># HTTP OTLP (port 4318)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_OTLP_METRICS</span><span class="o">=</span><span class="nb">true</span><span class="w">  </span><span class="c1"># Send metrics via OTLP</span>
 </pre></div>
 </div>
 </li>
@@ -537,7 +537,6 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <ul class="simple">
 <li><p><strong>Traces</strong>: Jaeger UI at <a class="reference external" href="http://localhost:16686">http://localhost:16686</a></p></li>
 <li><p><strong>Metrics</strong>: Prometheus UI at <a class="reference external" href="http://localhost:9090">http://localhost:9090</a></p></li>
-<li><p><strong>Raw metrics</strong>: Direct metrics endpoint at <a class="reference external" href="http://localhost:8000/metrics">http://localhost:8000/metrics</a></p></li>
 </ul>
 </li>
 </ol>
@@ -606,9 +605,27 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <h3>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h3>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TELEMETRY_ENABLED</span></code>: Enable/disable telemetry (default: false)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">OTLP_ENDPOINT</span></code>: OTLP endpoint for traces (default: <a class="reference external" href="http://localhost:4317">http://localhost:4317</a>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">PROMETHEUS_PORT</span></code>: Port for Prometheus metrics endpoint (default: 8000)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">PROMETHEUS_ADDR</span></code>: Address for Prometheus metrics endpoint (default: localhost, use 0.0.0.0 for Docker access)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">OTLP_ENDPOINT</span></code>: OTLP endpoint for traces and metrics (default: <a class="reference external" href="http://localhost:4318">http://localhost:4318</a>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_OTLP_METRICS</span></code>: Send metrics via OTLP instead of Prometheus HTTP (default: true)</p></li>
+</ul>
+</section>
+<section id="multiple-instances">
+<h3>Multiple Instances<a class="headerlink" href="#multiple-instances" title="Link to this heading">#</a></h3>
+<p>When running multiple gptme instances with telemetry enabled, they can all send data to the same OTLP endpoint without port conflicts:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># All instances use the same configuration</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_TELEMETRY_ENABLED</span><span class="o">=</span><span class="nb">true</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://your-collector:4318
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_OTLP_METRICS</span><span class="o">=</span><span class="nb">true</span>
+</pre></div>
+</div>
+<p>The OpenTelemetry Collector aggregates metrics from all instances and exports them to Prometheus on a single port that Prometheus can scrape.</p>
+<p><strong>Benefits:</strong></p>
+<ul class="simple">
+<li><p>No port conflicts between instances</p></li>
+<li><p>Centralized telemetry collection and processing</p></li>
+<li><p>Single Prometheus scrape target (the collector)</p></li>
+<li><p>Works across network boundaries</p></li>
+<li><p>Supports traces and metrics through the same endpoint</p></li>
 </ul>
 </section>
 </section>
@@ -671,6 +688,7 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#available-metrics">Available Metrics</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-prometheus-queries">Example Prometheus Queries</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiple-instances">Multiple Instances</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
