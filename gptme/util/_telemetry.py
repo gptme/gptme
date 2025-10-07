@@ -131,9 +131,16 @@ def init_telemetry(
         # Set up OTLP exporter if endpoint provided (for Jaeger or other OTLP-compatible backends)
         # Using HTTP instead of gRPC for better compatibility
         # OTLP uses port 4318 for HTTP, 4317 for gRPC
+        # HTTP exporters need the full path including /v1/traces
         otlp_endpoint = os.getenv("OTLP_ENDPOINT") or "http://localhost:4318"
+        
+        # Ensure endpoint ends with /v1/traces for the trace exporter
+        trace_endpoint = otlp_endpoint
+        if not trace_endpoint.endswith('/v1/traces'):
+            trace_endpoint = trace_endpoint.rstrip('/') + '/v1/traces'
+        
         otlp_exporter = OTLPSpanExporter(
-            endpoint=otlp_endpoint,
+            endpoint=trace_endpoint,
             timeout=10,  # 10 second timeout for exports
         )
         span_processor = BatchSpanProcessor(
@@ -162,8 +169,13 @@ def init_telemetry(
                     PeriodicExportingMetricReader,
                 )
 
+                # Ensure endpoint ends with /v1/metrics for the metric exporter
+                metric_endpoint = otlp_endpoint
+                if not metric_endpoint.endswith('/v1/metrics'):
+                    metric_endpoint = metric_endpoint.rstrip('/') + '/v1/metrics'
+                
                 otlp_metric_exporter = OTLPMetricExporter(
-                    endpoint=otlp_endpoint,
+                    endpoint=metric_endpoint,
                     timeout=10,  # 10 second timeout for exports
                 )
                 metric_reader = PeriodicExportingMetricReader(
