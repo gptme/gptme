@@ -30,11 +30,7 @@ try:
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
         OTLPSpanExporter,  # fmt: skip
     )
-    from opentelemetry.instrumentation.anthropic import (
-        AnthropicInstrumentor,  # fmt: skip
-    )
     from opentelemetry.instrumentation.flask import FlaskInstrumentor  # fmt: skip
-    from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor  # fmt: skip
     from opentelemetry.instrumentation.requests import RequestsInstrumentor  # fmt: skip
     from opentelemetry.sdk.metrics import MeterProvider  # fmt: skip
     from opentelemetry.sdk.resources import Resource  # fmt: skip
@@ -66,14 +62,10 @@ def get_telemetry_objects():
     }
 
 
-
 def init_telemetry(
     service_name: str = "gptme",
     enable_flask_instrumentation: bool = True,
     enable_requests_instrumentation: bool = True,
-    enable_openai_instrumentation: bool = True,
-    enable_anthropic_instrumentation: bool = True,
-    prometheus_port: int = 8000,
 ) -> None:
     """Initialize OpenTelemetry tracing and metrics."""
     global _telemetry_enabled, _tracer, _meter, _token_counter, _request_histogram
@@ -108,12 +100,12 @@ def init_telemetry(
         # OTLP uses port 4318 for HTTP, 4317 for gRPC
         # HTTP exporters need the full path including /v1/traces
         otlp_endpoint = os.getenv("OTLP_ENDPOINT") or "http://localhost:4318"
-        
+
         # Ensure endpoint ends with /v1/traces for the trace exporter
         trace_endpoint = otlp_endpoint
-        if not trace_endpoint.endswith('/v1/traces'):
-            trace_endpoint = trace_endpoint.rstrip('/') + '/v1/traces'
-        
+        if not trace_endpoint.endswith("/v1/traces"):
+            trace_endpoint = trace_endpoint.rstrip("/") + "/v1/traces"
+
         otlp_exporter = OTLPSpanExporter(
             endpoint=trace_endpoint,
             timeout=10,  # 10 second timeout for exports
@@ -127,13 +119,6 @@ def init_telemetry(
         if hasattr(tracer_provider, "add_span_processor"):
             tracer_provider.add_span_processor(span_processor)  # type: ignore
 
-        # Try OTLP metrics first (unified with traces)
-        use_otlp_metrics = os.getenv("GPTME_OTLP_METRICS", "true").lower() in (
-            "true",
-            "1",
-            "yes",
-        )
-
         # Use OTLP for metrics (same endpoint as traces)
         try:
             from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
@@ -145,9 +130,9 @@ def init_telemetry(
 
             # Ensure endpoint ends with /v1/metrics for the metric exporter
             metric_endpoint = otlp_endpoint
-            if not metric_endpoint.endswith('/v1/metrics'):
-                metric_endpoint = metric_endpoint.rstrip('/') + '/v1/metrics'
-            
+            if not metric_endpoint.endswith("/v1/metrics"):
+                metric_endpoint = metric_endpoint.rstrip("/") + "/v1/metrics"
+
             otlp_metric_exporter = OTLPMetricExporter(
                 endpoint=metric_endpoint,
                 timeout=10,  # 10 second timeout for exports
@@ -211,20 +196,6 @@ def init_telemetry(
 
         if enable_requests_instrumentation:
             RequestsInstrumentor().instrument()
-
-        # Disable OpenAI/Anthropic instrumentation due to None value encoding issues
-        # TODO: Re-enable when fixed upstream or with proper attribute filtering
-        if enable_openai_instrumentation:
-            logger.warning(
-                "OpenAI instrumentation disabled due to None value encoding issues"
-            )
-            # OpenAIInstrumentor().instrument()
-
-        if enable_anthropic_instrumentation:
-            logger.warning(
-                "Anthropic instrumentation disabled due to None value encoding issues"
-            )
-            # AnthropicInstrumentor().instrument()
 
         _telemetry_enabled = True
 

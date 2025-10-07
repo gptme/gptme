@@ -6,27 +6,6 @@ import pytest
 
 
 
-@pytest.mark.skipif(
-    not pytest.importorskip(
-        "opentelemetry", reason="telemetry dependencies not installed"
-    ),
-    reason="Requires telemetry dependencies",
-)
-def test_init_telemetry_port_conflict():
-    """Test that init_telemetry handles port conflicts gracefully."""
-    from gptme.util._telemetry import init_telemetry
-
-    # Mock the console to avoid output during tests
-    with patch("gptme.util.console.log"):
-        # Bind and listen on port 8000 to simulate conflict
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(("localhost", 8000))
-            sock.listen(1)
-
-            # Mock environment to enable telemetry
-            with patch.dict("os.environ", {"GPTME_TELEMETRY_ENABLED": "true"}):
-                # Should succeed by finding an alternative port
-                init_telemetry(prometheus_port=8000)
 
 
 @pytest.mark.skipif(
@@ -35,9 +14,6 @@ def test_init_telemetry_port_conflict():
     ),
     reason="Requires telemetry dependencies",
 )
-
-
-
 def test_init_telemetry_with_pushgateway(monkeypatch):
     """Test telemetry initialization with Pushgateway."""
     import time
