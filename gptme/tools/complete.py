@@ -107,7 +107,7 @@ def auto_reply_hook(
     )
     yield Message(
         "user",
-        "Are you sure? If you're finished, use the `complete` tool to end the session.",
+        "<system>No tool call detected in last message. Did you mean to finish? If so, make sure you are completely done and then use the `complete` tool to end the session.</system>",
         quiet=False,
     )
 
@@ -118,11 +118,11 @@ tool = ToolSpec(
     instructions="""
 Use this tool to signal that you have completed your work and the autonomous session should end.
 
-This is the proper way to finish an autonomous session instead of using sys.exit(0).
+Make sure you have actually completely finished before calling this tool.
 """,
     examples="""
-> User: Make sure to finish when you're done
-> Assistant: I'll complete the task and use the complete tool.
+> User: Everything done, just complete
+> Assistant: I'll use the complete tool to end the session.
 ```complete
 ```
 > System: Task complete. Autonomous session finished.
