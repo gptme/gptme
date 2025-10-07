@@ -30,7 +30,6 @@ try:
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
         OTLPSpanExporter,  # fmt: skip
     )
-    from opentelemetry.exporter.prometheus import PrometheusMetricReader  # fmt: skip
     from opentelemetry.instrumentation.anthropic import (
         AnthropicInstrumentor,  # fmt: skip
     )
@@ -41,7 +40,6 @@ try:
     from opentelemetry.sdk.resources import Resource  # fmt: skip
     from opentelemetry.sdk.trace import TracerProvider  # fmt: skip
     from opentelemetry.sdk.trace.export import BatchSpanProcessor  # fmt: skip
-    from prometheus_client import start_http_server  # fmt: skip
 
     TELEMETRY_AVAILABLE = True
 except ImportError as e:
@@ -67,29 +65,6 @@ def get_telemetry_objects():
         "llm_request_counter": _llm_request_counter,
     }
 
-
-def _find_available_port(
-    start_port: int, addr: str, max_attempts: int = 10
-) -> int | None:
-    """
-    Find an available port starting from start_port.
-
-    Returns the first available port, or None if no port found after max_attempts.
-    """
-    import socket
-
-    for offset in range(max_attempts):
-        port = start_port + offset
-        try:
-            # Try to bind to the port to check if it's available
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind((addr, port))
-                return port
-        except OSError:
-            continue
-
-    return None
 
 
 def init_telemetry(
@@ -159,82 +134,37 @@ def init_telemetry(
             "yes",
         )
 
-        if use_otlp_metrics and otlp_endpoint:
-            # Use OTLP for metrics (same endpoint as traces)
-            try:
-                from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
-                    OTLPMetricExporter,
-                )
-                from opentelemetry.sdk.metrics.export import (
-                    PeriodicExportingMetricReader,
-                )
-
-                # Ensure endpoint ends with /v1/metrics for the metric exporter
-                metric_endpoint = otlp_endpoint
-                if not metric_endpoint.endswith('/v1/metrics'):
-                    metric_endpoint = metric_endpoint.rstrip('/') + '/v1/metrics'
-                
-                otlp_metric_exporter = OTLPMetricExporter(
-                    endpoint=metric_endpoint,
-                    timeout=10,  # 10 second timeout for exports
-                )
-                metric_reader = PeriodicExportingMetricReader(
-                    otlp_metric_exporter,
-                    export_interval_millis=10000,  # Export every 10 seconds (faster feedback)
-                    export_timeout_millis=10000,  # 10 second timeout for export
-                )
-                metrics.set_meter_provider(
-                    MeterProvider(resource=resource, metric_readers=[metric_reader])
-                )
-                prometheus_enabled = False  # Using OTLP, not Prometheus HTTP
-                logger.info("Using OTLP for metrics export")
-            except ImportError as e:
-                logger.warning(f"OTLP metric exporter not available: {e}")
-                use_otlp_metrics = False
-
-        if not use_otlp_metrics:
-            # Original HTTP server approach with automatic port selection
-            prometheus_port_requested = int(
-                os.getenv("PROMETHEUS_PORT", prometheus_port)
+        # Use OTLP for metrics (same endpoint as traces)
+        try:
+            from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+                OTLPMetricExporter,
             )
-            prometheus_addr = os.getenv("PROMETHEUS_ADDR", "localhost")
-
-            # Find an available port for Prometheus metrics
-            prometheus_port_actual = _find_available_port(
-                prometheus_port_requested, prometheus_addr
+            from opentelemetry.sdk.metrics.export import (
+                PeriodicExportingMetricReader,
             )
 
-            prometheus_enabled = False
-            if prometheus_port_actual is not None:
-                try:
-                    # Start Prometheus HTTP server to expose metrics
-                    start_http_server(port=prometheus_port_actual, addr=prometheus_addr)
-                    prometheus_enabled = True
-
-                    if prometheus_port_actual != prometheus_port_requested:
-                        logger.info(
-                            f"Prometheus port {prometheus_port_requested} was in use, "
-                            f"using port {prometheus_port_actual} instead"
-                        )
-                except Exception as e:
-                    logger.warning(f"Failed to start Prometheus HTTP server: {e}")
-                    prometheus_enabled = False
-            else:
-                logger.warning(
-                    f"Could not find available port starting from {prometheus_port_requested}, "
-                    "Prometheus metrics will be disabled"
-                )
-
-            # Initialize PrometheusMetricReader and metrics only if Prometheus is enabled
-            if prometheus_enabled:
-                prometheus_reader = PrometheusMetricReader()
-                metrics.set_meter_provider(
-                    MeterProvider(metric_readers=[prometheus_reader])
-                )
-            else:
-                # Initialize without Prometheus reader - metrics won't be exposed via HTTP
-                # but OTLP tracing will still work
-                metrics.set_meter_provider(MeterProvider())
+            # Ensure endpoint ends with /v1/metrics for the metric exporter
+            metric_endpoint = otlp_endpoint
+            if not metric_endpoint.endswith('/v1/metrics'):
+                metric_endpoint = metric_endpoint.rstrip('/') + '/v1/metrics'
+            
+            otlp_metric_exporter = OTLPMetricExporter(
+                endpoint=metric_endpoint,
+                timeout=10,  # 10 second timeout for exports
+            )
+            metric_reader = PeriodicExportingMetricReader(
+                otlp_metric_exporter,
+                export_interval_millis=10000,  # Export every 10 seconds (faster feedback)
+                export_timeout_millis=10000,  # 10 second timeout for export
+            )
+            metrics.set_meter_provider(
+                MeterProvider(resource=resource, metric_readers=[metric_reader])
+            )
+            logger.info("Using OTLP for metrics export")
+        except ImportError as e:
+            logger.warning(f"OTLP metric exporter not available: {e}")
+            # Initialize without metrics if OTLP not available
+            metrics.set_meter_provider(MeterProvider())
 
         _meter = metrics.get_meter(service_name)
 
@@ -304,15 +234,7 @@ def init_telemetry(
         # Log to console so users know telemetry is active
         console.log("📊 Telemetry enabled - performance metrics will be collected")
         console.log(f"🔍 Traces will be sent via OTLP to {otlp_endpoint}")
-
-        if use_otlp_metrics:
-            console.log(f"📊 Metrics will be sent via OTLP to {otlp_endpoint}")
-        elif prometheus_enabled:
-            console.log(
-                f"📈 Prometheus metrics available at http://{prometheus_addr}:{prometheus_port_actual}/metrics"
-            )
-        else:
-            console.log("⚠️  Prometheus metrics disabled (port unavailable)")
+        console.log(f"📊 Metrics will be sent via OTLP to {otlp_endpoint}")
 
     except Exception as e:
         logger.error(f"Failed to initialize telemetry: {e}")
