@@ -27,7 +27,7 @@ TELEMETRY_IMPORT_ERROR = None
 
 try:
     from opentelemetry import metrics, trace  # fmt: skip
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
         OTLPSpanExporter,  # fmt: skip
     )
     from opentelemetry.exporter.prometheus import PrometheusMetricReader  # fmt: skip
@@ -129,12 +129,12 @@ def init_telemetry(
         _tracer = trace.get_tracer(service_name)
 
         # Set up OTLP exporter if endpoint provided (for Jaeger or other OTLP-compatible backends)
-        # OTLP uses different default ports: 4317 for gRPC, 4318 for HTTP
-        otlp_endpoint = os.getenv("OTLP_ENDPOINT") or "http://localhost:4317"
+        # Using HTTP instead of gRPC for better compatibility
+        # OTLP uses port 4318 for HTTP, 4317 for gRPC
+        otlp_endpoint = os.getenv("OTLP_ENDPOINT") or "http://localhost:4318"
         otlp_exporter = OTLPSpanExporter(
             endpoint=otlp_endpoint,
             timeout=10,  # 10 second timeout for exports
-            insecure=True,  # Use insecure connection (no TLS)
         )
         span_processor = BatchSpanProcessor(
             otlp_exporter,
@@ -155,7 +155,7 @@ def init_telemetry(
         if use_otlp_metrics and otlp_endpoint:
             # Use OTLP for metrics (same endpoint as traces)
             try:
-                from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+                from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
                     OTLPMetricExporter,
                 )
                 from opentelemetry.sdk.metrics.export import (
@@ -165,7 +165,6 @@ def init_telemetry(
                 otlp_metric_exporter = OTLPMetricExporter(
                     endpoint=otlp_endpoint,
                     timeout=10,  # 10 second timeout for exports
-                    insecure=True,  # Use insecure connection (no TLS)
                 )
                 metric_reader = PeriodicExportingMetricReader(
                     otlp_metric_exporter,
