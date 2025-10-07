@@ -489,6 +489,7 @@
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.write"><code class="docutils literal notranslate"><span class="pre">LogManager.write()</span></code></a></li>
 </ul>
 </li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.check_for_modifications"><code class="docutils literal notranslate"><span class="pre">check_for_modifications()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.get_conversations"><code class="docutils literal notranslate"><span class="pre">get_conversations()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.get_user_conversations"><code class="docutils literal notranslate"><span class="pre">get_user_conversations()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.list_conversations"><code class="docutils literal notranslate"><span class="pre">list_conversations()</span></code></a></li>
@@ -867,6 +868,12 @@ print(“Hello, world!”)
 <dd><p>Writes to the conversation log.</p>
 </dd></dl>
 
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.logmanager.check_for_modifications">
+<span class="sig-prename descclassname"><span class="pre">gptme.logmanager.</span></span><span class="sig-name descname"><span class="pre">check_for_modifications</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.logmanager.Log" title="gptme.logmanager.Log"><span class="pre">Log</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#gptme.logmanager.check_for_modifications" title="Link to this definition">#</a></dt>
+<dd><p>Check if there are any file modifications in last 3 assistant messages since last user message.</p>
 </dd></dl>
 
 <dl class="py function">
@@ -1390,6 +1397,7 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.write"><code class="docutils literal notranslate"><span class="pre">LogManager.write()</span></code></a></li>
 </ul>
 </li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.check_for_modifications"><code class="docutils literal notranslate"><span class="pre">check_for_modifications()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.get_conversations"><code class="docutils literal notranslate"><span class="pre">get_conversations()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.get_user_conversations"><code class="docutils literal notranslate"><span class="pre">get_user_conversations()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.list_conversations"><code class="docutils literal notranslate"><span class="pre">list_conversations()</span></code></a></li>
