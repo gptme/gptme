@@ -5,8 +5,8 @@ Configuration:
     GPTME_SHELL_TIMEOUT: Environment variable to configure command timeout (set before starting gptme)
         - Set to a number (e.g., 30) for timeout in seconds
         - Set to 0 to disable timeout
-        - Invalid values default to 60 seconds
-        - If not set, commands run without timeout
+        - Invalid values default to 1200 seconds (20 minutes)
+        - If not set, defaults to 1200 seconds (20 minutes)
 """
 
 import atexit
@@ -705,18 +705,19 @@ def execute_shell(
     cmd = get_shell_command(code, args, kwargs)
 
     # Check for timeout from environment variable
-    timeout = None
+    # Default to 20 minutes (1200s) if not set
+    timeout: float | None = 1200.0
     timeout_env = os.environ.get("GPTME_SHELL_TIMEOUT")
     if timeout_env is not None:
         try:
-            timeout = float(timeout_env) if timeout_env else 60.0
+            timeout = float(timeout_env)
             if timeout <= 0:
                 timeout = None  # Disable timeout if set to 0 or negative
         except ValueError:
             logger.warning(
-                f"Invalid GPTME_SHELL_TIMEOUT value: {timeout_env}, using default 60s"
+                f"Invalid GPTME_SHELL_TIMEOUT value: {timeout_env}, using default 1200s (20 minutes)"
             )
-            timeout = 60.0
+            timeout = 1200.0
 
     # Check if command is denylisted - these are blocked entirely
     is_denied, deny_reason, matched_cmd = is_denylisted(cmd)
