@@ -570,8 +570,9 @@ def prompt_chat_history() -> Generator[Message, None, None]:
                             break
 
                     if first_assistant:
+                        # Use 30 words for first response - brief description of what was attempted
                         first_response = extract_content_summary(
-                            first_assistant.content
+                            first_assistant.content, max_words=30
                         )
                         if first_response:
                             summary_parts.append(f"Assistant: {first_response}")
@@ -589,7 +590,10 @@ def prompt_chat_history() -> Generator[Message, None, None]:
 
                 # Add last assistant response if different from first
                 if best_assistant_msg and best_assistant_msg != first_assistant:
-                    outcome = extract_content_summary(best_assistant_msg.content)
+                    # Use 60 words for last response - capture the outcome/conclusion
+                    outcome = extract_content_summary(
+                        best_assistant_msg.content, max_words=60
+                    )
                     if outcome:
                         summary_parts.append(f"Assistant: {outcome}")
 
