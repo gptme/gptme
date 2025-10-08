@@ -175,9 +175,6 @@ def main(
     # init logging
     init_logging(verbose)
 
-    # init telemetry
-    init_telemetry(service_name="gptme-cli")
-
     if not interactive:
         no_confirm = True
 
@@ -266,6 +263,15 @@ def main(
         agent_path=Path(agent_path) if agent_path else None,
     )
     assert config.chat and config.chat.tool_format
+
+    # init telemetry with agent name and interactive mode
+    agent_config = config.chat.agent_config
+    agent_name = agent_config.name if agent_config else None
+    init_telemetry(
+        service_name="gptme-cli",
+        agent_name=agent_name,
+        interactive=interactive,
+    )
 
     # early init tools to generate system prompt
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools

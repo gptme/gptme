@@ -78,8 +78,20 @@ def init_telemetry(
     enable_requests_instrumentation: bool = True,
     enable_openai_instrumentation: bool = True,
     enable_anthropic_instrumentation: bool = True,
+    agent_name: str | None = None,
+    interactive: bool | None = None,
 ) -> None:
-    """Initialize OpenTelemetry tracing and metrics."""
+    """Initialize OpenTelemetry tracing and metrics.
+
+    Args:
+        service_name: Name of the service for telemetry
+        enable_flask_instrumentation: Whether to auto-instrument Flask
+        enable_requests_instrumentation: Whether to auto-instrument requests library
+        enable_openai_instrumentation: Whether to auto-instrument OpenAI
+        enable_anthropic_instrumentation: Whether to auto-instrument Anthropic
+        agent_name: Name of the agent (from gptme.toml [agent].name)
+        interactive: Whether running in interactive mode (None = unknown, False = autonomous)
+    """
     global _telemetry_enabled, _tracer, _meter, _token_counter, _request_histogram
     global \
         _tool_counter, \
@@ -102,8 +114,21 @@ def init_telemetry(
         return
 
     try:
-        # Initialize tracing with proper service name
-        resource = Resource.create({"service.name": service_name})
+        # Initialize tracing with proper service name and additional metadata
+        resource_attrs = {"service.name": service_name}
+
+        # Add agent name if provided
+        if agent_name:
+            resource_attrs["agent.name"] = agent_name
+            logger.debug(f"Adding agent.name to resource: {agent_name}")
+
+        # Add interactive mode if known
+        if interactive is not None:
+            resource_attrs["agent.interactive"] = str(interactive).lower()
+            if not interactive:
+                logger.debug("Running in autonomous mode")
+
+        resource = Resource.create(resource_attrs)
         trace.set_tracer_provider(TracerProvider(resource=resource))
         _tracer = trace.get_tracer(service_name)
 

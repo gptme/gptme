@@ -39,8 +39,20 @@ def init_telemetry(
     enable_requests_instrumentation: bool = True,
     enable_openai_instrumentation: bool = True,
     enable_anthropic_instrumentation: bool = True,
+    agent_name: str | None = None,
+    interactive: bool | None = None,
 ) -> None:
-    """Initialize OpenTelemetry tracing and metrics."""
+    """Initialize OpenTelemetry tracing and metrics.
+
+    Args:
+        service_name: Name of the service for telemetry
+        enable_flask_instrumentation: Whether to auto-instrument Flask
+        enable_requests_instrumentation: Whether to auto-instrument requests library
+        enable_openai_instrumentation: Whether to auto-instrument OpenAI
+        enable_anthropic_instrumentation: Whether to auto-instrument Anthropic
+        agent_name: Name of the agent (from gptme.toml [agent].name)
+        interactive: Whether running in interactive mode (None = unknown, False = autonomous)
+    """
     try:
         _init(
             service_name=service_name,
@@ -48,6 +60,8 @@ def init_telemetry(
             enable_requests_instrumentation=enable_requests_instrumentation,
             enable_openai_instrumentation=enable_openai_instrumentation,
             enable_anthropic_instrumentation=enable_anthropic_instrumentation,
+            agent_name=agent_name,
+            interactive=interactive,
         )
     except ImportError:
         logger.warning(
