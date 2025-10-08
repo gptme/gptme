@@ -117,6 +117,16 @@ def init_telemetry(
         # Initialize tracing with proper service name and additional metadata
         resource_attrs = {"service.name": service_name}
 
+        # Add hostname (standard OpenTelemetry attribute)
+        import socket
+
+        try:
+            hostname = socket.gethostname()
+            resource_attrs["host.name"] = hostname
+            logger.debug(f"Adding host.name to resource: {hostname}")
+        except Exception as e:
+            logger.warning(f"Failed to get hostname: {e}")
+
         # Add agent name if provided
         if agent_name:
             resource_attrs["agent.name"] = agent_name
