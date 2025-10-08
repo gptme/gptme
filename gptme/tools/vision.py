@@ -14,9 +14,21 @@ from .base import ToolSpec
 
 
 def view_image(image_path: Path | str) -> Message:
-    """View an image. Large images (>1MB) will be automatically scaled down."""
+    """View an image. Large images (>1MB) will be automatically scaled down. Supports URLs and local paths."""
     if isinstance(image_path, str):
-        image_path = Path(image_path)
+        # Check if it's a URL
+        if image_path.startswith(("http://", "https://")):
+            try:
+                import urllib.request
+
+                # Download the image to a temporary file
+                with tempfile.NamedTemporaryFile(suffix=".tmp", delete=False) as tmp:
+                    urllib.request.urlretrieve(image_path, tmp.name)
+                    image_path = Path(tmp.name)
+            except Exception as e:
+                return Message("system", f"Failed to download image from URL: {e}")
+        else:
+            image_path = Path(image_path)
 
     if not image_path.exists():
         return Message("system", f"Image not found at `{image_path}`")
