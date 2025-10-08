@@ -615,6 +615,8 @@ The following is a summary of your recent conversations with the user to provide
 ```
 
 Use this context to understand ongoing projects, preferences, and previous discussions.
+
+*Tip: Use the `chats` tool to search past conversations or read their full history.*
 """
             yield Message("system", context_content)
 
