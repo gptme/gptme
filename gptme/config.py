@@ -670,7 +670,7 @@ def setup_config_from_cli(
 
     Handles the precedence: CLI args -> saved conversation config -> env vars -> config files -> defaults
     """
-    from .tools import get_toolchain
+    from .tools import clear_tools, get_toolchain
 
     # Load base config from workspace
     set_config_from_workspace(workspace)
@@ -749,6 +749,8 @@ def setup_config_from_cli(
     # Save and set the final config
     config.chat.save()
     set_config(config)
+    # Clear tools cache to ensure MCP tools are re-initialized with complete config
+    clear_tools()
     return config
 
 
