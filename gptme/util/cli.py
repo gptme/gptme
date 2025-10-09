@@ -145,6 +145,66 @@ def mcp_info(server_name: str):
             click.echo(f"   Environment: {len(server.env)} variables")
 
 
+@mcp.command("search")
+@click.argument("query", required=False, default="")
+@click.option(
+    "-r",
+    "--registry",
+    default="all",
+    type=click.Choice(["all", "official", "mcp.so"]),
+    help="Registry to search",
+)
+@click.option("-n", "--limit", default=10, help="Maximum number of results")
+def mcp_search(query: str, registry: str, limit: int):
+    """Search for MCP servers in registries."""
+    from ..mcp.registry import MCPRegistry, format_server_list
+
+    click.echo(f"🔍 Searching {registry} registry for '{query}'...")
+    click.echo()
+
+    reg = MCPRegistry()
+
+    try:
+        if registry == "all":
+            results = reg.search_all(query, limit)
+        elif registry == "official":
+            results = reg.search_official_registry(query, limit)
+        elif registry == "mcp.so":
+            results = reg.search_mcp_so(query, limit)
+        else:
+            click.echo(f"❌ Unknown registry: {registry}")
+            return
+
+        if results:
+            click.echo(format_server_list(results))
+        else:
+            click.echo("No servers found.")
+    except Exception as e:
+        click.echo(f"❌ Search failed: {e}")
+
+
+@mcp.command("discover")
+@click.argument("server_name")
+def mcp_discover(server_name: str):
+    """Get detailed information about an MCP server from registries."""
+    from ..mcp.registry import MCPRegistry, format_server_details
+
+    click.echo(f"🔍 Searching for '{server_name}' in registries...")
+    click.echo()
+
+    reg = MCPRegistry()
+
+    try:
+        server = reg.get_server_details(server_name)
+        if server:
+            click.echo(format_server_details(server))
+        else:
+            click.echo(f"❌ Server '{server_name}' not found in any registry.")
+            click.echo("\nTry searching: gptme-util mcp search <query>")
+    except Exception as e:
+        click.echo(f"❌ Discovery failed: {e}")
+
+
 @main.group()
 def chats():
     """Commands for managing chat logs."""
