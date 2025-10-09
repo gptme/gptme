@@ -64,8 +64,37 @@ def execute_mcp(
                 return
 
             name = parts[1]
-            result = get_mcp_server_info(name)
-            yield Message("system", result)
+
+            # First check if server is configured locally
+            from ..config import get_config
+
+            config = get_config()
+            local_server = next((s for s in config.mcp.servers if s.name == name), None)
+
+            if local_server:
+                # Show local configuration
+                result = f"# {local_server.name} (configured locally)\n\n"
+                result += f"**Type:** {'HTTP' if local_server.is_http else 'stdio'}\n"
+                result += f"**Enabled:** {'Yes' if local_server.enabled else 'No'}\n\n"
+
+                if local_server.is_http:
+                    result += f"**URL:** {local_server.url}\n"
+                    if local_server.headers:
+                        result += (
+                            f"**Headers:** {len(local_server.headers)} configured\n"
+                        )
+                else:
+                    result += f"**Command:** {local_server.command}\n"
+                    if local_server.args:
+                        result += f"**Args:** {', '.join(local_server.args)}\n"
+
+                yield Message("system", result)
+            else:
+                # Not found locally, search registries
+                result = get_mcp_server_info(name)
+                if "not found" in result.lower():
+                    result = f"Server '{name}' not configured locally.\n\n" + result
+                yield Message("system", result)
 
         elif command.startswith("load"):
             # load <server-name> [config-override]
@@ -150,6 +179,7 @@ Available Commands:
 - `search [query]` - Search for MCP servers across all registries
   - Optional JSON config: `{"registry": "official|mcp.so|all", "limit": 10}`
 - `info <server-name>` - Get detailed information about a specific server
+  - Checks configured servers first, then searches registries if not found locally
 - `load <server-name>` - Dynamically load an MCP server into the current session
   - Optional JSON config override: `{"command": "...", "args": [...], "url": "..."}`
 - `unload <server-name>` - Unload a previously loaded MCP server
@@ -157,7 +187,6 @@ Available Commands:
 
 The search command queries:
 - Official MCP Registry (registry.modelcontextprotocol.io)
-- MCP.so directory
 - Other configured registries
 
 Examples:

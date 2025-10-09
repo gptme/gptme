@@ -120,29 +120,61 @@ def mcp_test(server_name: str):
 @mcp.command("info")
 @click.argument("server_name")
 def mcp_info(server_name: str):
-    """Show detailed information about an MCP server."""
+    """Show detailed information about an MCP server.
+
+    Checks configured servers first, then searches registries if not found locally.
+    """
+    from ..mcp.registry import MCPRegistry, format_server_details
 
     config = get_config()
 
+    # First check if server is configured locally
     server = next((s for s in config.mcp.servers if s.name == server_name), None)
-    if not server:
-        click.echo(f"❌ Server '{server_name}' not found in config")
-        return
 
-    click.echo(f"📋 MCP Server: {server.name}")
-    click.echo(f"   Type: {'HTTP' if server.is_http else 'stdio'}")
-    click.echo(f"   Enabled: {'✅' if server.enabled else '❌'}")
+    if server:
+        # Show local configuration
+        click.echo(f"📋 MCP Server: {server.name}")
+        click.echo(f"   Type: {'HTTP' if server.is_http else 'stdio'}")
+        click.echo(f"   Enabled: {'✅' if server.enabled else '❌'}")
+        click.echo()
 
-    if server.is_http:
-        click.echo(f"   URL: {server.url}")
-        if server.headers:
-            click.echo(f"   Headers: {len(server.headers)} configured")
+        if server.is_http:
+            click.echo(f"   URL: {server.url}")
+            if server.headers:
+                click.echo(f"   Headers: {len(server.headers)} configured")
+        else:
+            click.echo(f"   Command: {server.command}")
+            if server.args:
+                click.echo(f"   Args: {' '.join(server.args)}")
+            if server.env:
+                click.echo(f"   Environment: {len(server.env)} variables")
+
+        # Try to test connection if enabled
+        if server.enabled:
+            click.echo()
+            click.echo("Testing connection...")
+            try:
+                client = MCPClient(config)
+                tools, session = client.connect(server_name)
+                click.echo(f"✅ Connected ({len(tools.tools)} tools available)")
+            except Exception as e:
+                click.echo(f"❌ Connection failed: {e}")
     else:
-        click.echo(f"   Command: {server.command}")
-        if server.args:
-            click.echo(f"   Args: {' '.join(server.args)}")
-        if server.env:
-            click.echo(f"   Environment: {len(server.env)} variables")
+        # Not found locally, search registries
+        click.echo(f"Server '{server_name}' not configured locally.")
+        click.echo("🔍 Searching registries...")
+        click.echo()
+
+        reg = MCPRegistry()
+        try:
+            registry_server = reg.get_server_details(server_name)
+            if registry_server:
+                click.echo(format_server_details(registry_server))
+            else:
+                click.echo(f"❌ Server '{server_name}' not found in registries either.")
+                click.echo("\nTry searching: gptme-util mcp search <query>")
+        except Exception as e:
+            click.echo(f"❌ Registry search failed: {e}")
 
 
 @mcp.command("search")
@@ -181,28 +213,6 @@ def mcp_search(query: str, registry: str, limit: int):
             click.echo("No servers found.")
     except Exception as e:
         click.echo(f"❌ Search failed: {e}")
-
-
-@mcp.command("discover")
-@click.argument("server_name")
-def mcp_discover(server_name: str):
-    """Get detailed information about an MCP server from registries."""
-    from ..mcp.registry import MCPRegistry, format_server_details
-
-    click.echo(f"🔍 Searching for '{server_name}' in registries...")
-    click.echo()
-
-    reg = MCPRegistry()
-
-    try:
-        server = reg.get_server_details(server_name)
-        if server:
-            click.echo(format_server_details(server))
-        else:
-            click.echo(f"❌ Server '{server_name}' not found in any registry.")
-            click.echo("\nTry searching: gptme-util mcp search <query>")
-    except Exception as e:
-        click.echo(f"❌ Discovery failed: {e}")
 
 
 @main.group()
