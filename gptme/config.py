@@ -520,7 +520,10 @@ class Config:
     @classmethod
     def from_workspace(cls, workspace: Path) -> Self:
         """Load the configuration from a workspace directory. Clearing any cache."""
+        from gptme.tools import clear_tools  # Import here to avoid circular import
+
         get_project_config.cache_clear()
+        clear_tools()  # Clear tools cache so MCP tools reload with project config
         return cls(
             user=load_user_config(),
             project=get_project_config(workspace),
@@ -529,7 +532,10 @@ class Config:
     @classmethod
     def from_logdir(cls, logdir: Path) -> Self:
         """Load the configuration from a log directory."""
+        from gptme.tools import clear_tools  # Import here to avoid circular import
+
         chat_config = ChatConfig.from_logdir(logdir)
+        clear_tools()  # Clear tools cache so MCP tools reload with chat config
         return cls(
             user=load_user_config(),
             project=get_project_config(chat_config.workspace),
