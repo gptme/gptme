@@ -74,11 +74,16 @@ def init(provider: Provider, config: Config):
     if proxy_url and not proxy_url.endswith("/messages"):
         proxy_url = proxy_url + "/messages" if proxy_url else None
 
+    # Get configurable API timeout (default: 600 seconds = 10 minutes)
+    timeout_str = config.get_env("LLM_API_TIMEOUT")
+    timeout = float(timeout_str) if timeout_str else 600.0
+
     if provider == "openai":
         api_key = proxy_key or config.get_env_required("OPENAI_API_KEY")
         clients[provider] = OpenAI(
             api_key=api_key,
             base_url=proxy_url or None,
+            timeout=timeout,
         )
     elif provider == "azure":
         api_key = config.get_env_required("AZURE_OPENAI_API_KEY")
@@ -87,34 +92,43 @@ def init(provider: Provider, config: Config):
             api_key=api_key,
             api_version="2023-07-01-preview",
             azure_endpoint=azure_endpoint,
+            timeout=timeout,
         )
     elif provider == "openrouter":
         api_key = proxy_key or config.get_env_required("OPENROUTER_API_KEY")
         clients[provider] = OpenAI(
-            api_key=api_key, base_url=proxy_url or "https://openrouter.ai/api/v1"
+            api_key=api_key,
+            base_url=proxy_url or "https://openrouter.ai/api/v1",
+            timeout=timeout,
         )
     elif provider == "gemini":
         api_key = config.get_env_required("GEMINI_API_KEY")
         clients[provider] = OpenAI(
-            api_key=api_key, base_url="https://generativelanguage.googleapis.com/v1beta"
+            api_key=api_key,
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            timeout=timeout,
         )
     elif provider == "xai":
         api_key = config.get_env_required("XAI_API_KEY")
-        clients[provider] = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+        clients[provider] = OpenAI(
+            api_key=api_key, base_url="https://api.x.ai/v1", timeout=timeout
+        )
     elif provider == "groq":
         api_key = config.get_env_required("GROQ_API_KEY")
         clients[provider] = OpenAI(
-            api_key=api_key, base_url="https://api.groq.com/openai/v1"
+            api_key=api_key, base_url="https://api.groq.com/openai/v1", timeout=timeout
         )
     elif provider == "deepseek":
         api_key = config.get_env_required("DEEPSEEK_API_KEY")
         clients[provider] = OpenAI(
-            api_key=api_key, base_url="https://api.deepseek.com/v1"
+            api_key=api_key, base_url="https://api.deepseek.com/v1", timeout=timeout
         )
     elif provider == "nvidia":
         api_key = config.get_env_required("NVIDIA_API_KEY")
         clients[provider] = OpenAI(
-            api_key=api_key, base_url="https://integrate.api.nvidia.com/v1"
+            api_key=api_key,
+            base_url="https://integrate.api.nvidia.com/v1",
+            timeout=timeout,
         )
     elif provider == "local":
         # OPENAI_API_BASE renamed to OPENAI_BASE_URL: https://github.com/openai/openai-python/issues/745
@@ -123,7 +137,7 @@ def init(provider: Provider, config: Config):
         if not api_base:
             raise KeyError("Missing environment variable OPENAI_BASE_URL")
         api_key = config.get_env("OPENAI_API_KEY") or "ollama"
-        clients[provider] = OpenAI(api_key=api_key, base_url=api_base)
+        clients[provider] = OpenAI(api_key=api_key, base_url=api_base, timeout=timeout)
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
