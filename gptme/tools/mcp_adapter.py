@@ -2,9 +2,10 @@ import json
 from collections.abc import Callable, Generator
 from logging import getLogger
 
-from gptme.config import Config
+from gptme.config import Config, MCPServerConfig, get_config, set_config
 
 from ..mcp.client import MCPClient
+from ..mcp.registry import MCPRegistry, format_server_details, format_server_list
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import (
@@ -21,6 +22,12 @@ logger = getLogger(__name__)
 
 # Add type annotation for tool_specs
 tool_specs: list[ToolSpec] = []
+
+# Global registry instance
+_registry = MCPRegistry()
+
+# Cache of dynamically loaded servers
+_dynamic_servers: dict[str, MCPClient] = {}
 
 
 # Function to create MCP tools
@@ -207,3 +214,164 @@ def create_mcp_execute_function(tool_name: str, client: MCPClient) -> ExecuteFun
         )
 
     return execute
+
+
+def search_mcp_servers(query: str = "", registry: str = "all", limit: int = 10) -> str:
+    """
+    Search for MCP servers in registries.
+
+    Args:
+        query: Search query (searches name, description, tags)
+        registry: Which registry to search ('all', 'official', 'mcp.so')
+        limit: Maximum number of results
+
+    Returns:
+        Formatted list of servers
+    """
+    if registry == "all":
+        results = _registry.search_all(query, limit)
+    elif registry == "official":
+        results = _registry.search_official_registry(query, limit)
+    elif registry == "mcp.so":
+        results = _registry.search_mcp_so(query, limit)
+    else:
+        return f"Unknown registry: {registry}. Use 'all', 'official', or 'mcp.so'."
+
+    return format_server_list(results)
+
+
+def get_mcp_server_info(name: str) -> str:
+    """
+    Get detailed information about a specific MCP server.
+
+    Args:
+        name: Server name
+
+    Returns:
+        Formatted server details
+    """
+    server = _registry.get_server_details(name)
+    if not server:
+        return f"Server '{name}' not found in any registry."
+
+    return format_server_details(server)
+
+
+def load_mcp_server(name: str, config_override: dict | None = None) -> str:
+    """
+    Dynamically load an MCP server during the session.
+
+    Args:
+        name: Server name (will search registries if not in config)
+        config_override: Optional config overrides (command, args, url, etc.)
+
+    Returns:
+        Status message
+    """
+    config = get_config()
+
+    # Check if server already loaded
+    if name in _dynamic_servers:
+        return f"Server '{name}' is already loaded."
+
+    # Check if server is in config
+    server_config = next((s for s in config.mcp.servers if s.name == name), None)
+
+    # If not in config, try to find in registry
+    if not server_config:
+        server_info = _registry.get_server_details(name)
+        if not server_info:
+            return f"Server '{name}' not found in config or registries."
+
+        # Create config from registry info
+        server_config = MCPServerConfig(
+            name=server_info.name,
+            enabled=True,
+            command=server_info.command,
+            args=server_info.args,
+            url=server_info.url,
+        )
+
+    # Apply config overrides
+    if config_override:
+        if "command" in config_override:
+            server_config.command = config_override["command"]
+        if "args" in config_override:
+            server_config.args = config_override["args"]
+        if "url" in config_override:
+            server_config.url = config_override["url"]
+        if "env" in config_override:
+            server_config.env = config_override["env"]
+
+    try:
+        # Create client and connect
+        client = MCPClient(config=config)
+        tools, session = client.connect(name)
+
+        # Store in dynamic servers
+        _dynamic_servers[name] = client
+
+        # Add to config
+        if server_config not in config.mcp.servers:
+            config.mcp.servers.append(server_config)
+            set_config(config)
+
+        tool_names = [tool.name for tool in tools.tools]
+        return f"Successfully loaded server '{name}' with {len(tool_names)} tools: {', '.join(tool_names)}"
+
+    except Exception as e:
+        logger.error(f"Failed to load server '{name}': {e}")
+        return f"Failed to load server '{name}': {e}"
+
+
+def unload_mcp_server(name: str) -> str:
+    """
+    Unload a dynamically loaded MCP server.
+
+    Args:
+        name: Server name
+
+    Returns:
+        Status message
+    """
+    if name not in _dynamic_servers:
+        return f"Server '{name}' is not loaded."
+
+    # Remove from dynamic servers
+    del _dynamic_servers[name]
+
+    # Optionally disable in config (but don't remove)
+    config = get_config()
+    server_config = next((s for s in config.mcp.servers if s.name == name), None)
+    if server_config:
+        server_config.enabled = False
+        set_config(config)
+
+    return f"Successfully unloaded server '{name}'."
+
+
+def list_loaded_servers() -> str:
+    """
+    List all currently loaded MCP servers.
+
+    Returns:
+        Formatted list of loaded servers
+    """
+    config = get_config()
+
+    if not config.mcp.servers:
+        return "No MCP servers configured."
+
+    output = ["# Loaded MCP Servers\n"]
+
+    for server in config.mcp.servers:
+        status = "✓ enabled" if server.enabled else "✗ disabled"
+        dynamic = " (dynamic)" if server.name in _dynamic_servers else ""
+        output.append(f"- **{server.name}** {status}{dynamic}")
+        if server.command:
+            output.append(f"  Command: `{server.command}`")
+        elif server.url:
+            output.append(f"  URL: `{server.url}`")
+        output.append("")
+
+    return "\n".join(output)
