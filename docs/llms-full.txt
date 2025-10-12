@@ -1451,6 +1451,7 @@ Start the server:
 
     gptme-server
 
+
 For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 
 .. _server:gptme-webui:
@@ -1458,22 +1459,31 @@ For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 gptme-webui: Modern Web Interface
 ---------------------------------
 
-The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>`_: a modern, feature-rich React application that provides a complete gptme experience in your browser.
+The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>`_: a modern, feature-rich application that provides a complete gptme experience in your browser.
 
-**Try it now:** `chat.gptme.org <https://chat.gptme.org>`_
+**Try it now:**
+
+- `chat.gptme.org <https://chat.gptme.org>`_ (latest version of gptme-webui, bring your own gptme-server)
+- `gptme.ai <https://gptme.ai>`_ (upcoming hosted gptme service)
 
 **Key Features:**
 
-- Modern React-based interface with shadcn/ui components
-- Real-time streaming of AI responses
+- Modern interface
+- Streaming responses
 - Mobile-friendly responsive design
 - Dark mode support
 - Conversation export and offline capabilities
 - Integrated computer use interface
-- Full tool support and visualization
+- Create your own persistent `agents`
 
 **Local Installation:**
 For self-hosting and local development, see the `gptme-webui README <https://github.com/gptme/gptme-webui>`_.
+
+To use the server with a locally hosted gptme-webui, configure the CORS origin when starting the server:
+
+.. code-block:: bash
+
+    gptme-server --cors-origin 'http://localhost:5701'
 
 Basic Web UI
 ------------

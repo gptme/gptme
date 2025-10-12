@@ -469,20 +469,28 @@
 </section>
 <section id="gptme-webui-modern-web-interface">
 <span id="server-gptme-webui"></span><h2>gptme-webui: Modern Web Interface<a class="headerlink" href="#gptme-webui-modern-web-interface" title="Link to this heading">#</a></h2>
-<p>The primary web interface is <a class="reference external" href="https://github.com/gptme/gptme-webui">gptme-webui</a>: a modern, feature-rich React application that provides a complete gptme experience in your browser.</p>
-<p><strong>Try it now:</strong> <a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a></p>
+<p>The primary web interface is <a class="reference external" href="https://github.com/gptme/gptme-webui">gptme-webui</a>: a modern, feature-rich application that provides a complete gptme experience in your browser.</p>
+<p><strong>Try it now:</strong></p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a> (latest version of gptme-webui, bring your own gptme-server)</p></li>
+<li><p><a class="reference external" href="https://gptme.ai">gptme.ai</a> (upcoming hosted gptme service)</p></li>
+</ul>
 <p><strong>Key Features:</strong></p>
 <ul class="simple">
-<li><p>Modern React-based interface with shadcn/ui components</p></li>
-<li><p>Real-time streaming of AI responses</p></li>
+<li><p>Modern interface</p></li>
+<li><p>Streaming responses</p></li>
 <li><p>Mobile-friendly responsive design</p></li>
 <li><p>Dark mode support</p></li>
 <li><p>Conversation export and offline capabilities</p></li>
 <li><p>Integrated computer use interface</p></li>
-<li><p>Full tool support and visualization</p></li>
+<li><p>Create your own persistent <cite>agents</cite></p></li>
 </ul>
 <p><strong>Local Installation:</strong>
 For self-hosting and local development, see the <a class="reference external" href="https://github.com/gptme/gptme-webui">gptme-webui README</a>.</p>
+<p>To use the server with a locally hosted gptme-webui, configure the CORS origin when starting the server:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-server<span class="w"> </span>--cors-origin<span class="w"> </span><span class="s1">&#39;http://localhost:5701&#39;</span>
+</pre></div>
+</div>
 </section>
 <section id="basic-web-ui">
 <h2>Basic Web UI<a class="headerlink" href="#basic-web-ui" title="Link to this heading">#</a></h2>
