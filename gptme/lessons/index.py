@@ -27,6 +27,8 @@ class LessonIndex:
         """Get default lesson directories."""
         from pathlib import Path
 
+        from ..config import get_config
+
         dirs = []
 
         # User config directory
@@ -38,6 +40,17 @@ class LessonIndex:
         workspace_dir = Path.cwd() / "lessons"
         if workspace_dir.exists():
             dirs.append(workspace_dir)
+
+        # Configured directories from gptme.toml
+        config = get_config()
+        if config.project and config.project.lessons.dirs:
+            for dir_str in config.project.lessons.dirs:
+                lesson_dir = Path(dir_str)
+                # Make relative paths relative to config file location or cwd
+                if not lesson_dir.is_absolute():
+                    lesson_dir = Path.cwd() / lesson_dir
+                if lesson_dir.exists():
+                    dirs.append(lesson_dir)
 
         return dirs
 

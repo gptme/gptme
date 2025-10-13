@@ -112,6 +112,13 @@ class AgentConfig:
 
 
 @dataclass
+class LessonsConfig:
+    """Configuration for the lessons system."""
+
+    dirs: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ProjectConfig:
     """Project-level configuration, such as which files to include in the context by default.
 
@@ -126,6 +133,7 @@ class ProjectConfig:
     context_cmd: str | None = None
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
+    lessons: LessonsConfig = field(default_factory=LessonsConfig)
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -140,6 +148,7 @@ class ProjectConfig:
         agent = (
             AgentConfig(**config_data.pop("agent")) if "agent" in config_data else None
         )
+        lessons = LessonsConfig(dirs=config_data.pop("lessons", {}).get("dirs", []))
         env = config_data.pop("env", {})
         if mcp := config_data.pop("mcp", None):
             mcp = MCPConfig.from_dict(mcp)
@@ -155,6 +164,7 @@ class ProjectConfig:
             context_cmd=context_cmd,
             rag=rag,
             agent=agent,
+            lessons=lessons,
             env=env,
             mcp=mcp,
             **config_data,
