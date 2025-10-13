@@ -127,11 +127,11 @@ class TestAutoIncludeLessonsHook:
     ):
         """Test hook includes matching lessons."""
         with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons.LessonIndex") as mock_index_class:
+            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
                 with patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class:
                     mock_index = MagicMock()
                     mock_index.lessons = [sample_lesson]
-                    mock_index_class.return_value = mock_index
+                    mock_get_index.return_value = mock_index
 
                     mock_matcher = MagicMock()
                     mock_matcher.match.return_value = [sample_match]
