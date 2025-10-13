@@ -17,10 +17,10 @@ def execute_gh(
     confirm: ConfirmFunc,
 ) -> Generator[Message, None, None]:
     """Execute GitHub operations."""
-    if args and args[0] == "read_pr":
+    if args and len(args) >= 2 and args[0] == "pr" and args[1] == "view":
         # Get PR URL from args or kwargs
-        if len(args) > 1:
-            url = args[1]
+        if len(args) > 2:
+            url = args[2]
         elif kwargs:
             url = kwargs.get("url", "")
         else:
@@ -45,13 +45,15 @@ def execute_gh(
                     "Error: Failed to fetch PR content. Make sure 'gh' CLI is installed and authenticated.",
                 )
     else:
-        yield Message("system", "Error: Unknown gh command. Available: read_pr")
+        yield Message(
+            "system", "Error: Unknown gh command. Available: gh pr view <url>"
+        )
 
 
 instructions = """Interact with GitHub via the GitHub CLI (gh).
 
 For reading PRs with full context (review comments, code context, suggestions), use:
-```gh read_pr <pr_url>
+```gh pr view <pr_url>
 ```
 
 For other operations, use the `shell` tool with the `gh` command."""
@@ -61,7 +63,7 @@ def examples(tool_format):
     return f"""
 > User: read PR with full context including review comments
 > Assistant:
-{ToolUse("gh", ["read_pr", "https://github.com/owner/repo/pull/123"], None).to_output(tool_format)}
+{ToolUse("gh", ["pr", "view", "https://github.com/owner/repo/pull/123"], None).to_output(tool_format)}
 
 > User: create a public repo from the current directory, and push. Note that --confirm and -y are deprecated, and no longer needed.
 > Assistant:

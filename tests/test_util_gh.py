@@ -104,7 +104,7 @@ def test_gh_tool_read_pr():
     # Test with a real PR
     result = gh_tool.execute(
         None,
-        ["read_pr", "https://github.com/gptme/gptme/pull/687"],
+        ["pr", "view", "https://github.com/gptme/gptme/pull/687"],
         None,
         lambda x: True,  # confirm function
     )
@@ -136,7 +136,7 @@ def test_gh_tool_read_pr_invalid_url():
     # Test with invalid URL
     result = gh_tool.execute(
         None,
-        ["read_pr", "https://invalid-url.com"],
+        ["pr", "view", "https://invalid-url.com"],
         None,
         lambda x: True,
     )
