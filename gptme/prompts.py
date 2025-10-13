@@ -84,8 +84,10 @@ def get_prompt(
     )
 
     # Generate workspace context from agent if provided
-    agent_msgs = list(
-        prompt_workspace(agent_path, title="Agent Workspace", include_path=True)
+    agent_msgs = (
+        list(prompt_workspace(agent_path, title="Agent Workspace", include_path=True))
+        if agent_path
+        else []
     )
 
     # Combine core messages into one system prompt
