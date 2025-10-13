@@ -925,9 +925,31 @@ The following Python functions are available using the <span class="sb">`ipython
 
 <span class="gs">**Description:**</span> Interact with GitHub
 
-<span class="gs">**Instructions:**</span> Interact with GitHub via the GitHub CLI (gh). Use the <span class="sb">`shell`</span> tool with the <span class="sb">`gh`</span> command.
+<span class="gs">**Instructions:**</span> Interact with GitHub via the GitHub CLI (gh).
+
+For reading PRs with full context (review comments, code context, suggestions), use:
+<span class="sb">```gh</span><span class="w"> </span>pr view &lt;pr_url&gt;
+<span class="sb">```</span>
+
+To wait for all CI checks to complete on a PR:
+<span class="sb">```gh</span><span class="w"> </span>pr checks &lt;pr_url&gt;
+<span class="sb">```</span>
+
+For other operations, use the <span class="sb">`shell`</span> tool with the <span class="sb">`gh`</span> command.
 
 <span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">User: read PR with full context including review comments</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>pr view https://github.com/owner/repo/pull/123
+<span class="s">None</span>
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">User: wait for CI checks to complete on a PR</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>pr checks https://github.com/owner/repo/pull/123
+<span class="s">None</span>
+<span class="sb">```</span>
 
 <span class="k">&gt; </span><span class="ge">User: create a public repo from the current directory, and push. Note that --confirm and -y are deprecated, and no longer needed.</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
@@ -1549,7 +1571,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 6767</p>
+<p>Tokens: 6911</p>
 </dd></dl>
 
 <dl class="py function">
