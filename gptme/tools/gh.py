@@ -64,7 +64,7 @@ def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None
                 yield Message("system", "No checks found for this PR")
                 return
 
-            # Group by status and conclusion
+            # Group by status and conclusion, track failed runs
             status_counts = {
                 "success": 0,
                 "failure": 0,
@@ -75,6 +75,8 @@ def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None
                 "pending": 0,
             }
 
+            failed_runs = []
+
             for run in check_runs:
                 status = run.get("status", "unknown")
                 conclusion = run.get("conclusion")
@@ -82,6 +84,16 @@ def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None
                 if status == "completed":
                     # Map conclusion to known states, default to success for unmapped
                     state = conclusion if conclusion in status_counts else "success"
+
+                    # Track failed runs with their IDs
+                    if state == "failure":
+                        run_id = run.get("id")
+                        run_name = run.get("name", "Unknown")
+                        html_url = run.get("html_url", "")
+                        # Extract run ID from URL if available
+                        if html_url and "/runs/" in html_url:
+                            actual_run_id = html_url.split("/runs/")[-1].split("/")[0]
+                            failed_runs.append((run_name, actual_run_id))
                 else:
                     state = status
 
@@ -126,10 +138,17 @@ def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None
             if current_status["in_progress"] == 0:
                 # All checks complete
                 if current_status["failure"] > 0:
-                    yield Message(
-                        "system",
-                        f"\n❌ Checks failed: {current_status['failure']} failed, {current_status['success']} passed\n",
-                    )
+                    failure_msg = f"\n❌ Checks failed: {current_status['failure']} failed, {current_status['success']} passed\n"
+
+                    if failed_runs:
+                        failure_msg += "\nFailed runs:\n"
+                        for name, run_id in failed_runs:
+                            failure_msg += f"  - {name} (run {run_id})\n"
+                        failure_msg += (
+                            "\nView logs with: gh run view <run_id> --log-failed\n"
+                        )
+
+                    yield Message("system", failure_msg)
                 elif current_status["cancelled"] > 0:
                     yield Message(
                         "system",
@@ -237,6 +256,15 @@ def examples(tool_format):
 > User: wait for CI checks to complete on a PR
 > Assistant:
 {ToolUse("gh", ["pr", "checks", "https://github.com/owner/repo/pull/123"], None).to_output(tool_format)}
+> System: ❌ Checks failed: 2 failed, 4 passed
+> System: Failed runs:
+> System:   - build (run 12345678)
+> System:   - test (run 12345679)
+> System: View logs with: gh run view <run_id> --log-failed
+
+> User: show me the failed build logs
+> Assistant:
+{ToolUse("shell", [], "gh run view 12345678 --log-failed").to_output(tool_format)}
 
 > User: create a public repo from the current directory, and push. Note that --confirm and -y are deprecated, and no longer needed.
 > Assistant:
