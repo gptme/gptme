@@ -931,9 +931,16 @@ For reading PRs with full context (review comments, code context, suggestions), 
 <span class="sb">```gh</span><span class="w"> </span>pr view &lt;pr_url&gt;
 <span class="sb">```</span>
 
-To wait for all CI checks to complete on a PR:
-<span class="sb">```gh</span><span class="w"> </span>pr checks &lt;pr_url&gt;
+To get a quick status check of CI checks (with run IDs for failed checks):
+<span class="sb">```gh</span><span class="w"> </span>pr status &lt;pr_url&gt; [commit_sha]
 <span class="sb">```</span>
+
+To wait for all CI checks to complete:
+<span class="sb">```gh</span><span class="w"> </span>pr checks &lt;pr_url&gt; [commit_sha]
+<span class="sb">```</span>
+
+The optional commit_sha allows checking a specific commit instead of the PR head.
+This is useful for checking previous commits without waiting for new builds.
 
 For other operations, use the <span class="sb">`shell`</span> tool with the <span class="sb">`gh`</span> command.
 
@@ -945,11 +952,43 @@ For other operations, use the <span class="sb">`shell`</span> tool with the <spa
 <span class="s">None</span>
 <span class="sb">```</span>
 
+<span class="k">&gt; </span><span class="ge">User: check CI status for this PR</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>pr status https://github.com/owner/repo/pull/123
+<span class="s">None</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: PR #123 checks (abc1234):</span>
+<span class="k">&gt; </span><span class="ge">System: Total: 6 checks</span>
+<span class="k">&gt; </span><span class="ge">System: ✅ 4 passed</span>
+<span class="k">&gt; </span><span class="ge">System: ❌ 2 failed</span>
+<span class="k">&gt; </span><span class="ge">System:</span>
+<span class="k">&gt; </span><span class="ge">System: Failed runs:</span>
+<span class="k">&gt; </span><span class="ge">System:   - build (run 12345678)</span>
+<span class="k">&gt; </span><span class="ge">System:   - test (run 12345679)</span>
+<span class="k">&gt; </span><span class="ge">System:</span>
+<span class="k">&gt; </span><span class="ge">System: View logs: gh run view &lt;run_id&gt; --log-failed</span>
+
+<span class="k">&gt; </span><span class="ge">User: check status of specific commit abc1234</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>pr status https://github.com/owner/repo/pull/123 abc1234
+<span class="s">None</span>
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">User: show me the failed build logs</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```shell</span>
+gh<span class="w"> </span>run<span class="w"> </span>view<span class="w"> </span><span class="m">12345678</span><span class="w"> </span>--log-failed
+<span class="sb">```</span>
+
 <span class="k">&gt; </span><span class="ge">User: wait for CI checks to complete on a PR</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>pr checks https://github.com/owner/repo/pull/123
 <span class="s">None</span>
 <span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Waiting for checks on commit abc1234...</span>
+<span class="k">&gt; </span><span class="ge">System: [12:34:56] ✅ 4 passed, ❌ 2 failed, 🔄 3 in progress</span>
+<span class="k">&gt; </span><span class="ge">System: ...</span>
+<span class="k">&gt; </span><span class="ge">System: ❌ Checks failed: 2 failed, 4 passed</span>
 
 <span class="k">&gt; </span><span class="ge">User: create a public repo from the current directory, and push. Note that --confirm and -y are deprecated, and no longer needed.</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
@@ -1571,7 +1610,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 6911</p>
+<p>Tokens: 7262</p>
 </dd></dl>
 
 <dl class="py function">
