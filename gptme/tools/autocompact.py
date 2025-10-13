@@ -22,6 +22,7 @@ def auto_compact_log(
     log: list[Message],
     limit: int | None = None,
     max_tool_result_tokens: int = 2000,
+    logdir: Path | None = None,
 ) -> Generator[Message, None, None]:
     """
     Auto-compact log for conversations with massive tool results.
@@ -33,6 +34,7 @@ def auto_compact_log(
         log: List of messages to compact
         limit: Token limit (defaults to 80% of model context)
         max_tool_result_tokens: Maximum tokens allowed in a tool result before removal
+        logdir: Path to conversation directory for saving removed outputs
     """
     from ..llm.models import get_default_model, get_model
 
@@ -73,7 +75,7 @@ def auto_compact_log(
             and (tokens > limit or close_to_limit)
         ):
             # Replace with a brief summary message
-            summary_content = _create_tool_result_summary(msg.content, msg_tokens)
+            summary_content = _create_tool_result_summary(msg, msg_tokens, logdir)
             summary_msg = msg.replace(content=summary_content)
             compacted_log.append(summary_msg)
 
@@ -100,17 +102,25 @@ def auto_compact_log(
     yield from reduce_log(compacted_log, limit)
 
 
-def _create_tool_result_summary(content: str, original_tokens: int) -> str:
+def _create_tool_result_summary(
+    msg: Message, original_tokens: int, logdir: Path | None
+) -> str:
     """
     Create a brief summary message to replace a massive tool result.
+    Saves the original content to a file in the logdir for later reference.
 
     Args:
-        content: Original tool result content
+        msg: Original message with tool result
         original_tokens: Number of tokens in original content
+        logdir: Path to conversation directory for saving removed output
 
     Returns:
-        Brief summary message
+        Brief summary message with reference to saved file
     """
+    import hashlib
+
+    content = msg.content
+
     # Try to extract the command that was run from the content
     lines = content.split("\n")
     command_info = ""
@@ -133,7 +143,32 @@ def _create_tool_result_summary(content: str, original_tokens: int) -> str:
     ):
         status = "failed"
 
-    return f"[Large tool output removed - {original_tokens} tokens]: Tool execution {status}{command_info}. Output was automatically removed due to size to allow conversation continuation."
+    # Save content to file if logdir is provided
+    saved_path = None
+    if logdir:
+        removed_dir = logdir / "removed-outputs"
+        removed_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use message timestamp and content hash for filename
+        msg_time = msg.timestamp.strftime("%Y%m%d_%H%M%S")
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
+        filename = f"msg-{msg_time}-{content_hash}.txt"
+        saved_path = removed_dir / filename
+
+        try:
+            saved_path.write_text(content)
+            logger.info(f"Saved removed output to {saved_path}")
+        except Exception as e:
+            logger.error(f"Failed to save removed output: {e}")
+            saved_path = None
+
+    # Create summary message
+    base_msg = f"[Large tool output removed - {original_tokens} tokens]: Tool execution {status}{command_info}."
+
+    if saved_path:
+        return f"{base_msg} Full output saved to: {saved_path}\nYou can read or grep this file if needed."
+    else:
+        return f"{base_msg} Output was automatically removed due to size to allow conversation continuation."
 
 
 def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
@@ -206,7 +241,7 @@ def _compact_auto(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
         return
 
     # Apply auto-compacting
-    compacted_msgs = list(auto_compact_log(msgs))
+    compacted_msgs = list(auto_compact_log(msgs, logdir=ctx.manager.logdir))
 
     # Calculate reduction stats
     original_count = len(msgs)
@@ -356,7 +391,7 @@ def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
 
     # Apply auto-compacting with comprehensive error handling
     try:
-        compacted_msgs = list(auto_compact_log(messages))
+        compacted_msgs = list(auto_compact_log(messages, logdir=manager.logdir))
 
         # Calculate reduction stats
         m = get_default_model()

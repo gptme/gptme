@@ -95,10 +95,14 @@ def test_auto_compact_log_reduces_massive_tool_result():
 
 def test_create_tool_result_summary():
     """Test the _create_tool_result_summary helper function."""
+    from datetime import datetime
+    from gptme.message import Message
+
     content = "Ran command: `ls -la`\n/usr/bin/file1.txt\n/usr/bin/file2.txt\n..."
     tokens = 1000
+    msg = Message("system", content, timestamp=datetime.now())
 
-    summary = _create_tool_result_summary(content, tokens)
+    summary = _create_tool_result_summary(msg, tokens, None)
 
     # Should contain key information
     assert "1000 tokens" in summary
@@ -109,12 +113,16 @@ def test_create_tool_result_summary():
 
 def test_create_tool_result_summary_with_error():
     """Test summary generation for failed tool execution."""
+    from datetime import datetime
+    from gptme.message import Message
+
     content = (
         "Ran command: `invalid_command`\nError: command not found\nFailed to execute"
     )
     tokens = 500
+    msg = Message("system", content, timestamp=datetime.now())
 
-    summary = _create_tool_result_summary(content, tokens)
+    summary = _create_tool_result_summary(msg, tokens, None)
 
     # Should detect failure
     assert "500 tokens" in summary
