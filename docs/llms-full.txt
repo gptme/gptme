@@ -1028,6 +1028,10 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
 - ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
 
+.. rubric:: API Configuration
+
+- ``LLM_API_TIMEOUT`` - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., "600", "1800"). Useful for local LLMs that may take longer to respond.
+
 .. rubric:: Tool Configuration
 
 - ``GPTME_TTS_VOICE`` - Set the voice to use for TTS

@@ -541,6 +541,10 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_PATCH_RECOVERY</span></code> - Return file content in error for non-matching patches (default: false)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_SUGGEST_LLM</span></code> - Enable LLM-powered prompt completion (default: false)</p></li>
 </ul>
+<p class="rubric">API Configuration</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">LLM_API_TIMEOUT</span></code> - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., “600”, “1800”). Useful for local LLMs that may take longer to respond.</p></li>
+</ul>
 <p class="rubric">Tool Configuration</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TTS_VOICE</span></code> - Set the voice to use for TTS</p></li>
