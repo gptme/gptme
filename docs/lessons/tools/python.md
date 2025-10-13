@@ -43,6 +43,36 @@ print(response.json())
 uv run script.py
 ```
 
+### Make it directly executable with uv shebang:
+
+For even more power, add a shebang to make the script directly executable:
+
+```python
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#   "requests",
+#   "rich",
+# ]
+# ///
+
+import requests
+from rich import print
+
+response = requests.get('https://api.github.com')
+print(response.json())
+```
+
+Make it executable and run directly:
+
+```shell
+chmod +x script.py
+./script.py  # No need for "uv run" prefix!
+```
+
+This makes your script **truly self-contained and portable** - dependencies, Python version, and execution method all declared in the file itself.
+
 uv automatically:
 - Creates an isolated environment
 - Installs dependencies
