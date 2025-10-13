@@ -22,32 +22,6 @@ For scripts needing external packages, use **uv with inline dependencies** (PEP 
 ### Create a self-contained script:
 
 ```python
-# /// script
-# requires-python = ">=3.9"
-# dependencies = [
-#   "requests",
-#   "rich",
-# ]
-# ///
-
-import requests
-from rich import print
-
-response = requests.get('https://api.github.com')
-print(response.json())
-```
-
-### Run with uv:
-
-```shell
-uv run script.py
-```
-
-### Make it directly executable with uv shebang:
-
-For even more power, add a shebang to make the script directly executable:
-
-```python
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
@@ -91,6 +65,7 @@ uv add --script script.py 'requests<3' 'rich'
 - Quick calculations and data exploration
 - Testing code snippets
 - Using built-in libraries (numpy, pandas, matplotlib, PIL, scipy)
+- Using gptme-provided functions
 - Interactive development
 
 ### Use shell + save for:
