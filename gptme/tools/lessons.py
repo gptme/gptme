@@ -88,7 +88,7 @@ def auto_include_lessons_hook(
         )
 
     except Exception as e:
-        logger.warning(f"Failed to include lessons: {e}")
+        logger.exception(f"Failed to include lessons: {e}")
 
 
 def _format_lessons(matches: list) -> str:
@@ -147,12 +147,6 @@ match:
 
 Lesson content...
 ```
-
-Available commands:
-- `/lesson list [category]` - List available lessons
-- `/lesson search <query>` - Search lessons
-- `/lesson show <name>` - Show specific lesson
-- `/lesson refresh` - Refresh lesson index
 
 Lessons are automatically included when their keywords match the conversation context.
 """.strip(),

@@ -14,20 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def lesson(ctx: "CommandContext") -> Generator["Message", None, None]:
-    """Lesson system commands.
-
-    Usage:
-        /lesson list [category]         List available lessons
-        /lesson search <query>          Search lessons
-        /lesson show <lesson-name>      Show specific lesson
-        /lesson refresh                 Refresh lesson index
-
-    Examples:
-        /lesson list                    List all lessons
-        /lesson list tools              List lessons in 'tools' category
-        /lesson search patch            Search for lessons about 'patch'
-        /lesson show patch-placeholders Show specific lesson
-    """
+    """Lesson system commands. Use /lesson without args for help."""
     from ..message import Message
 
     args = ctx.full_args.strip()
