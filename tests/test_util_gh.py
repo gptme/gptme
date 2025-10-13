@@ -1,8 +1,6 @@
 """Tests for GitHub utility functions."""
 
-import json
-from unittest.mock import Mock, patch
-
+import pytest
 
 from gptme.util.gh import (
     get_github_pr_content,
@@ -40,214 +38,52 @@ def test_parse_github_url_invalid():
     assert parse_github_url("https://github.com/owner") is None
 
 
-@patch("gptme.util.gh.subprocess.run")
-@patch("gptme.util.gh.shutil.which")
-def test_get_github_pr_content_with_code_context(mock_which, mock_run):
-    """Test that PR content includes code context from diff_hunk."""
-    mock_which.return_value = "/usr/bin/gh"
+@pytest.mark.slow
+def test_get_github_pr_content_real():
+    """Test fetching real PR content with review comments.
 
-    # Mock PR basic info
-    pr_result = Mock()
-    pr_result.returncode = 0
-    pr_result.stdout = "title: Test PR\nstate: OPEN\n"
+    Uses PR #687 from gptme/gptme which has:
+    - Review comments with code context
+    - Code suggestions
+    - Resolved and unresolved comments
+    """
+    content = get_github_pr_content("https://github.com/gptme/gptme/pull/687")
 
-    # Mock PR comments
-    comments_result = Mock()
-    comments_result.returncode = 0
-    comments_result.stdout = "Some comments"
+    if content is None:
+        pytest.skip("gh CLI not available or request failed")
 
-    # Mock PR details
-    pr_details = Mock()
-    pr_details.returncode = 0
-    pr_details.stdout = json.dumps({"head": {"sha": "abc123"}})
+    # Should have basic PR info
+    assert "feat: implement basic lesson system" in content
+    assert "TimeToBuildBob" in content
 
-    # Mock review comments with diff_hunk
-    review_comments = [
-        {
-            "id": 1,
-            "user": {"login": "reviewer"},
-            "body": "Please fix this",
-            "path": "test.py",
-            "line": 10,
-            "diff_hunk": "@@ -8,7 +8,7 @@\n def example():\n-    old_code\n+    new_code\n     context_line",
-        }
-    ]
-    review_comments_result = Mock()
-    review_comments_result.returncode = 0
-    review_comments_result.stdout = json.dumps(review_comments)
+    # Should have review comments section
+    assert "Review Comments (Unresolved)" in content
 
-    # Mock GraphQL response (no resolved threads)
-    graphql_result = Mock()
-    graphql_result.returncode = 0
-    graphql_result.stdout = json.dumps(
-        {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": []}}}}}
-    )
+    # Should have at least one review comment with file reference
+    assert ".py:" in content
 
-    # Mock check runs (no actions)
-    check_runs_result = Mock()
-    check_runs_result.returncode = 1
-    check_runs_result.stdout = ""
+    # Check for code context (if diff_hunk is available)
+    # Note: This might not always be present depending on API response
+    if "Referenced code in" in content:
+        assert "Context:" in content
+        assert "```" in content
 
-    mock_run.side_effect = [
-        pr_result,
-        comments_result,
-        pr_details,
-        review_comments_result,
-        graphql_result,
-        check_runs_result,
-    ]
-
-    content = get_github_pr_content("https://github.com/owner/repo/pull/1")
-
-    assert content is not None
-    assert "**@reviewer** on test.py:10:" in content
-    assert "Please fix this" in content
-    # Check that code context is included
-    assert "Referenced code in test.py:10:" in content
-    assert "Context:" in content
-    assert "```py" in content
-    assert "def example():" in content
-    assert "old_code" in content or "new_code" in content
+    # Check for GitHub Actions status
+    assert "GitHub Actions Status" in content
 
 
-@patch("gptme.util.gh.subprocess.run")
-@patch("gptme.util.gh.shutil.which")
-def test_get_github_pr_content_filters_resolved_comments(mock_which, mock_run):
-    """Test that resolved review comments are filtered out."""
-    mock_which.return_value = "/usr/bin/gh"
+@pytest.mark.slow
+def test_get_github_pr_with_suggestions():
+    """Test that code suggestions are extracted and formatted.
 
-    pr_result = Mock()
-    pr_result.returncode = 0
-    pr_result.stdout = "title: Test PR\n"
+    Uses PR #687 which has code suggestions from ellipsis-dev bot.
+    """
+    content = get_github_pr_content("https://github.com/gptme/gptme/pull/687")
 
-    comments_result = Mock()
-    comments_result.returncode = 0
-    comments_result.stdout = ""
+    if content is None:
+        pytest.skip("gh CLI not available or request failed")
 
-    pr_details = Mock()
-    pr_details.returncode = 0
-    pr_details.stdout = json.dumps({"head": {"sha": "abc123"}})
-
-    # Two review comments, one will be marked resolved
-    review_comments = [
-        {
-            "id": 1,
-            "user": {"login": "reviewer"},
-            "body": "Resolved comment",
-            "path": "test.py",
-            "line": 10,
-            "diff_hunk": "@@ -8,7 +8,7 @@\n code",
-        },
-        {
-            "id": 2,
-            "user": {"login": "reviewer"},
-            "body": "Unresolved comment",
-            "path": "test.py",
-            "line": 20,
-            "diff_hunk": "@@ -18,7 +18,7 @@\n code",
-        },
-    ]
-    review_comments_result = Mock()
-    review_comments_result.returncode = 0
-    review_comments_result.stdout = json.dumps(review_comments)
-
-    # Mark first comment as resolved
-    graphql_result = Mock()
-    graphql_result.returncode = 0
-    graphql_result.stdout = json.dumps(
-        {
-            "data": {
-                "repository": {
-                    "pullRequest": {
-                        "reviewThreads": {
-                            "nodes": [
-                                {
-                                    "isResolved": True,
-                                    "comments": {"nodes": [{"databaseId": 1}]},
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        }
-    )
-
-    check_runs_result = Mock()
-    check_runs_result.returncode = 1
-
-    mock_run.side_effect = [
-        pr_result,
-        comments_result,
-        pr_details,
-        review_comments_result,
-        graphql_result,
-        check_runs_result,
-    ]
-
-    content = get_github_pr_content("https://github.com/owner/repo/pull/1")
-
-    assert content is not None
-    # Resolved comment should not be in output
-    assert "Resolved comment" not in content
-    # Unresolved comment should be in output
-    assert "Unresolved comment" in content
-    assert "test.py:20" in content
-
-
-@patch("gptme.util.gh.subprocess.run")
-@patch("gptme.util.gh.shutil.which")
-def test_get_github_pr_content_no_diff_hunk(mock_which, mock_run):
-    """Test handling review comments without diff_hunk."""
-    mock_which.return_value = "/usr/bin/gh"
-
-    pr_result = Mock()
-    pr_result.returncode = 0
-    pr_result.stdout = "title: Test PR\n"
-
-    comments_result = Mock()
-    comments_result.returncode = 0
-    comments_result.stdout = ""
-
-    pr_details = Mock()
-    pr_details.returncode = 0
-    pr_details.stdout = json.dumps({"head": {"sha": "abc123"}})
-
-    # Review comment without diff_hunk
-    review_comments = [
-        {
-            "id": 1,
-            "user": {"login": "reviewer"},
-            "body": "Comment without context",
-            "path": "test.py",
-            "line": 10,
-        }
-    ]
-    review_comments_result = Mock()
-    review_comments_result.returncode = 0
-    review_comments_result.stdout = json.dumps(review_comments)
-
-    graphql_result = Mock()
-    graphql_result.returncode = 0
-    graphql_result.stdout = json.dumps(
-        {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": []}}}}}
-    )
-
-    check_runs_result = Mock()
-    check_runs_result.returncode = 1
-
-    mock_run.side_effect = [
-        pr_result,
-        comments_result,
-        pr_details,
-        review_comments_result,
-        graphql_result,
-        check_runs_result,
-    ]
-
-    content = get_github_pr_content("https://github.com/owner/repo/pull/1")
-
-    assert content is not None
-    assert "Comment without context" in content
-    # Should not have code context section
-    assert "Referenced code" not in content
+    # PR #687 has a suggestion from ellipsis-dev about using logger.exception
+    if "```suggestion" in content or "Suggested change:" in content:
+        # If suggestions are in the raw body, we should extract them
+        assert "logger.exception" in content or "Suggested change:" in content

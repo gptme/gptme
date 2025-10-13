@@ -344,6 +344,31 @@ def get_github_pr_content(url: str) -> str | None:
                                     context_lines.append(line_text)
                             content += "\n".join(context_lines)
                             content += "\n```\n"
+
+                        # Extract and display code suggestions
+                        if "```suggestion" in body:
+                            # Find suggestion blocks in the body
+                            lines = body.split("\n")
+                            in_suggestion = False
+                            suggestion_lines: list[str] = []
+
+                            for line in lines:
+                                if line.strip().startswith("```suggestion"):
+                                    in_suggestion = True
+                                    continue
+                                elif line.strip() == "```" and in_suggestion:
+                                    if suggestion_lines:
+                                        content += (
+                                            "\nSuggested change:\n```"
+                                            + path.split(".")[-1]
+                                            + "\n"
+                                        )
+                                        content += "\n".join(suggestion_lines)
+                                        content += "\n```\n"
+                                        suggestion_lines = []
+                                    in_suggestion = False
+                                elif in_suggestion:
+                                    suggestion_lines.append(line)
             except (json.JSONDecodeError, KeyError):
                 logger.debug("Failed to parse review comments JSON")
 
