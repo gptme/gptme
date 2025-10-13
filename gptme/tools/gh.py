@@ -86,15 +86,22 @@ def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None
     poll_interval = 10  # seconds
 
     while True:
-        # Get check runs using helper
-        _, check_runs, error = _get_pr_check_runs(owner, repo, pr_number)
-
-        if error:
-            yield Message("system", f"Error: {error}")
+        # Get check runs for the original commit directly
+        try:
+            check_runs_result = subprocess.run(
+                ["gh", "api", f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            check_runs_data = json.loads(check_runs_result.stdout)
+            check_runs = check_runs_data.get("check_runs", [])
+        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
+            yield Message("system", f"Error fetching checks: {e}")
             return
 
         if not check_runs:
-            yield Message("system", "No checks found for this PR")
+            yield Message("system", f"No checks found for commit {head_sha[:7]}")
             return
 
         # Group by status and conclusion, track failed runs
