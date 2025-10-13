@@ -54,33 +54,44 @@ def _get_pr_check_runs(
         return None, None, f"Failed to parse check data: {e}"
 
 
-def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None, None]:
-    """Wait for all GitHub Actions checks to complete on a PR."""
+def _wait_for_checks(
+    owner: str, repo: str, url: str, commit_sha: str | None = None
+) -> Generator[Message, None, None]:
+    """Wait for all GitHub Actions checks to complete on a PR or commit."""
     import logging
 
     logger = logging.getLogger(__name__)
 
-    # Get PR details to extract HEAD commit SHA
-    pr_info = parse_github_url(url)
-    if not pr_info:
-        yield Message("system", "Error: Could not parse PR number from URL")
-        return
+    # Use provided commit SHA or get from PR
+    pr_number: int | None
+    if commit_sha:
+        head_sha: str | None = commit_sha
+        pr_number = None  # Not needed when checking specific commit
+    else:
+        # Get PR details to extract HEAD commit SHA
+        pr_info = parse_github_url(url)
+        if not pr_info:
+            yield Message("system", "Error: Could not parse PR number from URL")
+            return
 
-    pr_number = int(pr_info["number"])
+        pr_number = int(pr_info["number"])
 
-    head_sha, check_runs_initial, error = _get_pr_check_runs(owner, repo, pr_number)
-    if error:
-        yield Message("system", f"Error: {error}")
-        return
+        head_sha, check_runs_initial, error = _get_pr_check_runs(owner, repo, pr_number)
+        if error:
+            yield Message("system", f"Error: {error}")
+            return
 
-    if not check_runs_initial:
-        yield Message("system", "No checks found for this PR")
-        return
+        if not check_runs_initial:
+            yield Message("system", "No checks found for this PR")
+            return
 
     assert head_sha is not None  # Ensured by earlier error check
     yield Message("system", f"Waiting for checks on commit {head_sha[:7]}...\n")
 
-    logger.info(f"Polling PR #{pr_number} checks (commit {head_sha[:7]})...")
+    if pr_number:
+        logger.info(f"Polling PR #{pr_number} checks (commit {head_sha[:7]})...")
+    else:
+        logger.info(f"Polling checks for commit {head_sha[:7]}...")
 
     previous_status = None
     poll_interval = 10  # seconds
@@ -223,6 +234,9 @@ def execute_gh(
             yield Message("system", "Error: No PR URL provided")
             return
 
+        # Optional commit SHA
+        commit_sha = args[3] if len(args) > 3 else None
+
         github_info = parse_github_url(url)
         if not github_info:
             yield Message(
@@ -231,18 +245,46 @@ def execute_gh(
             )
             return
 
-        # Get PR details and check status once
         pr_number = int(github_info["number"])
         owner = github_info["owner"]
         repo = github_info["repo"]
 
-        head_sha, check_runs, error = _get_pr_check_runs(owner, repo, pr_number)
+        # Use provided commit or fetch from PR
+        head_sha: str | None
+        check_runs: list | None
+        error: str | None
+
+        if commit_sha:
+            head_sha = commit_sha
+            try:
+                check_runs_result = subprocess.run(
+                    [
+                        "gh",
+                        "api",
+                        f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                check_runs_data = json.loads(check_runs_result.stdout)
+                check_runs = check_runs_data.get("check_runs", [])
+                error = None
+            except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
+                error = f"Failed to fetch checks: {e}"
+                head_sha, check_runs = None, None
+        else:
+            head_sha, check_runs, error = _get_pr_check_runs(owner, repo, pr_number)
+
         if error:
             yield Message("system", f"Error: {error}")
             return
 
         if not check_runs:
-            yield Message("system", "No checks found for this PR")
+            yield Message(
+                "system",
+                f"No checks found for commit {head_sha[:7] if head_sha else 'unknown'}",
+            )
             return
 
         try:
@@ -331,6 +373,9 @@ def execute_gh(
             yield Message("system", "Error: No PR URL provided")
             return
 
+        # Optional commit SHA
+        commit_sha = args[3] if len(args) > 3 else None
+
         # Wait for checks to complete
         github_info = parse_github_url(url)
         if not github_info:
@@ -340,7 +385,9 @@ def execute_gh(
             )
             return
 
-        yield from _wait_for_checks(github_info["owner"], github_info["repo"], url)
+        yield from _wait_for_checks(
+            github_info["owner"], github_info["repo"], url, commit_sha=commit_sha
+        )
 
     elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "view":
         # Get PR URL from args or kwargs
@@ -383,12 +430,15 @@ For reading PRs with full context (review comments, code context, suggestions), 
 ```
 
 To get a quick status check of CI checks (with run IDs for failed checks):
-```gh pr status <pr_url>
+```gh pr status <pr_url> [commit_sha]
 ```
 
-To wait for all CI checks to complete on a PR:
-```gh pr checks <pr_url>
+To wait for all CI checks to complete:
+```gh pr checks <pr_url> [commit_sha]
 ```
+
+The optional commit_sha allows checking a specific commit instead of the PR head.
+This is useful for checking previous commits without waiting for new builds.
 
 For other operations, use the `shell` tool with the `gh` command."""
 
@@ -412,6 +462,10 @@ def examples(tool_format):
 > System:   - test (run 12345679)
 > System:
 > System: View logs: gh run view <run_id> --log-failed
+
+> User: check status of specific commit abc1234
+> Assistant:
+{ToolUse("gh", ["pr", "status", "https://github.com/owner/repo/pull/123", "abc1234"], None).to_output(tool_format)}
 
 > User: show me the failed build logs
 > Assistant:
