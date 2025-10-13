@@ -41,6 +41,8 @@ def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None
 
         yield Message("system", f"Waiting for checks on commit {head_sha[:7]}...\n")
 
+        logger.info(f"Polling PR #{pr_number} checks (commit {head_sha[:7]})...")
+
         previous_status = None
         poll_interval = 10  # seconds
 
