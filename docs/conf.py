@@ -111,7 +111,7 @@ sitemap_excludes = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "lessons/**"]
 
 extlinks = {
     "issue": ("https://github.com/gptme/gptme/issues/%s", "issue #"),
