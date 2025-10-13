@@ -6,6 +6,7 @@ Similar to .cursorrules but with keyword-based triggering.
 """
 
 import logging
+import threading
 from collections.abc import Generator
 
 from ..commands import CommandContext
@@ -24,6 +25,16 @@ try:
 except ImportError:
     HAS_LESSONS = False
     logger.warning("Lessons module not available")
+
+# Thread-local storage for lesson index
+_thread_local = threading.local()
+
+
+def _get_lesson_index() -> LessonIndex:
+    """Get thread-local lesson index, creating it if needed."""
+    if not hasattr(_thread_local, "index"):
+        _thread_local.index = LessonIndex()
+    return _thread_local.index
 
 
 def auto_include_lessons_hook(
@@ -62,7 +73,7 @@ def auto_include_lessons_hook(
 
     # Find matching lessons
     try:
-        index = LessonIndex()
+        index = _get_lesson_index()
         if not index.lessons:
             logger.debug("No lessons found in index")
             return

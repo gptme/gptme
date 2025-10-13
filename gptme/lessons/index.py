@@ -52,7 +52,10 @@ class LessonIndex:
 
             self._index_directory(lesson_dir)
 
-        logger.info(f"Indexed {len(self.lessons)} lessons")
+        if self.lessons:
+            logger.info(f"Indexed {len(self.lessons)} lessons")
+        else:
+            logger.debug("No lessons found")
 
     def _index_directory(self, directory: Path) -> None:
         """Index all lessons in a directory."""
