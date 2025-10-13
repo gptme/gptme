@@ -322,7 +322,8 @@ class TestToolSpec:
     def test_tool_has_instructions(self):
         """Test tool has instructions."""
         assert tool.instructions
-        assert "/lesson" in tool.instructions
+        assert "lesson system" in tool.instructions.lower()
+        assert "keywords" in tool.instructions
 
     def test_tool_availability_depends_on_module(self):
         """Test tool availability depends on lessons module."""
