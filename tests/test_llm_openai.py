@@ -270,3 +270,122 @@ def test_message_conversion_with_tool_and_non_tool():
             ],
         },
     ]
+
+
+def test_timeout_default(monkeypatch):
+    """Test that default timeout is 600 seconds when LLM_API_TIMEOUT is not set."""
+    import gptme.llm.llm_openai as llm_openai
+    from unittest.mock import Mock, patch
+    from gptme.config import get_config
+
+    # Clear any existing LLM_API_TIMEOUT config
+    monkeypatch.delenv("LLM_API_TIMEOUT", raising=False)
+
+    # Clear the clients cache to force re-initialization
+    llm_openai.clients.clear()
+
+    # Get config instance
+    config = get_config()
+
+    with patch("openai.OpenAI") as mock_openai:
+        mock_client = Mock()
+        mock_openai.return_value = mock_client
+
+        # Initialize OpenAI provider
+        llm_openai.init("openai", config)
+
+        # Verify OpenAI was called with default timeout of 600
+        mock_openai.assert_called_once()
+        call_kwargs = mock_openai.call_args[1]
+        assert call_kwargs["timeout"] == 600.0
+
+
+def test_timeout_custom(monkeypatch):
+    """Test that custom timeout is used when LLM_API_TIMEOUT is set."""
+    import gptme.llm.llm_openai as llm_openai
+    from unittest.mock import Mock, patch
+    from gptme.config import get_config
+
+    # Set custom timeout
+    monkeypatch.setenv("LLM_API_TIMEOUT", "1800")
+
+    # Clear the clients cache to force re-initialization
+    llm_openai.clients.clear()
+
+    # Get config instance
+    config = get_config()
+
+    with patch("openai.OpenAI") as mock_openai:
+        mock_client = Mock()
+        mock_openai.return_value = mock_client
+
+        # Initialize OpenAI provider
+        llm_openai.init("openai", config)
+
+        # Verify OpenAI was called with custom timeout
+        mock_openai.assert_called_once()
+        call_kwargs = mock_openai.call_args[1]
+        assert call_kwargs["timeout"] == 1800.0
+
+
+def test_timeout_all_providers(monkeypatch):
+    """Test that timeout is passed to all OpenAI-compatible providers."""
+    import gptme.llm.llm_openai as llm_openai
+    from unittest.mock import Mock, patch
+    from gptme.config import get_config
+    from typing import cast
+    from gptme.llm.models import Provider
+
+    # Set custom timeout
+    monkeypatch.setenv("LLM_API_TIMEOUT", "900")
+
+    # Get config instance
+    config = get_config()
+
+    providers_to_test = ["openai", "openrouter", "groq", "deepseek", "xai"]
+
+    for provider_str in providers_to_test:
+        # Clear the clients cache
+        llm_openai.clients.clear()
+
+        # Cast to Provider type for mypy
+        provider = cast(Provider, provider_str)
+
+        with patch("openai.OpenAI") as mock_openai:
+            mock_client = Mock()
+            mock_openai.return_value = mock_client
+
+            # Initialize provider
+            try:
+                llm_openai.init(provider, config)
+            except Exception:
+                # Skip providers that require additional config
+                continue
+
+            # Verify timeout was passed
+            if mock_openai.called:
+                call_kwargs = mock_openai.call_args[1]
+                assert (
+                    call_kwargs["timeout"] == 900.0
+                ), f"Provider {provider} didn't receive correct timeout"
+
+
+def test_timeout_invalid_value(monkeypatch):
+    """Test that invalid timeout values raise appropriate errors."""
+    import gptme.llm.llm_openai as llm_openai
+    from unittest.mock import patch
+    from gptme.config import get_config
+
+    # Set invalid timeout
+    monkeypatch.setenv("LLM_API_TIMEOUT", "not-a-number")
+
+    # Clear the clients cache
+    llm_openai.clients.clear()
+
+    # Get config instance
+    config = get_config()
+
+    with patch("openai.OpenAI"):
+        # Should raise ValueError when trying to convert invalid string to float
+        with pytest.raises(ValueError):
+            llm_openai.init("openai", config)

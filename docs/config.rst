@@ -119,7 +119,7 @@ Besides the configuration files, gptme supports several environment variables to
 
 .. rubric:: API Configuration
 
-- ``LLM_API_TIMEOUT`` - Set the timeout in seconds for LLM API requests (default: 600). Useful for local LLMs that may take longer to respond.
+- ``LLM_API_TIMEOUT`` - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., "600", "1800"). Useful for local LLMs that may take longer to respond.
 
 .. rubric:: Tool Configuration
 
