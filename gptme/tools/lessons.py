@@ -81,7 +81,10 @@ def _extract_recent_tools(log: list[Message], limit: int = 10) -> list[str]:
             # Extract tool names from ToolUse/ToolResult patterns
             for block in msg.get_codeblocks():
                 if block.lang and block.lang not in ("text", "markdown"):
-                    tools.append(block.lang)
+                    # Extract just the tool name (first word) from lang
+                    # e.g., "patch file.py" -> "patch"
+                    tool_name = block.lang.split()[0]
+                    tools.append(tool_name)
 
     # Return unique tools, preserving order
     seen = set()
