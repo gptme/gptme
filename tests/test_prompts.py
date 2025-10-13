@@ -23,8 +23,8 @@ def test_get_prompt_short():
     # Combine all message contents for token counting
     combined_content = "\n\n".join(msg.content for msg in prompt_msgs)
     # TODO: make the short prompt shorter
-    # Increased to 3300 to accommodate MCP tool documentation
-    assert 500 < len_tokens(combined_content, "gpt-4") < 3300
+    # Increased to 4700 to accommodate MCP tool documentation
+    assert 500 < len_tokens(combined_content, "gpt-4") < 4700
 
 
 def test_get_prompt_custom():
