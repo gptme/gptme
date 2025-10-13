@@ -151,27 +151,33 @@ def client():
 
 
 @pytest.fixture(scope="function")
-def setup_conversation(server_thread, tmp_path):
+def setup_conversation(server_thread):
     """Create a conversation and return its ID, session ID, and port."""
+    import tempfile
+
     port = server_thread
     conversation_id = f"test-tools-{int(time.time())}-{random.randint(1000, 9999)}"
 
-    # Create conversation with custom system prompt
-    resp = requests.put(
-        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
-        json={
-            "prompt": "You are an AI assistant for testing.",
-            "config": {
-                "chat": {
-                    "workspace": str(tmp_path),
-                }
+    # Create temporary workspace directory
+    # Use tempfile instead of tmp_path to avoid pytest-retry KeyError
+    # See: https://github.com/str0zzapreti/pytest-retry/issues/46
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create conversation with custom system prompt
+        resp = requests.put(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+            json={
+                "prompt": "You are an AI assistant for testing.",
+                "config": {
+                    "chat": {
+                        "workspace": tmpdir,
+                    }
+                },
             },
-        },
-    )
-    assert resp.status_code == 200
-    session_id = resp.json()["session_id"]
+        )
+        assert resp.status_code == 200
+        session_id = resp.json()["session_id"]
 
-    yield port, conversation_id, session_id
+        yield port, conversation_id, session_id
 
 
 @pytest.fixture(scope="function")
