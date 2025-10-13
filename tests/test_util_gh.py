@@ -117,6 +117,14 @@ def test_gh_tool_read_pr():
     assert results[0].role == "system"
 
     content = results[0].content
+
+    # Skip if gh CLI is not authenticated (common in CI)
+    if (
+        "Failed to fetch PR content" in content
+        or "Make sure 'gh' CLI is installed" in content
+    ):
+        pytest.skip("gh CLI not authenticated")
+
     assert "feat: implement basic lesson system" in content
     assert "Review Comments (Unresolved)" in content
     assert "TimeToBuildBob" in content
