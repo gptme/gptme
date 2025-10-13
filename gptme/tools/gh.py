@@ -13,21 +13,18 @@ def has_gh_tool() -> bool:
     return shutil.which("gh") is not None
 
 
-def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None, None]:
-    """Wait for all GitHub Actions checks to complete on a PR."""
-    import logging
+def _get_pr_check_runs(
+    owner: str, repo: str, pr_number: int
+) -> tuple[str | None, list | None, str | None]:
+    """Get check runs for a PR.
 
-    logger = logging.getLogger(__name__)
-
-    # Get PR details to extract HEAD commit SHA
-    pr_number = parse_github_url(url)
-    if not pr_number:
-        yield Message("system", "Error: Could not parse PR number from URL")
-        return
-
+    Returns:
+        Tuple of (head_sha, check_runs, error_message)
+    """
     try:
+        # Get PR details to extract HEAD commit SHA
         pr_details_result = subprocess.run(
-            ["gh", "api", f"/repos/{owner}/{repo}/pulls/{pr_number['number']}"],
+            ["gh", "api", f"/repos/{owner}/{repo}/pulls/{pr_number}"],
             capture_output=True,
             text=True,
             check=True,
@@ -36,142 +33,170 @@ def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None
         head_sha = pr_details.get("head", {}).get("sha")
 
         if not head_sha:
-            yield Message("system", "Error: Could not get HEAD commit SHA")
-            return
+            return None, None, "Could not get HEAD commit SHA"
 
-        yield Message("system", f"Waiting for checks on commit {head_sha[:7]}...\n")
+        # Get check runs for the commit
+        check_runs_result = subprocess.run(
+            ["gh", "api", f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
 
-        logger.info(f"Polling PR #{pr_number} checks (commit {head_sha[:7]})...")
+        check_runs_data = json.loads(check_runs_result.stdout)
+        check_runs = check_runs_data.get("check_runs", [])
 
-        previous_status = None
-        poll_interval = 10  # seconds
-
-        while True:
-            # Get check runs for the commit
-            check_runs_result = subprocess.run(
-                ["gh", "api", f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            if check_runs_result.returncode != 0:
-                yield Message("system", "Error: Could not fetch check runs")
-                return
-
-            check_runs_data = json.loads(check_runs_result.stdout)
-            check_runs = check_runs_data.get("check_runs", [])
-
-            if not check_runs:
-                yield Message("system", "No checks found for this PR")
-                return
-
-            # Group by status and conclusion, track failed runs
-            status_counts = {
-                "success": 0,
-                "failure": 0,
-                "cancelled": 0,
-                "skipped": 0,
-                "in_progress": 0,
-                "queued": 0,
-                "pending": 0,
-            }
-
-            failed_runs = []
-
-            for run in check_runs:
-                status = run.get("status", "unknown")
-                conclusion = run.get("conclusion")
-
-                if status == "completed":
-                    # Map conclusion to known states, default to success for unmapped
-                    state = conclusion if conclusion in status_counts else "success"
-
-                    # Track failed runs with their IDs
-                    if state == "failure":
-                        run_id = run.get("id")
-                        run_name = run.get("name", "Unknown")
-                        html_url = run.get("html_url", "")
-                        # Extract run ID from URL if available
-                        if html_url and "/runs/" in html_url:
-                            actual_run_id = html_url.split("/runs/")[-1].split("/")[0]
-                            failed_runs.append((run_name, actual_run_id))
-                else:
-                    state = status
-
-                if state in status_counts:
-                    status_counts[state] += 1
-
-            # Create status summary
-            current_status = {
-                "total": len(check_runs),
-                "in_progress": status_counts["in_progress"]
-                + status_counts["queued"]
-                + status_counts["pending"],
-                "success": status_counts["success"],
-                "failure": status_counts["failure"],
-                "cancelled": status_counts["cancelled"],
-                "skipped": status_counts["skipped"],
-            }
-
-            # Show update if status changed
-            if current_status != previous_status:
-                status_parts = []
-                if current_status["success"] > 0:
-                    status_parts.append(f"✅ {current_status['success']} passed")
-                if current_status["failure"] > 0:
-                    status_parts.append(f"❌ {current_status['failure']} failed")
-                if current_status["cancelled"] > 0:
-                    status_parts.append(f"🚫 {current_status['cancelled']} cancelled")
-                if current_status["skipped"] > 0:
-                    status_parts.append(f"⏭️ {current_status['skipped']} skipped")
-                if current_status["in_progress"] > 0:
-                    status_parts.append(
-                        f"🔄 {current_status['in_progress']} in progress"
-                    )
-
-                yield Message(
-                    "system",
-                    f"[{time.strftime('%H:%M:%S')}] {', '.join(status_parts)}\n",
-                )
-                previous_status = current_status
-
-            # Check if all checks are done
-            if current_status["in_progress"] == 0:
-                # All checks complete
-                if current_status["failure"] > 0:
-                    failure_msg = f"\n❌ Checks failed: {current_status['failure']} failed, {current_status['success']} passed\n"
-
-                    if failed_runs:
-                        failure_msg += "\nFailed runs:\n"
-                        for name, run_id in failed_runs:
-                            failure_msg += f"  - {name} (run {run_id})\n"
-                        failure_msg += (
-                            "\nView logs with: gh run view <run_id> --log-failed\n"
-                        )
-
-                    yield Message("system", failure_msg)
-                elif current_status["cancelled"] > 0:
-                    yield Message(
-                        "system",
-                        f"\n🚫 Checks cancelled: {current_status['cancelled']} cancelled, {current_status['success']} passed\n",
-                    )
-                else:
-                    yield Message(
-                        "system",
-                        f"\n✅ All checks passed! ({current_status['success']} checks)\n",
-                    )
-                return
-
-            # Wait before next poll
-            time.sleep(poll_interval)
+        return head_sha, check_runs, None
 
     except subprocess.CalledProcessError as e:
-        logger.warning(f"Failed to wait for checks: {e}")
-        yield Message("system", f"Error: Failed to fetch check status: {e}")
+        return None, None, f"Failed to fetch check status: {e}"
     except (json.JSONDecodeError, KeyError) as e:
-        logger.warning(f"Failed to parse check data: {e}")
-        yield Message("system", f"Error: Failed to parse check data: {e}")
+        return None, None, f"Failed to parse check data: {e}"
+
+
+def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None, None]:
+    """Wait for all GitHub Actions checks to complete on a PR."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Get PR details to extract HEAD commit SHA
+    pr_info = parse_github_url(url)
+    if not pr_info:
+        yield Message("system", "Error: Could not parse PR number from URL")
+        return
+
+    pr_number = int(pr_info["number"])
+
+    head_sha, check_runs_initial, error = _get_pr_check_runs(owner, repo, pr_number)
+    if error:
+        yield Message("system", f"Error: {error}")
+        return
+
+    if not check_runs_initial:
+        yield Message("system", "No checks found for this PR")
+        return
+
+    assert head_sha is not None  # Ensured by earlier error check
+    yield Message("system", f"Waiting for checks on commit {head_sha[:7]}...\n")
+
+    logger.info(f"Polling PR #{pr_number} checks (commit {head_sha[:7]})...")
+
+    previous_status = None
+    poll_interval = 10  # seconds
+
+    while True:
+        # Get check runs using helper
+        _, check_runs, error = _get_pr_check_runs(owner, repo, pr_number)
+
+        if error:
+            yield Message("system", f"Error: {error}")
+            return
+
+        if not check_runs:
+            yield Message("system", "No checks found for this PR")
+            return
+
+        # Group by status and conclusion, track failed runs
+        status_counts = {
+            "success": 0,
+            "failure": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "in_progress": 0,
+            "queued": 0,
+            "pending": 0,
+        }
+
+        failed_runs = []
+
+        for run in check_runs:
+            status = run.get("status", "unknown")
+            conclusion = run.get("conclusion")
+
+            if status == "completed":
+                # Map conclusion to known states, default to success for unmapped
+                state = conclusion if conclusion in status_counts else "success"
+
+                # Track failed runs with their IDs
+                if state == "failure":
+                    run_id = run.get("id")
+                    run_name = run.get("name", "Unknown")
+                    html_url = run.get("html_url", "")
+                    # Extract run ID from URL if available, fallback to id field
+                    if html_url and "/runs/" in html_url:
+                        actual_run_id = html_url.split("/runs/")[-1].split("/")[0]
+                        failed_runs.append((run_name, actual_run_id))
+                    elif run_id:
+                        # Fallback to using the id field
+                        failed_runs.append((run_name, str(run_id)))
+            else:
+                state = status
+
+            if state in status_counts:
+                status_counts[state] += 1
+
+        # Create status summary
+        current_status = {
+            "total": len(check_runs),
+            "in_progress": status_counts["in_progress"]
+            + status_counts["queued"]
+            + status_counts["pending"],
+            "success": status_counts["success"],
+            "failure": status_counts["failure"],
+            "cancelled": status_counts["cancelled"],
+            "skipped": status_counts["skipped"],
+        }
+
+        # Show update if status changed
+        if current_status != previous_status:
+            status_parts = []
+            if current_status["success"] > 0:
+                status_parts.append(f"✅ {current_status['success']} passed")
+            if current_status["failure"] > 0:
+                status_parts.append(f"❌ {current_status['failure']} failed")
+            if current_status["cancelled"] > 0:
+                status_parts.append(f"🚫 {current_status['cancelled']} cancelled")
+            if current_status["skipped"] > 0:
+                status_parts.append(f"⏭️ {current_status['skipped']} skipped")
+            if current_status["in_progress"] > 0:
+                status_parts.append(f"🔄 {current_status['in_progress']} in progress")
+
+            yield Message(
+                "system",
+                f"[{time.strftime('%H:%M:%S')}] {', '.join(status_parts)}\n",
+            )
+            previous_status = current_status
+
+        # Check if all checks are done
+        if current_status["in_progress"] == 0:
+            # All checks complete
+            if current_status["failure"] > 0:
+                failure_msg = f"\n❌ Checks failed: {current_status['failure']} failed, {current_status['success']} passed\n"
+
+                if failed_runs:
+                    failure_msg += "\nFailed runs:\n"
+                    for name, run_id in failed_runs:
+                        failure_msg += f"  - {name} (run {run_id})\n"
+                    failure_msg += (
+                        "\nView logs with: gh run view <run_id> --log-failed\n"
+                    )
+
+                yield Message("system", failure_msg)
+            elif current_status["cancelled"] > 0:
+                yield Message(
+                    "system",
+                    f"\n🚫 Checks cancelled: {current_status['cancelled']} cancelled, {current_status['success']} passed\n",
+                )
+            else:
+                yield Message(
+                    "system",
+                    f"\n✅ All checks passed! ({current_status['success']} checks)\n",
+                )
+            return
+
+        # Wait before next poll
+        time.sleep(poll_interval)
 
 
 def execute_gh(
@@ -200,39 +225,20 @@ def execute_gh(
             return
 
         # Get PR details and check status once
+        pr_number = int(github_info["number"])
+        owner = github_info["owner"]
+        repo = github_info["repo"]
+
+        head_sha, check_runs, error = _get_pr_check_runs(owner, repo, pr_number)
+        if error:
+            yield Message("system", f"Error: {error}")
+            return
+
+        if not check_runs:
+            yield Message("system", "No checks found for this PR")
+            return
+
         try:
-            pr_number = github_info["number"]
-            owner = github_info["owner"]
-            repo = github_info["repo"]
-
-            pr_details_result = subprocess.run(
-                ["gh", "api", f"/repos/{owner}/{repo}/pulls/{pr_number}"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            pr_details = json.loads(pr_details_result.stdout)
-            head_sha = pr_details.get("head", {}).get("sha")
-
-            if not head_sha:
-                yield Message("system", "Error: Could not get HEAD commit SHA")
-                return
-
-            # Get check runs
-            check_runs_result = subprocess.run(
-                ["gh", "api", f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-
-            check_runs_data = json.loads(check_runs_result.stdout)
-            check_runs = check_runs_data.get("check_runs", [])
-
-            if not check_runs:
-                yield Message("system", "No checks found for this PR")
-                return
-
             # Categorize checks
             status_counts = {
                 "success": 0,
@@ -276,6 +282,7 @@ def execute_gh(
                 + status_counts["pending"]
             )
 
+            assert head_sha is not None  # Ensured by earlier error check
             output = f"PR #{pr_number} checks ({head_sha[:7]}):\n"
             output += f"Total: {total} checks\n"
 
@@ -304,8 +311,6 @@ def execute_gh(
 
             yield Message("system", output)
 
-        except subprocess.CalledProcessError as e:
-            yield Message("system", f"Error: Failed to fetch check status: {e}")
         except (json.JSONDecodeError, KeyError) as e:
             yield Message("system", f"Error: Failed to parse check data: {e}")
 
