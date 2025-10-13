@@ -323,15 +323,21 @@ def get_github_pr_content(url: str) -> str | None:
                         user = comment.get("user", {}).get("login", "unknown")
                         body = comment.get("body", "")
                         path = comment.get("path", "")
-                        line = comment.get("line", "")
-                        start_line = comment.get("start_line")
+                        # Get line numbers (prefer current, fallback to original)
+                        line = comment.get("line") or comment.get("original_line")
+                        start_line = comment.get("start_line") or comment.get(
+                            "original_start_line"
+                        )
                         diff_hunk = comment.get("diff_hunk", "")
 
                         # Format line reference (handle multi-line comments)
-                        if start_line and start_line != line:
+                        if line and start_line and start_line != line:
                             line_ref = f"{path}:{start_line}-{line}"
-                        else:
+                        elif line:
                             line_ref = f"{path}:{line}"
+                        else:
+                            # No line information available (e.g., file-level comment)
+                            line_ref = path
 
                         content += f"\n**@{user}** on {line_ref}:\n{body}\n"
 
