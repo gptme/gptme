@@ -1,63 +1,91 @@
 ---
 match:
-  keywords: [python, code, script, function, class]
+  keywords: [python, dependencies, packages, import error]
   tools: [ipython]
 ---
 
-# Python Development with IPython
+# Python in gptme: Dependencies and Environment
 
-Execute Python code interactively using the `ipython` tool.
+Practical guidance for working with Python in gptme.
+
+## The Key Issue: ipython runs in gptme's environment
+
+The `ipython` tool runs in gptme's Python environment, which means:
+- ❌ **Don't** try to `pip install` packages inside ipython
+- ❌ **Don't** use `pipx inject` to add packages to gptme
+- ✅ **Do** use standalone scripts with uv for custom dependencies
+
+## Solution: Use uv Script Dependencies
+
+For scripts needing external packages, use **uv with inline dependencies** (PEP 723):
+
+### Create a self-contained script:
+
+```python
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#   "requests",
+#   "rich",
+# ]
+# ///
+
+import requests
+from rich import print
+
+response = requests.get('https://api.github.com')
+print(response.json())
+```
+
+### Run with uv:
+
+```shell
+uv run script.py
+```
+
+uv automatically:
+- Creates an isolated environment
+- Installs dependencies
+- Runs your script
+- Caches everything for fast reruns
+
+### Add dependencies to existing script:
+
+```shell
+uv add --script script.py 'requests<3' 'rich'
+```
+
+## When to Use ipython vs Scripts
+
+### Use ipython for:
+- Quick calculations and data exploration
+- Testing code snippets
+- Using built-in libraries (numpy, pandas, matplotlib, PIL, scipy)
+- Interactive development
+
+### Use shell + save for:
+- Scripts with external dependencies (use uv script deps)
+- Standalone programs
+- Complex multi-file projects
+- When you need specific package versions
+
+## Common Issues
+
+### Import Error for Package
+**Problem**: `ModuleNotFoundError` in ipython
+**Solution**: Create a script with uv deps instead
+
+### Poetry/Dependency Conflicts
+**Problem**: Version conflicts in project
+**Solution**: Use uv for script isolation, avoid modifying gptme env
+
+### Package Won't Install
+**Problem**: Can't add package to ipython
+**Solution**: Use uv script with inline dependencies
 
 ## Best Practices
 
-1. **Return values**: Last expression in a code block is automatically returned
-2. **Use functions**: Break complex logic into reusable functions
-3. **Import at top**: Keep imports organized at the start
-4. **Test incrementally**: Run small pieces of code to verify behavior
-
-## Common Patterns
-
-### Data Analysis
-```python
-import pandas as pd
-import numpy as np
-
-# Read and explore data
-df = pd.read_csv('data.csv')
-df.head()
-```
-
-### File Operations
-```python
-from pathlib import Path
-
-# Read file
-content = Path('README.md').read_text()
-
-# Write file
-Path('output.txt').write_text(content)
-```
-
-### Working with APIs
-```python
-import requests
-
-response = requests.get('https://api.example.com/data')
-data = response.json()
-```
-
-## Available Libraries
-
-The following libraries are pre-imported and available:
-- `matplotlib` - Plotting and visualization
-- `numpy` - Numerical computing
-- `pandas` - Data analysis
-- `PIL` - Image processing
-- `scipy` - Scientific computing
-
-## Debugging Tips
-
-- Use `print()` for quick debugging
-- Check types with `type(obj)`
-- Inspect objects with `dir(obj)` or `help(obj)`
-- Use `assert` statements to verify assumptions
+1. **Default to ipython** for simple tasks with built-in libraries
+2. **Use uv scripts** when you need external packages
+3. **Keep scripts self-contained** with inline dependency declarations
+4. **Don't modify gptme's environment** - use isolation instead
