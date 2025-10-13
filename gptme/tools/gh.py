@@ -80,7 +80,8 @@ def _wait_for_checks(owner: str, repo: str, url: str) -> Generator[Message, None
                 conclusion = run.get("conclusion")
 
                 if status == "completed":
-                    state = conclusion or "completed"
+                    # Map conclusion to known states, default to success for unmapped
+                    state = conclusion if conclusion in status_counts else "success"
                 else:
                     state = status
 

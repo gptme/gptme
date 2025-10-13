@@ -331,7 +331,9 @@ def get_github_pr_content(url: str) -> str | None:
                         # Add code context if available
                         if diff_hunk:
                             content += f"\nReferenced code in {path}:{line}:\n"
-                            content += "Context:\n```" + path.split(".")[-1] + "\n"
+                            # Get language from file extension, default to text for files without extension
+                            lang = path.split(".")[-1] if "." in path else "text"
+                            content += f"Context:\n```{lang}\n"
                             # Format diff_hunk to show code context (remove diff markers)
                             context_lines = []
                             for line_text in diff_hunk.split("\n"):
