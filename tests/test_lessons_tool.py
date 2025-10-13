@@ -216,8 +216,8 @@ class TestAutoIncludeLessonsHook:
     def test_hook_handles_exception(self, conversation_log, mock_config):
         """Test hook handles exceptions gracefully."""
         with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons.LessonIndex") as mock_index_class:
-                mock_index_class.side_effect = Exception("Test error")
+            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
+                mock_get_index.side_effect = Exception("Test error")
 
                 # Should not raise, should log warning
                 messages = list(auto_include_lessons_hook(conversation_log))
