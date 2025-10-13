@@ -37,6 +37,63 @@ def _get_lesson_index() -> LessonIndex:
     return _thread_local.index
 
 
+def _get_included_lessons_from_log(log: list[Message]) -> set[str]:
+    """Extract lesson paths that have already been included in the conversation.
+
+    Args:
+        log: Conversation log
+
+    Returns:
+        Set of lesson paths (as strings) that have been included
+    """
+    included = set()
+
+    for msg in log:
+        if msg.role == "system" and "# Relevant Lessons" in msg.content:
+            # Extract lesson paths from formatted lessons
+            # Format: *Path: /some/path/lesson.md*
+            lines = msg.content.split("\n")
+            for line in lines:
+                if line.startswith("*Path: ") and line.endswith("*"):
+                    # Extract path between "*Path: " and final "*"
+                    path_str = line[7:-1]  # Remove "*Path: " prefix and "*" suffix
+                    included.add(path_str)
+
+    return included
+
+
+def _extract_recent_tools(log: list[Message], limit: int = 10) -> list[str]:
+    """Extract tools used in recent messages.
+
+    Args:
+        log: Conversation log
+        limit: Number of recent messages to check
+
+    Returns:
+        List of unique tool names used
+    """
+    tools = []
+
+    # Check recent messages for tool use
+    for msg in reversed(log[-limit:]):
+        # Check for tool use in assistant messages
+        if msg.role == "assistant":
+            # Extract tool names from ToolUse/ToolResult patterns
+            for block in msg.get_codeblocks():
+                if block.lang and block.lang not in ("text", "markdown"):
+                    tools.append(block.lang)
+
+    # Return unique tools, preserving order
+    seen = set()
+    unique_tools = []
+    for tool in tools:
+        if tool not in seen:
+            seen.add(tool)
+            unique_tools.append(tool)
+
+    return unique_tools
+
+
 def auto_include_lessons_hook(
     log: list[Message],
     **kwargs,
@@ -68,8 +125,11 @@ def auto_include_lessons_hook(
         logger.debug("No user message found, skipping lesson inclusion")
         return
 
-    # Build match context
-    context = MatchContext(message=user_msg.content)
+    # Extract recent tool usage
+    recent_tools = _extract_recent_tools(log)
+
+    # Build match context with tools
+    context = MatchContext(message=user_msg.content, tools_used=recent_tools)
 
     # Find matching lessons
     try:
@@ -85,11 +145,19 @@ def auto_include_lessons_hook(
             logger.debug("No matching lessons found")
             return
 
+        # Filter out already-included lessons by checking history
+        included_paths = _get_included_lessons_from_log(log)
+        new_matches = [m for m in matches if str(m.lesson.path) not in included_paths]
+
+        if not new_matches:
+            logger.debug("All matching lessons already included")
+            return
+
         # Limit to top N
-        matches = matches[:max_lessons]
+        new_matches = new_matches[:max_lessons]
 
         # Format lessons for inclusion
-        lesson_content = _format_lessons(matches)
+        lesson_content = _format_lessons(new_matches)
 
         # Yield system message with lessons
         yield Message(
@@ -115,6 +183,7 @@ def _format_lessons(matches: list) -> str:
 
         # Add lesson with context
         parts.append(f"## {lesson.title}\n")
+        parts.append(f"*Path: {lesson.path}*\n")
         parts.append(f"*Category: {lesson.category}*\n")
         parts.append(f"*Matched by: {', '.join(match.matched_by)}*\n\n")
         parts.append(lesson.body)

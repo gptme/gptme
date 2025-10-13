@@ -55,7 +55,14 @@ class LessonMatcher:
                     score += 1.0
                     matched_by.append(f"keyword:{keyword}")
 
-            # Future: Tool matching, glob matching, semantic matching
+            # Tool matching
+            if context.tools_used and lesson.metadata.tools:
+                for tool in lesson.metadata.tools:
+                    if tool in context.tools_used:
+                        score += 2.0  # Higher weight for tool matches
+                        matched_by.append(f"tool:{tool}")
+
+            # Future: glob matching, semantic matching
 
             if score > threshold:
                 results.append(

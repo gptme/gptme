@@ -17,10 +17,10 @@ class LessonMetadata:
     """Metadata from lesson frontmatter."""
 
     keywords: list[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
     # Future extensions:
     # globs: list[str] = field(default_factory=list)
     # semantic: list[str] = field(default_factory=list)
-    # tools: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -104,7 +104,10 @@ def parse_lesson(path: Path) -> Lesson:
                 if frontmatter:
                     # Extract match section
                     match_data = frontmatter.get("match", {})
-                    metadata = LessonMetadata(keywords=match_data.get("keywords", []))
+                    metadata = LessonMetadata(
+                        keywords=match_data.get("keywords", []),
+                        tools=match_data.get("tools", []),
+                    )
             except yaml.YAMLError as e:
                 raise ValueError(f"Invalid YAML frontmatter in {path}: {e}") from e
 
