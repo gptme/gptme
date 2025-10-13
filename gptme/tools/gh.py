@@ -1,17 +1,68 @@
 import shutil
+from collections.abc import Generator
 
-from . import ToolSpec, ToolUse
+from ..message import Message
+from ..util.gh import get_github_pr_content, parse_github_url
+from . import ConfirmFunc, Parameter, ToolSpec, ToolUse
 
 
 def has_gh_tool() -> bool:
     return shutil.which("gh") is not None
 
 
-instructions = "Interact with GitHub via the GitHub CLI (gh). Use the `shell` tool with the `gh` command."
+def execute_gh(
+    code: str | None,
+    args: list[str] | None,
+    kwargs: dict[str, str] | None,
+    confirm: ConfirmFunc,
+) -> Generator[Message, None, None]:
+    """Execute GitHub operations."""
+    if args and args[0] == "read_pr":
+        # Get PR URL from args or kwargs
+        if len(args) > 1:
+            url = args[1]
+        elif kwargs:
+            url = kwargs.get("url", "")
+        else:
+            yield Message("system", "Error: No PR URL provided")
+            return
+
+        # Fetch PR content
+        content = get_github_pr_content(url)
+        if content:
+            yield Message("system", content)
+        else:
+            # Try to provide helpful error message
+            github_info = parse_github_url(url)
+            if not github_info:
+                yield Message(
+                    "system",
+                    f"Error: Invalid GitHub URL: {url}\n\nExpected format: https://github.com/owner/repo/pull/number",
+                )
+            else:
+                yield Message(
+                    "system",
+                    "Error: Failed to fetch PR content. Make sure 'gh' CLI is installed and authenticated.",
+                )
+    else:
+        yield Message("system", "Error: Unknown gh command. Available: read_pr")
+
+
+instructions = """Interact with GitHub via the GitHub CLI (gh).
+
+For reading PRs with full context (review comments, code context, suggestions), use:
+```gh read_pr <pr_url>
+```
+
+For other operations, use the `shell` tool with the `gh` command."""
 
 
 def examples(tool_format):
     return f"""
+> User: read PR with full context including review comments
+> Assistant:
+{ToolUse("gh", ["read_pr", "https://github.com/owner/repo/pull/123"], None).to_output(tool_format)}
+
 > User: create a public repo from the current directory, and push. Note that --confirm and -y are deprecated, and no longer needed.
 > Assistant:
 {ToolUse("shell", [], '''
@@ -41,11 +92,20 @@ gh repo create $REPO --public --source . --push
 """
 
 
-# Note: this isn't actually a tool, it only serves prompting purposes
 tool: ToolSpec = ToolSpec(
     name="gh",
     available=has_gh_tool(),
     desc="Interact with GitHub",
     instructions=instructions,
     examples=examples,
+    execute=execute_gh,
+    block_types=["gh"],
+    parameters=[
+        Parameter(
+            name="url",
+            type="str",
+            description="GitHub PR URL (e.g., https://github.com/owner/repo/pull/123)",
+            required=True,
+        ),
+    ],
 )

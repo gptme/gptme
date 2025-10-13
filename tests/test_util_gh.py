@@ -87,3 +87,64 @@ def test_get_github_pr_with_suggestions():
     if "```suggestion" in content or "Suggested change:" in content:
         # If suggestions are in the raw body, we should extract them
         assert "logger.exception" in content or "Suggested change:" in content
+
+
+@pytest.mark.slow
+def test_gh_tool_read_pr():
+    """Test the gh tool's read_pr functionality."""
+    from gptme.tools import get_tool, init_tools
+
+    # Initialize tools to ensure gh tool is loaded
+    init_tools(["gh"])
+
+    gh_tool = get_tool("gh")
+    if gh_tool is None or gh_tool.execute is None:
+        pytest.skip("gh tool not available")
+
+    # Test with a real PR
+    result = gh_tool.execute(
+        None,
+        ["read_pr", "https://github.com/gptme/gptme/pull/687"],
+        None,
+        lambda x: True,  # confirm function
+    )
+    # Handle both Generator and Message return types
+    from collections.abc import Generator as GenType
+
+    results = list(result) if isinstance(result, GenType) else [result]
+
+    assert len(results) == 1
+    assert results[0].role == "system"
+
+    content = results[0].content
+    assert "feat: implement basic lesson system" in content
+    assert "Review Comments (Unresolved)" in content
+    assert "TimeToBuildBob" in content
+
+
+@pytest.mark.slow
+def test_gh_tool_read_pr_invalid_url():
+    """Test the gh tool with an invalid URL."""
+    from gptme.tools import get_tool, init_tools
+
+    init_tools(["gh"])
+
+    gh_tool = get_tool("gh")
+    if gh_tool is None or gh_tool.execute is None:
+        pytest.skip("gh tool not available")
+
+    # Test with invalid URL
+    result = gh_tool.execute(
+        None,
+        ["read_pr", "https://invalid-url.com"],
+        None,
+        lambda x: True,
+    )
+    from collections.abc import Generator as GenType
+
+    results = list(result) if isinstance(result, GenType) else [result]
+
+    assert len(results) == 1
+    assert results[0].role == "system"
+    assert "Error" in results[0].content
+    assert "Invalid GitHub URL" in results[0].content
