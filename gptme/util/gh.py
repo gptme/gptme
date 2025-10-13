@@ -324,13 +324,20 @@ def get_github_pr_content(url: str) -> str | None:
                         body = comment.get("body", "")
                         path = comment.get("path", "")
                         line = comment.get("line", "")
+                        start_line = comment.get("start_line")
                         diff_hunk = comment.get("diff_hunk", "")
 
-                        content += f"\n**@{user}** on {path}:{line}:\n{body}\n"
+                        # Format line reference (handle multi-line comments)
+                        if start_line and start_line != line:
+                            line_ref = f"{path}:{start_line}-{line}"
+                        else:
+                            line_ref = f"{path}:{line}"
+
+                        content += f"\n**@{user}** on {line_ref}:\n{body}\n"
 
                         # Add code context if available
                         if diff_hunk:
-                            content += f"\nReferenced code in {path}:{line}:\n"
+                            content += f"\nReferenced code in {line_ref}:\n"
                             # Get language from file extension, default to text for files without extension
                             lang = path.split(".")[-1] if "." in path else "text"
                             content += f"Context:\n```{lang}\n"
