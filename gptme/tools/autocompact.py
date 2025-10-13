@@ -31,7 +31,7 @@ def auto_compact_log(
 
     Args:
         log: List of messages to compact
-        limit: Token limit (defaults to 90% of model context)
+        limit: Token limit (defaults to 80% of model context)
         max_tool_result_tokens: Maximum tokens allowed in a tool result before removal
     """
     from ..llm.models import get_default_model, get_model
@@ -39,11 +39,11 @@ def auto_compact_log(
     # get the token limit
     model = get_default_model() or get_model("gpt-4")
     if limit is None:
-        limit = int(0.9 * model.context)
+        limit = int(0.8 * model.context)
 
     # if we are below the limit AND don't need compacting, return the log as-is
     tokens = len_tokens(log, model=model.model)
-    close_to_limit = tokens >= int(0.8 * model.context)
+    close_to_limit = tokens >= int(0.7 * model.context)
 
     # Only return early if we're not close to limit and don't have massive tool results
     if tokens <= limit and not close_to_limit:
@@ -195,8 +195,8 @@ def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
 
 def _compact_auto(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     """Auto-compact using the aggressive compacting algorithm."""
-    from ..logmanager import Log
     from ..llm.models import get_default_model
+    from ..logmanager import Log
 
     if not should_auto_compact(msgs):
         yield Message(
@@ -230,9 +230,9 @@ def _compact_auto(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
 
 def _compact_resume(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     """LLM-powered compact that creates RESUME.md, suggests files to include, and starts a new conversation with the context."""
-    from ..logmanager import Log, prepare_messages
-    from ..llm.models import get_default_model
     from .. import llm
+    from ..llm.models import get_default_model
+    from ..logmanager import Log, prepare_messages
 
     # Prepare messages for summarization
     prepared_msgs = prepare_messages(msgs)
@@ -309,11 +309,11 @@ def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
     3. Persists the compacted log
     """
 
+    import time
+
     from ..llm.models import get_default_model
     from ..logmanager import Log
     from ..message import len_tokens
-
-    import time
 
     global _last_autocompact_time
 
@@ -385,9 +385,10 @@ def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
         return
 
 
+from ..hooks import HookType
+
 # Tool specification
 from .base import ToolSpec
-from ..hooks import HookType
 
 tool = ToolSpec(
     name="autocompact",
