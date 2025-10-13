@@ -278,7 +278,7 @@ tool: ToolSpec = ToolSpec(
     parameters=[
         Parameter(
             name="url",
-            type="str",
+            type="string",
             description="GitHub PR URL (e.g., https://github.com/owner/repo/pull/123)",
             required=True,
         ),
