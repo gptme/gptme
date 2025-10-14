@@ -191,7 +191,10 @@ def mcp_search(query: str, registry: str, limit: int):
     """Search for MCP servers in registries."""
     from ..mcp.registry import MCPRegistry, format_server_list
 
-    click.echo(f"🔍 Searching {registry} registry for '{query}'...")
+    if registry == "all":
+        click.echo(f"🔍 Searching all registries for '{query}'...")
+    else:
+        click.echo(f"🔍 Searching {registry} registry for '{query}'...")
     click.echo()
 
     reg = MCPRegistry()
