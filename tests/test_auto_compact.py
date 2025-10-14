@@ -155,37 +155,70 @@ def test_auto_compact_preserves_pinned_messages():
 
 def test_get_backup_name_no_suffix():
     """Test backup name generation for conversation without existing suffix."""
+    import re
+
     name = _get_backup_name("2025-10-13-flying-yellow-alien")
-    assert name == "2025-10-13-flying-yellow-alien-before-compact"
+    # Should match: base-name-before-compact-XXXX where XXXX is 4 hex chars
+    assert re.match(
+        r"^2025-10-13-flying-yellow-alien-before-compact-[0-9a-f]{4}$", name
+    )
 
 
 def test_get_backup_name_one_suffix():
-    """Test backup name generation when suffix already exists (shouldn't add another)."""
+    """Test backup name generation when suffix already exists (gets new unique suffix)."""
+    import re
+
     name = _get_backup_name("2025-10-13-flying-yellow-alien-before-compact")
-    assert name == "2025-10-13-flying-yellow-alien-before-compact"
+    # Should strip old suffix and add new one with random suffix
+    assert re.match(
+        r"^2025-10-13-flying-yellow-alien-before-compact-[0-9a-f]{4}$", name
+    )
 
 
 def test_get_backup_name_multiple_suffixes():
     """Test backup name generation with multiple accumulated suffixes (should strip all)."""
+    import re
+
     name = _get_backup_name(
         "2025-10-13-flying-yellow-alien-before-compact-before-compact-before-compact"
     )
-    assert name == "2025-10-13-flying-yellow-alien-before-compact"
+    assert re.match(
+        r"^2025-10-13-flying-yellow-alien-before-compact-[0-9a-f]{4}$", name
+    )
 
 
 def test_get_backup_name_edge_cases():
     """Test backup name generation with various edge cases."""
+    import re
+
     # Short name
-    assert _get_backup_name("conv") == "conv-before-compact"
+    name = _get_backup_name("conv")
+    assert re.match(r"^conv-before-compact-[0-9a-f]{4}$", name)
 
     # Name containing 'compact' but not as suffix
-    assert _get_backup_name("compact-test") == "compact-test-before-compact"
+    name = _get_backup_name("compact-test")
+    assert re.match(r"^compact-test-before-compact-[0-9a-f]{4}$", name)
 
     # Name ending with similar but different suffix
-    assert (
-        _get_backup_name("test-before-compaction")
-        == "test-before-compaction-before-compact"
-    )
+    name = _get_backup_name("test-before-compaction")
+    assert re.match(r"^test-before-compaction-before-compact-[0-9a-f]{4}$", name)
+
+
+def test_get_backup_name_uniqueness():
+    """Test that multiple calls produce unique backup names."""
+    name1 = _get_backup_name("my-conversation")
+    name2 = _get_backup_name("my-conversation")
+    name3 = _get_backup_name("my-conversation")
+
+    # All should have the same base but different random suffixes
+    assert name1 != name2
+    assert name2 != name3
+    assert name1 != name3
+
+    # All should start with the same base
+    assert name1.startswith("my-conversation-before-compact-")
+    assert name2.startswith("my-conversation-before-compact-")
+    assert name3.startswith("my-conversation-before-compact-")
 
 
 def test_get_backup_name_empty_string():

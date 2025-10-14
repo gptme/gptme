@@ -298,18 +298,21 @@ Format the response as a structured document that could serve as a RESUME.md fil
 
 def _get_backup_name(conversation_name: str) -> str:
     """
-    Get the backup conversation name, stripping any existing -before-compact suffixes.
+    Get a unique backup conversation name, stripping any existing -before-compact suffixes.
 
-    This ensures backup names don't grow indefinitely with repeated compactions:
-    - "my-conversation" -> "my-conversation-before-compact"
-    - "my-conversation-before-compact" -> "my-conversation-before-compact"
-    - "my-conversation-before-compact-before-compact" -> "my-conversation-before-compact"
+    This ensures:
+    - Backup names don't grow indefinitely with repeated compactions
+    - Each backup has a unique suffix to prevent folder collisions
+
+    Examples:
+    - "my-conversation" -> "my-conversation-before-compact-a7x9"
+    - "my-conversation-before-compact" -> "my-conversation-before-compact-k2p5"
 
     Args:
         conversation_name: The current conversation directory name
 
     Returns:
-        The backup name with exactly one -before-compact suffix
+        The backup name with exactly one -before-compact suffix and a unique random suffix
 
     Raises:
         ValueError: If conversation_name is empty
@@ -320,7 +323,12 @@ def _get_backup_name(conversation_name: str) -> str:
     base_name = conversation_name
     while base_name.endswith("-before-compact"):
         base_name = base_name.removesuffix("-before-compact")
-    return f"{base_name}-before-compact"
+
+    # Add unique suffix to prevent collisions
+    import secrets
+
+    random_suffix = secrets.token_hex(2)  # 4 hex chars
+    return f"{base_name}-before-compact-{random_suffix}"
 
 
 def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
