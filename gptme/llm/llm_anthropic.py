@@ -93,15 +93,24 @@ def _handle_anthropic_overloaded(e, attempt, max_retries, base_delay):
     """Handle Anthropic API overloaded errors with exponential backoff."""
     from anthropic import APIStatusError  # fmt: skip
 
-    if (
-        not isinstance(e, APIStatusError)
-        or e.status_code != 503
-        or attempt == max_retries - 1
-    ):
+    # Check if this is an overload error we should retry
+    is_overload = False
+    if isinstance(e, APIStatusError):
+        # Anthropic uses 529 for overload, some proxies use 503
+        if e.status_code in (503, 529):
+            is_overload = True
+        # Also check error message as fallback
+        elif hasattr(e, "message") and "overload" in str(e.message).lower():
+            is_overload = True
+
+    # Re-raise if not overload or max retries reached
+    if not is_overload or attempt == max_retries - 1:
         raise e
+
     delay = base_delay * (2**attempt)
     logger.warning(
-        f"Anthropic API overloaded, retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+        f"Anthropic API overloaded (status {getattr(e, 'status_code', 'unknown')}), "
+        f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
     )
     time.sleep(delay)
 
