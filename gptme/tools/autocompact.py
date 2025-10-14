@@ -310,7 +310,13 @@ def _get_backup_name(conversation_name: str) -> str:
 
     Returns:
         The backup name with exactly one -before-compact suffix
+
+    Raises:
+        ValueError: If conversation_name is empty
     """
+    if not conversation_name:
+        raise ValueError("conversation name cannot be empty")
+
     base_name = conversation_name
     while base_name.endswith("-before-compact"):
         base_name = base_name.removesuffix("-before-compact")

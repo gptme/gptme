@@ -188,6 +188,12 @@ def test_get_backup_name_edge_cases():
     )
 
 
+def test_get_backup_name_empty_string():
+    """Test backup name generation with empty string raises ValueError."""
+    with pytest.raises(ValueError, match="conversation name cannot be empty"):
+        _get_backup_name("")
+
+
 if __name__ == "__main__":
     # Allow running the test directly
     pytest.main([__file__])
