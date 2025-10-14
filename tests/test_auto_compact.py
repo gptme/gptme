@@ -221,6 +221,25 @@ def test_get_backup_name_uniqueness():
     assert name3.startswith("my-conversation-before-compact-")
 
 
+def test_get_backup_name_with_hex_suffix():
+    """Test that backup names with hex suffixes are correctly stripped.
+
+    This is a regression test for the bug where:
+    "my-conversation-before-compact-a7c9" would become
+    "my-conversation-before-compact-a7c9-before-compact-k2p5"
+    instead of
+    "my-conversation-before-compact-k2p5"
+    """
+    import re
+
+    # Test with a backup that has a valid hex suffix (only 0-9a-f)
+    name = _get_backup_name("my-conversation-before-compact-a7c9")
+    # Should strip the old suffix and add a new one
+    assert re.match(r"^my-conversation-before-compact-[0-9a-f]{4}$", name)
+    # Should NOT contain the old hex suffix
+    assert "a7c9" not in name
+
+
 def test_get_backup_name_empty_string():
     """Test backup name generation with empty string raises ValueError."""
     with pytest.raises(ValueError, match="conversation name cannot be empty"):

@@ -320,9 +320,24 @@ def _get_backup_name(conversation_name: str) -> str:
     if not conversation_name:
         raise ValueError("conversation name cannot be empty")
 
+    # Strip any existing backup suffixes: -before-compact or -before-compact-XXXX
+    # Repeatedly strip from the end until no more suffixes found
+    # This handles cases like:
+    # - "conv-before-compact" -> "conv"
+    # - "conv-before-compact-a7x9" -> "conv"
+    # - "conv-before-compact-before-compact-before-compact" -> "conv"
+    # But preserves names like "test-before-compaction" (not a backup suffix)
+    import re
+
     base_name = conversation_name
-    while base_name.endswith("-before-compact"):
-        base_name = base_name.removesuffix("-before-compact")
+    while True:
+        new_name = re.sub(r"-before-compact(-[0-9a-f]{4})?$", "", base_name)
+        if new_name == base_name:  # No more changes
+            break
+        base_name = new_name
+
+    if not base_name:  # Safety: if entire name was the suffix (shouldn't happen)
+        base_name = conversation_name
 
     # Add unique suffix to prevent collisions
     import secrets
