@@ -151,19 +151,20 @@ def client():
 
 
 @pytest.fixture(scope="function")
-def setup_conversation(server_thread, tmp_path):
+def setup_conversation(server_thread):
     """Create a conversation and return its ID, session ID, and port."""
     port = server_thread
     conversation_id = f"test-tools-{int(time.time())}-{random.randint(1000, 9999)}"
 
     # Create conversation with custom system prompt
+    # Use "@log" to create workspace in the conversation's log directory
     resp = requests.put(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={
             "prompt": "You are an AI assistant for testing.",
             "config": {
                 "chat": {
-                    "workspace": str(tmp_path),
+                    "workspace": "@log",
                 }
             },
         },

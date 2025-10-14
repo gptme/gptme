@@ -352,7 +352,16 @@ class ChatConfig:
 
         # Convert workspace to Path if present and resolve to absolute path
         if "workspace" in chat_data:
-            chat_data["workspace"] = Path(chat_data["workspace"]).expanduser().resolve()
+            workspace_value = chat_data["workspace"]
+            # Handle magic "@log" value like CLI does
+            if workspace_value == "@log":
+                if not _logdir:
+                    raise ValueError("Cannot use '@log' workspace without logdir")
+                chat_data["workspace"] = (_logdir / "workspace").resolve()
+                # Ensure the workspace directory exists
+                chat_data["workspace"].mkdir(parents=True, exist_ok=True)
+            else:
+                chat_data["workspace"] = Path(workspace_value).expanduser().resolve()
         # For old-style config, check if workspace is in the logdir
         elif _logdir and (_logdir / "workspace").exists():
             chat_data["workspace"] = (_logdir / "workspace").resolve()

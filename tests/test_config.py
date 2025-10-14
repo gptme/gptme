@@ -4,6 +4,7 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 import tomlkit
 from gptme.config import (
     ChatConfig,
@@ -454,6 +455,35 @@ def test_chat_config_loaded_from_json():
     assert my_server.command == "server-command"
     assert my_server.args == ["--arg1", "--arg2"]
     assert my_server.env == {"API_KEY": "your-key"}
+
+
+def test_chat_config_workspace_at_log(tmp_path):
+    """Test that workspace '@log' magic value resolves to logdir/workspace."""
+    logdir = tmp_path / "test-conversation"
+    logdir.mkdir()
+
+    config_dict = {
+        "chat": {"workspace": "@log"},
+        "_logdir": logdir,
+    }
+
+    config = ChatConfig.from_dict(config_dict)
+
+    # Should resolve to logdir/workspace
+    expected_workspace = logdir / "workspace"
+    assert config.workspace == expected_workspace
+
+    # Should create the directory
+    assert expected_workspace.exists()
+    assert expected_workspace.is_dir()
+
+
+def test_chat_config_workspace_at_log_without_logdir():
+    """Test that workspace '@log' raises error without logdir."""
+    config_dict = {"chat": {"workspace": "@log"}}
+
+    with pytest.raises(ValueError, match="Cannot use '@log' workspace without logdir"):
+        ChatConfig.from_dict(config_dict)
 
 
 def test_chat_config_to_dict():
