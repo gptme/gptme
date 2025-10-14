@@ -144,8 +144,8 @@ def chat(
             interactive,
             logdir,
         )
-    except SessionCompleteException:
-        console.log("Autonomous mode: Complete tool detected. Exiting cleanly.")
+    except SessionCompleteException as e:
+        console.log(f"Autonomous mode: {e}. Exiting.")
         _wait_for_tts_if_enabled()
 
         # Trigger session end hooks
