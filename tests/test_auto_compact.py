@@ -9,6 +9,7 @@ from gptme.llm.models import get_default_model, get_model
 from gptme.message import Message, len_tokens
 from gptme.tools.autocompact import (
     _create_tool_result_summary,
+    _get_backup_name,
     auto_compact_log,
     should_auto_compact,
 )
@@ -150,6 +151,41 @@ def test_auto_compact_preserves_pinned_messages():
     # Pinned message should be preserved unchanged
     assert compacted[2].content == messages[2].content
     assert compacted[2].pinned
+
+
+def test_get_backup_name_no_suffix():
+    """Test backup name generation for conversation without existing suffix."""
+    name = _get_backup_name("2025-10-13-flying-yellow-alien")
+    assert name == "2025-10-13-flying-yellow-alien-before-compact"
+
+
+def test_get_backup_name_one_suffix():
+    """Test backup name generation when suffix already exists (shouldn't add another)."""
+    name = _get_backup_name("2025-10-13-flying-yellow-alien-before-compact")
+    assert name == "2025-10-13-flying-yellow-alien-before-compact"
+
+
+def test_get_backup_name_multiple_suffixes():
+    """Test backup name generation with multiple accumulated suffixes (should strip all)."""
+    name = _get_backup_name(
+        "2025-10-13-flying-yellow-alien-before-compact-before-compact-before-compact"
+    )
+    assert name == "2025-10-13-flying-yellow-alien-before-compact"
+
+
+def test_get_backup_name_edge_cases():
+    """Test backup name generation with various edge cases."""
+    # Short name
+    assert _get_backup_name("conv") == "conv-before-compact"
+
+    # Name containing 'compact' but not as suffix
+    assert _get_backup_name("compact-test") == "compact-test-before-compact"
+
+    # Name ending with similar but different suffix
+    assert (
+        _get_backup_name("test-before-compaction")
+        == "test-before-compaction-before-compact"
+    )
 
 
 if __name__ == "__main__":

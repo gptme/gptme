@@ -296,6 +296,27 @@ Format the response as a structured document that could serve as a RESUME.md fil
         yield Message("system", f"❌ Failed to generate resume: {e}")
 
 
+def _get_backup_name(conversation_name: str) -> str:
+    """
+    Get the backup conversation name, stripping any existing -before-compact suffixes.
+
+    This ensures backup names don't grow indefinitely with repeated compactions:
+    - "my-conversation" -> "my-conversation-before-compact"
+    - "my-conversation-before-compact" -> "my-conversation-before-compact"
+    - "my-conversation-before-compact-before-compact" -> "my-conversation-before-compact"
+
+    Args:
+        conversation_name: The current conversation directory name
+
+    Returns:
+        The backup name with exactly one -before-compact suffix
+    """
+    base_name = conversation_name
+    while base_name.endswith("-before-compact"):
+        base_name = base_name.removesuffix("-before-compact")
+    return f"{base_name}-before-compact"
+
+
 def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
     """
     Hook that checks if auto-compacting is needed and applies it.
@@ -340,7 +361,7 @@ def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
     _last_autocompact_time = current_time
 
     # Fork conversation to preserve original state
-    fork_name = f"{manager.logfile.parent.name}-before-compact"
+    fork_name = _get_backup_name(manager.logfile.parent.name)
     try:
         manager.fork(fork_name)
         logger.info(f"Forked conversation to '{fork_name}' before compacting")
