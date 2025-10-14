@@ -96,10 +96,10 @@ class TestAutoIncludeLessonsHook:
     def test_hook_no_lessons_in_index(self, conversation_log, mock_config):
         """Test hook when no lessons exist."""
         with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons.LessonIndex") as mock_index_class:
+            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
                 mock_index = MagicMock()
                 mock_index.lessons = []
-                mock_index_class.return_value = mock_index
+                mock_get_index.return_value = mock_index
 
                 messages = list(auto_include_lessons_hook(conversation_log))
                 assert len(messages) == 0
@@ -109,11 +109,11 @@ class TestAutoIncludeLessonsHook:
     ):
         """Test hook when no lessons match."""
         with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons.LessonIndex") as mock_index_class:
+            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
                 with patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class:
                     mock_index = MagicMock()
                     mock_index.lessons = [sample_lesson]
-                    mock_index_class.return_value = mock_index
+                    mock_get_index.return_value = mock_index
 
                     mock_matcher = MagicMock()
                     mock_matcher.match.return_value = []
@@ -173,11 +173,11 @@ class TestAutoIncludeLessonsHook:
         mock_config.get_env.return_value = "3"  # Limit to 3
 
         with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons.LessonIndex") as mock_index_class:
+            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
                 with patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class:
                     mock_index = MagicMock()
                     mock_index.lessons = lessons
-                    mock_index_class.return_value = mock_index
+                    mock_get_index.return_value = mock_index
 
                     mock_matcher = MagicMock()
                     mock_matcher.match.return_value = matches
@@ -199,11 +199,11 @@ class TestAutoIncludeLessonsHook:
         mock_config.get_env.return_value = "invalid"
 
         with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons.LessonIndex") as mock_index_class:
+            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
                 with patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class:
                     mock_index = MagicMock()
                     mock_index.lessons = []
-                    mock_index_class.return_value = mock_index
+                    mock_get_index.return_value = mock_index
 
                     mock_matcher = MagicMock()
                     mock_matcher.match.return_value = []
