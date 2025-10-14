@@ -94,12 +94,22 @@ def auto_reply_hook(
     if tool_uses:
         return  # Has tools, no need to prompt
 
-    # Check if we already auto-replied
-    last_user_msg = next((m for m in reversed(log) if m.role == "user"), None)
-    if last_user_msg and "use the `complete` tool" in last_user_msg.content:
-        # Already auto-replied, assistant still no tools - signal exit
-        logger.info("Autonomous mode: No tools used after confirmation. Exiting.")
-        raise SessionCompleteException("No tools used after auto-reply confirmation")
+    # Count consecutive auto-replies
+    auto_reply_count = 0
+    for msg in reversed(log):
+        if msg.role == "user" and "use the `complete` tool" in msg.content:
+            auto_reply_count += 1
+        elif msg.role == "assistant":
+            # Stop counting when we hit an assistant message with tools
+            if list(ToolUse.iter_from_content(msg.content)):
+                break
+        else:
+            break
+
+    # Exit after 2 consecutive auto-replies without tools
+    if auto_reply_count >= 2:
+        logger.info("Autonomous mode: No tools used after 2 confirmations. Exiting.")
+        raise SessionCompleteException("No tools used after 2 auto-reply confirmations")
 
     # First time - inject auto-reply
     logger.info(
