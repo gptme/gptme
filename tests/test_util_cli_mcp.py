@@ -429,7 +429,7 @@ class TestMCPSearch:
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "search", "test"])
         assert result.exit_code == 0
-        assert "Searching all registry" in result.output
+        assert "Searching all registries" in result.output
         assert "Formatted results" in result.output
         mock_registry.search_all.assert_called_once_with("test", 10)
 
