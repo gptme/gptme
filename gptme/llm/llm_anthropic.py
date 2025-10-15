@@ -156,11 +156,11 @@ def init(config):
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
     api_key = proxy_key or config.get_env_required("ANTHROPIC_API_KEY")
 
-    # Get configurable API timeout (default: 300 seconds = 5 minutes)
-    # This should be shorter than the test framework timeout (8 minutes)
-    # to provide better error messages when API calls hang
+    # Get configurable API timeout (default: 420 seconds = 7 minutes)
+    # This allows complex tests like test_subagent (~5-6 min) to complete
+    # while still triggering before GitHub Actions timeout (8 min)
     timeout_str = config.get_env("LLM_API_TIMEOUT")
-    timeout = float(timeout_str) if timeout_str else 300.0
+    timeout = float(timeout_str) if timeout_str else 420.0
 
     from anthropic import Anthropic  # fmt: skip
 
