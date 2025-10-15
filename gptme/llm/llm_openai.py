@@ -74,9 +74,11 @@ def init(provider: Provider, config: Config):
     if proxy_url and not proxy_url.endswith("/messages"):
         proxy_url = proxy_url + "/messages" if proxy_url else None
 
-    # Get configurable API timeout (default: 600 seconds = 10 minutes)
+    # Get configurable API timeout (default: 300 seconds = 5 minutes)
+    # This should be shorter than the test framework timeout (8 minutes)
+    # to provide better error messages when API calls hang
     timeout_str = config.get_env("LLM_API_TIMEOUT")
-    timeout = float(timeout_str) if timeout_str else 600.0
+    timeout = float(timeout_str) if timeout_str else 300.0
 
     if provider == "openai":
         api_key = proxy_key or config.get_env_required("OPENAI_API_KEY")
