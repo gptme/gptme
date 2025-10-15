@@ -812,3 +812,114 @@ More `inline code`.
     blocks = list(_extract_codeblocks(markdown))
     assert len(blocks) == 1
     assert "x = `backtick`" in blocks[0].content
+
+
+@pytest.mark.xfail(
+    reason="Known limitation: bare backticks after headers cause premature tool closure - Issue #658"
+)
+def test_save_with_structure_header_and_bare_backticks():
+    """
+    Common failure from autonomous run logs: save/append with content containing
+    headers like "**Structure:**" followed by bare backticks, which causes parser
+    to think tool is closing prematurely.
+
+    This represents a real failure pattern observed in production. The save would
+    succeed if the inner block used a langtag like ```text instead of bare ```.
+    """
+    fence = "```"
+    markdown = f"""{fence}save file.txt
+This is a long file with multiple sections.
+
+Here's some initial content that works fine.
+
+**Structure:**
+{fence}
+More content that should be included but gets cut off.
+
+## Another Section
+Even more content here.
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    # Tool should include ALL content until the final closing fence
+    content = blocks[0].content
+    assert "This is a long file" in content
+    assert "Structure:" in content
+    assert "More content that should be included" in content
+    assert "Another Section" in content
+    assert "Even more content here" in content
+
+
+@pytest.mark.xfail(
+    reason="Known limitation: bare backticks after markdown headers cause premature tool closure - Issue #658"
+)
+def test_append_with_markdown_header_and_bare_backticks():
+    """
+    Another common failure from autonomous runs: append with markdown headers
+    (## Subtitle) followed by bare backticks, causing early tool termination.
+
+    The content after the bare backticks is lost because parser treats it as
+    the closing fence.
+    """
+    fence = "```"
+    markdown = f"""{fence}append journal.md
+# Journal Entry
+
+Some initial content here.
+
+## Subtitle
+{fence}
+This content after the bare backticks should be included but isn't.
+
+## Another Section
+More content that gets lost.
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    content = blocks[0].content
+    assert "Journal Entry" in content
+    assert "Subtitle" in content
+    assert "This content after the bare backticks" in content
+    assert "Another Section" in content
+    assert "More content that gets lost" in content
+
+
+@pytest.mark.xfail(
+    reason="Known limitation: header-like structures followed by bare backticks - Issue #658"
+)
+def test_save_with_bold_text_and_bare_backticks():
+    """
+    Variation on the common failure: any header-like structure (bold text, markdown
+    headers) followed by bare backticks causes premature closure.
+    """
+    fence = "```"
+    markdown = f"""{fence}save notes.md
+# Main Title
+
+Some content here.
+
+**Important Note:**
+{fence}
+Additional content that gets cut off.
+
+**Another Bold Header:**
+{fence}python
+# This code block also gets lost
+def example():
+    pass
+{fence}
+
+Final content.
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    content = blocks[0].content
+    assert "Main Title" in content
+    assert "Important Note:" in content
+    assert "Additional content" in content
+    assert "Another Bold Header:" in content
+    assert "def example():" in content
+    assert "Final content" in content
