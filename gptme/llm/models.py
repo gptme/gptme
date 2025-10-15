@@ -97,6 +97,15 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
             "knowledge_cutoff": datetime(2025, 7, 1),
         },
+        "claude-haiku-4-5": {
+            "context": 200_000,
+            "max_output": 8192,
+            "price_input": 0.5,
+            "price_output": 2.5,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "knowledge_cutoff": datetime(2024, 10, 1),
+        },
         "claude-opus-4-1-20250805": {
             "context": 200_000,
             "max_output": 32_000,
