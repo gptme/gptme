@@ -155,12 +155,18 @@ def init(config):
     proxy_url = config.get_env("LLM_PROXY_URL", None)
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
     api_key = proxy_key or config.get_env_required("ANTHROPIC_API_KEY")
+
+    # Get configurable API timeout (default: 600 seconds = 10 minutes)
+    timeout_str = config.get_env("LLM_API_TIMEOUT")
+    timeout = float(timeout_str) if timeout_str else 600.0
+
     from anthropic import Anthropic  # fmt: skip
 
     _anthropic = Anthropic(
         api_key=api_key,
         max_retries=5,
         base_url=proxy_url or None,
+        timeout=timeout,
     )
     _is_proxy = proxy_url is not None
 
