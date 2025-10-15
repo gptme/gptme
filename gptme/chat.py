@@ -143,6 +143,7 @@ def chat(
             model,
             interactive,
             logdir,
+            no_confirm,
         )
     except SessionCompleteException as e:
         console.log(f"Autonomous mode: {e}. Exiting.")
@@ -167,6 +168,7 @@ def _run_chat_loop(
     model,
     interactive,
     logdir,
+    no_confirm,
 ):
     """Main chat loop - extracted to allow clean exception handling."""
 
@@ -186,7 +188,13 @@ def _run_chat_loop(
 
                 # Process the message and get response
                 _process_message_conversation(
-                    manager, stream, confirm_func, tool_format, workspace, model
+                    manager,
+                    stream,
+                    confirm_func,
+                    tool_format,
+                    workspace,
+                    model,
+                    no_confirm,
                 )
             else:
                 # Get user input or exit if non-interactive
@@ -211,6 +219,7 @@ def _run_chat_loop(
                             tool_format,
                             workspace,
                             model,
+                            no_confirm,
                         )
                 else:
                     # Normal case: user provided input
@@ -231,6 +240,7 @@ def _run_chat_loop(
                         tool_format,
                         workspace,
                         model,
+                        no_confirm,
                     )
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
@@ -271,6 +281,7 @@ def _process_message_conversation(
     tool_format: ToolFormat,
     workspace: Path,
     model: str | None,
+    no_confirm: bool = False,
 ) -> None:
     """Process a message and generate responses until no more tools to run."""
 
@@ -280,7 +291,10 @@ def _process_message_conversation(
 
             # Trigger pre-process hooks
             if pre_msgs := trigger_hook(
-                HookType.MESSAGE_PRE_PROCESS, log=manager.log, workspace=workspace
+                HookType.MESSAGE_PRE_PROCESS,
+                log=manager.log,
+                workspace=workspace,
+                no_confirm=no_confirm,
             ):
                 for msg in pre_msgs:
                     manager.append(msg)

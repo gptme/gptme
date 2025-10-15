@@ -299,6 +299,54 @@ class TestDocsLessonsAutoInclude:
                             or "# Relevant Lessons" not in messages[0].content
                         ), "Should not include already-included lessons"
 
+    def test_mode_specific_configuration(self, docs_lesson_index):
+        """Test that interactive and non-interactive modes use different configs."""
+        log = [
+            Message(role="user", content="Use patch and edit files"),
+        ]
+
+        # Test interactive mode
+        with patch("gptme.tools.lessons.HAS_LESSONS", True):
+            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
+                with patch("gptme.tools.lessons.get_config") as mock_config:
+                    # Setup mocks
+                    mock_get_index.return_value = docs_lesson_index
+                    mock_cfg = mock_config.return_value
+
+                    # Interactive mode: Should use GPTME_LESSONS_AUTO_INCLUDE
+                    mock_cfg.get_env_bool.return_value = True
+                    mock_cfg.get_env.return_value = "5"
+
+                    _ = list(auto_include_lessons_hook(log, no_confirm=False))
+
+                    # Verify it used interactive config
+                    mock_cfg.get_env_bool.assert_called_with(
+                        "GPTME_LESSONS_AUTO_INCLUDE", True
+                    )
+                    mock_cfg.get_env.assert_called_with("GPTME_LESSONS_MAX_INCLUDED")
+
+        # Test non-interactive mode
+        with patch("gptme.tools.lessons.HAS_LESSONS", True):
+            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
+                with patch("gptme.tools.lessons.get_config") as mock_config:
+                    # Setup mocks
+                    mock_get_index.return_value = docs_lesson_index
+                    mock_cfg = mock_config.return_value
+
+                    # Non-interactive mode: Should use GPTME_LESSONS_AUTO_INCLUDE_NONINTERACTIVE
+                    mock_cfg.get_env_bool.return_value = True
+                    mock_cfg.get_env.return_value = "3"
+
+                    _ = list(auto_include_lessons_hook(log, no_confirm=True))
+
+                    # Verify it used non-interactive config
+                    mock_cfg.get_env_bool.assert_called_with(
+                        "GPTME_LESSONS_AUTO_INCLUDE_NONINTERACTIVE", True
+                    )
+                    mock_cfg.get_env.assert_called_with(
+                        "GPTME_LESSONS_MAX_INCLUDED_NONINTERACTIVE"
+                    )
+
 
 class TestDocsLessonsREADME:
     """Tests related to docs/lessons/README.md."""

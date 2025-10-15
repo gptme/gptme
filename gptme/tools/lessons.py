@@ -101,21 +101,44 @@ def auto_include_lessons_hook(
     log: list[Message],
     **kwargs,
 ) -> Generator[Message, None, None]:
-    """Hook to automatically include relevant lessons before message processing."""
+    """Hook to automatically include relevant lessons before message processing.
+
+    Supports mode-specific configuration:
+    - Interactive mode: Full lessons for user reference
+    - Non-interactive mode: Fewer lessons to conserve tokens
+
+    Environment variables:
+    - GPTME_LESSONS_AUTO_INCLUDE: Enable auto-inclusion in interactive mode (default: True)
+    - GPTME_LESSONS_AUTO_INCLUDE_NONINTERACTIVE: Enable in non-interactive mode (default: True)
+    - GPTME_LESSONS_MAX_INCLUDED: Max lessons in interactive mode (default: 5)
+    - GPTME_LESSONS_MAX_INCLUDED_NONINTERACTIVE: Max lessons in non-interactive mode (default: 3)
+    """
     if not HAS_LESSONS:
         return
 
-    # Check if auto-include is enabled via environment variable
-    config = get_config()
-    if not config.get_env_bool("GPTME_LESSONS_AUTO_INCLUDE", True):
-        return
+    # Extract mode from kwargs
+    no_confirm = kwargs.get("no_confirm", False)
 
-    # Get max lessons from environment or use default
-    max_lessons_str = config.get_env("GPTME_LESSONS_MAX_INCLUDED") or "5"
+    # Check if auto-include is enabled for this mode
+    config = get_config()
+    if no_confirm:
+        # Non-interactive mode: Use mode-specific config
+        if not config.get_env_bool("GPTME_LESSONS_AUTO_INCLUDE_NONINTERACTIVE", True):
+            return
+        max_lessons_str = (
+            config.get_env("GPTME_LESSONS_MAX_INCLUDED_NONINTERACTIVE") or "3"
+        )
+    else:
+        # Interactive mode: Use standard config
+        if not config.get_env_bool("GPTME_LESSONS_AUTO_INCLUDE", True):
+            return
+        max_lessons_str = config.get_env("GPTME_LESSONS_MAX_INCLUDED") or "5"
+
+    # Parse max lessons
     try:
         max_lessons = int(max_lessons_str)
     except (ValueError, TypeError):
-        max_lessons = 5
+        max_lessons = 3 if no_confirm else 5
 
     # Get last user message
     user_msg = None
