@@ -81,6 +81,12 @@ class LessonIndex:
 
             try:
                 lesson = parse_lesson(md_file)
+                # Filter based on status - only include active lessons
+                if lesson.metadata.status != "active":
+                    logger.debug(
+                        f"Skipping {lesson.metadata.status} lesson: {md_file.relative_to(directory)}"
+                    )
+                    continue
                 self.lessons.append(lesson)
             except Exception as e:
                 logger.warning(f"Failed to parse lesson {md_file}: {e}")

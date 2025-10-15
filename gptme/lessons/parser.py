@@ -18,6 +18,7 @@ class LessonMetadata:
 
     keywords: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
+    status: str = "active"  # active, automated, deprecated, or archived
     # Future extensions:
     # globs: list[str] = field(default_factory=list)
     # semantic: list[str] = field(default_factory=list)
@@ -104,9 +105,12 @@ def parse_lesson(path: Path) -> Lesson:
                 if frontmatter:
                     # Extract match section
                     match_data = frontmatter.get("match", {})
+                    # Extract status (defaults to "active" if not present)
+                    status = frontmatter.get("status", "active")
                     metadata = LessonMetadata(
                         keywords=match_data.get("keywords", []),
                         tools=match_data.get("tools", []),
+                        status=status,
                     )
             except yaml.YAMLError as e:
                 raise ValueError(f"Invalid YAML frontmatter in {path}: {e}") from e
