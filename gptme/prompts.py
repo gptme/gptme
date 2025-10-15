@@ -470,9 +470,8 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
             shell=True,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=10,
         )
-        # TODO: if script takes longer than 10s, log warning
         logger.debug(f"Context command took {time.time() - start:.2f}s")
         if result.returncode == 0:
             return md_codeblock(cmd, result.stdout)
