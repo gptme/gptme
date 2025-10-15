@@ -15,6 +15,7 @@ Example lesson format:
 """
 
 from .auto_include import auto_include_lessons
+from .cache import FileCache, MatchCache, get_file_cache, get_match_cache
 from .commands import register_lesson_commands
 from .index import LessonIndex
 from .matcher import LessonMatcher, MatchContext, MatchResult
@@ -35,4 +36,9 @@ __all__ = [
     # Classes
     "LessonIndex",
     "LessonMatcher",
+    # Caching
+    "FileCache",
+    "MatchCache",
+    "get_file_cache",
+    "get_match_cache",
 ]
