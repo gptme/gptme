@@ -814,9 +814,6 @@ More `inline code`.
     assert "x = `backtick`" in blocks[0].content
 
 
-@pytest.mark.xfail(
-    reason="Known limitation: bare backticks after headers cause premature tool closure - Issue #658"
-)
 def test_save_with_structure_header_and_bare_backticks():
     """
     Common failure from autonomous run logs: save/append with content containing
@@ -851,9 +848,6 @@ Even more content here.
     assert "Even more content here" in content
 
 
-@pytest.mark.xfail(
-    reason="Known limitation: bare backticks after markdown headers cause premature tool closure - Issue #658"
-)
 def test_append_with_markdown_header_and_bare_backticks():
     """
     Another common failure from autonomous runs: append with markdown headers
@@ -886,9 +880,6 @@ More content that gets lost.
     assert "More content that gets lost" in content
 
 
-@pytest.mark.xfail(
-    reason="Known limitation: header-like structures followed by bare backticks - Issue #658"
-)
 def test_save_with_bold_text_and_bare_backticks():
     """
     Variation on the common failure: any header-like structure (bold text, markdown
