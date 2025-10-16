@@ -130,8 +130,7 @@ def init_tools(
                 allowlist = config.chat.tools
 
         for tool in get_toolchain(allowlist):
-            if tool in loaded_tools:
-                # logger.warning("Tool '%s' already loaded", tool.name)
+            if has_tool(tool.name):
                 continue
             if tool.init:
                 tool = tool.init()

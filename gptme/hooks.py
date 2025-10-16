@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from enum import Enum
+from time import time
 from typing import Any
 
 from .message import Message
@@ -21,8 +22,6 @@ class StopPropagation:
                 yield Message("system", "Error occurred")
                 yield StopPropagation()  # Stop remaining hooks
     """
-
-    pass
 
 
 class HookType(str, Enum):
@@ -52,6 +51,9 @@ class HookType(str, Enum):
     GENERATION_PRE = "generation_pre"  # Before generating response
     GENERATION_POST = "generation_post"  # After generating response
     GENERATION_INTERRUPT = "generation_interrupt"  # Interrupt generation
+
+    # Loop control
+    LOOP_CONTINUE = "loop_continue"  # Decide whether/how to continue the chat loop
 
 
 # Hook function signatures for different hook types
@@ -158,7 +160,16 @@ class HookRegistry:
         # Collect all results
         for hook in hooks:
             try:
+                # TODO: emit span for tracing
+                t_start = time()
                 result = hook.func(*args, **kwargs)
+                t_end = time()
+                t_delta = t_end - t_start
+                logger.debug(f"Hook '{hook.name}' took {t_delta:.4f}s")
+                if t_delta > 5.0:
+                    logger.warning(
+                        f"Hook '{hook.name}' is taking a long time ({t_delta:.4f}s)"
+                    )
 
                 # If hook returns a generator, yield from it
                 if hasattr(result, "__iter__") and not isinstance(result, str | bytes):
@@ -181,8 +192,14 @@ class HookRegistry:
                     return
 
             except Exception as e:
-                logger.exception(f"Error executing hook '{hook.name}': {e}")
-                yield Message("system", f"Hook '{hook.name}' failed: {e}", hide=True)
+                # Special handling for session termination
+                if e.__class__.__name__ == "SessionCompleteException":
+                    logger.info(f"Hook '{hook.name}' signaled session completion")
+                    raise  # Propagate session complete signal
+
+                # Log other exceptions with full traceback for debugging
+                logger.exception(f"Error executing hook '{hook.name}'")
+                continue  # Skip this hook but continue with others
 
     def get_hooks(self, hook_type: HookType | None = None) -> list[Hook]:
         """Get all registered hooks, optionally filtered by type."""

@@ -147,7 +147,9 @@ def api_conversation_put(conversation_id: str):
     logdir.mkdir(parents=True)
 
     # Load or create the chat config, overriding values from request config if provided
-    request_config = ChatConfig.from_dict(req_json.get("config", {}))
+    config_dict = req_json.get("config", {})
+    config_dict["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
+    request_config = ChatConfig.from_dict(config_dict)
     chat_config = ChatConfig.load_or_create(logdir, request_config)
     prompt = req_json.get("prompt", "full")
 
@@ -373,6 +375,7 @@ def api_conversation_config_patch(conversation_id: str):
     logdir = get_logs_dir() / conversation_id
 
     # Create and set config
+    req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
     request_config = ChatConfig.from_dict(req_json)
     chat_config = ChatConfig.load_or_create(logdir, request_config).save()
     config = Config.from_workspace(workspace=chat_config.workspace)

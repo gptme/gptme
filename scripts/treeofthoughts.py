@@ -25,8 +25,8 @@ from gptme.tools import get_tools
 from gptme.util.context import (
     gather_fresh_context,
     get_changed_files,
-    run_precommit_checks,
 )
+from gptme.tools.precommit import run_precommit_checks
 from lxml import etree
 
 # Set up logging

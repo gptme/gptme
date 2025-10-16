@@ -39,9 +39,20 @@ def init_telemetry(
     enable_requests_instrumentation: bool = True,
     enable_openai_instrumentation: bool = True,
     enable_anthropic_instrumentation: bool = True,
-    prometheus_port: int = 8000,
+    agent_name: str | None = None,
+    interactive: bool | None = None,
 ) -> None:
-    """Initialize OpenTelemetry tracing and metrics."""
+    """Initialize OpenTelemetry tracing and metrics.
+
+    Args:
+        service_name: Name of the service for telemetry
+        enable_flask_instrumentation: Whether to auto-instrument Flask
+        enable_requests_instrumentation: Whether to auto-instrument requests library
+        enable_openai_instrumentation: Whether to auto-instrument OpenAI
+        enable_anthropic_instrumentation: Whether to auto-instrument Anthropic
+        agent_name: Name of the agent (from gptme.toml [agent].name)
+        interactive: Whether running in interactive mode (None = unknown, False = autonomous)
+    """
     try:
         _init(
             service_name=service_name,
@@ -49,7 +60,8 @@ def init_telemetry(
             enable_requests_instrumentation=enable_requests_instrumentation,
             enable_openai_instrumentation=enable_openai_instrumentation,
             enable_anthropic_instrumentation=enable_anthropic_instrumentation,
-            prometheus_port=prometheus_port,
+            agent_name=agent_name,
+            interactive=interactive,
         )
     except ImportError:
         logger.warning(
@@ -140,6 +152,7 @@ def record_tool_call(
     success: bool = True,
     error_type: str | None = None,
     error_message: str | None = None,
+    tool_format: str | None = None,
 ) -> None:
     """Record tool call metrics."""
     if not is_telemetry_enabled():
@@ -154,6 +167,8 @@ def record_tool_call(
 
     attributes = {"tool_name": tool_name, "success": str(success).lower()}
 
+    if tool_format:
+        attributes["tool_format"] = tool_format
     if error_type:
         attributes["error_type"] = error_type
     if error_message:

@@ -105,7 +105,7 @@ def test_use_fresh_context(monkeypatch):
 
 def test_use_checks_explicit(monkeypatch, tmp_path):
     """Test use_checks with explicit environment variable settings."""
-    from gptme.util.context import use_checks
+    from gptme.tools.precommit import use_checks
 
     # Change to test directory
     monkeypatch.chdir(tmp_path)
@@ -113,7 +113,7 @@ def test_use_checks_explicit(monkeypatch, tmp_path):
     # Test explicit enabled
     monkeypatch.setenv("GPTME_CHECK", "true")
     monkeypatch.setattr(
-        "gptme.util.context.shutil.which", lambda x: "/usr/bin/pre-commit"
+        "gptme.tools.precommit.shutil.which", lambda x: "/usr/bin/pre-commit"
     )
     # Should return True even without .pre-commit-config.yaml
     assert use_checks()
@@ -127,14 +127,14 @@ def test_use_checks_explicit(monkeypatch, tmp_path):
 
 def test_use_checks_config_file(monkeypatch, tmp_path):
     """Test use_checks with .pre-commit-config.yaml detection."""
-    from gptme.util.context import use_checks
+    from gptme.tools.precommit import use_checks
 
     # Change to test directory
     monkeypatch.chdir(tmp_path)
 
     # Mock pre-commit being available
     monkeypatch.setattr(
-        "gptme.util.context.shutil.which", lambda x: "/usr/bin/pre-commit"
+        "gptme.tools.precommit.shutil.which", lambda x: "/usr/bin/pre-commit"
     )
 
     # No explicit setting, no config file
@@ -158,13 +158,13 @@ def test_use_checks_config_file(monkeypatch, tmp_path):
 
 def test_use_checks_no_precommit(monkeypatch, tmp_path):
     """Test use_checks when pre-commit is not available."""
-    from gptme.util.context import use_checks
+    from gptme.tools.precommit import use_checks
 
     monkeypatch.chdir(tmp_path)
 
     # Enable checks but no pre-commit available
     monkeypatch.setenv("GPTME_CHECK", "true")
-    monkeypatch.setattr("gptme.util.context.shutil.which", lambda x: None)
+    monkeypatch.setattr("gptme.tools.precommit.shutil.which", lambda x: None)
 
     assert not use_checks()
 

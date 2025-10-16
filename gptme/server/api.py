@@ -161,7 +161,9 @@ def api_conversation_put(logfile: str):
     req_json = flask.request.json or {}
 
     # Load or create chat config
-    request_config = ChatConfig.from_dict(req_json.get("config", {}))
+    config_dict = req_json.get("config", {})
+    config_dict["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
+    request_config = ChatConfig.from_dict(config_dict)
     chat_config = ChatConfig.load_or_create(logdir, request_config)
     prompt = req_json.get("prompt", "full")
 

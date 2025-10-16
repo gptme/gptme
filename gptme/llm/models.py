@@ -97,6 +97,15 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
             "knowledge_cutoff": datetime(2025, 7, 1),
         },
+        "claude-haiku-4-5": {
+            "context": 200_000,
+            "max_output": 64_000,
+            "price_input": 1,
+            "price_output": 5,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "knowledge_cutoff": datetime(2025, 2, 1),
+        },
         "claude-opus-4-1-20250805": {
             "context": 200_000,
             "max_output": 32_000,
@@ -449,7 +458,7 @@ def get_summary_model(provider: Provider) -> str:  # pragma: no cover
     elif provider == "gemini":
         return "gemini-2.5-flash"
     elif provider == "anthropic":
-        return "claude-3-5-haiku-20241022"
+        return "claude-haiku-4-5"
     elif provider == "deepseek":
         return "deepseek-chat"
     else:

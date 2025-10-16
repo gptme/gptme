@@ -95,9 +95,8 @@ The interface provides user commands that can be used to interact with the syste
 @click.option(
     "-n",
     "--non-interactive",
-    "interactive",
-    default=True,
-    flag_value=False,
+    "non_interactive",
+    is_flag=True,
     help="Non-interactive mode. Implies --no-confirm.",
 )
 @click.option(
@@ -120,11 +119,10 @@ The interface provides user commands that can be used to interact with the syste
     help="Tool format to use. Options: markdown, xml, tool",
 )
 @click.option(
-    "--no-stream",
+    "--stream/--no-stream",
     "stream",
     default=True,
-    flag_value=False,
-    help="Don't stream responses",
+    help="Stream responses",
 )
 @click.option(
     "--show-hidden",
@@ -152,7 +150,7 @@ def main(
     stream: bool,
     verbose: bool,
     no_confirm: bool,
-    interactive: bool,
+    non_interactive: bool,
     show_hidden: bool,
     version: bool,
     resume: bool,
@@ -160,6 +158,7 @@ def main(
     agent_path: str | None,
 ):
     """Main entrypoint for the CLI."""
+    interactive = not non_interactive
     if version:
         # print version
 
@@ -175,9 +174,6 @@ def main(
 
     # init logging
     init_logging(verbose)
-
-    # init telemetry
-    init_telemetry(service_name="gptme-cli")
 
     if not interactive:
         no_confirm = True
@@ -267,6 +263,15 @@ def main(
         agent_path=Path(agent_path) if agent_path else None,
     )
     assert config.chat and config.chat.tool_format
+
+    # init telemetry with agent name and interactive mode
+    agent_config = config.chat.agent_config
+    agent_name = agent_config.name if agent_config else None
+    init_telemetry(
+        service_name="gptme-cli",
+        agent_name=agent_name,
+        interactive=interactive,
+    )
 
     # early init tools to generate system prompt
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools

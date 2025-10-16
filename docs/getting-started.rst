@@ -6,17 +6,21 @@ This guide will help you get started with gptme.
 Installation
 ------------
 
-To install gptme, we recommend using ``pipx``:
+To install gptme, we recommend using ``pipx`` or ``uv``:
 
 .. code-block:: bash
 
     pipx install gptme
+    # or
+    uv tool install gptme
 
 If pipx is not installed, you can install it using pip:
 
 .. code-block:: bash
 
     pip install --user pipx
+
+If ``uv`` is not installed, you can install it using pip, pipx, or your system package manager.
 
 .. note::
 

@@ -84,6 +84,11 @@ def _load_page(browser: Browser, url: str) -> str:
         locale="en-US",
         geolocation={"latitude": 37.773972, "longitude": 13.39},
         permissions=["geolocation"],
+        extra_http_headers={
+            # Prefer markdown and plaintext over HTML for better LLM consumption
+            # Quality values (q) indicate preference order
+            "Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"
+        },
     )
 
     logger.info(f"Loading page: {url}")

@@ -160,9 +160,47 @@ def _extract_codeblocks(
                             else:
                                 content_lines.append(line)
                         elif next_has_content and not next_is_fence:
-                            # Next line has content, this is an opening tag
-                            nesting_depth += 1
-                            content_lines.append(line)
+                            # Next line has content - check if this is a real nested block
+                            if nesting_depth > 1:
+                                # We're already nested, this opens another level
+                                nesting_depth += 1
+                                content_lines.append(line)
+                            elif nesting_depth == 1:
+                                # At depth 1, look ahead to see if there's a matching closing fence
+                                # This distinguishes real nested blocks from bare backticks in content
+                                has_closing_fence = False
+                                for j in range(i + 1, min(i + 20, len(lines))):
+                                    if lines[j].strip() == "```":
+                                        # Found another bare fence
+                                        # Check if there's content after it (allowing blank lines)
+                                        # Look ahead a few more lines to see if outer block continues
+                                        has_more_content = False
+                                        for k in range(j + 1, min(j + 5, len(lines))):
+                                            if lines[k].strip() != "":
+                                                # Found non-blank content after closing fence
+                                                has_more_content = True
+                                                break
+
+                                        if has_more_content:
+                                            # This looks like a nested block: opening, content, closing, more content
+                                            has_closing_fence = True
+                                        break
+                                    elif (
+                                        lines[j].startswith("```")
+                                        and len(lines[j].strip()) > 3
+                                    ):
+                                        # Hit a language-tagged fence, stop looking
+                                        break
+
+                                if has_closing_fence:
+                                    # Looks like a real nested block
+                                    nesting_depth += 1
+                                    content_lines.append(line)
+                                else:
+                                    # No matching fence found, treat as literal content
+                                    content_lines.append(line)
+                            else:
+                                content_lines.append(line)
                         elif streaming:
                             # Streaming mode: require blank line to confirm closure
                             if next_is_blank:

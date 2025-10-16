@@ -23,6 +23,7 @@ from rich import print
 from .config import ChatConfig, get_project_config
 from .dirs import get_logs_dir
 from .message import Message, len_tokens, print_msg
+from .tools import ToolUse
 from .util.context import enrich_messages_with_context
 from .util.reduce import limit_log, reduce_log
 
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 RoleLiteral = Literal["user", "assistant", "system"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class Log:
     messages: list[Message] = field(default_factory=list)
 
@@ -45,6 +46,9 @@ class Log:
 
     def __iter__(self) -> Generator[Message, None, None]:
         yield from self.messages
+
+    def __repr__(self) -> str:
+        return f"Log(messages=<{len(self.messages)} msgs>])"
 
     def replace(self, **kwargs) -> "Log":
         return replace(self, **kwargs)
@@ -352,7 +356,7 @@ def prepare_messages(
     # Enrich with enabled context enhancements (RAG, fresh context)
     msgs = enrich_messages_with_context(msgs, workspace)
 
-    # Then reduce and limit as before
+    # Use regular reduction
     msgs_reduced = list(reduce_log(msgs))
 
     model = get_default_model()
@@ -467,6 +471,36 @@ def list_conversations(
         get_conversations() if include_test else get_user_conversations()
     )
     return list(islice(conversation_iter, limit))
+
+
+def check_for_modifications(log: Log) -> bool:
+    """Check if there are any file modifications in last 3 assistant messages since last user message."""
+    messages_since_user = []
+    found_user_message = False
+
+    for m in reversed(log):
+        if m.role == "user":
+            found_user_message = True
+            break
+        if m.role == "system":
+            continue
+        messages_since_user.append(m)
+
+    # If no user message found, skip the check (only system messages so far)
+    if not found_user_message:
+        return False
+
+    # FIXME: this is hacky and unreliable
+
+    has_modifications = any(
+        tu.tool in ["save", "patch", "append", "morph"]
+        for m in messages_since_user[:3]
+        for tu in ToolUse.iter_from_content(m.content)
+    )
+    # logger.debug(
+    #     f"Found {len(messages_since_user)} messages since user ({found_user_message=}, {has_modifications=})"
+    # )
+    return has_modifications
 
 
 def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:

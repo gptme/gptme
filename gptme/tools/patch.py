@@ -219,6 +219,10 @@ def execute_patch_impl(
 ) -> Generator[Message, None, None]:
     """Actual patch implementation."""
     assert path is not None
+
+    # Print full path to give agent feedback about exactly which file is being patched
+    path = path.expanduser().resolve()
+
     try:
         with open(path) as f:
             original_content = f.read()

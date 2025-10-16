@@ -538,9 +538,6 @@ def prompt_chat_history() -> Generator[Message, None, None]:
                 if not user_messages:
                     continue
 
-                # Get first 2 user messages (captures the main task/context)
-                first_user_msgs = user_messages[:2]
-
                 # Find the best assistant message to use as "last response"
                 best_assistant_msg = None
                 for msg in reversed(assistant_messages):
@@ -558,32 +555,45 @@ def prompt_chat_history() -> Generator[Message, None, None]:
                     f"Modified: {datetime.fromtimestamp(conv.modified).strftime('%Y-%m-%d %H:%M')}"
                 )
 
-                # Add key user requests (first ~100 words each)
-                for msg in user_messages[:1]:
-                    content = extract_content_summary(msg.content)
-                    if content:
-                        summary_parts.append(f"User: {content}")
+                # Always show first exchange to establish context
+                first_user = user_messages[0]
+                first_user_content = extract_content_summary(first_user.content)
+                if first_user_content:
+                    summary_parts.append(f"User: {first_user_content}")
 
-                # Second user message if available
-                for msg in user_messages[1:2]:
-                    content = extract_content_summary(msg.content)
-                    if content:
-                        # Add placeholder assistant response
-                        summary_parts.append("Assistant: (response omitted)")
-                        summary_parts.append(f"User: {content}")
+                    # Find first assistant response after first user message
+                    first_assistant = None
+                    first_user_idx = messages.index(first_user)
+                    for msg in messages[first_user_idx + 1 :]:
+                        if msg.role == "assistant":
+                            first_assistant = msg
+                            break
 
-                # Add placeholder message containing number of omitted messages
-                omitted_count = (
-                    len(messages)
-                    - len(first_user_msgs)
-                    - (1 if best_assistant_msg else 0)
-                )
+                    if first_assistant:
+                        # Use 30 words for first response - brief description of what was attempted
+                        first_response = extract_content_summary(
+                            first_assistant.content, max_words=30
+                        )
+                        if first_response:
+                            summary_parts.append(f"Assistant: {first_response}")
+
+                # Calculate omitted messages (all except first exchange and last assistant)
+                messages_shown = 1  # first user
+                if first_assistant:
+                    messages_shown += 1  # first assistant
+                if best_assistant_msg and best_assistant_msg != first_assistant:
+                    messages_shown += 1  # last assistant (if different)
+
+                omitted_count = len(messages) - messages_shown
                 if omitted_count > 0:
                     summary_parts.append(f"... ({omitted_count} messages omitted) ...")
 
-                # Add best assistant response if available
-                if best_assistant_msg:
-                    outcome = extract_content_summary(best_assistant_msg.content)
+                # Add last assistant response if different from first
+                if best_assistant_msg and best_assistant_msg != first_assistant:
+                    # Use 60 words for last response - capture the outcome/conclusion
+                    outcome = extract_content_summary(
+                        best_assistant_msg.content, max_words=60
+                    )
                     if outcome:
                         summary_parts.append(f"Assistant: {outcome}")
 
@@ -605,6 +615,8 @@ The following is a summary of your recent conversations with the user to provide
 ```
 
 Use this context to understand ongoing projects, preferences, and previous discussions.
+
+*Tip: Use the `chats` tool to search past conversations or read their full history.*
 """
             yield Message("system", context_content)
 

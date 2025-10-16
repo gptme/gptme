@@ -8,6 +8,7 @@ unless explicitly needed.
 
 import logging
 import os
+import socket
 
 logger = logging.getLogger(__name__)
 
@@ -27,21 +28,25 @@ TELEMETRY_IMPORT_ERROR = None
 
 try:
     from opentelemetry import metrics, trace  # fmt: skip
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+        OTLPMetricExporter,  # fmt: skip
+    )
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
         OTLPSpanExporter,  # fmt: skip
     )
-    from opentelemetry.exporter.prometheus import PrometheusMetricReader  # fmt: skip
     from opentelemetry.instrumentation.anthropic import (
         AnthropicInstrumentor,  # fmt: skip
     )
     from opentelemetry.instrumentation.flask import FlaskInstrumentor  # fmt: skip
-    from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor  # fmt: skip
+    from opentelemetry.instrumentation.openai import OpenAIInstrumentor  # fmt: skip
     from opentelemetry.instrumentation.requests import RequestsInstrumentor  # fmt: skip
     from opentelemetry.sdk.metrics import MeterProvider  # fmt: skip
+    from opentelemetry.sdk.metrics.export import (
+        PeriodicExportingMetricReader,  # fmt: skip
+    )
     from opentelemetry.sdk.resources import Resource  # fmt: skip
     from opentelemetry.sdk.trace import TracerProvider  # fmt: skip
     from opentelemetry.sdk.trace.export import BatchSpanProcessor  # fmt: skip
-    from prometheus_client import start_http_server  # fmt: skip
 
     TELEMETRY_AVAILABLE = True
 except ImportError as e:
@@ -74,9 +79,20 @@ def init_telemetry(
     enable_requests_instrumentation: bool = True,
     enable_openai_instrumentation: bool = True,
     enable_anthropic_instrumentation: bool = True,
-    prometheus_port: int = 8000,
+    agent_name: str | None = None,
+    interactive: bool | None = None,
 ) -> None:
-    """Initialize OpenTelemetry tracing and metrics."""
+    """Initialize OpenTelemetry tracing and metrics.
+
+    Args:
+        service_name: Name of the service for telemetry
+        enable_flask_instrumentation: Whether to auto-instrument Flask
+        enable_requests_instrumentation: Whether to auto-instrument requests library
+        enable_openai_instrumentation: Whether to auto-instrument OpenAI
+        enable_anthropic_instrumentation: Whether to auto-instrument Anthropic
+        agent_name: Name of the agent (from gptme.toml [agent].name)
+        interactive: Whether running in interactive mode (None = unknown, False = autonomous)
+    """
     global _telemetry_enabled, _tracer, _meter, _token_counter, _request_histogram
     global \
         _tool_counter, \
@@ -99,31 +115,81 @@ def init_telemetry(
         return
 
     try:
-        # Initialize tracing with proper service name
-        resource = Resource.create({"service.name": service_name})
+        # Initialize tracing with proper service name and additional metadata
+        resource_attrs = {"service.name": service_name}
+
+        # Add hostname (standard OpenTelemetry attribute)
+
+        try:
+            hostname = socket.gethostname()
+            resource_attrs["host.name"] = hostname
+            logger.debug(f"Adding host.name to resource: {hostname}")
+        except Exception as e:
+            logger.warning(f"Failed to get hostname: {e}")
+
+        # Add agent name if provided
+        if agent_name:
+            resource_attrs["agent.name"] = agent_name
+            logger.debug(f"Adding agent.name to resource: {agent_name}")
+
+        # Add interactive mode if known
+        if interactive is not None:
+            resource_attrs["agent.interactive"] = str(interactive).lower()
+            if not interactive:
+                logger.debug("Running in autonomous mode")
+
+        resource = Resource.create(resource_attrs)
         trace.set_tracer_provider(TracerProvider(resource=resource))
         _tracer = trace.get_tracer(service_name)
 
         # Set up OTLP exporter if endpoint provided (for Jaeger or other OTLP-compatible backends)
-        # OTLP uses different default ports: 4317 for gRPC, 4318 for HTTP
-        otlp_endpoint = os.getenv("OTLP_ENDPOINT") or "http://localhost:4317"
-        otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
-        span_processor = BatchSpanProcessor(otlp_exporter)
+        # Using HTTP instead of gRPC for better compatibility
+        # OTLP uses port 4318 for HTTP, 4317 for gRPC
+        # HTTP exporters need the full path including /v1/traces
+        otlp_endpoint = os.getenv("OTLP_ENDPOINT") or "http://localhost:4318"
+
+        # Ensure endpoint ends with /v1/traces for the trace exporter
+        trace_endpoint = otlp_endpoint
+        if not trace_endpoint.endswith("/v1/traces"):
+            trace_endpoint = trace_endpoint.rstrip("/") + "/v1/traces"
+
+        otlp_exporter = OTLPSpanExporter(
+            endpoint=trace_endpoint,
+            timeout=10,  # 10 second timeout for exports
+        )
+        span_processor = BatchSpanProcessor(
+            otlp_exporter,
+            max_export_batch_size=512,
+            schedule_delay_millis=5000,  # Export every 5 seconds
+        )
         tracer_provider = trace.get_tracer_provider()
         if hasattr(tracer_provider, "add_span_processor"):
             tracer_provider.add_span_processor(span_processor)  # type: ignore
 
-        # Initialize metrics with Prometheus reader
-        prometheus_port = int(os.getenv("PROMETHEUS_PORT", prometheus_port))
-        prometheus_addr = os.getenv("PROMETHEUS_ADDR", "localhost")
+        # Use OTLP for metrics (same endpoint as traces)
+        try:
+            # Ensure endpoint ends with /v1/metrics for the metric exporter
+            metric_endpoint = otlp_endpoint
+            if not metric_endpoint.endswith("/v1/metrics"):
+                metric_endpoint = metric_endpoint.rstrip("/") + "/v1/metrics"
 
-        # Start Prometheus HTTP server to expose metrics
-        start_http_server(port=prometheus_port, addr=prometheus_addr)
+            otlp_metric_exporter = OTLPMetricExporter(
+                endpoint=metric_endpoint,
+                timeout=10,  # 10 second timeout for exports
+            )
+            metric_reader = PeriodicExportingMetricReader(
+                otlp_metric_exporter,
+                export_interval_millis=10000,  # Export every 10 seconds (faster feedback)
+                export_timeout_millis=10000,  # 10 second timeout for export
+            )
+            metrics.set_meter_provider(
+                MeterProvider(resource=resource, metric_readers=[metric_reader])
+            )
+        except ImportError as e:
+            logger.warning(f"OTLP metric exporter not available: {e}")
+            # Initialize without metrics if OTLP not available
+            metrics.set_meter_provider(MeterProvider())
 
-        # Initialize PrometheusMetricReader which pulls metrics from the SDK
-        # on-demand to respond to scrape requests
-        prometheus_reader = PrometheusMetricReader()
-        metrics.set_meter_provider(MeterProvider(metric_readers=[prometheus_reader]))
         _meter = metrics.get_meter(service_name)
 
         # Create metrics
@@ -182,11 +248,7 @@ def init_telemetry(
         from . import console  # fmt: skip
 
         # Log to console so users know telemetry is active
-        console.log("📊 Telemetry enabled - performance metrics will be collected")
-        console.log(f"🔍 Traces will be sent via OTLP to {otlp_endpoint}")
-        console.log(
-            f"📈 Prometheus metrics available at http://{prometheus_addr}:{prometheus_port}/metrics"
-        )
+        console.log(f"Using OTLP to send metrics and traces to {otlp_endpoint}")
 
     except Exception as e:
         logger.error(f"Failed to initialize telemetry: {e}")
@@ -210,9 +272,13 @@ def shutdown_telemetry() -> None:
         if hasattr(tracer_provider, "shutdown"):
             tracer_provider.shutdown()
 
-        # Shutdown meter provider
+        # Force flush and shutdown meter provider
         meter_provider = metrics.get_meter_provider()
+        if hasattr(meter_provider, "force_flush"):
+            logger.debug("Flushing pending metrics...")
+            meter_provider.force_flush(timeout_millis=5000)  # 5 second timeout
         if hasattr(meter_provider, "shutdown"):
+            logger.debug("Shutting down meter provider...")
             meter_provider.shutdown()
 
         _telemetry_enabled = False

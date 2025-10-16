@@ -23,6 +23,7 @@ def test_get_prompt_short():
     # Combine all message contents for token counting
     combined_content = "\n\n".join(msg.content for msg in prompt_msgs)
     # TODO: make the short prompt shorter
+    # Note: Lesson system additions increased prompt size slightly
     # Increased limit to 5000 to accommodate context tool additions (budget/usage tags)
     assert 500 < len_tokens(combined_content, "gpt-4") < 5000
 

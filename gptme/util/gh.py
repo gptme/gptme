@@ -323,8 +323,67 @@ def get_github_pr_content(url: str) -> str | None:
                         user = comment.get("user", {}).get("login", "unknown")
                         body = comment.get("body", "")
                         path = comment.get("path", "")
-                        line = comment.get("line", "")
-                        content += f"\n**@{user}** on {path}:{line}:\n{body}\n"
+                        # Get line numbers (prefer current, fallback to original)
+                        line = comment.get("line") or comment.get("original_line")
+                        start_line = comment.get("start_line") or comment.get(
+                            "original_start_line"
+                        )
+                        diff_hunk = comment.get("diff_hunk", "")
+
+                        # Format line reference (handle multi-line comments)
+                        if line and start_line and start_line != line:
+                            line_ref = f"{path}:{start_line}-{line}"
+                        elif line:
+                            line_ref = f"{path}:{line}"
+                        else:
+                            # No line information available (e.g., file-level comment)
+                            line_ref = path
+
+                        content += f"\n**@{user}** on {line_ref}:\n{body}\n"
+
+                        # Add code context if available
+                        if diff_hunk:
+                            content += f"\nReferenced code in {line_ref}:\n"
+                            # Get language from file extension, default to text for files without extension
+                            lang = path.split(".")[-1] if "." in path else "text"
+                            content += f"Context:\n```{lang}\n"
+                            # Format diff_hunk to show code context (remove diff markers)
+                            context_lines = []
+                            for line_text in diff_hunk.split("\n"):
+                                if line_text.startswith("@@"):
+                                    continue
+                                # Remove leading +/- but keep the content
+                                if line_text.startswith(("+", "-", " ")):
+                                    context_lines.append(line_text[1:])
+                                else:
+                                    context_lines.append(line_text)
+                            content += "\n".join(context_lines)
+                            content += "\n```\n"
+
+                        # Extract and display code suggestions
+                        if "```suggestion" in body:
+                            # Find suggestion blocks in the body
+                            lines = body.split("\n")
+                            in_suggestion = False
+                            suggestion_lines: list[str] = []
+
+                            for line in lines:
+                                if line.strip().startswith("```suggestion"):
+                                    in_suggestion = True
+                                    continue
+                                elif line.strip() == "```" and in_suggestion:
+                                    if suggestion_lines:
+                                        content += (
+                                            "\nSuggested change:\n```"
+                                            + path.split(".")[-1]
+                                            + "\n"
+                                        )
+                                        content += "\n".join(suggestion_lines)
+                                        content += "\n```\n"
+                                        suggestion_lines = []
+                                    in_suggestion = False
+                                elif in_suggestion:
+                                    suggestion_lines.append(line)
             except (json.JSONDecodeError, KeyError):
                 logger.debug("Failed to parse review comments JSON")
 

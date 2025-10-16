@@ -231,8 +231,8 @@ def main(
                 "anthropic/claude-3-5-sonnet-20241022@tool",
                 "anthropic/claude-3-5-sonnet-20241022@markdown",
                 "anthropic/claude-3-5-sonnet-20241022@xml",
-                "anthropic/claude-3-5-haiku-20241022@tool",
-                "anthropic/claude-3-5-haiku-20241022@xml",
+                "anthropic/claude-haiku-4-5@tool",
+                "anthropic/claude-haiku-4-5@xml",
             ]
         )
     if config.get_env("OPENROUTER_API_KEY"):

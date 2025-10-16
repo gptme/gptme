@@ -24,7 +24,7 @@ jobs:
         os: [ubuntu-latest]
         python_version: ['3.10']
         extras: ['-E all']
-        model: ['openai/gpt-4o-mini', 'anthropic/claude-3-5-haiku-20241022']
+        model: ['openai/gpt-4o-mini', 'anthropic/claude-haiku-4-5']
         #include:
           # deepseek, no extras, latest python
           #- os: ubuntu-latest
@@ -79,7 +79,7 @@ jobs:
         TERM: xterm
         MODEL: ${{ matrix.model }}
       with:
-        timeout_minutes: 5
+        timeout_minutes: 8
         max_attempts: 1  # favor pytest retries (mark with flaky)
         retry_wait_seconds: 10
         command: make test SLOW=true

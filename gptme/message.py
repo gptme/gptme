@@ -357,7 +357,7 @@ def len_tokens(content: str | Message | list[Message], model: str) -> int:
         return _token_cache[cache_key]
 
     # Calculate and cache
-    count = len(get_tokenizer(model).encode(content))
+    count = len(get_tokenizer(model).encode(content, disallowed_special=[]))
     _token_cache[cache_key] = count
 
     # Limit cache size by removing oldest entries if needed

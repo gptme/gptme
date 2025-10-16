@@ -8,6 +8,7 @@ from pathlib import Path
 from .commands import execute_cmd
 from .config import get_config
 from .constants import INTERRUPT_CONTENT, PROMPT_USER
+from .hooks import HookType, trigger_hook
 from .init import init
 from .llm import reply
 from .llm.models import get_default_model, get_model
@@ -23,6 +24,7 @@ from .tools import (
     has_tool,
     set_tool_format,
 )
+from .tools.complete import SessionCompleteException
 from .tools.tts import speak, stop, tts_request_queue
 from .util import console, path_with_tilde
 from .util.ask_execute import ask_execute
@@ -73,7 +75,6 @@ def chat(
     init(model, interactive, tool_allowlist)
 
     # Trigger session start hooks
-    from .hooks import HookType, trigger_hook
 
     if session_start_msgs := trigger_hook(
         HookType.SESSION_START,
@@ -128,13 +129,54 @@ def chat(
     # Convert prompt_msgs to a queue for unified handling
     prompt_queue = list(prompt_msgs)
 
+    # Import SessionCompleteException for clean exit handling
+
     # main loop
+    try:
+        _run_chat_loop(
+            manager,
+            prompt_queue,
+            stream,
+            confirm_func,
+            tool_format,
+            workspace,
+            model,
+            interactive,
+            logdir,
+        )
+    except SessionCompleteException as e:
+        console.log(f"Autonomous mode: {e}. Exiting.")
+        _wait_for_tts_if_enabled()
+
+        # Trigger session end hooks
+        if session_end_msgs := trigger_hook(
+            HookType.SESSION_END, logdir=logdir, manager=manager
+        ):
+            for msg in session_end_msgs:
+                manager.append(msg)
+        return
+
+
+def _run_chat_loop(
+    manager,
+    prompt_queue,
+    stream,
+    confirm_func,
+    tool_format,
+    workspace,
+    model,
+    interactive,
+    logdir,
+):
+    """Main chat loop - extracted to allow clean exception handling."""
+
     while True:
         msg: Message | None = None
         try:
             # Process next message (either from prompt queue or user input)
             if prompt_queue:
                 msg = prompt_queue.pop(0)
+                assert msg is not None, "prompt_queue contained None"
                 msg = include_paths(msg, workspace)
                 manager.append(msg)
 
@@ -176,7 +218,6 @@ def chat(
                     manager.append(msg)
 
                     # Reset interrupt flag since user provided new input
-                    _recently_interrupted = False
 
                     # Handle user commands
                     if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
@@ -192,70 +233,24 @@ def chat(
                         model,
                     )
 
-            # Check if complete tool was used - if so, exit cleanly
-            if not prompt_queue:
-                # Check last few messages for complete tool usage
-                if any(
-                    tu.tool == "complete"
-                    for msg in reversed(manager.log.messages[-5:])
-                    if msg.role == "assistant"
-                    for tu in ToolUse.iter_from_content(msg.content)
-                ):
-                    console.log(
-                        "Autonomous mode: Complete tool detected. Exiting cleanly."
-                    )
-                    _wait_for_tts_if_enabled()
-
-                    # Trigger session end hooks
-                    if session_end_msgs := trigger_hook(
-                        HookType.SESSION_END, logdir=logdir, manager=manager
-                    ):
-                        for msg in session_end_msgs:
-                            manager.append(msg)
-
-                    return
-
-            # Auto-reply mechanism for autonomous operation
-            # If in non-interactive mode and last assistant message had no tools,
-            # inject an auto-reply to ensure the assistant does work
-            if not interactive and not prompt_queue:
-                last_assistant_msg = next(
-                    (m for m in reversed(manager.log) if m.role == "assistant"), None
-                )
-                if last_assistant_msg:
-                    tool_uses = list(
-                        ToolUse.iter_from_content(last_assistant_msg.content)
-                    )
-                    if not tool_uses:
-                        # Check if we already auto-replied
-                        last_user_msg = next(
-                            (m for m in reversed(manager.log) if m.role == "user"), None
-                        )
-                        if (
-                            last_user_msg
-                            and "use the `complete` tool" in last_user_msg.content
-                        ):
-                            # Already auto-replied, assistant still no tools - exit
-                            console.log(
-                                "Autonomous mode: No tools used after confirmation. Exiting."
-                            )
-                            break
-                        else:
-                            # First time - inject auto-reply
-                            console.log(
-                                "Auto-reply: Assistant message had no tools. Asking for confirmation..."
-                            )
-                            auto_reply_msg = Message(
-                                "user",
-                                "Are you sure? If you're finished, use the `complete` tool to end the session.",
-                                quiet=False,
-                            )
-                            prompt_queue.append(auto_reply_msg)
-                            continue  # Process the auto-reply
+            # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
+            # This handles auto-reply mechanism and other loop control logic
+            if loop_msgs := trigger_hook(
+                HookType.LOOP_CONTINUE,
+                log=manager.log,
+                workspace=workspace,
+                manager=manager,
+                interactive=interactive,
+                prompt_queue=prompt_queue,
+            ):
+                for msg in loop_msgs:
+                    # Add hook-generated messages to prompt queue
+                    prompt_queue.append(msg)
+                    console.log(f"[Loop control] {msg.content[:100]}...")
+                continue  # Process the queued messages
 
         except KeyboardInterrupt:
             console.log("Interrupted.")
-            _recently_interrupted = True
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
             prompt_queue.clear()
@@ -278,7 +273,6 @@ def _process_message_conversation(
     model: str | None,
 ) -> None:
     """Process a message and generate responses until no more tools to run."""
-    from .hooks import HookType, trigger_hook
 
     while True:
         try:
@@ -332,7 +326,10 @@ def _process_message_conversation(
     # Trigger post-process hooks after message processing completes
     # Note: pre-commit checks and autocommit are now handled by hooks
     if post_msgs := trigger_hook(
-        HookType.MESSAGE_POST_PROCESS, log=manager.log, workspace=workspace
+        HookType.MESSAGE_POST_PROCESS,
+        log=manager.log,
+        workspace=workspace,
+        manager=manager,
     ):
         for msg in post_msgs:
             manager.append(msg)
@@ -489,30 +486,3 @@ def prompt_input(prompt: str, value=None) -> str:  # pragma: no cover
         return value
 
     return get_input(prompt)
-
-
-def check_for_modifications(log: Log) -> bool:
-    """Check if there are any file modifications in last 3 messages or since last user message."""
-    messages_since_user = []
-    found_user_message = False
-
-    for m in reversed(log):
-        if m.role == "user":
-            found_user_message = True
-            break
-        messages_since_user.append(m)
-
-    # If no user message found, skip the check (only system messages so far)
-    if not found_user_message:
-        return False
-
-    # FIXME: this is hacky and unreliable
-    has_modifications = any(
-        tu.tool in ["save", "patch", "append", "morph"]
-        for m in messages_since_user[:3]
-        for tu in ToolUse.iter_from_content(m.content)
-    )
-    # logger.debug(
-    #     f"Found {len(messages_since_user)} messages since user ({found_user_message=}, {has_modifications=})"
-    # )
-    return has_modifications

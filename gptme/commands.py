@@ -29,6 +29,7 @@ from .tools import (
     get_tool_format,
     get_tools,
 )
+
 from .util.auto_naming import generate_llm_name
 from .util.cost import log_costs
 from .util.export import export_chat_to_html
@@ -259,6 +260,7 @@ def cmd_replay(ctx: CommandContext) -> None:
         # Find the last assistant message that contains tool uses
         last_with_tools = None
         for msg in reversed(assistant_messages):
+            # Check if message has any tool uses by trying to execute it
             if any(ToolUse.iter_from_content(msg.content)):
                 last_with_tools = msg
                 break

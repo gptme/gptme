@@ -151,7 +151,11 @@ def test_todoread_with_todos():
     assert "1. 🔲 Pending task" in result
     assert "2. 🔄 Active task" in result
     assert "3. ✅ Done task" in result
-    assert "Summary: 3 total (1 completed, 1 in progress, 1 pending)" in result
+    # Check summary exists (order may vary due to Counter)
+    assert "Summary: 3 total" in result
+    assert "pending: 1" in result
+    assert "in_progress: 1" in result
+    assert "completed: 1" in result
 
 
 def test_todowrite_errors():

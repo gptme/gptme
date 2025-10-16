@@ -178,10 +178,10 @@ def test_hook_error_handling():
 
     results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS))
 
-    # Should have 2 messages: one error message and one success message
-    assert len(results) == 2
-    assert "Hook 'failing' failed" in results[0].content
-    assert results[1].content == "Success"
+    # Should have 1 message: the success message from working hook
+    # Error messages are not yielded to prevent infinite loops
+    assert len(results) == 1
+    assert results[0].content == "Success"
 
 
 def test_multiple_hooks_same_type():

@@ -157,6 +157,18 @@ Title:"""
             naming_model,
             None,
         )
+
+        # Strip think tags (Claude models may use these)
+        response = response.strip()
+        think_end = response.find("</think>")
+        if think_end != -1:
+            # Remove everything before and including </think>
+            response = response[think_end + len("</think>") :]
+        elif "<think>" in response:
+            # Incomplete think tag, skip this response
+            logger.debug("Incomplete think tag in response, skipping")
+            return None
+
         name = response.strip().strip('"').strip("'").split("\n")[0][:50]
         if name:
             return name

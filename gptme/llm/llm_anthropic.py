@@ -93,15 +93,24 @@ def _handle_anthropic_overloaded(e, attempt, max_retries, base_delay):
     """Handle Anthropic API overloaded errors with exponential backoff."""
     from anthropic import APIStatusError  # fmt: skip
 
-    if (
-        not isinstance(e, APIStatusError)
-        or e.status_code != 503
-        or attempt == max_retries - 1
-    ):
+    # Check if this is an overload error we should retry
+    is_overload = False
+    if isinstance(e, APIStatusError):
+        # Anthropic uses 529 for overload, some proxies use 503
+        if e.status_code in (503, 529):
+            is_overload = True
+        # Also check error message as fallback
+        elif hasattr(e, "message") and "overload" in str(e.message).lower():
+            is_overload = True
+
+    # Re-raise if not overload or max retries reached
+    if not is_overload or attempt == max_retries - 1:
         raise e
+
     delay = base_delay * (2**attempt)
     logger.warning(
-        f"Anthropic API overloaded, retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+        f"Anthropic API overloaded (status {getattr(e, 'status_code', 'unknown')}), "
+        f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
     )
     time.sleep(delay)
 
@@ -146,12 +155,20 @@ def init(config):
     proxy_url = config.get_env("LLM_PROXY_URL", None)
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
     api_key = proxy_key or config.get_env_required("ANTHROPIC_API_KEY")
+
+    # Get configurable API timeout (default: 300 seconds = 5 minutes)
+    # This catches indefinite hangs on API calls while being generous enough
+    # for most legitimate inference requests. Configurable via LLM_API_TIMEOUT.
+    timeout_str = config.get_env("LLM_API_TIMEOUT")
+    timeout = float(timeout_str) if timeout_str else 300.0
+
     from anthropic import Anthropic  # fmt: skip
 
     _anthropic = Anthropic(
         api_key=api_key,
         max_retries=5,
         base_url=proxy_url or None,
+        timeout=timeout,
     )
     _is_proxy = proxy_url is not None
 
@@ -183,8 +200,8 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
-        temperature=TEMPERATURE if not use_thinking else 1,
-        top_p=TOP_P if not use_thinking else NOT_GIVEN,
+        temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
+        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         thinking=(
@@ -233,8 +250,8 @@ def stream(
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
-        temperature=TEMPERATURE if not use_thinking else 1,
-        top_p=TOP_P if not use_thinking else NOT_GIVEN,
+        temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
+        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         thinking=(

@@ -73,8 +73,12 @@ def serve(
         tool_allowlist=None if tools is None else tools.split(","),
     )
 
-    # Initialize telemetry
-    init_telemetry(service_name="gptme-server", enable_flask_instrumentation=True)
+    # Initialize telemetry (server is API/WebUI driven, not CLI interactive)
+    init_telemetry(
+        service_name="gptme-server",
+        enable_flask_instrumentation=True,
+        interactive=None,
+    )
 
     click.echo("Initialization complete, starting server")
 

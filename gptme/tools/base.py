@@ -189,7 +189,7 @@ class ToolSpec:
     def register_hooks(self) -> None:
         """Register all hooks defined in this tool with the global hook registry."""
         # Avoid circular import
-        from ..hooks import register_hook, HookType
+        from ..hooks import HookType, register_hook
 
         for hook_name, (hook_type_str, func, priority) in self.hooks.items():
             try:
@@ -209,7 +209,6 @@ class ToolSpec:
         for cmd_name, handler in self.commands.items():
             try:
                 register_command(cmd_name, handler)
-                logger.debug(f"Registered command '{cmd_name}' from tool '{self.name}'")
             except Exception as e:
                 logger.warning(
                     f"Failed to register command '{cmd_name}' for tool '{self.name}': {e}"
@@ -320,6 +319,7 @@ class ToolUse:
     kwargs: dict[str, str] | None = None
     call_id: str | None = None
     start: int | None = None
+    _format: ToolFormat | None = "markdown"
 
     def execute(self, confirm: ConfirmFunc) -> Generator[Message, None, None]:
         """Executes a tool-use tag and returns the output."""
@@ -369,7 +369,11 @@ class ToolUse:
                         yield ex
 
                     # Record successful tool call
-                    record_tool_call(self.tool, success=True)
+                    record_tool_call(
+                        self.tool,
+                        success=True,
+                        tool_format=self._format,
+                    )
 
                     # Trigger post-execution hooks
                     if post_hook_msgs := trigger_hook(
@@ -386,6 +390,7 @@ class ToolUse:
                         success=False,
                         error_type=type(e).__name__,
                         error_message=str(e),
+                        tool_format=self._format,
                     )
 
                     # if we are testing, raise the exception
@@ -425,7 +430,13 @@ class ToolUse:
                 if tool.name not in ["save", "append", "patch"]
                 else [codeblock.lang]
             )
-            return ToolUse(tool.name, args, codeblock.content, start=codeblock.start)
+            return ToolUse(
+                tool.name,
+                args,
+                codeblock.content,
+                start=codeblock.start,
+                _format="markdown",
+            )
         else:
             # no_op_langs = ["csv", "json", "html", "xml", "stdout", "stderr", "result"]
             # if codeblock.lang and codeblock.lang not in no_op_langs:
@@ -488,6 +499,7 @@ class ToolUse:
                         kwargs=cast(dict[str, str], kwargs),
                         call_id=call_id,
                         start=start_pos,
+                        _format="tool",
                     )
                 except json.JSONDecodeError:
                     logger.debug(f"Failed to parse JSON: {json_str}")
@@ -546,6 +558,7 @@ class ToolUse:
                         args,
                         tool_content,
                         start=start_pos,
+                        _format="xml",
                     )
         except etree.ParseError as e:
             logger.warning(f"Failed to parse XML content: {e}")

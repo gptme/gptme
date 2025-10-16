@@ -3,6 +3,7 @@ Autocommit hook tool that automatically commits changes after message processing
 """
 
 import logging
+import subprocess
 from collections.abc import Generator
 
 from ..commands import CommandContext
@@ -13,6 +14,72 @@ from ..message import Message
 from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+
+def autocommit() -> Message:
+    """
+    Auto-commit changes made by gptme.
+
+    Returns a message asking the LLM to review changes and create a commit.
+    """
+    try:
+        # See if there are any changes to commit by checking for
+        # changes, excluding untracked files.
+        status_result_porcelain = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        if not status_result_porcelain.stdout.strip():
+            return Message("system", "No changes to commit.")
+
+        # Get current git status
+        status_result = subprocess.run(
+            ["git", "status"], capture_output=True, text=True, check=True
+        )
+
+        # Get git diff to show what changed
+        diff_result = subprocess.run(
+            ["git", "diff", "HEAD"], capture_output=True, text=True, check=True
+        )
+
+        # Create a message for the LLM to handle the commit
+        commit_prompt = f"""Pre-commit checks have passed and the following changes have been made:
+
+```git status
+{status_result.stdout}
+```
+
+```git diff HEAD
+{diff_result.stdout}
+```
+
+This is a good time to review these changes and consider creating an appropriate commit:
+
+1. Review the changes, decide which changes to include in the commit
+2. Stage only the relevant files using `git add` (never use `git add .` or `git add -A` to avoid adding unintended files)
+3. Create the commit using the HEREDOC format to avoid escaping issues. Both stage and commit in one go.
+
+```shell
+git add example.txt
+git commit -m "$(cat <<'EOF'
+Your commit message here
+EOF
+)"
+```
+"""
+
+        return Message("system", commit_prompt)
+
+    except subprocess.CalledProcessError as e:
+        return Message(
+            "system", f"Git operation failed: {e.stderr or e.stdout or str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Autocommit failed: {e}")
+        return Message("system", f"Autocommit failed: {e}")
 
 
 def handle_commit_command(ctx: CommandContext) -> Generator[Message, None, None]:
@@ -26,9 +93,6 @@ def handle_commit_command(ctx: CommandContext) -> Generator[Message, None, None]
     """
     # Undo the command message itself
     ctx.manager.undo(1, quiet=True)
-
-    # Import here to avoid circular dependency
-    from ..util.context import autocommit
 
     yield autocommit()
 
@@ -51,16 +115,13 @@ def autocommit_on_message_complete(
         return
 
     # Check if there are modifications
-    from ..chat import check_for_modifications
+    from ..logmanager import check_for_modifications
 
     if not check_for_modifications(log):
         logger.debug("No modifications detected, skipping autocommit")
         return
 
     try:
-        # Import here to avoid circular dependency
-        from ..util.context import autocommit
-
         # Get autocommit message (asks LLM to review and commit)
         yield autocommit()
 
