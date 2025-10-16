@@ -9,7 +9,7 @@ from gptme.eval.types import EvalSpec
 def test_gepa_integration():
     """Test that GEPA integration works with actual gptme evaluation."""
     # Configure DSPy
-    dspy.configure(lm=dspy.LM("anthropic/claude-3-5-haiku-20241022"))
+    dspy.configure(lm=dspy.LM("anthropic/claude-haiku-4-5"))
 
     # Create components
     module = GptmeModule("You are a helpful AI assistant.")

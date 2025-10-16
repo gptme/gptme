@@ -23,7 +23,7 @@ from .tasks import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "anthropic/claude-3-5-haiku-20241022"
+DEFAULT_MODEL = "anthropic/claude-haiku-4-5"
 
 
 @click.group()
@@ -36,7 +36,7 @@ def cli(ctx: click.Context, verbose: bool) -> None:
 
     \b
       # Run full optimization experiment
-      gptme-dspy optimize --name "my_experiment" --model anthropic/claude-3-5-haiku-20241022
+      gptme-dspy optimize --name "my_experiment" --model anthropic/claude-haiku-4-5
 
     \b
       # Quick test of prompt variations

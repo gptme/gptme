@@ -107,7 +107,7 @@ class GptmeModule(dspy.Module):
     def __init__(
         self,
         base_system_prompt: str,
-        model: str = "anthropic/claude-3-5-haiku-20241022",
+        model: str = "anthropic/claude-haiku-4-5",
     ):
         super().__init__()
         self.base_system_prompt = base_system_prompt

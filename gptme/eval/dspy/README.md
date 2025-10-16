@@ -99,7 +99,7 @@ from gptme.eval.dspy import run_prompt_optimization_experiment
 # Run optimization experiment
 experiment = run_prompt_optimization_experiment(
     experiment_name="gptme_optimization_v1",
-    model="anthropic/claude-3-5-haiku-20241022"
+    model="anthropic/claude-haiku-4-5"
 )
 
 # Check results
@@ -165,7 +165,7 @@ results = quick_prompt_test(prompts, num_examples=10)
 from gptme.eval.dspy import PromptOptimizer
 
 optimizer = PromptOptimizer(
-    model="anthropic/claude-3-5-haiku-20241022",
+    model="anthropic/claude-haiku-4-5",
     optimizer_type="miprov2",
     max_demos=3,
     num_trials=15
@@ -202,7 +202,7 @@ Run a comprehensive optimization experiment:
 ```bash
 python -m gptme.eval.dspy optimize \
     --name "gptme_v1_optimization" \
-    --model "anthropic/claude-3-5-haiku-20241022" \
+    --model "anthropic/claude-haiku-4-5" \
     --max-demos 3 \
     --num-trials 15 \
     --optimizers miprov2 bootstrap \
@@ -217,7 +217,7 @@ Quickly compare different prompt variations:
 python -m gptme.eval.dspy quick-test \
     --prompt-files prompt1.txt prompt2.txt \
     --num-examples 8 \
-    --model "anthropic/claude-3-5-haiku-20241022"
+    --model "anthropic/claude-haiku-4-5"
 ```
 
 ### `show-prompt` - View Current Prompt
@@ -225,7 +225,7 @@ python -m gptme.eval.dspy quick-test \
 Display the current gptme system prompt:
 
 ```bash
-python -m gptme.eval.dspy show-prompt --model "anthropic/claude-3-5-haiku-20241022"
+python -m gptme.eval.dspy show-prompt --model "anthropic/claude-haiku-4-5"
 ```
 
 ### `list-tasks` - View Available Tasks
@@ -433,7 +433,7 @@ Optimization reports include:
 
 ```markdown
 # Prompt Optimization Report: gptme_v1_optimization
-**Model:** anthropic/claude-3-5-haiku-20241022
+**Model:** anthropic/claude-haiku-4-5
 **Timestamp:** 2024-08-26T15:30:00
 
 ## Baseline Performance

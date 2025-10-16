@@ -8,7 +8,7 @@ on:
       model:
         description: 'LLM model to use for optimization'
         required: false
-        default: 'anthropic/claude-3-5-haiku-20241022'
+        default: 'anthropic/claude-haiku-4-5'
         type: string
       optimizers:
         description: 'Optimization strategies (comma-separated)'

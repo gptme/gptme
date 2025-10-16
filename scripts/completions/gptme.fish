@@ -19,7 +19,7 @@ function __gptme_models
 
         # Fallback to common models if command fails
         if test -z "$models_list"
-            set models_list "openai/gpt-4o openai/gpt-4o-mini openai/gpt-4-turbo anthropic/claude-3-5-sonnet-20241022 anthropic/claude-3-5-haiku-20241022 anthropic/claude-3-opus-20240229"
+            set models_list "openai/gpt-4o openai/gpt-4o-mini openai/gpt-4-turbo anthropic/claude-3-5-sonnet-20241022 anthropic/claude-haiku-4-5 anthropic/claude-3-opus-20240229"
         end
 
         set -g __gptme_models_cache (string join " " $models_list)
