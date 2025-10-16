@@ -399,6 +399,24 @@ def get_prompt_session() -> PromptSession:
             """Insert newline on Ctrl+J"""
             event.current_buffer.insert_text("\n")
 
+        @kb.add("c-v")  # Add Ctrl+V support for pasting images
+        def _(event):
+            """Paste from clipboard, with special handling for image paths"""
+            from ..util.clipboard import is_image_path, paste
+
+            content = paste()
+            if not content:
+                return
+
+            # Check if clipboard contains an image path
+            if is_image_path(content):
+                # Insert ipython command to view the image
+                path = content.strip().strip('"').strip("'")
+                event.current_buffer.insert_text(f"view_image('{path}')")
+            else:
+                # Regular text paste
+                event.current_buffer.insert_text(content)
+
         @kb.add("enter")
         def _(event):
             """Submit on Enter."""
