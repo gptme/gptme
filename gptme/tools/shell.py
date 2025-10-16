@@ -257,21 +257,47 @@ class ShellSession:
     ) -> tuple[int | None, str, str]:
         assert self.process.stdin
 
+        # Check if this is a compound command (for, while, if, case, function, etc.)
+        # These should not be parsed with shlex as it breaks their syntax
+        compound_keywords = [
+            "for",
+            "while",
+            "if",
+            "case",
+            "function",
+            "until",
+            "select",
+        ]
+        is_compound = any(
+            command.strip().startswith(kw + " ") for kw in compound_keywords
+        )
+
         # run the command, redirect stdin to /dev/null to prevent commands from
         # inheriting bash's pipe stdin (which causes issues with nested gptme calls)
         # only use this for commands that don't already redirect stdin, like << EOF
+        # Skip this for compound commands as shlex can't handle their syntax
         try:
-            command_parts = list(
-                shlex.shlex(command, posix=True, punctuation_chars=True)
-            )
+            # Skip shlex parsing for compound commands
+            if is_compound:
+                has_stdin_redirect = (
+                    "<" in command or "<<" in command or "<<<" in command
+                )
+                command_parts = []  # Not used for compound commands
+            else:
+                command_parts = list(
+                    shlex.shlex(command, posix=True, punctuation_chars=True)
+                )
 
-            # Check if there's already stdin redirection
-            has_stdin_redirect = (
-                "<" in command_parts or "<<" in command_parts or "<<<" in command_parts
-            )
+                # Check if there's already stdin redirection
+                has_stdin_redirect = (
+                    "<" in command_parts
+                    or "<<" in command_parts
+                    or "<<<" in command_parts
+                )
 
             # For pipelines, redirect stdin for the first command only
-            if "|" in command_parts and not has_stdin_redirect:
+            # Skip this logic for compound commands
+            if not is_compound and "|" in command_parts and not has_stdin_redirect:
                 # Find first pipe in tokenized parts
                 try:
                     pipe_idx = command_parts.index("|")
@@ -286,11 +312,21 @@ class ShellSession:
                 except (ValueError, IndexError) as e:
                     # Fallback to raw command if parsing fails
                     logger.warning(f"Failed to parse pipe in command '{command}': {e}")
-            elif not has_stdin_redirect and "|" not in command_parts:
+            elif (
+                not is_compound and not has_stdin_redirect and "|" not in command_parts
+            ):
                 # No pipe and no stdin redirection - add /dev/null
+                # Skip for compound commands
                 command += " < /dev/null"
         except ValueError as e:
             logger.warning("Failed shlex parsing command, using raw command", e)
+            # For compound commands, still don't add stdin redirection on error
+            if not is_compound:
+                has_stdin_redirect = (
+                    "<" in command or "<<" in command or "<<<" in command
+                )
+                if not has_stdin_redirect:
+                    command += " < /dev/null"
 
         full_command = f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
@@ -878,15 +914,7 @@ def split_commands(script: str) -> list[str]:
                 command_parts.append(processed_script[start:end])
             command = " ".join(command_parts)
             commands.append(command)
-        elif part.kind == "compound":
-            for node in part.list:
-                command_parts = []
-                for word in node.parts:
-                    start, end = word.pos
-                    command_parts.append(processed_script[start:end])
-                command = " ".join(command_parts)
-                commands.append(command)
-        elif part.kind in ["function", "pipeline", "list"]:
+        elif part.kind in ["function", "pipeline", "list", "compound"]:
             # Find the maximum position including heredoc content
             max_pos = _find_max_heredoc_pos(part, part.pos[1])
             commands.append(processed_script[part.pos[0] : max_pos])
