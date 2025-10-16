@@ -19,8 +19,79 @@ ConfirmFunc = Callable[[str], bool]
 
 logger = getLogger(__name__)
 
+# Global storage for MCP clients
+_mcp_clients: dict[str, MCPClient] = {}
+
 # Add type annotation for tool_specs
 tool_specs: list[ToolSpec] = []
+
+
+def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
+    """Restart an MCP client by reconnecting to the server"""
+    logger.info(f"Restarting MCP client for server: {server_name}")
+
+    # Get existing client if any
+    old_client = _mcp_clients.get(server_name)
+
+    # Close old client if it exists
+    if old_client is not None:
+        try:
+            # Clean up the old client
+            if old_client.stack:
+                old_client.loop.run_until_complete(
+                    old_client.stack.__aexit__(None, None, None)
+                )
+            old_client.loop.close()
+            logger.debug(f"Closed old MCP client for {server_name}")
+        except Exception as e:
+            logger.debug(f"Error closing old MCP client: {e}")
+
+    # Create new client and reconnect
+    new_client = MCPClient(config=config)
+    tools, session = new_client.connect(server_name)
+
+    # Store the new client
+    _mcp_clients[server_name] = new_client
+
+    logger.info(f"Successfully restarted MCP client for {server_name}")
+    return new_client
+
+
+def _call_mcp_tool_with_retry(
+    server_name: str,
+    tool_name: str,
+    arguments: dict,
+    config: Config,
+    max_retries: int = 1,
+) -> str:
+    """Call an MCP tool with automatic retry on connection failures"""
+    from ..mcp.client import _is_connection_error
+
+    last_error: Exception | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            # Get the client for this server
+            client = _mcp_clients.get(server_name)
+            if client is None:
+                raise RuntimeError(f"No MCP client found for server: {server_name}")
+
+            # Call the tool
+            return client.call_tool(tool_name, arguments)
+
+        except Exception as e:
+            last_error = e
+
+            if _is_connection_error(e) and attempt < max_retries:
+                logger.info(f"MCP connection failed for {server_name}, restarting...")
+                _restart_mcp_client(server_name, config)
+                continue
+            else:
+                break
+
+    # last_error will never be None here since we only break after setting it
+    assert last_error is not None
+    raise last_error
 
 
 # Function to create MCP tools
@@ -28,7 +99,6 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
     """Create tool specs for all MCP tools from the config"""
 
     tool_specs: list[ToolSpec] = []
-    servers = {}
 
     # Skip if MCP is not enabled
     if not config.mcp.enabled:
@@ -42,12 +112,8 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
             # Connect to server
             tools, session = client.connect(server_config.name)
 
-            # Store the connection
-            servers[server_config.name] = {
-                "client": client,
-                "tools": tools,
-                "session": session,
-            }
+            # Store the client globally for restart capability
+            _mcp_clients[server_config.name] = client
 
             # Create tool specs for each tool
             for mcp_tool in tools.tools:
@@ -93,7 +159,9 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
                     name=name,
                     desc=f"[{server_config.name}] {mcp_tool.description}",
                     parameters=parameters,
-                    execute=create_mcp_execute_function(mcp_tool.name, client),
+                    execute=create_mcp_execute_function(
+                        mcp_tool.name, server_config.name, config
+                    ),
                     available=True,
                     examples=make_examples(name, example_str),
                     block_types=[name],
@@ -109,7 +177,9 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
 
 
 # Function to create execute function for a specific MCP tool
-def create_mcp_execute_function(tool_name: str, client: MCPClient) -> ExecuteFunc:
+def create_mcp_execute_function(
+    tool_name: str, server_name: str, config: Config
+) -> ExecuteFunc:
     """Create an execute function for an MCP tool"""
 
     def preview_mcp(content: str, tool_name: str = tool_name) -> str | None:
@@ -128,6 +198,11 @@ def create_mcp_execute_function(tool_name: str, client: MCPClient) -> ExecuteFun
     ) -> Generator[Message, None, None]:
         """Actual MCP tool implementation."""
         try:
+            # Get the client for getting tool definition
+            client = _mcp_clients.get(server_name)
+            if client is None:
+                raise RuntimeError(f"No MCP client found for server: {server_name}")
+
             # Get the tool definition from the client
             tool_def = None
             if client.tools is not None:
@@ -156,8 +231,8 @@ def create_mcp_execute_function(tool_name: str, client: MCPClient) -> ExecuteFun
                     f"Content must be a valid JSON object with parameters. Example:\n{example}"
                 ) from err
 
-            # Execute the tool
-            result = client.call_tool(tool_name, kwargs)
+            # Execute the tool with retry on connection failures
+            result = _call_mcp_tool_with_retry(server_name, tool_name, kwargs, config)
             yield Message("system", result)
         except Exception as e:
             logger.error(f"Error executing MCP tool {tool_name}: {e}")
