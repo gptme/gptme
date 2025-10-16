@@ -273,9 +273,9 @@ def test_web_search_tool_enabled():
         # Verify web search tool is included
         assert tools_dict is not None
         assert len(tools_dict) == 1
-        assert tools_dict[0]["type"] == "web_search_20250305"
+        assert tools_dict[0]["type"] == "web_search_20250305"  # type: ignore[typeddict-item]
         assert tools_dict[0]["name"] == "web_search"
-        assert tools_dict[0]["max_uses"] == 3
+        assert tools_dict[0]["max_uses"] == 3  # type: ignore[typeddict-item]
     finally:
         # Clean up environment variables
         os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH", None)
@@ -341,6 +341,6 @@ def test_web_search_tool_with_other_tools():
             (t for t in tools_dict if t.get("type") == "web_search_20250305"), None
         )
         assert web_search_tool is not None
-        assert web_search_tool["max_uses"] == 5  # Default value
+        assert web_search_tool["max_uses"] == 5  # type: ignore[typeddict-item]  # Default value
     finally:
         os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH", None)
