@@ -97,149 +97,30 @@ def _extract_recent_tools(log: list[Message], limit: int = 10) -> list[str]:
     return unique_tools
 
 
-def _detect_conversation_mode(log: list[Message], recent_limit: int = 20) -> str:
-    """Detect conversation mode by analyzing message patterns.
-
-    In autonomous mode, there are few/no user messages - the conversation
-    is mostly assistant messages with occasional system prompts.
-    In interactive mode, there's regular back-and-forth between user and assistant.
+def _extract_message_content(log: list[Message], limit: int = 10) -> str:
+    """Extract message content from recent user and assistant messages.
 
     Args:
         log: Conversation log
-        recent_limit: Number of recent messages to analyze
-
-    Returns:
-        "autonomous" if few user messages (< 30% of recent messages)
-        "interactive" if regular back-and-forth
-    """
-    if not log:
-        return "interactive"
-
-    # Analyze recent messages (exclude system messages from the count)
-    recent_messages = [
-        msg for msg in log[-recent_limit:] if msg.role in ("user", "assistant")
-    ]
-
-    if not recent_messages:
-        return "interactive"
-
-    # Count user messages
-    user_count = sum(1 for msg in recent_messages if msg.role == "user")
-    total_count = len(recent_messages)
-
-    if total_count == 0:
-        return "interactive"
-
-    # If < 30% user messages, it's autonomous mode
-    user_ratio = user_count / total_count
-    mode = "autonomous" if user_ratio < 0.3 else "interactive"
-
-    logger.debug(
-        f"Detected conversation mode: {mode} "
-        f"(user_ratio: {user_ratio:.2f}, recent_messages: {total_count})"
-    )
-
-    return mode
-
-
-def _extract_keywords_for_mode(
-    log: list[Message], mode: str, limit: int = 10
-) -> list[str]:
-    """Extract keywords based on conversation mode.
-
-    In autonomous mode, extracts keywords from both user AND assistant messages
-    since there are few user messages to trigger lessons from.
-    In interactive mode, only extracts from user messages.
-
-    Args:
-        log: Conversation log
-        mode: "autonomous" or "interactive"
-        limit: Number of recent messages to check
-
-    Returns:
-        List of unique keywords (lowercased)
-    """
-    keywords = []
-
-    # In autonomous mode, check both user and assistant messages
-    # In interactive mode, only check user messages
-    roles_to_check = ["user", "assistant"] if mode == "autonomous" else ["user"]
-
-    for msg in reversed(log[-limit:]):
-        if msg.role in roles_to_check:
-            # Extract keywords from message content
-            # Simple approach: extract significant words (>4 chars, alphabetic)
-            words = msg.content.lower().split()
-            for word in words:
-                # Keep only alphabetic characters
-                cleaned_word = "".join(c for c in word if c.isalpha())
-
-                # Filter for meaningful keywords
-                if len(cleaned_word) > 4 and cleaned_word not in (
-                    "about",
-                    "could",
-                    "would",
-                    "should",
-                    "these",
-                    "those",
-                ):
-                    keywords.append(cleaned_word)
-
-    # Return unique keywords, preserving order
-    seen = set()
-    unique_keywords = []
-    for keyword in keywords:
-        if keyword not in seen:
-            seen.add(keyword)
-            unique_keywords.append(keyword)
-
-    logger.debug(
-        f"Extracted {len(unique_keywords)} keywords for {mode} mode: {unique_keywords[:10]}"
-    )
-
-    return unique_keywords[:20]  # Limit to top 20
-
-
-def _extract_message_content_for_mode(
-    log: list[Message], mode: str, limit: int = 10
-) -> str:
-    """Extract message content based on conversation mode.
-
-    In autonomous mode, combines content from both user AND assistant messages
-    since there are few user messages to trigger lessons from.
-    In interactive mode, uses only the last user message.
-
-    Args:
-        log: Conversation log
-        mode: "autonomous" or "interactive"
         limit: Number of recent messages to check
 
     Returns:
         Combined message content string
     """
-    if mode == "interactive":
-        # Interactive mode: find last user message
-        for msg in reversed(log):
-            if msg.role == "user":
-                return msg.content
-        return ""
+    messages = []
+    for msg in reversed(log[-limit:]):
+        if msg.role in ("user", "assistant"):
+            messages.append(msg.content)
 
-    else:  # autonomous mode
-        # Autonomous mode: combine recent user and assistant messages
-        messages = []
-        for msg in reversed(log[-limit:]):
-            if msg.role in ("user", "assistant"):
-                messages.append(msg.content)
+    # Combine messages (most recent first, so reverse to get chronological)
+    combined = " ".join(reversed(messages))
 
-        # Combine messages (most recent first, so reverse to get chronological)
-        combined = " ".join(reversed(messages))
+    logger.debug(
+        f"Extracted content from {len(messages)} messages "
+        f"(content length: {len(combined)} chars)"
+    )
 
-        logger.debug(
-            f"Combined {len(messages)} messages for {mode} mode "
-            f"(content length: {len(combined)} chars)"
-        )
-
-        return combined
+    return combined
 
 
 def _format_lessons(matches: list) -> str:
@@ -288,16 +169,11 @@ def handle_lesson_command(ctx: CommandContext) -> Generator[Message, None, None]
 
 def auto_include_lessons_hook(
     log: list[Message], workspace: str | None = None, **kwargs
-) -> list[Message] | None:
+) -> Generator[Message, None, None]:
     """Hook to automatically include relevant lessons in context.
 
-    Detects conversation mode (autonomous vs interactive) by analyzing message patterns:
-    - Autonomous mode: Few user messages, mostly assistant messages
-    - Interactive mode: Regular back-and-forth conversation
-
-    In autonomous mode, lessons are triggered by keywords from both user and assistant
-    messages, with fewer lessons included to conserve tokens.
-    In interactive mode, lessons are triggered only by user message keywords.
+    Extracts keywords from both user and assistant messages to trigger lessons.
+    This enables lessons to be relevant in both interactive and autonomous contexts.
 
     Args:
         log: Current conversation log
@@ -305,48 +181,35 @@ def auto_include_lessons_hook(
         **kwargs: Additional hook arguments (unused)
 
     Returns:
-        New messages to prepend (lessons as system message), or None if disabled
+        Generator of messages to prepend (lessons as system message)
     """
     if not HAS_LESSONS:
         logger.debug("Lessons module not available, skipping auto-inclusion")
-        return []
+        return
 
-    # Detect conversation mode
-    mode = _detect_conversation_mode(log)
-
-    # Get mode-specific configuration
+    # Get configuration
     config = get_config()
-    if mode == "autonomous":
-        auto_include = config.get_env_bool(
-            "GPTME_LESSONS_AUTO_INCLUDE_AUTONOMOUS", True
-        )
-        try:
-            max_lessons = int(
-                config.get_env("GPTME_LESSONS_MAX_INCLUDED_AUTONOMOUS") or "3"
-            )
-        except (ValueError, TypeError):
-            max_lessons = 3
-    else:  # interactive
-        auto_include = config.get_env_bool("GPTME_LESSONS_AUTO_INCLUDE", True)
-        try:
-            max_lessons = int(config.get_env("GPTME_LESSONS_MAX_INCLUDED") or "5")
-        except (ValueError, TypeError):
-            max_lessons = 5
+    auto_include = config.get_env_bool("GPTME_LESSONS_AUTO_INCLUDE", True)
 
     if not auto_include:
-        logger.debug(f"Auto-inclusion disabled for {mode} mode")
-        return []
+        logger.debug("Auto-inclusion disabled")
+        return
+
+    try:
+        max_lessons = int(config.get_env("GPTME_LESSONS_MAX_INCLUDED") or "5")
+    except (ValueError, TypeError):
+        max_lessons = 5
 
     # Get lessons already included
     included_lessons = _get_included_lessons_from_log(log)
 
-    # Extract message content based on conversation mode
-    message_content = _extract_message_content_for_mode(log, mode)
+    # Extract message content from recent user and assistant messages
+    message_content = _extract_message_content(log)
     tools = _extract_recent_tools(log)
 
     if not message_content and not tools:
         logger.debug("No message content or tools to match, skipping lesson inclusion")
-        return []
+        return
 
     # Create match context
     context = MatchContext(
@@ -369,14 +232,12 @@ def auto_include_lessons_hook(
 
         # Limit number of lessons
         if len(new_matches) > max_lessons:
-            logger.debug(
-                f"Limiting lessons from {len(new_matches)} to {max_lessons} for {mode} mode"
-            )
+            logger.debug(f"Limiting lessons from {len(new_matches)} to {max_lessons}")
             new_matches = new_matches[:max_lessons]
 
         if not new_matches:
-            logger.debug(f"No new lessons to include for {mode} mode")
-            return []
+            logger.debug("No new lessons to include")
+            return
 
         # Format lessons as system message
         content_parts = ["# Relevant Lessons\n"]
@@ -394,13 +255,13 @@ def auto_include_lessons_hook(
             hide=True,  # Hide from user-facing output
         )
 
-        logger.info(f"Auto-included {len(new_matches)} lessons for {mode} mode")
+        logger.info(f"Auto-included {len(new_matches)} lessons")
 
-        return [lesson_msg]
+        yield lesson_msg
 
     except Exception as e:
         logger.warning(f"Error during lesson auto-inclusion: {e}")
-        return []
+        return
 
 
 # Tool specification (for /tools command)
@@ -408,24 +269,24 @@ tool = ToolSpec(
     name="lessons",
     desc="Lesson system for structured guidance",
     instructions="""
-The lesson system provides structured guidance through context-aware lessons.
+Use lessons to improve your performance and avoid known failure modes.
 
-Lessons are automatically included based on:
-- Keywords from recent messages (in interactive mode: user messages only,
-  in autonomous mode: both user and assistant messages)
-- Tools used in the conversation
+How lessons help you:
+- Automatically included when relevant keywords or tools match
+- Extracted from both user and assistant messages in the conversation
+- Limited to 5 most relevant lessons to conserve context
 
-Lessons are matched by keywords and tools, with a limit on the number included.
+Commands available:
+- /lesson list - View all available lessons
+- /lesson search <query> - Find lessons matching query
+- /lesson show <id> - Display a specific lesson
+- /lesson refresh - Reload lessons from disk
 
-Configuration:
-- GPTME_LESSONS_AUTO_INCLUDE: Enable/disable auto-inclusion (default: true)
-- GPTME_LESSONS_MAX_INCLUDED: Max lessons in interactive mode (default: 5)
-- GPTME_LESSONS_AUTO_INCLUDE_AUTONOMOUS: Enable/disable in autonomous mode (default: true)
-- GPTME_LESSONS_MAX_INCLUDED_AUTONOMOUS: Max lessons in autonomous mode (default: 3)
-
-Conversation mode is automatically detected:
-- Interactive: Regular back-and-forth (>= 30% user messages)
-- Autonomous: Few user messages (< 30% user messages)
+Leverage lessons for self-improvement:
+- Pay attention to lessons included in context
+- Apply patterns and avoid anti-patterns
+- Reference lessons when making decisions
+- Learn from past failures documented in lessons
 """.strip(),
     examples="",
     functions=[],
