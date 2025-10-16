@@ -74,13 +74,13 @@ jobs:
       - name: Run baseline evaluation
         run: |
           python -m gptme.eval.dspy show-prompt \
-            --model "${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}"
+            --model "${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}"
 
       - name: Run quick test
         run: |
           python -m gptme.eval.dspy -v quick-test \
             --num-examples 5 \
-            --model "${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}"
+            --model "${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}"
 
       - name: Run prompt optimization
         run: |
@@ -95,7 +95,7 @@ jobs:
 
           python -m gptme.eval.dspy -v optimize \
             --name "$EXPERIMENT_NAME" \
-            --model "${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}" \
+            --model "${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}" \
             --max-demos "${{ github.event.inputs.max_demos || '3' }}" \
             --num-trials "${{ github.event.inputs.num_trials || '10' }}" \
             $OPTIMIZER_FLAGS \
@@ -112,7 +112,7 @@ jobs:
         run: |
           echo "# Prompt Optimization Summary" > optimization_summary.md
           echo "**Date:** $(date)" >> optimization_summary.md
-          echo "**Model:** ${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}" >> optimization_summary.md
+          echo "**Model:** ${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}" >> optimization_summary.md
           echo "**Optimizers:** ${{ github.event.inputs.optimizers || 'miprov2,bootstrap' }}" >> optimization_summary.md
           echo "**Trials:** ${{ github.event.inputs.num_trials || '10' }}" >> optimization_summary.md
           echo "" >> optimization_summary.md
@@ -150,7 +150,7 @@ jobs:
             const fs = require('fs');
             let body = '## Prompt Optimization Failed\n\n';
             body += `**Run:** ${context.runNumber}\n`;
-            body += `**Model:** ${{ github.event.inputs.model || 'anthropic/claude-sonnet-4-20250514' }}\n`;
+            body += `**Model:** ${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}\n`;
             body += `**Workflow:** [${context.workflow}](${context.payload.repository.html_url}/actions/runs/${context.runId})\n\n`;
 
             if (fs.existsSync('optimization_summary.md')) {
