@@ -605,25 +605,52 @@ EOF"""
 def test_pipe_with_stdin_consuming_command(shell):
     """Test that piping commands that consume stdin doesn't hang (issue #684).
 
-    Commands like gptme that try to read from stdin can cause deadlocks in pipelines
-    if stdin isn't properly redirected to /dev/null for the first command.
-    """
-    # Test case that would hang before the fix: cat with no args tries to read stdin
-    # With stdin redirected to /dev/null, cat returns immediately with empty output
-    ret_code, stdout, stderr = shell.run(
-        "cat | wc -l", output=False, timeout=5.0
-    )
-    
-    assert ret_code == 0
-    assert stdout.strip() == "0"  # cat reads nothing from /dev/null
+    Reproduces the specific failing case from Erik's comment:
+    gptme "/shell gptme '/exit' | grep Assistant"
 
-    # More complex: Python trying to read stdin in a pipeline
-    # This simulates issue #684 where nested gptme would block on stdin
+    The script simulates gptme's behavior:
+    - Without stdin redirection: blocks reading from pipe stdin
+    - With stdin redirected to /dev/null: prints "Assistant" immediately
+
+    This test would hang without the fix that redirects stdin for the first
+    command in a pipeline.
+    """
+    # Create test script that simulates gptme's stdin behavior
+    test_script = """#!/usr/bin/env python3
+import sys
+import os
+
+# Check if stdin is /dev/null
+try:
+    stdin_stat = os.fstat(sys.stdin.fileno())
+    devnull_stat = os.stat('/dev/null')
+    is_devnull = (stdin_stat.st_dev == devnull_stat.st_dev and
+                  stdin_stat.st_ino == devnull_stat.st_ino)
+except:
+    is_devnull = False
+
+if not is_devnull and not sys.stdin.isatty():
+    # stdin is a pipe (not /dev/null, not terminal)
+    # This would block forever without stdin redirection
+    sys.stdin.read(1)
+    print("blocked")
+else:
+    # stdin is /dev/null or terminal - works correctly
+    print("Assistant")
+"""
+
+    # Write test script
+    shell.run("cat > /tmp/test_stdin_block.py << 'EOF'\n" + test_script + "\nEOF")
+    shell.run("chmod +x /tmp/test_stdin_block.py")
+
+    # This is the actual failing case: command that blocks on stdin | grep
+    # Without the fix, this would hang because the script waits for stdin
+    # With the fix, stdin is redirected to /dev/null for the first command
     ret_code, stdout, stderr = shell.run(
-        "python3 -c 'import sys; print(\"test\" if not sys.stdin.read() else \"blocked\")' | grep test",
+        "python3 /tmp/test_stdin_block.py | grep Assistant",
         output=False,
         timeout=5.0,
     )
 
     assert ret_code == 0
-    assert "test" in stdout
+    assert "Assistant" in stdout

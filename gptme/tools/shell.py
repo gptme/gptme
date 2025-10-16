@@ -277,15 +277,15 @@ class ShellSession:
                     pipe_idx = command_parts.index("|")
                     # Reconstruct command parts before and after pipe
                     first_parts = command_parts[:pipe_idx]
-                    rest_parts = command_parts[pipe_idx + 1:]
-                    
+                    rest_parts = command_parts[pipe_idx + 1 :]
+
                     # Join parts back with proper quoting using shlex.join()
                     first_cmd = shlex.join(first_parts)
                     rest = shlex.join(rest_parts)
                     command = f"{first_cmd} < /dev/null | {rest}"
                 except (ValueError, IndexError) as e:
                     # Fallback to raw command if parsing fails
-                    logger.warning(f"Failed to parse pipe in command: {e}")
+                    logger.warning(f"Failed to parse pipe in command '{command}': {e}")
             elif not has_stdin_redirect and "|" not in command_parts:
                 # No pipe and no stdin redirection - add /dev/null
                 command += " < /dev/null"
