@@ -606,20 +606,22 @@ def test_pipe_with_stdin_consuming_command(shell):
     Commands like gptme that try to read from stdin can cause deadlocks in pipelines
     if stdin isn't properly redirected to /dev/null for the first command.
     """
-    # This used to hang before the fix
+    # Test case that would hang before the fix: cat with no args tries to read stdin
+    # With stdin redirected to /dev/null, cat returns immediately with empty output
     ret_code, stdout, stderr = shell.run(
-        "echo 'test' | grep test", output=False, timeout=5.0
+        "cat | wc -l", output=False, timeout=5.0
     )
-
+    
     assert ret_code == 0
-    assert "test" in stdout
+    assert stdout.strip() == "0"  # cat reads nothing from /dev/null
 
-    # More complex case: command that would block on stdin if not redirected
+    # More complex: Python trying to read stdin in a pipeline
+    # This simulates issue #684 where nested gptme would block on stdin
     ret_code, stdout, stderr = shell.run(
-        "python3 -c 'import sys; print(\"ready\")' | grep ready",
+        "python3 -c 'import sys; print(\"test\" if not sys.stdin.read() else \"blocked\")' | grep test",
         output=False,
         timeout=5.0,
     )
 
     assert ret_code == 0
-    assert "ready" in stdout
+    assert "test" in stdout

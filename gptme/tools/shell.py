@@ -272,12 +272,20 @@ class ShellSession:
 
             # For pipelines, redirect stdin for the first command only
             if "|" in command_parts and not has_stdin_redirect:
-                # Split on first pipe to isolate first command
-                parts = command.split("|", 1)
-                if len(parts) == 2:
-                    first_cmd = parts[0].strip()
-                    rest = parts[1]
+                # Find first pipe in tokenized parts
+                try:
+                    pipe_idx = command_parts.index("|")
+                    # Reconstruct command parts before and after pipe
+                    first_parts = command_parts[:pipe_idx]
+                    rest_parts = command_parts[pipe_idx + 1:]
+                    
+                    # Join parts back with proper quoting using shlex.join()
+                    first_cmd = shlex.join(first_parts)
+                    rest = shlex.join(rest_parts)
                     command = f"{first_cmd} < /dev/null | {rest}"
+                except (ValueError, IndexError) as e:
+                    # Fallback to raw command if parsing fails
+                    logger.warning(f"Failed to parse pipe in command: {e}")
             elif not has_stdin_redirect and "|" not in command_parts:
                 # No pipe and no stdin redirection - add /dev/null
                 command += " < /dev/null"
