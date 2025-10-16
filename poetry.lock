@@ -3553,6 +3553,22 @@ qa = ["flake8 (==5.0.4)", "mypy (==0.971)", "types-setuptools (==67.2.0.1)"]
 testing = ["docopt", "pytest"]
 
 [[package]]
+name = "pasteboard"
+version = "0.3.3"
+description = "Pasteboard - Python interface for reading from NSPasteboard (macOS clipboard)"
+optional = false
+python-versions = ">=3.6,<4.0"
+groups = ["main"]
+markers = "platform_system == \"Darwin\""
+files = [
+    {file = "pasteboard-0.3.3-cp36-cp36m-macosx_10_15_x86_64.whl", hash = "sha256:afd171e200316f6b3d3da381476921ca57cb8f26d2fa418f779454913918dbb9"},
+    {file = "pasteboard-0.3.3-cp37-cp37m-macosx_10_15_x86_64.whl", hash = "sha256:f99dd6c7039b755756b2068942c4c2487d6366e5a56eafd6db0ae7aa2a371a0e"},
+    {file = "pasteboard-0.3.3-cp38-cp38-macosx_10_15_x86_64.whl", hash = "sha256:19229dfa28f41afb5e731ac81e52bbc4212f67d678c082d3e3621cec0628a773"},
+    {file = "pasteboard-0.3.3-cp39-cp39-macosx_10_15_x86_64.whl", hash = "sha256:20a5c53bae8ac8186ecdd621020fb1b072d45a35f9f11a8e4cd5e82d76b485d0"},
+    {file = "pasteboard-0.3.3.tar.gz", hash = "sha256:d80275e76ff1eaaa5ca3d0e0fd8aecd5ea1298523dfd51f3774b5aaebdde02cf"},
+]
+
+[[package]]
 name = "pathable"
 version = "0.4.4"
 description = "Object-oriented paths"
@@ -3964,6 +3980,25 @@ files = [
 
 [package.extras]
 tests = ["pytest"]
+
+[[package]]
+name = "pyclip"
+version = "0.7.0"
+description = "Cross-platform clipboard utilities supporting both binary and text data."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "pyclip-0.7.0-py3-none-any.whl", hash = "sha256:a7b7ea2cfad2dd61e86a529af588d006070d3eb0bd32981afaee5215f4604fec"},
+    {file = "pyclip-0.7.0.tar.gz", hash = "sha256:57602047a4ceab709bdcd42f3dde6449a3349b95c16154cfdce27376a2072491"},
+]
+
+[package.dependencies]
+pasteboard = {version = "0.3.3", markers = "platform_system == \"Darwin\""}
+pywin32 = {version = ">=1.0", markers = "platform_system == \"Windows\""}
+
+[package.extras]
+test = ["pytest"]
 
 [[package]]
 name = "pycparser"
@@ -4518,7 +4553,7 @@ description = "Python for Window Extensions"
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "sys_platform == \"win32\""
+markers = "sys_platform == \"win32\" or platform_system == \"Windows\""
 files = [
     {file = "pywin32-311-cp310-cp310-win32.whl", hash = "sha256:d03ff496d2a0cd4a5893504789d4a15399133fe82517455e78bad62efbb7f0a3"},
     {file = "pywin32-311-cp310-cp310-win_amd64.whl", hash = "sha256:797c2772017851984b97180b0bebe4b620bb86328e8a884bb626156295a63b3b"},
@@ -6650,4 +6685,4 @@ youtube = ["youtube_transcript_api"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "b7b39b50c387d61d4886b2e09d25b52e3acac38ce01b1601712ec97c9a607756"
+content-hash = "4210b9f1a31ed715c8b96bca018a0ea3c491338ed24473b1e7fa68b2d9932987"
