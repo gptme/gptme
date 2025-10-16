@@ -125,6 +125,21 @@ def _extract_codeblocks(
                     if line.strip() == "```":
                         # Bare ``` - determine if opening or closing based on context
 
+                        # Check if previous line is a header-like structure
+                        # (headers followed by bare ``` are usually documentation/examples,
+                        # not code block delimiters)
+                        prev_line = content_lines[-1] if content_lines else ""
+                        prev_line_stripped = prev_line.strip()
+                        is_after_header = (
+                            # Bold text with colon (e.g., "**Structure:**")
+                            (
+                                prev_line_stripped.startswith("**")
+                                and prev_line_stripped.endswith(":**")
+                            )
+                            # Markdown headers (e.g., "## Subtitle")
+                            or prev_line_stripped.startswith("#")
+                        )
+
                         # Check next line
                         has_next_line = i + 1 < len(lines)
                         next_has_content = has_next_line and lines[i + 1].strip() != ""
@@ -160,9 +175,31 @@ def _extract_codeblocks(
                             else:
                                 content_lines.append(line)
                         elif next_has_content and not next_is_fence:
-                            # Next line has content, this is an opening tag
-                            nesting_depth += 1
-                            content_lines.append(line)
+                            # Check if this might be after a header with no nearby nested closing
+                            # (common pattern in autonomous run failures)
+                            if is_after_header:
+                                # Look ahead for a VERY nearby closing fence (within 5 lines)
+                                # If not found nearby, treat as literal content
+                                has_nearby_closing = False
+                                lookahead_limit = min(
+                                    i + 7, len(lines)
+                                )  # Within 6 lines
+                                for j in range(i + 1, lookahead_limit):
+                                    if lines[j].strip() == "```":
+                                        has_nearby_closing = True
+                                        break
+
+                                if not has_nearby_closing:
+                                    # No nearby closing fence, treat as literal content
+                                    content_lines.append(line)
+                                else:
+                                    # Has nearby closing, this is a valid nested block
+                                    nesting_depth += 1
+                                    content_lines.append(line)
+                            else:
+                                # Next line has content, this is an opening tag
+                                nesting_depth += 1
+                                content_lines.append(line)
                         elif streaming:
                             # Streaming mode: require blank line to confirm closure
                             if next_is_blank:
