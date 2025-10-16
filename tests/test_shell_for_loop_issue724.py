@@ -45,16 +45,16 @@ done"""
 
 def test_while_loop_multiline(shell):
     """Test that while loops also work correctly."""
-    # Use seq instead of arithmetic expansion to avoid bashlex limitation
-    script = """for count in $(seq 0 2); do
-  echo "Count: $count"
+    # Simple standalone while loop (avoids bashlex limitations)
+    script = """value="start"
+while [ "$value" != "done" ]; do
+  echo "Value: $value"
+  value="done"
 done"""
 
     ret, out, err = shell.run(script)
     assert ret == 0
-    assert "Count: 0" in out
-    assert "Count: 1" in out
-    assert "Count: 2" in out
+    assert "Value: start" in out
 
 
 def test_if_statement_multiline(shell):
