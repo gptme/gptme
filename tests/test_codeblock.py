@@ -848,6 +848,45 @@ Even more content here.
     assert "Even more content here" in content
 
 
+def test_save_with_structure_header_and_bare_backticks_streaming():
+    """
+    Streaming mode variant of test_save_with_structure_header_and_bare_backticks.
+
+    During streaming, the parser receives content incrementally and might see:
+    - "**Structure:**"
+    - "```"
+    And prematurely think "this closes the save block!" when it's actually
+    opening a nested example block.
+
+    In streaming mode, a blank line after the closing fence confirms completion.
+    This test verifies the parser correctly handles this pattern in streaming.
+    """
+    fence = "```"
+    markdown = f"""{fence}save file.txt
+This is a long file with multiple sections.
+
+Here's some initial content that works fine.
+
+**Structure:**
+{fence}
+More content that should be included but gets cut off.
+
+## Another Section
+Even more content here.
+{fence}
+
+"""  # Blank line after closing fence confirms completion in streaming mode
+
+    blocks = list(_extract_codeblocks(markdown, streaming=True))
+    assert len(blocks) == 1, "Should extract complete block in streaming mode"
+    content = blocks[0].content
+    assert "This is a long file" in content
+    assert "Structure:" in content
+    assert "More content that should be included" in content
+    assert "Another Section" in content
+    assert "Even more content here" in content
+
+
 def test_append_with_markdown_header_and_bare_backticks():
     """
     Another common failure from autonomous runs: append with markdown headers
@@ -872,6 +911,42 @@ More content that gets lost.
 
     blocks = list(_extract_codeblocks(markdown))
     assert len(blocks) == 1
+    content = blocks[0].content
+    assert "Journal Entry" in content
+    assert "Subtitle" in content
+    assert "This content after the bare backticks" in content
+    assert "Another Section" in content
+    assert "More content that gets lost" in content
+
+
+def test_append_with_markdown_header_and_bare_backticks_streaming():
+    """
+    Streaming mode variant of test_append_with_markdown_header_and_bare_backticks.
+
+    In streaming mode, markdown headers (## Subtitle) followed by bare backticks
+    can cause the parser to incorrectly detect block closure, cutting off content.
+
+    This test verifies the parser correctly handles this pattern during streaming,
+    waiting for blank line confirmation before treating the closing fence as final.
+    """
+    fence = "```"
+    markdown = f"""{fence}append journal.md
+# Journal Entry
+
+Some initial content here.
+
+## Subtitle
+{fence}
+This content after the bare backticks should be included but isn't.
+
+## Another Section
+More content that gets lost.
+{fence}
+
+"""  # Blank line confirms completion in streaming mode
+
+    blocks = list(_extract_codeblocks(markdown, streaming=True))
+    assert len(blocks) == 1, "Should extract complete block in streaming mode"
     content = blocks[0].content
     assert "Journal Entry" in content
     assert "Subtitle" in content
@@ -907,6 +982,50 @@ Final content.
 
     blocks = list(_extract_codeblocks(markdown))
     assert len(blocks) == 1
+    content = blocks[0].content
+    assert "Main Title" in content
+    assert "Important Note:" in content
+    assert "Additional content" in content
+    assert "Another Bold Header:" in content
+    assert "def example():" in content
+    assert "Final content" in content
+
+
+def test_save_with_bold_text_and_bare_backticks_streaming():
+    """
+    Streaming mode variant of test_save_with_bold_text_and_bare_backticks.
+
+    Tests that bold text headers (**Important Note:**) followed by bare backticks
+    don't cause premature block closure during streaming.
+
+    This pattern is common in documentation and frequently appeared in production
+    autonomous runs, causing content truncation. The blank line after closing
+    fence confirms completion in streaming mode.
+    """
+    fence = "```"
+    markdown = f"""{fence}save notes.md
+# Main Title
+
+Some content here.
+
+**Important Note:**
+{fence}
+Additional content that gets cut off.
+
+**Another Bold Header:**
+{fence}python
+# This code block also gets lost
+def example():
+    pass
+{fence}
+
+Final content.
+{fence}
+
+"""  # Blank line confirms completion in streaming mode
+
+    blocks = list(_extract_codeblocks(markdown, streaming=True))
+    assert len(blocks) == 1, "Should extract complete block in streaming mode"
     content = blocks[0].content
     assert "Main Title" in content
     assert "Important Note:" in content
