@@ -20,6 +20,10 @@ from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
 
+# Cache for incremental token counting (avoids O(N²) behavior)
+_token_totals: dict[str, int] = {}
+_message_counts: dict[str, int] = {}
+
 
 def add_token_budget(
     logdir: Path, workspace: Path | None, initial_msgs: list[Message], **kwargs
@@ -63,6 +67,8 @@ def add_token_usage_warning(
 ) -> Generator[Message, None, None]:
     """Add token usage warning after message processing.
 
+    Uses incremental token counting to avoid O(N²) behavior.
+
     Args:
         log: The conversation log
         workspace: Workspace directory path
@@ -80,9 +86,37 @@ def add_token_usage_warning(
 
         budget = model.context
 
-        # Calculate current token usage
-        # Count all messages in the log
-        used = len_tokens(log.messages, model.model)
+        # Use workspace as unique identifier for the conversation
+        # If workspace is None, fall back to recounting (less efficient but correct)
+        log_id = str(workspace) if workspace else None
+
+        # Calculate token usage
+        if log_id is None:
+            # No workspace identifier: fall back to counting all messages
+            # This is less efficient (O(N) per call) but ensures correctness
+            used = len_tokens(log.messages, model.model)
+        else:
+            # Incremental counting (O(1) amortized per message)
+            current_count = len(log.messages)
+            previous_count = _message_counts.get(log_id, 0)
+
+            if previous_count == 0:
+                # First time: count all messages
+                used = len_tokens(log.messages, model.model)
+                _token_totals[log_id] = used
+                _message_counts[log_id] = current_count
+            else:
+                # Subsequent times: only count new messages
+                new_messages = log.messages[previous_count:]
+                if new_messages:
+                    new_tokens = len_tokens(new_messages, model.model)
+                    used = _token_totals.get(log_id, 0) + new_tokens
+                    _token_totals[log_id] = used
+                    _message_counts[log_id] = current_count
+                else:
+                    # No new messages (shouldn't happen but handle gracefully)
+                    used = _token_totals.get(log_id, 0)
+
         remaining = budget - used
 
         # Add usage warning as a system message
@@ -93,7 +127,9 @@ def add_token_usage_warning(
             hide=True,
         )
 
-        logger.debug(f"Token usage: {used}/{budget}; {remaining} remaining")
+        logger.debug(
+            f"Token usage: {used}/{budget}; {remaining} remaining (incremental)"
+        )
 
     except Exception as e:
         logger.exception(f"Error adding token usage warning: {e}")
