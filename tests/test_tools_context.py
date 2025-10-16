@@ -131,8 +131,8 @@ def test_token_calculation_accuracy(load_context_tool, tmp_path):
     log = Log()
     msg1 = Message("user", "Hello world")
     msg2 = Message("assistant", "Hi there!")
-    log.append(msg1)
-    log.append(msg2)
+    log = log.append(msg1)
+    log = log.append(msg2)
 
     # Calculate expected token count
     expected_tokens = len_tokens(msg1, "gpt-4") + len_tokens(msg2, "gpt-4")
@@ -199,7 +199,7 @@ def test_multiple_usage_warnings(load_context_tool, tmp_path):
     set_default_model("openai/gpt-4")
 
     log = Log()
-    log.append(Message("user", "Hello"))
+    log = log.append(Message("user", "Hello"))
 
     # Trigger hook first time
     results1 = list(
@@ -208,8 +208,8 @@ def test_multiple_usage_warnings(load_context_tool, tmp_path):
     assert len([m for m in results1 if "<system_warning>" in m.content]) >= 1
 
     # Add more messages
-    log.append(Message("assistant", "Hi"))
-    log.append(Message("user", "How are you?"))
+    log = log.append(Message("assistant", "Hi"))
+    log = log.append(Message("user", "How are you?"))
 
     # Trigger hook second time
     results2 = list(
