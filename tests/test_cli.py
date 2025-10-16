@@ -355,7 +355,8 @@ def test_tmux(args: list[str], runner: CliRunner):
 @pytest.mark.requires_api
 @pytest.mark.flaky(retries=2, delay=5)
 @pytest.mark.skipif(
-    os.environ.get("MODEL") == "openai/gpt-4o-mini", reason="unreliable for gpt-4o-mini"
+    os.environ.get("MODEL") in ["openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"],
+    reason="unreliable/slow for gpt-4o-mini and claude-haiku-4-5",
 )
 def test_subagent(args: list[str], runner: CliRunner):
     # f14: 377
