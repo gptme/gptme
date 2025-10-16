@@ -32,6 +32,17 @@ Lynx backend:
        brew install lynx
        # or any other way that gets you the `lynx` command
 
+Provider Native Search:
+ - When using Anthropic Claude models, native web search can be enabled
+ - This uses Anthropic's built-in web search instead of web scraping
+ - More reliable than Google/DuckDuckGo scraping (which is blocked by bot detection)
+ - Configuration:
+
+   .. code-block:: bash
+
+       export GPTME_ANTHROPIC_WEB_SEARCH=true
+       export GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES=5  # Optional, default is 5
+
 .. note::
 
     This is an experimental feature. It needs some work to be more robust and useful.

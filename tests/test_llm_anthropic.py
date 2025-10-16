@@ -1,3 +1,5 @@
+import os
+
 from gptme.llm.llm_anthropic import _prepare_messages_for_api
 from gptme.message import Message
 from gptme.tools import get_tool, init_tools
@@ -245,3 +247,100 @@ def test_message_conversion_with_tool_and_non_tool():
             ],
         },
     ]
+
+
+def test_web_search_tool_enabled():
+    """Test that web search tool is included when environment variable is set."""
+    # Set environment variable
+    os.environ["GPTME_ANTHROPIC_WEB_SEARCH"] = "true"
+    os.environ["GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES"] = "3"
+
+    try:
+        messages = [
+            Message(
+                role="system",
+                content="You are a helpful assistant.",
+                pinned=True,
+                hide=True,
+            ),
+            Message(role="user", content="What's the weather today?"),
+        ]
+
+        messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
+            messages, None
+        )
+
+        # Verify web search tool is included
+        assert tools_dict is not None
+        assert len(tools_dict) == 1
+        assert tools_dict[0]["type"] == "web_search_20250305"
+        assert tools_dict[0]["name"] == "web_search"
+        assert tools_dict[0]["max_uses"] == 3
+    finally:
+        # Clean up environment variables
+        os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH", None)
+        os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES", None)
+
+
+def test_web_search_tool_disabled():
+    """Test that web search tool is not included when environment variable is not set."""
+    # Ensure environment variable is not set
+    os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH", None)
+
+    messages = [
+        Message(
+            role="system",
+            content="You are a helpful assistant.",
+            pinned=True,
+            hide=True,
+        ),
+        Message(role="user", content="What's the weather today?"),
+    ]
+
+    messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
+        messages, None
+    )
+
+    # Verify no tools are included
+    assert tools_dict is None
+
+
+def test_web_search_tool_with_other_tools():
+    """Test that web search tool is combined with other tools."""
+    os.environ["GPTME_ANTHROPIC_WEB_SEARCH"] = "true"
+
+    try:
+        init_tools(allowlist=["save"])
+        tool_save = get_tool("save")
+        assert tool_save is not None
+
+        messages = [
+            Message(
+                role="system",
+                content="You are a helpful assistant.",
+                pinned=True,
+                hide=True,
+            ),
+            Message(role="user", content="Search and save results"),
+        ]
+
+        messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
+            messages, [tool_save]
+        )
+
+        # Verify both tools are included
+        assert tools_dict is not None
+        assert len(tools_dict) == 2
+
+        # Check that save tool is present
+        save_tool = next((t for t in tools_dict if t.get("name") == "save"), None)
+        assert save_tool is not None
+
+        # Check that web_search tool is present
+        web_search_tool = next(
+            (t for t in tools_dict if t.get("type") == "web_search_20250305"), None
+        )
+        assert web_search_tool is not None
+        assert web_search_tool["max_uses"] == 5  # Default value
+    finally:
+        os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH", None)
