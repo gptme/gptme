@@ -27,6 +27,7 @@ from pygments.token import Name, Text
 from rich.console import Console
 
 from ..dirs import get_pt_history_file
+from .clipboard import get_clipboard_image, get_clipboard_text
 
 # Make cache management functions available at module level
 __all__ = ["clear_path_cache", "check_cwd", "is_valid_path", "PathLexer"]
@@ -398,6 +399,28 @@ def get_prompt_session() -> PromptSession:
         def _(event):
             """Insert newline on Ctrl+J"""
             event.current_buffer.insert_text("\n")
+
+        @kb.add("c-v")  # Add Ctrl+V support for clipboard paste (image or text)
+        def _(event):
+            """Paste from clipboard: image (as view_image code) or text"""
+            try:
+                # Try image first
+                image_path = get_clipboard_image()
+                if image_path:
+                    # Insert ipython code to view the image
+                    code = f'view_image("{image_path}")'
+                    event.current_buffer.insert_text(code)
+                    logger.info(f"Inserted clipboard image: {image_path}")
+                else:
+                    # No image, try text
+                    text = get_clipboard_text()
+                    if text:
+                        event.current_buffer.insert_text(text)
+                        logger.debug("Pasted text from clipboard")
+                    else:
+                        logger.debug("No content in clipboard")
+            except Exception as e:
+                logger.error(f"Error handling clipboard paste: {e}")
 
         @kb.add("enter")
         def _(event):

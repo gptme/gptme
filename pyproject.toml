@@ -66,6 +66,7 @@ dspy = {version = "^3.0.2", python = "<=3.13", optional=true}
 
 # datascience essentials
 pillow = {version = "*"}  # non-optional, needed for image scaling in vision
+pyclip = {version = "*"}  # non-optional, needed for clipboard image paste in vision
 matplotlib = {version = "*", optional=true}
 pandas = {version = "*", optional=true}
 numpy = {version = "*", optional=true}

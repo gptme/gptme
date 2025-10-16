@@ -75,6 +75,9 @@ def view_image(image_path: Path | str) -> Message:
 
 instructions = """
 Use the `view_image` Python function with `ipython` tool to view an image file.
+
+You can also use Ctrl+V to paste an image from the clipboard. If an image is detected,
+it will be automatically saved and `view_image()` code will be inserted into the prompt.
 """.strip()
 
 tool = ToolSpec(
