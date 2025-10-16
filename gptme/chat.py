@@ -31,7 +31,7 @@ from .util.ask_execute import ask_execute
 from .util.context import include_paths
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
-from .util.prompt import add_history, get_input
+from .util.prompt import add_history, get_input, set_attachments_dir
 from .util.sound import print_bell, wait_for_audio
 from .util.terminal import set_current_conv_name, terminal_state_title
 
@@ -195,8 +195,8 @@ def _run_chat_loop(
                     _wait_for_tts_if_enabled()
                     break
 
-                user_input = _get_user_input(manager.log, workspace)
-                if user_input is None:
+                msg = _get_user_input(manager.log, workspace, manager.logdir)
+                if msg is None:
                     # Either user wants to exit OR we should generate response directly
                     if _should_prompt_for_input(manager.log):
                         # User wants to exit
@@ -214,7 +214,6 @@ def _run_chat_loop(
                         )
                 else:
                     # Normal case: user provided input
-                    msg = user_input
                     manager.append(msg)
 
                     # Reset interrupt flag since user provided new input
@@ -359,9 +358,13 @@ def _should_prompt_for_input(log: Log) -> bool:
     )
 
 
-def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
+def _get_user_input(log: Log, workspace: Path | None, logdir: Path) -> Message | None:
     """Get user input, returning None if user wants to exit."""
     clear_interruptible()  # Don't interrupt during user input
+
+    # Set attachments directory for pasted images
+    attachments_dir = logdir / "attachments"
+    set_attachments_dir(attachments_dir)
 
     # Check if we should prompt for input or generate response directly
     if not _should_prompt_for_input(log):
