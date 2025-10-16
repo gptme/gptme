@@ -259,7 +259,7 @@ class ShellSession:
 
         # Check if this is a compound command (for, while, if, case, function, etc.)
         # These should not be parsed with shlex as it breaks their syntax
-        compound_keywords = [
+        compound_keywords = {
             "for",
             "while",
             "if",
@@ -267,7 +267,7 @@ class ShellSession:
             "function",
             "until",
             "select",
-        ]
+        }
         is_compound = any(
             command.strip().startswith(kw + " ") for kw in compound_keywords
         )
