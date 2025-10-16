@@ -70,7 +70,7 @@ class TestAutoIncludeLessonsHook:
     def test_hook_disabled_when_no_lessons_module(self, conversation_log, mock_config):
         """Test that hook does nothing when lessons module unavailable."""
         with patch("gptme.tools.lessons.HAS_LESSONS", False):
-            messages = list(auto_include_lessons_hook(conversation_log))
+            messages = list(auto_include_lessons_hook(conversation_log) or [])
             assert len(messages) == 0
 
     def test_hook_disabled_by_config(self, conversation_log, mock_config):
@@ -78,7 +78,7 @@ class TestAutoIncludeLessonsHook:
         mock_config.get_env_bool.return_value = False
 
         with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            messages = list(auto_include_lessons_hook(conversation_log))
+            messages = list(auto_include_lessons_hook(conversation_log) or [])
             assert len(messages) == 0
 
         mock_config.get_env_bool.assert_called_once_with(
@@ -90,7 +90,7 @@ class TestAutoIncludeLessonsHook:
         log = [Message(role="system", content="System message")]
 
         with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            messages = list(auto_include_lessons_hook(log))
+            messages = list(auto_include_lessons_hook(log) or [])
             assert len(messages) == 0
 
     def test_hook_no_lessons_in_index(self, conversation_log, mock_config):
@@ -101,7 +101,7 @@ class TestAutoIncludeLessonsHook:
                 mock_index.lessons = []
                 mock_get_index.return_value = mock_index
 
-                messages = list(auto_include_lessons_hook(conversation_log))
+                messages = list(auto_include_lessons_hook(conversation_log) or [])
                 assert len(messages) == 0
 
     def test_hook_no_matching_lessons(
@@ -119,7 +119,7 @@ class TestAutoIncludeLessonsHook:
                     mock_matcher.match.return_value = []
                     mock_matcher_class.return_value = mock_matcher
 
-                    messages = list(auto_include_lessons_hook(conversation_log))
+                    messages = list(auto_include_lessons_hook(conversation_log) or [])
                     assert len(messages) == 0
 
     def test_hook_includes_matching_lessons(
@@ -137,7 +137,7 @@ class TestAutoIncludeLessonsHook:
                     mock_matcher.match.return_value = [sample_match]
                     mock_matcher_class.return_value = mock_matcher
 
-                    messages = list(auto_include_lessons_hook(conversation_log))
+                    messages = list(auto_include_lessons_hook(conversation_log) or [])
 
                     assert len(messages) == 1
                     message = messages[0]
@@ -183,7 +183,7 @@ class TestAutoIncludeLessonsHook:
                     mock_matcher.match.return_value = matches
                     mock_matcher_class.return_value = mock_matcher
 
-                    messages = list(auto_include_lessons_hook(conversation_log))
+                    messages = list(auto_include_lessons_hook(conversation_log) or [])
 
                     assert len(messages) == 1
                     content = messages[0].content
@@ -210,7 +210,7 @@ class TestAutoIncludeLessonsHook:
                     mock_matcher_class.return_value = mock_matcher
 
                     # Should not raise error, should use default of 5
-                    messages = list(auto_include_lessons_hook(conversation_log))
+                    messages = list(auto_include_lessons_hook(conversation_log) or [])
                     assert len(messages) == 0
 
     def test_hook_handles_exception(self, conversation_log, mock_config):
@@ -220,7 +220,7 @@ class TestAutoIncludeLessonsHook:
                 mock_get_index.side_effect = Exception("Test error")
 
                 # Should not raise, should log warning
-                messages = list(auto_include_lessons_hook(conversation_log))
+                messages = list(auto_include_lessons_hook(conversation_log) or [])
                 assert len(messages) == 0
 
 

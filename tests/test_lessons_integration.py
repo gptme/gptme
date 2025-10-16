@@ -229,7 +229,7 @@ class TestDocsLessonsAutoInclude:
                     mock_cfg.get_env_bool.return_value = True
                     mock_cfg.get_env.return_value = "5"
 
-                    messages = list(auto_include_lessons_hook(log))
+                    messages = list(auto_include_lessons_hook(log) or [])
 
                     assert len(messages) > 0, "Should include lessons"
 
@@ -257,7 +257,7 @@ class TestDocsLessonsAutoInclude:
                     mock_cfg.get_env_bool.return_value = True
                     mock_cfg.get_env.return_value = "5"
 
-                    messages = list(auto_include_lessons_hook(log))
+                    messages = list(auto_include_lessons_hook(log) or [])
 
                     assert (
                         len(messages) > 0
@@ -290,7 +290,7 @@ class TestDocsLessonsAutoInclude:
                     mock_cfg.get_env_bool.return_value = True
                     mock_cfg.get_env.return_value = "5"
 
-                    messages = list(auto_include_lessons_hook(log))
+                    messages = list(auto_include_lessons_hook(log) or [])
 
                     # Should not include patch lesson again since it's in history
                     if messages:
