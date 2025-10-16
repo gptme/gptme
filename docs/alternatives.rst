@@ -29,7 +29,7 @@ Here we will briefly introduce some we like, along with their key features.
    :trim:
 
 .. list-table:: Comparison
-   :widths: 20 10 20 10 15 10
+   :widths: 18 9 18 9 13 9 12
    :header-rows: 1
 
    * -
@@ -37,60 +37,70 @@ Here we will briefly introduce some we like, along with their key features.
      - Focus
      - Hosting
      - Price
+     - Funding
      - Open |nbsp| Source
    * - gptme
      - CLI
      - General purpose
      - Local
      - Free
+     - Bootstrap
      - ✅
    * - Open Interpreter
      - CLI
      - General purpose
      - Local
      - Free
+     - ?
      - ✅
    * - Aider
      - CLI
      - Coding
      - Local
      - Free
+     - Bootstrap
      - ✅
    * - Moatless Tools
      - CLI
      - Coding
      - Local
      - Free
+     - Bootstrap
      - ✅
    * - OpenHands
      - CLI/Web
      - General purpose
      - Both
      - Free
+     - VC ($5M)
      - ✅
    * - Lovable.dev
      - Web app
      - Frontend
      - SaaS
      - Credits
+     - VC ($8M)
      - ❌
    * - Cursor
      - IDE fork
      - Coding
      - Desktop
      - $20/mo
+     - VC ($1.1B)
      - ❌
    * - Claude Desktop
      - Desktop app
      - General purpose
      - Desktop
      - $20/mo
+     - VC
      - ❌
    * - Claude Projects
      - Web app
      - Chat with files
      - SaaS
      - $20/mo
+     - VC
      - ❌
 
 
