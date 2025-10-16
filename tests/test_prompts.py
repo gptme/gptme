@@ -24,7 +24,8 @@ def test_get_prompt_short():
     combined_content = "\n\n".join(msg.content for msg in prompt_msgs)
     # TODO: make the short prompt shorter
     # Note: Lesson system additions increased prompt size slightly
-    assert 500 < len_tokens(combined_content, "gpt-4") < 3100
+    # Updated to 3200 after lesson message pattern detection feature added
+    assert 500 < len_tokens(combined_content, "gpt-4") < 3200
 
 
 def test_get_prompt_custom():
