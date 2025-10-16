@@ -112,10 +112,6 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
 @pytest.mark.timeout(30)
 @pytest.mark.slow
 @pytest.mark.requires_api
-@pytest.mark.skipif(
-    "claude-haiku" in os.getenv("MODEL", "").lower(),
-    reason="Claude Haiku models output thinking tags in names",
-)
 def test_auto_naming_meaningful_content(event_listener, wait_for_event):
     """Test that auto-naming generates contextually relevant names."""
     import re
