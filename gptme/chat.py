@@ -74,6 +74,14 @@ def chat(
     # init
     init(model, interactive, tool_allowlist)
 
+    # tool_format should already be resolved by this point
+    assert (
+        tool_format is not None
+    ), "tool_format should be resolved before calling chat()"
+
+    # Set tool format early to ensure LogManager and hooks use correct format
+    set_tool_format(tool_format)
+
     # Trigger session start hooks
 
     if session_start_msgs := trigger_hook(
@@ -101,15 +109,6 @@ def chat(
     manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
 
     # Note: todowrite replay is now handled by the todo_replay tool via SESSION_START hook
-
-    # tool_format should already be resolved by this point
-    assert (
-        tool_format is not None
-    ), "tool_format should be resolved before calling chat()"
-
-    # By defining the tool_format at the last moment we ensure we can use the
-    # configuration for subagent
-    set_tool_format(tool_format)
 
     # Initialize workspace
     console.log(f"Using workspace: {path_with_tilde(workspace)}")
