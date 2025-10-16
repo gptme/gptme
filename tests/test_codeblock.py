@@ -848,6 +848,11 @@ Even more content here.
     assert "Even more content here" in content
 
 
+@pytest.mark.xfail(
+    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
+    "The fence after 'Structure:' opens a new block (not closes save block), and final fence closes that block, "
+    "leaving the save block unclosed. Current implementation incorrectly extracts 1 block. See PR #721 review."
+)
 def test_save_with_structure_header_and_bare_backticks_streaming():
     """
     Streaming mode variant of test_save_with_structure_header_and_bare_backticks.
@@ -878,13 +883,9 @@ Even more content here.
 """  # Blank line after closing fence confirms completion in streaming mode
 
     blocks = list(_extract_codeblocks(markdown, streaming=True))
-    assert len(blocks) == 1, "Should extract complete block in streaming mode"
-    content = blocks[0].content
-    assert "This is a long file" in content
-    assert "Structure:" in content
-    assert "More content that should be included" in content
-    assert "Another Section" in content
-    assert "Even more content here" in content
+    # No complete blocks should be extracted because the opening save fence is never closed
+    # (the fence after "Structure:" opens a new block, and the final fence closes that block)
+    assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
 
 
 def test_append_with_markdown_header_and_bare_backticks():
@@ -919,6 +920,10 @@ More content that gets lost.
     assert "More content that gets lost" in content
 
 
+@pytest.mark.xfail(
+    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
+    "Opening markdown fence never gets closed. See PR #721 review."
+)
 def test_append_with_markdown_header_and_bare_backticks_streaming():
     """
     Streaming mode variant of test_append_with_markdown_header_and_bare_backticks.
@@ -946,13 +951,9 @@ More content that gets lost.
 """  # Blank line confirms completion in streaming mode
 
     blocks = list(_extract_codeblocks(markdown, streaming=True))
-    assert len(blocks) == 1, "Should extract complete block in streaming mode"
-    content = blocks[0].content
-    assert "Journal Entry" in content
-    assert "Subtitle" in content
-    assert "This content after the bare backticks" in content
-    assert "Another Section" in content
-    assert "More content that gets lost" in content
+    # No complete blocks should be extracted because the opening markdown fence is never closed
+    # (the fence after "Subtitle" opens a new block, and the final fence closes that block)
+    assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
 
 
 def test_save_with_bold_text_and_bare_backticks():
@@ -991,6 +992,11 @@ Final content.
     assert "Final content" in content
 
 
+@pytest.mark.xfail(
+    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
+    "Per Erik's review: 1. save (open), 2. no langtag (open), 3. python (open), "
+    "4. no langtag (closes 3), 5. no langtag (closes 2), but no 6th fence to close 1. See PR #721 review."
+)
 def test_save_with_bold_text_and_bare_backticks_streaming():
     """
     Streaming mode variant of test_save_with_bold_text_and_bare_backticks.
@@ -1025,11 +1031,7 @@ Final content.
 """  # Blank line confirms completion in streaming mode
 
     blocks = list(_extract_codeblocks(markdown, streaming=True))
-    assert len(blocks) == 1, "Should extract complete block in streaming mode"
-    content = blocks[0].content
-    assert "Main Title" in content
-    assert "Important Note:" in content
-    assert "Additional content" in content
-    assert "Another Bold Header:" in content
-    assert "def example():" in content
-    assert "Final content" in content
+    # No complete blocks should be extracted because the opening save fence is never closed
+    # Per Erik's review: 1. save (open), 2. no langtag (open), 3. python (open),
+    # 4. no langtag (closes 3), 5. no langtag (closes 2), but no 6th fence to close 1
+    assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
