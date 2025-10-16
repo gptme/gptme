@@ -584,3 +584,17 @@ EOF2""",
             reason is not None
         ), f"Should have reason for dangerous command: {cmd[:50]}..."
         assert matched_cmd is not None, f"Should have matched command: {cmd[:50]}..."
+
+
+def test_heredoc_in_compound_command(shell):
+    """Test that heredocs work correctly in compound commands with &&."""
+    # Issue #703: This should not get stuck
+    ret, out, err = shell.run(
+        """echo "test" && python3 <<'EOF'
+print('0')
+EOF"""
+    )
+    assert ret == 0
+    assert "test" in out
+    assert "0" in out
+    assert err.strip() == ""

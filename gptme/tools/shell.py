@@ -819,6 +819,31 @@ def _shorten_stdout(
     return "\n".join(lines)
 
 
+def _find_max_heredoc_pos(node, current_max: int = 0) -> int:
+    """Recursively find the maximum position from any heredoc nodes.
+
+    This is needed because bashlex stores heredoc content in nested RedirectNode
+    objects, and the top-level part.pos doesn't include the heredoc content positions.
+    """
+    max_pos = current_max
+
+    # Check if this node has a heredoc
+    if hasattr(node, "heredoc") and node.heredoc:
+        heredoc_end = node.heredoc.pos[1]
+        max_pos = max(max_pos, heredoc_end)
+
+    # Recursively check child nodes
+    if hasattr(node, "parts"):
+        for part in node.parts:
+            max_pos = max(max_pos, _find_max_heredoc_pos(part, max_pos))
+
+    if hasattr(node, "list"):
+        for item in node.list:
+            max_pos = max(max_pos, _find_max_heredoc_pos(item, max_pos))
+
+    return max_pos
+
+
 def split_commands(script: str) -> list[str]:
     # TODO: write proper tests
 
@@ -844,7 +869,9 @@ def split_commands(script: str) -> list[str]:
                 command = " ".join(command_parts)
                 commands.append(command)
         elif part.kind in ["function", "pipeline", "list"]:
-            commands.append(processed_script[part.pos[0] : part.pos[1]])
+            # Find the maximum position including heredoc content
+            max_pos = _find_max_heredoc_pos(part, part.pos[1])
+            commands.append(processed_script[part.pos[0] : max_pos])
         else:
             logger.warning(
                 f"Unknown shell script part of kind '{part.kind}', hoping this works"
