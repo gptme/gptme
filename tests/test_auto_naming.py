@@ -112,8 +112,6 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
 @pytest.mark.requires_api
 def test_auto_naming_meaningful_content(event_listener, wait_for_event):
     """Test that auto-naming generates contextually relevant names."""
-    import re
-
     port = event_listener["port"]
     conversation_id = event_listener["conversation_id"]
     session_id = event_listener["session_id"]
@@ -144,13 +142,8 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
     chat_config = ChatConfig.from_logdir(logdir)
 
     assert chat_config.name is not None, "Expected auto-generated name but got None"
-
-    # Clean thinking tags that some models (e.g., Claude Haiku) output in names
-    name = chat_config.name
-    name = re.sub(r"</?think>", "", name).strip()
-    name = name.lower()
-
-    print(f"Auto-generated display name: '{chat_config.name}' (cleaned: '{name}')")
+    name = chat_config.name.lower()
+    print(f"Auto-generated display name: '{chat_config.name}'")
 
     # Should contain relevant keywords (being flexible since LLM might use different terms)
     relevant_keywords = [
@@ -163,4 +156,4 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
         "web",
     ]
     has_relevant_content = any(keyword in name for keyword in relevant_keywords)
-    assert has_relevant_content, f"Generated name '{chat_config.name}' (cleaned: '{name}') doesn't seem contextually relevant. Expected keywords: {relevant_keywords}"
+    assert has_relevant_content, f"Generated name '{chat_config.name}' doesn't seem contextually relevant. Expected keywords: {relevant_keywords}"
