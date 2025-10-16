@@ -598,3 +598,28 @@ EOF"""
     assert "test" in out
     assert "0" in out
     assert err.strip() == ""
+
+
+def test_pipe_with_stdin_consuming_command(shell):
+    """Test that piping commands that consume stdin doesn't hang (issue #684).
+
+    Commands like gptme that try to read from stdin can cause deadlocks in pipelines
+    if stdin isn't properly redirected to /dev/null for the first command.
+    """
+    # This used to hang before the fix
+    ret_code, stdout, stderr = shell.run(
+        "echo 'test' | grep test", output=False, timeout=5.0
+    )
+
+    assert ret_code == 0
+    assert "test" in stdout
+
+    # More complex case: command that would block on stdin if not redirected
+    ret_code, stdout, stderr = shell.run(
+        "python3 -c 'import sys; print(\"ready\")' | grep ready",
+        output=False,
+        timeout=5.0,
+    )
+
+    assert ret_code == 0
+    assert "ready" in stdout
