@@ -74,11 +74,11 @@ def init(provider: Provider, config: Config):
     if proxy_url and not proxy_url.endswith("/messages"):
         proxy_url = proxy_url + "/messages" if proxy_url else None
 
-    # Get configurable API timeout (default: 300 seconds = 5 minutes)
-    # This catches indefinite hangs on API calls while being generous enough
-    # for most legitimate inference requests. Configurable via LLM_API_TIMEOUT.
+    # Get configurable API timeout (optional, defaults to client's 10-minute default)
+    # Only set if LLM_API_TIMEOUT is explicitly configured.
+    # OpenAI client default is 600 seconds (10 minutes), which is usually sufficient.
     timeout_str = config.get_env("LLM_API_TIMEOUT")
-    timeout = float(timeout_str) if timeout_str else 300.0
+    timeout = float(timeout_str) if timeout_str else 600.0
 
     if provider == "openai":
         api_key = proxy_key or config.get_env_required("OPENAI_API_KEY")
