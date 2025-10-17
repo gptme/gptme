@@ -749,10 +749,22 @@ def execute_shell(
     if validation_mode != "off":
         is_valid, warnings = validate_command(cmd)
         if warnings:
-            warning_msg = "Shell validation warnings:\n"
+            # Format warnings with suggestions and lesson links
+            warning_parts = ["Shell validation warnings:"]
             for warning in warnings:
-                warning_msg += f"  - {warning}\n"
+                # Severity indicator
+                icon = "❌" if warning.severity == "error" else "⚠️"
+                warning_parts.append(f"\n{icon} {warning.message}")
 
+                # Add suggestion if present
+                if warning.suggestion:
+                    warning_parts.append(f"   💡 {warning.suggestion}")
+
+                # Add lesson link if present
+                if warning.lesson:
+                    warning_parts.append(f"   📖 See: {warning.lesson}")
+
+            warning_msg = "\n".join(warning_parts)
             logger.warning(warning_msg)
 
             if validation_mode == "strict":
@@ -763,7 +775,7 @@ def execute_shell(
                 return
             else:
                 # In 'warn' mode, log but allow execution
-                yield Message("system", f"⚠️  {warning_msg}\nExecuting anyway...")
+                yield Message("system", f"{warning_msg}\n\n⚠️  Executing anyway...")
 
     # Check for timeout from environment variable
     # Default to 20 minutes (1200s) if not set

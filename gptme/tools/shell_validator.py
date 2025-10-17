@@ -7,11 +7,12 @@ from typing import Literal
 
 @dataclass
 class ValidationWarning:
-    """A validation warning with severity and suggested fix."""
+    """A validation warning with severity, suggested fix, and documentation link."""
 
     severity: Literal["error", "warning"]
     message: str
     suggestion: str | None = None
+    lesson: str | None = None  # Link to relevant lesson documentation
 
 
 class ShellValidator:
@@ -109,6 +110,7 @@ class ShellValidator:
                         severity="warning",
                         message=f"Possible bare variable '{var_name}' (missing $ prefix)",
                         suggestion=f"Use '${var_name}' if this is a variable reference",
+                        lesson="lessons/tools/shell-variable-syntax.md",
                     )
                 )
 
@@ -131,6 +133,7 @@ class ShellValidator:
                     severity="warning",
                     message="Using 'python' instead of 'python3'",
                     suggestion="Use 'python3' explicitly to avoid ambiguity",
+                    lesson="lessons/tools/python-invocation.md",
                 )
             )
 
@@ -177,6 +180,7 @@ class ShellValidator:
                         severity="warning",
                         message=f"Direct execution of Python file: {py_file}",
                         suggestion=f"Use 'python3 {py_file}' instead",
+                        lesson="lessons/tools/python-file-execution.md",
                     )
                 )
 
@@ -204,6 +208,7 @@ class ShellValidator:
                     severity="warning",
                     message=f"Path with spaces should be quoted: {path}",
                     suggestion=f'Use "{path}" with quotes',
+                    lesson="lessons/tools/shell-path-quoting.md",
                 )
             )
 
@@ -226,6 +231,7 @@ class ShellValidator:
                     severity="warning",
                     message=f"Incorrect path: /home/bob/Programming/{project}",
                     suggestion=f"Projects are at /home/bob/{project}, not in Programming/",
+                    lesson="lessons/workflow/directory-structure-awareness.md",
                 )
             )
 
@@ -235,17 +241,16 @@ class ShellValidator:
 # Convenience function for simple validation
 def validate_command(
     cmd: str, level: Literal["strict", "warn", "off"] = "warn"
-) -> tuple[bool, list[str]]:
-    """Validate a shell command and return simple result.
+) -> tuple[bool, list[ValidationWarning]]:
+    """Validate a shell command and return detailed warnings.
 
     Args:
         cmd: Shell command to validate
         level: Validation level ("strict", "warn", or "off")
 
     Returns:
-        (is_valid, warning_messages): Validation result
+        (is_valid, warnings): Validation result with detailed warning objects
     """
     validator = ShellValidator(validation_level=level)
     is_valid, warnings = validator.validate(cmd)
-    messages = [f"{w.severity.upper()}: {w.message}" for w in warnings]
-    return is_valid, messages
+    return is_valid, warnings

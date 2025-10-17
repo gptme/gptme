@@ -232,13 +232,23 @@ class TestConvenienceFunction:
     """Tests for validate_command convenience function."""
 
     def test_returns_simple_format(self):
-        """Should return simple format with message strings."""
-        is_valid, messages = validate_command("python script.py")
+        """Should return ValidationWarning objects with full details."""
+        is_valid, warnings = validate_command("python script.py")
 
-        assert isinstance(messages, list)
-        assert all(isinstance(m, str) for m in messages)
-        assert len(messages) > 0
-        assert any("python3" in m.lower() for m in messages)
+        assert isinstance(warnings, list)
+        assert len(warnings) > 0
+
+        # Check that we got ValidationWarning objects
+        from gptme.tools.shell_validator import ValidationWarning
+
+        assert all(isinstance(w, ValidationWarning) for w in warnings)
+
+        # Check warning details
+        warning = warnings[0]
+        assert "python3" in warning.message.lower()
+        assert warning.suggestion is not None
+        assert warning.lesson is not None
+        assert "lessons/tools/python-invocation.md" in warning.lesson
 
     def test_strict_level(self):
         """Should support strict level."""
