@@ -470,15 +470,19 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
             shell=True,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=60,
         )
-        logger.debug(f"Context command took {time.time() - start:.2f}s")
+        duration = time.time() - start
+        logger.log(
+            logging.WARNING if duration > 10.0 else logging.DEBUG,
+            f"Context command took {duration:.2f}s",
+        )
         if result.returncode == 0:
             return md_codeblock(cmd, result.stdout)
         else:
-            logger.warning(f"Failed to run context command '{cmd}': {result.stderr}")
+            logger.error(f"Failed to run context command '{cmd}': {result.stderr}")
     except Exception as e:
-        logger.warning(f"Error running context command: {e}")
+        logger.error(f"Error running context command: {e}")
     return None
 
 

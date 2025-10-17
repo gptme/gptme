@@ -848,6 +848,46 @@ Even more content here.
     assert "Even more content here" in content
 
 
+@pytest.mark.xfail(
+    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
+    "The fence after 'Structure:' opens a new block (not closes save block), and final fence closes that block, "
+    "leaving the save block unclosed. Current implementation incorrectly extracts 1 block. See PR #721 review."
+)
+def test_save_with_structure_header_and_bare_backticks_streaming():
+    """
+    Streaming mode variant of test_save_with_structure_header_and_bare_backticks.
+
+    During streaming, the parser receives content incrementally and might see:
+    - "**Structure:**"
+    - "```"
+    And prematurely think "this closes the save block!" when it's actually
+    opening a nested example block.
+
+    In streaming mode, a blank line after the closing fence confirms completion.
+    This test verifies the parser correctly handles this pattern in streaming.
+    """
+    fence = "```"
+    markdown = f"""{fence}save file.txt
+This is a long file with multiple sections.
+
+Here's some initial content that works fine.
+
+**Structure:**
+{fence}
+More content that should be included but gets cut off.
+
+## Another Section
+Even more content here.
+{fence}
+
+"""  # Blank line after closing fence confirms completion in streaming mode
+
+    blocks = list(_extract_codeblocks(markdown, streaming=True))
+    # No complete blocks should be extracted because the opening save fence is never closed
+    # (the fence after "Structure:" opens a new block, and the final fence closes that block)
+    assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
+
+
 def test_append_with_markdown_header_and_bare_backticks():
     """
     Another common failure from autonomous runs: append with markdown headers
@@ -878,6 +918,42 @@ More content that gets lost.
     assert "This content after the bare backticks" in content
     assert "Another Section" in content
     assert "More content that gets lost" in content
+
+
+@pytest.mark.xfail(
+    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
+    "Opening markdown fence never gets closed. See PR #721 review."
+)
+def test_append_with_markdown_header_and_bare_backticks_streaming():
+    """
+    Streaming mode variant of test_append_with_markdown_header_and_bare_backticks.
+
+    In streaming mode, markdown headers (## Subtitle) followed by bare backticks
+    can cause the parser to incorrectly detect block closure, cutting off content.
+
+    This test verifies the parser correctly handles this pattern during streaming,
+    waiting for blank line confirmation before treating the closing fence as final.
+    """
+    fence = "```"
+    markdown = f"""{fence}append journal.md
+# Journal Entry
+
+Some initial content here.
+
+## Subtitle
+{fence}
+This content after the bare backticks should be included but isn't.
+
+## Another Section
+More content that gets lost.
+{fence}
+
+"""  # Blank line confirms completion in streaming mode
+
+    blocks = list(_extract_codeblocks(markdown, streaming=True))
+    # No complete blocks should be extracted because the opening markdown fence is never closed
+    # (the fence after "Subtitle" opens a new block, and the final fence closes that block)
+    assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
 
 
 def test_save_with_bold_text_and_bare_backticks():
@@ -914,3 +990,48 @@ Final content.
     assert "Another Bold Header:" in content
     assert "def example():" in content
     assert "Final content" in content
+
+
+@pytest.mark.xfail(
+    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
+    "Per Erik's review: 1. save (open), 2. no langtag (open), 3. python (open), "
+    "4. no langtag (closes 3), 5. no langtag (closes 2), but no 6th fence to close 1. See PR #721 review."
+)
+def test_save_with_bold_text_and_bare_backticks_streaming():
+    """
+    Streaming mode variant of test_save_with_bold_text_and_bare_backticks.
+
+    Tests that bold text headers (**Important Note:**) followed by bare backticks
+    don't cause premature block closure during streaming.
+
+    This pattern is common in documentation and frequently appeared in production
+    autonomous runs, causing content truncation. The blank line after closing
+    fence confirms completion in streaming mode.
+    """
+    fence = "```"
+    markdown = f"""{fence}save notes.md
+# Main Title
+
+Some content here.
+
+**Important Note:**
+{fence}
+Additional content that gets cut off.
+
+**Another Bold Header:**
+{fence}python
+# This code block also gets lost
+def example():
+    pass
+{fence}
+
+Final content.
+{fence}
+
+"""  # Blank line confirms completion in streaming mode
+
+    blocks = list(_extract_codeblocks(markdown, streaming=True))
+    # No complete blocks should be extracted because the opening save fence is never closed
+    # Per Erik's review: 1. save (open), 2. no langtag (open), 3. python (open),
+    # 4. no langtag (closes 3), 5. no langtag (closes 2), but no 6th fence to close 1
+    assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"

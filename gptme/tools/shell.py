@@ -295,9 +295,23 @@ class ShellSession:
                     or "<<<" in command_parts
                 )
 
+            # Check if command has compound operators (&&, ||, ;)
+            # These should be passed through as-is without stdin redirection
+            has_compound_operators = (
+                "&&" in command_parts or "||" in command_parts or ";" in command_parts
+            )
+
+            # For commands with compound operators, don't add stdin redirection
+            # to avoid breaking the command structure
+            if has_compound_operators:
+                # Pass command through as-is
+                pass
             # For pipelines, redirect stdin for the first command only
+
             # Skip this logic for compound commands
-            if not is_compound and "|" in command_parts and not has_stdin_redirect:
+
+            elif not is_compound and "|" in command_parts and not has_stdin_redirect:
+
                 # Find first pipe in tokenized parts
                 try:
                     pipe_idx = command_parts.index("|")
@@ -305,9 +319,10 @@ class ShellSession:
                     first_parts = command_parts[:pipe_idx]
                     rest_parts = command_parts[pipe_idx + 1 :]
 
-                    # Join parts back with proper quoting using shlex.join()
-                    first_cmd = shlex.join(first_parts)
-                    rest = shlex.join(rest_parts)
+                    # Use simple space join instead of shlex.join() to preserve
+                    # shell expansion (tilde, variables, etc.)
+                    first_cmd = " ".join(first_parts)
+                    rest = " ".join(rest_parts)
                     command = f"{first_cmd} < /dev/null | {rest}"
                 except (ValueError, IndexError) as e:
                     # Fallback to raw command if parsing fails

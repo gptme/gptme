@@ -158,6 +158,9 @@ def auto_include_lessons_hook(
 
         # Limit to top N
         new_matches = new_matches[:max_lessons]
+        titles = [str(match.lesson.title) for match in new_matches]
+        newline = "\n- "
+        logger.info(f"Including {len(new_matches)} lessons: \n{newline.join(titles)}")
 
         # Format lessons for inclusion
         lesson_content = _format_lessons(new_matches)

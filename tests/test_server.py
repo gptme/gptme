@@ -70,6 +70,10 @@ def test_api_conversation_generate(conv: str, client: FlaskClient):
     assert data  # Ensure we got some response
     msgs_resps = response.get_json()
     assert msgs_resps is not None  # Ensure we got valid JSON
+    # Make sure it is a list and not an error
+    assert isinstance(
+        msgs_resps, list
+    ), f"Response should be a list of messages, got: {msgs_resps}"
     # Assistant message + possible tool output
     assert len(msgs_resps) >= 1
 
