@@ -107,8 +107,11 @@ def test_command_tools(args: list[str], runner: CliRunner):
 
 @pytest.mark.slow
 @pytest.mark.requires_api
-def test_command_summarize(args: list[str], runner: CliRunner):
+def test_command_summarize(args: list[str], runner: CliRunner, monkeypatch):
     # tests the /summarize command
+    # Set timeout to 5 minutes to avoid Anthropic's streaming recommendation
+    # (Anthropic requires streaming for timeouts >= 10 minutes)
+    monkeypatch.setenv("LLM_API_TIMEOUT", "300")
     args.append("/summarize")
     print(f"running: gptme {' '.join(args)}")
     result = runner.invoke(gptme.cli.main, args)
