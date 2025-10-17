@@ -98,6 +98,10 @@ class RagConfig:
     max_tokens: int | None = None
     min_relevance: float | None = None
     post_process: bool = True
+    post_process_model: str | None = None
+    post_process_prompt: str | None = None
+    workspace_only: bool = True
+    paths: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -121,11 +125,6 @@ class ShellValidationConfig:
             level=level,
             rules=rules,
         )
-
-    post_process_model: str | None = None
-    post_process_prompt: str | None = None
-    workspace_only: bool = True
-    paths: list[str] = field(default_factory=list)
 
 
 @dataclass
