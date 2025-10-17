@@ -1,8 +1,9 @@
 import os
+from unittest.mock import patch
 
 from gptme.llm.llm_anthropic import _prepare_messages_for_api
 from gptme.message import Message
-from gptme.tools import get_tool, init_tools
+from gptme.tools import ToolSpec, get_tool, init_tools
 
 
 def test_message_conversion():
@@ -303,6 +304,84 @@ def test_web_search_tool_disabled():
 
     # Verify no tools are included
     assert tools_dict is None
+
+
+def test_web_search_invalid_max_uses():
+    """Test that invalid max_uses value falls back to default."""
+    os.environ["GPTME_ANTHROPIC_WEB_SEARCH"] = "true"
+    os.environ["GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES"] = "invalid"
+
+    try:
+        messages = [
+            Message(
+                role="system",
+                content="You are a helpful assistant.",
+                pinned=True,
+                hide=True,
+            ),
+            Message(role="user", content="Test message"),
+        ]
+
+        messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
+            messages, None
+        )
+
+        # Should use default value of 5 when invalid value provided
+        assert tools_dict is not None
+        assert len(tools_dict) == 1
+        assert tools_dict[0]["max_uses"] == 5  # type: ignore[typeddict-item]
+    finally:
+        os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH", None)
+        os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES", None)
+
+
+def test_web_search_no_duplicate_tools():
+    """Test that web search tool is not duplicated if already present."""
+    os.environ["GPTME_ANTHROPIC_WEB_SEARCH"] = "true"
+
+    try:
+        messages = [
+            Message(
+                role="system",
+                content="You are a helpful assistant.",
+                pinned=True,
+                hide=True,
+            ),
+            Message(role="user", content="Test message"),
+        ]
+
+        # Create a tool spec with web search already present
+        existing_tools = [
+            ToolSpec(
+                name="web_search",
+                desc="Existing web search",
+                instructions="",
+                examples="",
+                functions=[],
+                init=None,
+            )
+        ]
+
+        # Mock the tool conversion to return a web search tool
+        with patch("gptme.llm.llm_anthropic._spec2tool") as mock_spec2tool:
+            mock_spec2tool.return_value = {
+                "type": "web_search_20250305",
+                "name": "web_search",
+            }
+
+            messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
+                messages, existing_tools
+            )
+
+            # Should not add duplicate web search tool
+            assert tools_dict is not None
+            # Count web search tools
+            web_search_count = sum(
+                1 for tool in tools_dict if tool.get("type") == "web_search_20250305"
+            )
+            assert web_search_count == 1  # Only one web search tool
+    finally:
+        os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH", None)
 
 
 def test_web_search_tool_with_other_tools():

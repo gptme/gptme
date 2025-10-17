@@ -545,12 +545,28 @@ def _prepare_messages_for_api(
         "yes",
     )
     if web_search_enabled:
-        max_uses = int(os.environ.get("GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES", "5"))
+        # Parse max_uses with error handling
+        try:
+            max_uses = int(os.environ.get("GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES", "5"))
+        except ValueError:
+            logger.warning(
+                "Invalid GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES value, using default: 5"
+            )
+            max_uses = 5
+
         web_search_tool = _create_web_search_tool(max_uses=max_uses)
         if tools_dict is None:
             tools_dict = []
-        tools_dict.append(web_search_tool)  # type: ignore
-        logger.info(f"Anthropic native web search enabled (max_uses={max_uses})")
+
+        # Check if web search tool already present to prevent duplicates
+        has_web_search = any(
+            tool.get("type") == "web_search_20250305" for tool in tools_dict
+        )
+        if not has_web_search:
+            tools_dict.append(web_search_tool)  # type: ignore
+            logger.info(f"Anthropic native web search enabled (max_uses={max_uses})")
+        else:
+            logger.debug("Web search tool already present, skipping duplicate")
 
     if tools_dict is not None:
         messages_dicts = _handle_tools(messages_dicts)
