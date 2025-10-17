@@ -47,6 +47,7 @@ try:
     from opentelemetry.sdk.resources import Resource  # fmt: skip
     from opentelemetry.sdk.trace import TracerProvider  # fmt: skip
     from opentelemetry.sdk.trace.export import BatchSpanProcessor  # fmt: skip
+    from opentelemetry.sdk.metrics.view import View, ExplicitBucketHistogramAggregation  # fmt: skip
 
     TELEMETRY_AVAILABLE = True
 except ImportError as e:
@@ -182,13 +183,51 @@ def init_telemetry(
                 export_interval_millis=10000,  # Export every 10 seconds (faster feedback)
                 export_timeout_millis=10000,  # 10 second timeout for export
             )
+            # Configure custom histogram buckets for different metrics
+            # Tool durations: 0.1s to 5min (most tools: 0.1-30s)
+            tool_duration_view = View(
+                instrument_name="gptme_tool_duration_seconds",
+                aggregation=ExplicitBucketHistogramAggregation(
+                    boundaries=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0]
+                ),
+            )
+
+            # HTTP request durations: 10ms to 30s (most requests: 50ms-5s)
+            request_duration_view = View(
+                instrument_name="gptme_request_duration_seconds",
+                aggregation=ExplicitBucketHistogramAggregation(
+                    boundaries=[0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+                ),
+            )
+
             metrics.set_meter_provider(
-                MeterProvider(resource=resource, metric_readers=[metric_reader])
+                MeterProvider(
+                    resource=resource,
+                    metric_readers=[metric_reader],
+                    views=[tool_duration_view, request_duration_view],
+                )
             )
         except ImportError as e:
             logger.warning(f"OTLP metric exporter not available: {e}")
             # Initialize without metrics if OTLP not available
-            metrics.set_meter_provider(MeterProvider())
+            # Still configure views for consistency
+            tool_duration_view = View(
+                instrument_name="gptme_tool_duration_seconds",
+                aggregation=ExplicitBucketHistogramAggregation(
+                    boundaries=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0]
+                ),
+            )
+
+            request_duration_view = View(
+                instrument_name="gptme_request_duration_seconds",
+                aggregation=ExplicitBucketHistogramAggregation(
+                    boundaries=[0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+                ),
+            )
+
+            metrics.set_meter_provider(
+                MeterProvider(views=[tool_duration_view, request_duration_view])
+            )
 
         _meter = metrics.get_meter(service_name)
 
