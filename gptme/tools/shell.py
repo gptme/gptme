@@ -7,6 +7,11 @@ Configuration:
         - Set to 0 to disable timeout
         - Invalid values default to 1200 seconds (20 minutes)
         - If not set, defaults to 1200 seconds (20 minutes)
+
+    GPTME_SHELL_VALIDATE: Environment variable to control shell command validation
+        - Set to 'strict' to block commands with validation warnings
+        - Set to 'warn' to log warnings but allow execution (default)
+        - Set to 'off' to disable validation
 """
 
 import atexit
@@ -32,6 +37,7 @@ from .base import (
     ToolSpec,
     ToolUse,
 )
+from .shell_validator import validate_command
 
 # ANSI escape sequence pattern for stripping terminal formatting
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
@@ -737,6 +743,27 @@ def execute_shell(
 ) -> Generator[Message, None, None]:
     """Executes a shell command and returns the output."""
     cmd = get_shell_command(code, args, kwargs)
+
+    # Validate command syntax
+    validation_mode = os.environ.get("GPTME_SHELL_VALIDATE", "warn")
+    if validation_mode != "off":
+        is_valid, warnings = validate_command(cmd)
+        if warnings:
+            warning_msg = "Shell validation warnings:\n"
+            for warning in warnings:
+                warning_msg += f"  - {warning}\n"
+
+            logger.warning(warning_msg)
+
+            if validation_mode == "strict":
+                yield Message(
+                    "system",
+                    f"Command blocked due to validation warnings:\n\n{warning_msg}",
+                )
+                return
+            else:
+                # In 'warn' mode, log but allow execution
+                yield Message("system", f"⚠️  {warning_msg}\nExecuting anyway...")
 
     # Check for timeout from environment variable
     # Default to 20 minutes (1200s) if not set
