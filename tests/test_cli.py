@@ -112,6 +112,12 @@ def test_command_summarize(args: list[str], runner: CliRunner, monkeypatch):
     # Set timeout to 5 minutes to avoid Anthropic's streaming recommendation
     # (Anthropic requires streaming for timeouts >= 10 minutes)
     monkeypatch.setenv("LLM_API_TIMEOUT", "300")
+    # Force reinitialization of the Anthropic client to pick up the new timeout
+    from gptme.config import get_config
+    from gptme.llm import init_anthropic
+
+    config = get_config()
+    init_anthropic(config)
     args.append("/summarize")
     print(f"running: gptme {' '.join(args)}")
     result = runner.invoke(gptme.cli.main, args)
