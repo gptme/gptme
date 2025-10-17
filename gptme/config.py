@@ -98,6 +98,30 @@ class RagConfig:
     max_tokens: int | None = None
     min_relevance: float | None = None
     post_process: bool = True
+
+
+@dataclass
+class ShellValidationConfig:
+    """Configuration for shell command validation."""
+
+    enabled: bool = True
+    level: str = "warn"  # "strict", "warn", or "off"
+    rules: dict[str, bool] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, doc: dict) -> Self:
+        """Create a ShellValidationConfig instance from a dictionary. Warns about unknown keys."""
+        enabled = doc.pop("enabled", True)
+        level = doc.pop("level", "warn")
+        rules = doc.pop("rules", {})
+        if doc:
+            logger.warning(f"Unknown keys in shell validation config: {doc.keys()}")
+        return cls(
+            enabled=enabled,
+            level=level,
+            rules=rules,
+        )
+
     post_process_model: str | None = None
     post_process_prompt: str | None = None
     workspace_only: bool = True
@@ -134,6 +158,9 @@ class ProjectConfig:
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
     lessons: LessonsConfig = field(default_factory=LessonsConfig)
+    shell_validation: ShellValidationConfig = field(
+        default_factory=ShellValidationConfig
+    )
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -149,6 +176,9 @@ class ProjectConfig:
             AgentConfig(**config_data.pop("agent")) if "agent" in config_data else None
         )
         lessons = LessonsConfig(dirs=config_data.pop("lessons", {}).get("dirs", []))
+        shell_validation = ShellValidationConfig.from_dict(
+            config_data.pop("shell_validation", {})
+        )
         env = config_data.pop("env", {})
         if mcp := config_data.pop("mcp", None):
             mcp = MCPConfig.from_dict(mcp)
@@ -165,6 +195,7 @@ class ProjectConfig:
             rag=rag,
             agent=agent,
             lessons=lessons,
+            shell_validation=shell_validation,
             env=env,
             mcp=mcp,
             **config_data,

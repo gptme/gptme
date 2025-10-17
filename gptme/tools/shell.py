@@ -28,6 +28,7 @@ from pathlib import Path
 
 import bashlex
 
+from ..config import get_project_config
 from ..message import Message
 from ..util import get_installed_programs, get_tokenizer
 from ..util.ask_execute import execute_with_confirmation
@@ -745,9 +746,34 @@ def execute_shell(
     cmd = get_shell_command(code, args, kwargs)
 
     # Validate command syntax
-    validation_mode = os.environ.get("GPTME_SHELL_VALIDATE", "warn")
+    # Precedence: env var > project config > default
+    validation_mode_str = os.environ.get("GPTME_SHELL_VALIDATE")
+    shell_validation_config = None
+
+    # Try to get project config for shell validation settings
+    if validation_mode_str is None:  # Only use config if env var not set
+        try:
+            workspace = Path.cwd()
+            project_config = get_project_config(workspace)
+            if project_config:
+                shell_validation_config = project_config.shell_validation
+                if shell_validation_config.enabled:
+                    validation_mode_str = shell_validation_config.level
+        except Exception:
+            pass
+
+    # Default to warn if neither env var nor config provided
+    # Cast to Literal type after validation
+    if validation_mode_str in ("strict", "warn", "off"):
+        from typing import cast, Literal
+        validation_mode = cast(Literal["strict", "warn", "off"], validation_mode_str)
+    else:
+        validation_mode = "warn"
+
     if validation_mode != "off":
-        is_valid, warnings = validate_command(cmd)
+        is_valid, warnings = validate_command(
+            cmd, validation_mode, shell_validation_config
+        )
         if warnings:
             # Format warnings with suggestions and lesson links
             warning_parts = ["Shell validation warnings:"]

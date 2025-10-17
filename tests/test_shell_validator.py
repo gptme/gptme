@@ -371,3 +371,63 @@ class TestPerformance:
         # Should average <1ms per command
         avg_time = elapsed / len(commands)
         assert avg_time < 0.001, f"Average validation time: {avg_time * 1000:.2f}ms"
+
+
+class TestConfiguration:
+    """Test configuration support for shell validation."""
+
+    def test_config_enabled(self):
+        """Test that config enables validation."""
+        from gptme.config import ShellValidationConfig
+
+        config = ShellValidationConfig(enabled=True, level="strict")
+        is_valid, warnings = validate_command("LLM_API_TIMEOUT", config=config)
+        assert not is_valid
+        assert len(warnings) == 1
+
+    def test_config_disabled(self):
+        """Test that config can disable validation."""
+        from gptme.config import ShellValidationConfig
+
+        config = ShellValidationConfig(enabled=False)
+        is_valid, warnings = validate_command("LLM_API_TIMEOUT", config=config)
+        # Should still run validation but return valid
+        # because disabled config sets level to "off"
+        assert is_valid
+        assert len(warnings) == 0
+
+    def test_config_level_strict(self):
+        """Test that config level is used."""
+        from gptme.config import ShellValidationConfig
+
+        config = ShellValidationConfig(enabled=True, level="strict")
+        is_valid, warnings = validate_command("python script.py", config=config)
+        assert not is_valid
+        assert len(warnings) == 1
+
+    def test_config_level_warn(self):
+        """Test that warn level allows execution with warnings."""
+        from gptme.config import ShellValidationConfig
+
+        config = ShellValidationConfig(enabled=True, level="warn")
+        is_valid, warnings = validate_command("python script.py", config=config)
+        assert is_valid  # warn mode allows execution
+        assert len(warnings) == 1
+
+    def test_config_overrides_level_param(self):
+        """Test that config overrides level parameter."""
+        from gptme.config import ShellValidationConfig
+
+        # Pass level="warn" but config has level="strict"
+        config = ShellValidationConfig(enabled=True, level="strict")
+        is_valid, warnings = validate_command(
+            "python script.py", level="warn", config=config
+        )
+        assert not is_valid  # Config strict mode should override
+        assert len(warnings) == 1
+
+    def test_no_config_uses_level_param(self):
+        """Test that level param is used when no config provided."""
+        is_valid, warnings = validate_command("python script.py", level="strict")
+        assert not is_valid
+        assert len(warnings) == 1

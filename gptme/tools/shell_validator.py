@@ -2,7 +2,10 @@
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from ..config import ShellValidationConfig
 
 
 @dataclass
@@ -40,17 +43,26 @@ class ShellValidator:
         self,
         validation_level: Literal["strict", "warn", "off"] = "warn",
         custom_rules: list | None = None,
+        config: "ShellValidationConfig | None" = None,
     ):
         """Initialize validator with configuration.
 
         Args:
-            validation_level: How to handle validation failures
+            validation_level: How to handle validation failures (overridden by config if provided)
                 - "strict": Fail on any warning
                 - "warn": Log warnings but allow execution
+            config: Optional ShellValidationConfig from project config
                 - "off": Skip validation
             custom_rules: Additional validation rules (not implemented yet)
         """
-        self.level = validation_level
+        # Use config if provided, otherwise use parameters
+        if config:
+            self.level = config.level if config.enabled else "off"
+            self.rules_config = config.rules
+        else:
+            self.level = validation_level
+            self.rules_config = {}
+
         self.custom_rules = custom_rules or []
 
     def validate(self, cmd: str) -> tuple[bool, list[ValidationWarning]]:
@@ -240,7 +252,9 @@ class ShellValidator:
 
 # Convenience function for simple validation
 def validate_command(
-    cmd: str, level: Literal["strict", "warn", "off"] = "warn"
+    cmd: str,
+    level: Literal["strict", "warn", "off"] = "warn",
+    config: "ShellValidationConfig | None" = None,
 ) -> tuple[bool, list[ValidationWarning]]:
     """Validate a shell command and return detailed warnings.
 
@@ -251,6 +265,6 @@ def validate_command(
     Returns:
         (is_valid, warnings): Validation result with detailed warning objects
     """
-    validator = ShellValidator(validation_level=level)
+    validator = ShellValidator(validation_level=level, config=config)
     is_valid, warnings = validator.validate(cmd)
     return is_valid, warnings
