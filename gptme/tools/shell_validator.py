@@ -1,4 +1,25 @@
-"""Shell command validation to prevent common errors."""
+"""Shell command validation to prevent common errors.
+
+Configuration via gptme.toml:
+    [shell_validation]
+    enabled = true
+    level = "warn"  # or "strict" or "off"
+
+    # Per-rule configuration (all rules enabled by default)
+    [shell_validation.rules]
+    bare_variables = true          # Detect missing $ prefix on variables
+    python_invocation = true       # Detect 'python' vs 'python3'
+    python_file_execution = true   # Detect direct .py file execution
+    path_quoting = true            # Detect unquoted paths with spaces
+    directory_paths = true         # Detect incorrect project paths
+
+Example: Disable noisy rules, keep critical ones
+    [shell_validation.rules]
+    bare_variables = true
+    python_invocation = true
+    path_quoting = false        # Can be noisy in some environments
+    directory_paths = false     # Environment-specific
+"""
 
 import re
 from dataclasses import dataclass
@@ -68,6 +89,22 @@ class ShellValidator:
         self.custom_rules = custom_rules or []
         self.metrics = ValidationMetrics()
 
+    def _is_rule_enabled(self, rule_name: str) -> bool:
+        """Check if a validation rule is enabled.
+
+        Args:
+            rule_name: Name of the validation rule to check
+
+        Returns:
+            True if rule is enabled (default), False if explicitly disabled in config
+        """
+        # If no config provided, all rules enabled by default
+        if not self.rules_config:
+            return True
+
+        # Check config, default to enabled if not specified
+        return self.rules_config.get(rule_name, True)
+
     def validate(self, cmd: str) -> tuple[bool, list[ValidationWarning]]:
         """Run all validation checks on a shell command.
 
@@ -82,12 +119,17 @@ class ShellValidator:
 
         warnings: list[ValidationWarning] = []
 
-        # Run all validation rules
-        warnings.extend(self._check_bare_variables(cmd))
-        warnings.extend(self._check_python_invocation(cmd))
-        warnings.extend(self._check_python_file_execution(cmd))
-        warnings.extend(self._check_path_quoting(cmd))
-        warnings.extend(self._check_directory_paths(cmd))
+        # Run all validation rules (check rules_config for per-rule enable/disable)
+        if self._is_rule_enabled("bare_variables"):
+            warnings.extend(self._check_bare_variables(cmd))
+        if self._is_rule_enabled("python_invocation"):
+            warnings.extend(self._check_python_invocation(cmd))
+        if self._is_rule_enabled("python_file_execution"):
+            warnings.extend(self._check_python_file_execution(cmd))
+        if self._is_rule_enabled("path_quoting"):
+            warnings.extend(self._check_path_quoting(cmd))
+        if self._is_rule_enabled("directory_paths"):
+            warnings.extend(self._check_directory_paths(cmd))
 
         # In strict mode, any warning makes command invalid
         # In warn mode, only errors make command invalid
