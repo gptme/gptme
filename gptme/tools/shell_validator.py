@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from .shell_metrics import ValidationMetrics
+
 if TYPE_CHECKING:
     from ..config import ShellValidationConfig
 
@@ -64,6 +66,7 @@ class ShellValidator:
             self.rules_config = {}
 
         self.custom_rules = custom_rules or []
+        self.metrics = ValidationMetrics()
 
     def validate(self, cmd: str) -> tuple[bool, list[ValidationWarning]]:
         """Run all validation checks on a shell command.
@@ -93,6 +96,9 @@ class ShellValidator:
         else:
             errors = [w for w in warnings if w.severity == "error"]
             is_valid = len(errors) == 0
+
+        # Record metrics
+        self.metrics.record_validation(is_valid, warnings, self.level)  # type: ignore[arg-type]
 
         return is_valid, warnings
 
