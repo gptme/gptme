@@ -1029,25 +1029,26 @@ gh<span class="w"> </span>run<span class="w"> </span>watch<span class="w"> </spa
 
 <span class="gu">## lessons</span>
 
-<span class="gs">**Description:**</span> Structured lessons with automatic context inclusion
+<span class="gs">**Description:**</span> Lesson system for structured guidance
 
-<span class="gs">**Instructions:**</span> The lesson system provides structured lessons that can be automatically included
-in context based on keywords.
+<span class="gs">**Instructions:**</span> Use lessons to improve your performance and avoid known failure modes.
 
-Lessons are stored as Markdown files with YAML frontmatter:
+How lessons help you:
+<span class="k">-</span><span class="w"> </span>Automatically included when relevant keywords or tools match
+<span class="k">-</span><span class="w"> </span>Extracted from both user and assistant messages in the conversation
+<span class="k">-</span><span class="w"> </span>Limited to 5 most relevant lessons to conserve context
 
-<span class="sb">```yaml</span>
-<span class="nn">---</span>
-<span class="nt">match</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">keywords</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">patch</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">file</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">editing</span><span class="p p-Indicator">]</span>
-<span class="nn">---</span>
+Commands available:
+<span class="k">-</span><span class="w"> </span>/lesson list - View all available lessons
+<span class="k">-</span><span class="w"> </span>/lesson search &lt;query&gt; - Find lessons matching query
+<span class="k">-</span><span class="w"> </span>/lesson show &lt;id&gt; - Display a specific lesson
+<span class="k">-</span><span class="w"> </span>/lesson refresh - Reload lessons from disk
 
-<span class="c1"># Lesson Title</span>
-
-<span class="l l-Scalar l-Scalar-Plain">Lesson content...</span>
-<span class="sb">```</span>
-
-Lessons are automatically included when their keywords match the conversation context.
+Leverage lessons for self-improvement:
+<span class="k">-</span><span class="w"> </span>Pay attention to lessons included in context
+<span class="k">-</span><span class="w"> </span>Apply patterns and avoid anti-patterns
+<span class="k">-</span><span class="w"> </span>Reference lessons when making decisions
+<span class="k">-</span><span class="w"> </span>Learn from past failures documented in lessons
 
 <span class="gu">## morph</span>
 
@@ -1610,7 +1611,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 7262</p>
+<p>Tokens: 7340</p>
 </dd></dl>
 
 <dl class="py function">
