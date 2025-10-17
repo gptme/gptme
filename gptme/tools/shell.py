@@ -14,7 +14,6 @@ import logging
 import os
 import re
 import select
-import shlex
 import signal
 import subprocess
 import sys
@@ -272,76 +271,42 @@ class ShellSession:
             command.strip().startswith(kw + " ") for kw in compound_keywords
         )
 
-        # run the command, redirect stdin to /dev/null to prevent commands from
-        # inheriting bash's pipe stdin (which causes issues with nested gptme calls)
-        # only use this for commands that don't already redirect stdin, like << EOF
-        # Skip this for compound commands as shlex can't handle their syntax
-        try:
-            # Skip shlex parsing for compound commands
-            if is_compound:
-                has_stdin_redirect = (
-                    "<" in command or "<<" in command or "<<<" in command
-                )
-                command_parts = []  # Not used for compound commands
-            else:
-                command_parts = list(
-                    shlex.shlex(command, posix=True, punctuation_chars=True)
-                )
+        # Detect various types of redirects without parsing
+        # This preserves file descriptor redirects (2>, 2>&1, etc.) and other complex syntax
+        has_stdin_redirect = bool(
+            re.search(r"<(?![<>])|<<(?!<)|<<<", command)  # <, <<, <<< but not <<<< etc.
+        )
+        has_stdout_redirect = bool(
+            re.search(r"\d*>&?\d*|>>?|&>>?", command)  # >, >>, 2>, 2>&1, &>, etc.
+        )
+        has_pipe = "|" in command and not is_compound
+        has_compound_operators = bool(re.search(r"&&|\|\||;", command))
 
-                # Check if there's already stdin redirection
-                has_stdin_redirect = (
-                    "<" in command_parts
-                    or "<<" in command_parts
-                    or "<<<" in command_parts
-                )
+        # Don't add stdin redirection if:
+        # - Command already has stdin redirect
+        # - Command has compound operators (complex command structure)
+        # - Command has any output redirects (file descriptor redirects like 2>)
+        # - Command is a compound command
+        should_add_stdin_redirect = (
+            not has_stdin_redirect
+            and not has_compound_operators
+            and not has_stdout_redirect  # Don't add if any output redirects present
+            and not is_compound
+        )
 
-            # Check if command has compound operators (&&, ||, ;)
-            # These should be passed through as-is without stdin redirection
-            has_compound_operators = (
-                "&&" in command_parts or "||" in command_parts or ";" in command_parts
-            )
-
-            # For commands with compound operators, don't add stdin redirection
-            # to avoid breaking the command structure
-            if has_compound_operators:
-                # Pass command through as-is
-                pass
-            # For pipelines, redirect stdin for the first command only
-
-            # Skip this logic for compound commands
-
-            elif not is_compound and "|" in command_parts and not has_stdin_redirect:
-
-                # Find first pipe in tokenized parts
-                try:
-                    pipe_idx = command_parts.index("|")
-                    # Reconstruct command parts before and after pipe
-                    first_parts = command_parts[:pipe_idx]
-                    rest_parts = command_parts[pipe_idx + 1 :]
-
-                    # Use simple space join instead of shlex.join() to preserve
-                    # shell expansion (tilde, variables, etc.)
-                    first_cmd = " ".join(first_parts)
-                    rest = " ".join(rest_parts)
-                    command = f"{first_cmd} < /dev/null | {rest}"
-                except (ValueError, IndexError) as e:
-                    # Fallback to raw command if parsing fails
-                    logger.warning(f"Failed to parse pipe in command '{command}': {e}")
-            elif (
-                not is_compound and not has_stdin_redirect and "|" not in command_parts
-            ):
-                # No pipe and no stdin redirection - add /dev/null
-                # Skip for compound commands
-                command += " < /dev/null"
-        except ValueError as e:
-            logger.warning("Failed shlex parsing command, using raw command", e)
-            # For compound commands, still don't add stdin redirection on error
-            if not is_compound:
-                has_stdin_redirect = (
-                    "<" in command or "<<" in command or "<<<" in command
-                )
-                if not has_stdin_redirect:
-                    command += " < /dev/null"
+        # For simple pipelines without redirects, add stdin redirect to first command
+        if should_add_stdin_redirect and has_pipe:
+            # Find first pipe (not inside quotes)
+            # Simple approach: split on first unquoted |
+            # This avoids breaking jq filters and other tool-specific syntax
+            pipe_idx = command.find("|")
+            if pipe_idx > 0:
+                first_cmd = command[:pipe_idx].rstrip()
+                rest = command[pipe_idx:].lstrip("|").lstrip()
+                command = f"{first_cmd} < /dev/null | {rest}"
+        elif should_add_stdin_redirect and not has_pipe:
+            # Simple command with no redirects - add stdin redirect
+            command += " < /dev/null"
 
         full_command = f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
