@@ -157,7 +157,9 @@ def _prep_o1(msgs: Iterable[Message]) -> Generator[Message, None, None]:
     # prepare messages for OpenAI O1, which doesn't support the system role
     # and requires the first message to be from the user
     for msg in msgs:
-        if msg.role == "system":
+        # Don't convert system messages that have call_id (tool results)
+        # as they need to be converted to tool messages by _handle_tools
+        if msg.role == "system" and msg.call_id is None:
             msg = msg.replace(
                 role="user", content=f"<system>\n{msg.content}\n</system>"
             )

@@ -257,22 +257,91 @@ class ShellSession:
     ) -> tuple[int | None, str, str]:
         assert self.process.stdin
 
+        # Check if this is a compound command (for, while, if, case, function, etc.)
+        # These should not be parsed with shlex as it breaks their syntax
+        compound_keywords = {
+            "for",
+            "while",
+            "if",
+            "case",
+            "function",
+            "until",
+            "select",
+        }
+        is_compound = any(
+            command.strip().startswith(kw + " ") for kw in compound_keywords
+        )
+
         # run the command, redirect stdin to /dev/null to prevent commands from
         # inheriting bash's pipe stdin (which causes issues with nested gptme calls)
         # only use this for commands that don't already redirect stdin, like << EOF
+        # Skip this for compound commands as shlex can't handle their syntax
         try:
-            command_parts = list(
-                shlex.shlex(command, posix=True, punctuation_chars=True)
+            # Skip shlex parsing for compound commands
+            if is_compound:
+                has_stdin_redirect = (
+                    "<" in command or "<<" in command or "<<<" in command
+                )
+                command_parts = []  # Not used for compound commands
+            else:
+                command_parts = list(
+                    shlex.shlex(command, posix=True, punctuation_chars=True)
+                )
+
+                # Check if there's already stdin redirection
+                has_stdin_redirect = (
+                    "<" in command_parts
+                    or "<<" in command_parts
+                    or "<<<" in command_parts
+                )
+
+            # Check if command has compound operators (&&, ||, ;)
+            # These should be passed through as-is without stdin redirection
+            has_compound_operators = (
+                "&&" in command_parts or "||" in command_parts or ";" in command_parts
             )
-            if (
-                "<" not in command_parts
-                and "<<" not in command_parts
-                and "<<<" not in command_parts
-                and "|" not in command_parts
+
+            # For commands with compound operators, don't add stdin redirection
+            # to avoid breaking the command structure
+            if has_compound_operators:
+                # Pass command through as-is
+                pass
+            # For pipelines, redirect stdin for the first command only
+
+            # Skip this logic for compound commands
+
+            elif not is_compound and "|" in command_parts and not has_stdin_redirect:
+
+                # Find first pipe in tokenized parts
+                try:
+                    pipe_idx = command_parts.index("|")
+                    # Reconstruct command parts before and after pipe
+                    first_parts = command_parts[:pipe_idx]
+                    rest_parts = command_parts[pipe_idx + 1 :]
+
+                    # Use simple space join instead of shlex.join() to preserve
+                    # shell expansion (tilde, variables, etc.)
+                    first_cmd = " ".join(first_parts)
+                    rest = " ".join(rest_parts)
+                    command = f"{first_cmd} < /dev/null | {rest}"
+                except (ValueError, IndexError) as e:
+                    # Fallback to raw command if parsing fails
+                    logger.warning(f"Failed to parse pipe in command '{command}': {e}")
+            elif (
+                not is_compound and not has_stdin_redirect and "|" not in command_parts
             ):
+                # No pipe and no stdin redirection - add /dev/null
+                # Skip for compound commands
                 command += " < /dev/null"
         except ValueError as e:
             logger.warning("Failed shlex parsing command, using raw command", e)
+            # For compound commands, still don't add stdin redirection on error
+            if not is_compound:
+                has_stdin_redirect = (
+                    "<" in command or "<<" in command or "<<<" in command
+                )
+                if not has_stdin_redirect:
+                    command += " < /dev/null"
 
         full_command = f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
@@ -819,6 +888,31 @@ def _shorten_stdout(
     return "\n".join(lines)
 
 
+def _find_max_heredoc_pos(node, current_max: int = 0) -> int:
+    """Recursively find the maximum position from any heredoc nodes.
+
+    This is needed because bashlex stores heredoc content in nested RedirectNode
+    objects, and the top-level part.pos doesn't include the heredoc content positions.
+    """
+    max_pos = current_max
+
+    # Check if this node has a heredoc
+    if hasattr(node, "heredoc") and node.heredoc:
+        heredoc_end = node.heredoc.pos[1]
+        max_pos = max(max_pos, heredoc_end)
+
+    # Recursively check child nodes
+    if hasattr(node, "parts"):
+        for part in node.parts:
+            max_pos = max(max_pos, _find_max_heredoc_pos(part, max_pos))
+
+    if hasattr(node, "list"):
+        for item in node.list:
+            max_pos = max(max_pos, _find_max_heredoc_pos(item, max_pos))
+
+    return max_pos
+
+
 def split_commands(script: str) -> list[str]:
     # TODO: write proper tests
 
@@ -835,16 +929,10 @@ def split_commands(script: str) -> list[str]:
                 command_parts.append(processed_script[start:end])
             command = " ".join(command_parts)
             commands.append(command)
-        elif part.kind == "compound":
-            for node in part.list:
-                command_parts = []
-                for word in node.parts:
-                    start, end = word.pos
-                    command_parts.append(processed_script[start:end])
-                command = " ".join(command_parts)
-                commands.append(command)
-        elif part.kind in ["function", "pipeline", "list"]:
-            commands.append(processed_script[part.pos[0] : part.pos[1]])
+        elif part.kind in ["function", "pipeline", "list", "compound"]:
+            # Find the maximum position including heredoc content
+            max_pos = _find_max_heredoc_pos(part, part.pos[1])
+            commands.append(processed_script[part.pos[0] : max_pos])
         else:
             logger.warning(
                 f"Unknown shell script part of kind '{part.kind}', hoping this works"

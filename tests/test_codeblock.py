@@ -1,3 +1,5 @@
+import pytest
+
 from gptme.codeblock import Codeblock, _extract_codeblocks
 
 
@@ -604,3 +606,432 @@ Content after
     assert blocks[1].lang == ""
     assert "Content after" in blocks[1].content
     assert "Content before" not in blocks[1].content
+
+
+def test_opening_tag_has_content_after():
+    """
+    Opening tags (```lang) should have content on the next line.
+    This helps distinguish opening from closing tags.
+    """
+    fence = "```"
+    markdown = f"""{fence}python
+print("hello")
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "python"
+    assert 'print("hello")' in blocks[0].content
+
+
+def test_closing_tag_has_empty_line_after():
+    """
+    Closing tags (bare ```) should have empty line after or EOF.
+    This helps distinguish closing from opening tags.
+    """
+    fence = "```"
+    markdown = f"""{fence}outer
+Some content
+{fence}
+
+More text after blank line
+"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "outer"
+    assert "Some content" in blocks[0].content
+    assert "More text after blank line" not in blocks[0].content
+
+
+def test_bare_backticks_followed_by_content_opens_nested():
+    """
+    When bare ``` is followed by content (no blank line), it opens a nested block.
+    This is the key heuristic Erik suggests.
+    """
+    fence = "```"
+    markdown = f"""{fence}outer
+Before nested
+{fence}
+This is nested content (no blank line before)
+{fence}
+After nested
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    content = blocks[0].content
+    assert "Before nested" in content
+    assert "This is nested content" in content
+    assert "After nested" in content
+
+
+def test_bare_backticks_followed_by_blank_line_closes():
+    """
+    When bare ``` is followed by blank line, it closes the outer block.
+    This disambiguates from opening nested blocks.
+    """
+    fence = "```"
+    markdown = f"""{fence}outer
+Content
+{fence}
+
+This is outside the block
+"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert "Content" in blocks[0].content
+    assert "This is outside the block" not in blocks[0].content
+
+
+def test_eof_after_closing_tag():
+    """
+    EOF after closing tag (```<EOF>) is valid.
+    No blank line needed at end of document.
+    """
+    fence = "```"
+    markdown = f"""{fence}python
+print("hello")
+{fence}"""  # EOF immediately after closing tag
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "python"
+
+
+def test_streaming_case_incomplete_closing():
+    """
+    During streaming, incomplete closing might appear as bare ``` with EOF.
+    This should be treated as incomplete, not opening nested.
+    """
+    fence = "```"
+    markdown = f"""{fence}python
+print("incomplete")
+{fence}"""  # Streaming incomplete - no newline after closing
+
+    blocks = list(_extract_codeblocks(markdown))
+    # Should recognize as complete block, not incomplete nested
+    assert len(blocks) == 1
+    assert 'print("incomplete")' in blocks[0].content
+
+
+@pytest.mark.xfail(
+    reason="Parser returns 0 blocks when nested blocks have same language tag"
+)
+def test_nested_with_same_language_tag():
+    """
+    Nested blocks with the same language tag as outer block.
+    This can confuse parsers that track by language.
+    """
+    fence = "```"
+    markdown = f"""{fence}python
+def outer():
+    code = '''{fence}python
+def inner():
+    pass
+{fence}'''
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "python"
+    assert "def outer()" in blocks[0].content
+    assert "def inner()" in blocks[0].content
+
+
+def test_bare_backticks_in_string_literals():
+    """
+    Triple backticks inside string literals shouldn't be treated as code block markers.
+    """
+    fence = "```"
+    markdown = f"""{fence}python
+text = '''
+{fence}
+This is just a string, not a code block
+{fence}
+'''
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert "This is just a string" in blocks[0].content
+
+
+def test_incomplete_opening_tag_streaming():
+    """
+    During streaming, opening tag might be incomplete: ```py (no newline yet).
+    Should not treat as complete block.
+    """
+    fence = "```"
+    markdown = f"""{fence}py"""  # Incomplete - no newline, no content
+
+    blocks = list(_extract_codeblocks(markdown))
+    # Should not extract incomplete opening tag
+    assert len(blocks) == 0
+
+
+def test_indented_code_blocks():
+    """
+    Indented code blocks (4 spaces) vs fenced blocks.
+    Should only extract fenced blocks.
+    """
+    fence = "```"
+    markdown = f"""Regular text
+
+    # This is indented (4 spaces)
+    def foo():
+        pass
+
+{fence}python
+# This is fenced
+def bar():
+    pass
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1  # Only fenced block
+    assert "def bar()" in blocks[0].content
+    assert "def foo()" not in blocks[0].content
+
+
+def test_backticks_in_inline_code():
+    """
+    Single backtick inline code shouldn't interfere with triple backticks.
+    """
+    fence = "```"
+    markdown = f"""Use `code` inline.
+
+{fence}python
+x = `backtick`
+{fence}
+
+More `inline code`.
+"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert "x = `backtick`" in blocks[0].content
+
+
+def test_save_with_structure_header_and_bare_backticks():
+    """
+    Common failure from autonomous run logs: save/append with content containing
+    headers like "**Structure:**" followed by bare backticks, which causes parser
+    to think tool is closing prematurely.
+
+    This represents a real failure pattern observed in production. The save would
+    succeed if the inner block used a langtag like ```text instead of bare ```.
+    """
+    fence = "```"
+    markdown = f"""{fence}save file.txt
+This is a long file with multiple sections.
+
+Here's some initial content that works fine.
+
+**Structure:**
+{fence}
+More content that should be included but gets cut off.
+
+## Another Section
+Even more content here.
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    # Tool should include ALL content until the final closing fence
+    content = blocks[0].content
+    assert "This is a long file" in content
+    assert "Structure:" in content
+    assert "More content that should be included" in content
+    assert "Another Section" in content
+    assert "Even more content here" in content
+
+
+@pytest.mark.xfail(
+    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
+    "The fence after 'Structure:' opens a new block (not closes save block), and final fence closes that block, "
+    "leaving the save block unclosed. Current implementation incorrectly extracts 1 block. See PR #721 review."
+)
+def test_save_with_structure_header_and_bare_backticks_streaming():
+    """
+    Streaming mode variant of test_save_with_structure_header_and_bare_backticks.
+
+    During streaming, the parser receives content incrementally and might see:
+    - "**Structure:**"
+    - "```"
+    And prematurely think "this closes the save block!" when it's actually
+    opening a nested example block.
+
+    In streaming mode, a blank line after the closing fence confirms completion.
+    This test verifies the parser correctly handles this pattern in streaming.
+    """
+    fence = "```"
+    markdown = f"""{fence}save file.txt
+This is a long file with multiple sections.
+
+Here's some initial content that works fine.
+
+**Structure:**
+{fence}
+More content that should be included but gets cut off.
+
+## Another Section
+Even more content here.
+{fence}
+
+"""  # Blank line after closing fence confirms completion in streaming mode
+
+    blocks = list(_extract_codeblocks(markdown, streaming=True))
+    # No complete blocks should be extracted because the opening save fence is never closed
+    # (the fence after "Structure:" opens a new block, and the final fence closes that block)
+    assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
+
+
+def test_append_with_markdown_header_and_bare_backticks():
+    """
+    Another common failure from autonomous runs: append with markdown headers
+    (## Subtitle) followed by bare backticks, causing early tool termination.
+
+    The content after the bare backticks is lost because parser treats it as
+    the closing fence.
+    """
+    fence = "```"
+    markdown = f"""{fence}append journal.md
+# Journal Entry
+
+Some initial content here.
+
+## Subtitle
+{fence}
+This content after the bare backticks should be included but isn't.
+
+## Another Section
+More content that gets lost.
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    content = blocks[0].content
+    assert "Journal Entry" in content
+    assert "Subtitle" in content
+    assert "This content after the bare backticks" in content
+    assert "Another Section" in content
+    assert "More content that gets lost" in content
+
+
+@pytest.mark.xfail(
+    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
+    "Opening markdown fence never gets closed. See PR #721 review."
+)
+def test_append_with_markdown_header_and_bare_backticks_streaming():
+    """
+    Streaming mode variant of test_append_with_markdown_header_and_bare_backticks.
+
+    In streaming mode, markdown headers (## Subtitle) followed by bare backticks
+    can cause the parser to incorrectly detect block closure, cutting off content.
+
+    This test verifies the parser correctly handles this pattern during streaming,
+    waiting for blank line confirmation before treating the closing fence as final.
+    """
+    fence = "```"
+    markdown = f"""{fence}append journal.md
+# Journal Entry
+
+Some initial content here.
+
+## Subtitle
+{fence}
+This content after the bare backticks should be included but isn't.
+
+## Another Section
+More content that gets lost.
+{fence}
+
+"""  # Blank line confirms completion in streaming mode
+
+    blocks = list(_extract_codeblocks(markdown, streaming=True))
+    # No complete blocks should be extracted because the opening markdown fence is never closed
+    # (the fence after "Subtitle" opens a new block, and the final fence closes that block)
+    assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
+
+
+def test_save_with_bold_text_and_bare_backticks():
+    """
+    Variation on the common failure: any header-like structure (bold text, markdown
+    headers) followed by bare backticks causes premature closure.
+    """
+    fence = "```"
+    markdown = f"""{fence}save notes.md
+# Main Title
+
+Some content here.
+
+**Important Note:**
+{fence}
+Additional content that gets cut off.
+
+**Another Bold Header:**
+{fence}python
+# This code block also gets lost
+def example():
+    pass
+{fence}
+
+Final content.
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    content = blocks[0].content
+    assert "Main Title" in content
+    assert "Important Note:" in content
+    assert "Additional content" in content
+    assert "Another Bold Header:" in content
+    assert "def example():" in content
+    assert "Final content" in content
+
+
+@pytest.mark.xfail(
+    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
+    "Per Erik's review: 1. save (open), 2. no langtag (open), 3. python (open), "
+    "4. no langtag (closes 3), 5. no langtag (closes 2), but no 6th fence to close 1. See PR #721 review."
+)
+def test_save_with_bold_text_and_bare_backticks_streaming():
+    """
+    Streaming mode variant of test_save_with_bold_text_and_bare_backticks.
+
+    Tests that bold text headers (**Important Note:**) followed by bare backticks
+    don't cause premature block closure during streaming.
+
+    This pattern is common in documentation and frequently appeared in production
+    autonomous runs, causing content truncation. The blank line after closing
+    fence confirms completion in streaming mode.
+    """
+    fence = "```"
+    markdown = f"""{fence}save notes.md
+# Main Title
+
+Some content here.
+
+**Important Note:**
+{fence}
+Additional content that gets cut off.
+
+**Another Bold Header:**
+{fence}python
+# This code block also gets lost
+def example():
+    pass
+{fence}
+
+Final content.
+{fence}
+
+"""  # Blank line confirms completion in streaming mode
+
+    blocks = list(_extract_codeblocks(markdown, streaming=True))
+    # No complete blocks should be extracted because the opening save fence is never closed
+    # Per Erik's review: 1. save (open), 2. no langtag (open), 3. python (open),
+    # 4. no langtag (closes 3), 5. no langtag (closes 2), but no 6th fence to close 1
+    assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"

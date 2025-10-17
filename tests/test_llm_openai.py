@@ -389,3 +389,53 @@ def test_timeout_invalid_value(monkeypatch):
         # Should raise ValueError when trying to convert invalid string to float
         with pytest.raises(ValueError):
             llm_openai.init("openai", config)
+
+
+def test_message_conversion_gpt5_with_tool_results():
+    """Test that gpt-5 models preserve tool result messages (system with call_id).
+
+    This is a regression test for issue #650 where tool results were being
+    incorrectly converted to user messages by _prep_o1, causing the API
+    to fail with "No tool output found for function call".
+    """
+    init_tools(allowlist=["save"])
+
+    messages = [
+        Message(role="system", content="System prompt", hide=True),
+        Message(role="user", content="Save something to file.txt"),
+        # Tool call from assistant (in tool format)
+        Message(
+            role="assistant",
+            content='@save(call_123): {"path": "file.txt", "content": "test"}',
+        ),
+        # Tool result (system message with call_id)
+        Message(role="system", content="Saved to file.txt", call_id="call_123"),
+    ]
+
+    # Test with gpt-5 model (uses _prep_o1)
+    model = get_model("openai/gpt-5")
+    save_tool = get_tool("save")
+    assert save_tool is not None, "save tool not found"
+    messages_dict, tools_dict = _prepare_messages_for_api(
+        messages, model.full, [save_tool]
+    )
+
+    # Convert to list for indexing
+    messages_list = list(messages_dict)
+
+    # Verify that:
+    # 1. Regular system message is converted to user message
+    # 2. Tool result (system with call_id) is converted to tool message
+    assert messages_list[0]["role"] == "user"  # System prompt -> user
+    assert "<system>" in messages_list[0]["content"][0]["text"]
+
+    assert messages_list[1]["role"] == "user"  # User message stays user
+
+    assert messages_list[2]["role"] == "assistant"  # Assistant with tool call
+    assert "tool_calls" in messages_list[2]
+    assert messages_list[2]["tool_calls"][0]["id"] == "call_123"
+
+    # The critical assertion: tool result should be role="tool", not role="user"
+    assert messages_list[3]["role"] == "tool"  # Tool result preserved!
+    assert messages_list[3]["tool_call_id"] == "call_123"
+    assert messages_list[3]["content"][0]["text"] == "Saved to file.txt"

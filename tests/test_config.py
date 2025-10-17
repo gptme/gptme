@@ -711,3 +711,23 @@ workspace = "{str(workspace)}"
         assert (
             config.chat.model != "openrouter/test-model"
         ), "Should not use saved model for new conversation"
+
+
+def test_reload_config_clears_tools(monkeypatch, tmp_path):
+    """Test that reload_config() clears the tools cache so MCP tools are recreated."""
+    from unittest.mock import MagicMock
+
+    from gptme.config import _thread_local, reload_config, Config
+
+    # Set up initial config
+    _thread_local.config = Config()
+
+    # Mock clear_tools in the tools module
+    mock_clear_tools = MagicMock()
+    monkeypatch.setattr("gptme.tools.clear_tools", mock_clear_tools)
+
+    # Call reload_config
+    reload_config()
+
+    # Verify clear_tools was called
+    assert mock_clear_tools.called, "reload_config() should call clear_tools()"

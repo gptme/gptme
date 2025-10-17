@@ -670,6 +670,12 @@ def reload_config() -> Config:
         _thread_local.config = Config.from_workspace(workspace=workspace)
     else:
         _thread_local.config = Config()
+
+    # Clear tools cache so MCP tools are recreated with new config
+    from gptme.tools import clear_tools
+
+    clear_tools()
+
     assert _thread_local.config
     return _thread_local.config
 

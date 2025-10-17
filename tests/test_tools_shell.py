@@ -584,3 +584,73 @@ EOF2""",
             reason is not None
         ), f"Should have reason for dangerous command: {cmd[:50]}..."
         assert matched_cmd is not None, f"Should have matched command: {cmd[:50]}..."
+
+
+def test_heredoc_in_compound_command(shell):
+    """Test that heredocs work correctly in compound commands with &&."""
+    # Issue #703: This should not get stuck
+    ret, out, err = shell.run(
+        """echo "test" && python3 <<'EOF'
+print('0')
+EOF"""
+    )
+    assert ret == 0
+    assert "test" in out
+    assert "0" in out
+    # Commented out due to weird error in CI:
+    # pytest-cov: Failed to setup subprocess coverage. Environ: {'COV_CORE_DATAFILE': ...} Exception: FileNotFoundError(2, 'No such file or directory')"
+    # assert err.strip() == ""
+
+
+def test_pipe_with_stdin_consuming_command(shell):
+    """Test that piping commands that consume stdin doesn't hang (issue #684).
+
+    Reproduces the specific failing case from Erik's comment:
+    gptme "/shell gptme '/exit' | grep Assistant"
+
+    The script simulates gptme's behavior:
+    - Without stdin redirection: blocks reading from pipe stdin
+    - With stdin redirected to /dev/null: prints "Assistant" immediately
+
+    This test would hang without the fix that redirects stdin for the first
+    command in a pipeline.
+    """
+    # Create test script that simulates gptme's stdin behavior
+    test_script = """#!/usr/bin/env python3
+import sys
+import os
+
+# Check if stdin is /dev/null
+try:
+    stdin_stat = os.fstat(sys.stdin.fileno())
+    devnull_stat = os.stat('/dev/null')
+    is_devnull = (stdin_stat.st_dev == devnull_stat.st_dev and
+                  stdin_stat.st_ino == devnull_stat.st_ino)
+except:
+    is_devnull = False
+
+if not is_devnull and not sys.stdin.isatty():
+    # stdin is a pipe (not /dev/null, not terminal)
+    # This would block forever without stdin redirection
+    sys.stdin.read(1)
+    print("blocked")
+else:
+    # stdin is /dev/null or terminal - works correctly
+    print("Assistant")
+"""
+
+    # Write test script
+    shell.run("cat > /tmp/test_stdin_block.py << 'EOF'\n" + test_script + "\nEOF")
+    shell.run("chmod +x /tmp/test_stdin_block.py")
+
+    # This is the actual failing case: command that blocks on stdin | grep
+    # Without the fix, this would hang because the script waits for stdin
+    # With the fix, stdin is redirected to /dev/null for the first command
+    ret_code, stdout, stderr = shell.run(
+        "python3 /tmp/test_stdin_block.py | grep Assistant",
+        output=False,
+        timeout=5.0,
+    )
+
+    assert ret_code == 0
+    assert "Assistant" in stdout
