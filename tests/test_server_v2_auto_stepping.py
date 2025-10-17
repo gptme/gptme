@@ -20,6 +20,10 @@ def test_auto_stepping(
 
     test_dir = "/tmp/test_dir"
 
+    # Disable shell validation to avoid extra system messages
+    old_validate = os.environ.get("GPTME_SHELL_VALIDATE")
+    os.environ["GPTME_SHELL_VALIDATE"] = "off"
+
     # Add a user message requesting multiple commands
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
@@ -100,3 +104,9 @@ def test_auto_stepping(
     assert messages[4]["role"] == "assistant"
     assert messages[5]["role"] == "system"
     assert messages[6]["role"] == "assistant"
+
+    # Restore shell validation setting
+    if old_validate:
+        os.environ["GPTME_SHELL_VALIDATE"] = old_validate
+    elif "GPTME_SHELL_VALIDATE" in os.environ:
+        del os.environ["GPTME_SHELL_VALIDATE"]
