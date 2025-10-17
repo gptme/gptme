@@ -480,7 +480,39 @@
 <li><p>gptme browses the website, and answers correctly</p></li>
 </ol>
 <p class="rubric">Edit history with /edit</p>
-<p>TODO</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">/edit</span></code> command allows you to directly edit the conversation history in your text editor. This is useful for:</p>
+<ul class="simple">
+<li><p>Fixing typos or mistakes in previous prompts</p></li>
+<li><p>Removing unwanted messages</p></li>
+<li><p>Restructuring conversation flow</p></li>
+<li><p>Correcting errors before they cascade</p></li>
+</ul>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>The conversation is converted to TOML format</p></li>
+<li><p>Your default editor (<code class="docutils literal notranslate"><span class="pre">$EDITOR</span></code>) opens the TOML file</p></li>
+<li><p>Edit the conversation as needed (add, remove, or modify messages)</p></li>
+<li><p>Save and close the editor</p></li>
+<li><p>gptme validates and applies your changes</p></li>
+<li><p>If there are parsing errors, you’ll get a chance to fix them</p></li>
+</ol>
+<p><strong>Example use cases:</strong></p>
+<dl class="simple">
+<dt><strong>Fixing a typo in a prompt:</strong></dt><dd><p>If you made a typo that confused the assistant, use <code class="docutils literal notranslate"><span class="pre">/edit</span></code> to correct it. The assistant will see the corrected version.</p>
+</dd>
+<dt><strong>Removing a mistake:</strong></dt><dd><p>If the assistant misunderstood and went down the wrong path, use <code class="docutils literal notranslate"><span class="pre">/edit</span></code> to remove the problematic messages and restart from a good point.</p>
+</dd>
+<dt><strong>Restructuring conversation:</strong></dt><dd><p>You can reorder messages, combine prompts, or split long conversations into cleaner structure.</p>
+</dd>
+</dl>
+<p><strong>Tips:</strong></p>
+<ul class="simple">
+<li><p>The TOML format is human-readable and easy to edit</p></li>
+<li><p>Each message has a <code class="docutils literal notranslate"><span class="pre">role</span></code> (user/assistant/system) and <code class="docutils literal notranslate"><span class="pre">content</span></code></p></li>
+<li><p>Be careful with TOML syntax - gptme will validate before applying</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">/undo</span></code> instead if you just want to undo the last message</p></li>
+<li><p>Press <code class="docutils literal notranslate"><span class="pre">Ctrl+C</span></code> in the editor to cancel without making changes</p></li>
+</ul>
 </section>
 
 

@@ -498,7 +498,40 @@ Steps
 
 .. rubric:: Edit history with /edit
 
-TODO
+The ``/edit`` command allows you to directly edit the conversation history in your text editor. This is useful for:
+
+- Fixing typos or mistakes in previous prompts
+- Removing unwanted messages
+- Restructuring conversation flow
+- Correcting errors before they cascade
+
+**How it works:**
+
+#. The conversation is converted to TOML format
+#. Your default editor (``$EDITOR``) opens the TOML file
+#. Edit the conversation as needed (add, remove, or modify messages)
+#. Save and close the editor
+#. gptme validates and applies your changes
+#. If there are parsing errors, you'll get a chance to fix them
+
+**Example use cases:**
+
+**Fixing a typo in a prompt:**
+   If you made a typo that confused the assistant, use ``/edit`` to correct it. The assistant will see the corrected version.
+
+**Removing a mistake:**
+   If the assistant misunderstood and went down the wrong path, use ``/edit`` to remove the problematic messages and restart from a good point.
+
+**Restructuring conversation:**
+   You can reorder messages, combine prompts, or split long conversations into cleaner structure.
+
+**Tips:**
+
+- The TOML format is human-readable and easy to edit
+- Each message has a ``role`` (user/assistant/system) and ``content``
+- Be careful with TOML syntax - gptme will validate before applying
+- Use ``/undo`` instead if you just want to undo the last message
+- Press ``Ctrl+C`` in the editor to cancel without making changes
 
 
 Automation
