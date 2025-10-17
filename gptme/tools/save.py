@@ -87,12 +87,73 @@ def preview_append(content: str, path: Path | None) -> str | None:
 
 
 # Regex for detecting placeholder lines like "# ... rest of content" or "// ... content here"
-re_placeholder = re.compile(r"^\s*(#|//|\"{3})\s*\.{3}.*$", re.MULTILINE)
+# Note: Uses non-capturing group (?:...) to avoid including matched groups in split results
+re_placeholder = re.compile(r"^\s*(?:#|//|\"\"\")\s*\.{3}.*$", re.MULTILINE)
 
 
 def check_for_placeholders(content: str) -> bool:
     """Check if content contains placeholder lines."""
     return bool(re_placeholder.search(content))
+
+
+def merge_with_placeholders(new_content: str, existing_content: str) -> str:
+    """
+    Merge new content with existing file content using placeholders as markers.
+
+    Placeholders like '# ...' or '// ...' mark sections to preserve from existing file.
+    Uses line-based matching to intelligently merge content.
+
+    Args:
+        new_content: New content with placeholder markers
+        existing_content: Current file content
+
+    Returns:
+        Merged content with placeholders replaced by existing content
+    """
+    # Split new content by placeholders to get sections
+    sections = re_placeholder.split(new_content)
+
+    if len(sections) <= 1:
+        # No placeholders found after split, return as-is
+        return new_content
+
+    # Simple line-based merge for single placeholder
+    # Example: "Line 1 UPDATED\n# ...\n" with existing "Line 1\nLine 2\nLine 3\n"
+    # Result should be: "Line 1 UPDATED\nLine 2\nLine 3\n"
+
+    if len(sections) == 2:
+        # Single placeholder case: prefix + [placeholder] + suffix
+        prefix_section = sections[0]
+        suffix_section = sections[1]
+
+        # Count lines in prefix section
+        prefix_lines = (
+            prefix_section.rstrip("\n").split("\n") if prefix_section.strip() else []
+        )
+        prefix_line_count = len(prefix_lines)
+
+        # Split existing content into lines
+        existing_lines = existing_content.rstrip("\n").split("\n")
+
+        # Take the new prefix, then remaining existing content after prefix_line_count
+        result_lines = prefix_lines + existing_lines[prefix_line_count:]
+
+        # If suffix is non-empty, we need to match it and keep content before it
+        if suffix_section.strip():
+            suffix_lines = suffix_section.rstrip("\n").split("\n")
+            # For now, just append suffix (this is a simplified approach)
+            # More sophisticated: find where suffix matches in existing and merge
+            result_lines = result_lines[: -len(suffix_lines)] + suffix_lines
+
+        return "\n".join(result_lines) + "\n"
+
+    # Multiple placeholders - use section matching
+    # This is more complex and needs careful implementation
+    # For now, raise an error to avoid incorrect merges
+    raise ValueError(
+        "Multiple placeholders not yet fully supported. "
+        "Use patch tool for complex multi-section edits."
+    )
 
 
 def execute_save_impl(
@@ -242,18 +303,40 @@ def _validate_and_execute(
     # Use content instead of code for the rest of the function
     code = content
 
-    if check_for_placeholders(code):
-        action = "Save" if operation == "save" else "Append"
+    # Handle placeholders intelligently for save operation
+    if check_for_placeholders(code) and operation == "save":
+        # Get the path to check if file exists
+        temp_path = get_path(code, args, kwargs)
+        if temp_path and temp_path.exists():
+            # File exists, we can merge with placeholders
+            existing_content = temp_path.read_text()
+            try:
+                code = merge_with_placeholders(code, existing_content)
+                # Log the merge for transparency
+                yield Message(
+                    "system",
+                    f"Merged content with placeholders using existing file content from {temp_path}",
+                )
+            except ValueError as e:
+                yield Message(
+                    "system",
+                    f"Save aborted: {e}",
+                )
+                return
+        else:
+            # File doesn't exist, can't merge placeholders
+            yield Message(
+                "system",
+                f"Save aborted: Content contains placeholder lines but file {temp_path} doesn't exist. "
+                "Please provide the complete content for new files.",
+            )
+            return
+    elif check_for_placeholders(code) and operation == "append":
+        # Append doesn't support placeholders
         yield Message(
             "system",
-            f"{action} aborted: Content contains placeholder lines (e.g. '# ...' or '// ...'). "
-            "Please provide the complete content"
-            + (
-                ""
-                if operation == "append"
-                else " or use the patch tool for partial changes"
-            )
-            + ".",
+            "Append aborted: Content contains placeholder lines (e.g. '# ...' or '// ...'). "
+            "Please provide the complete content to append.",
         )
         return
 

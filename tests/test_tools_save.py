@@ -89,3 +89,44 @@ def test_append_tool_placeholders(tmp_path: Path):
         assert len(messages) == 1
         assert messages[0].role == "system"
         assert "placeholder lines" in messages[0].content
+
+
+def test_save_tool_placeholder_merge_simple(tmp_path: Path):
+    """Test that the save tool intelligently merges content with placeholders."""
+    path = tmp_path / "test.txt"
+
+    # Create initial file
+    initial_content = "Line 1\nLine 2\nLine 3\nLine 4\n"
+    path.write_text(initial_content)
+
+    # Save with placeholder to update only first line
+    placeholder_marker = "# ..."
+    new_content = f"Line 1 UPDATED\n{placeholder_marker}\n"
+
+    messages = list(execute_save(new_content, [str(path)], None, lambda _: True))
+
+    # Should succeed with merge message
+    assert len(messages) >= 2
+    assert "Merged content with placeholders" in messages[0].content
+
+    # Verify the merged result preserves original lines 2-4
+    result = path.read_text()
+    assert "Line 1 UPDATED" in result
+    assert "Line 2" in result
+    assert "Line 3" in result
+
+
+def test_save_tool_placeholder_new_file(tmp_path: Path):
+    """Test that placeholders in new files are rejected."""
+    path = tmp_path / "test.txt"
+
+    # Try to save new file with placeholders
+    placeholder_marker = "# ..."
+    content = f"First line\n{placeholder_marker}\nLast line\n"
+    messages = list(execute_save(content, [str(path)], None, lambda _: True))
+
+    # Should abort
+    assert len(messages) == 1
+    assert messages[0].role == "system"
+    assert "doesn't exist" in messages[0].content
+    assert not path.exists()
