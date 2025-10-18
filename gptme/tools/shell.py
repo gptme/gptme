@@ -734,8 +734,7 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, str]:
     """
     Run shellcheck on command if available.
 
-    Returns:
-        Tuple of (has_issues: bool, message: str)
+    Returns: Tuple of (has_issues: bool, message: str)
 
     Note:
         - Requires shellcheck (sudo apt install shellcheck)
