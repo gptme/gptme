@@ -1,0 +1,21 @@
+
+--- Start of generation ---
+[02:51:38] Using model: openai/gpt-4o                                           
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-10-18-gptme-evals-openai--gpt-4o-xml-7
+           5383                                                                 
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-10-18-gptme-evals-openai--gpt-4o-xml-7
+           5383/workspace                                                       
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+<tool-use>
+<save args='/tmp/gptme-evals-ompm3ek_/hello.py'>
+print("Hello, world!")
+</save>
+</tool-use>                                                                                System: ✅ Saved to /tmp/gptme-evals-ompm3ek_/hello.py (overwritten)
+Assistant: Thinking...                                                                                Assistant: 
+The script `hello.py` has been created and it prints "Hello, world!".                                                                                --- Finished generation ---
+
