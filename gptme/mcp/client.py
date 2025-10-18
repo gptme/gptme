@@ -13,6 +13,26 @@ from mcp.client.streamable_http import streamablehttp_client
 logger = logging.getLogger(__name__)
 
 
+def _is_connection_error(error: Exception) -> bool:
+    """Check if error indicates MCP connection failure"""
+    error_msg = str(error).lower()
+    return any(
+        phrase in error_msg
+        for phrase in [
+            "connection closed",
+            "connection refused",
+            "connection reset",
+            "broken pipe",
+            "pipe closed",
+            "transport closed",
+            "session closed",
+            "server closed",
+            "process terminated",
+            "no such process",
+        ]
+    )
+
+
 class MCPClient:
     """A client for interacting with MCP servers"""
 
@@ -34,7 +54,10 @@ class MCPClient:
             logger.debug(f"_run_async end - Loop ID: {id(self.loop)}")
             return result
         except Exception as e:
-            logger.debug(f"_run_async failed with error: {e}")
+            if _is_connection_error(e):
+                logger.debug(f"MCP connection error (will retry): {e}")
+            else:
+                logger.error(f"Unexpected MCP error: {e}")
             raise
 
     async def _read_stderr(self, stderr):

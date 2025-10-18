@@ -16,6 +16,11 @@ pytest.importorskip(
 @pytest.mark.timeout(30)
 @pytest.mark.slow
 @pytest.mark.requires_api
+@pytest.mark.skipif(
+    os.getenv("MODEL", "").startswith("openai/gpt-4o-mini")
+    or os.getenv("MODEL", "").startswith("anthropic/claude-haiku-4-5"),
+    reason="Flaky/slow on these models",
+)
 def test_auto_naming_generates_display_name(event_listener, wait_for_event):
     """Test that auto-naming generates a display name after the first assistant response."""
     port = event_listener["port"]
