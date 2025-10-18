@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import select
+import shutil
 import signal
 import subprocess
 import sys
@@ -729,6 +730,56 @@ def get_path_fn(*args, **kwargs) -> Path | None:
     return None
 
 
+def check_with_shellcheck(cmd: str) -> tuple[bool, str]:
+    """
+    Run shellcheck on command if available.
+
+    Returns:
+        Tuple of (has_issues: bool, message: str)
+
+    Note:
+        - Requires shellcheck (sudo apt install shellcheck)
+        - Can be disabled with GPTME_SHELLCHECK=off
+        - Non-blocking if shellcheck unavailable
+    """
+    # Check if disabled via environment variable
+    if os.environ.get("GPTME_SHELLCHECK", "").lower() in ("off", "false", "0"):
+        return False, ""
+
+    # Check if shellcheck is available
+    if not shutil.which("shellcheck"):
+        return False, ""
+
+    # Write command to temp file
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
+        f.write("#!/bin/bash\n")
+        f.write(cmd)
+        temp_path = f.name
+
+    try:
+        result = subprocess.run(
+            ["shellcheck", "-f", "gcc", temp_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        if result.returncode != 0 and result.stdout:
+            output = result.stdout.replace(temp_path, "<command>")
+            return True, f"Shellcheck found potential issues:\n```\n{output}```"
+
+        return False, ""
+    except (subprocess.TimeoutExpired, Exception):
+        return False, ""
+    finally:
+        try:
+            os.unlink(temp_path)
+        except Exception:
+            pass
+
+
 def execute_shell(
     code: str | None,
     args: list[str] | None,
@@ -752,6 +803,11 @@ def execute_shell(
                 f"Invalid GPTME_SHELL_TIMEOUT value: {timeout_env}, using default 1200s (20 minutes)"
             )
             timeout = 1200.0
+
+    # Check with shellcheck if available
+    has_issues, shellcheck_msg = check_with_shellcheck(cmd)
+    if has_issues:
+        yield Message("system", shellcheck_msg)
 
     # Check if command is denylisted - these are blocked entirely
     is_denied, deny_reason, matched_cmd = is_denylisted(cmd)
