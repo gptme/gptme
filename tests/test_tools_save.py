@@ -107,13 +107,13 @@ def test_save_tool_placeholder_merge_simple(tmp_path: Path):
 
     # Should succeed with merge message
     assert len(messages) >= 2
+    assert messages[0].role == "system"
     assert "Merged content with placeholders" in messages[0].content
 
-    # Verify the merged result preserves original lines 2-4
+    # Verify the merged result has exact expected content and order
     result = path.read_text()
-    assert "Line 1 UPDATED" in result
-    assert "Line 2" in result
-    assert "Line 3" in result
+    expected = "Line 1 UPDATED\nLine 2\nLine 3\nLine 4\n"
+    assert result == expected
 
 
 def test_save_tool_placeholder_new_file(tmp_path: Path):
@@ -125,8 +125,12 @@ def test_save_tool_placeholder_new_file(tmp_path: Path):
     content = f"First line\n{placeholder_marker}\nLast line\n"
     messages = list(execute_save(content, [str(path)], None, lambda _: True))
 
-    # Should abort
+    # Should abort with specific error about file not existing
     assert len(messages) == 1
     assert messages[0].role == "system"
-    assert "doesn't exist" in messages[0].content
+    assert "file" in messages[0].content.lower()
+    assert (
+        "doesn't exist" in messages[0].content
+        or "does not exist" in messages[0].content
+    )
     assert not path.exists()
