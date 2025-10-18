@@ -34,6 +34,82 @@ You can configure MCP in your :ref:`global-config` (``~/.config/gptme/config.tom
 
 We also intend to support specifying it in the :ref:`project-config`, and the ability to set it per-conversation.
 
+Management Tool
+---------------
+
+gptme includes a powerful MCP management tool that allows you to discover and dynamically load MCP servers during a conversation.
+
+Commands
+~~~~~~~~
+
+The ``mcp`` tool provides the following commands:
+
+- ``search [query]``: Search for MCP servers across registries
+
+  - Optional JSON config: ``{"registry": "official|mcp.so|all", "limit": 10}``
+
+- ``info <server-name>``: Get detailed information about a specific server
+- ``load <server-name>``: Dynamically load an MCP server into the current session
+
+  - Optional JSON config override: ``{"command": "...", "args": [...], "url": "..."}``
+
+- ``unload <server-name>``: Unload a previously loaded MCP server
+- ``list``: List all currently configured and loaded MCP servers
+
+Examples
+~~~~~~~~
+
+Search for database-related servers:
+
+.. code-block:: markdown
+
+    ```mcp
+    search database
+    ```
+
+Get detailed information about a server:
+
+.. code-block:: markdown
+
+    ```mcp
+    info sqlite
+    ```
+
+Load a server dynamically:
+
+.. code-block:: markdown
+
+    ```mcp
+    load sqlite
+    ```
+
+Load with custom configuration:
+
+.. code-block:: markdown
+
+    ```mcp
+    load my-server
+    {"command": "uvx", "args": ["my-mcp-server", "--option"]}
+    ```
+
+List all loaded servers:
+
+.. code-block:: markdown
+
+    ```mcp
+    list
+    ```
+
+Unload a server:
+
+.. code-block:: markdown
+
+    ```mcp
+    unload sqlite
+    ```
+
+Once loaded, the server's tools will be available as ``<server-name>.<tool-name>`` in the conversation.
+
 Configuration Options
 ~~~~~~~~~~~~~~~~~~~~~
 
