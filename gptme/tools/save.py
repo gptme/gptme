@@ -135,14 +135,29 @@ def merge_with_placeholders(new_content: str, existing_content: str) -> str:
         # Split existing content into lines
         existing_lines = existing_content.rstrip("\n").split("\n")
 
+        # Validate prefix doesn't exceed file length
+        if prefix_line_count > len(existing_lines):
+            raise ValueError(
+                f"Placeholder merge error: trying to replace {prefix_line_count} lines "
+                f"but file only has {len(existing_lines)} lines"
+            )
+
         # Take the new prefix, then remaining existing content after prefix_line_count
         result_lines = prefix_lines + existing_lines[prefix_line_count:]
 
         # If suffix is non-empty, we need to match it and keep content before it
         if suffix_section.strip():
             suffix_lines = suffix_section.rstrip("\n").split("\n")
-            # For now, just append suffix (this is a simplified approach)
-            # More sophisticated: find where suffix matches in existing and merge
+
+            # Validate suffix doesn't exceed result length
+            if len(suffix_lines) > len(result_lines):
+                raise ValueError(
+                    f"Placeholder merge error: suffix has {len(suffix_lines)} lines "
+                    f"but result only has {len(result_lines)} lines"
+                )
+
+            # Simple approach: replace last N lines with suffix
+            # Limitation: doesn't verify suffix matches existing content
             result_lines = result_lines[: -len(suffix_lines)] + suffix_lines
 
         return "\n".join(result_lines) + "\n"
