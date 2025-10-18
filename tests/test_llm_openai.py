@@ -273,10 +273,11 @@ def test_message_conversion_with_tool_and_non_tool():
 
 
 def test_timeout_default(monkeypatch):
-    """Test that default timeout is 300 seconds (5 minutes) when LLM_API_TIMEOUT is not set."""
+    """Test that timeout uses NOT_GIVEN (client default) when LLM_API_TIMEOUT is not set."""
     import gptme.llm.llm_openai as llm_openai
     from unittest.mock import Mock, patch
     from gptme.config import get_config
+    from openai._types import NOT_GIVEN
 
     # Clear any existing LLM_API_TIMEOUT config
     monkeypatch.delenv("LLM_API_TIMEOUT", raising=False)
@@ -294,10 +295,10 @@ def test_timeout_default(monkeypatch):
         # Initialize OpenAI provider
         llm_openai.init("openai", config)
 
-        # Verify OpenAI was called with default timeout of 300 seconds
+        # Verify OpenAI was called with NOT_GIVEN (uses client default)
         mock_openai.assert_called_once()
         call_kwargs = mock_openai.call_args[1]
-        assert call_kwargs["timeout"] == 300.0
+        assert call_kwargs["timeout"] is NOT_GIVEN
 
 
 def test_timeout_custom(monkeypatch):

@@ -156,13 +156,14 @@ def init(config):
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
     api_key = proxy_key or config.get_env_required("ANTHROPIC_API_KEY")
 
-    # Get configurable API timeout (default: 300 seconds = 5 minutes)
-    # This catches indefinite hangs on API calls while being generous enough
-    # for most legitimate inference requests. Configurable via LLM_API_TIMEOUT.
-    timeout_str = config.get_env("LLM_API_TIMEOUT")
-    timeout = float(timeout_str) if timeout_str else 300.0
+    from anthropic import NOT_GIVEN, Anthropic  # fmt: skip
 
-    from anthropic import Anthropic  # fmt: skip
+    # Get configurable API timeout (default: client's own default of 10 minutes)
+    # If not set explicitly via LLM_API_TIMEOUT, we use NOT_GIVEN to let the
+    # client use its own default behavior, which handles streaming vs non-streaming
+    # requests differently and may evolve with future client versions.
+    timeout_str = config.get_env("LLM_API_TIMEOUT")
+    timeout = float(timeout_str) if timeout_str else NOT_GIVEN
 
     _anthropic = Anthropic(
         api_key=api_key,
