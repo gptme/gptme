@@ -485,6 +485,22 @@ def _spec2tool(
     }
 
 
+def _create_web_search_tool(max_uses: int = 5) -> dict[str, Any]:
+    """Create Anthropic native web search tool definition.
+
+    Args:
+        max_uses: Maximum number of search cycles Claude can perform
+
+    Returns:
+        Tool definition for Anthropic web search
+    """
+    return {
+        "type": "web_search_20250305",
+        "name": "web_search",
+        "max_uses": max_uses,
+    }
+
+
 def _prepare_messages_for_api(
     messages: list[Message], tools: list[ToolSpec] | None
 ) -> tuple[
@@ -521,6 +537,20 @@ def _prepare_messages_for_api(
 
     # Prepare tools
     tools_dict = [_spec2tool(tool) for tool in tools] if tools else None
+
+    # Add native web search tool if enabled
+    web_search_enabled = os.environ.get("GPTME_ANTHROPIC_WEB_SEARCH", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if web_search_enabled:
+        max_uses = int(os.environ.get("GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES", "5"))
+        web_search_tool = _create_web_search_tool(max_uses=max_uses)
+        if tools_dict is None:
+            tools_dict = []
+        tools_dict.append(web_search_tool)  # type: ignore
+        logger.info(f"Anthropic native web search enabled (max_uses={max_uses})")
 
     if tools_dict is not None:
         messages_dicts = _handle_tools(messages_dicts)
