@@ -740,6 +740,8 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, str]:
         - Requires shellcheck (sudo apt install shellcheck)
         - Can be disabled with GPTME_SHELLCHECK=off
         - Non-blocking if shellcheck unavailable
+        - SC2164 (cd error handling) excluded by default
+        - Custom excludes via GPTME_SHELLCHECK_EXCLUDE (comma-separated codes)
     """
     # Check if disabled via environment variable
     if os.environ.get("GPTME_SHELLCHECK", "").lower() in ("off", "false", "0"):
@@ -748,6 +750,18 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, str]:
     # Check if shellcheck is available
     if not shutil.which("shellcheck"):
         return False, ""
+
+    # Default excluded codes
+    # SC2164: Use 'cd ... || exit' in case cd fails (too noisy for interactive commands)
+    default_excludes = ["SC2164"]
+
+    # Get custom excludes from environment variable
+    custom_excludes = os.environ.get("GPTME_SHELLCHECK_EXCLUDE", "").split(",")
+    custom_excludes = [code.strip() for code in custom_excludes if code.strip()]
+
+    # Combine default and custom excludes
+    all_excludes = default_excludes + custom_excludes
+    exclude_str = ",".join(all_excludes)
 
     # Write command to temp file
     import tempfile
@@ -758,8 +772,13 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, str]:
         temp_path = f.name
 
     try:
+        shellcheck_cmd = ["shellcheck", "-f", "gcc"]
+        if exclude_str:
+            shellcheck_cmd.extend(["--exclude", exclude_str])
+        shellcheck_cmd.append(temp_path)
+
         result = subprocess.run(
-            ["shellcheck", "-f", "gcc", temp_path],
+            shellcheck_cmd,
             capture_output=True,
             text=True,
             timeout=5,
