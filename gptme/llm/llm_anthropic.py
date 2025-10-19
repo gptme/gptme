@@ -89,34 +89,50 @@ def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) ->
     return True
 
 
-def _handle_anthropic_overloaded(e, attempt, max_retries, base_delay):
-    """Handle Anthropic API overloaded errors with exponential backoff."""
+def _handle_anthropic_transient_error(e, attempt, max_retries, base_delay):
+    """Handle Anthropic API transient errors with exponential backoff.
+
+    Retries on:
+    - 5xx server errors (500-599): Internal errors, bad gateway, service unavailable, etc.
+    - 429 rate limit errors: Should back off and retry
+    - Error messages containing 'overload', 'internal', 'timeout': Known transient issues
+    """
     from anthropic import APIStatusError  # fmt: skip
 
-    # Check if this is an overload error we should retry
-    is_overload = False
+    # Check if this is a transient error we should retry
+    should_retry = False
     if isinstance(e, APIStatusError):
-        # Anthropic uses 529 for overload, some proxies use 503
-        if e.status_code in (503, 529):
-            is_overload = True
-        # Also check error message as fallback
-        elif hasattr(e, "message") and "overload" in str(e.message).lower():
-            is_overload = True
+        # Retry on all 5xx server errors (transient)
+        if 500 <= e.status_code < 600:
+            should_retry = True
+        # Retry on 429 rate limit (should back off)
+        elif e.status_code == 429:
+            should_retry = True
+        # Also check error message for known transient issues
+        elif hasattr(e, "message"):
+            error_msg = str(e.message).lower()
+            if any(
+                keyword in error_msg for keyword in ["overload", "internal", "timeout"]
+            ):
+                should_retry = True
 
-    # Re-raise if not overload or max retries reached
-    if not is_overload or attempt == max_retries - 1:
+    # Re-raise if not transient or max retries reached
+    if not should_retry or attempt == max_retries - 1:
         raise e
 
     delay = base_delay * (2**attempt)
     logger.warning(
-        f"Anthropic API overloaded (status {getattr(e, 'status_code', 'unknown')}), "
+        f"Anthropic API transient error (status {getattr(e, 'status_code', 'unknown')}), "
         f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
     )
     time.sleep(delay)
 
 
 def retry_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
-    """Decorator to retry functions on Anthropic API overloaded errors with exponential backoff."""
+    """Decorator to retry functions on Anthropic API transient errors with exponential backoff.
+
+    Handles 5xx server errors, rate limits, and other transient API issues.
+    """
 
     def decorator(func):
         @wraps(func)
@@ -125,7 +141,9 @@ def retry_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    _handle_anthropic_overloaded(e, attempt, max_retries, base_delay)
+                    _handle_anthropic_transient_error(
+                        e, attempt, max_retries, base_delay
+                    )
 
         return wrapper
 
@@ -133,7 +151,10 @@ def retry_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
 
 
 def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
-    """Decorator to retry generator functions on Anthropic API overloaded errors with exponential backoff."""
+    """Decorator to retry generator functions on Anthropic API transient errors with exponential backoff.
+
+    Handles 5xx server errors, rate limits, and other transient API issues.
+    """
 
     def decorator(func):
         @wraps(func)
@@ -143,7 +164,9 @@ def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0)
                     yield from func(*args, **kwargs)
                     break  # If generator completes successfully, exit retry loop
                 except Exception as e:
-                    _handle_anthropic_overloaded(e, attempt, max_retries, base_delay)
+                    _handle_anthropic_transient_error(
+                        e, attempt, max_retries, base_delay
+                    )
 
         return wrapper
 
