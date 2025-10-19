@@ -137,8 +137,8 @@ def add_token_usage_warning(
 
 # Tool specification
 tool = ToolSpec(
-    name="context",
-    desc="Token budget and usage awareness",
+    name="token-awareness",
+    desc="Token budget awareness for conversations",
     instructions="""
 This tool provides token budget awareness to the assistant across all LLM providers.
 

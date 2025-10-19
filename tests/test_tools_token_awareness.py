@@ -1,4 +1,4 @@
-"""Tests for the context (token budget awareness) tool."""
+"""Tests for the token-awareness tool."""
 
 import pytest
 
@@ -16,38 +16,38 @@ def clear_all_hooks():
 
 
 @pytest.fixture
-def load_context_tool():
-    """Load the context tool and its hooks."""
-    from gptme.tools.context import tool
+def load_token_awareness_tool():
+    """Load the token-awareness tool and its hooks."""
+    from gptme.tools.token_awareness import tool
 
     tool.register_hooks()
     yield tool
     clear_hooks()
 
 
-def test_context_tool_exists():
-    """Test that the context tool can be imported."""
-    from gptme.tools.context import tool
+def test_token_awareness_tool_exists():
+    """Test that the token-awareness tool can be imported."""
+    from gptme.tools.token_awareness import tool
 
-    assert tool.name == "context"
+    assert tool.name == "token-awareness"
     assert "token budget" in tool.desc.lower()
 
 
-def test_context_tool_hooks_registered(load_context_tool):
-    """Test that context tool hooks are registered."""
+def test_token_awareness_tool_hooks_registered(load_token_awareness_tool):
+    """Test that token-awareness tool hooks are registered."""
     session_start_hooks = get_hooks(HookType.SESSION_START)
     message_post_hooks = get_hooks(HookType.MESSAGE_POST_PROCESS)
 
     # Should have at least one SESSION_START hook (token_budget)
     assert len(session_start_hooks) >= 1
-    assert any("context.token_budget" in h.name for h in session_start_hooks)
+    assert any("token-awareness.token_budget" in h.name for h in session_start_hooks)
 
     # Should have at least one MESSAGE_POST_PROCESS hook (token_usage)
     assert len(message_post_hooks) >= 1
-    assert any("context.token_usage" in h.name for h in message_post_hooks)
+    assert any("token-awareness.token_usage" in h.name for h in message_post_hooks)
 
 
-def test_add_token_budget_hook(load_context_tool, tmp_path):
+def test_add_token_budget_hook(load_token_awareness_tool, tmp_path):
     """Test that the token budget hook adds the correct message."""
     from gptme.llm.models import set_default_model
 
@@ -81,7 +81,7 @@ def test_add_token_budget_hook(load_context_tool, tmp_path):
     assert "128000" in budget_msg.content or "8192" in budget_msg.content
 
 
-def test_add_token_usage_warning_hook(load_context_tool, tmp_path):
+def test_add_token_usage_warning_hook(load_token_awareness_tool, tmp_path):
     """Test that the token usage warning hook adds the correct message."""
     from gptme.llm.models import set_default_model
 
@@ -119,7 +119,7 @@ def test_add_token_usage_warning_hook(load_context_tool, tmp_path):
     assert ";" in content
 
 
-def test_token_calculation_accuracy(load_context_tool, tmp_path):
+def test_token_calculation_accuracy(load_token_awareness_tool, tmp_path):
     """Test that token calculations are reasonably accurate."""
     from gptme.llm.models import set_default_model
     from gptme.message import len_tokens
@@ -156,7 +156,9 @@ def test_token_calculation_accuracy(load_context_tool, tmp_path):
     assert used_tokens == expected_tokens
 
 
-def test_no_model_loaded_graceful_handling(load_context_tool, tmp_path, monkeypatch):
+def test_no_model_loaded_graceful_handling(
+    load_token_awareness_tool, tmp_path, monkeypatch
+):
     """Test that hooks handle missing model gracefully."""
     from gptme.llm import models
 
@@ -179,20 +181,20 @@ def test_no_model_loaded_graceful_handling(load_context_tool, tmp_path, monkeypa
     assert len(budget_msgs) == 0
 
 
-def test_hook_priority(load_context_tool):
+def test_hook_priority(load_token_awareness_tool):
     """Test that the token budget hook has correct priority."""
     session_start_hooks = get_hooks(HookType.SESSION_START)
 
     # Find the token_budget hook
     token_budget_hook = next(
-        h for h in session_start_hooks if "context.token_budget" in h.name
+        h for h in session_start_hooks if "token-awareness.token_budget" in h.name
     )
 
     # Should have high priority (10) to run early
     assert token_budget_hook.priority == 10
 
 
-def test_multiple_usage_warnings(load_context_tool, tmp_path):
+def test_multiple_usage_warnings(load_token_awareness_tool, tmp_path):
     """Test that multiple usage warnings can be generated."""
     from gptme.llm.models import set_default_model
 
