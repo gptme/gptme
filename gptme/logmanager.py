@@ -3,8 +3,13 @@ try:
     import fcntl
 except ImportError:
     fcntl = None  # type: ignore
-    if os.name == 'nt':
+
+msvcrt = None
+if os.name == 'nt':
+    try:
         import msvcrt  # type: ignore
+    except ImportError:
+        pass
 import json
 import logging
 import shutil

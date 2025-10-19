@@ -13,7 +13,10 @@ import atexit
 import logging
 import os
 import re
-import select
+try:
+    import select
+except ImportError:
+    select = None  # type: ignore
 import shutil
 import signal
 import subprocess
