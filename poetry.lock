@@ -3597,16 +3597,14 @@ ptyprocess = ">=0.5"
 name = "pick"
 version = "2.4.0"
 description = "Pick an option in the terminal with a simple GUI"
-optional = false
+optional = true
 python-versions = ">=3.7"
 groups = ["main"]
+markers = "sys_platform != \"win32\""
 files = [
     {file = "pick-2.4.0-py3-none-any.whl", hash = "sha256:2b07be18d16d655c7f491e1ecca7a29de3be85e1e000c8d46193672f14faa203"},
     {file = "pick-2.4.0.tar.gz", hash = "sha256:71f1b1b5d83652f87652fea5f51a3ba0b3388a71718cdcf8c6bc1326f85ae0b9"},
 ]
-
-[package.dependencies]
-windows-curses = {version = ">=2.2.0,<3.0.0", markers = "sys_platform == \"win32\""}
 
 [[package]]
 name = "pillow"

@@ -205,10 +205,10 @@ class ShellSession:
     stdout_fd: int
     stderr_fd: int
     delimiter: str
+    _is_windows: bool = os.name == 'nt'
 
     def __init__(self) -> None:
         self._init()
-
         # close on exit
         atexit.register(self.close)
 
@@ -332,84 +332,191 @@ class ShellSession:
         return_code: int | None = None
         start_time = time.time() if timeout else None
 
-        try:
-            while True:
-                # Calculate remaining timeout
-                select_timeout = None
-                if timeout and start_time:
-                    elapsed = time.time() - start_time
-                    if elapsed >= timeout:
-                        # Timeout exceeded
-                        logger.info(f"Command timed out after {timeout} seconds")
-                        # Terminate the command gracefully
-                        try:
-                            self.process.send_signal(signal.SIGTERM)
-                            time.sleep(0.1)  # Give it a moment to terminate
-                            if self.process.poll() is None:
-                                self.process.kill()
-                        except Exception as e:
-                            logger.warning(f"Error terminating timed-out process: {e}")
+        if self._is_windows:
+            # Windows implementation using threads
+            import threading
+            from threading import Thread
+            from queue import Queue, Empty
 
-                        partial_stdout = "".join(stdout).strip()
-                        partial_stderr = "".join(stderr).strip()
-                        return (
-                            -124,
-                            partial_stdout,
-                            partial_stderr,
-                        )  # Use timeout exit code (124)
+            stdout_queue: Queue[str] = Queue()
+            stderr_queue: Queue[str] = Queue()
+            stop_event = threading.Event()
 
-                    select_timeout = min(
-                        1.0, timeout - elapsed
-                    )  # Check at least every second
+            def read_stream(fd, queue):
+                while not stop_event.is_set():
+                    try:
+                        data = os.read(fd, 2**16).decode("utf-8")
+                        if not data:
+                            break
+                        queue.put(data)
+                        # Check for delimiter in the data we just read
+                        if self.delimiter in data:
+                            break
+                    except Exception:
+                        break
 
-                rlist, _, _ = select.select(
-                    [self.stdout_fd, self.stderr_fd], [], [], select_timeout
-                )
+            t_stdout = Thread(target=read_stream, args=(self.stdout_fd, stdout_queue))
+            t_stderr = Thread(target=read_stream, args=(self.stderr_fd, stderr_queue))
+            t_stdout.daemon = True
+            t_stderr.daemon = True
+            t_stdout.start()
+            t_stderr.start()
 
-                # Handle timeout in select
-                if not rlist and timeout and start_time:
-                    continue  # Will be caught by timeout check above
-
-                for fd in rlist:
-                    assert fd in [self.stdout_fd, self.stderr_fd]
-                    # We use a higher value, because there is a bug which leads to spaces at the boundary
-                    # 2**12 = 4096
-                    # 2**16 = 65536
-                    data = os.read(fd, 2**16).decode("utf-8")
-                    lines = data.splitlines(keepends=True)
-                    re_returncode = re.compile(r"ReturnCode:(\d+)")
-                    for line in lines:
-                        if "ReturnCode:" in line and self.delimiter in line:
-                            if match := re_returncode.search(line):
-                                return_code = int(match.group(1))
-                            # if command is cd and successful, we need to change the directory
-                            if command.startswith("cd ") and return_code == 0:
-                                ex, pwd, _ = self._run("pwd", output=False)
-                                assert ex == 0
-                                os.chdir(pwd.strip())
+            try:
+                while not stop_event.is_set():
+                    # Check timeout
+                    if timeout and start_time:
+                        elapsed = time.time() - start_time
+                        if elapsed >= timeout:
+                            logger.info(f"Command timed out after {timeout} seconds")
+                            try:
+                                self.process.send_signal(signal.SIGTERM)
+                                time.sleep(0.1)
+                                if self.process.poll() is None:
+                                    self.process.kill()
+                            except Exception as e:
+                                logger.warning(f"Error terminating timed-out process: {e}")
+                            stop_event.set()
                             return (
-                                return_code,
+                                -124,
                                 "".join(stdout).strip(),
                                 "".join(stderr).strip(),
                             )
-                        if fd == self.stdout_fd:
+
+                    # Check stdout first
+                    try:
+                        data = stdout_queue.get(timeout=0.1)
+                        lines = data.splitlines(keepends=True)
+                        for line in lines:
+                            if "ReturnCode:" in line and self.delimiter in line:
+                                re_returncode = re.compile(r"ReturnCode:(\d+)")
+                                if match := re_returncode.search(line):
+                                    return_code = int(match.group(1))
+                                if command.startswith("cd ") and return_code == 0:
+                                    ex, pwd, _ = self._run("pwd", output=False)
+                                    assert ex == 0
+                                    os.chdir(pwd.strip())
+                                stop_event.set()
+                                return (
+                                    return_code,
+                                    "".join(stdout).strip(),
+                                    "".join(stderr).strip(),
+                                )
                             stdout.append(line)
                             if output:
                                 print(line, end="", file=sys.stdout)
-                        elif fd == self.stderr_fd:
+                    except Empty:
+                        pass
+
+                    # Then check stderr
+                    try:
+                        data = stderr_queue.get(timeout=0.1)
+                        lines = data.splitlines(keepends=True)
+                        for line in lines:
                             stderr.append(line)
                             if output:
                                 print(line, end="", file=sys.stderr)
-        except KeyboardInterrupt:
-            # Clear line after ^C to avoid leaving a hanging line
-            print()
-            # Handle interrupt at the source - return partial output and re-raise
-            logger.info("Process interrupted during output reading")
-            # Return partial output with a special return code to indicate interruption
-            partial_stdout = "".join(stdout).strip()
-            partial_stderr = "".join(stderr).strip()
-            # Use -999 as a special code to indicate interruption
-            raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
+                    except Empty:
+                        pass
+
+                    # Check if threads are still alive
+                    if not t_stdout.is_alive() and not t_stderr.is_alive():
+                        break
+            except KeyboardInterrupt:
+                # Clear line after ^C to avoid leaving a hanging line
+                print()
+                logger.info("Process interrupted during output reading")
+                partial_stdout = "".join(stdout).strip()
+                partial_stderr = "".join(stderr).strip()
+                raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
+            finally:
+                stop_event.set()
+                t_stdout.join(timeout=0.1)
+                t_stderr.join(timeout=0.1)
+
+        else:
+            # Unix implementation using select
+            try:
+                while True:
+                    # Calculate remaining timeout
+                    select_timeout = None
+                    if timeout and start_time:
+                        elapsed = time.time() - start_time
+                        if elapsed >= timeout:
+                            # Timeout exceeded
+                            logger.info(f"Command timed out after {timeout} seconds")
+                            # Terminate the command gracefully
+                            try:
+                                self.process.send_signal(signal.SIGTERM)
+                                time.sleep(0.1)  # Give it a moment to terminate
+                                if self.process.poll() is None:
+                                    self.process.kill()
+                            except Exception as e:
+                                logger.warning(f"Error terminating timed-out process: {e}")
+
+                            partial_stdout = "".join(stdout).strip()
+                            partial_stderr = "".join(stderr).strip()
+                            return (
+                                -124,
+                                partial_stdout,
+                                partial_stderr,
+                            )  # Use timeout exit code (124)
+
+                        select_timeout = min(
+                            1.0, timeout - elapsed
+                        )  # Check at least every second
+
+                    rlist, _, _ = select.select(
+                        [self.stdout_fd, self.stderr_fd], [], [], select_timeout
+                    )
+
+                    # Handle timeout in select
+                    if not rlist and timeout and start_time:
+                        continue  # Will be caught by timeout check above
+
+                    for fd in rlist:
+                        assert fd in [self.stdout_fd, self.stderr_fd]
+                        # We use a higher value, because there is a bug which leads to spaces at the boundary
+                        # 2**12 = 4096
+                        # 2**16 = 65536
+                        data = os.read(fd, 2**16).decode("utf-8")
+                        lines = data.splitlines(keepends=True)
+                        re_returncode = re.compile(r"ReturnCode:(\d+)")
+                        for line in lines:
+                            if "ReturnCode:" in line and self.delimiter in line:
+                                if match := re_returncode.search(line):
+                                    return_code = int(match.group(1))
+                                # if command is cd and successful, we need to change the directory
+                                if command.startswith("cd ") and return_code == 0:
+                                    ex, pwd, _ = self._run("pwd", output=False)
+                                    assert ex == 0
+                                    os.chdir(pwd.strip())
+                                return (
+                                    return_code,
+                                    "".join(stdout).strip(),
+                                    "".join(stderr).strip(),
+                                )
+                            if fd == self.stdout_fd:
+                                stdout.append(line)
+                                if output:
+                                    print(line, end="", file=sys.stdout)
+                            elif fd == self.stderr_fd:
+                                stderr.append(line)
+                                if output:
+                                    print(line, end="", file=sys.stderr)
+            except KeyboardInterrupt:
+                # Clear line after ^C to avoid leaving a hanging line
+                print()
+                # Handle interrupt at the source - return partial output and re-raise
+                logger.info("Process interrupted during output reading")
+                # Return partial output with a special return code to indicate interruption
+                partial_stdout = "".join(stdout).strip()
+                partial_stderr = "".join(stderr).strip()
+                # Use -999 as a special code to indicate interruption
+                raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
+        
+        # Fallback return (should not be reached in normal operation)
+        return (return_code, "".join(stdout).strip(), "".join(stderr).strip())
 
     def close(self):
         assert self.process.stdin
