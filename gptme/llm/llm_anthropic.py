@@ -90,26 +90,40 @@ def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) ->
 
 
 def _handle_anthropic_overloaded(e, attempt, max_retries, base_delay):
-    """Handle Anthropic API overloaded errors with exponential backoff."""
+    """Handle Anthropic API transient errors with exponential backoff.
+
+    Retries on:
+    - 5xx server errors (500-599): Transient server issues
+    - 429 rate limits: Too many requests
+    - Error messages containing 'overload', 'internal', or 'timeout'
+    """
     from anthropic import APIStatusError  # fmt: skip
 
-    # Check if this is an overload error we should retry
-    is_overload = False
+    # Check if this is a transient error we should retry
+    should_retry = False
     if isinstance(e, APIStatusError):
-        # Anthropic uses 529 for overload, some proxies use 503
-        if e.status_code in (503, 529):
-            is_overload = True
-        # Also check error message as fallback
-        elif hasattr(e, "message") and "overload" in str(e.message).lower():
-            is_overload = True
+        # Retry on all 5xx server errors (transient)
+        if 500 <= e.status_code < 600:
+            should_retry = True
+        # Retry on 429 rate limit
+        elif e.status_code == 429:
+            should_retry = True
+        # Also check error message for known transient issues
+        elif hasattr(e, "message"):
+            error_msg = str(e.message).lower()
+            if any(
+                keyword in error_msg for keyword in ["overload", "internal", "timeout"]
+            ):
+                should_retry = True
 
-    # Re-raise if not overload or max retries reached
-    if not is_overload or attempt == max_retries - 1:
+    # Re-raise if not retryable or max retries reached
+    if not should_retry or attempt == max_retries - 1:
         raise e
 
     delay = base_delay * (2**attempt)
+    status_code = getattr(e, "status_code", "unknown")
     logger.warning(
-        f"Anthropic API overloaded (status {getattr(e, 'status_code', 'unknown')}), "
+        f"Anthropic API transient error (status {status_code}), "
         f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
     )
     time.sleep(delay)
