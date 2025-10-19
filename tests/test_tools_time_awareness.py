@@ -107,14 +107,14 @@ def test_milestone_progression(load_time_awareness_tool, tmp_path):
     _shown_milestones[str(workspace)] = set()
 
     # Trigger multiple times - should only show milestone once
-    for _ in range(3):
+    for i in range(3):
         messages = list(
             trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=workspace)
         )
 
         # First trigger: should show 20min milestone
         # Subsequent triggers: no new messages (milestone already shown)
-        if not _shown_milestones[str(workspace)]:
+        if i == 0:
             assert len(messages) == 1
         else:
             assert len(messages) == 0
