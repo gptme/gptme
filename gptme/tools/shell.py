@@ -730,11 +730,14 @@ def get_path_fn(*args, **kwargs) -> Path | None:
     return None
 
 
-def check_with_shellcheck(cmd: str) -> tuple[bool, str]:
+def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
     """
     Run shellcheck on command if available.
 
-    Returns: Tuple of (has_issues: bool, message: str)
+    Returns: Tuple of (has_issues: bool, should_block: bool, message: str)
+    - has_issues: True if any shellcheck issues found
+    - should_block: True if critical error codes found that should prevent execution
+    - message: Description of issues found
 
     Note:
         - Requires shellcheck (sudo apt install shellcheck)
@@ -742,14 +745,16 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, str]:
         - Non-blocking if shellcheck unavailable
         - SC2164 (cd error handling) excluded by default
         - Custom excludes via GPTME_SHELLCHECK_EXCLUDE (comma-separated codes)
+        - Error codes via GPTME_SHELLCHECK_ERROR_CODES (comma-separated, default: SC2006)
+        - Error codes block execution, other codes show warnings only
     """
     # Check if disabled via environment variable
     if os.environ.get("GPTME_SHELLCHECK", "").lower() in ("off", "false", "0"):
-        return False, ""
+        return False, False, ""
 
     # Check if shellcheck is available
     if not shutil.which("shellcheck"):
-        return False, ""
+        return False, False, ""
 
     # Default excluded codes
     # SC2164: Use 'cd ... || exit' in case cd fails (too noisy for interactive commands)
@@ -762,6 +767,20 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, str]:
     # Combine default and custom excludes
     all_excludes = default_excludes + custom_excludes
     exclude_str = ",".join(all_excludes)
+
+    # Default error codes (should block execution)
+    # SC2006: Use $(...) notation instead of legacy backticks (causes formatting issues in commits/PRs)
+    default_error_codes = ["SC2006"]
+
+    # Get custom error codes from environment variable
+    custom_error_codes_str = os.environ.get("GPTME_SHELLCHECK_ERROR_CODES", "")
+    if custom_error_codes_str:
+        custom_error_codes = [
+            code.strip() for code in custom_error_codes_str.split(",") if code.strip()
+        ]
+        error_codes = list(set(default_error_codes + custom_error_codes))
+    else:
+        error_codes = default_error_codes
 
     # Write command to temp file
     import tempfile
@@ -786,11 +805,35 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, str]:
 
         if result.returncode != 0 and result.stdout:
             output = result.stdout.replace(temp_path, "<command>")
-            return True, f"Shellcheck found potential issues:\n```\n{output}```"
 
-        return False, ""
+            # Extract error codes from shellcheck output
+            import re
+
+            triggered_codes = set()
+            for line in output.splitlines():
+                # Match shellcheck error codes (e.g., SC2006, SC2086)
+                match = re.search(r"\[SC\d+\]", line)
+                if match:
+                    # Extract just the code (e.g., "SC2006")
+                    code = match.group().strip("[]")
+                    triggered_codes.add(code)
+
+            # Check if any triggered codes are error codes (should block)
+            blocking_codes = triggered_codes.intersection(set(error_codes))
+
+            if blocking_codes:
+                # Critical issues that should block execution
+                codes_str = ", ".join(sorted(blocking_codes))
+                message = f"Shellcheck found critical issues that prevent execution:\n```\n{output}```\n\nBlocking codes: {codes_str}"
+                return True, True, message
+            else:
+                # Non-critical warnings
+                message = f"Shellcheck found potential issues:\n```\n{output}```"
+                return True, False, message
+
+        return False, False, ""
     except (subprocess.TimeoutExpired, Exception):
-        return False, ""
+        return False, False, ""
     finally:
         try:
             os.unlink(temp_path)
@@ -823,9 +866,12 @@ def execute_shell(
             timeout = 1200.0
 
     # Check with shellcheck if available
-    has_issues, shellcheck_msg = check_with_shellcheck(cmd)
+    has_issues, should_block, shellcheck_msg = check_with_shellcheck(cmd)
     if has_issues:
         yield Message("system", shellcheck_msg)
+        # Block execution if critical shellcheck errors found
+        if should_block:
+            return
 
     # Check if command is denylisted - these are blocked entirely
     is_denied, deny_reason, matched_cmd = is_denylisted(cmd)
