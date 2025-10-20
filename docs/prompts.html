@@ -585,7 +585,7 @@ This is gptme
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=[ToolSpec(append), ToolSpec(autocommit), ToolSpec(autocompact), ToolSpec(browser), ToolSpec(chats), ToolSpec(choice), ToolSpec(complete), ToolSpec(computer), ToolSpec(gh), ToolSpec(lessons), ToolSpec(morph), ToolSpec(patch), ToolSpec(precommit), ToolSpec(rag), ToolSpec(read), ToolSpec(save), ToolSpec(screenshot), ToolSpec(shell), ToolSpec(subagent), ToolSpec(tmux), ToolSpec(todoread), ToolSpec(todowrite), ToolSpec(tts), ToolSpec(vision), ToolSpec(youtube), ToolSpec(ipython)], tool_format=’markdown’):</p>
+<p>Example output (tools=[ToolSpec(append), ToolSpec(autocommit), ToolSpec(autocompact), ToolSpec(browser), ToolSpec(chats), ToolSpec(choice), ToolSpec(complete), ToolSpec(computer), ToolSpec(gh), ToolSpec(lessons), ToolSpec(morph), ToolSpec(patch), ToolSpec(precommit), ToolSpec(rag), ToolSpec(read), ToolSpec(save), ToolSpec(screenshot), ToolSpec(shell), ToolSpec(subagent), ToolSpec(time-awareness), ToolSpec(tmux), ToolSpec(todoread), ToolSpec(todowrite), ToolSpec(token-awareness), ToolSpec(tts), ToolSpec(vision), ToolSpec(youtube), ToolSpec(ipython)], tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1309,6 +1309,17 @@ npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: {&quot;status&quot;: &quot;success&quot;, &quot;result&quot;: &quot;The 13th Fibonacci number is 233&quot;}.</span>
 
+<span class="gu">## time-awareness</span>
+
+<span class="gs">**Description:**</span> Time tracking awareness for conversations
+
+<span class="gs">**Instructions:**</span> This tool provides time awareness to help manage long-running conversations.
+
+The assistant receives periodic updates about how much time has elapsed:
+&lt;system_info&gt;Time elapsed: Xmin&lt;/system_info&gt;
+
+Time messages are shown at: 1min, 5min, 10min, 15min, 20min, then every 10 minutes.
+
 <span class="gu">## tmux</span>
 
 <span class="gs">**Description:**</span> Executes shell commands in a tmux session
@@ -1470,6 +1481,23 @@ to restore your todo list state.
 <span class="s">clear completed</span>
 <span class="sb">```</span>
 
+<span class="gu">## token-awareness</span>
+
+<span class="gs">**Description:**</span> Token budget awareness for conversations
+
+<span class="gs">**Instructions:**</span> This tool provides token budget awareness to the assistant across all LLM providers.
+
+At the start of each conversation, the assistant receives information about the total token budget:
+&lt;budget:token_budget&gt;XXX&lt;/budget:token_budget&gt;
+
+After each message is processed, the assistant receives an update on token usage:
+&lt;system_warning&gt;Token usage: X/Y; Z remaining&lt;/system_warning&gt;
+
+This helps the assistant:
+<span class="k">-</span><span class="w"> </span>Understand how much context capacity remains
+<span class="k">-</span><span class="w"> </span>Plan responses to fit within the budget
+<span class="k">-</span><span class="w"> </span>Manage long-running conversations effectively
+
 <span class="gu">## tts</span>
 
 <span class="gs">**Description:**</span> Text-to-speech (TTS) tool for generating audio from text.
@@ -1569,7 +1597,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 7009</p>
+<p>Tokens: 7234</p>
 </dd></dl>
 
 <dl class="py function">
