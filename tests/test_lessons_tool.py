@@ -7,7 +7,7 @@ import pytest
 from gptme.lessons.matcher import MatchResult
 from gptme.lessons.parser import Lesson, LessonMetadata
 from gptme.message import Message
-from gptme.tools.lessons import auto_include_lessons_hook, handle_lesson_command, tool
+from gptme.tools.lessons import auto_include_lessons_hook, tool
 
 
 @pytest.fixture
@@ -204,37 +204,6 @@ class TestAutoIncludeLessonsHook:
             # Should not raise, should log warning
             messages = list(auto_include_lessons_hook(conversation_log) or [])
             assert len(messages) == 0
-
-
-class TestHandleLessonCommand:
-    """Tests for handle_lesson_command."""
-
-    def test_command_unavailable_without_lessons(self):
-        """Test command when lessons module unavailable."""
-        ctx = MagicMock()
-
-        messages = list(handle_lesson_command(ctx))
-
-        assert len(messages) == 1
-        assert messages[0].role == "system"
-        assert "not available" in messages[0].content
-        assert "PyYAML" in messages[0].content
-
-    def test_command_delegates_to_lesson_handler(self):
-        """Test command delegates to lesson command handler."""
-        ctx = MagicMock()
-        ctx.full_args = "list"
-
-        with patch("gptme.lessons.commands.lesson") as mock_lesson_cmd:
-            mock_lesson_cmd.return_value = iter(
-                [Message(role="system", content="Test")]
-            )
-
-            messages = list(handle_lesson_command(ctx))
-
-            mock_lesson_cmd.assert_called_once_with(ctx)
-            assert len(messages) == 1
-            assert messages[0].content == "Test"
 
 
 class TestToolSpec:
