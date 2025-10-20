@@ -5,7 +5,6 @@ from datetime import datetime
 from typing import cast, Any
 
 import pytest
-from flask.testing import FlaskClient
 import tomlkit  # noqa
 from gptme.config import ChatConfig, MCPConfig
 from gptme.llm.models import ModelMeta, get_default_model
@@ -16,6 +15,8 @@ from gptme.tools import get_toolchain
 pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
+
+from flask.testing import FlaskClient  # fmt: skip
 
 # Mark tests that require the server and add timeouts
 pytestmark = [pytest.mark.timeout(10)]  # 10 second timeout for all tests

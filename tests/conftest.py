@@ -112,6 +112,11 @@ def init_():
 @pytest.fixture
 def server_thread():
     """Start a server in a thread for testing."""
+    # Skip if flask not installed
+    pytest.importorskip(
+        "flask", reason="flask not installed, install server extras (-E server)"
+    )
+
     from gptme.server.api import create_app  # fmt: skip
 
     app = create_app()

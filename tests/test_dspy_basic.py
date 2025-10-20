@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+
 import pytest
 
 # Check if DSPy is available and handle import errors gracefully
@@ -16,7 +17,7 @@ try:
 
     if not _has_dspy():
         pytest.skip("DSPy not available", allow_module_level=True)
-except ImportError:
+except (ImportError, ModuleNotFoundError):
     pytest.skip("DSPy module not available", allow_module_level=True)
 
 # Try to import all DSPy components directly - skip gracefully if any fail
