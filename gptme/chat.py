@@ -467,7 +467,7 @@ def step(
         # log response and run tools
         if msg_response:
             yield msg_response.replace(quiet=True)
-            yield from execute_msg(msg_response, confirm)
+            yield from execute_msg(msg_response, confirm, log, workspace)
 
         # Reset interrupt flag after successful completion
         _recently_interrupted = False

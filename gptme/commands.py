@@ -276,7 +276,9 @@ def cmd_replay(ctx: CommandContext) -> None:
         print(f"Replaying all {len(assistant_messages)} assistant messages...")
 
     for msg in messages_to_replay:
-        for reply_msg in execute_msg(msg, ctx.confirm):
+        for reply_msg in execute_msg(
+            msg, ctx.confirm, ctx.manager.log, None, ctx.manager
+        ):
             print_msg(reply_msg, oneline=False)
 
 
@@ -337,7 +339,13 @@ def cmd_impersonate(ctx: CommandContext) -> Generator[Message, None, None]:
     content = ctx.full_args if ctx.full_args else input("[impersonate] Assistant: ")
     msg = Message("assistant", content)
     yield msg
-    yield from execute_msg(msg, confirm=lambda _: True)
+    yield from execute_msg(
+        msg,
+        confirm=lambda _: True,
+        log=ctx.manager.log,
+        workspace=None,
+        manager=ctx.manager,
+    )
 
 
 @command("tokens")

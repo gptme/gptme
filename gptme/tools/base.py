@@ -22,6 +22,7 @@ import json_repair
 from lxml import etree
 
 from ..codeblock import Codeblock
+from ..logmanager import Log, LogManager
 from ..message import Message
 from ..util import clean_example, transform_examples_to_chat_directives
 
@@ -322,7 +323,13 @@ class ToolUse:
     start: int | None = None
     _format: ToolFormat | None = "markdown"
 
-    def execute(self, confirm: ConfirmFunc) -> Generator[Message, None, None]:
+    def execute(
+        self,
+        confirm: ConfirmFunc,
+        log: "Log | None" = None,
+        workspace: "Path | None" = None,
+        manager: "LogManager | None" = None,
+    ) -> Generator[Message, None, None]:
         """Executes a tool-use tag and returns the output."""
         # noreorder
         from ..hooks import HookType, trigger_hook  # fmt: skip
@@ -388,6 +395,9 @@ class ToolUse:
                     # Trigger post-execution hooks
                     if post_hook_msgs := trigger_hook(
                         HookType.TOOL_POST_EXECUTE,
+                        log=log,
+                        workspace=workspace,
+                        manager=manager,
                         tool_name=self.tool,
                         tool_use=self,
                     ):

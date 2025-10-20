@@ -288,7 +288,9 @@ def api_conversation_generate(logfile: str):
             manager.append(msg)
 
             # Execute any tools
-            reply_msgs = list(execute_msg(msg, confirm_func))
+            reply_msgs = list(
+                execute_msg(msg, confirm_func, manager.log, None, manager)
+            )
             for reply_msg in reply_msgs:
                 manager.append(reply_msg)
 
@@ -355,7 +357,9 @@ def api_conversation_generate(logfile: str):
             yield f"data: {flask.json.dumps({'role': 'assistant', 'content': output, 'stored': True})}\n\n"
 
             # Execute any tools and stream their output
-            tool_replies = list(execute_msg(msg, confirm_func))
+            tool_replies = list(
+                execute_msg(msg, confirm_func, manager.log, None, manager)
+            )
             for reply_msg in tool_replies:
                 logger.debug(
                     f"Tool output: {reply_msg.role} - {reply_msg.content[:100]}..."
