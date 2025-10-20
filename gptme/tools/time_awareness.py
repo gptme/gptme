@@ -4,6 +4,12 @@ Time awareness tool.
 Provides time feedback during conversations to help the assistant manage
 long-running sessions effectively.
 
+This helps the assistant:
+- Understand conversation duration
+- Plan work within time constraints
+- Manage long-running autonomous sessions effectively
+- Avoid timeouts and performance issues
+
 Shows time elapsed messages at: 1min, 5min, 10min, 15min, 20min, then every 10min.
 """
 
@@ -60,14 +66,15 @@ def add_time_message(
             hours = elapsed_minutes // 60
             minutes = elapsed_minutes % 60
 
+            time_str = datetime.now().strftime("%H:%M")
             if hours > 0:
-                time_str = f"{hours}h {minutes}min" if minutes > 0 else f"{hours}h"
+                elapsed_str = f"{hours}h {minutes}min" if minutes > 0 else f"{hours}h"
             else:
-                time_str = f"{minutes}min"
+                elapsed_str = f"{minutes}min"
 
             message = Message(
                 "system",
-                f"<system_warning>Time elapsed: {time_str}</system_warning>",
+                f"<system_info>The time is now {time_str}. Time elapsed: {elapsed_str}</system_info>",
                 hide=True,
             )
             yield message
@@ -106,15 +113,9 @@ tool = ToolSpec(
 This tool provides time awareness to help manage long-running conversations.
 
 The assistant receives periodic updates about how much time has elapsed:
-<system_warning>Time elapsed: Xmin</system_warning>
+<system_info>Time elapsed: Xmin</system_info>
 
 Time messages are shown at: 1min, 5min, 10min, 15min, 20min, then every 10 minutes.
-
-This helps the assistant:
-- Understand conversation duration
-- Plan work within time constraints
-- Manage long-running autonomous sessions effectively
-- Avoid timeouts and performance issues
 """.strip(),
     available=True,
     hooks={
