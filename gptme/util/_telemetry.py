@@ -17,7 +17,11 @@ class TelemetryConnectionErrorFilter(logging.Filter):
     """Filter to truncate verbose connection error stack traces from OpenTelemetry."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Truncate connection error messages to a single line."""
+        """Truncate connection error messages to a single line.
+
+        Note: Returns True to allow the modified record to pass through.
+        We want to show the error but without the verbose stack trace.
+        """
         # Check if this is a connection error from OpenTelemetry exporters
         if (
             record.name.startswith("opentelemetry.")

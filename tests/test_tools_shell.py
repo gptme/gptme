@@ -713,13 +713,17 @@ def test_grep_with_alternation(shell):
     The shell tool should respect quotes and not treat | inside quoted strings
     as pipe operators.
     """
-    # Create a test file with some content
-    shell.run("echo 'function test() { return true; }' > /tmp/test_grep.txt")
-    shell.run("echo 'def example(): pass' >> /tmp/test_grep.txt")
+    # Create a test file with unique name to avoid collision
+    import tempfile
+
+    test_file = tempfile.mktemp(suffix=".txt")
+
+    shell.run(f"echo 'function test() {{ return true; }}' > {test_file}")
+    shell.run(f"echo 'def example(): pass' >> {test_file}")
 
     # Test grep with alternation pattern - the \| should not be treated as a pipe
     ret_code, stdout, stderr = shell.run(
-        r'grep "function\|def" /tmp/test_grep.txt',
+        f'grep "function\\|def" {test_file}',
         output=False,
     )
 
@@ -729,4 +733,38 @@ def test_grep_with_alternation(shell):
     assert "grep: warning: stray" not in stderr.lower()
 
     # Clean up
-    shell.run("rm /tmp/test_grep.txt")
+    shell.run(f"rm {test_file}")
+
+
+def test_compound_operators_without_pipe(shell):
+    """Test that commands with compound operators (&&, ||, ;) work correctly.
+
+    When there's no pipe but compound operators are present, we should not
+    blindly add stdin redirect at the end, as it might apply to the wrong command.
+    """
+    # Test with && - both commands should execute
+    ret_code, stdout, stderr = shell.run(
+        "echo 'first' && echo 'second'",
+        output=False,
+    )
+    assert ret_code == 0
+    assert "first" in stdout
+    assert "second" in stdout
+
+    # Test with || - second command should not execute (first succeeds)
+    ret_code, stdout, stderr = shell.run(
+        "echo 'first' || echo 'second'",
+        output=False,
+    )
+    assert ret_code == 0
+    assert "first" in stdout
+    assert "second" not in stdout
+
+    # Test with ; - both commands should execute
+    ret_code, stdout, stderr = shell.run(
+        "echo 'first' ; echo 'second'",
+        output=False,
+    )
+    assert ret_code == 0
+    assert "first" in stdout
+    assert "second" in stdout
