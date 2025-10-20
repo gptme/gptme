@@ -1,5 +1,5 @@
 """
-Autocommit hook tool that automatically suggests to commits changes after message processing.
+Autocommit hook tool that automatically provides hints for committing changes after message processing.
 
 When GPTME_AUTOCOMMIT=true is set, after each message is processed:
 1. Checks if there are file modifications
