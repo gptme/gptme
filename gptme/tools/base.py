@@ -554,16 +554,28 @@ class ToolUse:
     def _iter_from_xml(cls, content: str) -> Generator[ToolUse, None, None]:
         """Returns all XML-style ToolUse in a message.
 
-        Example:
+        Supports two formats:
+        1. gptme format:
           <tool-use>
           <ipython>
           print("Hello, world!")
           </ipython>
           </tool-use>
+
+        2. Haiku format:
+          <function_calls>
+          <invoke name="ipython">
+          print("Hello, world!")
+          </invoke>
+          </function_calls>
         """
-        if "<tool-use>" not in content:
-            return
-        if "</tool-use>" not in content:
+        # Check for either format
+        has_tool_use = "<tool-use>" in content and "</tool-use>" in content
+        has_function_calls = (
+            "<function_calls>" in content and "</function_calls>" in content
+        )
+
+        if not (has_tool_use or has_function_calls):
             return
 
         try:
@@ -571,6 +583,7 @@ class ToolUse:
             parser = etree.HTMLParser()
             tree = etree.fromstring(content, parser)
 
+            # Handle gptme format: <tool-use><toolname>...</toolname></tool-use>
             for tooluse in tree.xpath("//tool-use"):
                 for child in tooluse.getchildren():
                     tool_name = child.tag
@@ -579,6 +592,29 @@ class ToolUse:
 
                     # Find the start position of the tool in the original content
                     start_pos = content.find(f"<{tool_name}")
+
+                    yield ToolUse(
+                        tool_name,
+                        args,
+                        tool_content,
+                        start=start_pos,
+                        _format="xml",
+                    )
+
+            # Handle Haiku format: <function_calls><invoke name="toolname">...</invoke></function_calls>
+            for function_calls in tree.xpath("//function_calls"):
+                for invoke in function_calls.xpath(".//invoke"):
+                    # Get tool name from 'name' attribute
+                    tool_name = invoke.get("name")
+                    if not tool_name:
+                        continue
+
+                    # Get any other attributes as args (excluding 'name')
+                    args = [v for k, v in invoke.attrib.items() if k != "name"]
+                    tool_content = (invoke.text or "").strip()
+
+                    # Find the start position of the invoke in the original content
+                    start_pos = content.find(f'<invoke name="{tool_name}"')
 
                     yield ToolUse(
                         tool_name,
