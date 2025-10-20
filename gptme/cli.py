@@ -322,16 +322,30 @@ def main(
     logger.debug(f"Using tools: {config.chat.tools}")
     tools = init_tools(config.chat.tools)
 
-    # get initial system prompt
-    initial_msgs = get_prompt(
-        tools=tools,
-        prompt=prompt_system,
-        interactive=config.chat.interactive,
-        tool_format=config.chat.tool_format,
-        model=config.chat.model,
-        workspace=workspace_path,
-        agent_path=config.chat.agent,
+    # Check if we're resuming an existing conversation
+    # If so, skip generating initial messages (including expensive context_cmd)
+    # as they're already in the loaded log
+    log_file = logdir / "conversation.jsonl"
+    is_existing_conversation = (
+        resume and log_file.exists() and log_file.stat().st_size > 0
     )
+
+    if is_existing_conversation:
+        logger.debug(
+            "Resuming existing conversation, skipping initial prompt generation"
+        )
+        initial_msgs = []
+    else:
+        # get initial system prompt
+        initial_msgs = get_prompt(
+            tools=tools,
+            prompt=prompt_system,
+            interactive=config.chat.interactive,
+            tool_format=config.chat.tool_format,
+            model=config.chat.model,
+            workspace=workspace_path,
+            agent_path=config.chat.agent,
+        )
 
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready
