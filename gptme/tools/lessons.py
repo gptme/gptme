@@ -19,19 +19,12 @@ from collections.abc import Generator
 from ..commands import CommandContext
 from ..config import get_config
 from ..hooks import HookType
+from ..lessons import LessonIndex, LessonMatcher, MatchContext
+from ..lessons.commands import lesson
 from ..message import Message
 from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
-
-# Import lesson utilities
-try:
-    from ..lessons import LessonIndex, LessonMatcher, MatchContext
-
-    HAS_LESSONS = True
-except ImportError:
-    HAS_LESSONS = False
-    logger.warning("Lessons module not available")
 
 # Thread-local storage for lesson index
 _thread_local = threading.local()
@@ -130,46 +123,8 @@ def _extract_message_content(log: list[Message], limit: int = 10) -> str:
     return combined
 
 
-def _format_lessons(matches: list) -> str:
-    """Format matched lessons for inclusion.
-
-    Args:
-        matches: List of MatchResult objects
-
-    Returns:
-        Formatted lessons as string
-    """
-    parts = []
-
-    for i, match in enumerate(matches, 1):
-        lesson = match.lesson
-
-        # Add separator between lessons
-        if i > 1:
-            parts.append("\n---\n")
-
-        # Add lesson with context
-        parts.append(f"## {lesson.title}\n")
-        parts.append(f"*Path: {lesson.path}*\n")
-        parts.append(f"*Category: {lesson.category}*\n")
-        parts.append(f"*Matched by: {', '.join(match.matched_by)}*\n\n")
-        parts.append(lesson.body)
-
-    return "\n".join(parts)
-
-
 def handle_lesson_command(ctx: CommandContext) -> Generator[Message, None, None]:
     """Handle /lesson command."""
-    if not HAS_LESSONS:
-        yield Message(
-            role="system",
-            content="Lessons module not available. Install PyYAML to enable lessons.",
-        )
-        return
-
-    # Import command handler
-    from ..lessons.commands import lesson
-
     # Delegate to the command handler
     yield from lesson(ctx)
 
@@ -190,10 +145,6 @@ def auto_include_lessons_hook(
     Returns:
         Generator of messages to prepend (lessons as system message)
     """
-    if not HAS_LESSONS:
-        logger.debug("Lessons module not available, skipping auto-inclusion")
-        return
-
     # Get configuration
     config = get_config()
     auto_include = config.get_env_bool("GPTME_LESSONS_AUTO_INCLUDE", True)
@@ -278,18 +229,12 @@ tool = ToolSpec(
     name="lessons",
     desc="Lesson system for structured guidance",
     instructions="""
-Use lessons to improve your performance and avoid known failure modes.
+Use lessons to learn and remember skills/tools/workflows, improve your performance, and avoid known failure modes.
 
 How lessons help you:
 - Automatically included when relevant keywords or tools match
 - Extracted from both user and assistant messages in the conversation
 - Limited to 5 most relevant lessons to conserve context
-
-Commands available:
-- /lesson list - View all available lessons
-- /lesson search <query> - Find lessons matching query
-- /lesson show <id> - Display a specific lesson
-- /lesson refresh - Reload lessons from disk
 
 Leverage lessons for self-improvement:
 - Pay attention to lessons included in context
@@ -299,7 +244,6 @@ Leverage lessons for self-improvement:
 """.strip(),
     examples="",
     functions=[],
-    available=HAS_LESSONS,
     hooks={
         "auto_include_lessons": (
             HookType.MESSAGE_PRE_PROCESS.value,
