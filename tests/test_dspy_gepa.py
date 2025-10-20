@@ -1,9 +1,19 @@
 """Test GEPA integration with gptme evaluation."""
 
-import dspy
-from gptme.eval.dspy.prompt_optimizer import GptmeModule
-from gptme.eval.dspy.metrics import create_trajectory_feedback_metric
+import importlib.util
+
+import pytest
 from gptme.eval.types import EvalSpec
+
+if importlib.util.find_spec("dspy") is None:
+    pytest.skip("DSPy not available", allow_module_level=True)
+
+try:
+    import dspy  # fmt: skip
+    from gptme.eval.dspy.metrics import create_trajectory_feedback_metric  # fmt: skip
+    from gptme.eval.dspy.prompt_optimizer import GptmeModule  # fmt: skip
+except (ImportError, ModuleNotFoundError):
+    pytest.skip("DSPy not available", allow_module_level=True)
 
 
 def test_gepa_integration():
