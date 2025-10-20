@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from pydantic import BaseModel, ValidationError
+
 from ..message import Message
 from . import get_tools
 from .base import ToolSpec, ToolUse
@@ -40,6 +42,7 @@ class Subagent:
     prompt: str
     thread: threading.Thread
     logdir: Path
+    output_schema: type[BaseModel] | None = None
 
     def get_log(self) -> "LogManager":
         # noreorder
@@ -59,8 +62,20 @@ class Subagent:
         elif not json_response.strip().startswith("{"):
             print(f"FAILED to parse JSON: {json_response}")
             return ReturnType("failure")
-        else:
-            return ReturnType(**json.loads(json_response))  # type: ignore
+
+        try:
+            parsed_data = json.loads(json_response)
+            # Validate against schema if provided
+            if self.output_schema:
+                try:
+                    self.output_schema(**parsed_data)
+                except ValidationError as e:
+                    print(f"FAILED schema validation: {e}")
+                    return ReturnType("failure")
+            return ReturnType(**parsed_data)  # type: ignore
+        except json.JSONDecodeError as e:
+            print(f"FAILED to decode JSON: {e}")
+            return ReturnType("failure")
 
 
 def _extract_json(s: str) -> str:
@@ -69,8 +84,14 @@ def _extract_json(s: str) -> str:
     return s[first_brace : last_brace + 1]
 
 
-def subagent(agent_id: str, prompt: str):
-    """Runs a subagent and returns the resulting JSON output."""
+def subagent(agent_id: str, prompt: str, output_schema: type[BaseModel] | None = None):
+    """Runs a subagent and returns the resulting JSON output.
+
+    Args:
+        agent_id: Unique identifier for the subagent
+        prompt: Task prompt for the subagent
+        output_schema: Optional Pydantic model for output validation
+    """
     # noreorder
     from gptme import chat  # fmt: skip
     from gptme.cli import get_logdir  # fmt: skip
@@ -118,7 +139,7 @@ def subagent(agent_id: str, prompt: str):
         daemon=True,
     )
     t.start()
-    _subagents.append(Subagent(agent_id, prompt, t, logdir))
+    _subagents.append(Subagent(agent_id, prompt, t, logdir, output_schema))
 
 
 def subagent_status(agent_id: str) -> dict:
