@@ -2,13 +2,34 @@
 MCP server discovery and management tool.
 
 Allows searching for MCP servers in registries and dynamically loading/unloading them.
+
+Available Commands:
+- ``/mcp search [query]`` - Search for MCP servers across all registries
+  - Optional JSON config: ``{"registry": "official|mcp.so|all", "limit": 10}``
+- ``/mcp info <server-name>`` - Get detailed information about a specific server
+  - Checks configured servers first, then searches registries if not found locally
+- ``/mcp load <server-name>`` - Dynamically load an MCP server into the current session
+  - Optional JSON config override: ``{"command": "...", "args": [...], "url": "..."}``
+- ``/mcp unload <server-name>`` - Unload a previously loaded MCP server
+- ``/mcp list`` - List all currently configured and loaded MCP servers
+
+The search command queries the Official MCP Registry (registry.modelcontextprotocol.io).
+Once loaded, server tools are available as ``<server-name>.<tool-name>``.
 """
 
 import json
 from collections.abc import Generator
 from logging import getLogger
 
-from .base import ConfirmFunc, Parameter, ToolSpec, ToolUse
+from ..config import get_config
+from ..message import Message
+from .base import (
+    ConfirmFunc,
+    Parameter,
+    ToolFormat,
+    ToolSpec,
+    ToolUse,
+)
 from .mcp_adapter import (
     get_mcp_server_info,
     list_loaded_servers,
@@ -16,7 +37,6 @@ from .mcp_adapter import (
     search_mcp_servers,
     unload_mcp_server,
 )
-from ..message import Message
 
 logger = getLogger(__name__)
 
@@ -66,7 +86,6 @@ def execute_mcp(
             name = parts[1]
 
             # First check if server is configured locally
-            from ..config import get_config
 
             config = get_config()
             local_server = next((s for s in config.mcp.servers if s.name == name), None)
@@ -155,83 +174,93 @@ def execute_mcp(
 
 def examples(tool_format: str) -> str:
     """Return example usage."""
-    from .base import ToolFormat
 
     # Cast to ToolFormat type
     fmt: ToolFormat = tool_format  # type: ignore
     return "\n\n".join(
         [
-            ToolUse("mcp", [], "search database").to_output(fmt),
+            ToolUse("mcp", [], "search sqlite").to_output(fmt),
             ToolUse("mcp", [], "info sqlite").to_output(fmt),
             ToolUse("mcp", [], "load sqlite").to_output(fmt),
             ToolUse("mcp", [], "list").to_output(fmt),
             ToolUse("mcp", [], "unload sqlite").to_output(fmt),
+            ToolUse(
+                "mcp",
+                [],
+                'load my-server\n{"command": "uvx", "args": ["my-mcp-server", "--option"]}',
+            ).to_output(fmt),
         ]
     )
 
 
-__doc__ = """
-MCP Server Discovery and Management
+def _cmd_mcp_search(query: str = "") -> str:
+    """Search for MCP servers."""
+    return search_mcp_servers(query)
 
-This tool allows you to search for MCP servers in various registries and dynamically load/unload them during a conversation.
 
-Available Commands:
-- `search [query]` - Search for MCP servers across all registries
-  - Optional JSON config: `{"registry": "official|mcp.so|all", "limit": 10}`
-- `info <server-name>` - Get detailed information about a specific server
-  - Checks configured servers first, then searches registries if not found locally
-- `load <server-name>` - Dynamically load an MCP server into the current session
-  - Optional JSON config override: `{"command": "...", "args": [...], "url": "..."}`
-- `unload <server-name>` - Unload a previously loaded MCP server
-- `list` - List all currently configured and loaded MCP servers
+def _cmd_mcp_info(name: str) -> str:
+    """Get info about an MCP server."""
+    config = get_config()
+    local_server = next((s for s in config.mcp.servers if s.name == name), None)
 
-The search command queries:
-- Official MCP Registry (registry.modelcontextprotocol.io)
-- Other configured registries
+    if local_server:
+        result = f"# {local_server.name} (configured locally)\n\n"
+        result += f"**Type:** {'HTTP' if local_server.is_http else 'stdio'}\n"
+        result += f"**Enabled:** {'Yes' if local_server.enabled else 'No'}\n\n"
 
-Examples:
+        if local_server.is_http:
+            result += f"**URL:** {local_server.url}\n"
+            if local_server.headers:
+                result += f"**Headers:** {len(local_server.headers)} configured\n"
+        else:
+            result += f"**Command:** {local_server.command}\n"
+            if local_server.args:
+                result += f"**Args:** {', '.join(local_server.args)}\n"
+        return result
+    else:
+        result = get_mcp_server_info(name)
+        if "not found" in result.lower():
+            result = f"Server '{name}' not configured locally.\n\n" + result
+        return result
 
-Search for database-related servers:
-```mcp
-search database
-```
 
-Get detailed info about a server:
-```mcp
-info sqlite
-```
+def _cmd_mcp_list() -> str:
+    """List loaded MCP servers."""
+    return list_loaded_servers()
 
-Load a server dynamically:
-```mcp
-load sqlite
-```
-
-Load with custom config:
-```mcp
-load my-server
-{"command": "uvx", "args": ["my-mcp-server", "--option"]}
-```
-
-List all loaded servers:
-```mcp
-list
-```
-
-Unload a server:
-```mcp
-unload sqlite
-```
-
-Once loaded, the server's tools will be available as `<server-name>.<tool-name>` in the conversation.
-"""
 
 tool = ToolSpec(
     name="mcp",
     desc="Search, discover, and manage MCP servers",
-    instructions=__doc__,
+    instructions="""
+This tool allows you to search for MCP servers in various registries and dynamically load/unload them.
+
+The tool can be used in two ways:
+
+1. **As a tool block** (in code blocks):
+   ```mcp
+   search github
+   ```
+
+2. **As slash commands** (interactive mode):
+   - `/mcp search [query]` - Search for servers
+   - `/mcp info <name>` - Get server details
+   - `/mcp list` - List loaded servers
+   - `/mcp load <name>` - Load a server (requires confirmation)
+   - `/mcp unload <name>` - Unload a server (requires confirmation)
+
+Once loaded, server tools are available as `<server-name>.<tool-name>`.
+
+Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
+""".strip(),
     examples=examples,
     execute=execute_mcp,
     block_types=["mcp"],
+    commands={
+        "mcp search": _cmd_mcp_search,
+        "mcp info": _cmd_mcp_info,
+        "mcp list": _cmd_mcp_list,
+    },
     parameters=[
         Parameter(
             name="command",
