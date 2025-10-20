@@ -1,12 +1,12 @@
 """Integration tests using actual lesson files from docs/lessons/."""
 
-import pytest
 from pathlib import Path
-from gptme.lessons import LessonIndex, LessonMatcher, MatchContext
-from gptme.tools.lessons import auto_include_lessons_hook, _extract_recent_tools
-from gptme.message import Message
 from unittest.mock import patch
 
+import pytest
+from gptme.lessons import LessonIndex, LessonMatcher, MatchContext
+from gptme.message import Message
+from gptme.tools.lessons import _extract_recent_tools, auto_include_lessons_hook
 
 # Path to example lessons
 DOCS_LESSONS_DIR = Path(__file__).parent.parent / "docs" / "lessons"
@@ -220,25 +220,22 @@ class TestDocsLessonsAutoInclude:
             Message(role="user", content="How do I use the patch tool?"),
         ]
 
-        with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-                with patch("gptme.tools.lessons.get_config") as mock_config:
-                    # Setup mocks
-                    mock_get_index.return_value = docs_lesson_index
-                    mock_cfg = mock_config.return_value
-                    mock_cfg.get_env_bool.return_value = True
-                    mock_cfg.get_env.return_value = "5"
+        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
+            with patch("gptme.tools.lessons.get_config") as mock_config:
+                # Setup mocks
+                mock_get_index.return_value = docs_lesson_index
+                mock_cfg = mock_config.return_value
+                mock_cfg.get_env_bool.return_value = True
+                mock_cfg.get_env.return_value = "5"
 
-                    messages = list(auto_include_lessons_hook(log) or [])
+                messages = list(auto_include_lessons_hook(log) or [])
 
-                    assert len(messages) > 0, "Should include lessons"
+                assert len(messages) > 0, "Should include lessons"
 
-                    lesson_msg = messages[0]
-                    assert lesson_msg.role == "system"
-                    assert "# Relevant Lessons" in lesson_msg.content
-                    assert (
-                        "Patch" in lesson_msg.content or "patch" in lesson_msg.content
-                    )
+                lesson_msg = messages[0]
+                assert lesson_msg.role == "system"
+                assert "# Relevant Lessons" in lesson_msg.content
+                assert "Patch" in lesson_msg.content or "patch" in lesson_msg.content
 
     def test_auto_include_with_tool_usage(self, docs_lesson_index):
         """Test auto-include based on recent tool usage."""
@@ -248,20 +245,17 @@ class TestDocsLessonsAutoInclude:
             Message(role="user", content="Looks good"),
         ]
 
-        with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-                with patch("gptme.tools.lessons.get_config") as mock_config:
-                    # Setup mocks
-                    mock_get_index.return_value = docs_lesson_index
-                    mock_cfg = mock_config.return_value
-                    mock_cfg.get_env_bool.return_value = True
-                    mock_cfg.get_env.return_value = "5"
+        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
+            with patch("gptme.tools.lessons.get_config") as mock_config:
+                # Setup mocks
+                mock_get_index.return_value = docs_lesson_index
+                mock_cfg = mock_config.return_value
+                mock_cfg.get_env_bool.return_value = True
+                mock_cfg.get_env.return_value = "5"
 
-                    messages = list(auto_include_lessons_hook(log) or [])
+                messages = list(auto_include_lessons_hook(log) or [])
 
-                    assert (
-                        len(messages) > 0
-                    ), "Should include lessons based on tool usage"
+                assert len(messages) > 0, "Should include lessons based on tool usage"
 
     def test_deduplication_from_history(self, docs_lesson_index):
         """Test that lessons aren't included twice."""
@@ -281,23 +275,22 @@ class TestDocsLessonsAutoInclude:
             Message(role="user", content="Use patch again"),
         ]
 
-        with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-                with patch("gptme.tools.lessons.get_config") as mock_config:
-                    # Setup mocks
-                    mock_get_index.return_value = docs_lesson_index
-                    mock_cfg = mock_config.return_value
-                    mock_cfg.get_env_bool.return_value = True
-                    mock_cfg.get_env.return_value = "5"
+        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
+            with patch("gptme.tools.lessons.get_config") as mock_config:
+                # Setup mocks
+                mock_get_index.return_value = docs_lesson_index
+                mock_cfg = mock_config.return_value
+                mock_cfg.get_env_bool.return_value = True
+                mock_cfg.get_env.return_value = "5"
 
-                    messages = list(auto_include_lessons_hook(log) or [])
+                messages = list(auto_include_lessons_hook(log) or [])
 
-                    # Should not include patch lesson again since it's in history
-                    if messages:
-                        assert (
-                            str(patch_lesson.path) not in messages[0].content
-                            or "# Relevant Lessons" not in messages[0].content
-                        ), "Should not include already-included lessons"
+                # Should not include patch lesson again since it's in history
+                if messages:
+                    assert (
+                        str(patch_lesson.path) not in messages[0].content
+                        or "# Relevant Lessons" not in messages[0].content
+                    ), "Should not include already-included lessons"
 
 
 class TestDocsLessonsREADME:
