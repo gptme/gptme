@@ -11,13 +11,22 @@ import string
 import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from pydantic import BaseModel, ValidationError
 
 from ..message import Message
 from . import get_tools
 from .base import ToolSpec, ToolUse
+
+
+class SubtaskDef(TypedDict):
+    """Definition of a subtask for planner mode."""
+
+    id: str
+    description: str
+    schema: type[BaseModel] | None
+
 
 if TYPE_CHECKING:
     # noreorder
@@ -84,14 +93,80 @@ def _extract_json(s: str) -> str:
     return s[first_brace : last_brace + 1]
 
 
-def subagent(agent_id: str, prompt: str, output_schema: type[BaseModel] | None = None):
+def _run_planner(agent_id: str, prompt: str, subtasks: list[SubtaskDef]) -> None:
+    """Run a planner that delegates work to multiple executor subagents."""
+    from gptme import chat
+    from gptme.cli import get_logdir
+    from ..prompts import get_prompt
+
+    logger.info(f"Starting planner {agent_id} with {len(subtasks)} subtasks")
+
+    def random_string(n):
+        s = string.ascii_lowercase + string.digits
+        return "".join(random.choice(s) for _ in range(n))
+
+    for subtask in subtasks:
+        executor_id = f"{agent_id}-{subtask['id']}"
+        executor_prompt = f"Context: {prompt}\n\nSubtask: {subtask['description']}"
+        name = f"subagent-{executor_id}"
+        logdir = get_logdir(name + "-" + random_string(4))
+
+        def run_executor(prompt=executor_prompt, log_dir=logdir):
+            prompt_msgs = [Message("user", prompt)]
+            workspace = Path.cwd()
+            initial_msgs = get_prompt(
+                get_tools(), interactive=False, workspace=workspace
+            )
+            return_prompt = (
+                'Reply with JSON: {"result": "...", "status": "success|failure"}'
+            )
+            prompt_msgs.append(Message("user", return_prompt))
+            chat(
+                prompt_msgs,
+                initial_msgs,
+                logdir=log_dir,
+                workspace=workspace,
+                model=None,
+                stream=False,
+                no_confirm=True,
+                interactive=False,
+                show_hidden=False,
+            )
+
+        t = threading.Thread(target=run_executor, daemon=True)
+        t.start()
+        _subagents.append(
+            Subagent(executor_id, executor_prompt, t, logdir, subtask.get("schema"))
+        )
+
+    logger.info(f"Planner {agent_id} spawned {len(subtasks)} executor subagents")
+
+
+def subagent(
+    agent_id: str,
+    prompt: str,
+    output_schema: type[BaseModel] | None = None,
+    mode: Literal["executor", "planner"] = "executor",
+    subtasks: list[SubtaskDef] | None = None,
+):
     """Runs a subagent and returns the resulting JSON output.
 
     Args:
         agent_id: Unique identifier for the subagent
-        prompt: Task prompt for the subagent
-        output_schema: Optional Pydantic model for output validation
+        prompt: Task prompt for the subagent (used as context for planner mode)
+        output_schema: Optional Pydantic model for output validation (executor mode only)
+        mode: "executor" for single task, "planner" for delegating to multiple executors
+        subtasks: List of subtask definitions for planner mode (required when mode="planner")
+
+    Returns:
+        For executor mode: None (starts async execution)
+        For planner mode: None (starts async execution of all subtasks)
     """
+    if mode == "planner":
+        if not subtasks:
+            raise ValueError("Planner mode requires subtasks parameter")
+        return _run_planner(agent_id, prompt, subtasks)
+
     # noreorder
     from gptme import chat  # fmt: skip
     from gptme.cli import get_logdir  # fmt: skip
