@@ -1,5 +1,17 @@
 """
-Autocommit hook tool that automatically commits changes after message processing.
+Autocommit hook tool that automatically suggests to commits changes after message processing.
+
+When GPTME_AUTOCOMMIT=true is set, after each message is processed:
+1. Checks if there are file modifications
+2. If modifications exist, returns a message asking the LLM to review and commit
+
+The tool hooks into MESSAGE_POST_PROCESS and runs with low priority
+(after pre-commit checks and other validation).
+
+To enable autocommit:
+```bash
+export GPTME_AUTOCOMMIT=true
+```
 """
 
 import logging
@@ -133,24 +145,11 @@ def autocommit_on_message_complete(
 
 
 # Tool specification
+# TODO: should probably be disabled by default, or at least in non-interactive modes
 tool = ToolSpec(
     name="autocommit",
-    desc="Automatically commit changes after message processing",
-    instructions="""
-This tool automatically commits changes made during a conversation.
-
-When GPTME_AUTOCOMMIT=true is set, after each message is processed:
-1. Checks if there are file modifications
-2. If modifications exist, returns a message asking the LLM to review and commit
-
-The tool hooks into MESSAGE_POST_PROCESS and runs with low priority
-(after pre-commit checks and other validation).
-
-To enable autocommit:
-```bash
-export GPTME_AUTOCOMMIT=true
-```
-""".strip(),
+    desc="Automatic hints to commit changes after message processing",
+    instructions="This tool will automatically provide hints to commit changes before returning control to the user".strip(),
     available=True,
     hooks={
         "autocommit": (

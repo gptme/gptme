@@ -1,5 +1,29 @@
 """
 Pre-commit hook tool that automatically runs pre-commit checks after file saves.
+
+This tool automatically runs pre-commit checks in two scenarios:
+
+1. **Per-file checks (FILE_POST_SAVE)**: After each file is saved
+   - Runs pre-commit on the specific saved file
+   - Provides immediate feedback on formatting/linting issues
+
+2. **Full checks (MESSAGE_POST_PROCESS)**: After message processing completes
+   - Runs pre-commit on all modified files
+   - Ensures all changes pass checks before auto-commit
+
+Commands:
+- /pre-commit: Manually run pre-commit checks
+
+Pre-commit checks include:
+- Code formatting (black, prettier, etc.)
+- Linting (ruff, eslint, etc.)
+- Type checking (mypy, etc.)
+- Other configured hooks
+
+The tool will report any failures and suggest fixes.
+
+Enable with: --tools precommit
+Or configure pre-commit checks via: GPTME_CHECK=true
 """
 
 import logging
@@ -291,29 +315,6 @@ tool = ToolSpec(
     name="precommit",
     desc="Automatic pre-commit checks on file saves and after message processing",
     instructions="""
-This tool automatically runs pre-commit checks in two scenarios:
-
-1. **Per-file checks (FILE_POST_SAVE)**: After each file is saved
-   - Runs pre-commit on the specific saved file
-   - Provides immediate feedback on formatting/linting issues
-
-2. **Full checks (MESSAGE_POST_PROCESS)**: After message processing completes
-   - Runs pre-commit on all modified files
-   - Ensures all changes pass checks before auto-commit
-
-Pre-commit checks include:
-- Code formatting (black, prettier, etc.)
-- Linting (ruff, eslint, etc.)
-- Type checking (mypy, etc.)
-- Other configured hooks
-
-The tool will report any failures and suggest fixes.
-
-Commands:
-- /pre-commit: Manually run pre-commit checks
-
-Enable with: --tools precommit
-Or configure pre-commit checks via: GPTME_CHECK=true
 """.strip(),
     available=check_precommit_available,
     hooks={

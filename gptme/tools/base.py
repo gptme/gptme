@@ -152,7 +152,7 @@ class ToolSpec:
     Args:
         name: The name of the tool.
         desc: A description of the tool.
-        instructions: Instructions on how to use the tool.
+        instructions: Instructions for the agent on how to use the tool. This will be included in the prompt.
         instructions_format: Per tool format instructions when needed.
         examples: Example usage of the tool.
         functions: Functions registered in the IPython REPL.
@@ -164,6 +164,7 @@ class ToolSpec:
         load_priority: Influence the loading order of this tool. The higher the later.
         disabled_by_default: Whether this tool should be disabled by default.
         hooks: Hooks to register when this tool is loaded.
+        commands: User slash-commands (/example) to register when this tool is loaded.
     """
 
     name: str
