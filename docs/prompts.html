@@ -1036,65 +1036,16 @@ Leverage lessons for self-improvement:
 
 <span class="gs">**Description:**</span> Search, discover, and manage MCP servers
 
-<span class="gs">**Instructions:**</span>
-MCP Server Discovery and Management
+<span class="gs">**Instructions:**</span> This tool allows you to search for MCP servers in various registries and dynamically load/unload them.
 
-This tool allows you to search for MCP servers in various registries and dynamically load/unload them during a conversation.
+Once loaded, server tools are available as <span class="sb">`&lt;server-name&gt;.&lt;tool-name&gt;`</span>.
 
-Available Commands:
-<span class="k">-</span><span class="w"> </span><span class="sb">`search [query]`</span> - Search for MCP servers across all registries
-<span class="w">  </span><span class="k">-</span><span class="w"> </span>Optional JSON config: <span class="sb">`{&quot;registry&quot;: &quot;official|mcp.so|all&quot;, &quot;limit&quot;: 10}`</span>
-<span class="k">-</span><span class="w"> </span><span class="sb">`info &lt;server-name&gt;`</span> - Get detailed information about a specific server
-<span class="w">  </span><span class="k">-</span><span class="w"> </span>Checks configured servers first, then searches registries if not found locally
-<span class="k">-</span><span class="w"> </span><span class="sb">`load &lt;server-name&gt;`</span> - Dynamically load an MCP server into the current session
-<span class="w">  </span><span class="k">-</span><span class="w"> </span>Optional JSON config override: <span class="sb">`{&quot;command&quot;: &quot;...&quot;, &quot;args&quot;: [...], &quot;url&quot;: &quot;...&quot;}`</span>
-<span class="k">-</span><span class="w"> </span><span class="sb">`unload &lt;server-name&gt;`</span> - Unload a previously loaded MCP server
-<span class="k">-</span><span class="w"> </span><span class="sb">`list`</span> - List all currently configured and loaded MCP servers
-
-The search command queries:
-<span class="k">-</span><span class="w"> </span>Official MCP Registry (registry.modelcontextprotocol.io)
-<span class="k">-</span><span class="w"> </span>Other configured registries
-
-Examples:
-
-Search for database-related servers:
-<span class="sb">```mcp</span>
-<span class="s">search database</span>
-<span class="sb">```</span>
-
-Get detailed info about a server:
-<span class="sb">```mcp</span>
-<span class="s">info sqlite</span>
-<span class="sb">```</span>
-
-Load a server dynamically:
-<span class="sb">```mcp</span>
-<span class="s">load sqlite</span>
-<span class="sb">```</span>
-
-Load with custom config:
-<span class="sb">```mcp</span>
-<span class="s">load my-server</span>
-<span class="s">{&quot;command&quot;: &quot;uvx&quot;, &quot;args&quot;: [&quot;my-mcp-server&quot;, &quot;--option&quot;]}</span>
-<span class="sb">```</span>
-
-List all loaded servers:
-<span class="sb">```mcp</span>
-<span class="s">list</span>
-<span class="sb">```</span>
-
-Unload a server:
-<span class="sb">```mcp</span>
-<span class="s">unload sqlite</span>
-<span class="sb">```</span>
-
-Once loaded, the server&#39;s tools will be available as <span class="sb">`&lt;server-name&gt;.&lt;tool-name&gt;`</span> in the conversation.
-
+Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
 
 <span class="gu">### Examples</span>
 
 <span class="sb">```mcp</span>
-<span class="s">search database</span>
+<span class="s">search sqlite</span>
 <span class="sb">```</span>
 
 <span class="sb">```mcp</span>
@@ -1111,6 +1062,11 @@ Once loaded, the server&#39;s tools will be available as <span class="sb">`&lt;s
 
 <span class="sb">```mcp</span>
 <span class="s">unload sqlite</span>
+<span class="sb">```</span>
+
+<span class="sb">```mcp</span>
+<span class="s">load my-server</span>
+<span class="s">{&quot;command&quot;: &quot;uvx&quot;, &quot;args&quot;: [&quot;my-mcp-server&quot;, &quot;--option&quot;]}</span>
 <span class="sb">```</span>
 
 <span class="gu">## morph</span>
@@ -1678,7 +1634,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 7689</p>
+<p>Tokens: 7404</p>
 </dd></dl>
 
 <dl class="py function">
