@@ -237,6 +237,7 @@ def main(
                     "stdin is not a TTY and prompts provided, switching to non-interactive mode"
                 )
                 interactive = False
+                no_confirm = True
 
     # add prompts to prompt-toolkit history
     for prompt in prompts:
