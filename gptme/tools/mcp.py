@@ -5,11 +5,8 @@ Allows searching for MCP servers in registries and dynamically loading/unloading
 
 Available Commands:
 - ``/mcp search [query]`` - Search for MCP servers across all registries
-  - Optional JSON config: ``{"registry": "official|mcp.so|all", "limit": 10}``
 - ``/mcp info <server-name>`` - Get detailed information about a specific server
-  - Checks configured servers first, then searches registries if not found locally
 - ``/mcp load <server-name>`` - Dynamically load an MCP server into the current session
-  - Optional JSON config override: ``{"command": "...", "args": [...], "url": "..."}``
 - ``/mcp unload <server-name>`` - Unload a previously loaded MCP server
 - ``/mcp list`` - List all currently configured and loaded MCP servers
 
@@ -234,20 +231,6 @@ tool = ToolSpec(
     desc="Search, discover, and manage MCP servers",
     instructions="""
 This tool allows you to search for MCP servers in various registries and dynamically load/unload them.
-
-The tool can be used in two ways:
-
-1. **As a tool block** (in code blocks):
-   ```mcp
-   search github
-   ```
-
-2. **As slash commands** (interactive mode):
-   - `/mcp search [query]` - Search for servers
-   - `/mcp info <name>` - Get server details
-   - `/mcp list` - List loaded servers
-   - `/mcp load <name>` - Load a server (requires confirmation)
-   - `/mcp unload <name>` - Unload a server (requires confirmation)
 
 Once loaded, server tools are available as `<server-name>.<tool-name>`.
 
