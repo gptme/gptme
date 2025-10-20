@@ -18,7 +18,6 @@ import json
 from collections.abc import Generator
 from logging import getLogger
 
-from ..config import get_config
 from ..message import Message
 from .base import (
     ConfirmFunc,
@@ -36,6 +35,35 @@ from .mcp_adapter import (
 )
 
 logger = getLogger(__name__)
+
+
+def _get_local_server_info(name: str) -> str | None:
+    """Get info about a locally configured server, or None if not found.
+
+    Returns formatted info string if server is configured locally, None otherwise.
+    """
+    from ..config import get_config
+
+    config = get_config()
+    local_server = next((s for s in config.mcp.servers if s.name == name), None)
+
+    if not local_server:
+        return None
+
+    result = f"# {local_server.name} (configured locally)\n\n"
+    result += f"**Type:** {'HTTP' if local_server.is_http else 'stdio'}\n"
+    result += f"**Enabled:** {'Yes' if local_server.enabled else 'No'}\n\n"
+
+    if local_server.is_http:
+        result += f"**URL:** {local_server.url}\n"
+        if local_server.headers:
+            result += f"**Headers:** {len(local_server.headers)} configured\n"
+    else:
+        result += f"**Command:** {local_server.command}\n"
+        if local_server.args:
+            result += f"**Args:** {', '.join(local_server.args)}\n"
+
+    return result
 
 
 def execute_mcp(
@@ -83,28 +111,10 @@ def execute_mcp(
             name = parts[1]
 
             # First check if server is configured locally
+            local_info = _get_local_server_info(name)
 
-            config = get_config()
-            local_server = next((s for s in config.mcp.servers if s.name == name), None)
-
-            if local_server:
-                # Show local configuration
-                result = f"# {local_server.name} (configured locally)\n\n"
-                result += f"**Type:** {'HTTP' if local_server.is_http else 'stdio'}\n"
-                result += f"**Enabled:** {'Yes' if local_server.enabled else 'No'}\n\n"
-
-                if local_server.is_http:
-                    result += f"**URL:** {local_server.url}\n"
-                    if local_server.headers:
-                        result += (
-                            f"**Headers:** {len(local_server.headers)} configured\n"
-                        )
-                else:
-                    result += f"**Command:** {local_server.command}\n"
-                    if local_server.args:
-                        result += f"**Args:** {', '.join(local_server.args)}\n"
-
-                yield Message("system", result)
+            if local_info:
+                yield Message("system", local_info)
             else:
                 # Not found locally, search registries
                 result = get_mcp_server_info(name)
@@ -190,30 +200,23 @@ def examples(tool_format: str) -> str:
     )
 
 
-def _cmd_mcp_search(query: str = "") -> str:
-    """Search for MCP servers."""
-    return search_mcp_servers(query)
+def _cmd_mcp_search(query: str = "", registry: str = "all", limit: int = 10) -> str:
+    """Search for MCP servers.
+
+    Args:
+        query: Search query
+        registry: Registry to search (all, official, mcp.so)
+        limit: Maximum number of results to return
+    """
+    return search_mcp_servers(query, registry, limit)
 
 
 def _cmd_mcp_info(name: str) -> str:
     """Get info about an MCP server."""
-    config = get_config()
-    local_server = next((s for s in config.mcp.servers if s.name == name), None)
+    local_info = _get_local_server_info(name)
 
-    if local_server:
-        result = f"# {local_server.name} (configured locally)\n\n"
-        result += f"**Type:** {'HTTP' if local_server.is_http else 'stdio'}\n"
-        result += f"**Enabled:** {'Yes' if local_server.enabled else 'No'}\n\n"
-
-        if local_server.is_http:
-            result += f"**URL:** {local_server.url}\n"
-            if local_server.headers:
-                result += f"**Headers:** {len(local_server.headers)} configured\n"
-        else:
-            result += f"**Command:** {local_server.command}\n"
-            if local_server.args:
-                result += f"**Args:** {', '.join(local_server.args)}\n"
-        return result
+    if local_info:
+        return local_info
     else:
         result = get_mcp_server_info(name)
         if "not found" in result.lower():
