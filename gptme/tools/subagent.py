@@ -13,8 +13,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
 
-from pydantic import BaseModel, ValidationError
-
 from ..message import Message
 from . import get_tools
 from .base import ToolSpec, ToolUse
@@ -25,7 +23,6 @@ class SubtaskDef(TypedDict):
 
     id: str
     description: str
-    schema: type[BaseModel] | None
 
 
 if TYPE_CHECKING:
@@ -51,7 +48,6 @@ class Subagent:
     prompt: str
     thread: threading.Thread
     logdir: Path
-    output_schema: type[BaseModel] | None = None
 
     def get_log(self) -> "LogManager":
         # noreorder
@@ -71,20 +67,8 @@ class Subagent:
         elif not json_response.strip().startswith("{"):
             print(f"FAILED to parse JSON: {json_response}")
             return ReturnType("failure")
-
-        try:
-            parsed_data = json.loads(json_response)
-            # Validate against schema if provided
-            if self.output_schema:
-                try:
-                    self.output_schema(**parsed_data)
-                except ValidationError as e:
-                    print(f"FAILED schema validation: {e}")
-                    return ReturnType("failure")
-            return ReturnType(**parsed_data)  # type: ignore
-        except json.JSONDecodeError as e:
-            print(f"FAILED to decode JSON: {e}")
-            return ReturnType("failure")
+        else:
+            return ReturnType(**json.loads(json_response))  # type: ignore
 
 
 def _extract_json(s: str) -> str:
@@ -135,9 +119,7 @@ def _run_planner(agent_id: str, prompt: str, subtasks: list[SubtaskDef]) -> None
 
         t = threading.Thread(target=run_executor, daemon=True)
         t.start()
-        _subagents.append(
-            Subagent(executor_id, executor_prompt, t, logdir, subtask.get("schema"))
-        )
+        _subagents.append(Subagent(executor_id, executor_prompt, t, logdir))
 
     logger.info(f"Planner {agent_id} spawned {len(subtasks)} executor subagents")
 
@@ -145,7 +127,6 @@ def _run_planner(agent_id: str, prompt: str, subtasks: list[SubtaskDef]) -> None
 def subagent(
     agent_id: str,
     prompt: str,
-    output_schema: type[BaseModel] | None = None,
     mode: Literal["executor", "planner"] = "executor",
     subtasks: list[SubtaskDef] | None = None,
 ):
@@ -154,7 +135,6 @@ def subagent(
     Args:
         agent_id: Unique identifier for the subagent
         prompt: Task prompt for the subagent (used as context for planner mode)
-        output_schema: Optional Pydantic model for output validation (executor mode only)
         mode: "executor" for single task, "planner" for delegating to multiple executors
         subtasks: List of subtask definitions for planner mode (required when mode="planner")
 
@@ -214,7 +194,7 @@ def subagent(
         daemon=True,
     )
     t.start()
-    _subagents.append(Subagent(agent_id, prompt, t, logdir, output_schema))
+    _subagents.append(Subagent(agent_id, prompt, t, logdir))
 
 
 def subagent_status(agent_id: str) -> dict:

@@ -1,7 +1,6 @@
 import json
 
 import pytest
-from pydantic import BaseModel
 
 from gptme.tools.subagent import SubtaskDef, _extract_json, _subagents, subagent
 
@@ -31,13 +30,6 @@ def test_extract_json_empty():
     assert _extract_json(s) == ""
 
 
-class TestSchema(BaseModel):
-    """Test schema for planner mode tests."""
-
-    result: str
-    count: int
-
-
 def test_planner_mode_requires_subtasks():
     """Test that planner mode requires subtasks parameter."""
     with pytest.raises(ValueError, match="Planner mode requires subtasks"):
@@ -49,8 +41,8 @@ def test_planner_mode_spawns_executors():
     initial_count = len(_subagents)
 
     subtasks: list[SubtaskDef] = [
-        {"id": "task1", "description": "First task", "schema": None},
-        {"id": "task2", "description": "Second task", "schema": TestSchema},
+        {"id": "task1", "description": "First task"},
+        {"id": "task2", "description": "Second task"},
     ]
 
     subagent(
@@ -68,17 +60,11 @@ def test_planner_mode_spawns_executors():
     assert "test-planner-task1" in executor_ids
     assert "test-planner-task2" in executor_ids
 
-    # Check schemas are assigned
-    executors = _subagents[-2:]
-    schemas = [e.output_schema for e in executors]
-    assert None in schemas  # task1 has no schema
-    assert TestSchema in schemas  # task2 has TestSchema
-
 
 def test_planner_mode_executor_prompts():
     """Test that executor prompts include context and subtask description."""
     subtasks: list[SubtaskDef] = [
-        {"id": "task1", "description": "Do something specific", "schema": None}
+        {"id": "task1", "description": "Do something specific"}
     ]
 
     subagent(
@@ -98,12 +84,12 @@ def test_executor_mode_still_works():
     """Test that default executor mode still works as before."""
     initial_count = len(_subagents)
 
-    subagent(agent_id="test-executor", prompt="Simple task", output_schema=TestSchema)
+    subagent(agent_id="test-executor", prompt="Simple task")
 
     # Should spawn 1 executor
     assert len(_subagents) == initial_count + 1
 
-    # Check it has the schema
+    # Check basic properties
     executor = _subagents[-1]
-    assert executor.output_schema == TestSchema
     assert executor.agent_id == "test-executor"
+    assert executor.prompt == "Simple task"
