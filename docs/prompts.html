@@ -608,21 +608,9 @@ to append the code block content to the file at the given path.
 
 <span class="gu">## autocommit</span>
 
-<span class="gs">**Description:**</span> Automatically commit changes after message processing
+<span class="gs">**Description:**</span> Automatic hints to commit changes after message processing
 
-<span class="gs">**Instructions:**</span> This tool automatically commits changes made during a conversation.
-
-When GPTME_AUTOCOMMIT=true is set, after each message is processed:
-<span class="k">1.</span> Checks if there are file modifications
-<span class="k">2.</span> If modifications exist, returns a message asking the LLM to review and commit
-
-The tool hooks into MESSAGE_POST_PROCESS and runs with low priority
-(after pre-commit checks and other validation).
-
-To enable autocommit:
-<span class="sb">```bash</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_AUTOCOMMIT</span><span class="o">=</span><span class="nb">true</span>
-<span class="sb">```</span>
+<span class="gs">**Instructions:**</span> This tool will automatically provide hints to commit changes before returning control to the user
 
 <span class="gu">## autocompact</span>
 
@@ -1031,18 +1019,12 @@ gh<span class="w"> </span>run<span class="w"> </span>watch<span class="w"> </spa
 
 <span class="gs">**Description:**</span> Lesson system for structured guidance
 
-<span class="gs">**Instructions:**</span> Use lessons to improve your performance and avoid known failure modes.
+<span class="gs">**Instructions:**</span> Use lessons to learn and remember skills/tools/workflows, improve your performance, and avoid known failure modes.
 
 How lessons help you:
 <span class="k">-</span><span class="w"> </span>Automatically included when relevant keywords or tools match
 <span class="k">-</span><span class="w"> </span>Extracted from both user and assistant messages in the conversation
 <span class="k">-</span><span class="w"> </span>Limited to 5 most relevant lessons to conserve context
-
-Commands available:
-<span class="k">-</span><span class="w"> </span>/lesson list - View all available lessons
-<span class="k">-</span><span class="w"> </span>/lesson search &lt;query&gt; - Find lessons matching query
-<span class="k">-</span><span class="w"> </span>/lesson show &lt;id&gt; - Display a specific lesson
-<span class="k">-</span><span class="w"> </span>/lesson refresh - Reload lessons from disk
 
 Leverage lessons for self-improvement:
 <span class="k">-</span><span class="w"> </span>Pay attention to lessons included in context
@@ -1119,30 +1101,6 @@ if <span class="gs">__name__</span> == &quot;<span class="gs">__main__</span>&qu
 <span class="gu">## precommit</span>
 
 <span class="gs">**Description:**</span> Automatic pre-commit checks on file saves and after message processing
-
-<span class="gs">**Instructions:**</span> This tool automatically runs pre-commit checks in two scenarios:
-
-<span class="k">1.</span> <span class="gs">**Per-file checks (FILE_POST_SAVE)**</span>: After each file is saved
-<span class="w">   </span><span class="k">-</span><span class="w"> </span>Runs pre-commit on the specific saved file
-<span class="w">   </span><span class="k">-</span><span class="w"> </span>Provides immediate feedback on formatting/linting issues
-
-<span class="k">2.</span> <span class="gs">**Full checks (MESSAGE_POST_PROCESS)**</span>: After message processing completes
-<span class="w">   </span><span class="k">-</span><span class="w"> </span>Runs pre-commit on all modified files
-<span class="w">   </span><span class="k">-</span><span class="w"> </span>Ensures all changes pass checks before auto-commit
-
-Pre-commit checks include:
-<span class="k">-</span><span class="w"> </span>Code formatting (black, prettier, etc.)
-<span class="k">-</span><span class="w"> </span>Linting (ruff, eslint, etc.)
-<span class="k">-</span><span class="w"> </span>Type checking (mypy, etc.)
-<span class="k">-</span><span class="w"> </span>Other configured hooks
-
-The tool will report any failures and suggest fixes.
-
-Commands:
-<span class="k">-</span><span class="w"> </span>/pre-commit: Manually run pre-commit checks
-
-Enable with: --tools precommit
-Or configure pre-commit checks via: GPTME_CHECK=true
 
 <span class="gu">## rag</span>
 
@@ -1611,7 +1569,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 7340</p>
+<p>Tokens: 7009</p>
 </dd></dl>
 
 <dl class="py function">

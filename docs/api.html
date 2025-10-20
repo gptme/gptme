@@ -1207,7 +1207,7 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>name</strong> – The name of the tool.</p></li>
 <li><p><strong>desc</strong> – A description of the tool.</p></li>
-<li><p><strong>instructions</strong> – Instructions on how to use the tool.</p></li>
+<li><p><strong>instructions</strong> – Instructions for the agent on how to use the tool. This will be included in the prompt.</p></li>
 <li><p><strong>instructions_format</strong> – Per tool format instructions when needed.</p></li>
 <li><p><strong>examples</strong> – Example usage of the tool.</p></li>
 <li><p><strong>functions</strong> – Functions registered in the IPython REPL.</p></li>
@@ -1219,6 +1219,7 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 <li><p><strong>load_priority</strong> – Influence the loading order of this tool. The higher the later.</p></li>
 <li><p><strong>disabled_by_default</strong> – Whether this tool should be disabled by default.</p></li>
 <li><p><strong>hooks</strong> – Hooks to register when this tool is loaded.</p></li>
+<li><p><strong>commands</strong> – User slash-commands (/example) to register when this tool is loaded.</p></li>
 </ul>
 </dd>
 </dl>
