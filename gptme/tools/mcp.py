@@ -6,7 +6,7 @@ Allows searching for MCP servers in registries and dynamically loading/unloading
 Available Commands:
 - ``/mcp search [query]`` - Search for MCP servers across all registries
 - ``/mcp info <server-name>`` - Get detailed information about a specific server
-- ``/mcp load <server-name>`` - Dynamically load an MCP server into the current session
+- ``/mcp load <server-name> [config-json]`` - Dynamically load an MCP server into the current session
 - ``/mcp unload <server-name>`` - Unload a previously loaded MCP server
 - ``/mcp list`` - List all currently configured and loaded MCP servers
 
@@ -226,6 +226,23 @@ def _cmd_mcp_list() -> str:
     return list_loaded_servers()
 
 
+def _cmd_mcp_load(name: str, config_json: str = "") -> str:
+    """Load an MCP server."""
+    config_override = None
+    if config_json:
+        try:
+            config_override = json.loads(config_json)
+        except json.JSONDecodeError as e:
+            return f"Error parsing config JSON: {e}"
+
+    return load_mcp_server(name, config_override)
+
+
+def _cmd_mcp_unload(name: str) -> str:
+    """Unload an MCP server."""
+    return unload_mcp_server(name)
+
+
 tool = ToolSpec(
     name="mcp",
     desc="Search, discover, and manage MCP servers",
@@ -243,6 +260,8 @@ Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
         "mcp search": _cmd_mcp_search,
         "mcp info": _cmd_mcp_info,
         "mcp list": _cmd_mcp_list,
+        "mcp load": _cmd_mcp_load,
+        "mcp unload": _cmd_mcp_unload,
     },
     parameters=[
         Parameter(
