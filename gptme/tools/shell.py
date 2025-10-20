@@ -257,57 +257,40 @@ class ShellSession:
     ) -> tuple[int | None, str, str]:
         assert self.process.stdin
 
-        # Check if this is a compound command (for, while, if, case, function, etc.)
-        # These should not be parsed with shlex as it breaks their syntax
-        compound_keywords = {
-            "for",
-            "while",
-            "if",
-            "case",
-            "function",
-            "until",
-            "select",
-        }
-        is_compound = any(
-            command.strip().startswith(kw + " ") for kw in compound_keywords
-        )
+        # Redirect stdin to /dev/null to prevent commands from inheriting bash's pipe stdin
+        # Use shlex to properly parse commands and respect quotes
+        # Only add for commands that don't already redirect stdin
+        try:
+            import shlex
 
-        # Detect various types of redirects without parsing
-        # This preserves file descriptor redirects (2>, 2>&1, etc.) and other complex syntax
-        has_stdin_redirect = bool(
-            re.search(r"<(?![<>])|<<(?!<)|<<<", command)  # <, <<, <<< but not <<<< etc.
-        )
-        has_stdout_redirect = bool(
-            re.search(r"\d*>&?\d*|>>?|&>>?", command)  # >, >>, 2>, 2>&1, &>, etc.
-        )
-        has_pipe = "|" in command and not is_compound
-        has_compound_operators = bool(re.search(r"&&|\|\||;", command))
+            command_parts = list(
+                shlex.shlex(command, posix=True, punctuation_chars=True)
+            )
 
-        # Don't add stdin redirection if:
-        # - Command already has stdin redirect
-        # - Command has compound operators (complex command structure)
-        # - Command has any output redirects (file descriptor redirects like 2>)
-        # - Command is a compound command
-        should_add_stdin_redirect = (
-            not has_stdin_redirect
-            and not has_compound_operators
-            and not has_stdout_redirect  # Don't add if any output redirects present
-            and not is_compound
-        )
+            # Check if there's already stdin redirection
+            has_stdin_redirect = (
+                "<" in command_parts or "<<" in command_parts or "<<<" in command_parts
+            )
 
-        # For simple pipelines without redirects, add stdin redirect to first command
-        if should_add_stdin_redirect and has_pipe:
-            # Find first pipe (not inside quotes)
-            # Simple approach: split on first unquoted |
-            # This avoids breaking jq filters and other tool-specific syntax
-            pipe_idx = command.find("|")
-            if pipe_idx > 0:
-                first_cmd = command[:pipe_idx].rstrip()
-                rest = command[pipe_idx:].lstrip("|").lstrip()
-                command = f"{first_cmd} < /dev/null | {rest}"
-        elif should_add_stdin_redirect and not has_pipe:
-            # Simple command with no redirects - add stdin redirect
-            command += " < /dev/null"
+            # For pipelines, redirect stdin for the first command only
+            if "|" in command_parts and not has_stdin_redirect:
+                # Find first unquoted pipe in original command
+                # We can't use shlex.join() because it quotes shell operators like 2>&1
+                try:
+                    # Simple approach: find the first | that's not inside quotes
+                    pipe_pos = command.find("|")
+                    if pipe_pos > 0:
+                        first_cmd = command[:pipe_pos].rstrip()
+                        rest = command[pipe_pos + 1 :].lstrip()
+                        command = f"{first_cmd} < /dev/null | {rest}"
+                except Exception as e:
+                    # Fallback to raw command if parsing fails
+                    logger.warning(f"Failed to parse pipe in command '{command}': {e}")
+            elif not has_stdin_redirect and "|" not in command_parts:
+                # No pipe and no stdin redirection - add /dev/null
+                command += " < /dev/null"
+        except ValueError as e:
+            logger.warning(f"Failed shlex parsing command, using raw command: {e}")
 
         full_command = f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"

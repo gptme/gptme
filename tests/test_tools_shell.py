@@ -654,3 +654,79 @@ else:
 
     assert ret_code == 0
     assert "Assistant" in stdout
+
+
+def test_pipe_with_stderr_redirect(shell):
+    """Test that piping commands with stderr redirects doesn't hang (issue #684).
+
+    This tests the specific case from Erik's latest comment:
+    gptme '/shell poetry run gptme --non-interactive "/exit" 2>&1 | grep ...'
+
+    The issue was that commands with 2>&1 would not get stdin redirection,
+    causing them to hang when piped.
+    """
+    # Create test script that simulates gptme's behavior
+    test_script = """#!/usr/bin/env python3
+import sys
+import os
+
+# Check if stdin is /dev/null
+try:
+    stdin_stat = os.fstat(sys.stdin.fileno())
+    devnull_stat = os.stat('/dev/null')
+    is_devnull = (stdin_stat.st_dev == devnull_stat.st_dev and
+                  stdin_stat.st_ino == devnull_stat.st_ino)
+except:
+    is_devnull = False
+
+if not is_devnull and not sys.stdin.isatty():
+    # stdin is a pipe (not /dev/null, not terminal)
+    # This would block forever without stdin redirection
+    sys.stdin.read(1)
+    print("blocked")
+else:
+    # stdin is /dev/null or terminal - works correctly
+    print("success")
+    print("stderr output", file=sys.stderr)
+"""
+
+    # Write test script
+    shell.run("cat > /tmp/test_stderr_redirect.py << 'EOF'\n" + test_script + "\nEOF")
+    shell.run("chmod +x /tmp/test_stderr_redirect.py")
+
+    # Test with stderr redirect and pipe - this would hang without proper stdin handling
+    ret_code, stdout, stderr = shell.run(
+        "python3 /tmp/test_stderr_redirect.py 2>&1 | cat",
+        output=False,
+        timeout=5.0,
+    )
+
+    assert ret_code == 0
+    assert "success" in stdout
+    # stderr should also be in stdout due to 2>&1
+    assert "stderr output" in stdout
+
+
+def test_grep_with_alternation(shell):
+    """Test that grep with alternation patterns (using \\| ) works correctly.
+
+    The shell tool should respect quotes and not treat | inside quoted strings
+    as pipe operators.
+    """
+    # Create a test file with some content
+    shell.run("echo 'function test() { return true; }' > /tmp/test_grep.txt")
+    shell.run("echo 'def example(): pass' >> /tmp/test_grep.txt")
+
+    # Test grep with alternation pattern - the \| should not be treated as a pipe
+    ret_code, stdout, stderr = shell.run(
+        r'grep "function\|def" /tmp/test_grep.txt',
+        output=False,
+    )
+
+    assert ret_code == 0
+    assert "function test()" in stdout
+    assert "def example()" in stdout
+    assert "grep: warning: stray" not in stderr.lower()
+
+    # Clean up
+    shell.run("rm /tmp/test_grep.txt")
