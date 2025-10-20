@@ -6,7 +6,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from .commands import execute_cmd
-from .config import get_config
+from .config import ChatConfig, get_config
 from .constants import INTERRUPT_CONTENT, PROMPT_USER
 from .hooks import HookType, trigger_hook
 from .init import init
@@ -28,6 +28,7 @@ from .tools.complete import SessionCompleteException
 from .tools.tts import speak, stop, tts_request_queue
 from .util import console, path_with_tilde
 from .util.ask_execute import ask_execute
+from .util.auto_naming import auto_generate_display_name
 from .util.context import include_paths
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
@@ -310,6 +311,24 @@ def _process_message_conversation(
                 response_msg, manager, confirm_func
             ):
                 return
+
+        # Auto-generate display name after first assistant response if not already set
+        # TODO: Consider implementing via hook system to streamline with server implementation
+        # See: gptme/server/api_v2_sessions.py for server's implementation
+        assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
+        if len(assistant_messages) == 1:
+            chat_config = ChatConfig.from_logdir(manager.logdir)
+            if not chat_config.name and model:
+                try:
+                    display_name = auto_generate_display_name(
+                        manager.log.messages, model
+                    )
+                    if display_name:
+                        chat_config.name = display_name
+                        chat_config.save()
+                        logger.info(f"Auto-generated conversation name: {display_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to auto-generate name: {e}")
 
         # Check if there are any runnable tools left
         last_content = next(

@@ -294,6 +294,8 @@ def step(
         logger.debug("Persisted assistant message")
 
         # Auto-generate display name for first assistant response if not already set
+        # TODO: Consider implementing via hook system to streamline with CLI implementation
+        # See: gptme/chat.py for CLI's implementation
         assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
         if len(assistant_messages) == 1 and not chat_config.name:
             try:
