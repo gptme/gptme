@@ -433,7 +433,10 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#management-tool">Management Tool</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a></li>
 </ul>
 </li>
@@ -481,6 +484,70 @@
 </pre></div>
 </div>
 <p>We also intend to support specifying it in the <a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a>, and the ability to set it per-conversation.</p>
+</section>
+<section id="management-tool">
+<h2>Management Tool<a class="headerlink" href="#management-tool" title="Link to this heading">#</a></h2>
+<p>gptme includes a powerful MCP management tool that allows you to discover and dynamically load MCP servers during a conversation.</p>
+<section id="commands">
+<h3>Commands<a class="headerlink" href="#commands" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">mcp</span></code> tool provides the following commands:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">search</span> <span class="pre">[query]</span></code>: Search for MCP servers across registries</p>
+<ul>
+<li><p>Optional JSON config: <code class="docutils literal notranslate"><span class="pre">{&quot;registry&quot;:</span> <span class="pre">&quot;official|mcp.so|all&quot;,</span> <span class="pre">&quot;limit&quot;:</span> <span class="pre">10}</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">info</span> <span class="pre">&lt;server-name&gt;</span></code>: Get detailed information about a specific server</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">load</span> <span class="pre">&lt;server-name&gt;</span></code>: Dynamically load an MCP server into the current session</p>
+<ul>
+<li><p>Optional JSON config override: <code class="docutils literal notranslate"><span class="pre">{&quot;command&quot;:</span> <span class="pre">&quot;...&quot;,</span> <span class="pre">&quot;args&quot;:</span> <span class="pre">[...],</span> <span class="pre">&quot;url&quot;:</span> <span class="pre">&quot;...&quot;}</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unload</span> <span class="pre">&lt;server-name&gt;</span></code>: Unload a previously loaded MCP server</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list</span></code>: List all currently configured and loaded MCP servers</p></li>
+</ul>
+</section>
+<section id="examples">
+<h3>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h3>
+<p>Search for database-related servers:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="sb">```mcp</span>
+<span class="s">search database</span>
+<span class="sb">```</span>
+</pre></div>
+</div>
+<p>Get detailed information about a server:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="sb">```mcp</span>
+<span class="s">info sqlite</span>
+<span class="sb">```</span>
+</pre></div>
+</div>
+<p>Load a server dynamically:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="sb">```mcp</span>
+<span class="s">load sqlite</span>
+<span class="sb">```</span>
+</pre></div>
+</div>
+<p>Load with custom configuration:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="sb">```mcp</span>
+<span class="s">load my-server</span>
+<span class="s">{&quot;command&quot;: &quot;uvx&quot;, &quot;args&quot;: [&quot;my-mcp-server&quot;, &quot;--option&quot;]}</span>
+<span class="sb">```</span>
+</pre></div>
+</div>
+<p>List all loaded servers:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="sb">```mcp</span>
+<span class="s">list</span>
+<span class="sb">```</span>
+</pre></div>
+</div>
+<p>Unload a server:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="sb">```mcp</span>
+<span class="s">unload sqlite</span>
+<span class="sb">```</span>
+</pre></div>
+</div>
+<p>Once loaded, the server’s tools will be available as <code class="docutils literal notranslate"><span class="pre">&lt;server-name&gt;.&lt;tool-name&gt;</span></code> in the conversation.</p>
+</section>
 <section id="configuration-options">
 <h3>Configuration Options<a class="headerlink" href="#configuration-options" title="Link to this heading">#</a></h3>
 <ul class="simple">
@@ -617,7 +684,10 @@ gptme-util<span class="w"> </span>mcp<span class="w"> </span>info<span class="w"
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#management-tool">Management Tool</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a></li>
 </ul>
 </li>

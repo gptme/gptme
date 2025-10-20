@@ -459,6 +459,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp">mcp</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp-info">info</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp-search">search</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp-test">test</a></li>
 </ul>
 </li>
@@ -594,7 +595,7 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-t">
 <span id="cmdoption-gptme-tools"></span><span class="sig-name descname"><span class="pre">-t</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--tools</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tool_allowlist&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-t" title="Link to this definition">#</a></dt>
-<dd><p>Tools to allow as comma-separated list. Available: append, autocommit, autocompact, browser, chats, choice, complete, computer, gh, ipython, lessons, patch, precommit, read, save, screenshot, shell, subagent, time-awareness, tmux, todoread, todowrite, token-awareness, vision.</p>
+<dd><p>Tools to allow as comma-separated list. Available: append, autocommit, autocompact, browser, chats, choice, complete, computer, gh, ipython, lessons, mcp, patch, precommit, read, save, screenshot, shell, subagent, time-awareness, tmux, todoread, todowrite, token-awareness, vision.</p>
 </dd></dl>
 
 <dl class="std option">
@@ -925,6 +926,7 @@ Pass eval or suite names to run, or result files to print.</p>
 <section id="gptme-util-mcp-info">
 <h4>info<a class="headerlink" href="#gptme-util-mcp-info" title="Link to this heading">#</a></h4>
 <p>Show detailed information about an MCP server.</p>
+<p>Checks configured servers first, then searches registries if not found locally.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>mcp<span class="w"> </span>info<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>SERVER_NAME
 </pre></div>
 </div>
@@ -942,6 +944,38 @@ Pass eval or suite names to run, or result files to print.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>mcp<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
+</section>
+<section id="gptme-util-mcp-search">
+<h4>search<a class="headerlink" href="#gptme-util-mcp-search" title="Link to this heading">#</a></h4>
+<p>Search for MCP servers in registries.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>mcp<span class="w"> </span>search<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>QUERY<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-mcp-search-r">
+<span id="cmdoption-gptme-util-mcp-search-registry"></span><span class="sig-name descname"><span class="pre">-r</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--registry</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;registry&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-mcp-search-r" title="Link to this definition">#</a></dt>
+<dd><p>Registry to search</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options<span class="colon">:</span></dt>
+<dd class="field-odd"><p>all | official | mcp.so</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-mcp-search-n">
+<span id="cmdoption-gptme-util-mcp-search-limit"></span><span class="sig-name descname"><span class="pre">-n</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--limit</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;limit&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-mcp-search-n" title="Link to this definition">#</a></dt>
+<dd><p>Maximum number of results</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-mcp-search-arg-QUERY">
+<span class="sig-name descname"><span class="pre">QUERY</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-mcp-search-arg-QUERY" title="Link to this definition">#</a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
 </section>
 <section id="gptme-util-mcp-test">
 <h4>test<a class="headerlink" href="#gptme-util-mcp-test" title="Link to this heading">#</a></h4>
@@ -1217,6 +1251,7 @@ using the same logic as the main gptme tool.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp">mcp</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp-info">info</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp-search">search</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-mcp-test">test</a></li>
 </ul>
 </li>
