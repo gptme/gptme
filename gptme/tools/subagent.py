@@ -243,6 +243,7 @@ def subagent_wait(agent_id: str) -> dict:
 
 def examples(tool_format):
     return f"""
+### Executor Mode (single task)
 User: compute fib 13 using a subagent
 Assistant: Starting a subagent to compute the 13th Fibonacci number.
 {ToolUse("ipython", [], 'subagent("fib-13", "compute the 13th Fibonacci number")').to_output(tool_format)}
@@ -250,6 +251,21 @@ System: Subagent started successfully.
 Assistant: Now we need to wait for the subagent to finish the task.
 {ToolUse("ipython", [], 'subagent_wait("fib-13")').to_output(tool_format)}
 System: {{"status": "success", "result": "The 13th Fibonacci number is 233"}}.
+
+### Planner Mode (multi-task delegation)
+User: implement feature X with tests
+Assistant: I'll use planner mode to delegate implementation and testing to separate subagents.
+{ToolUse("ipython", [], '''subtasks = [
+    {{"id": "implement", "description": "Write implementation for feature X"}},
+    {{"id": "test", "description": "Write comprehensive tests"}},
+]
+subagent("feature-planner", "Feature X adds new functionality", mode="planner", subtasks=subtasks)''').to_output(tool_format)}
+System: Planner spawned 2 executor subagents.
+Assistant: Now I'll wait for both subtasks to complete.
+{ToolUse("ipython", [], 'subagent_wait("feature-planner-implement")').to_output(tool_format)}
+System: {{"status": "success", "result": "Implementation complete in feature_x.py"}}.
+{ToolUse("ipython", [], 'subagent_wait("feature-planner-test")').to_output(tool_format)}
+System: {{"status": "success", "result": "Tests complete in test_feature_x.py, all passing"}}.
 """.strip()
 
 
