@@ -327,6 +327,8 @@ def _process_message_conversation(
                         chat_config.name = display_name
                         chat_config.save()
                         logger.info(f"Auto-generated conversation name: {display_name}")
+                    else:
+                        logger.warning("Auto-naming failed")
                 except Exception as e:
                     logger.warning(f"Failed to auto-generate name: {e}")
 

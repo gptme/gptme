@@ -233,6 +233,9 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
             if use_thinking
             else NOT_GIVEN
         ),
+        # We set a timeout for non-streaming requests to prevent Anthropic's
+        # "Streaming is strongly recommended" warning/error.
+        timeout=60,
     )
     content = response.content
     _record_usage(response.usage, model)
