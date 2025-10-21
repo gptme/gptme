@@ -909,7 +909,11 @@
 <p>Hook called before generating response.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>manager</strong> – Conversation manager with log and workspace</p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>messages</strong> – List of conversation messages</p></li>
+<li><p><strong>workspace</strong> – Workspace directory path (optional)</p></li>
+<li><p><strong>manager</strong> – Conversation manager (optional, currently always None)</p></li>
+</ul>
 </dd>
 </dl>
 <dl class="py method">
