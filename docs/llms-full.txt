@@ -3569,6 +3569,7 @@ The changelog is also available in the repository releases <https://github.com/g
 .. toctree::
    :maxdepth: 1
 
+   releases/v0.29.0.md
    releases/v0.28.3.md
    releases/v0.28.2.md
    releases/v0.28.1.md
@@ -3618,6 +3619,203 @@ The changelog is also available in the repository releases <https://github.com/g
    releases/v0.2.2.md
    releases/v0.2.1.md
    releases/v0.1.1.md
+
+
+# v0.29.0
+
+These are the release notes for gptme version v0.29.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare, @TimeToBuildBob
+
+## Changelog
+
+Changes since v0.28.3:
+
+
+## 📦 gptme
+
+### ✨ Features (39)
+
+ - feat: improve token awareness to show warnings at meaningful thresholds ([`fce2382a`](https://github.com/gptme/gptme/commit/fce2382a))
+ - feat: make hook parameters consistent across all hook types ([`2e71dcc9`](https://github.com/gptme/gptme/commit/2e71dcc9))
+ - feat: expose MCP tool commands as slash commands ([#760](https://github.com/gptme/gptme/issues/760)) ([`2a89022f`](https://github.com/gptme/gptme/commit/2a89022f))
+ - feat(mcp): add MCP discovery and dynamic loading support ([#685](https://github.com/gptme/gptme/issues/685)) ([`e8af7604`](https://github.com/gptme/gptme/commit/e8af7604))
+ - feat: add token & time awareness tools/hooks ([#665](https://github.com/gptme/gptme/issues/665)) ([`c0391ddd`](https://github.com/gptme/gptme/commit/c0391ddd))
+ - feat: show conversation ID in goodbye message ([`ad5bc4d0`](https://github.com/gptme/gptme/commit/ad5bc4d0))
+ - feat: add gptme-util prompts expand command ([`fb543142`](https://github.com/gptme/gptme/commit/fb543142))
+ - feat: add --profile flag for performance profiling ([`9ce6e3e8`](https://github.com/gptme/gptme/commit/9ce6e3e8))
+ - feat(shell): add configurable shellcheck exclude codes ([#747](https://github.com/gptme/gptme/issues/747)) ([`46a54148`](https://github.com/gptme/gptme/commit/46a54148))
+ - feat(shell): add simple shellcheck validation ([#740](https://github.com/gptme/gptme/issues/740)) ([`20f28f6b`](https://github.com/gptme/gptme/commit/20f28f6b))
+ - feat(lessons): add message pattern-based mode detection for Phase 3 ([#722](https://github.com/gptme/gptme/issues/722)) ([`fc131775`](https://github.com/gptme/gptme/commit/fc131775))
+ - feat: switch CI from claude-3-5-haiku to claude-haiku-4-5 ([#712](https://github.com/gptme/gptme/issues/712)) ([`64e04708`](https://github.com/gptme/gptme/commit/64e04708))
+ - feat(llm): add support for Claude Haiku 4.5 ([#705](https://github.com/gptme/gptme/issues/705)) ([`e48fcd2f`](https://github.com/gptme/gptme/commit/e48fcd2f))
+ - feat(lessons): implement status filtering for lesson lifecycle management ([#702](https://github.com/gptme/gptme/issues/702)) ([`be25b397`](https://github.com/gptme/gptme/commit/be25b397))
+ - feat: support @log workspace magic value in API ([#695](https://github.com/gptme/gptme/issues/695)) ([`9fc71ad1`](https://github.com/gptme/gptme/commit/9fc71ad1))
+ - feat: save removed tool outputs during auto-compacting ([`186ac031`](https://github.com/gptme/gptme/commit/186ac031))
+ - feat(gh): add optional commit_sha parameter to check specific commits ([`3df3c44f`](https://github.com/gptme/gptme/commit/3df3c44f))
+ - feat(lessons): add configurable lesson directories via gptme.toml ([`0a05ec61`](https://github.com/gptme/gptme/commit/0a05ec61))
+ - feat(gh): add quick status check command ([`76c67881`](https://github.com/gptme/gptme/commit/76c67881))
+ - feat(gh): show run IDs for failed checks and add --log-failed example ([`c3f131c3`](https://github.com/gptme/gptme/commit/c3f131c3))
+ - feat: enhance lesson matching with tools and history-based deduplication ([`5aefbe37`](https://github.com/gptme/gptme/commit/5aefbe37))
+ - feat(llm): add configurable API timeout for OpenAI-compatible providers ([#681](https://github.com/gptme/gptme/issues/681)) ([`6a2d532f`](https://github.com/gptme/gptme/commit/6a2d532f))
+ - feat: enhance GitHub PR reading with code context and suggestions ([#689](https://github.com/gptme/gptme/issues/689)) ([`4c1cef43`](https://github.com/gptme/gptme/commit/4c1cef43))
+ - feat: implement basic lesson system with metadata and auto-inclusion ([#687](https://github.com/gptme/gptme/issues/687)) ([`3e81a0d2`](https://github.com/gptme/gptme/commit/3e81a0d2))
+ - feat: add tool_format to telemetry and remove redundant log ([`d59332ab`](https://github.com/gptme/gptme/commit/d59332ab))
+ - feat(browser): add Accept header to prefer markdown/plaintext over HTML ([#680](https://github.com/gptme/gptme/issues/680)) ([`f92ab671`](https://github.com/gptme/gptme/commit/f92ab671))
+ - feat: improve conversation history context ([#679](https://github.com/gptme/gptme/issues/679)) ([`35c303d3`](https://github.com/gptme/gptme/commit/35c303d3))
+ - feat(shell): add 20-minute default timeout to prevent stuck commands ([#678](https://github.com/gptme/gptme/issues/678)) ([`526da1cb`](https://github.com/gptme/gptme/commit/526da1cb))
+ - feat(telemetry): add hostname to resource attributes ([#676](https://github.com/gptme/gptme/issues/676)) ([`0d77253f`](https://github.com/gptme/gptme/commit/0d77253f))
+ - feat(telemetry): add agent name and interactive mode metadata ([#675](https://github.com/gptme/gptme/issues/675)) ([`206ff1fb`](https://github.com/gptme/gptme/commit/206ff1fb))
+ - feat: reintroduce OpenAI and Anthropic telemetry instrumentation ([`d4b031f0`](https://github.com/gptme/gptme/commit/d4b031f0))
+ - feat: add GENERATION_PRE hook trigger before LLM generation ([`f69c3d37`](https://github.com/gptme/gptme/commit/f69c3d37))
+ - feat: add concise __repr__ to Log class ([`b9485b98`](https://github.com/gptme/gptme/commit/b9485b98))
+ - feat: implement auto-reply mechanism as LOOP_CONTINUE hook ([`de79d5ba`](https://github.com/gptme/gptme/commit/de79d5ba))
+ - feat: implement /compact and auto-compacting ([#645](https://github.com/gptme/gptme/issues/645)) ([`61392fc0`](https://github.com/gptme/gptme/commit/61392fc0))
+ - feat: implement comprehensive hook system and command registration ([#156](https://github.com/gptme/gptme/issues/156)) ([#660](https://github.com/gptme/gptme/issues/660)) ([`32d39817`](https://github.com/gptme/gptme/commit/32d39817))
+ - feat: auto-restore todo state when resuming conversations ([#659](https://github.com/gptme/gptme/issues/659)) ([`debcb096`](https://github.com/gptme/gptme/commit/debcb096))
+ - feat: implement complete tool and auto-reply mechanism for autonomous operation ([`14952de1`](https://github.com/gptme/gptme/commit/14952de1))
+ - feat: emit hint when save tool barely changes file ([`1601f5e8`](https://github.com/gptme/gptme/commit/1601f5e8))
+
+### 🐛 Fixes (77)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix: fix issue with hook args ([`4fa95612`](https://github.com/gptme/gptme/commit/4fa95612))
+ - fix: correct complete_hook signature to match GENERATION_PRE calling convention ([`90a12f9c`](https://github.com/gptme/gptme/commit/90a12f9c))
+ - fix: handle pipe operators inside quoted strings in shell commands ([#764](https://github.com/gptme/gptme/issues/764)) ([`5f80b533`](https://github.com/gptme/gptme/commit/5f80b533))
+ - fix: skip generating initial messages when resuming conversations ([#763](https://github.com/gptme/gptme/issues/763)) ([`2898e79d`](https://github.com/gptme/gptme/commit/2898e79d))
+ - fix: add special haiku-adapted to_xml (for testing) ([`cc868960`](https://github.com/gptme/gptme/commit/cc868960))
+ - fix(tools): add support for Haiku 4.5 XML format ([#752](https://github.com/gptme/gptme/issues/752)) ([`96f87e43`](https://github.com/gptme/gptme/commit/96f87e43))
+ - fix: run auto-naming in background thread to avoid blocking CLI ([`1d17674f`](https://github.com/gptme/gptme/commit/1d17674f))
+ - fix: fix anthropic non-streaming requests being denied during auto renames ([#759](https://github.com/gptme/gptme/issues/759)) ([`397634ab`](https://github.com/gptme/gptme/commit/397634ab))
+ - fix: disable time and token awareness hooks by default (until issues are fixed) ([`6b6ad577`](https://github.com/gptme/gptme/commit/6b6ad577))
+ - fix: skip tests when missing extras ([#754](https://github.com/gptme/gptme/issues/754)) ([`d4095036`](https://github.com/gptme/gptme/commit/d4095036))
+ - fix(mcp): add resilience with auto-restart and retry on connection failures ([#719](https://github.com/gptme/gptme/issues/719)) ([`d30fd6ca`](https://github.com/gptme/gptme/commit/d30fd6ca))
+ - fix: improve tool instructions, add pyyaml dependency ([#755](https://github.com/gptme/gptme/issues/755)) ([`696f1430`](https://github.com/gptme/gptme/commit/696f1430))
+ - fix: lower ding log message level from info to debug ([`41d604d9`](https://github.com/gptme/gptme/commit/41d604d9))
+ - fix(shell): fix pipe handling and add telemetry error filter ([#750](https://github.com/gptme/gptme/issues/750)) ([`3bb57151`](https://github.com/gptme/gptme/commit/3bb57151))
+ - fix: improve handling of keyboard interrupts in precommit and autocommit hooks and commands ([`8ea8db89`](https://github.com/gptme/gptme/commit/8ea8db89))
+ - fix: include tool-registered commands in autocomplete ([`25c9772a`](https://github.com/gptme/gptme/commit/25c9772a))
+ - fix: fixed log formatting of included lessons ([`a95ac3f7`](https://github.com/gptme/gptme/commit/a95ac3f7))
+ - fix(llm): extend Anthropic retry logic to handle all transient 5xx errors ([#746](https://github.com/gptme/gptme/issues/746)) ([`418b4669`](https://github.com/gptme/gptme/commit/418b4669))
+ - fix(llm): use client defaults for timeout instead of explicit value ([#735](https://github.com/gptme/gptme/issues/735)) ([`0e3dcbcc`](https://github.com/gptme/gptme/commit/0e3dcbcc))
+ - fix(llm): update deepseek models context window to 128k ([#742](https://github.com/gptme/gptme/issues/742)) ([`dca014fe`](https://github.com/gptme/gptme/commit/dca014fe))
+ - fix: some telemetry fixes ([#737](https://github.com/gptme/gptme/issues/737)) ([`8b10eef6`](https://github.com/gptme/gptme/commit/8b10eef6))
+ - fix(shell): handle file descriptor redirects and complex tool syntax ([#736](https://github.com/gptme/gptme/issues/736)) ([`5207e421`](https://github.com/gptme/gptme/commit/5207e421))
+ - fix: include duration in tool call telemetry ([`d7dfb9c9`](https://github.com/gptme/gptme/commit/d7dfb9c9))
+ - fix: ensure MCP tools reload with updated config ([#731](https://github.com/gptme/gptme/issues/731)) ([`a46e6799`](https://github.com/gptme/gptme/commit/a46e6799))
+ - fix(shell): handle compound commands (for/while/if loops) correctly ([#725](https://github.com/gptme/gptme/issues/725)) ([`64f7d7c4`](https://github.com/gptme/gptme/commit/64f7d7c4))
+ - fix(shell): handle compound operators and preserve tilde expansion ([#730](https://github.com/gptme/gptme/issues/730)) ([`1213b372`](https://github.com/gptme/gptme/commit/1213b372))
+ - fix: extend context script timeout to 60s, log warning if it takes >10s ([`a5274983`](https://github.com/gptme/gptme/commit/a5274983))
+ - fix: log message when lessons included ([`45ef8d95`](https://github.com/gptme/gptme/commit/45ef8d95))
+ - fix(eval): set tool_format before LogManager.load() ([#726](https://github.com/gptme/gptme/issues/726)) ([`f9403a1f`](https://github.com/gptme/gptme/commit/f9403a1f))
+ - fix(tests): skip test_subagent for claude-haiku-4-5 due to timeout ([#728](https://github.com/gptme/gptme/issues/728)) ([`6165feb3`](https://github.com/gptme/gptme/commit/6165feb3))
+ - fix(shell): redirect stdin in pipelines to prevent deadlock ([#715](https://github.com/gptme/gptme/issues/715)) ([`350d87d1`](https://github.com/gptme/gptme/commit/350d87d1))
+ - fix(codeblock): improve nested block detection to fix XFAIL tests ([#711](https://github.com/gptme/gptme/issues/711)) ([`d3de4165`](https://github.com/gptme/gptme/commit/d3de4165))
+ - fix(auto-naming): strip think tags from LLM responses ([#716](https://github.com/gptme/gptme/issues/716)) ([`ec6224b7`](https://github.com/gptme/gptme/commit/ec6224b7))
+ - fix(shell): include heredoc content when splitting compound commands ([#714](https://github.com/gptme/gptme/issues/714)) ([`d6b256b6`](https://github.com/gptme/gptme/commit/d6b256b6))
+ - fix(openai): preserve tool results in gpt-5 models ([#713](https://github.com/gptme/gptme/issues/713)) ([`a9616f78`](https://github.com/gptme/gptme/commit/a9616f78))
+ - fix: set disallowed_special=[] for encode in len_tokens ([`e6629375`](https://github.com/gptme/gptme/commit/e6629375))
+ - fix: correct haiku pricing ([`8e986ea6`](https://github.com/gptme/gptme/commit/8e986ea6))
+ - fix: fix metadata for haiku ([`9513741b`](https://github.com/gptme/gptme/commit/9513741b))
+ - fix(anthropic): add timeout configuration to prevent indefinite hangs ([#701](https://github.com/gptme/gptme/issues/701)) ([`23fa89f3`](https://github.com/gptme/gptme/commit/23fa89f3))
+ - fix(anthropic): handle status 529 overload errors ([#697](https://github.com/gptme/gptme/issues/697)) ([`5f851d10`](https://github.com/gptme/gptme/commit/5f851d10))
+ - fix(complete): allow up to 2 auto-replies before exiting autonomous mode ([#696](https://github.com/gptme/gptme/issues/696)) ([`fd94f689`](https://github.com/gptme/gptme/commit/fd94f689))
+ - fix(autocompact): prevent backup filename growth with repeated compactions ([#693](https://github.com/gptme/gptme/issues/693)) ([`ad7e1574`](https://github.com/gptme/gptme/commit/ad7e1574))
+ - fix(tests): update remaining lesson tests to mock _get_lesson_index ([#694](https://github.com/gptme/gptme/issues/694)) ([`b1d3d775`](https://github.com/gptme/gptme/commit/b1d3d775))
+ - fix(autocompact): reduce limits to avoid Anthropic token approximation errors ([`a382baaa`](https://github.com/gptme/gptme/commit/a382baaa))
+ - fix(tests): replace tmp_path with tempfile to avoid pytest-retry KeyError ([`2825a9a5`](https://github.com/gptme/gptme/commit/2825a9a5))
+ - fix(tests): update tests for lesson system changes ([`78743917`](https://github.com/gptme/gptme/commit/78743917))
+ - fix(gh): poll original commit checks even if PR head updates ([`09f1622f`](https://github.com/gptme/gptme/commit/09f1622f))
+ - fix(tests): update exception test to mock cached index getter ([`36b5b6a1`](https://github.com/gptme/gptme/commit/36b5b6a1))
+ - fix(gh): add logging for check polling ([`c8494836`](https://github.com/gptme/gptme/commit/c8494836))
+ - fix: extract tool name correctly from codeblock lang ([`fc874f30`](https://github.com/gptme/gptme/commit/fc874f30))
+ - fix: cache lesson index per-thread to reduce log noise ([`bc3364c3`](https://github.com/gptme/gptme/commit/bc3364c3))
+ - fix: prevent duplicate tool loading warnings in evals ([#690](https://github.com/gptme/gptme/issues/690)) ([`fa4e40a0`](https://github.com/gptme/gptme/commit/fa4e40a0))
+ - fix: show full path in patch tool output ([`dc1c8458`](https://github.com/gptme/gptme/commit/dc1c8458))
+ - fix(anthropic): set temperature/top_p only for models not supporting reasoning, even if thinking disabled (as if due to --tool-format tool) ([`9eb0c704`](https://github.com/gptme/gptme/commit/9eb0c704))
+ - fix: remove emoji from OTLP log message ([`dc0ae258`](https://github.com/gptme/gptme/commit/dc0ae258))
+ - fix: remove redundant log message ([`cc2262ee`](https://github.com/gptme/gptme/commit/cc2262ee))
+ - fix: shortened telemetry startup log ([`4467046d`](https://github.com/gptme/gptme/commit/4467046d))
+ - fix(ci): pin openai version in pre-commit mypy config ([#682](https://github.com/gptme/gptme/issues/682)) ([`565a3a3f`](https://github.com/gptme/gptme/commit/565a3a3f))
+ - fix(telemetry): Strip http:// prefix from OTLP endpoint for gRPC ([`87985904`](https://github.com/gptme/gptme/commit/87985904))
+ - fix(telemetry): switch to using OTLP for both metrics and traces ([#668](https://github.com/gptme/gptme/issues/668)) ([`0bf1839b`](https://github.com/gptme/gptme/commit/0bf1839b))
+ - fix: improved prompting for complete tool ([#674](https://github.com/gptme/gptme/issues/674)) ([`5bfb8440`](https://github.com/gptme/gptme/commit/5bfb8440))
+ - fix: fixes complete, autocommit, and pre-commit hooks ([#672](https://github.com/gptme/gptme/issues/672)) ([`ba81cb24`](https://github.com/gptme/gptme/commit/ba81cb24))
+ - fix: fixes to CLI params with Click 8.3 ([#670](https://github.com/gptme/gptme/issues/670)) ([`718d5545`](https://github.com/gptme/gptme/commit/718d5545))
+ - fix(config): always apply CLI defaults for stream and interactive ([`c1571069`](https://github.com/gptme/gptme/commit/c1571069))
+ - fix: pass workspace and manager args to GENERATION_PRE hooks ([`f2818334`](https://github.com/gptme/gptme/commit/f2818334))
+ - fix: use trigger_hook function to properly trigger hooks ([`5d84602d`](https://github.com/gptme/gptme/commit/5d84602d))
+ - fix(complete): handle Log objects in complete_hook ([`1e4ff12f`](https://github.com/gptme/gptme/commit/1e4ff12f))
+ - fix(autocompact): handle Log objects in hook ([`bc64b55d`](https://github.com/gptme/gptme/commit/bc64b55d))
+ - fix(complete): stop session immediately after complete tool ([`be0282b8`](https://github.com/gptme/gptme/commit/be0282b8))
+ - fix: prevent infinite loop when hooks fail ([`06081068`](https://github.com/gptme/gptme/commit/06081068))
+ - fix: reduce verbosity in hook error logging ([`67aa156b`](https://github.com/gptme/gptme/commit/67aa156b))
+ - fix(shell): prevent editors from breaking terminal state ([`8f5b436b`](https://github.com/gptme/gptme/commit/8f5b436b))
+ - fix: prevent cache_control on empty text blocks in Anthropic API ([#653](https://github.com/gptme/gptme/issues/653)) ([`e19f4fd8`](https://github.com/gptme/gptme/commit/e19f4fd8))
+ - fix: improved complete tool detection in chat loop ([`2645dab6`](https://github.com/gptme/gptme/commit/2645dab6))
+ - fix: increase number of past conversation summaries in system prompt to 5 ([`d151017f`](https://github.com/gptme/gptme/commit/d151017f))
+ - fix: handle nested code blocks in patch blocks correctly ([`42cff496`](https://github.com/gptme/gptme/commit/42cff496))
+ - fix: add version header and correct heading levels in release notes ([`51c4066b`](https://github.com/gptme/gptme/commit/51c4066b))
+
+</p>
+</details>
+
+### 🔨 Misc (42)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: bump version to 0.29.0 ([`556b0621`](https://github.com/gptme/gptme/commit/556b0621))
+ - test: added xfail tests for patch with relaxed matching for whitespace-only lines ([`7f813225`](https://github.com/gptme/gptme/commit/7f813225))
+ - refactor: enable ruff import sorting and sort all imports ([`3dbd45bd`](https://github.com/gptme/gptme/commit/3dbd45bd))
+ - test: fix token_awareness tests to handle threshold-based warnings ([`8d5a40c3`](https://github.com/gptme/gptme/commit/8d5a40c3))
+ - chore: add worktree/ to gitignore ([`899d94dd`](https://github.com/gptme/gptme/commit/899d94dd))
+ - refactor: simplify and improve typing of hook signatures ([#765](https://github.com/gptme/gptme/issues/765)) ([`e003b285`](https://github.com/gptme/gptme/commit/e003b285))
+ - test: mark flaky test with xfail ([`a52a846b`](https://github.com/gptme/gptme/commit/a52a846b))
+ - docs: add nitpick ignore for failing targets ([`819ad518`](https://github.com/gptme/gptme/commit/819ad518))
+ - refactor: use manager.workspace instead of threading workspace parameter ([`c90f55d4`](https://github.com/gptme/gptme/commit/c90f55d4))
+ - test: added xfail shell test ([`3d4da112`](https://github.com/gptme/gptme/commit/3d4da112))
+ - test: fixed missing parameter in test ([`38b0bc8e`](https://github.com/gptme/gptme/commit/38b0bc8e))
+ - refactor(cli): move auto-naming from logmanager to chat.py ([#757](https://github.com/gptme/gptme/issues/757)) ([`bf2fae75`](https://github.com/gptme/gptme/commit/bf2fae75))
+ - tests: remove flaky/slow/stalling test ([`5dd354d7`](https://github.com/gptme/gptme/commit/5dd354d7))
+ - docs: fixed docstring formatting ([`9dc9cdf2`](https://github.com/gptme/gptme/commit/9dc9cdf2))
+ - docs: complete /edit command demo documentation ([#734](https://github.com/gptme/gptme/issues/734)) ([`d66e76e7`](https://github.com/gptme/gptme/commit/d66e76e7))
+ - test(codeblock): add streaming mode variants for header+backticks tests ([#721](https://github.com/gptme/gptme/issues/721)) ([`8bc29a4b`](https://github.com/gptme/gptme/commit/8bc29a4b))
+ - tests: adjust allowed prompt sizes with buffer in non-CI environments ([`b2ccf215`](https://github.com/gptme/gptme/commit/b2ccf215))
+ - tests: fix tests to check for response type ([`48a3eaae`](https://github.com/gptme/gptme/commit/48a3eaae))
+ - test(codeblock): remove xfail markers from passing header tests ([#718](https://github.com/gptme/gptme/issues/718)) ([`320cc4b8`](https://github.com/gptme/gptme/commit/320cc4b8))
+ - tests: comment out bad assert ([`4777e9d5`](https://github.com/gptme/gptme/commit/4777e9d5))
+ - docs(alternatives): add Hosting and Funding columns to comparison table ([#698](https://github.com/gptme/gptme/issues/698)) ([`f22195f5`](https://github.com/gptme/gptme/commit/f22195f5))
+ - test(codeblock): add edge case tests for nested markdown blocks ([#704](https://github.com/gptme/gptme/issues/704)) ([`36646f93`](https://github.com/gptme/gptme/commit/36646f93))
+ - docs: suggest `uv tool install` as pipx alternative ([`23f9b2c5`](https://github.com/gptme/gptme/commit/23f9b2c5))
+ - revert: restore tmp_path in setup_conversation fixture ([`2e5fdd35`](https://github.com/gptme/gptme/commit/2e5fdd35))
+ - docs: simplified python lesson ([`b16580bd`](https://github.com/gptme/gptme/commit/b16580bd))
+ - docs(lessons): add uv shebang for directly executable scripts ([`5aa47af6`](https://github.com/gptme/gptme/commit/5aa47af6))
+ - docs(lessons): rewrite Python lesson with practical gptme-specific guidance ([`af96ecc8`](https://github.com/gptme/gptme/commit/af96ecc8))
+ - refactor(gh): extract common check fetching logic and address review comments ([`e7d9acc7`](https://github.com/gptme/gptme/commit/e7d9acc7))
+ - docs: exclude lessons from Sphinx build ([`7119fb4c`](https://github.com/gptme/gptme/commit/7119fb4c))
+ - docs: add example lessons for testing lesson system ([`fc54397d`](https://github.com/gptme/gptme/commit/fc54397d))
+ - docs: improve server docs, mention gptme.ai ([`1850de88`](https://github.com/gptme/gptme/commit/1850de88))
+ - docs: comprehensive streaming bug investigation report ([`2ad5d258`](https://github.com/gptme/gptme/commit/2ad5d258))
+ - Revert "fix(config): always apply CLI defaults for stream and interactive" ([`001afd13`](https://github.com/gptme/gptme/commit/001afd13))
+ - debug: add logging to complete_hook for diagnosis ([`e7b2e40e`](https://github.com/gptme/gptme/commit/e7b2e40e))
+ - refactor: consolidate auto-compact/precommit functionality into tools ([#666](https://github.com/gptme/gptme/issues/666)) ([`8c12b806`](https://github.com/gptme/gptme/commit/8c12b806))
+ - docs(shell): move timeout config from agent instructions to module docstring ([#662](https://github.com/gptme/gptme/issues/662)) ([`fabdf981`](https://github.com/gptme/gptme/commit/fabdf981))
+ - test: document actual behavior of ambiguous bare backticks ([`3e7841bc`](https://github.com/gptme/gptme/commit/3e7841bc))
+ - test: add comprehensive nested codeblock tests ([`42df7d90`](https://github.com/gptme/gptme/commit/42df7d90))
+ - chore: remove build_changelog.py, now available upstream ([`22a316dd`](https://github.com/gptme/gptme/commit/22a316dd))
+ - refactor: simplify version header logic in build_changelog.py ([`4e24c182`](https://github.com/gptme/gptme/commit/4e24c182))
+ - docs: fixed changelog index ([`e7b276b0`](https://github.com/gptme/gptme/commit/e7b276b0))
+ - chore: improve changelog version detection and update contributors ([`6e200052`](https://github.com/gptme/gptme/commit/6e200052))
+
+</p>
+</details>
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.28.3...v0.29.0
 
 
 # v0.28.3
