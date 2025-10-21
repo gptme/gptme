@@ -33,11 +33,11 @@ def test_time_awareness_tool_exists():
 
 def test_time_awareness_tool_hooks_registered(load_time_awareness_tool):
     """Test that time-awareness tool hooks are registered."""
-    message_post_hooks = get_hooks(HookType.MESSAGE_POST_PROCESS)
+    tool_post_hooks = get_hooks(HookType.TOOL_POST_EXECUTE)
 
-    # Should have at least one MESSAGE_POST_PROCESS hook (time_message)
-    assert len(message_post_hooks) >= 1
-    assert any("time-awareness.time_message" in h.name for h in message_post_hooks)
+    # Should have at least one TOOL_POST_EXECUTE hook (time_message)
+    assert len(tool_post_hooks) >= 1
+    assert any("time-awareness.time_message" in h.name for h in tool_post_hooks)
 
 
 def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
@@ -76,9 +76,11 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
             minutes=elapsed_minutes
         )
 
-        # Trigger MESSAGE_POST_PROCESS hook
+        # Trigger TOOL_POST_EXECUTE hook
         messages = list(
-            trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=workspace)
+            trigger_hook(
+                HookType.TOOL_POST_EXECUTE, log=log, workspace=workspace, tool_use=None
+            )
         )
 
         # Should have exactly one message
@@ -109,7 +111,9 @@ def test_milestone_progression(load_time_awareness_tool, tmp_path):
     # Trigger multiple times - should only show milestone once
     for i in range(3):
         messages = list(
-            trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=workspace)
+            trigger_hook(
+                HookType.TOOL_POST_EXECUTE, log=log, workspace=workspace, tool_use=None
+            )
         )
 
         # First trigger: should show 20min milestone
@@ -128,7 +132,7 @@ def test_no_workspace_graceful_handling(
 
     # Trigger hook without workspace
     messages = list(
-        trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=None)
+        trigger_hook(HookType.TOOL_POST_EXECUTE, log=log, workspace=None, tool_use=None)
     )
 
     # Should not crash, should not produce messages
@@ -152,7 +156,9 @@ def test_time_format_hours(load_time_awareness_tool, tmp_path):
 
     # Trigger hook
     messages = list(
-        trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=workspace)
+        trigger_hook(
+            HookType.TOOL_POST_EXECUTE, log=log, workspace=workspace, tool_use=None
+        )
     )
 
     assert len(messages) == 1
@@ -179,7 +185,9 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
         _conversation_start_times[str(workspace)] = now - timedelta(minutes=minutes)
 
         messages = list(
-            trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=workspace)
+            trigger_hook(
+                HookType.TOOL_POST_EXECUTE, log=log, workspace=workspace, tool_use=None
+            )
         )
 
         assert len(messages) == 1

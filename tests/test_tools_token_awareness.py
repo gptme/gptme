@@ -36,15 +36,15 @@ def test_token_awareness_tool_exists():
 def test_token_awareness_tool_hooks_registered(load_token_awareness_tool):
     """Test that token-awareness tool hooks are registered."""
     session_start_hooks = get_hooks(HookType.SESSION_START)
-    message_post_hooks = get_hooks(HookType.MESSAGE_POST_PROCESS)
+    tool_post_hooks = get_hooks(HookType.TOOL_POST_EXECUTE)
 
     # Should have at least one SESSION_START hook (token_budget)
     assert len(session_start_hooks) >= 1
     assert any("token-awareness.token_budget" in h.name for h in session_start_hooks)
 
-    # Should have at least one MESSAGE_POST_PROCESS hook (token_usage)
-    assert len(message_post_hooks) >= 1
-    assert any("token-awareness.token_usage" in h.name for h in message_post_hooks)
+    # Should have at least one TOOL_POST_EXECUTE hook (token_usage)
+    assert len(tool_post_hooks) >= 1
+    assert any("token-awareness.token_usage" in h.name for h in tool_post_hooks)
 
 
 def test_add_token_budget_hook(load_token_awareness_tool, tmp_path):
@@ -95,7 +95,9 @@ def test_add_token_usage_warning_hook(load_token_awareness_tool, tmp_path):
     log.append(Message("assistant", "Hi there!"))
 
     results = list(
-        trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=tmp_path)
+        trigger_hook(
+            HookType.TOOL_POST_EXECUTE, log=log, workspace=tmp_path, tool_use=None
+        )
     )
 
     # Should have at least one message from the hook
@@ -138,7 +140,9 @@ def test_token_calculation_accuracy(load_token_awareness_tool, tmp_path):
     expected_tokens = len_tokens(msg1, "gpt-4") + len_tokens(msg2, "gpt-4")
 
     results = list(
-        trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=tmp_path)
+        trigger_hook(
+            HookType.TOOL_POST_EXECUTE, log=log, workspace=tmp_path, tool_use=None
+        )
     )
 
     # Find the usage warning
@@ -205,7 +209,9 @@ def test_multiple_usage_warnings(load_token_awareness_tool, tmp_path):
 
     # Trigger hook first time
     results1 = list(
-        trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=tmp_path)
+        trigger_hook(
+            HookType.TOOL_POST_EXECUTE, log=log, workspace=tmp_path, tool_use=None
+        )
     )
     assert len([m for m in results1 if "<system_warning>" in m.content]) >= 1
 
@@ -215,7 +221,9 @@ def test_multiple_usage_warnings(load_token_awareness_tool, tmp_path):
 
     # Trigger hook second time
     results2 = list(
-        trigger_hook(HookType.MESSAGE_POST_PROCESS, log=log, workspace=tmp_path)
+        trigger_hook(
+            HookType.TOOL_POST_EXECUTE, log=log, workspace=tmp_path, tool_use=None
+        )
     )
     assert len([m for m in results2 if "<system_warning>" in m.content]) >= 1
 
