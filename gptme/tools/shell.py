@@ -277,9 +277,8 @@ class ShellSession:
                 # Find first unquoted pipe in original command
                 # We can't use shlex.join() because it quotes shell operators like 2>&1
                 try:
-                    # Simple approach: find the first | that's not inside quotes
-                    pipe_pos = command.find("|")
-                    if pipe_pos > 0:
+                    pipe_pos = _find_first_unquoted_pipe(command)
+                    if pipe_pos is not None and pipe_pos > 0:
                         first_cmd = command[:pipe_pos].rstrip()
                         rest = command[pipe_pos + 1 :].lstrip()
                         command = f"{first_cmd} < /dev/null | {rest}"
@@ -550,6 +549,27 @@ def _is_in_quoted_region(pos: int, quoted_regions: list[tuple[int, int]]) -> boo
         if start <= pos < end:
             return True
     return False
+
+
+def _find_first_unquoted_pipe(command: str) -> int | None:
+    """Find the position of the first pipe operator that's not in quotes.
+
+    Returns None if no unquoted pipe is found.
+    """
+    quoted_regions = _find_quotes(command)
+
+    pos = 0
+    while True:
+        pipe_pos = command.find("|", pos)
+        if pipe_pos == -1:
+            return None
+
+        # Check if this pipe is inside quotes
+        if not _is_in_quoted_region(pipe_pos, quoted_regions):
+            return pipe_pos
+
+        # Try next pipe
+        pos = pipe_pos + 1
 
 
 def is_denylisted(cmd: str) -> tuple[bool, str | None, str | None]:

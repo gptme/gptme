@@ -267,16 +267,46 @@ echo "Hello, World!" | wc -w
     assert out.strip() == "2"
 
 
-@pytest.mark.xfail
 def test_pipeline_with_pipe_in_quotes(shell):
-    script = r"""
-grep -r "A\|B" gptme/ --include="*.py" | grep -v "test_" | grep -v "__pycache__"
+    r"""Test that grep with quoted pipe pattern works correctly.
+
+    The key issue was that the shell tool was incorrectly finding the | inside
+    the quoted string "A\|B" and treating it as a pipe operator, breaking the
+    quoted string.
     """
-    ret, out, err = shell.run(script)
-    # This shouldn't happen, but it does
-    assert r"grep: warning: stray \ before white space" not in err.lower()
-    assert ret == 0
-    assert "auto_generate_display_name" in out
+    # Create test files with content that matches the pattern
+    test_dir = tempfile.mkdtemp()
+    test_file1 = os.path.join(test_dir, "test1.txt")
+    test_file2 = os.path.join(test_dir, "test2.txt")
+
+    with open(test_file1, "w") as f:
+        f.write("Line with Apple\n")
+        f.write("Line with Banana\n")
+        f.write("Line with nothing\n")
+
+    with open(test_file2, "w") as f:
+        f.write("Another Apple line\n")
+        f.write("Another Banana line\n")
+
+    try:
+        # Test grep with alternation pattern - the \| should not be treated as a pipe
+        script = f'grep -r "Apple\\|Banana" {test_dir}/ | grep -v "nothing"'
+        ret, out, err = shell.run(script)
+
+        # The key fix: no "stray backslash" warning
+        assert "grep: warning: stray" not in err.lower()
+        assert ret == 0
+
+        # Verify the pattern matching worked correctly
+        assert "Apple" in out
+        assert "Banana" in out
+        # The line with "nothing" should be filtered out
+        assert "nothing" not in out
+    finally:
+        # Clean up
+        import shutil
+
+        shutil.rmtree(test_dir, ignore_errors=True)
 
 
 def test_shorten_stdout_timestamp():
