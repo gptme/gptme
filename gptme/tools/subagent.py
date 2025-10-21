@@ -62,10 +62,10 @@ class Subagent:
         msg = self.get_log().log[-1].content.strip()
         json_response = _extract_json(msg)
         if not json_response:
-            print(f"FAILED to find JSON in message: {msg}")
+            logger.error(f"Failed to find JSON in message: {msg}")
             return ReturnType("failure")
         elif not json_response.strip().startswith("{"):
-            print(f"FAILED to parse JSON: {json_response}")
+            logger.error(f"Failed to parse JSON: {json_response}")
             return ReturnType("failure")
         else:
             return ReturnType(**json.loads(json_response))  # type: ignore
@@ -130,7 +130,7 @@ def subagent(
     mode: Literal["executor", "planner"] = "executor",
     subtasks: list[SubtaskDef] | None = None,
 ):
-    """Runs a subagent and returns the resulting JSON output.
+    """Starts an asynchronous subagent. Returns None immediately; output is retrieved later via wait_for().
 
     Args:
         agent_id: Unique identifier for the subagent
@@ -215,7 +215,7 @@ def subagent_wait(agent_id: str) -> dict:
     if subagent is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
 
-    print("Waiting for the subagent to finish...")
+    logger.info("Waiting for the subagent to finish...")
     subagent.thread.join(timeout=60)
     status = subagent.status()
     return asdict(status)
