@@ -1527,13 +1527,16 @@ to restore your todo list state.
 At the start of each conversation, the assistant receives information about the total token budget:
 &lt;budget:token_budget&gt;XXX&lt;/budget:token_budget&gt;
 
-After each message is processed, the assistant receives an update on token usage:
+Token usage warnings are shown at meaningful thresholds to avoid noise:
+<span class="k">-</span><span class="w"> </span>When crossing percentage thresholds: 50%, 75%, 90%, 95%
+<span class="k">-</span><span class="w"> </span>Every 10,000 tokens used
 &lt;system_warning&gt;Token usage: X/Y; Z remaining&lt;/system_warning&gt;
 
 This helps the assistant:
 <span class="k">-</span><span class="w"> </span>Understand how much context capacity remains
 <span class="k">-</span><span class="w"> </span>Plan responses to fit within the budget
 <span class="k">-</span><span class="w"> </span>Manage long-running conversations effectively
+<span class="k">-</span><span class="w"> </span>Avoid overwhelming the context with frequent status updates
 
 <span class="gu">## tts</span>
 
@@ -1634,7 +1637,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 7404</p>
+<p>Tokens: 7441</p>
 </dd></dl>
 
 <dl class="py function">
