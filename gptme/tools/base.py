@@ -25,6 +25,7 @@ import json_repair
 from lxml import etree
 
 from ..codeblock import Codeblock
+from ..hooks import HookFunc
 from ..message import Message
 from ..util import clean_example, transform_examples_to_chat_directives
 
@@ -187,7 +188,7 @@ class ToolSpec:
     load_priority: int = 0
     disabled_by_default: bool = False
     is_mcp: bool = False
-    hooks: dict[str, tuple[str, Callable, int]] = field(default_factory=dict)
+    hooks: dict[str, tuple[str, HookFunc, int]] = field(default_factory=dict)
     commands: dict[str, Callable] = field(default_factory=dict)
 
     def __repr__(self):

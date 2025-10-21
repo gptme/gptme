@@ -234,8 +234,7 @@ def _run_chat_loop(
             # This handles auto-reply mechanism and other loop control logic
             if loop_msgs := trigger_hook(
                 HookType.LOOP_CONTINUE,
-                log=manager.log,
-                workspace=manager.workspace,
+                manager=manager,
                 interactive=interactive,
                 prompt_queue=prompt_queue,
             ):
@@ -276,8 +275,7 @@ def _process_message_conversation(
             # Trigger pre-process hooks
             if pre_msgs := trigger_hook(
                 HookType.MESSAGE_PRE_PROCESS,
-                log=manager.log,
-                workspace=manager.workspace,
+                manager=manager,
             ):
                 for msg in pre_msgs:
                     manager.append(msg)
@@ -360,8 +358,7 @@ def _process_message_conversation(
     # Note: pre-commit checks and autocommit are now handled by hooks
     if post_msgs := trigger_hook(
         HookType.MESSAGE_POST_PROCESS,
-        log=manager.log,
-        workspace=manager.workspace,
+        manager=manager,
     ):
         for msg in post_msgs:
             manager.append(msg)

@@ -1,10 +1,15 @@
 """Complete tool - signals that the autonomous session is finished."""
 
 import logging
+from collections.abc import Generator
+from typing import TYPE_CHECKING, Any
 
-from ..hooks import HookType
+from ..hooks import HookType, StopPropagation
 from ..message import Message
 from .base import ConfirmFunc, ToolSpec, ToolUse
+
+if TYPE_CHECKING:
+    from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +34,23 @@ def execute_complete(
     )
 
 
-def complete_hook(log: list[Message], workspace, manager=None):
+def complete_hook(
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
     """
     Hook that detects complete tool call and prevents next generation.
 
     Runs at GENERATION_PRE (before generating response) to stop the session
     immediately after complete tool is called.
+
+    Args:
+        manager: Conversation manager with log and workspace
     """
-    # Handle both Log objects and list[Message]
-    messages = log.messages if hasattr(log, "messages") else log
+    # Make function a generator for type checking
+    if False:
+        yield
+
+    messages = manager.log.messages
 
     logger.debug(f"complete_hook: checking {len(messages) if messages else 0} messages")
 
@@ -68,8 +81,8 @@ def complete_hook(log: list[Message], workspace, manager=None):
 
 
 def auto_reply_hook(
-    log: list[Message], workspace, manager=None, interactive=True, prompt_queue=None
-):
+    manager: "LogManager", interactive: bool, prompt_queue: Any
+) -> Generator[Message | StopPropagation, None, None]:
     """
     Hook that implements auto-reply mechanism for autonomous operation.
 
@@ -77,6 +90,11 @@ def auto_reply_hook(
     inject an auto-reply to ensure the assistant does work.
 
     This is called via LOOP_CONTINUE hook, which receives interactive and prompt_queue.
+
+    Args:
+        manager: Conversation manager with log and workspace
+        interactive: Whether in interactive mode
+        prompt_queue: Queue of pending prompts
     """
     # Only run in non-interactive mode
     if interactive:
@@ -86,7 +104,9 @@ def auto_reply_hook(
     if prompt_queue:
         return
 
-    last_assistant_msg = next((m for m in reversed(log) if m.role == "assistant"), None)
+    last_assistant_msg = next(
+        (m for m in reversed(manager.log.messages) if m.role == "assistant"), None
+    )
     if not last_assistant_msg:
         return
 
@@ -96,7 +116,7 @@ def auto_reply_hook(
 
     # Count consecutive auto-replies
     auto_reply_count = 0
-    for msg in reversed(log):
+    for msg in reversed(manager.log.messages):
         if msg.role == "user" and "use the `complete` tool" in msg.content:
             auto_reply_count += 1
         elif msg.role == "assistant":

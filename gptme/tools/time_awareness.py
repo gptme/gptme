@@ -17,8 +17,9 @@ import logging
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-from ..hooks import HookType
+from ..hooks import HookType, StopPropagation
 from ..logmanager import Log
 from ..message import Message
 from .base import ToolSpec
@@ -33,11 +34,16 @@ _shown_milestones: dict[str, set[int]] = {}
 
 
 def add_time_message(
-    log: Log, workspace: Path | None, manager=None
-) -> Generator[Message, None, None]:
-    """Add time elapsed message after message processing.
+    log: Log, workspace: Path | None, tool_use: Any
+) -> Generator[Message | StopPropagation, None, None]:
+    """Add time elapsed message after tool execution.
 
     Shows messages at: 1min, 5min, 10min, 15min, 20min, then every 10min.
+
+    Args:
+        log: The conversation log
+        workspace: Workspace directory path
+        tool_use: The tool being executed (unused)
     """
     try:
         if workspace is None:
@@ -118,11 +124,9 @@ The assistant receives periodic updates about how much time has elapsed:
 Time messages are shown at: 1min, 5min, 10min, 15min, 20min, then every 10 minutes.
 """.strip(),
     available=True,
-    # TODO: needs to use post-tool hook instead of message post-process to not cause assistant responding to hint in loop
-    disabled_by_default=True,
     hooks={
         "time_message": (
-            HookType.MESSAGE_POST_PROCESS.value,
+            HookType.TOOL_POST_EXECUTE.value,
             add_time_message,
             0,  # Normal priority
         ),

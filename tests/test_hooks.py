@@ -26,8 +26,8 @@ def clear_all_hooks():
 def test_register_hook():
     """Test hook registration."""
 
-    def my_hook():
-        return Message("system", "Hook called")
+    def my_hook(log, workspace, manager=None):
+        yield Message("system", "Hook called")
 
     register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
 
@@ -40,9 +40,9 @@ def test_trigger_hook():
     """Test hook triggering."""
     messages = []
 
-    def my_hook():
+    def my_hook(log, workspace, manager=None):
         messages.append("called")
-        return Message("system", "Hook result")
+        yield Message("system", "Hook result")
 
     register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
 
@@ -58,14 +58,20 @@ def test_hook_priority():
     """Test that hooks run in priority order (higher priority first)."""
     call_order = []
 
-    def hook_low():
+    def hook_low(log, workspace, manager=None):
         call_order.append("low")
+        if False:
+            yield
 
-    def hook_high():
+    def hook_high(log, workspace, manager=None):
         call_order.append("high")
+        if False:
+            yield
 
-    def hook_medium():
+    def hook_medium(log, workspace, manager=None):
         call_order.append("medium")
+        if False:
+            yield
 
     register_hook("low", HookType.MESSAGE_PRE_PROCESS, hook_low, priority=1)
     register_hook("high", HookType.MESSAGE_PRE_PROCESS, hook_high, priority=10)
@@ -80,8 +86,10 @@ def test_hook_enable_disable():
     """Test enabling and disabling hooks."""
     messages = []
 
-    def my_hook():
+    def my_hook(log, workspace, manager=None):
         messages.append("called")
+        if False:
+            yield
 
     register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
 
@@ -103,8 +111,9 @@ def test_hook_enable_disable():
 def test_unregister_hook():
     """Test unregistering hooks."""
 
-    def my_hook():
-        pass
+    def my_hook(log, workspace, manager=None):
+        if False:
+            yield
 
     register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
     assert len(get_hooks(HookType.MESSAGE_PRE_PROCESS)) == 1
@@ -116,8 +125,9 @@ def test_unregister_hook():
 def test_unregister_from_all_types():
     """Test unregistering a hook from all types."""
 
-    def my_hook():
-        pass
+    def my_hook(log, workspace, manager=None):
+        if False:
+            yield
 
     register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
     register_hook("test_hook", HookType.MESSAGE_POST_PROCESS, my_hook)
@@ -135,8 +145,10 @@ def test_hook_with_arguments():
     """Test hooks receive arguments correctly."""
     received_args = {}
 
-    def my_hook(**kwargs):
-        received_args.update(kwargs)
+    def my_hook(log, workspace, tool_use):
+        received_args.update({"log": log, "workspace": workspace, "tool_use": tool_use})
+        if False:
+            yield
 
     register_hook("test_hook", HookType.TOOL_PRE_EXECUTE, my_hook)
 
@@ -158,7 +170,7 @@ def test_hook_with_arguments():
 def test_hook_generator():
     """Test hooks can yield multiple messages."""
 
-    def my_hook():
+    def my_hook(log, workspace, manager=None):
         yield Message("system", "First")
         yield Message("system", "Second")
         yield Message("system", "Third")
@@ -176,11 +188,13 @@ def test_hook_generator():
 def test_hook_error_handling():
     """Test that hook errors are caught and don't break execution."""
 
-    def failing_hook():
+    def failing_hook(log, workspace, manager=None):
+        if False:
+            yield
         raise ValueError("Hook error")
 
-    def working_hook():
-        return Message("system", "Success")
+    def working_hook(log, workspace, manager=None):
+        yield Message("system", "Success")
 
     register_hook("failing", HookType.MESSAGE_PRE_PROCESS, failing_hook, priority=10)
     register_hook("working", HookType.MESSAGE_PRE_PROCESS, working_hook, priority=5)
@@ -197,11 +211,15 @@ def test_multiple_hooks_same_type():
     """Test multiple hooks of the same type."""
     messages = []
 
-    def hook1():
+    def hook1(log, workspace, manager=None):
         messages.append("hook1")
+        if False:
+            yield
 
-    def hook2():
+    def hook2(log, workspace, manager=None):
         messages.append("hook2")
+        if False:
+            yield
 
     register_hook("hook1", HookType.MESSAGE_PRE_PROCESS, hook1)
     register_hook("hook2", HookType.MESSAGE_PRE_PROCESS, hook2)
@@ -217,11 +235,15 @@ def test_replace_existing_hook():
     """Test that registering a hook with the same name replaces the old one."""
     messages = []
 
-    def old_hook():
+    def old_hook(log, workspace, manager=None):
         messages.append("old")
+        if False:
+            yield
 
-    def new_hook():
+    def new_hook(log, workspace, manager=None):
         messages.append("new")
+        if False:
+            yield
 
     register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, old_hook)
     register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, new_hook)
@@ -235,9 +257,11 @@ def test_hook_no_return():
     """Test hooks that don't return anything."""
     called = []
 
-    def my_hook():
+    def my_hook(log, workspace, manager=None):
         called.append(True)
         # No return value
+        if False:
+            yield
 
     register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
 
@@ -253,12 +277,12 @@ def test_hook_stop_propagation():
 
     execution_order = []
 
-    def high_priority_hook():
+    def high_priority_hook(log, workspace, manager=None):
         execution_order.append("high")
         yield Message("system", "High priority")
         yield StopPropagation()  # Stop further hooks
 
-    def low_priority_hook():
+    def low_priority_hook(log, workspace, manager=None):
         execution_order.append("low")
         yield Message("system", "Low priority")
 

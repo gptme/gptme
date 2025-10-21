@@ -200,6 +200,16 @@ class TestDocsLessonsMatching:
 class TestDocsLessonsAutoInclude:
     """Tests auto-include functionality with docs lessons."""
 
+    @staticmethod
+    def _create_manager(messages):
+        """Helper to create a mock manager from a list of messages."""
+        from unittest.mock import MagicMock
+        from gptme.logmanager import Log
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+        return manager
+
     def test_extract_recent_tools_from_log(self):
         """Test extracting recent tool usage from conversation log."""
         log = [
@@ -228,11 +238,14 @@ class TestDocsLessonsAutoInclude:
                 mock_cfg.get_env_bool.return_value = True
                 mock_cfg.get_env.return_value = "5"
 
-                messages = list(auto_include_lessons_hook(log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(log)) or []
+                )
 
                 assert len(messages) > 0, "Should include lessons"
 
                 lesson_msg = messages[0]
+                assert isinstance(lesson_msg, Message)
                 assert lesson_msg.role == "system"
                 assert "# Relevant Lessons" in lesson_msg.content
                 assert "Patch" in lesson_msg.content or "patch" in lesson_msg.content
@@ -253,7 +266,9 @@ class TestDocsLessonsAutoInclude:
                 mock_cfg.get_env_bool.return_value = True
                 mock_cfg.get_env.return_value = "5"
 
-                messages = list(auto_include_lessons_hook(log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(log)) or []
+                )
 
                 assert len(messages) > 0, "Should include lessons based on tool usage"
 
@@ -283,10 +298,13 @@ class TestDocsLessonsAutoInclude:
                 mock_cfg.get_env_bool.return_value = True
                 mock_cfg.get_env.return_value = "5"
 
-                messages = list(auto_include_lessons_hook(log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(log)) or []
+                )
 
                 # Should not include patch lesson again since it's in history
                 if messages:
+                    assert isinstance(messages[0], Message)
                     assert (
                         str(patch_lesson.path) not in messages[0].content
                         or "# Relevant Lessons" not in messages[0].content

@@ -15,14 +15,18 @@ Commands provided:
 import logging
 import threading
 from collections.abc import Generator
+from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
 from ..config import get_config
-from ..hooks import HookType
+from ..hooks import HookType, StopPropagation
 from ..lessons import LessonIndex, LessonMatcher, MatchContext
 from ..lessons.commands import lesson
 from ..message import Message
 from .base import ToolSpec
+
+if TYPE_CHECKING:
+    from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -130,17 +134,14 @@ def handle_lesson_command(ctx: CommandContext) -> Generator[Message, None, None]
 
 
 def auto_include_lessons_hook(
-    log: list[Message], workspace: str | None = None, **kwargs
-) -> Generator[Message, None, None]:
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
     """Hook to automatically include relevant lessons in context.
 
     Extracts keywords from both user and assistant messages to trigger lessons.
-    This enables lessons to be relevant in both interactive and autonomous contexts.
 
     Args:
-        log: Current conversation log
-        workspace: Optional workspace directory path
-        **kwargs: Additional hook arguments (unused)
+        manager: Conversation manager with log and workspace
 
     Returns:
         Generator of messages to prepend (lessons as system message)
@@ -158,12 +159,15 @@ def auto_include_lessons_hook(
     except (ValueError, TypeError):
         max_lessons = 5
 
+    # Get messages from log
+    messages = manager.log.messages
+
     # Get lessons already included
-    included_lessons = _get_included_lessons_from_log(log)
+    included_lessons = _get_included_lessons_from_log(messages)
 
     # Extract message content from recent user and assistant messages
-    message_content = _extract_message_content(log)
-    tools = _extract_recent_tools(log)
+    message_content = _extract_message_content(messages)
+    tools = _extract_recent_tools(messages)
 
     if not message_content and not tools:
         logger.debug("No message content or tools to match, skipping lesson inclusion")

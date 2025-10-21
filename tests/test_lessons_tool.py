@@ -63,11 +63,23 @@ def conversation_log(user_message):
 class TestAutoIncludeLessonsHook:
     """Tests for auto_include_lessons_hook."""
 
+    @staticmethod
+    def _create_manager(messages):
+        """Helper to create a mock manager from a list of messages."""
+        from unittest.mock import MagicMock
+        from gptme.logmanager import Log
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+        return manager
+
     def test_hook_disabled_by_config(self, conversation_log, mock_config):
         """Test that hook respects GPTME_LESSONS_AUTO_INCLUDE config."""
         mock_config.get_env_bool.return_value = False
 
-        messages = list(auto_include_lessons_hook(conversation_log) or [])
+        messages = list(
+            auto_include_lessons_hook(self._create_manager(conversation_log)) or []
+        )
         assert len(messages) == 0
 
         mock_config.get_env_bool.assert_called_once_with(
@@ -76,9 +88,15 @@ class TestAutoIncludeLessonsHook:
 
     def test_hook_no_user_message(self, mock_config):
         """Test hook with no user messages."""
-        log = [Message(role="system", content="System message")]
+        from unittest.mock import MagicMock
+        from gptme.logmanager import Log
 
-        messages = list(auto_include_lessons_hook(log) or [])
+        messages_list = [Message(role="system", content="System message")]
+
+        manager = MagicMock()
+        manager.log = Log(messages_list)
+
+        messages = list(auto_include_lessons_hook(manager) or [])
         assert len(messages) == 0
 
     def test_hook_no_lessons_in_index(self, conversation_log, mock_config):
@@ -88,7 +106,9 @@ class TestAutoIncludeLessonsHook:
             mock_index.lessons = []
             mock_get_index.return_value = mock_index
 
-            messages = list(auto_include_lessons_hook(conversation_log) or [])
+            messages = list(
+                auto_include_lessons_hook(self._create_manager(conversation_log)) or []
+            )
             assert len(messages) == 0
 
     def test_hook_no_matching_lessons(
@@ -105,7 +125,10 @@ class TestAutoIncludeLessonsHook:
                 mock_matcher.match.return_value = []
                 mock_matcher_class.return_value = mock_matcher
 
-                messages = list(auto_include_lessons_hook(conversation_log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(conversation_log))
+                    or []
+                )
                 assert len(messages) == 0
 
     def test_hook_includes_matching_lessons(
@@ -122,10 +145,14 @@ class TestAutoIncludeLessonsHook:
                 mock_matcher.match.return_value = [sample_match]
                 mock_matcher_class.return_value = mock_matcher
 
-                messages = list(auto_include_lessons_hook(conversation_log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(conversation_log))
+                    or []
+                )
 
                 assert len(messages) == 1
                 message = messages[0]
+                assert isinstance(message, Message)
                 assert message.role == "system"
                 assert "# Relevant Lessons" in message.content
                 assert "Patch Best Practices" in message.content
@@ -167,9 +194,13 @@ class TestAutoIncludeLessonsHook:
                 mock_matcher.match.return_value = matches
                 mock_matcher_class.return_value = mock_matcher
 
-                messages = list(auto_include_lessons_hook(conversation_log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(conversation_log))
+                    or []
+                )
 
                 assert len(messages) == 1
+                assert isinstance(messages[0], Message)
                 content = messages[0].content
 
                 # Should only include first 3 lessons
@@ -193,7 +224,10 @@ class TestAutoIncludeLessonsHook:
                 mock_matcher_class.return_value = mock_matcher
 
                 # Should not raise error, should use default of 5
-                messages = list(auto_include_lessons_hook(conversation_log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(conversation_log))
+                    or []
+                )
                 assert len(messages) == 0
 
     def test_hook_handles_exception(self, conversation_log, mock_config):
@@ -202,7 +236,9 @@ class TestAutoIncludeLessonsHook:
             mock_get_index.side_effect = Exception("Test error")
 
             # Should not raise, should log warning
-            messages = list(auto_include_lessons_hook(conversation_log) or [])
+            messages = list(
+                auto_include_lessons_hook(self._create_manager(conversation_log)) or []
+            )
             assert len(messages) == 0
 
 

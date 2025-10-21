@@ -12,8 +12,9 @@ Adds:
 import logging
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
-from ..hooks import HookType
+from ..hooks import HookType, StopPropagation
 from ..logmanager import Log
 from ..message import Message, len_tokens
 from .base import ToolSpec
@@ -26,8 +27,8 @@ _message_counts: dict[str, int] = {}
 
 
 def add_token_budget(
-    logdir: Path, workspace: Path | None, initial_msgs: list[Message], **kwargs
-) -> Generator[Message, None, None]:
+    logdir: Path, workspace: Path | None, initial_msgs: list[Message]
+) -> Generator[Message | StopPropagation, None, None]:
     """Add token budget tag at session start.
 
     Args:
@@ -63,15 +64,16 @@ def add_token_budget(
 
 
 def add_token_usage_warning(
-    log: Log, workspace: Path | None, **kwargs
-) -> Generator[Message, None, None]:
-    """Add token usage warning after message processing.
+    log: Log, workspace: Path | None, tool_use: Any
+) -> Generator[Message | StopPropagation, None, None]:
+    """Add token usage warning after tool execution.
 
     Uses incremental token counting to avoid O(N²) behavior.
 
     Args:
         log: The conversation log
         workspace: Workspace directory path
+        tool_use: The tool being executed (unused)
 
     Yields:
         System message with token usage warning
@@ -154,8 +156,6 @@ This helps the assistant:
 - Manage long-running conversations effectively
 """.strip(),
     available=True,
-    # TODO: needs to use post-tool hook instead of message post-process to not cause assistant responding to hint in loop
-    disabled_by_default=True,
     hooks={
         "token_budget": (
             HookType.SESSION_START.value,
@@ -163,7 +163,7 @@ This helps the assistant:
             10,  # High priority to run early
         ),
         "token_usage": (
-            HookType.MESSAGE_POST_PROCESS.value,
+            HookType.TOOL_POST_EXECUTE.value,
             add_token_usage_warning,
             0,  # Normal priority
         ),

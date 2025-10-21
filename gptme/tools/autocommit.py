@@ -17,13 +17,17 @@ export GPTME_AUTOCOMMIT=true
 import logging
 import subprocess
 from collections.abc import Generator
+from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
 from ..config import get_config
-from ..hooks import HookType
-from ..logmanager import Log, check_for_modifications
+from ..hooks import HookType, StopPropagation
+from ..logmanager import check_for_modifications
 from ..message import Message
 from .base import ToolSpec
+
+if TYPE_CHECKING:
+    from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -113,13 +117,12 @@ def handle_commit_command(ctx: CommandContext) -> Generator[Message, None, None]
 
 
 def autocommit_on_message_complete(
-    log: Log, workspace, **kwargs
-) -> Generator[Message, None, None]:
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
     """Hook function that handles auto-commit after message processing.
 
     Args:
-        log: The conversation log
-        workspace: Workspace directory path
+        manager: Conversation manager with log and workspace
 
     Yields:
         Message asking LLM to review and commit if changes exist
@@ -131,7 +134,7 @@ def autocommit_on_message_complete(
 
     # Check if there are modifications
 
-    if not check_for_modifications(log):
+    if not check_for_modifications(manager.log):
         logger.debug("No modifications detected, skipping autocommit")
         return
 

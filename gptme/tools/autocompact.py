@@ -8,8 +8,13 @@ prevent resumption, compacting them to allow the conversation to continue.
 import logging
 from collections.abc import Generator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from ..hooks import StopPropagation
 from ..message import Message, len_tokens
+
+if TYPE_CHECKING:
+    from ..logmanager import Log, LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -381,7 +386,9 @@ def _get_backup_name(conversation_name: str) -> str:
     return f"{base_name}-before-compact-{random_suffix}"
 
 
-def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
+def autocompact_hook(
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
     """
     Hook that checks if auto-compacting is needed and applies it.
 
@@ -392,12 +399,14 @@ def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
     1. Forks the conversation to preserve original state
     2. Applies auto-compacting to current conversation
     3. Persists the compacted log
+
+    Args:
+        manager: Conversation manager with log and workspace
     """
 
     import time
 
     from ..llm.models import get_default_model
-    from ..logmanager import Log
     from ..message import len_tokens
 
     global _last_autocompact_time
@@ -411,14 +420,9 @@ def autocompact_hook(log: list[Message], workspace: Path | None, manager=None):
         )
         return
 
-    # Handle both Log objects and list[Message]
-    messages = log.messages if hasattr(log, "messages") else log
+    messages = manager.log.messages
 
     if not should_auto_compact(messages):
-        return
-
-    if manager is None:
-        logger.warning("Auto-compact hook called without manager, cannot persist")
         return
 
     logger.info("Auto-compacting triggered: conversation has massive tool results")

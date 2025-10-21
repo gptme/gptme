@@ -1,7 +1,7 @@
 """Hook system for extending gptme functionality at various lifecycle points."""
 
 import logging
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from enum import Enum
 from time import time
@@ -56,8 +56,112 @@ class HookType(str, Enum):
     LOOP_CONTINUE = "loop_continue"  # Decide whether/how to continue the chat loop
 
 
-# Hook function signatures for different hook types
-HookFunc = Callable[..., Any | Generator[Message, None, None]]
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from .logmanager import Log, LogManager
+    from .tools.base import ToolUse
+
+
+# Protocol classes for different hook signatures
+class SessionStartHook(Protocol):
+    """Hook called at session start with logdir, workspace, and initial messages."""
+
+    def __call__(
+        self,
+        logdir: Path,
+        workspace: Path | None,
+        initial_msgs: list[Message],
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+class SessionEndHook(Protocol):
+    """Hook called at session end with logdir and manager."""
+
+    def __call__(
+        self, logdir: Path, manager: Any
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+class ToolExecuteHook(Protocol):
+    """Hook called before/after tool execution.
+
+    Note: Receives log/workspace separately since manager isn't available in ToolUse.execute() context.
+
+    Args:
+        log: The conversation log
+        workspace: Workspace directory path
+        tool_use: The tool being executed
+    """
+
+    def __call__(
+        self,
+        log: "Log",
+        workspace: Path | None,
+        tool_use: "ToolUse",
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+class MessageProcessHook(Protocol):
+    """Hook called before/after message processing.
+
+    Args:
+        manager: Conversation manager with log and workspace
+    """
+
+    def __call__(
+        self, manager: "LogManager"
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+class LoopContinueHook(Protocol):
+    """Hook called to decide whether to continue the chat loop.
+
+    Args:
+        manager: Conversation manager with log and workspace
+        interactive: Whether in interactive mode
+        prompt_queue: Queue of pending prompts
+    """
+
+    def __call__(
+        self,
+        manager: "LogManager",
+        interactive: bool,
+        prompt_queue: Any,
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+class GenerationPreHook(Protocol):
+    """Hook called before generating response.
+
+    Args:
+        manager: Conversation manager with log and workspace
+    """
+
+    def __call__(
+        self, manager: "LogManager"
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+class FilePostSaveHook(Protocol):
+    """Hook called after saving a file."""
+
+    def __call__(
+        self, path: Path, content: str, created: bool
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+# Union of all hook types
+HookFunc = (
+    SessionStartHook
+    | SessionEndHook
+    | ToolExecuteHook
+    | MessageProcessHook
+    | LoopContinueHook
+    | GenerationPreHook
+    | FilePostSaveHook
+)
 
 
 @dataclass

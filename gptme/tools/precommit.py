@@ -32,6 +32,7 @@ import subprocess
 import time
 from collections.abc import Generator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
 from ..config import get_config
@@ -40,6 +41,9 @@ from ..logmanager import check_for_modifications
 from ..message import Message
 from ..util.context import md_codeblock
 from .base import ToolSpec
+
+if TYPE_CHECKING:
+    from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -270,13 +274,12 @@ def check_precommit_available() -> bool:
 
 
 def run_full_precommit_checks(
-    log, workspace, **kwargs
+    manager: "LogManager",
 ) -> Generator[Message | StopPropagation, None, None]:
     """Hook function that runs full pre-commit checks after message processing.
 
     Args:
-        log: The conversation log
-        workspace: Workspace directory path
+        manager: Conversation manager with log and workspace
 
     Yields:
         Messages with pre-commit check results
@@ -288,7 +291,7 @@ def run_full_precommit_checks(
 
     # Check if there are modifications
 
-    if not check_for_modifications(log):
+    if not check_for_modifications(manager.log):
         logger.debug("No modifications, skipping pre-commit checks")
         return
 
