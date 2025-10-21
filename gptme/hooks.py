@@ -80,7 +80,7 @@ class SessionEndHook(Protocol):
     """Hook called at session end with logdir and manager."""
 
     def __call__(
-        self, logdir: Path, manager: Any
+        self, manager: "LogManager"
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
