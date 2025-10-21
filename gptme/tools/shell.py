@@ -14,10 +14,12 @@ import logging
 import os
 import re
 import select
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -108,6 +110,13 @@ deny_groups = [
             r"chmod\s+777",
         ],
         "Overly permissive chmod operations are blocked. Use safer permissions like `chmod 755` or `chmod 644` and be specific about target files.",
+    ),
+    (
+        [
+            r"pkill\s",
+            r"killall\s",
+        ],
+        "Killing processes indiscriminately is blocked. Use `ps aux | grep <process-name>` to find specific PIDs and `kill <PID>` to terminate them safely.",
     ),
 ]
 
@@ -261,8 +270,6 @@ class ShellSession:
         # Use shlex to properly parse commands and respect quotes
         # Only add for commands that don't already redirect stdin
         try:
-            import shlex
-
             command_parts = list(
                 shlex.shlex(command, posix=True, punctuation_chars=True)
             )
@@ -786,7 +793,6 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
         error_codes = default_error_codes
 
     # Write command to temp file
-    import tempfile
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
         f.write("#!/bin/bash\n")
@@ -810,7 +816,6 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
             output = result.stdout.replace(temp_path, "<command>")
 
             # Extract error codes from shellcheck output
-            import re
 
             triggered_codes = set()
             for line in output.splitlines():
