@@ -81,6 +81,7 @@ def _run_planner(agent_id: str, prompt: str, subtasks: list[SubtaskDef]) -> None
     """Run a planner that delegates work to multiple executor subagents."""
     from gptme import chat
     from gptme.cli import get_logdir
+
     from ..prompts import get_prompt
 
     logger.info(f"Starting planner {agent_id} with {len(subtasks)} subtasks")
