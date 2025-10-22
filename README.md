@@ -200,6 +200,10 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - Can see images referenced in prompts, screenshots of your desktop, and web pages.
 - 🔄 Self-correcting
   - Output is fed back to the assistant, allowing it to respond and self-correct.
+- 📚 [Lessons system][docs-lessons]
+  - Contextual guidance and best practices automatically included when relevant
+  - Keyword and tool-based matching
+  - Adapts to interactive vs autonomous modes
 - 🤖 Support for several LLM [providers][docs-providers]
   - Use OpenAI, Anthropic, OpenRouter, or serve locally with `llama.cpp`
 - 🌐 Web UI and REST API
@@ -383,6 +387,7 @@ Options:
 [docs-tools-browser]: https://gptme.org/docs/tools.html#browser
 [docs-tools-computer]: https://gptme.org/docs/tools.html#computer
 [docs-tools-tts]: https://gptme.org/docs/tools.html#tts
+[docs-lessons]: https://gptme.org/docs/lessons.html
 [docs-bot]: https://gptme.org/docs/bot.html
 [docs-server]: https://gptme.org/docs/server.html
 [docs-evals]: https://gptme.org/docs/evals.html
