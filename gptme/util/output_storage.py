@@ -40,44 +40,50 @@ def save_large_output(
         - summary_text: Compact reference message for context
         - saved_path: Path where full output was saved, or None if save failed
     """
-    # If no logdir, can't save - return content as-is
-    if not logdir:
-        return content, None
+    saved_path = None
 
-    # Create output directory
-    output_dir = logdir / "tool-outputs" / output_type
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Try to save content if logdir provided
+    if logdir:
+        output_dir = logdir / "tool-outputs" / output_type
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate filename from timestamp and content hash
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
-    filename = f"output-{timestamp}-{content_hash}.txt"
-    saved_path = output_dir / filename
+        # Generate filename from timestamp and content hash
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
+        filename = f"output-{timestamp}-{content_hash}.txt"
+        saved_path = output_dir / filename
 
-    # Try to save content
-    try:
-        saved_path.write_text(content)
-        logger.info(f"Saved large output to {saved_path}")
-    except Exception as e:
-        logger.error(f"Failed to save large output: {e}")
-        return content, None
+        # Try to save content
+        try:
+            saved_path.write_text(content)
+            logger.info(f"Saved large output to {saved_path}")
+        except Exception as e:
+            logger.error(f"Failed to save large output: {e}")
+            saved_path = None
 
     # Build summary message
-    parts = ["[Large output saved to file]"]
+    base_parts = ["[Large tool output removed"]
 
     if original_tokens:
-        parts.append(f"({original_tokens} tokens)")
+        base_parts.append(f"- {original_tokens} tokens]:")
+    else:
+        base_parts.append("]:")
+
+    base_parts.append("Tool execution")
+    base_parts.append(status or "completed")
 
     if command_info:
-        parts.append(f"- {command_info}")
+        base_parts.append(f"({command_info})")
 
-    if status:
-        parts.append(f"- Status: {status}")
+    base_msg = " ".join(base_parts) + "."
 
-    summary = " ".join(parts)
-    reference = f"\nFull output saved to: {saved_path}\nYou can read or grep this file if needed."
-
-    return f"{summary}{reference}", saved_path
+    # Add reference to file if saved
+    if saved_path:
+        reference = f"\nFull output saved to: {saved_path}\nYou can read or grep this file if needed."
+        return f"{base_msg}{reference}", saved_path
+    else:
+        reference = "\nOutput was automatically removed due to size to allow conversation continuation."
+        return f"{base_msg}{reference}", None
 
 
 def create_tool_result_summary(

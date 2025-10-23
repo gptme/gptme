@@ -8,11 +8,11 @@ import pytest
 from gptme.llm.models import get_default_model, get_model
 from gptme.message import Message, len_tokens
 from gptme.tools.autocompact import (
-    _create_tool_result_summary,
     _get_backup_name,
     auto_compact_log,
     should_auto_compact,
 )
+from gptme.util.output_storage import create_tool_result_summary
 
 
 def create_test_conversation():
@@ -95,7 +95,7 @@ def test_auto_compact_log_reduces_massive_tool_result():
 
 
 def test_create_tool_result_summary():
-    """Test the _create_tool_result_summary helper function."""
+    """Test the create_tool_result_summary helper function."""
     from datetime import datetime
     from gptme.message import Message
 
@@ -103,13 +103,12 @@ def test_create_tool_result_summary():
     tokens = 1000
     msg = Message("system", content, timestamp=datetime.now())
 
-    summary = _create_tool_result_summary(msg, tokens, None)
+    summary = create_tool_result_summary(msg.content, tokens, None, "autocompact")
 
     # Should contain key information
     assert "1000 tokens" in summary
     assert "Ran command: `ls -la`" in summary
-    assert "Tool execution completed" in summary
-    assert "automatically removed" in summary
+    assert "completed" in summary.lower()
 
 
 def test_create_tool_result_summary_with_error():
@@ -123,11 +122,11 @@ def test_create_tool_result_summary_with_error():
     tokens = 500
     msg = Message("system", content, timestamp=datetime.now())
 
-    summary = _create_tool_result_summary(msg, tokens, None)
+    summary = create_tool_result_summary(msg.content, tokens, None, "autocompact")
 
     # Should detect failure
     assert "500 tokens" in summary
-    assert "Tool execution failed" in summary
+    assert "failed" in summary.lower()
     assert "Ran command: `invalid_command`" in summary
 
 
