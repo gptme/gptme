@@ -129,7 +129,7 @@ def subagent(
     agent_id: str,
     prompt: str,
     mode: Literal["executor", "planner"] = "executor",
-    subtasks: list["SubtaskDef"] | None = None,
+    subtasks: list[SubtaskDef] | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately; output is retrieved later via wait_for().
 
