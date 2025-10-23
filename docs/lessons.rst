@@ -174,32 +174,10 @@ Control lesson behavior with these variables:
     # Refresh lessons each message (default: false)
     export GPTME_LESSONS_REFRESH=true
 
-Autonomous Mode
-~~~~~~~~~~~~~~~
+Keyword Extraction
+~~~~~~~~~~~~~~~~~~
 
-The system adapts lesson inclusion for autonomous vs interactive use:
-
-**Interactive Mode** (>= 30% user messages):
-
-  - Includes lessons based on keywords from user messages
-  - Uses standard inclusion limits
-  - Helps users learn recommended patterns
-
-**Autonomous Mode** (< 30% user messages):
-
-  - Includes lessons based on keywords from assistant messages
-  - Can use different inclusion limits
-  - Guides autonomous operation patterns
-
-Configure autonomous behavior:
-
-.. code-block:: bash
-
-    # Enable autonomous-specific inclusion (default: false)
-    export GPTME_LESSONS_AUTO_INCLUDE_AUTONOMOUS=true
-
-    # Maximum lessons in autonomous mode (default: 5)
-    export GPTME_LESSONS_MAX_INCLUDED_AUTONOMOUS=3
+The system extracts keywords from both user and assistant messages to match relevant lessons. This unified approach ensures lessons are included based on all conversation context, providing guidance during both interactive and autonomous operation.
 
 CLI Commands
 ------------

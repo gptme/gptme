@@ -69,15 +69,8 @@ export GPTME_LESSONS_MAX_INCLUDED=3
 # Refresh lessons each message (default: false)
 export GPTME_LESSONS_REFRESH=true
 
-# Autonomous mode settings
-export GPTME_LESSONS_AUTO_INCLUDE_AUTONOMOUS=true  # (default: false)
-export GPTME_LESSONS_MAX_INCLUDED_AUTONOMOUS=3     # (default: 5)
-```
 
-**Autonomous vs Interactive Mode**:
-- Interactive mode (>= 30% user messages): Uses standard settings
-- Autonomous mode (< 30% user messages): Can use different limits
-- Mode detected automatically based on message patterns
+```
 
 ## Creating Your Own Lessons
 
