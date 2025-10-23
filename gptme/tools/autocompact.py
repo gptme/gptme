@@ -108,7 +108,6 @@ def auto_compact_log(
     yield from reduce_log(compacted_log, limit)
 
 
-
 def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
     """
     Check if a log should be auto-compacted.
