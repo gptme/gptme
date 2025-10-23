@@ -226,6 +226,88 @@ def save_large_output(
         return f"{base_msg}{reference}", None
 
 
+def _parse_tool_result_content(
+    content: str,
+) -> tuple[str | None, str | None, str, dict[str, Any]]:
+    """
+    Parse tool result content to extract tool, command, output, and metadata.
+
+    Args:
+        content: Tool result message content
+
+    Returns:
+        Tuple of (tool_name, command, output, meta)
+        - tool_name: Detected tool or None if unknown
+        - command: Extracted command or None if not found
+        - output: Full output text (may be same as content if parsing fails)
+        - meta: Metadata dictionary with status, exit_code, etc.
+    """
+    lines = content.split("\n")
+    tool_name = None
+    command = None
+    output = content  # Default to full content
+    meta: dict[str, Any] = {}
+
+    # Detect tool from header patterns
+    if lines:
+        header = lines[0]
+        if "Ran command:" in header or "Ran allowlisted command:" in header:
+            tool_name = "shell"
+        elif "Executed:" in header or "Running:" in header:
+            # Could be python or other tools
+            if "python" in header.lower():
+                tool_name = "python"
+
+    # Extract command from code blocks
+    in_command_block = False
+    command_lines = []
+    for line in lines:
+        if line.strip().startswith("```bash") or line.strip().startswith("```python"):
+            in_command_block = True
+            continue
+        if in_command_block:
+            if line.strip() == "```":
+                break
+            command_lines.append(line)
+
+    if command_lines:
+        command = "\n".join(command_lines).strip()
+
+    # Extract return code/exit code from end of content
+    for line in reversed(lines[-10:]):
+        if "Return code:" in line:
+            try:
+                code_str = line.split("Return code:")[-1].strip()
+                meta["exit_code"] = int(code_str)
+                meta["status"] = "success" if meta["exit_code"] == 0 else "failed"
+            except (ValueError, IndexError):
+                pass
+            break
+        elif "exit_code" in line.lower():
+            # Try to extract from various formats
+            try:
+                import re
+
+                match = re.search(r"exit[_ ]code[:\s]+(\d+)", line, re.IGNORECASE)
+                if match:
+                    meta["exit_code"] = int(match.group(1))
+                    meta["status"] = "success" if meta["exit_code"] == 0 else "failed"
+            except (ValueError, AttributeError):
+                pass
+
+    # Fallback status detection
+    if "status" not in meta:
+        if any(
+            word in content.lower()
+            for word in ["error", "failed", "exception", "traceback"]
+        ):
+            meta["status"] = "failed"
+        else:
+            meta["status"] = "completed"
+
+    return tool_name, command, output, meta
+
+
 def create_tool_result_summary(
     content: str,
     original_tokens: int,
@@ -235,19 +317,42 @@ def create_tool_result_summary(
     """
     Create compact summary for a tool result, saving full content to file.
 
-    This is a convenience wrapper around save_large_output for tool results,
-    extracting command information and status from content.
+    Now uses schema-based summarization when tool can be detected from content.
+    Falls back to legacy approach if parsing fails.
 
     Args:
         content: Tool result content
         original_tokens: Number of tokens in original content
         logdir: Conversation directory for saving
-        tool_name: Name of the tool that generated the result
+        tool_name: Name of the tool that generated the result (may be detected)
 
     Returns:
         Compact summary message with reference to saved file
     """
-    # Try to extract command information from content
+    # Try schema-based approach if we have logdir
+    if logdir:
+        try:
+            # Detect tool and parse content
+            detected_tool, command, output, meta = _parse_tool_result_content(content)
+            if detected_tool:
+                tool_name = detected_tool
+
+            # Use structured result with schema-based summarization
+            compact_ref, _full_result = save_structured_result(
+                tool=tool_name,
+                command=command,
+                output=output,
+                meta=meta,
+                logdir=logdir,
+            )
+            return compact_ref.to_text()
+        except Exception as e:
+            # Log but don't fail - fall through to legacy approach
+            logger.debug(
+                f"Schema-based summarization failed, using legacy: {e}", exc_info=True
+            )
+
+    # Fallback to legacy approach
     lines = content.split("\n")
     command_info = None
 
