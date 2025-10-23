@@ -12,6 +12,8 @@ from typing import (
     cast,
 )
 
+from httpx import RemoteProtocolError
+
 from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, msgs2dicts
 from ..telemetry import record_llm_request
@@ -115,6 +117,9 @@ def _handle_anthropic_transient_error(e, attempt, max_retries, base_delay):
                 keyword in error_msg for keyword in ["overload", "internal", "timeout"]
             ):
                 should_retry = True
+    # Also check for "httpx.RemoteProtocolError: peer closed connection without sending complete message body"
+    elif isinstance(e, RemoteProtocolError):
+        should_retry = True
 
     # Re-raise if not transient or max retries reached
     if not should_retry or attempt == max_retries - 1:
