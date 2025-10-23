@@ -117,16 +117,23 @@ def save_structured_result(
     full_result.save(result_path)
     logger.info(f"Saved structured result to {result_path}")
 
-    # Create compact reference
-    compact = CompactReference(
-        type="reference",
-        path=str(result_path),
-        summary={
+    # Create compact reference using schema if available
+    schema = get_schema(tool)
+    if schema:
+        summary = schema.summarize(full_result)
+    else:
+        # Fallback to basic summary
+        summary = {
             "tool": tool,
             "command": command,
             "status": meta.get("status", "completed"),
-            "lines": len(output.split("\n")),
-        },
+            "lines": len(output.split("\n")) if output else 0,
+        }
+
+    compact = CompactReference(
+        type="reference",
+        path=str(result_path),
+        summary=summary,
     )
 
     return compact, full_result
@@ -271,3 +278,145 @@ def create_tool_result_summary(
     )
 
     return summary
+
+
+# Result Schema System for Tool-Specific Summarization
+
+
+class ResultSchema:
+    """
+    Base class for result schemas.
+
+    Schemas define how to create compact summaries from full tool results.
+    Each tool can register a custom schema for optimal summarization.
+    """
+
+    @staticmethod
+    def summarize(full_result: FullResult) -> dict[str, Any]:
+        """
+        Create compact summary from full result.
+
+        Args:
+            full_result: Complete result with all output
+
+        Returns:
+            Dictionary with essential fields for compact representation
+        """
+        raise NotImplementedError("Subclasses must implement summarize()")
+
+
+class ShellResultSchema(ResultSchema):
+    """Schema for shell command results."""
+
+    @staticmethod
+    def summarize(full_result: FullResult) -> dict[str, Any]:
+        """Summarize shell command result with essential fields."""
+        lines = full_result.output.split("\n") if full_result.output else []
+        exit_code = full_result.meta.get("exit_code", 0)
+
+        # Get preview: first 2 lines and last 1 line
+        preview_lines = []
+        if len(lines) > 3:
+            preview_lines = lines[:2] + ["..."] + lines[-1:]
+        elif lines:
+            preview_lines = lines
+
+        return {
+            "tool": "shell",
+            "command": full_result.command,
+            "exit_code": exit_code,
+            "status": "success" if exit_code == 0 else "failed",
+            "duration_ms": full_result.meta.get("duration_ms"),
+            "lines": len(lines),
+            "preview": "\n".join(preview_lines),
+        }
+
+
+class PythonResultSchema(ResultSchema):
+    """Schema for Python execution results."""
+
+    @staticmethod
+    def summarize(full_result: FullResult) -> dict[str, Any]:
+        """Summarize Python execution result."""
+        lines = full_result.output.split("\n") if full_result.output else []
+
+        # Check for exceptions in output
+        has_exception = any("Traceback" in line or "Error:" in line for line in lines)
+
+        # Get result value if present
+        result_value = full_result.meta.get("result")
+
+        return {
+            "tool": "python",
+            "status": "error" if has_exception else "success",
+            "result": str(result_value)[:100] if result_value else None,
+            "lines": len(lines),
+            "has_exception": has_exception,
+            "duration_ms": full_result.meta.get("duration_ms"),
+        }
+
+
+class BrowserResultSchema(ResultSchema):
+    """Schema for browser operation results."""
+
+    @staticmethod
+    def summarize(full_result: FullResult) -> dict[str, Any]:
+        """Summarize browser operation result."""
+        return {
+            "tool": "browser",
+            "operation": full_result.meta.get("operation", "unknown"),
+            "url": full_result.meta.get("url"),
+            "status_code": full_result.meta.get("status_code"),
+            "content_size": len(full_result.output) if full_result.output else 0,
+            "duration_ms": full_result.meta.get("duration_ms"),
+        }
+
+
+class FileResultSchema(ResultSchema):
+    """Schema for file operation results."""
+
+    @staticmethod
+    def summarize(full_result: FullResult) -> dict[str, Any]:
+        """Summarize file operation result."""
+        return {
+            "tool": "file",
+            "operation": full_result.meta.get("operation", "unknown"),
+            "path": full_result.meta.get("path"),
+            "size_bytes": len(full_result.output) if full_result.output else 0,
+            "status": full_result.meta.get("status", "completed"),
+        }
+
+
+# Schema Registry
+
+_SCHEMA_REGISTRY: dict[str, type[ResultSchema]] = {
+    "shell": ShellResultSchema,
+    "python": PythonResultSchema,
+    "ipython": PythonResultSchema,  # Use same schema as python
+    "browser": BrowserResultSchema,
+    "file": FileResultSchema,
+}
+
+
+def register_schema(tool_name: str, schema: type[ResultSchema]) -> None:
+    """
+    Register a custom schema for a tool.
+
+    Args:
+        tool_name: Name of the tool
+        schema: Schema class implementing summarize()
+    """
+    _SCHEMA_REGISTRY[tool_name] = schema
+
+
+def get_schema(tool_name: str) -> type[ResultSchema] | None:
+    """
+    Get registered schema for a tool.
+
+    Args:
+        tool_name: Name of the tool
+
+    Returns:
+        Schema class or None if not registered
+    """
+    return _SCHEMA_REGISTRY.get(tool_name)
