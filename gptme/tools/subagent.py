@@ -129,7 +129,7 @@ def subagent(
     agent_id: str,
     prompt: str,
     mode: Literal["executor", "planner"] = "executor",
-    subtasks: list[SubtaskDef] | None = None,
+    subtasks: list["SubtaskDef"] | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately; output is retrieved later via wait_for().
 
@@ -140,8 +140,9 @@ def subagent(
         subtasks: List of subtask definitions for planner mode (required when mode="planner")
 
     Returns:
-        For executor mode: None (starts async execution)
-        For planner mode: None (starts async execution of all subtasks)
+        None: Starts asynchronous execution. Use wait_for() to retrieve output.
+            In executor mode, starts a single task execution.
+            In planner mode, starts execution of all subtasks.
     """
     if mode == "planner":
         if not subtasks:
