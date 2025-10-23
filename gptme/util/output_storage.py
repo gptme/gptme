@@ -9,8 +9,141 @@ import hashlib
 import logging
 from datetime import datetime
 from pathlib import Path
+from dataclasses import dataclass, asdict
+from typing import Any
+import json
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FullResult:
+    """
+    Complete tool result with all output and metadata.
+
+    Stored in filesystem for later retrieval, not kept in conversation context.
+    """
+
+    tool: str
+    timestamp: str  # ISO 8601 format
+    command: str | None
+    output: str
+    meta: dict[str, Any]
+
+    def to_json(self) -> str:
+        """Serialize to JSON string."""
+        return json.dumps(asdict(self), indent=2)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "FullResult":
+        """Deserialize from JSON string."""
+        data = json.loads(json_str)
+        return cls(**data)
+
+    def save(self, path: Path) -> None:
+        """Save to file as JSON."""
+        path.write_text(self.to_json())
+
+
+@dataclass
+class CompactReference:
+    """
+    Compact reference to a full result stored in filesystem.
+
+    Included in conversation context instead of full output.
+    """
+
+    type: str  # Always "reference"
+    path: str
+    summary: dict[str, Any]
+
+    def to_text(self) -> str:
+        """Convert to human-readable text for context."""
+        lines = [
+            f"[Tool result reference: {self.summary.get('tool', 'unknown')}]",
+            f"Status: {self.summary.get('status', 'unknown')}",
+        ]
+
+        if "command" in self.summary:
+            lines.append(f"Command: {self.summary['command']}")
+
+        if "lines" in self.summary:
+            lines.append(f"Lines: {self.summary['lines']}")
+
+        lines.append(f"Full output: {self.path}")
+
+        return "\n".join(lines)
+
+
+def save_structured_result(
+    tool: str,
+    command: str | None,
+    output: str,
+    meta: dict[str, Any],
+    logdir: Path,
+) -> tuple[CompactReference, FullResult]:
+    """
+    Save a structured tool result and return compact reference.
+
+    Args:
+        tool: Tool name (e.g., "shell", "python")
+        command: Command that was executed
+        output: Full output text
+        meta: Metadata dictionary (duration, exit_code, etc.)
+        logdir: Conversation directory for saving
+
+    Returns:
+        Tuple of (compact_reference, full_result)
+    """
+    # Create full result
+    full_result = FullResult(
+        tool=tool,
+        timestamp=datetime.now().isoformat(),
+        command=command,
+        output=output,
+        meta=meta,
+    )
+
+    # Create storage path
+    output_dir = logdir / "tool-outputs" / tool
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    content_hash = hashlib.sha256(output.encode()).hexdigest()[:8]
+    filename = f"result-{timestamp_str}-{content_hash}.json"
+    result_path = output_dir / filename
+
+    # Save full result
+    full_result.save(result_path)
+    logger.info(f"Saved structured result to {result_path}")
+
+    # Create compact reference
+    compact = CompactReference(
+        type="reference",
+        path=str(result_path),
+        summary={
+            "tool": tool,
+            "command": command,
+            "status": meta.get("status", "completed"),
+            "lines": len(output.split("\n")),
+        },
+    )
+
+    return compact, full_result
+
+
+def load_full_result(path: Path) -> FullResult:
+    """
+    Load a full result from filesystem.
+
+    Args:
+        path: Path to the JSON result file
+
+    Returns:
+        FullResult object
+    """
+    json_str = path.read_text()
+    return FullResult.from_json(json_str)
 
 
 def save_large_output(
