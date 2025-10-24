@@ -56,6 +56,7 @@ def chat(
     show_hidden: bool = False,
     tool_allowlist: list[str] | None = None,
     tool_format: ToolFormat | None = None,
+    output_schema: type | None = None,
 ) -> None:
     """
     Run the chat loop.
@@ -143,6 +144,7 @@ def chat(
             model,
             interactive,
             logdir,
+            output_schema,
         )
     except SessionCompleteException as e:
         console.log(f"Autonomous mode: {e}. Exiting.")
@@ -166,6 +168,7 @@ def _run_chat_loop(
     model,
     interactive,
     logdir,
+    output_schema=None,
 ):
     """Main chat loop - extracted to allow clean exception handling."""
 
@@ -185,7 +188,7 @@ def _run_chat_loop(
 
                 # Process the message and get response
                 _process_message_conversation(
-                    manager, stream, confirm_func, tool_format, model
+                    manager, stream, confirm_func, tool_format, model, output_schema
                 )
             else:
                 # Get user input or exit if non-interactive
@@ -209,6 +212,7 @@ def _run_chat_loop(
                             confirm_func,
                             tool_format,
                             model,
+                            output_schema,
                         )
                 else:
                     # Normal case: user provided input
@@ -228,6 +232,7 @@ def _run_chat_loop(
                         confirm_func,
                         tool_format,
                         model,
+                        output_schema,
                     )
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
@@ -265,6 +270,7 @@ def _process_message_conversation(
     confirm_func: ConfirmFunc,
     tool_format: ToolFormat,
     model: str | None,
+    output_schema: type | None = None,
 ) -> None:
     """Process a message and generate responses until no more tools to run."""
 
@@ -288,6 +294,7 @@ def _process_message_conversation(
                     tool_format=tool_format,
                     workspace=manager.workspace,
                     model=model,
+                    output_schema=output_schema,
                 )
             )
         except KeyboardInterrupt:
@@ -442,6 +449,7 @@ def step(
     tool_format: ToolFormat = "markdown",
     workspace: Path | None = None,
     model: str | None = None,
+    output_schema: type | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
     global _recently_interrupted
@@ -465,7 +473,9 @@ def step(
 
         # generate response
         with terminal_state_title("🤔 generating"):
-            msg_response = reply(msgs, get_model(model).full, stream, tools)
+            msg_response = reply(
+                msgs, get_model(model).full, stream, tools, output_schema
+            )
             if get_config().get_env_bool("GPTME_COSTS"):
                 log_costs(msgs + [msg_response])
 
