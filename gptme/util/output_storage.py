@@ -96,16 +96,8 @@ def create_tool_result_summary(
             command_info = line.strip()
             break
 
-    # Detect status from content
-    status = "completed"
-    if any(
-        word in content.lower()
-        for word in ["error", "failed", "exception", "traceback"]
-    ):
-        status = "failed"
-
-    # Create base message with status
-    base_msg = f"[Large tool output removed - {original_tokens} tokens] ({status})"
+    # Create base message without status inference
+    base_msg = f"[Large tool output removed - {original_tokens} tokens]"
 
     if command_info:
         base_msg += f" ({command_info})"

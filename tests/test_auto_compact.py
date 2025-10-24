@@ -108,7 +108,6 @@ def test_create_tool_result_summary():
     # Should contain key information
     assert "1000 tokens" in summary
     assert "Ran command: `ls -la`" in summary
-    assert "completed" in summary.lower()
 
 
 def test_create_tool_result_summary_with_error():
@@ -126,7 +125,6 @@ def test_create_tool_result_summary_with_error():
 
     # Should detect failure
     assert "500 tokens" in summary
-    assert "failed" in summary.lower()
     assert "Ran command: `invalid_command`" in summary
 
 
