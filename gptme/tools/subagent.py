@@ -4,7 +4,6 @@ A subagent tool for gptme
 Lets gptme break down a task into smaller parts, and delegate them to subagents.
 """
 
-import json
 import logging
 import random
 import string
@@ -58,38 +57,69 @@ class Subagent:
     def status(self) -> ReturnType:
         if self.thread.is_alive():
             return ReturnType("running")
-        # check if the last message contains the return JSON
-        msg = self.get_log().log[-1].content.strip()
-        json_response = _extract_json(msg)
-        if not json_response:
-            logger.error(f"Failed to find JSON in message: {msg}")
-            return ReturnType("failure")
-        elif not json_response.strip().startswith("{"):
-            logger.error(f"Failed to parse JSON: {json_response}")
-            return ReturnType("failure")
-        else:
-            return ReturnType(**json.loads(json_response))  # type: ignore
+
+        # Check if executor used the complete tool
+        log = self.get_log().log
+        if not log:
+            return ReturnType("failure", "No messages in log")
+
+        last_msg = log[-1]
+
+        # Check for complete tool call in last message
+        tool_uses = list(ToolUse.iter_from_content(last_msg.content))
+        complete_tool = next((tu for tu in tool_uses if tu.tool == "complete"), None)
+
+        if complete_tool:
+            # Extract content from complete tool
+            result = complete_tool.content or "Task completed"
+            return ReturnType(
+                "success",
+                result + f"\n\nFull log: {self.logdir}",
+            )
+
+        # Check if session ended with system completion message
+        if last_msg.role == "system" and "Task complete" in last_msg.content:
+            return ReturnType(
+                "success",
+                f"Task completed successfully. Full log: {self.logdir}",
+            )
+
+        # Task didn't complete properly
+        return ReturnType(
+            "failure",
+            f"Task did not complete properly. Check log: {self.logdir}",
+        )
 
 
-def _extract_json(s: str) -> str:
-    first_brace = s.find("{")
-    last_brace = s.rfind("}")
-    return s[first_brace : last_brace + 1]
+def _run_planner(
+    agent_id: str,
+    prompt: str,
+    subtasks: list[SubtaskDef],
+    execution_mode: Literal["parallel", "sequential"] = "parallel",
+) -> None:
+    """Run a planner that delegates work to multiple executor subagents.
 
-
-def _run_planner(agent_id: str, prompt: str, subtasks: list[SubtaskDef]) -> None:
-    """Run a planner that delegates work to multiple executor subagents."""
+    Args:
+        agent_id: Identifier for the planner
+        prompt: Context prompt shared with all executors
+        subtasks: List of subtask definitions to execute
+        execution_mode: "parallel" (all at once) or "sequential" (one by one)
+    """
     from gptme import chat
     from gptme.cli import get_logdir
 
     from ..prompts import get_prompt
 
-    logger.info(f"Starting planner {agent_id} with {len(subtasks)} subtasks")
+    logger.info(
+        f"Starting planner {agent_id} with {len(subtasks)} subtasks "
+        f"in {execution_mode} mode"
+    )
 
     def random_string(n):
         s = string.ascii_lowercase + string.digits
         return "".join(random.choice(s) for _ in range(n))
 
+    threads = []
     for subtask in subtasks:
         executor_id = f"{agent_id}-{subtask['id']}"
         executor_prompt = f"Context: {prompt}\n\nSubtask: {subtask['description']}"
@@ -102,10 +132,15 @@ def _run_planner(agent_id: str, prompt: str, subtasks: list[SubtaskDef]) -> None
             initial_msgs = get_prompt(
                 get_tools(), interactive=False, workspace=workspace
             )
-            return_prompt = (
-                'Reply with JSON: {"result": "...", "status": "success|failure"}'
+            complete_prompt = (
+                "When you have finished the task, use the `complete` tool:\n"
+                "```complete\n"
+                "Brief summary of what was accomplished.\n"
+                "```\n\n"
+                "This signals task completion. The full conversation log will be "
+                "available to the planner for review."
             )
-            prompt_msgs.append(Message("user", return_prompt))
+            prompt_msgs.append(Message("user", complete_prompt))
             chat(
                 prompt_msgs,
                 initial_msgs,
@@ -120,9 +155,22 @@ def _run_planner(agent_id: str, prompt: str, subtasks: list[SubtaskDef]) -> None
 
         t = threading.Thread(target=run_executor, daemon=True)
         t.start()
+        threads.append(t)
         _subagents.append(Subagent(executor_id, executor_prompt, t, logdir))
 
-    logger.info(f"Planner {agent_id} spawned {len(subtasks)} executor subagents")
+        # Sequential mode: wait for each task to complete before starting next
+        if execution_mode == "sequential":
+            logger.info(f"Waiting for {executor_id} to complete (sequential mode)")
+            t.join()
+            logger.info(f"Executor {executor_id} completed")
+
+    # Parallel mode: all threads already started
+    if execution_mode == "parallel":
+        logger.info(f"Planner {agent_id} spawned {len(subtasks)} executor subagents")
+    else:
+        logger.info(
+            f"Planner {agent_id} completed {len(subtasks)} subtasks sequentially"
+        )
 
 
 def subagent(
@@ -130,24 +178,31 @@ def subagent(
     prompt: str,
     mode: Literal["executor", "planner"] = "executor",
     subtasks: list[SubtaskDef] | None = None,
+    execution_mode: Literal["parallel", "sequential"] = "parallel",
 ):
-    """Starts an asynchronous subagent. Returns None immediately; output is retrieved later via wait_for().
+    """Starts an asynchronous subagent. Returns None immediately; output is retrieved later via subagent_wait().
 
     Args:
         agent_id: Unique identifier for the subagent
         prompt: Task prompt for the subagent (used as context for planner mode)
         mode: "executor" for single task, "planner" for delegating to multiple executors
         subtasks: List of subtask definitions for planner mode (required when mode="planner")
+        execution_mode: "parallel" (default) runs all subtasks concurrently,
+                       "sequential" runs subtasks one after another.
+                       Only applies to planner mode.
 
     Returns:
-        None: Starts asynchronous execution. Use wait_for() to retrieve output.
+        None: Starts asynchronous execution. Use subagent_wait() to retrieve output.
             In executor mode, starts a single task execution.
-            In planner mode, starts execution of all subtasks.
+            In planner mode, starts execution of all subtasks using the specified execution_mode.
+
+            Executors use the `complete` tool to signal completion with a summary.
+            The full conversation log is available at the logdir path.
     """
     if mode == "planner":
         if not subtasks:
             raise ValueError("Planner mode requires subtasks parameter")
-        return _run_planner(agent_id, prompt, subtasks)
+        return _run_planner(agent_id, prompt, subtasks, execution_mode)
 
     # noreorder
     from gptme import chat  # fmt: skip

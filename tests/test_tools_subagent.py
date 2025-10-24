@@ -1,33 +1,6 @@
-import json
-
 import pytest
 
-from gptme.tools.subagent import SubtaskDef, _extract_json, _subagents, subagent
-
-
-def test_extract_json_block():
-    s = """
-Here is a result:
-```json
-{ "status": "ok" }
-```
-"""
-    assert _extract_json(s) == '{ "status": "ok" }'
-
-
-def test_extract_json_raw():
-    s = """
-{
-  "result": "The 49th Fibonacci number is 7778742049.",
-  "status": "success"
-}
-"""
-    assert json.loads(_extract_json(s)) == json.loads(s)
-
-
-def test_extract_json_empty():
-    s = ""
-    assert _extract_json(s) == ""
+from gptme.tools.subagent import SubtaskDef, _subagents, subagent
 
 
 def test_planner_mode_requires_subtasks():
@@ -93,3 +66,76 @@ def test_executor_mode_still_works():
     executor = _subagents[-1]
     assert executor.agent_id == "test-executor"
     assert executor.prompt == "Simple task"
+
+
+def test_planner_parallel_mode():
+    """Test that parallel mode spawns all executors at once."""
+    initial_count = len(_subagents)
+
+    subtasks: list[SubtaskDef] = [
+        {"id": "task1", "description": "First parallel task"},
+        {"id": "task2", "description": "Second parallel task"},
+        {"id": "task3", "description": "Third parallel task"},
+    ]
+
+    subagent(
+        agent_id="test-parallel",
+        prompt="Parallel execution test",
+        mode="planner",
+        subtasks=subtasks,
+        execution_mode="parallel",
+    )
+
+    # All 3 executors should be spawned
+    assert len(_subagents) == initial_count + 3
+
+    # Check all have correct ID prefix
+    executor_ids = [s.agent_id for s in _subagents[-3:]]
+    assert all(eid.startswith("test-parallel-") for eid in executor_ids)
+
+
+def test_planner_sequential_mode():
+    """Test that sequential mode spawns executors one by one."""
+    initial_count = len(_subagents)
+
+    subtasks: list[SubtaskDef] = [
+        {"id": "seq1", "description": "First sequential task"},
+        {"id": "seq2", "description": "Second sequential task"},
+    ]
+
+    # Note: In real usage, threads would complete. In tests, they may still be running.
+    subagent(
+        agent_id="test-sequential",
+        prompt="Sequential execution test",
+        mode="planner",
+        subtasks=subtasks,
+        execution_mode="sequential",
+    )
+
+    # Should spawn 2 executors
+    assert len(_subagents) == initial_count + 2
+
+    # Check IDs are correctly formed
+    executor_ids = [s.agent_id for s in _subagents[-2:]]
+    assert "test-sequential-seq1" in executor_ids
+    assert "test-sequential-seq2" in executor_ids
+
+
+def test_planner_default_is_parallel():
+    """Test that default execution mode is parallel."""
+    initial_count = len(_subagents)
+
+    subtasks: list[SubtaskDef] = [
+        {"id": "default1", "description": "Default mode test"}
+    ]
+
+    # Don't specify execution_mode, should default to parallel
+    subagent(
+        agent_id="test-default",
+        prompt="Default mode test",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    # Should spawn 1 executor (parallel is default)
+    assert len(_subagents) == initial_count + 1
