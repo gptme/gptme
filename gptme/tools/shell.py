@@ -871,7 +871,8 @@ def execute_shell(
 
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
-        yield from execute_shell_impl(cmd, None, lambda _: True, timeout=timeout)
+        logdir = get_path_fn()
+        yield from execute_shell_impl(cmd, logdir, lambda _: True, timeout=timeout)
     else:
         # Create a wrapper function that passes timeout to execute_shell_impl
         def execute_fn(
@@ -964,10 +965,12 @@ def _shorten_stdout(
 
     # check that if pre_lines is set, so is post_lines, and vice versa
     assert (pre_lines is None) == (post_lines is None)
+    # Skip line truncation if token truncation will happen (token truncation is more precise)
     if (
         pre_lines is not None
         and post_lines is not None
         and len(lines) > pre_lines + post_lines
+        and not will_truncate_by_tokens
     ):
         truncation_msg = f"... ({len(lines) - pre_lines - post_lines} lines truncated"
         if saved_path:
