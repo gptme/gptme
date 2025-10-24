@@ -179,6 +179,8 @@ def subagent(
     mode: Literal["executor", "planner"] = "executor",
     subtasks: list[SubtaskDef] | None = None,
     execution_mode: Literal["parallel", "sequential"] = "parallel",
+    context_mode: Literal["full", "instructions-only", "selective"] = "full",
+    context_include: list[str] | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately; output is retrieved later via subagent_wait().
 
@@ -190,6 +192,14 @@ def subagent(
         execution_mode: "parallel" (default) runs all subtasks concurrently,
                        "sequential" runs subtasks one after another.
                        Only applies to planner mode.
+        context_mode: Controls what context is shared with the subagent:
+            - "full" (default): Share complete context (agent identity, tools, workspace)
+            - "instructions-only": Minimal context, only the user prompt
+            - "selective": Share only specified context components (requires context_include)
+        context_include: For selective mode, list of context components to include:
+            - "agent": Agent identity and capabilities
+            - "tools": Tool descriptions and usage
+            - "workspace": Workspace files and structure
 
     Returns:
         None: Starts asynchronous execution. Use subagent_wait() to retrieve output.
@@ -220,7 +230,51 @@ def subagent(
     def run_subagent():
         prompt_msgs = [Message("user", prompt)]
         workspace = Path.cwd()
-        initial_msgs = get_prompt(get_tools(), interactive=False, workspace=workspace)
+
+        # Build initial messages based on context_mode
+        if context_mode == "instructions-only":
+            # Minimal system context - just basic instruction
+            initial_msgs = [
+                Message(
+                    "system",
+                    "You are a helpful AI assistant. Complete the task described by the user. Use the `complete` tool when finished with a summary of your work.",
+                )
+            ]
+            # Add complete tool for instructions-only mode
+            from ..prompts import prompt_tools
+
+            initial_msgs.extend(
+                list(
+                    prompt_tools(
+                        tools=[t for t in get_tools() if t.name == "complete"],
+                        tool_format="markdown",
+                    )
+                )
+            )
+        elif context_mode == "selective":
+            # Selective context - build from specified components
+            if not context_include:
+                raise ValueError(
+                    "context_include parameter required when context_mode='selective'"
+                )
+
+            from ..prompts import prompt_gptme, prompt_tools
+
+            initial_msgs = []
+
+            # Add components based on context_include
+            if "agent" in context_include:
+                initial_msgs.extend(list(prompt_gptme(False, None, agent_name=None)))
+            if "tools" in context_include:
+                initial_msgs.extend(
+                    list(prompt_tools(tools=get_tools(), tool_format="markdown"))
+                )
+            # workspace handled by passing workspace parameter to chat() if included
+        else:  # "full" mode (default)
+            # Current behavior - full context
+            initial_msgs = get_prompt(
+                get_tools(), interactive=False, workspace=workspace
+            )
 
         # add the return prompt
         return_prompt = """Thank you for doing the task, please reply with a JSON codeblock on the format:
@@ -233,6 +287,8 @@ def subagent(
 ```"""
         prompt_msgs.append(Message("user", return_prompt))
 
+        # Note: workspace parameter is always passed to chat() (required parameter)
+        # Workspace context in messages is controlled by initial_msgs
         chat(
             prompt_msgs,
             initial_msgs,
@@ -303,6 +359,23 @@ Assistant: Now I'll wait for both subtasks to complete.
 System: {{"status": "success", "result": "Implementation complete in feature_x.py"}}.
 {ToolUse("ipython", [], 'subagent_wait("feature-planner-test")').to_output(tool_format)}
 System: {{"status": "success", "result": "Tests complete in test_feature_x.py, all passing"}}.
+
+### Context Modes
+
+#### Full Context (default)
+User: analyze this codebase
+Assistant: I'll use full context mode for comprehensive analysis.
+{ToolUse("ipython", [], 'subagent("analyze", "Analyze code quality and suggest improvements", context_mode="full")').to_output(tool_format)}
+
+#### Instructions-Only Mode (minimal context)
+User: compute the sum of 1 to 100
+Assistant: For a simple computation, I'll use instructions-only mode with minimal context.
+{ToolUse("ipython", [], 'subagent("sum", "Compute sum of integers from 1 to 100", context_mode="instructions-only")').to_output(tool_format)}
+
+#### Selective Context (choose specific components)
+User: write tests using pytest
+Assistant: I'll use selective mode to share only tool descriptions, not workspace files.
+{ToolUse("ipython", [], 'subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["tools"])').to_output(tool_format)}
 """.strip()
 
 
