@@ -139,3 +139,126 @@ def test_planner_default_is_parallel():
 
     # Should spawn 1 executor (parallel is default)
     assert len(_subagents) == initial_count + 1
+
+
+def test_context_mode_default_is_full():
+    """Test that default context_mode is 'full'."""
+    initial_count = len(_subagents)
+
+    subagent(agent_id="test-full", prompt="Test with full context")
+
+    # Should spawn 1 executor with full context
+    assert len(_subagents) == initial_count + 1
+
+
+def test_context_mode_instructions_only():
+    """Test that instructions-only mode works with minimal context."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="test-instructions-only",
+        prompt="Simple computation task",
+        context_mode="instructions-only",
+    )
+
+    # Should spawn 1 executor
+    assert len(_subagents) == initial_count + 1
+
+    executor = _subagents[-1]
+    assert executor.agent_id == "test-instructions-only"
+    assert executor.prompt == "Simple computation task"
+
+
+def test_context_mode_selective_requires_context_include():
+    """Test that selective mode requires context_include parameter."""
+    with pytest.raises(ValueError, match="context_include parameter required"):
+        subagent(
+            agent_id="test-selective-error",
+            prompt="Test task",
+            context_mode="selective",
+        )
+
+
+def test_context_mode_selective_with_tools():
+    """Test selective mode with tools context."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="test-selective-tools",
+        prompt="Use tools to complete task",
+        context_mode="selective",
+        context_include=["tools"],
+    )
+
+    # Should spawn 1 executor
+    assert len(_subagents) == initial_count + 1
+
+    executor = _subagents[-1]
+    assert executor.agent_id == "test-selective-tools"
+
+
+def test_context_mode_selective_with_agent():
+    """Test selective mode with agent context."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="test-selective-agent",
+        prompt="Task requiring agent identity",
+        context_mode="selective",
+        context_include=["agent"],
+    )
+
+    # Should spawn 1 executor
+    assert len(_subagents) == initial_count + 1
+
+
+def test_context_mode_selective_with_workspace():
+    """Test selective mode with workspace context."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="test-selective-workspace",
+        prompt="Task requiring workspace files",
+        context_mode="selective",
+        context_include=["workspace"],
+    )
+
+    # Should spawn 1 executor
+    assert len(_subagents) == initial_count + 1
+
+
+def test_context_mode_selective_multiple_components():
+    """Test selective mode with multiple context components."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="test-selective-multiple",
+        prompt="Complex task needing multiple contexts",
+        context_mode="selective",
+        context_include=["agent", "tools", "workspace"],
+    )
+
+    # Should spawn 1 executor
+    assert len(_subagents) == initial_count + 1
+
+
+def test_planner_mode_with_context_modes():
+    """Test that planner mode works with context modes."""
+    initial_count = len(_subagents)
+
+    subtasks: list[SubtaskDef] = [
+        {"id": "task1", "description": "Simple computation"},
+        {"id": "task2", "description": "Complex analysis"},
+    ]
+
+    # Planner with instructions-only context
+    subagent(
+        agent_id="test-planner-context",
+        prompt="Overall task context",
+        mode="planner",
+        subtasks=subtasks,
+        context_mode="instructions-only",
+    )
+
+    # Should spawn 2 executors
+    assert len(_subagents) == initial_count + 2
