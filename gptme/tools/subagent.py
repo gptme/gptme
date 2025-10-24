@@ -48,6 +48,7 @@ class Subagent:
     thread: threading.Thread
     logdir: Path
     model: str | None
+    output_schema: type | None = None
 
     def get_log(self) -> "LogManager":
         # noreorder
@@ -116,6 +117,7 @@ def _create_subagent_thread(
     context_include: list[str] | None,
     workspace: Path,
     target: str = "parent",
+    output_schema: type | None = None,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -206,6 +208,7 @@ def _create_subagent_thread(
         interactive=False,
         show_hidden=False,
         tool_format="markdown",
+        output_schema=output_schema,
     )
 
 
@@ -285,6 +288,7 @@ def subagent(
     execution_mode: Literal["parallel", "sequential"] = "parallel",
     context_mode: Literal["full", "instructions-only", "selective"] = "full",
     context_include: list[str] | None = None,
+    output_schema: type | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately; output is retrieved later via subagent_wait().
 
@@ -356,6 +360,7 @@ def subagent(
             context_include=context_include,
             workspace=Path.cwd(),
             target="parent",
+            output_schema=output_schema,
         )
 
     # start a thread with a subagent
@@ -364,7 +369,7 @@ def subagent(
         daemon=True,
     )
     t.start()
-    _subagents.append(Subagent(agent_id, prompt, t, logdir, model_name))
+    _subagents.append(Subagent(agent_id, prompt, t, logdir, model_name, output_schema))
 
 
 def subagent_status(agent_id: str) -> dict:
