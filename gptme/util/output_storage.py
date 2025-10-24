@@ -105,7 +105,7 @@ def create_tool_result_summary(
         status = "failed"
 
     # Create base message
-    base_msg = f"[Large tool output removed - {original_tokens} tokens]: Tool execution {status}"
+    base_msg = f"[Large tool output removed - {original_tokens} tokens]"
 
     if command_info:
         base_msg += f" ({command_info})"
