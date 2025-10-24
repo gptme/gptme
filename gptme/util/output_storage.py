@@ -44,13 +44,8 @@ def save_large_output(
     saved_path = output_dir / filename
 
     # Save content to file
-    try:
-        saved_path.write_text(content)
-        logger.info(f"Saved large output to {saved_path}")
-    except Exception as e:
-        logger.error(f"Failed to save large output: {e}")
-        # Return empty summary and path even if save failed
-        return ("", saved_path)
+    saved_path.write_text(content)
+    logger.info(f"Saved large output to {saved_path}")
 
     # Create summary text
     summary_parts = [f"[Large {output_type} output saved]"]
