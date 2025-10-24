@@ -63,6 +63,32 @@ def _record_usage(usage, model: str) -> None:
 ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif"]
 
 
+def _make_response_format(output_schema):
+    """Convert a Pydantic schema to OpenAI response_format.
+
+    Args:
+        output_schema: Optional Pydantic BaseModel class
+
+    Returns:
+        OpenAI response_format dict or NOT_GIVEN if no schema
+    """
+    from openai import NOT_GIVEN
+
+    if output_schema is None:
+        return NOT_GIVEN
+
+    # Get the JSON schema from Pydantic model
+    json_schema = output_schema.model_json_schema()
+
+    # Extract schema name from model
+    schema_name = output_schema.__name__
+
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": schema_name, "schema": json_schema, "strict": True},
+    }
+
+
 def init(provider: Provider, config: Config):
     """Initialize OpenAI client for a given provider."""
     from openai import AzureOpenAI, OpenAI  # fmt: skip
@@ -204,7 +230,12 @@ def _is_proxy(client: "OpenAI") -> bool:
     return str(client.base_url).rstrip("/") == proxy_url.rstrip("/")
 
 
-def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> str:
+def chat(
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema=None,
+) -> str:
     # This will generate code and such, so we need appropriate temperature and top_p params
     # top_p controls diversity, temperature controls randomness
 
@@ -226,6 +257,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
     from openai.types.chat import ChatCompletionMessageToolCall  # fmt: skip
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
+    response_format = _make_response_format(output_schema)
 
     response = client.chat.completions.create(
         model=api_model,
@@ -233,6 +265,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
         temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
         top_p=TOP_P if not is_reasoner else NOT_GIVEN,
         tools=tools_dict if tools_dict else NOT_GIVEN,
+        response_format=response_format,
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),
     )
@@ -286,7 +319,10 @@ def extra_body(provider: Provider, model_meta: ModelMeta) -> dict[str, Any]:
 
 
 def stream(
-    messages: list[Message], model: str, tools: list[ToolSpec] | None
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema=None,
 ) -> Generator[str, None, None]:
     from . import _get_base_model, get_provider_from_model  # fmt: skip
     from .models import get_model  # fmt: skip
@@ -305,6 +341,8 @@ def stream(
     from openai import NOT_GIVEN  # fmt: skip
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
+    response_format = _make_response_format(output_schema)
+    response_format = _make_response_format(output_schema)
     in_reasoning_block = False
     stop_reason = None
 
@@ -315,6 +353,7 @@ def stream(
         top_p=TOP_P if not is_reasoner else NOT_GIVEN,
         stream=True,
         tools=tools_dict if tools_dict else NOT_GIVEN,
+        response_format=response_format,
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),
         stream_options={"include_usage": True},
@@ -632,7 +671,10 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
 
 
 def _prepare_messages_for_api(
-    messages: list[Message], model: str, tools: list[ToolSpec] | None
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema=None,
 ) -> tuple[Iterable[dict], Iterable["ChatCompletionToolParam"] | None]:
     from .models import get_model  # fmt: skip
 
