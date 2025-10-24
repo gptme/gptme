@@ -39,6 +39,93 @@ _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
 
 
+def _make_output_schema_tool(output_schema):
+    """Convert a Pydantic schema to Anthropic tool definition.
+
+    This implements the tool call workaround for constrained decoding,
+    since Anthropic doesn't support native JSON schema enforcement.
+
+    Args:
+        output_schema: Optional Pydantic BaseModel class
+
+    Returns:
+        Tool definition dict or None if no schema
+    """
+    if output_schema is None:
+        return None
+
+    # Get the JSON schema from Pydantic model
+    json_schema = output_schema.model_json_schema()
+
+    # Extract schema name and description
+    schema_name = output_schema.__name__
+    schema_description = json_schema.get(
+        "description", f"Returns structured output matching {schema_name} schema"
+    )
+
+    # Convert to Anthropic tool format
+    # Anthropic tools have: name, description, input_schema
+    tool_def = {
+        "name": f"return_{schema_name.lower()}",
+        "description": schema_description,
+        "input_schema": json_schema,
+    }
+
+    return tool_def
+
+
+def _inject_schema_instruction(messages, schema_name):
+    """Inject instruction to use schema tool in the last user message.
+
+    Args:
+        messages: List of message dicts
+        schema_name: Name of the schema to use
+
+    Returns:
+        Modified messages list
+    """
+    if not messages:
+        return messages
+
+    # Find last user message
+    last_user_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i]["role"] == "user":
+            last_user_idx = i
+            break
+
+    if last_user_idx is None:
+        return messages
+
+    # Inject instruction in the content
+    instruction = f"\n\nIMPORTANT: Return your response using the `return_{schema_name.lower()}` tool to ensure proper formatting."
+
+    last_msg = messages[last_user_idx]
+    if isinstance(last_msg["content"], str):
+        last_msg["content"] = last_msg["content"] + instruction
+    elif isinstance(last_msg["content"], list):
+        # If content is a list, append as text block
+        last_msg["content"].append({"type": "text", "text": instruction})
+
+    return messages
+
+
+def _extract_schema_result(content_blocks):
+    """Extract structured result from tool call response.
+
+    Args:
+        content_blocks: Response content blocks from Anthropic
+
+    Returns:
+        Extracted tool call result or None
+    """
+    for block in content_blocks:
+        if block.type == "tool_use" and block.name.startswith("return_"):
+            # Return the tool input as the structured result
+            return block.input
+    return None
+
+
 def _record_usage(
     usage: Union["anthropic.types.Usage", "anthropic.types.MessageDeltaUsage"],
     model: str,
@@ -211,13 +298,44 @@ class CacheControl(TypedDict):
 
 
 @retry_on_overloaded()
-def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> str:
+def chat(
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema=None,
+) -> str:
     from anthropic import NOT_GIVEN  # fmt: skip
 
     assert _anthropic, "LLM not initialized"
+
+    # Handle output_schema via tool call workaround
+    if output_schema is not None:
+        # Convert schema to tool definition
+        schema_tool = _make_output_schema_tool(output_schema)
+        if schema_tool:
+            # Add schema tool to tools list
+            schema_tool_spec = ToolSpec(
+                name=schema_tool["name"],
+                desc=schema_tool["description"],
+                instructions="",
+                parameters=[],
+            )
+            tools = (tools or []) + [schema_tool_spec]
+
+            # Inject instruction to use schema tool
+            # This needs to happen before _prepare_messages_for_api
+            # We'll modify messages before preparing
+            schema_name = output_schema.__name__
+    else:
+        schema_name = None
+
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
     )
+
+    # Inject schema instruction if output_schema provided
+    if schema_name:
+        messages_dicts = _inject_schema_instruction(messages_dicts, schema_name)
     api_model = f"anthropic/{model}" if _is_proxy else model
 
     model_meta = get_model(f"anthropic/{model}")
@@ -261,15 +379,42 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
 
 @retry_generator_on_overloaded()
 def stream(
-    messages: list[Message], model: str, tools: list[ToolSpec] | None
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema=None,
 ) -> Generator[str, None, None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
 
     assert _anthropic, "LLM not initialized"
+
+    # Handle output_schema via tool call workaround
+    if output_schema is not None:
+        # Convert schema to tool definition
+        schema_tool = _make_output_schema_tool(output_schema)
+        if schema_tool:
+            # Add schema tool to tools list
+            schema_tool_spec = ToolSpec(
+                name=schema_tool["name"],
+                desc=schema_tool["description"],
+                instructions="",
+                parameters=[],
+            )
+            tools = (tools or []) + [schema_tool_spec]
+
+            # Store schema name for instruction injection
+            schema_name = output_schema.__name__
+    else:
+        schema_name = None
+
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
     )
+
+    # Inject schema instruction if output_schema provided
+    if schema_name:
+        messages_dicts = _inject_schema_instruction(messages_dicts, schema_name)
     api_model = f"anthropic/{model}" if _is_proxy else model
 
     model_meta = get_model(f"anthropic/{model}")
