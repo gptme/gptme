@@ -1,0 +1,5 @@
+Model,Test,Case,Passed,Duration
+,,clean exit,true,0.0
+,,clean working tree,true,0.0
+,,main.py exists,true,0.0
+,,we have a commit,true,0.0
