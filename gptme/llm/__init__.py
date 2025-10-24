@@ -58,6 +58,7 @@ def reply(
     stream: bool = False,
     tools: list[ToolSpec] | None = None,
     workspace: Path | None = None,
+    output_schema: type | None = None,
 ) -> Message:
     # Trigger GENERATION_PRE hooks and collect context messages
     from ..hooks import HookType, trigger_hook
@@ -79,11 +80,18 @@ def reply(
     if stream:
         break_on_tooluse = bool(config.get_env_bool("GPTME_BREAK_ON_TOOLUSE", True))
         return _reply_stream(
-            generation_msgs, model, tools, break_on_tooluse, agent_name=agent_name
+            generation_msgs,
+            model,
+            tools,
+            break_on_tooluse,
+            agent_name=agent_name,
+            output_schema=output_schema,
         )
     else:
         rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
-        response = _chat_complete(generation_msgs, model, tools)
+        response = _chat_complete(
+            generation_msgs, model, tools, output_schema=output_schema
+        )
         rprint(" " * shutil.get_terminal_size().columns, end="\r")
         rprint(f"{prompt_assistant(agent_name)}: {response}")
         return Message("assistant", response)
@@ -108,9 +116,63 @@ def _get_base_model(model: str) -> str:
 
 @trace_function(name="llm.chat_complete", attributes={"component": "llm"})
 def _chat_complete(
-    messages: list[Message], model: str, tools: list[ToolSpec] | None
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema: type | None = None,
+    max_retries: int = 3,
 ) -> str:
+    from pydantic import BaseModel, ValidationError
+
     provider = get_provider_from_model(model)
+
+    # Providers with native constrained decoding support
+    if provider in PROVIDERS_OPENAI:
+        return chat_openai(messages, model, tools, output_schema=output_schema)
+    elif provider == "anthropic":
+        return chat_anthropic(
+            messages, _get_base_model(model), tools, output_schema=output_schema
+        )
+
+    # Validation-only fallback for unsupported providers
+    if output_schema is not None:
+        logger = logging.getLogger(__name__)
+        for attempt in range(max_retries):
+            # Generate without constraints
+            if provider in PROVIDERS_OPENAI:
+                response = chat_openai(messages, model, tools)
+            elif provider == "anthropic":
+                response = chat_anthropic(messages, _get_base_model(model), tools)
+            else:
+                raise ValueError(f"Unsupported provider: {provider}")
+
+            # Validate response
+            try:
+                if isinstance(output_schema, type) and issubclass(
+                    output_schema, BaseModel
+                ):
+                    output_schema.model_validate_json(response)
+                return response  # Validation succeeded
+            except ValidationError as e:
+                if attempt < max_retries - 1:
+                    # Add validation error to context for retry
+                    messages = messages + [
+                        Message(
+                            "user",
+                            f"Validation error: {e}. Please ensure your response follows the required schema and try again.",
+                        )
+                    ]
+                    logger.warning(
+                        f"Validation attempt {attempt + 1}/{max_retries} failed: {e}"
+                    )
+                else:
+                    # Out of retries, return response anyway with warning
+                    logger.warning(
+                        f"Failed to validate response after {max_retries} attempts: {e}"
+                    )
+                    return response
+
+    # No schema requested, generate normally
     if provider in PROVIDERS_OPENAI:
         return chat_openai(messages, model, tools)
     elif provider == "anthropic":
@@ -121,14 +183,26 @@ def _chat_complete(
 
 @trace_function(name="llm.stream", attributes={"component": "llm"})
 def _stream(
-    messages: list[Message], model: str, tools: list[ToolSpec] | None
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema: type | None = None,
 ) -> Iterator[str]:
     provider = get_provider_from_model(model)
     if provider in PROVIDERS_OPENAI:
-        return stream_openai(messages, model, tools)
+        return stream_openai(messages, model, tools, output_schema=output_schema)
     elif provider == "anthropic":
-        return stream_anthropic(messages, _get_base_model(model), tools)
+        return stream_anthropic(
+            messages, _get_base_model(model), tools, output_schema=output_schema
+        )
     else:
+        # Note: Validation-only fallback for streaming is complex
+        # For now, unsupported providers don't support output_schema in streaming mode
+        if output_schema is not None:
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Provider {provider} does not support output_schema in streaming mode"
+            )
         raise ValueError(f"Unsupported provider: {provider}")
 
 
@@ -139,6 +213,7 @@ def _reply_stream(
     tools: list[ToolSpec] | None,
     break_on_tooluse: bool = True,
     agent_name: str | None = None,
+    output_schema: type | None = None,
 ) -> Message:
     rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
 
@@ -152,7 +227,9 @@ def _reply_stream(
     are_thinking = False
     try:
         for char in (
-            char for chunk in _stream(messages, model, tools) for char in chunk
+            char
+            for chunk in _stream(messages, model, tools, output_schema=output_schema)
+            for char in chunk
         ):
             if not output:  # first character
                 first_token_time = time.time()
