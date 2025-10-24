@@ -359,7 +359,6 @@ def stream(
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     response_format = _make_response_format(output_schema)
-    response_format = _make_response_format(output_schema)
     in_reasoning_block = False
     stop_reason = None
 
@@ -691,7 +690,6 @@ def _prepare_messages_for_api(
     messages: list[Message],
     model: str,
     tools: list[ToolSpec] | None,
-    output_schema=None,
 ) -> tuple[Iterable[dict], Iterable["ChatCompletionToolParam"] | None]:
     from .models import get_model  # fmt: skip
 
