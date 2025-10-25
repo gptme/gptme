@@ -13,6 +13,7 @@ from typing import (
 )
 
 from httpx import RemoteProtocolError
+from pydantic import BaseModel  # fmt: skip
 
 from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, msgs2dicts
@@ -211,13 +212,54 @@ class CacheControl(TypedDict):
 
 
 @retry_on_overloaded()
-def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> str:
+def _make_schema_tool(
+    output_schema: "type[BaseModel]" | None,
+) -> dict | None:
+    """Convert Pydantic BaseModel to Anthropic tool definition for constrained output."""
+    if output_schema is None:
+        return None
+
+    # Extract JSON schema from Pydantic model
+    json_schema = output_schema.model_json_schema()
+    schema_name = output_schema.__name__
+
+    # Convert to Anthropic tool definition
+    return {
+        "name": f"return_{schema_name.lower()}",
+        "description": f"Return structured output conforming to {schema_name} schema",
+        "input_schema": json_schema,
+    }
+
+
+def chat(
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema=None,
+) -> str:
     from anthropic import NOT_GIVEN  # fmt: skip
 
     assert _anthropic, "LLM not initialized"
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
     )
+
+    # Add schema tool for constrained output
+    schema_tool = _make_schema_tool(output_schema)
+    if schema_tool:
+        # Add schema tool to tools
+        if tools_dict:
+            tools_dict.append(schema_tool)
+        else:
+            tools_dict = [schema_tool]
+
+        # Inject instruction in system messages
+        schema_instruction = f"Use the {schema_tool["name"]} tool to return your response in the required format."
+        if system_messages:
+            system_messages.append({"type": "text", "text": schema_instruction})
+        else:
+            system_messages = [{"type": "text", "text": schema_instruction}]
+
     api_model = f"anthropic/{model}" if _is_proxy else model
 
     model_meta = get_model(f"anthropic/{model}")
@@ -261,7 +303,10 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
 
 @retry_generator_on_overloaded()
 def stream(
-    messages: list[Message], model: str, tools: list[ToolSpec] | None
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema=None,
 ) -> Generator[str, None, None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
@@ -270,6 +315,23 @@ def stream(
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
     )
+
+    # Add schema tool for constrained output
+    schema_tool = _make_schema_tool(output_schema)
+    if schema_tool:
+        # Add schema tool to tools
+        if tools_dict:
+            tools_dict.append(schema_tool)
+        else:
+            tools_dict = [schema_tool]
+
+        # Inject instruction in system messages
+        schema_instruction = f"Use the {schema_tool["name"]} tool to return your response in the required format."
+        if system_messages:
+            system_messages.append({"type": "text", "text": schema_instruction})
+        else:
+            system_messages = [{"type": "text", "text": schema_instruction}]
+
     api_model = f"anthropic/{model}" if _is_proxy else model
 
     model_meta = get_model(f"anthropic/{model}")
