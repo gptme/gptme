@@ -29,6 +29,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    usage
    examples
    tools
+   lessons
    config
    providers
    agents
