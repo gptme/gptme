@@ -59,8 +59,11 @@ class LessonIndex:
         cursorrules_file = Path.cwd() / ".cursorrules"
         if cursorrules_file.exists():
             logger.info(
-                "Found .cursorrules file. Convert to lessons format using: "
-                "gptme-contrib/cursorrules/cursorrules_parser.py to-lesson .cursorrules"
+                "Found .cursorrules file in project root.\n"
+                "To use with gptme, convert to lesson format:\n"
+                "  cd gptme-contrib/cursorrules\n"
+                "  python3 cursorrules_parser.py to-lesson /path/to/.cursorrules .gptme/lessons/project-rules.md\n"
+                "See docs/lessons.rst for more information."
             )
 
         # Configured directories from gptme.toml
