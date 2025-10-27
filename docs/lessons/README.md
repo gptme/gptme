@@ -147,7 +147,6 @@ Converts to gptme lesson format:
 ---
 match:
   keywords: [typescript, react, component]
-  file_patterns: ["*.tsx"]
 ---
 
 # TypeScript React Best Practices
@@ -197,10 +196,6 @@ head .gptme/lessons/project-rules.md
 # Check logs for "Indexed n lessons" message
 gptme --verbose
 ```
-
-**Issue**: File patterns not matching
-- Ensure `file_patterns` in YAML frontmatter matches your file types
-- Use glob patterns: `["*.tsx", "*.ts"]`, `["src/**/*.py"]`
 
 ### Further Resources
 

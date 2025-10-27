@@ -63,7 +63,7 @@ class LessonIndex:
                 "To use with gptme, convert to lesson format:\n"
                 "  cd gptme-contrib/cursorrules\n"
                 "  python3 cursorrules_parser.py to-lesson /path/to/.cursorrules .gptme/lessons/project-rules.md\n"
-                "See docs/lessons.rst for more information."
+                "See docs/lessons/README.md for more information."
             )
 
         # Configured directories from gptme.toml
