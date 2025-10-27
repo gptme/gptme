@@ -28,6 +28,7 @@ from ..llm.models import get_default_model
 from ..logmanager import LogManager, get_user_conversations, prepare_messages
 from ..message import Message
 from ..tools import ToolUse, execute_msg, init_tools
+from .auth import require_auth
 from .openapi_docs import (
     ConversationCreateRequest,
     ConversationListResponse,
@@ -69,6 +70,7 @@ def api_root():
     ],
     tags=["conversation"],
 )
+@require_auth
 def api_conversations():
     """List conversations.
 
@@ -91,6 +93,7 @@ def _abs_to_rel_workspace(path: str | Path, workspace: Path) -> str:
 @api_doc_simple(
     responses={200: ConversationResponse, 404: ErrorResponse, 403: ErrorResponse}
 )
+@require_auth
 def api_conversation(logfile: str):
     """Get conversation.
 
@@ -112,6 +115,7 @@ def api_conversation(logfile: str):
 @api_doc_simple(
     responses={200: None, 403: ErrorResponse, 404: ErrorResponse},
 )
+@require_auth
 def api_conversation_file(logfile: str, filename: str):
     """Get conversation file.
 
@@ -144,6 +148,7 @@ def api_conversation_file(logfile: str, filename: str):
     responses={200: StatusResponse, 400: ErrorResponse, 409: ErrorResponse},
     request_body=ConversationCreateRequest,
 )
+@require_auth
 def api_conversation_put(logfile: str):
     """Create conversation.
 
@@ -214,6 +219,7 @@ def api_conversation_put(logfile: str):
     request_body=MessageCreateRequest,
     responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
 )
+@require_auth
 def api_conversation_post(logfile: str):
     """Add message to conversation.
 
@@ -246,6 +252,7 @@ def confirm_func(msg: str) -> bool:
     request_body=GenerateRequest,
     responses={200: GenerateResponse, 400: ErrorResponse, 500: ErrorResponse},
 )
+@require_auth
 def api_conversation_generate(logfile: str):
     """Generate response.
 
