@@ -4,6 +4,34 @@ const hljs = globalThis.hljs;
 
 const apiRoot = "/api/conversations";
 
+// Authentication wrapper for fetch
+function authFetch(url, options = {}) {
+  const token = sessionStorage.getItem('gptme_auth_token');
+  if (!token) {
+    throw new Error('No authentication token');
+  }
+
+  options.headers = {
+    ...options.headers,
+    'Authorization': `Bearer ${token}`
+  };
+
+  return fetch(url, options).then(response => {
+    if (response.status === 401 || response.status === 403) {
+      // Clear invalid token
+      sessionStorage.removeItem('gptme_auth_token');
+      // Show auth modal via Vue instance
+      if (window.vueApp) {
+        window.vueApp.showAuthModal = true;
+        window.vueApp.authError = 'Authentication failed. Please re-enter your token.';
+        window.vueApp.authToken = null;
+      }
+      throw new Error('Authentication failed');
+    }
+    return response;
+  });
+}
+
 const marked = new Marked(
   markedHighlight({
     langPrefix: "hljs language-",
@@ -45,8 +73,41 @@ new Vue({
 
     // Conversations limit
     conversationsLimit: 20,
+
+    // Authentication
+    authToken: null,
+    authTokenInput: "",
+    showAuthModal: false,
+    showToken: false,
+    authError: "",
+    connecting: false,
   },
   async mounted() {
+    // Store Vue instance reference for authFetch
+    window.vueApp = this;
+
+    // Check for existing token
+    const savedToken = sessionStorage.getItem('gptme_auth_token');
+    if (savedToken) {
+      this.authToken = savedToken;
+      try {
+        // Verify token works by checking auth
+        await this.checkAuth();
+      } catch (error) {
+        // Token invalid, show modal
+        this.showAuthModal = true;
+        this.authError = 'Saved token is invalid. Please re-enter.';
+        return;
+      }
+    } else {
+      // No token, show modal immediately
+      this.showAuthModal = true;
+      // Remove loader and show app so modal is visible
+      document.getElementById("app").classList.remove("hidden");
+      document.getElementById("loader").classList.add("hidden");
+      return;
+    }
+
     // Check for embedded data first
     if (window.CHAT_DATA) {
       this.conversations = [
@@ -137,8 +198,56 @@ new Vue({
     },
   },
   methods: {
+    // Authentication methods
+    async checkAuth() {
+      // Verify token by making a simple API call
+      await authFetch(`${apiRoot}?limit=1`);
+    },
+    async connectWithToken() {
+      if (!this.authTokenInput.trim()) {
+        this.authError = 'Please enter a token';
+        return;
+      }
+
+      this.connecting = true;
+      this.authError = '';
+
+      // Save token temporarily
+      sessionStorage.setItem('gptme_auth_token', this.authTokenInput.trim());
+      this.authToken = this.authTokenInput.trim();
+
+      try {
+        // Verify token works
+        await this.checkAuth();
+
+        // Success! Close modal and load conversations
+        this.showAuthModal = false;
+        this.authTokenInput = '';
+
+        // Load data
+        await this.getConversations();
+
+        // Show app
+        document.getElementById("app").classList.remove("hidden");
+        document.getElementById("loader").classList.add("hidden");
+      } catch (error) {
+        // Token invalid
+        sessionStorage.removeItem('gptme_auth_token');
+        this.authToken = null;
+        this.authError = 'Invalid token. Please check and try again.';
+      } finally {
+        this.connecting = false;
+      }
+    },
+    disconnect() {
+      sessionStorage.removeItem('gptme_auth_token');
+      this.authToken = null;
+      this.showAuthModal = true;
+      this.authError = '';
+    },
+
     async getConversations() {
-      const res = await fetch(`${apiRoot}?limit=${this.conversationsLimit}`);
+      const res = await authFetch(`${apiRoot}?limit=${this.conversationsLimit}`);
       this.conversations = await res.json();
     },
     async selectConversation(path, branch) {
@@ -146,7 +255,7 @@ new Vue({
       window.location.hash = path;
 
       this.selectedConversation = path;
-      const res = await fetch(`${apiRoot}/${path}`);
+      const res = await authFetch(`${apiRoot}/${path}`);
 
       // check for errors
       if (!res.ok) {
@@ -177,10 +286,12 @@ new Vue({
     async createConversation() {
       const name = prompt("Conversation name");
       if (!name) return;
-      const res = await fetch(`${apiRoot}/${name}`, {
+      const res = await authFetch(`${apiRoot}/${name}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify([]),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
       });
       if (!res.ok) {
         this.error = res.statusText;
@@ -212,12 +323,10 @@ new Vue({
       });
 
       try {
-        const req = await fetch(`${apiRoot}/${this.selectedConversation}`, {
+        const req = await authFetch(`${apiRoot}/${this.selectedConversation}`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: payload,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: "user", content: this.newMessage }),
         });
 
         if (!req.ok) {
@@ -248,7 +357,7 @@ new Vue({
 
       try {
         // Create EventSource with POST method using fetch
-        const response = await fetch(
+        const response = await authFetch(
           `${apiRoot}/${this.selectedConversation}/generate`,
           {
             method: "POST",

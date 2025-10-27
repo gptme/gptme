@@ -26,6 +26,61 @@
       <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-32 w-32"></div>
     </div>
 
+    <!-- Connection Modal -->
+    <div id="auth-modal" v-if="showAuthModal" class="fixed top-0 left-0 right-0 bottom-0 bg-gray-900 bg-opacity-75 flex justify-center items-center z-50">
+      <div class="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
+        <h2 class="text-2xl font-bold mb-4 text-gray-800">Connect to gptme-server</h2>
+        <p class="text-gray-600 mb-6">Enter your authentication token to connect.</p>
+
+        <div class="mb-4">
+          <label for="auth-token" class="block text-sm font-medium text-gray-700 mb-2">Token</label>
+          <div class="relative">
+            <input
+              id="auth-token"
+              :type="showToken ? 'text' : 'password'"
+              v-model="authTokenInput"
+              @keyup.enter="connectWithToken"
+              class="w-full border rounded-lg p-3 pr-12 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Paste your token here"
+              autofocus
+            />
+            <button
+              type="button"
+              @click="showToken = !showToken"
+              class="absolute right-3 top-3 text-gray-500 hover:text-gray-700 focus:outline-none"
+              :title="showToken ? 'Hide token' : 'Show token'"
+            >
+              <svg v-if="!showToken" class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              <svg v-else class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="authError" class="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+          {{ authError }}
+        </div>
+
+        <div class="flex justify-between items-center">
+          <p class="text-sm text-gray-500">
+            Get token: <code class="bg-gray-100 px-2 py-1 rounded">gptme server token</code>
+          </p>
+          <button
+            @click="connectWithToken"
+            :disabled="!authTokenInput || connecting"
+            class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg transition duration-300 ease-in-out"
+            :class="{'cursor-not-allowed opacity-50': !authTokenInput || connecting}"
+          >
+            {{ connecting ? 'Connecting...' : 'Connect' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Main app -->
     <!-- NOTE: class `hidden` is removed once mounted -->
     <div id="app" class="h-screen overflow-hidden bg-gray-100 hidden">
