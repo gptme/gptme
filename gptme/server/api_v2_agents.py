@@ -22,6 +22,7 @@ from gptme.prompts import get_prompt
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager
 from ..tools import get_toolchain
+from .auth import require_auth
 from .openapi_docs import (
     AgentCreateRequest,
     AgentCreateResponse,
@@ -47,6 +48,7 @@ agents_api = flask.Blueprint("agents_api", __name__)
 
 
 @agents_api.route("/api/v2/agents", methods=["PUT"])
+@require_auth
 @api_doc(
     summary="Create a new agent",
     description="Create a new agent by cloning a template repository and setting up workspace",

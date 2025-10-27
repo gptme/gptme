@@ -5,6 +5,7 @@ Provides bearer token authentication for API access.
 """
 
 import logging
+import os
 import secrets
 from functools import wraps
 
@@ -26,15 +27,24 @@ def generate_token() -> str:
 
 
 def get_server_token() -> str:
-    """Get or generate the server authentication token.
+    """Get or generate the server authentication token from environment.
 
     Returns:
-        The current server token, generating one if none exists.
+        The current server token from GPTME_SERVER_TOKEN env var,
+        or generates one if not set.
     """
     global _server_token
     if _server_token is None:
-        _server_token = generate_token()
-        logger.info(f"Generated new server token: {_server_token}")
+        # Check environment variable first
+        env_token = os.environ.get("GPTME_SERVER_TOKEN")
+        if env_token:
+            _server_token = env_token
+            logger.info("Using token from GPTME_SERVER_TOKEN environment variable")
+        else:
+            _server_token = generate_token()
+            # Store in environment for retrieval
+            os.environ["GPTME_SERVER_TOKEN"] = _server_token
+            logger.info(f"Generated new server token: {_server_token}")
     return _server_token
 
 
@@ -109,10 +119,8 @@ def init_auth(display: bool = True) -> str:
         logger.info("=" * 60)
         logger.info(f"Token: {token}")
         logger.info("")
-        logger.info("Use this token in the Authorization header:")
-        logger.info(f"  Authorization: Bearer {token}")
-        logger.info("")
-        logger.info("To retrieve token later, run: gptme server token")
+        logger.info("Set custom token with: GPTME_SERVER_TOKEN=xxx gptme server serve")
+        logger.info("Or retrieve current token: gptme server token")
         logger.info("=" * 60)
 
     return token
