@@ -99,14 +99,26 @@ def serve(
 def show_token():
     """Display the server authentication token."""
     token = get_server_token()
-    click.echo("=" * 60)
-    click.echo("gptme-server Authentication Token")
-    click.echo("=" * 60)
-    click.echo(f"Token: {token}")
-    click.echo("")
-    click.echo("Use this token in the Authorization header:")
-    click.echo(f"  Authorization: Bearer {token}")
-    click.echo("=" * 60)
+    if token:
+        click.echo("=" * 60)
+        click.echo("gptme-server Authentication Token")
+        click.echo("=" * 60)
+        click.echo(f"Token: {token}")
+        click.echo("")
+        click.echo("Use this token in the Authorization header:")
+        click.echo(f"  Authorization: Bearer {token}")
+        click.echo("=" * 60)
+    else:
+        click.echo("=" * 60)
+        click.echo("gptme-server Authentication")
+        click.echo("=" * 60)
+        click.echo("Authentication is DISABLED (no token configured)")
+        click.echo("")
+        click.echo(
+            "To enable authentication, set the GPTME_SERVER_TOKEN environment variable:"
+        )
+        click.echo("  GPTME_SERVER_TOKEN=your-secret-token gptme server serve")
+        click.echo("=" * 60)
 
 
 @main.command("openapi")
