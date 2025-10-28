@@ -368,7 +368,17 @@ def autocompact_hook(
     # Fork conversation to preserve original state
     fork_name = _get_backup_name(manager.logfile.parent.name)
     try:
+        # Save original manager state (fork() mutates manager)
+        original_logdir = manager.logdir
+        original_chat_id = manager.chat_id
+
+        # Fork creates backup but also changes manager to point to fork
         manager.fork(fork_name)
+
+        # Restore original manager state so we continue with original conversation
+        manager.logdir = original_logdir
+        manager.chat_id = original_chat_id
+
         logger.info(f"Forked conversation to '{fork_name}' before compacting")
     except Exception as e:
         logger.error(f"Failed to fork conversation: {e}")
