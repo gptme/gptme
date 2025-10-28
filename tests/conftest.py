@@ -80,6 +80,12 @@ def download_model():
         ef._download_model_if_not_exists()  # type: ignore
 
 
+@pytest.fixture
+def auth_headers():
+    """Provide authentication headers for HTTP requests to test server."""
+    return {"Authorization": "Bearer test-token-for-server-thread"}
+
+
 @pytest.fixture(autouse=True)
 def clear_tools_before():
     # Clear all tools and cache to prevent test conflicts
@@ -113,6 +119,16 @@ def init_():
 @pytest.fixture
 def server_thread():
     """Start a server in a thread for testing."""
+    import os
+
+    import gptme.server.auth
+
+    # Set up authentication for threaded server
+    test_token = "test-token-for-server-thread"
+    original_token = gptme.server.auth._server_token
+    os.environ["GPTME_SERVER_TOKEN"] = test_token
+    gptme.server.auth._server_token = None  # Force regeneration
+
     # Skip if flask not installed
     pytest.importorskip(
         "flask", reason="flask not installed, install server extras (-E server)"
@@ -146,14 +162,41 @@ def server_thread():
 
     yield port  # Return the port to the test
 
+    # Cleanup auth
+    os.environ.pop("GPTME_SERVER_TOKEN", None)
+    gptme.server.auth._server_token = original_token
+
 
 @pytest.fixture
 def client():
+    import os
+
+    import gptme.server.auth
+
+    # Set up authentication for tests
+    test_token = "test-token-for-client-fixture"
+    original_token = gptme.server.auth._server_token
+    os.environ["GPTME_SERVER_TOKEN"] = test_token
+    gptme.server.auth._server_token = None  # Force regeneration
+
     from gptme.server.api import create_app  # fmt: skip
 
     app = create_app()
-    with app.test_client() as client:
-        yield client
+
+    # Create a test client that includes auth header by default
+    with app.test_client() as test_client:
+        # Override environ_base to include auth header
+        original_environ_base = test_client.environ_base.copy()
+        test_client.environ_base["HTTP_AUTHORIZATION"] = f"Bearer {test_token}"
+
+        yield test_client
+
+        # Restore environ_base
+        test_client.environ_base = original_environ_base
+
+    # Cleanup
+    os.environ.pop("GPTME_SERVER_TOKEN", None)
+    gptme.server.auth._server_token = original_token
 
 
 @pytest.fixture(scope="function")
@@ -166,6 +209,7 @@ def setup_conversation(server_thread):
     # Use "@log" to create workspace in the conversation's log directory
     resp = requests.put(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={
             "prompt": "You are an AI assistant for testing.",
             "config": {
@@ -195,6 +239,7 @@ def event_listener(setup_conversation):
         nonlocal tool_id, tool_output_received, tool_executing_received
         resp = requests.get(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/events?session_id={session_id}",
+            headers={"Authorization": "Bearer test-token-for-server-thread"},
             stream=True,
         )
         try:

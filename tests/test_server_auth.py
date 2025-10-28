@@ -8,15 +8,28 @@ import os
 
 import pytest
 
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
 
 @pytest.fixture
 def auth_token():
     """Set up auth token for tests."""
+    import gptme.server.auth
+
+    # Save original token
+    original_token = gptme.server.auth._server_token
+
     token = "test-token-12345"
     os.environ["GPTME_SERVER_TOKEN"] = token
+    gptme.server.auth._server_token = None  # Force regeneration
+
     yield token
+
     # Cleanup
     os.environ.pop("GPTME_SERVER_TOKEN", None)
+    gptme.server.auth._server_token = original_token
 
 
 def test_auth_success(auth_token):

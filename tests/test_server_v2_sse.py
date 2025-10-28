@@ -18,6 +18,7 @@ def test_event_stream(event_listener, wait_for_event):
     # Send a message to trigger an event
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"role": "user", "content": "Test message"},
     )
 
@@ -27,7 +28,8 @@ def test_event_stream(event_listener, wait_for_event):
 
     # Verify message content
     resp = requests.get(
-        f"http://localhost:{port}/api/v2/conversations/{conversation_id}"
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
     )
     assert resp.status_code == 200
     messages = resp.json()["log"]
@@ -50,12 +52,14 @@ def test_event_stream_with_generation(event_listener, wait_for_event):
     # Add a user message
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"role": "user", "content": "Say hello"},
     )
 
     # Use a real model
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"session_id": session_id},
     )
 
@@ -66,7 +70,8 @@ def test_event_stream_with_generation(event_listener, wait_for_event):
 
     # Verify the response
     resp = requests.get(
-        f"http://localhost:{port}/api/v2/conversations/{conversation_id}"
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
     )
     assert resp.status_code == 200
     messages = resp.json()["log"]

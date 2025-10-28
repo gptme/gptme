@@ -93,7 +93,7 @@ def require_auth(f):
             logger.warning(f"Invalid authentication scheme: {scheme}")
             return jsonify({"error": "Invalid authentication scheme"}), 401
 
-        if token != get_server_token():
+        if not secrets.compare_digest(token, get_server_token()):
             logger.warning("Invalid or expired token")
             return jsonify({"error": "Invalid or expired token"}), 401
 

@@ -24,6 +24,7 @@ def test_auto_stepping(
     # Add a user message requesting multiple commands
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={
             "role": "user",
             "content": f"Create a directory named {test_dir} and list its contents",
@@ -59,6 +60,7 @@ def test_auto_stepping(
     with unittest.mock.patch("gptme.server.api_v2_sessions._stream", mock_stream):
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            headers={"Authorization": "Bearer test-token-for-server-thread"},
             json={
                 "session_id": session_id,
                 "model": "openai/mock-model",
@@ -86,7 +88,8 @@ def test_auto_stepping(
 
     # Verify conversation state
     resp = requests.get(
-        f"http://localhost:{port}/api/v2/conversations/{conversation_id}"
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
     )
     assert resp.status_code == 200
 
