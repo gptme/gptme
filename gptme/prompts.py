@@ -483,7 +483,7 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
             length = len_tokens(result.stdout, "gpt-4")
             if length > 10000:
                 logger.warning(
-                    f"Context command '{cmd}' output is large: {length}, consider optimizing."
+                    f"Context command '{cmd}' output is large: ~{length} tokens, consider optimizing."
                 )
             return md_codeblock(cmd, result.stdout)
         else:
