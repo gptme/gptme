@@ -229,6 +229,7 @@ class PromptOptimizer:
         # Create module and optimizer
         # Create module based on configuration
         if self.use_reasoning_program:
+            # Multi-stage reasoning for GEPA optimization (Phase 1.3)
             module = GptmeReasoningProgram(base_prompt)
         else:
             module = GptmeModule(base_prompt, self.model)
