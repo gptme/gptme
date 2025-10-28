@@ -21,7 +21,6 @@ def test_tool_confirmation_flow(
     # Add a user message requesting a command
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
-        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"role": "user", "content": "List files in the current directory"},
     )
 
@@ -46,7 +45,6 @@ def test_tool_confirmation_flow(
         # Request a step
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-            headers={"Authorization": "Bearer test-token-for-server-thread"},
             json={"session_id": session_id, "model": "openai/mock-model"},
         )
 
@@ -59,7 +57,6 @@ def test_tool_confirmation_flow(
         # Confirm the tool execution
         resp = requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/tool/confirm",
-            headers={"Authorization": "Bearer test-token-for-server-thread"},
             json={"session_id": session_id, "tool_id": tool_id, "action": "confirm"},
         )
         assert resp.status_code == 200
@@ -74,7 +71,6 @@ def test_tool_confirmation_flow(
     # Verify conversation state
     resp = requests.get(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
-        headers={"Authorization": "Bearer test-token-for-server-thread"},
     )
     assert resp.status_code == 200
 

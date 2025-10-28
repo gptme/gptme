@@ -119,16 +119,6 @@ def init_():
 @pytest.fixture
 def server_thread():
     """Start a server in a thread for testing."""
-    import os
-
-    import gptme.server.auth
-
-    # Set up authentication for threaded server
-    test_token = "test-token-for-server-thread"
-    original_token = gptme.server.auth._server_token
-    os.environ["GPTME_SERVER_TOKEN"] = test_token
-    gptme.server.auth._server_token = None  # Force regeneration
-
     # Skip if flask not installed
     pytest.importorskip(
         "flask", reason="flask not installed, install server extras (-E server)"
@@ -162,41 +152,16 @@ def server_thread():
 
     yield port  # Return the port to the test
 
-    # Cleanup auth
-    os.environ.pop("GPTME_SERVER_TOKEN", None)
-    gptme.server.auth._server_token = original_token
-
 
 @pytest.fixture
 def client():
-    import os
-
-    import gptme.server.auth
-
-    # Set up authentication for tests
-    test_token = "test-token-for-client-fixture"
-    original_token = gptme.server.auth._server_token
-    os.environ["GPTME_SERVER_TOKEN"] = test_token
-    gptme.server.auth._server_token = None  # Force regeneration
-
     from gptme.server.api import create_app  # fmt: skip
 
     app = create_app()
 
-    # Create a test client that includes auth header by default
+    # Create a test client without authentication by default
     with app.test_client() as test_client:
-        # Override environ_base to include auth header
-        original_environ_base = test_client.environ_base.copy()
-        test_client.environ_base["HTTP_AUTHORIZATION"] = f"Bearer {test_token}"
-
         yield test_client
-
-        # Restore environ_base
-        test_client.environ_base = original_environ_base
-
-    # Cleanup
-    os.environ.pop("GPTME_SERVER_TOKEN", None)
-    gptme.server.auth._server_token = original_token
 
 
 @pytest.fixture(scope="function")

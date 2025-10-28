@@ -26,7 +26,6 @@ def test_auto_naming_generates_display_name(event_listener, wait_for_event):
     # Add a user message that should trigger meaningful auto-naming
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
-        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={
             "role": "user",
             "content": "Help me debug a Python script that's not working. Short answer.",
@@ -39,7 +38,6 @@ def test_auto_naming_generates_display_name(event_listener, wait_for_event):
     # Trigger generation with a real model
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"session_id": session_id},
     )
 
@@ -76,14 +74,12 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
     # Set a predefined name via config update
     requests.patch(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/config",
-        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"chat": {"name": "Predefined Name"}},
     )
 
     # Add user message and trigger generation
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
-        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"role": "user", "content": "Hello there. We are testing, just say 'hi'"},
     )
 
@@ -91,7 +87,6 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
 
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"session_id": session_id},
     )
 
@@ -131,7 +126,6 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
     # Use a simple but specific user message to test contextual naming
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
-        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={
             "role": "user",
             "content": "How do I center a div in CSS? Short answer please.",
@@ -142,7 +136,6 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
 
     requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"session_id": session_id},
     )
 
