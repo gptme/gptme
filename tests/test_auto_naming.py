@@ -76,6 +76,7 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
     # Set a predefined name via config update
     requests.patch(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}/config",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={"chat": {"name": "Predefined Name"}},
     )
 
