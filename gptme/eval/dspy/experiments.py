@@ -259,7 +259,7 @@ class OptimizationExperiment:
     def __init__(self, name: str, output_dir: Path, model: str, dry_run: bool = False):
         self.name = name
         self.model = model
-        self.output_dir = output_dir
+        self.output_dir = output_dir.resolve()  # Convert to absolute path
         self.dry_run = dry_run
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
