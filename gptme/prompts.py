@@ -18,7 +18,7 @@ from .__version__ import __version__
 from .config import config_path, get_config, get_project_config
 from .dirs import get_project_git_dir
 from .llm.models import get_model, get_recommended_model
-from .message import Message
+from .message import Message, len_tokens
 from .tools import ToolFormat, ToolSpec, get_available_tools
 from .util import document_prompt_function
 from .util.content import extract_content_summary
@@ -480,6 +480,11 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
             f"Context command took {duration:.2f}s",
         )
         if result.returncode == 0:
+            length = len_tokens(result.stdout, "gpt-4")
+            if length > 5000:
+                logger.warning(
+                    f"Context command '{cmd}' output is large: {length}, consider optimizing."
+                )
             return md_codeblock(cmd, result.stdout)
         else:
             logger.error(f"Failed to run context command '{cmd}': {result.stderr}")
