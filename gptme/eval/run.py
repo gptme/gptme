@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from ..tools import ToolFormat
 from .agents import Agent, GPTMe
-from .execenv import SimpleExecutionEnv
+from .execenv import DockerExecutionEnv, SimpleExecutionEnv
 from .types import (
     CaseResult,
     EvalResult,
@@ -58,6 +58,7 @@ def run_evals(
     model_configs: list[tuple[str, ToolFormat]],  # (model, tool_format)
     timeout: int,
     parallel: int,
+    use_docker: bool = False,
 ) -> dict[str, list[EvalResult]]:
     """
     Run evals for a list of tests.
@@ -67,6 +68,7 @@ def run_evals(
         model_configs: List of (model, tool_format) tuples
         timeout: Timeout in seconds for each eval
         parallel: Number of parallel evaluations to run
+        use_docker: Run tests in Docker containers for isolation
     """
     # For coverage to work with multiprocessing
     # https://pytest-cov.readthedocs.io/en/latest/subprocess-support.html
@@ -97,6 +99,7 @@ def run_evals(
                     agent,
                     timeout,
                     parallel > 1,
+                    use_docker,
                 )
                 futures.append(future)
                 future_to_model_test[future] = (model_id, test, agent)
@@ -177,7 +180,9 @@ def run_evals(
 
 
 # TODO: rewrite to run in Docker? Would help with capturing output + process management.
-def execute(test: EvalSpec, agent: Agent, timeout: int, parallel: bool) -> EvalResult:
+def execute(
+    test: EvalSpec, agent: Agent, timeout: int, parallel: bool, use_docker: bool = False
+) -> EvalResult:
     """
     Executes the code for a specific model with a timeout.
     """
@@ -244,7 +249,7 @@ def execute(test: EvalSpec, agent: Agent, timeout: int, parallel: bool) -> EvalR
         if status != "timeout" and status != "error":
             # check and collect results
             run_start = time.time()
-            env = SimpleExecutionEnv()
+            env = DockerExecutionEnv() if use_docker else SimpleExecutionEnv()
             env.upload(files)
             logger.debug(f"Running check: {test['run']}")
             stdout_run, stderr_run, exit_code = env.run(test["run"])
