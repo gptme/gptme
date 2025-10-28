@@ -123,8 +123,8 @@ def init_auth(display: bool = True) -> str | None:
             logger.info(f"Token: {token}")
             logger.info("")
             logger.info("Authentication is ENABLED")
-            logger.info("Change token with: GPTME_SERVER_TOKEN=xxx gptme server serve")
-            logger.info("Or retrieve current token: gptme server token")
+            logger.info("Change token with: GPTME_SERVER_TOKEN=xxx gptme-server serve")
+            logger.info("Or retrieve current token: gptme-server token")
             logger.info("=" * 60)
         else:
             logger.info("=" * 60)
@@ -133,7 +133,7 @@ def init_auth(display: bool = True) -> str | None:
             logger.info("Authentication is DISABLED (no token configured)")
             logger.info("")
             logger.info("To enable authentication for local network exposure:")
-            logger.info("  GPTME_SERVER_TOKEN=your-secret-token gptme server serve")
+            logger.info("  GPTME_SERVER_TOKEN=your-secret-token gptme-server serve")
             logger.info("=" * 60)
 
     return token

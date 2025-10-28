@@ -117,7 +117,7 @@ def show_token():
         click.echo(
             "To enable authentication, set the GPTME_SERVER_TOKEN environment variable:"
         )
-        click.echo("  GPTME_SERVER_TOKEN=your-secret-token gptme server serve")
+        click.echo("  GPTME_SERVER_TOKEN=your-secret-token gptme-server serve")
         click.echo("=" * 60)
 
 
