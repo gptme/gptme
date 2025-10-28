@@ -15,7 +15,7 @@ from ..message import Message, len_tokens
 from ..util.output_storage import create_tool_result_summary
 
 if TYPE_CHECKING:
-    from ..logmanager import Log, LogManager
+    from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -308,7 +308,12 @@ def _get_backup_name(conversation_name: str) -> str:
 
     base_name = conversation_name
     while True:
-        new_name = re.sub(r"-before-compact(-[0-9a-f]{4})?$", "", base_name)
+        # Match -before-compact with optional suffix (any alphanumeric characters)
+        # This is more permissive than the original [0-9a-f]{4} to handle:
+        # - Manual renames (e.g., -before-compact-test)
+        # - Different suffix formats
+        # - Ensure we strip any backup suffix, not just hex-based ones
+        new_name = re.sub(r"-before-compact(-\w+)?$", "", base_name)
         if new_name == base_name:  # No more changes
             break
         base_name = new_name
@@ -344,6 +349,7 @@ def autocompact_hook(
     import time
 
     from ..llm.models import get_default_model
+    from ..logmanager import Log
     from ..message import len_tokens
 
     global _last_autocompact_time
