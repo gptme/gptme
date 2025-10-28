@@ -79,21 +79,27 @@ def require_auth(f):
             return f(*args, **kwargs)
 
         # Token is configured, require authentication
+        # Check Authorization header first (preferred method)
         auth_header = request.headers.get("Authorization")
+        token = None
 
-        if not auth_header:
-            logger.warning("Missing Authorization header")
+        if auth_header:
+            try:
+                scheme, token = auth_header.split(" ", 1)
+                if scheme.lower() != "bearer":
+                    logger.warning(f"Invalid authentication scheme: {scheme}")
+                    return jsonify({"error": "Invalid authentication scheme"}), 401
+            except ValueError:
+                logger.warning("Invalid Authorization header format")
+                return jsonify({"error": "Invalid authorization header format"}), 401
+        else:
+            # Fallback to query parameter for SSE/EventSource compatibility
+            # (browsers' EventSource API doesn't support custom headers)
+            token = request.args.get("token")
+
+        if not token:
+            logger.warning("Missing authentication credentials")
             return jsonify({"error": "Missing authentication credentials"}), 401
-
-        try:
-            scheme, token = auth_header.split(" ", 1)
-        except ValueError:
-            logger.warning("Invalid Authorization header format")
-            return jsonify({"error": "Invalid authorization header format"}), 401
-
-        if scheme.lower() != "bearer":
-            logger.warning(f"Invalid authentication scheme: {scheme}")
-            return jsonify({"error": "Invalid authentication scheme"}), 401
 
         if not secrets.compare_digest(token, server_token):
             logger.warning("Invalid or expired token")
