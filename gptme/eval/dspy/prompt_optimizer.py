@@ -229,7 +229,7 @@ class PromptOptimizer:
         # Create module and optimizer
         # Create module based on configuration
         if self.use_reasoning_program:
-            module = GptmeReasoningProgram()
+            module = GptmeReasoningProgram(base_prompt)
         else:
             module = GptmeModule(base_prompt, self.model)
         optimizer = self._create_optimizer(eval_specs)

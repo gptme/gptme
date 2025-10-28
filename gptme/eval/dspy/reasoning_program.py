@@ -152,10 +152,15 @@ class GptmeReasoningProgram(dspy.Module):
 
     The program is designed to be optimized by GEPA, which can learn
     from trajectories across all these stages.
+
+    Note: This currently only runs DSPy reasoning chains without actual
+    gptme evaluation. Future phases will integrate with GptmeModule-style
+    execution for complete end-to-end optimization.
     """
 
-    def __init__(self):
+    def __init__(self, base_prompt: str = "You are a helpful AI assistant."):
         super().__init__()
+        self.base_prompt = base_prompt
         self.analyze = dspy.ChainOfThought(TaskAnalysisSignature)
         self.plan = dspy.ChainOfThought(PlanningSignature)
         self.execute = dspy.ChainOfThought(ExecutionSignature)
@@ -198,14 +203,17 @@ class GptmeReasoningProgram(dspy.Module):
             # Stage 3-5: Execute, monitor, and recover as needed
             # For now, we'll execute a simplified version
             # Full implementation would iterate through plan steps
+            execution_steps = (
+                getattr(plan, "execution_steps", "") or "No execution plan generated"
+            )
             execution = self.execute(
-                step_description=getattr(plan, "execution_steps", "Execute task"),
+                step_description=execution_steps,
                 current_state="Initial state",
                 available_tools=available_tools,
             )
 
             monitoring = self.monitor(
-                step_description=getattr(plan, "execution_steps", "Task execution"),
+                step_description=execution_steps,
                 execution_result=str(execution),
                 expected_outcome=getattr(execution, "expected_outcome", ""),
                 success_criteria=getattr(plan, "success_criteria", ""),
@@ -239,10 +247,11 @@ class GptmeReasoningProgram(dspy.Module):
             )
 
         except Exception as e:
-            logger.error(f"Error in GptmeReasoningProgram: {e}")
+            logger.exception(f"Error in GptmeReasoningProgram: {e}")
             return dspy.Prediction(
                 response=f"Error in reasoning program: {str(e)}",
                 error=str(e),
+                eval_spec=eval_spec,
             )
 
     def execute_with_recovery(
