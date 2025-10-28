@@ -50,6 +50,7 @@ def test_auth_success(auth_token):
             "/test", headers={"Authorization": f"Bearer {auth_token}"}
         )
         assert response.status_code == 200
+        assert response.json is not None
         assert response.json["success"] is True
 
 
@@ -69,6 +70,7 @@ def test_auth_missing_token():
     with app.test_client() as client:
         response = client.get("/test")
         assert response.status_code == 401
+        assert response.json is not None
         assert "error" in response.json
 
 
@@ -88,4 +90,5 @@ def test_auth_invalid_token(auth_token):
     with app.test_client() as client:
         response = client.get("/test", headers={"Authorization": "Bearer wrong-token"})
         assert response.status_code == 401
+        assert response.json is not None
         assert "error" in response.json
