@@ -54,8 +54,11 @@ def test_auth_success(auth_token):
         assert response.json["success"] is True
 
 
-def test_auth_missing_token():
-    """Test authentication failure when token is missing."""
+def test_auth_missing_token(auth_token):
+    """Test authentication failure when request is missing token.
+
+    Server has a token configured, but the request doesn't include it.
+    """
     from flask import Flask
 
     from gptme.server.auth import require_auth
@@ -68,7 +71,7 @@ def test_auth_missing_token():
         return {"success": True}
 
     with app.test_client() as client:
-        response = client.get("/test")
+        response = client.get("/test")  # No Authorization header
         assert response.status_code == 401
         assert response.json is not None
         assert "error" in response.json
