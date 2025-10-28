@@ -109,23 +109,31 @@ class DockerExecutionEnv(ExecutionEnv):
 
     def start_container(self) -> None:
         """Start Docker container with volume mount."""
-        result = subprocess.run(
-            [
-                "docker",
-                "run",
-                "-d",
-                "-v",
-                f"{self.host_dir}:{self.working_dir}",
-                self.image,
-                "tail",
-                "-f",
-                "/dev/null",  # Keep container alive
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        self.container_id = result.stdout.strip()
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "-v",
+                    f"{self.host_dir}:{self.working_dir}",
+                    self.image,
+                    "tail",
+                    "-f",
+                    "/dev/null",  # Keep container alive
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.container_id = result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Failed to start Docker container with image '{self.image}'.\n"
+            if "Unable to find image" in e.stderr or "No such image" in e.stderr:
+                error_msg += "Docker image not found. Build it with: make build-docker"
+            else:
+                error_msg += f"Error: {e.stderr}"
+            raise RuntimeError(error_msg) from e
 
     def run(self, command: str, silent: bool = True) -> tuple[str, str, int]:
         """Execute command inside Docker container."""
@@ -178,6 +186,15 @@ class DockerExecutionEnv(ExecutionEnv):
                 if not silent:
                     print("Timeout!")
                 p.kill()
+                # Stop container to terminate the running command
+                if self.container_id:
+                    subprocess.run(
+                        ["docker", "stop", self.container_id],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
                 break
 
         if not silent:
@@ -208,7 +225,7 @@ class DockerExecutionEnv(ExecutionEnv):
                         files[str(rel_path)] = f.read()
                 except UnicodeDecodeError:
                     with open(path, "rb") as f:
-                        files[str(rel_path)] = base64.b64encode(f.read()).decode()
+                        files[str(rel_path)] = base64.b64encode(f.read())
         return files
 
     def cleanup(self) -> None:
