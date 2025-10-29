@@ -273,23 +273,21 @@ Format the response as a structured document that could serve as a RESUME.md fil
         yield Message("system", f"❌ Failed to generate resume: {e}")
 
 
-def _get_backup_name(conversation_name: str) -> str:
+def _get_compacted_name(conversation_name: str) -> str:
     """
-    Get a unique backup conversation name, stripping any existing -before-compact suffixes.
+    Get a unique name for the compacted conversation fork.
 
-    This ensures:
-    - Backup names don't grow indefinitely with repeated compactions
-    - Each backup has a unique suffix to prevent folder collisions
+    The original conversation stays untouched as the backup.
+    The fork gets a new name with timestamp to identify when compaction occurred.
 
     Examples:
-    - "my-conversation" -> "my-conversation-before-compact-a7x9"
-    - "my-conversation-before-compact" -> "my-conversation-before-compact-k2p5"
+    - "my-conversation" -> "my-conversation-compacted-20251029-073045"
 
     Args:
         conversation_name: The current conversation directory name
 
     Returns:
-        The backup name with exactly one -before-compact suffix and a unique random suffix
+        The compacted conversation name with timestamp
 
     Raises:
         ValueError: If conversation_name is empty
@@ -297,30 +295,10 @@ def _get_backup_name(conversation_name: str) -> str:
     if not conversation_name:
         raise ValueError("conversation name cannot be empty")
 
-    # Strip any existing backup suffixes: -before-compact or -before-compact-XXXX
-    # Repeatedly strip from the end until no more suffixes found
-    # This handles cases like:
-    # - "conv-before-compact" -> "conv"
-    # - "conv-before-compact-a7x9" -> "conv"
-    # - "conv-before-compact-before-compact-before-compact" -> "conv"
-    # But preserves names like "test-before-compaction" (not a backup suffix)
-    import re
+    from datetime import datetime
 
-    base_name = conversation_name
-    while True:
-        new_name = re.sub(r"-before-compact(-[0-9a-f]{4})?$", "", base_name)
-        if new_name == base_name:  # No more changes
-            break
-        base_name = new_name
-
-    if not base_name:  # Safety: if entire name was the suffix (shouldn't happen)
-        base_name = conversation_name
-
-    # Add unique suffix to prevent collisions
-    import secrets
-
-    random_suffix = secrets.token_hex(2)  # 4 hex chars
-    return f"{base_name}-before-compact-{random_suffix}"
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"{conversation_name}-compacted-{timestamp}"
 
 
 def autocompact_hook(
@@ -333,9 +311,10 @@ def autocompact_hook(
     has grown too large with massive tool results.
 
     If compacting is needed:
-    1. Forks the conversation to preserve original state
-    2. Applies auto-compacting to current conversation
-    3. Persists the compacted log
+    1. Creates compacted fork (original stays as backup)
+    2. Manager switches to fork automatically
+    3. Applies auto-compacting to fork conversation
+    4. User continues in compacted conversation
 
     Args:
         manager: Conversation manager with log and workspace
@@ -365,21 +344,13 @@ def autocompact_hook(
     logger.info("Auto-compacting triggered: conversation has massive tool results")
     _last_autocompact_time = current_time
 
-    # Fork conversation to preserve original state
-    fork_name = _get_backup_name(manager.logfile.parent.name)
+    # Create compacted fork (original stays as backup)
+    fork_name = _get_compacted_name(manager.logfile.parent.name)
     try:
-        # Save original manager state (fork() mutates manager)
-        original_logdir = manager.logdir
-        original_chat_id = manager.chat_id
-
-        # Fork creates backup but also changes manager to point to fork
+        # Fork creates compacted conversation (manager switches to fork automatically)
         manager.fork(fork_name)
 
-        # Restore original manager state so we continue with original conversation
-        manager.logdir = original_logdir
-        manager.chat_id = original_chat_id
-
-        logger.info(f"Forked conversation to '{fork_name}' before compacting")
+        logger.info(f"Created compacted conversation: '{fork_name}'")
     except Exception as e:
         logger.error(f"Failed to fork conversation: {e}")
         yield Message(
