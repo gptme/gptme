@@ -9,7 +9,7 @@ import pytest
 from gptme.llm.models import get_default_model, get_model
 from gptme.message import Message, len_tokens
 from gptme.tools.autocompact import (
-    _get_backup_name,
+    _get_compacted_name,
     auto_compact_log,
     should_auto_compact,
 )
@@ -161,33 +161,33 @@ def test_auto_compact_preserves_pinned_messages():
     assert compacted[2].pinned
 
 
-def test_get_backup_name_no_suffix():
+def test_get_compacted_name_no_suffix():
     """Test backup name generation for conversation without existing suffix."""
     import re
 
-    name = _get_backup_name("2025-10-13-flying-yellow-alien")
+    name = _get_compacted_name("2025-10-13-flying-yellow-alien")
     # Should match: base-name-before-compact-XXXX where XXXX is 4 hex chars
     assert re.match(
         r"^2025-10-13-flying-yellow-alien-before-compact-[0-9a-f]{4}$", name
     )
 
 
-def test_get_backup_name_one_suffix():
+def test_get_compacted_name_one_suffix():
     """Test backup name generation when suffix already exists (gets new unique suffix)."""
     import re
 
-    name = _get_backup_name("2025-10-13-flying-yellow-alien-before-compact")
+    name = _get_compacted_name("2025-10-13-flying-yellow-alien-before-compact")
     # Should strip old suffix and add new one with random suffix
     assert re.match(
         r"^2025-10-13-flying-yellow-alien-before-compact-[0-9a-f]{4}$", name
     )
 
 
-def test_get_backup_name_multiple_suffixes():
+def test_get_compacted_name_multiple_suffixes():
     """Test backup name generation with multiple accumulated suffixes (should strip all)."""
     import re
 
-    name = _get_backup_name(
+    name = _get_compacted_name(
         "2025-10-13-flying-yellow-alien-before-compact-before-compact-before-compact"
     )
     assert re.match(
@@ -195,28 +195,28 @@ def test_get_backup_name_multiple_suffixes():
     )
 
 
-def test_get_backup_name_edge_cases():
+def test_get_compacted_name_edge_cases():
     """Test backup name generation with various edge cases."""
     import re
 
     # Short name
-    name = _get_backup_name("conv")
+    name = _get_compacted_name("conv")
     assert re.match(r"^conv-before-compact-[0-9a-f]{4}$", name)
 
     # Name containing 'compact' but not as suffix
-    name = _get_backup_name("compact-test")
+    name = _get_compacted_name("compact-test")
     assert re.match(r"^compact-test-before-compact-[0-9a-f]{4}$", name)
 
     # Name ending with similar but different suffix
-    name = _get_backup_name("test-before-compaction")
+    name = _get_compacted_name("test-before-compaction")
     assert re.match(r"^test-before-compaction-before-compact-[0-9a-f]{4}$", name)
 
 
-def test_get_backup_name_uniqueness():
+def test_get_compacted_name_uniqueness():
     """Test that multiple calls produce unique backup names."""
-    name1 = _get_backup_name("my-conversation")
-    name2 = _get_backup_name("my-conversation")
-    name3 = _get_backup_name("my-conversation")
+    name1 = _get_compacted_name("my-conversation")
+    name2 = _get_compacted_name("my-conversation")
+    name3 = _get_compacted_name("my-conversation")
 
     # All should have the same base but different random suffixes
     assert name1 != name2
@@ -229,7 +229,7 @@ def test_get_backup_name_uniqueness():
     assert name3.startswith("my-conversation-before-compact-")
 
 
-def test_get_backup_name_with_hex_suffix():
+def test_get_compacted_name_with_hex_suffix():
     """Test that backup names with hex suffixes are correctly stripped.
 
     This is a regression test for the bug where:
@@ -241,17 +241,17 @@ def test_get_backup_name_with_hex_suffix():
     import re
 
     # Test with a backup that has a valid hex suffix (only 0-9a-f)
-    name = _get_backup_name("my-conversation-before-compact-a7c9")
+    name = _get_compacted_name("my-conversation-before-compact-a7c9")
     # Should strip the old suffix and add a new one
     assert re.match(r"^my-conversation-before-compact-[0-9a-f]{4}$", name)
     # Should NOT contain the old hex suffix
     assert "a7c9" not in name
 
 
-def test_get_backup_name_empty_string():
+def test_get_compacted_name_empty_string():
     """Test backup name generation with empty string raises ValueError."""
     with pytest.raises(ValueError, match="conversation name cannot be empty"):
-        _get_backup_name("")
+        _get_compacted_name("")
 
 
 if __name__ == "__main__":
