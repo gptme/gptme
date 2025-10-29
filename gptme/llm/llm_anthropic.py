@@ -40,7 +40,7 @@ _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
 
 
-def _make_output_schema_tool(output_schema: type[BaseModel] | None) -> dict | None:
+def _make_output_schema_tool(output_schema: "type[BaseModel] | None") -> dict | None:
     """Convert a Pydantic schema to Anthropic tool definition.
 
     This implements the tool call workaround for constrained decoding,
@@ -302,7 +302,7 @@ class CacheControl(TypedDict):
 
 
 def _make_schema_tool(
-    output_schema: "type[BaseModel]" | None,
+    output_schema: "type[BaseModel] | None",
 ) -> dict | None:
     """Convert Pydantic BaseModel to Anthropic tool definition for constrained output."""
     if output_schema is None:
