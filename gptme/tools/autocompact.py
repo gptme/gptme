@@ -280,8 +280,12 @@ def _get_compacted_name(conversation_name: str) -> str:
     The original conversation stays untouched as the backup.
     The fork gets a new name with timestamp to identify when compaction occurred.
 
+    Strips any existing -compacted-YYYYMMDDHHMM suffixes to prevent accumulation
+    on repeated compactions.
+
     Examples:
     - "my-conversation" -> "my-conversation-compacted-20251029-073045"
+    - "my-conversation-compacted-20251029-073045" -> "my-conversation-compacted-20251029-080000"
 
     Args:
         conversation_name: The current conversation directory name
@@ -295,10 +299,24 @@ def _get_compacted_name(conversation_name: str) -> str:
     if not conversation_name:
         raise ValueError("conversation name cannot be empty")
 
+    import re
     from datetime import datetime
 
+    # Strip any existing compacted suffixes: -compacted-YYYYMMDDHHMM
+    # This handles repeated compactions by removing previous timestamps
+    base_name = conversation_name
+    while True:
+        # Match -compacted-{8 digits}-{6 digits} pattern
+        new_name = re.sub(r"-compacted-\d{8}-\d{6}$", "", base_name)
+        if new_name == base_name:  # No more changes
+            break
+        base_name = new_name
+
+    if not base_name:  # Safety: if entire name was the suffix (shouldn't happen)
+        base_name = conversation_name
+
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return f"{conversation_name}-compacted-{timestamp}"
+    return f"{base_name}-compacted-{timestamp}"
 
 
 def autocompact_hook(
