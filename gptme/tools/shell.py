@@ -1061,7 +1061,16 @@ def split_commands(script: str) -> list[str]:
     # Preprocess script to handle quoted heredoc delimiters that bashlex can't parse
     processed_script = _preprocess_quoted_heredocs(script)
 
-    parts = bashlex.parse(processed_script)
+    try:
+        parts = bashlex.parse(processed_script)
+    except Exception as e:
+        # Fall back to treating script as single command if bashlex can't parse it
+        # This handles bash builtins and reserved words like 'time' that bashlex doesn't support
+        logger.warning(
+            f"Failed to parse script with bashlex, treating as single command: {e}"
+        )
+        return [script]
+
     commands = []
     for part in parts:
         if part.kind == "command":
