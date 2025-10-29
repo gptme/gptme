@@ -247,6 +247,32 @@ EOF"""
     assert '<<"EOF"' in commands[0]
 
 
+def test_split_commands_bash_reserved_words():
+    """Test that split_commands handles bash reserved words that bashlex can't parse.
+
+    bashlex cannot parse bash reserved words like 'time' and will raise an exception.
+    In these cases, split_commands should gracefully fall back to treating the
+    script as a single command.
+    """
+    # Test 'time' reserved word
+    script_time = "time ls -la"
+    commands = split_commands(script_time)
+    assert len(commands) == 1
+    assert commands[0] == script_time
+
+    # Test 'time' with more complex command
+    script_time_pipeline = "time ls -la | grep test"
+    commands = split_commands(script_time_pipeline)
+    assert len(commands) == 1
+    assert commands[0] == script_time_pipeline
+
+    # Test 'time' with redirection
+    script_time_redirect = "time echo 'test' > output.txt"
+    commands = split_commands(script_time_redirect)
+    assert len(commands) == 1
+    assert commands[0] == script_time_redirect
+
+
 def test_function(shell):
     script = """
 function hello() {
