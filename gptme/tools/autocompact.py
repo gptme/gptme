@@ -15,7 +15,7 @@ from ..message import Message, len_tokens
 from ..util.output_storage import create_tool_result_summary
 
 if TYPE_CHECKING:
-    from ..logmanager import Log, LogManager
+    from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -341,6 +341,7 @@ def autocompact_hook(
     import time
 
     from ..llm.models import get_default_model
+    from ..logmanager import Log
     from ..message import len_tokens
 
     global _last_autocompact_time
