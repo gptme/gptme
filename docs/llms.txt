@@ -10,6 +10,7 @@
 - [Automation](https://gptme.org/docs/automation.html)
 - [Projects](https://gptme.org/docs/projects.html)
 - [Tools](https://gptme.org/docs/tools.html)
+- [Lessons](https://gptme.org/docs/lessons.html)
 - [Configuration](https://gptme.org/docs/config.html)
 - [Providers](https://gptme.org/docs/providers.html)
 - [Agents](https://gptme.org/docs/agents.html)
