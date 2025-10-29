@@ -363,6 +363,14 @@ def chat(
     content = response.content
     _record_usage(response.usage, model)
 
+    # If output_schema was provided, extract structured result
+    if schema_name:
+        result = _extract_schema_result(content)
+        if result:
+            import json
+
+            return json.dumps(result)
+
     parsed_block = []
     for block in content:
         if block.type == "text":
