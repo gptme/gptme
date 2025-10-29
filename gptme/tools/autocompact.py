@@ -12,9 +12,10 @@ from typing import TYPE_CHECKING
 
 from ..hooks import StopPropagation
 from ..message import Message, len_tokens
+from ..util.output_storage import create_tool_result_summary
 
 if TYPE_CHECKING:
-    from ..logmanager import Log, LogManager
+    from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,12 @@ def auto_compact_log(
             and (tokens > limit or close_to_limit)
         ):
             # Replace with a brief summary message
-            summary_content = _create_tool_result_summary(msg, msg_tokens, logdir)
+            summary_content = create_tool_result_summary(
+                content=msg.content,
+                original_tokens=msg_tokens,
+                logdir=logdir,
+                tool_name="autocompact",
+            )
             summary_msg = msg.replace(content=summary_content)
             compacted_log.append(summary_msg)
 
@@ -105,75 +111,6 @@ def auto_compact_log(
     from ..util.reduce import reduce_log
 
     yield from reduce_log(compacted_log, limit)
-
-
-def _create_tool_result_summary(
-    msg: Message, original_tokens: int, logdir: Path | None
-) -> str:
-    """
-    Create a brief summary message to replace a massive tool result.
-    Saves the original content to a file in the logdir for later reference.
-
-    Args:
-        msg: Original message with tool result
-        original_tokens: Number of tokens in original content
-        logdir: Path to conversation directory for saving removed output
-
-    Returns:
-        Brief summary message with reference to saved file
-    """
-    import hashlib
-
-    content = msg.content
-
-    # Try to extract the command that was run from the content
-    lines = content.split("\n")
-    command_info = ""
-
-    # Look for common tool execution patterns
-    for line in lines[:10]:  # Check first 10 lines
-        if (
-            line.startswith("Ran command:")
-            or line.startswith("Executed:")
-            or "shell" in line.lower()
-        ):
-            command_info = f" ({line.strip()})"
-            break
-
-    # Check if this was likely a successful or failed execution
-    status = "completed"
-    if any(
-        word in content.lower()
-        for word in ["error", "failed", "exception", "traceback"]
-    ):
-        status = "failed"
-
-    # Save content to file if logdir is provided
-    saved_path = None
-    if logdir:
-        removed_dir = logdir / "removed-outputs"
-        removed_dir.mkdir(parents=True, exist_ok=True)
-
-        # Use message timestamp and content hash for filename
-        msg_time = msg.timestamp.strftime("%Y%m%d_%H%M%S")
-        content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
-        filename = f"msg-{msg_time}-{content_hash}.txt"
-        saved_path = removed_dir / filename
-
-        try:
-            saved_path.write_text(content)
-            logger.info(f"Saved removed output to {saved_path}")
-        except Exception as e:
-            logger.error(f"Failed to save removed output: {e}")
-            saved_path = None
-
-    # Create summary message
-    base_msg = f"[Large tool output removed - {original_tokens} tokens]: Tool execution {status}{command_info}."
-
-    if saved_path:
-        return f"{base_msg} Full output saved to: {saved_path}\nYou can read or grep this file if needed."
-    else:
-        return f"{base_msg} Output was automatically removed due to size to allow conversation continuation."
 
 
 def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
@@ -336,23 +273,25 @@ Format the response as a structured document that could serve as a RESUME.md fil
         yield Message("system", f"❌ Failed to generate resume: {e}")
 
 
-def _get_backup_name(conversation_name: str) -> str:
+def _get_compacted_name(conversation_name: str) -> str:
     """
-    Get a unique backup conversation name, stripping any existing -before-compact suffixes.
+    Get a unique name for the compacted conversation fork.
 
-    This ensures:
-    - Backup names don't grow indefinitely with repeated compactions
-    - Each backup has a unique suffix to prevent folder collisions
+    The original conversation stays untouched as the backup.
+    The fork gets a new name with timestamp to identify when compaction occurred.
+
+    Strips any existing -compacted-YYYYMMDD-HHMMSS suffixes to prevent accumulation
+    on repeated compactions.
 
     Examples:
-    - "my-conversation" -> "my-conversation-before-compact-a7x9"
-    - "my-conversation-before-compact" -> "my-conversation-before-compact-k2p5"
+    - "my-conversation" -> "my-conversation-compacted-20251029-073045"
+    - "my-conversation-compacted-20251029-073045" -> "my-conversation-compacted-20251029-080000"
 
     Args:
         conversation_name: The current conversation directory name
 
     Returns:
-        The backup name with exactly one -before-compact suffix and a unique random suffix
+        The compacted conversation name with timestamp
 
     Raises:
         ValueError: If conversation_name is empty
@@ -360,18 +299,15 @@ def _get_backup_name(conversation_name: str) -> str:
     if not conversation_name:
         raise ValueError("conversation name cannot be empty")
 
-    # Strip any existing backup suffixes: -before-compact or -before-compact-XXXX
-    # Repeatedly strip from the end until no more suffixes found
-    # This handles cases like:
-    # - "conv-before-compact" -> "conv"
-    # - "conv-before-compact-a7x9" -> "conv"
-    # - "conv-before-compact-before-compact-before-compact" -> "conv"
-    # But preserves names like "test-before-compaction" (not a backup suffix)
     import re
+    from datetime import datetime
 
+    # Strip any existing compacted suffixes: -compacted-YYYYMMDDHHMM
+    # This handles repeated compactions by removing previous timestamps
     base_name = conversation_name
     while True:
-        new_name = re.sub(r"-before-compact(-[0-9a-f]{4})?$", "", base_name)
+        # Match -compacted-{8 digits}-{6 digits} pattern
+        new_name = re.sub(r"-compacted-\d{8}-\d{6}$", "", base_name)
         if new_name == base_name:  # No more changes
             break
         base_name = new_name
@@ -379,11 +315,8 @@ def _get_backup_name(conversation_name: str) -> str:
     if not base_name:  # Safety: if entire name was the suffix (shouldn't happen)
         base_name = conversation_name
 
-    # Add unique suffix to prevent collisions
-    import secrets
-
-    random_suffix = secrets.token_hex(2)  # 4 hex chars
-    return f"{base_name}-before-compact-{random_suffix}"
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"{base_name}-compacted-{timestamp}"
 
 
 def autocompact_hook(
@@ -396,9 +329,10 @@ def autocompact_hook(
     has grown too large with massive tool results.
 
     If compacting is needed:
-    1. Forks the conversation to preserve original state
-    2. Applies auto-compacting to current conversation
-    3. Persists the compacted log
+    1. Creates compacted fork (original stays as backup)
+    2. Manager switches to fork automatically
+    3. Applies auto-compacting to fork conversation
+    4. User continues in compacted conversation
 
     Args:
         manager: Conversation manager with log and workspace
@@ -407,6 +341,7 @@ def autocompact_hook(
     import time
 
     from ..llm.models import get_default_model
+    from ..logmanager import Log
     from ..message import len_tokens
 
     global _last_autocompact_time
@@ -428,11 +363,13 @@ def autocompact_hook(
     logger.info("Auto-compacting triggered: conversation has massive tool results")
     _last_autocompact_time = current_time
 
-    # Fork conversation to preserve original state
-    fork_name = _get_backup_name(manager.logfile.parent.name)
+    # Create compacted fork (original stays as backup)
+    fork_name = _get_compacted_name(manager.logfile.parent.name)
     try:
+        # Fork creates compacted conversation (manager switches to fork automatically)
         manager.fork(fork_name)
-        logger.info(f"Forked conversation to '{fork_name}' before compacting")
+
+        logger.info(f"Created compacted conversation: '{fork_name}'")
     except Exception as e:
         logger.error(f"Failed to fork conversation: {e}")
         yield Message(

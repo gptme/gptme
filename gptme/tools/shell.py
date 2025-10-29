@@ -14,10 +14,12 @@ import logging
 import os
 import re
 import select
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -27,6 +29,7 @@ import bashlex
 from ..message import Message
 from ..util import get_installed_programs, get_tokenizer
 from ..util.ask_execute import execute_with_confirmation
+from ..util.output_storage import save_large_output
 from .base import (
     ConfirmFunc,
     Parameter,
@@ -108,6 +111,13 @@ deny_groups = [
             r"chmod\s+777",
         ],
         "Overly permissive chmod operations are blocked. Use safer permissions like `chmod 755` or `chmod 644` and be specific about target files.",
+    ),
+    (
+        [
+            r"pkill\s",
+            r"killall\s",
+        ],
+        "Killing processes indiscriminately is blocked. Use `ps aux | grep <process-name>` to find specific PIDs and `kill <PID>` to terminate them safely.",
     ),
 ]
 
@@ -261,8 +271,6 @@ class ShellSession:
         # Use shlex to properly parse commands and respect quotes
         # Only add for commands that don't already redirect stdin
         try:
-            import shlex
-
             command_parts = list(
                 shlex.shlex(command, posix=True, punctuation_chars=True)
             )
@@ -555,6 +563,7 @@ def _find_first_unquoted_pipe(command: str) -> int | None:
     """Find the position of the first pipe operator that's not in quotes.
 
     Returns None if no unquoted pipe is found.
+    Skips logical OR operators (||).
     """
     quoted_regions = _find_quotes(command)
 
@@ -566,6 +575,12 @@ def _find_first_unquoted_pipe(command: str) -> int | None:
 
         # Check if this pipe is inside quotes
         if not _is_in_quoted_region(pipe_pos, quoted_regions):
+            # Check if this is part of || (logical OR)
+            if pipe_pos + 1 < len(command) and command[pipe_pos + 1] == "|":
+                # Skip the || operator
+                pos = pipe_pos + 2
+                continue
+
             return pipe_pos
 
         # Try next pipe
@@ -614,15 +629,20 @@ def _format_shell_output(
     current_cwd: str,
     timed_out: bool = False,
     timeout_value: float | None = None,
+    logdir: Path | None = None,
 ) -> str:
     """Format shell command output into a message."""
     # Strip ANSI escape sequences from output
     stdout = strip_ansi_codes(stdout)
     stderr = strip_ansi_codes(stderr)
 
-    # Apply shortening logic
-    stdout = _shorten_stdout(stdout, pre_tokens=2000, post_tokens=8000)
-    stderr = _shorten_stdout(stderr, pre_tokens=2000, post_tokens=2000)
+    # Apply shortening logic with output storage
+    stdout = _shorten_stdout(
+        stdout, pre_tokens=2000, post_tokens=8000, logdir=logdir, cmd=cmd
+    )
+    stderr = _shorten_stdout(
+        stderr, pre_tokens=2000, post_tokens=2000, logdir=logdir, cmd=f"{cmd} (stderr)"
+    )
 
     # Format header
     if timed_out:
@@ -667,7 +687,7 @@ def _format_shell_output(
 
 
 def execute_shell_impl(
-    cmd: str, _: Path | None, confirm: ConfirmFunc, timeout: float | None = None
+    cmd: str, logdir: Path | None, confirm: ConfirmFunc, timeout: float | None = None
 ) -> Generator[Message, None, None]:
     """Execute shell command and format output."""
     shell = get_shell()
@@ -722,6 +742,7 @@ def execute_shell_impl(
         current_cwd,
         timed_out,
         timeout_value=timeout,
+        logdir=logdir,
     )
     yield Message("system", msg)
 
@@ -786,7 +807,6 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
         error_codes = default_error_codes
 
     # Write command to temp file
-    import tempfile
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
         f.write("#!/bin/bash\n")
@@ -810,7 +830,6 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
             output = result.stdout.replace(temp_path, "<command>")
 
             # Extract error codes from shellcheck output
-            import re
 
             triggered_codes = set()
             for line in output.splitlines():
@@ -884,7 +903,8 @@ def execute_shell(
 
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
-        yield from execute_shell_impl(cmd, None, lambda _: True, timeout=timeout)
+        logdir = get_path_fn()
+        yield from execute_shell_impl(cmd, logdir, lambda _: True, timeout=timeout)
     else:
         # Create a wrapper function that passes timeout to execute_shell_impl
         def execute_fn(
@@ -926,8 +946,35 @@ def _shorten_stdout(
     post_tokens=None,
     strip_dates=False,
     strip_common_prefix_lines=0,
+    logdir: Path | None = None,
+    cmd: str | None = None,
 ) -> str:
     lines = stdout.split("\n")
+
+    # Save full output before truncation if it will be truncated
+    will_truncate_by_lines = (
+        pre_lines is not None
+        and post_lines is not None
+        and len(lines) > pre_lines + post_lines
+    )
+    will_truncate_by_tokens = False
+    if pre_tokens is not None and post_tokens is not None:
+        tokenizer = get_tokenizer("gpt-4")
+        tokens = tokenizer.encode(stdout)
+        will_truncate_by_tokens = len(tokens) > pre_tokens + post_tokens
+
+    # If truncation will happen, save full output to file
+    saved_path = None
+    if (will_truncate_by_lines or will_truncate_by_tokens) and logdir:
+        command_info = f"Command: {cmd}" if cmd else None
+        original_tokens = len(tokens) if will_truncate_by_tokens else None
+        _, saved_path = save_large_output(
+            content=stdout,
+            logdir=logdir,
+            output_type="shell",
+            command_info=command_info,
+            original_tokens=original_tokens,
+        )
 
     # NOTE: This can cause issues when, for example, reading a CSV with dates in the first column
     if strip_dates:
@@ -950,26 +997,33 @@ def _shorten_stdout(
 
     # check that if pre_lines is set, so is post_lines, and vice versa
     assert (pre_lines is None) == (post_lines is None)
+    # Skip line truncation if token truncation will happen (token truncation is more precise)
     if (
         pre_lines is not None
         and post_lines is not None
         and len(lines) > pre_lines + post_lines
+        and not will_truncate_by_tokens
     ):
-        lines = (
-            lines[:pre_lines]
-            + [f"... ({len(lines) - pre_lines - post_lines} truncated) ..."]
-            + lines[-post_lines:]
-        )
+        truncation_msg = f"... ({len(lines) - pre_lines - post_lines} lines truncated"
+        if saved_path:
+            truncation_msg += f", full output saved to {saved_path}"
+        truncation_msg += ") ..."
+        lines = lines[:pre_lines] + [truncation_msg] + lines[-post_lines:]
 
     # check that if pre_tokens is set, so is post_tokens, and vice versa
     assert (pre_tokens is None) == (post_tokens is None)
     if pre_tokens is not None and post_tokens is not None:
-        tokenizer = get_tokenizer("gpt-4")  # TODO: use sane default
-        tokens = tokenizer.encode(stdout)
+        if not will_truncate_by_tokens:
+            tokenizer = get_tokenizer("gpt-4")  # TODO: use sane default
+            tokens = tokenizer.encode(stdout)
         if len(tokens) > pre_tokens + post_tokens:
+            truncation_msg = "... (output truncated"
+            if saved_path:
+                truncation_msg += f", full output saved to {saved_path}"
+            truncation_msg += ") ..."
             lines = (
                 [tokenizer.decode(tokens[:pre_tokens])]
-                + ["... (truncated output) ..."]
+                + [truncation_msg]
                 + [tokenizer.decode(tokens[-post_tokens:])]
             )
 

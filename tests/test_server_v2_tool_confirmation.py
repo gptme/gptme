@@ -70,7 +70,7 @@ def test_tool_confirmation_flow(
 
     # Verify conversation state
     resp = requests.get(
-        f"http://localhost:{port}/api/v2/conversations/{conversation_id}"
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
     )
     assert resp.status_code == 200
 

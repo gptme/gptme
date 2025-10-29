@@ -24,7 +24,16 @@ class LessonIndex:
 
     @staticmethod
     def _default_dirs() -> list[Path]:
-        """Get default lesson directories."""
+        """Get default lesson directories.
+
+        Searches for lessons in:
+        - User config: ~/.config/gptme/lessons
+        - Current workspace: ./lessons
+        - Project-local: ./.gptme/lessons
+        - Configured directories from gptme.toml
+
+        Also detects .cursorrules files and provides conversion guidance.
+        """
         from pathlib import Path
 
         from ..config import get_config
@@ -40,6 +49,22 @@ class LessonIndex:
         workspace_dir = Path.cwd() / "lessons"
         if workspace_dir.exists():
             dirs.append(workspace_dir)
+
+        # Project-local lessons (.gptme/lessons/)
+        gptme_lessons_dir = Path.cwd() / ".gptme" / "lessons"
+        if gptme_lessons_dir.exists():
+            dirs.append(gptme_lessons_dir)
+
+        # Check for .cursorrules file and provide guidance
+        cursorrules_file = Path.cwd() / ".cursorrules"
+        if cursorrules_file.exists():
+            logger.info(
+                "Found .cursorrules file in project root.\n"
+                "To use with gptme, convert to lesson format:\n"
+                "  cd gptme-contrib/cursorrules\n"
+                "  python3 cursorrules_parser.py to-lesson /path/to/.cursorrules .gptme/lessons/project-rules.md\n"
+                "See docs/lessons/README.md for more information."
+            )
 
         # Configured directories from gptme.toml
         config = get_config()

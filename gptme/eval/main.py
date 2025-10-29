@@ -196,12 +196,18 @@ def aggregate_and_display_results(result_files: list[str]):
     type=click.Choice(get_args(ToolFormat)),
     help="Tool format to use. Can also be specified per model with @format.",
 )
+@click.option(
+    "--use-docker",
+    is_flag=True,
+    help="Run evals in Docker container for isolation (prevents host environment pollution)",
+)
 def main(
     eval_names_or_result_files: list[str],
     _model: list[str],
     timeout: int,
     parallel: int,
     tool_format: ToolFormat | None = None,
+    use_docker: bool = False,
 ):
     """
     Run evals for gptme.
@@ -296,7 +302,9 @@ def main(
         evals_to_run = tests_default
 
     print("=== Running evals ===")
-    model_results = run_evals(evals_to_run, model_configs, timeout, parallel)
+    model_results = run_evals(
+        evals_to_run, model_configs, timeout, parallel, use_docker
+    )
     print("=== Finished ===")
 
     print("\n=== Model Results ===")

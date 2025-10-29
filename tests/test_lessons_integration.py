@@ -329,3 +329,61 @@ class TestDocsLessonsREADME:
             if "readme" in lesson.title.lower()
         ]
         assert len(readme_lessons) == 0, "README.md should not be indexed as a lesson"
+
+
+class TestGptmeLessonsDirectory:
+    """Tests for .gptme/lessons/ directory detection."""
+
+    def test_gptme_lessons_directory_detected(self, tmp_path, monkeypatch):
+        """Test that .gptme/lessons/ directory is detected."""
+        from gptme.lessons import LessonIndex
+
+        # Create .gptme/lessons/ directory structure
+        gptme_dir = tmp_path / ".gptme" / "lessons"
+        gptme_dir.mkdir(parents=True)
+
+        # Create a simple lesson file
+        lesson_file = gptme_dir / "test-lesson.md"
+        lesson_file.write_text("""---
+match:
+  keywords: [test]
+---
+
+# Test Lesson
+
+This is a test lesson for .gptme/lessons/ detection.
+""")
+
+        # Change to tmp directory
+        monkeypatch.chdir(tmp_path)
+
+        # Create index (should auto-detect .gptme/lessons/)
+        index = LessonIndex()
+
+        # Verify the .gptme/lessons/ directory is included
+        assert any(".gptme/lessons" in str(d) for d in index.lesson_dirs)
+
+        # Verify the lesson is loaded
+        assert len(index.lessons) >= 1
+        assert any(
+            "test-lesson" in lesson.path.name.lower() for lesson in index.lessons
+        )
+
+    def test_cursorrules_detection_logged(self, tmp_path, monkeypatch, caplog):
+        """Test that .cursorrules file detection logs helpful message."""
+        from gptme.lessons import LessonIndex
+
+        # Create .cursorrules file
+        cursorrules_file = tmp_path / ".cursorrules"
+        cursorrules_file.write_text("# Example Cursor rules\n")
+
+        # Change to tmp directory
+        monkeypatch.chdir(tmp_path)
+
+        # Create index (should detect .cursorrules)
+        with caplog.at_level("INFO"):
+            LessonIndex()
+
+        # Verify helpful message was logged
+        assert any("cursorrules" in record.message.lower() for record in caplog.records)
+        assert any("convert" in record.message.lower() for record in caplog.records)

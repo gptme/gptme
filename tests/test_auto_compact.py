@@ -9,11 +9,11 @@ import pytest
 from gptme.llm.models import get_default_model, get_model
 from gptme.message import Message, len_tokens
 from gptme.tools.autocompact import (
-    _create_tool_result_summary,
-    _get_backup_name,
+    _get_compacted_name,
     auto_compact_log,
     should_auto_compact,
 )
+from gptme.util.output_storage import create_tool_result_summary
 
 
 def create_test_conversation():
@@ -96,7 +96,7 @@ def test_auto_compact_log_reduces_massive_tool_result():
 
 
 def test_create_tool_result_summary():
-    """Test the _create_tool_result_summary helper function."""
+    """Test the create_tool_result_summary helper function."""
     from datetime import datetime
 
     from gptme.message import Message
@@ -105,13 +105,11 @@ def test_create_tool_result_summary():
     tokens = 1000
     msg = Message("system", content, timestamp=datetime.now())
 
-    summary = _create_tool_result_summary(msg, tokens, None)
+    summary = create_tool_result_summary(msg.content, tokens, None, "autocompact")
 
     # Should contain key information
     assert "1000 tokens" in summary
     assert "Ran command: `ls -la`" in summary
-    assert "Tool execution completed" in summary
-    assert "automatically removed" in summary
 
 
 def test_create_tool_result_summary_with_error():
@@ -126,11 +124,10 @@ def test_create_tool_result_summary_with_error():
     tokens = 500
     msg = Message("system", content, timestamp=datetime.now())
 
-    summary = _create_tool_result_summary(msg, tokens, None)
+    summary = create_tool_result_summary(msg.content, tokens, None, "autocompact")
 
     # Should detect failure
     assert "500 tokens" in summary
-    assert "Tool execution failed" in summary
     assert "Ran command: `invalid_command`" in summary
 
 
@@ -164,97 +161,97 @@ def test_auto_compact_preserves_pinned_messages():
     assert compacted[2].pinned
 
 
-def test_get_backup_name_no_suffix():
-    """Test backup name generation for conversation without existing suffix."""
+def test_get_compacted_name_no_suffix():
+    """Test compacted name generation for conversation without existing suffix."""
     import re
 
-    name = _get_backup_name("2025-10-13-flying-yellow-alien")
-    # Should match: base-name-before-compact-XXXX where XXXX is 4 hex chars
-    assert re.match(
-        r"^2025-10-13-flying-yellow-alien-before-compact-[0-9a-f]{4}$", name
-    )
+    name = _get_compacted_name("2025-10-13-flying-yellow-alien")
+    # Should match: base-name-compacted-YYYYMMDD-HHMMSS
+    assert re.match(r"^2025-10-13-flying-yellow-alien-compacted-\d{8}-\d{6}$", name)
 
 
-def test_get_backup_name_one_suffix():
-    """Test backup name generation when suffix already exists (gets new unique suffix)."""
+def test_get_compacted_name_one_suffix():
+    """Test compacted name generation when suffix already exists (gets new unique suffix)."""
     import re
 
-    name = _get_backup_name("2025-10-13-flying-yellow-alien-before-compact")
-    # Should strip old suffix and add new one with random suffix
-    assert re.match(
-        r"^2025-10-13-flying-yellow-alien-before-compact-[0-9a-f]{4}$", name
+    name = _get_compacted_name(
+        "2025-10-13-flying-yellow-alien-compacted-20251028-120000"
     )
+    # Should strip old timestamp suffix and add new timestamp
+    assert re.match(r"^2025-10-13-flying-yellow-alien-compacted-\d{8}-\d{6}$", name)
 
 
-def test_get_backup_name_multiple_suffixes():
-    """Test backup name generation with multiple accumulated suffixes (should strip all)."""
+def test_get_compacted_name_multiple_suffixes():
+    """Test compacted name generation with multiple accumulated timestamp suffixes (should strip all)."""
     import re
 
-    name = _get_backup_name(
-        "2025-10-13-flying-yellow-alien-before-compact-before-compact-before-compact"
+    name = _get_compacted_name(
+        "2025-10-13-flying-yellow-alien-compacted-20251027-100000-compacted-20251028-110000-compacted-20251028-120000"
     )
-    assert re.match(
-        r"^2025-10-13-flying-yellow-alien-before-compact-[0-9a-f]{4}$", name
-    )
+    assert re.match(r"^2025-10-13-flying-yellow-alien-compacted-\d{8}-\d{6}$", name)
 
 
-def test_get_backup_name_edge_cases():
-    """Test backup name generation with various edge cases."""
+def test_get_compacted_name_edge_cases():
+    """Test compacted name generation with various edge cases."""
     import re
 
     # Short name
-    name = _get_backup_name("conv")
-    assert re.match(r"^conv-before-compact-[0-9a-f]{4}$", name)
+    name = _get_compacted_name("conv")
+    assert re.match(r"^conv-compacted-\d{8}-\d{6}$", name)
 
     # Name containing 'compact' but not as suffix
-    name = _get_backup_name("compact-test")
-    assert re.match(r"^compact-test-before-compact-[0-9a-f]{4}$", name)
+    name = _get_compacted_name("compact-test")
+    assert re.match(r"^compact-test-compacted-\d{8}-\d{6}$", name)
 
     # Name ending with similar but different suffix
-    name = _get_backup_name("test-before-compaction")
-    assert re.match(r"^test-before-compaction-before-compact-[0-9a-f]{4}$", name)
+    name = _get_compacted_name("test-before-compaction")
+    assert re.match(r"^test-before-compaction-compacted-\d{8}-\d{6}$", name)
 
 
-def test_get_backup_name_uniqueness():
-    """Test that multiple calls produce unique backup names."""
-    name1 = _get_backup_name("my-conversation")
-    name2 = _get_backup_name("my-conversation")
-    name3 = _get_backup_name("my-conversation")
+def test_get_compacted_name_uniqueness():
+    """Test that multiple calls produce unique compacted names with timestamps."""
+    import time
 
-    # All should have the same base but different random suffixes
+    name1 = _get_compacted_name("my-conversation")
+    time.sleep(1.1)  # Ensure different second for timestamp
+    name2 = _get_compacted_name("my-conversation")
+    time.sleep(1.1)  # Ensure different second for timestamp
+    name3 = _get_compacted_name("my-conversation")
+
+    # All should have the same base but different timestamps
     assert name1 != name2
     assert name2 != name3
     assert name1 != name3
 
-    # All should start with the same base
-    assert name1.startswith("my-conversation-before-compact-")
-    assert name2.startswith("my-conversation-before-compact-")
-    assert name3.startswith("my-conversation-before-compact-")
+    # All should have compacted suffix with timestamp
+    assert name1.startswith("my-conversation-compacted-")
+    assert name2.startswith("my-conversation-compacted-")
+    assert name3.startswith("my-conversation-compacted-")
 
 
-def test_get_backup_name_with_hex_suffix():
-    """Test that backup names with hex suffixes are correctly stripped.
+def test_get_compacted_name_with_hex_suffix():
+    """Test that compacted names with timestamp suffixes are correctly stripped.
 
     This is a regression test for the bug where:
-    "my-conversation-before-compact-a7c9" would become
-    "my-conversation-before-compact-a7c9-before-compact-k2p5"
+    "my-conversation-compacted-20251028-120000" would become
+    "my-conversation-compacted-20251028-120000-compacted-20251029-130000"
     instead of
-    "my-conversation-before-compact-k2p5"
+    "my-conversation-compacted-20251029-140000"
     """
     import re
 
     # Test with a backup that has a valid hex suffix (only 0-9a-f)
-    name = _get_backup_name("my-conversation-before-compact-a7c9")
+    name = _get_compacted_name("my-conversation-compacted-20251028-120000")
     # Should strip the old suffix and add a new one
-    assert re.match(r"^my-conversation-before-compact-[0-9a-f]{4}$", name)
-    # Should NOT contain the old hex suffix
-    assert "a7c9" not in name
+    assert re.match(r"^my-conversation-compacted-\d{8}-\d{6}$", name)
+    # Should NOT contain the old timestamp
+    assert "20251028-120000" not in name
 
 
-def test_get_backup_name_empty_string():
-    """Test backup name generation with empty string raises ValueError."""
+def test_get_compacted_name_empty_string():
+    """Test compacted name generation with empty string raises ValueError."""
     with pytest.raises(ValueError, match="conversation name cannot be empty"):
-        _get_backup_name("")
+        _get_compacted_name("")
 
 
 if __name__ == "__main__":

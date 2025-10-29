@@ -31,6 +31,7 @@ from .api import _abs_to_rel_workspace
 from .api_v2_agents import agents_api
 from .api_v2_common import msg2dict
 from .api_v2_sessions import SessionManager, sessions_api
+from .auth import require_auth
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
     ConversationCreateRequest,
@@ -69,6 +70,7 @@ def api_root():
 
 
 @v2_api.route("/api/v2/conversations")
+@require_auth
 @api_doc_simple(
     responses={200: ConversationListResponse, 500: ErrorResponse},
     tags=["conversations-v2"],
@@ -92,6 +94,7 @@ def api_conversations():
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>")
+@require_auth
 @api_doc_simple(
     responses={200: ConversationResponse, 404: ErrorResponse}, tags=["conversations-v2"]
 )
@@ -117,6 +120,7 @@ def api_conversation(conversation_id: str):
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["PUT"])
+@require_auth
 @api_doc(
     summary="Create conversation (V2)",
     description="Create a new conversation with initial configuration and messages using the V2 API",
@@ -199,6 +203,7 @@ def api_conversation_put(conversation_id: str):
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["POST"])
+@require_auth
 @api_doc(
     summary="Add message to conversation (V2)",
     description="Add a new message to an existing conversation using the V2 API",
@@ -247,6 +252,7 @@ def api_conversation_post(conversation_id: str):
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["DELETE"])
+@require_auth
 @api_doc(
     summary="Delete conversation (V2)",
     description="Delete a conversation and all its data using the V2 API",
@@ -294,6 +300,7 @@ def api_conversation_delete(conversation_id: str):
 
 
 @v2_api.route("/api/v2/models")
+@require_auth
 @api_doc_simple(
     responses={200: StatusResponse, 500: ErrorResponse},
     tags=["models"],
@@ -350,6 +357,7 @@ def api_models():
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["GET"])
+@require_auth
 def api_conversation_config(conversation_id: str):
     """Get the chat config for a conversation."""
     logdir = get_logs_dir() / conversation_id
@@ -367,6 +375,7 @@ def api_conversation_config(conversation_id: str):
 @v2_api.route(
     "/api/v2/conversations/<string:conversation_id>/config", methods=["PATCH"]
 )
+@require_auth
 def api_conversation_config_patch(conversation_id: str):
     """Update the chat config for a conversation."""
     req_json = flask.request.json

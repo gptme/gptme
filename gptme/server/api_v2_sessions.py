@@ -31,6 +31,7 @@ from ..message import Message
 from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools, init_tools
 from .api_v2_common import ConfigChangedEvent, ErrorEvent, EventType, msg2dict
+from .auth import require_auth
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
     ErrorResponse,
@@ -494,6 +495,7 @@ sessions_api = flask.Blueprint("sessions_api", __name__)
 
 
 @sessions_api.route("/api/v2/conversations/<string:conversation_id>/events")
+@require_auth
 @api_doc(
     summary="Subscribe to conversation events (V2)",
     description="Subscribe to real-time conversation events via Server-Sent Events stream",
@@ -583,6 +585,7 @@ def api_conversation_events(conversation_id: str):
 @sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/step", methods=["POST"]
 )
+@require_auth
 @api_doc(
     summary="Take conversation step (V2)",
     description="Take a step in the conversation - generate a response or continue after tool execution",
@@ -659,6 +662,7 @@ def api_conversation_step(conversation_id: str):
 @sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/tool/confirm", methods=["POST"]
 )
+@require_auth
 @api_doc(
     summary="Confirm tool execution (V2)",
     description="Confirm, edit, skip, or auto-confirm a pending tool execution",
@@ -755,6 +759,7 @@ def api_conversation_tool_confirm(conversation_id: str):
 @sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/interrupt", methods=["POST"]
 )
+@require_auth
 @api_doc(
     summary="Interrupt conversation (V2)",
     description="Interrupt the current generation or tool execution in a conversation",

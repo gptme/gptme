@@ -420,7 +420,8 @@ def execute_cmd(msg: Message, log: LogManager, confirm: ConfirmFunc) -> bool:
 
     # if message starts with / treat as command
     # when command has been run,
-    if msg.content.startswith("/"):
+    # absolute paths dont trigger false positives by checking for single /
+    if msg.content.startswith("/") and msg.content.split(" ")[0].count("/") == 1:
         for resp in handle_cmd(msg.content, log, confirm):
             log.append(resp)
         return True

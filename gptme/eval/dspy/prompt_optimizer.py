@@ -23,6 +23,7 @@ from .metrics import (
     create_composite_metric,
     create_trajectory_feedback_metric,
 )
+from .reasoning_program import GptmeReasoningProgram
 from .signatures import GptmeTaskSignature, PromptImprovementSignature
 
 logger = logging.getLogger(__name__)
@@ -182,6 +183,7 @@ class PromptOptimizer:
         max_metric_calls: int | None = None,
         reflection_minibatch_size: int = 3,
         num_threads: int = 4,
+        use_reasoning_program: bool = False,
     ):
         self.model = model
         self.optimizer_type = optimizer_type
@@ -193,6 +195,7 @@ class PromptOptimizer:
         self.max_metric_calls = max_metric_calls
         self.reflection_minibatch_size = reflection_minibatch_size
         self.num_threads = num_threads
+        self.use_reasoning_program = use_reasoning_program
         self._setup_dspy()
 
     def _setup_dspy(self):
@@ -224,7 +227,12 @@ class PromptOptimizer:
         val_data = PromptDataset(eval_specs[train_size : train_size + val_size])
 
         # Create module and optimizer
-        module = GptmeModule(base_prompt, self.model)
+        # Create module based on configuration
+        if self.use_reasoning_program:
+            # Multi-stage reasoning for GEPA optimization (Phase 1.3)
+            module = GptmeReasoningProgram(base_prompt)
+        else:
+            module = GptmeModule(base_prompt, self.model)
         optimizer = self._create_optimizer(eval_specs)
 
         try:

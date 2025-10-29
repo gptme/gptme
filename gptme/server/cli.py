@@ -10,6 +10,7 @@ from gptme.config import set_config_from_workspace
 from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
 from .api import create_app
+from .auth import get_server_token, init_auth
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +84,41 @@ def serve(
 
     click.echo("Initialization complete, starting server")
 
+    # Initialize authentication and display token
+    init_auth(display=True)
+
     app = create_app(cors_origin=cors_origin)
 
     try:
         app.run(debug=debug, host=host, port=int(port))
     finally:
         shutdown_telemetry()
+
+
+@main.command("token")
+def show_token():
+    """Display the server authentication token."""
+    token = get_server_token()
+    if token:
+        click.echo("=" * 60)
+        click.echo("gptme-server Authentication Token")
+        click.echo("=" * 60)
+        click.echo(f"Token: {token}")
+        click.echo("")
+        click.echo("Use this token in the Authorization header:")
+        click.echo(f"  Authorization: Bearer {token}")
+        click.echo("=" * 60)
+    else:
+        click.echo("=" * 60)
+        click.echo("gptme-server Authentication")
+        click.echo("=" * 60)
+        click.echo("Authentication is DISABLED (no token configured)")
+        click.echo("")
+        click.echo(
+            "To enable authentication, set the GPTME_SERVER_TOKEN environment variable:"
+        )
+        click.echo("  GPTME_SERVER_TOKEN=your-secret-token gptme-server serve")
+        click.echo("=" * 60)
 
 
 @main.command("openapi")
