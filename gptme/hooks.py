@@ -5,7 +5,7 @@ from collections.abc import Generator
 from dataclasses import dataclass, field
 from enum import Enum
 from time import time
-from typing import Any
+from typing import Any, Literal, overload
 
 from .message import Message
 
@@ -148,11 +148,43 @@ class GenerationPreHook(Protocol):
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
-class FilePostSaveHook(Protocol):
-    """Hook called after saving a file."""
+class FilePreSaveHook(Protocol):
+    """Hook called before saving a file.
+
+    Args:
+        log: Conversation log (optional, may be None)
+        workspace: Workspace directory path (optional, may be None)
+        path: Path to file being saved
+        content: Content to be saved
+    """
 
     def __call__(
-        self, path: Path, content: str, created: bool
+        self,
+        log: "Log | None",
+        workspace: Path | None,
+        path: Path,
+        content: str,
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+class FilePostSaveHook(Protocol):
+    """Hook called after saving a file.
+
+    Args:
+        log: Conversation log (optional, may be None)
+        workspace: Workspace directory path (optional, may be None)
+        path: Path to file that was saved
+        content: Content that was saved
+        created: Whether file was newly created (vs overwritten)
+    """
+
+    def __call__(
+        self,
+        log: "Log | None",
+        workspace: Path | None,
+        path: Path,
+        content: str,
+        created: bool,
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
@@ -164,6 +196,7 @@ HookFunc = (
     | MessageProcessHook
     | LoopContinueHook
     | GenerationPreHook
+    | FilePreSaveHook
     | FilePostSaveHook
 )
 
@@ -342,6 +375,106 @@ class HookRegistry:
 _registry = HookRegistry()
 
 
+# Type-safe overloads for register_hook
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.SESSION_START],
+    func: SessionStartHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.SESSION_END],
+    func: SessionEndHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[
+        HookType.TOOL_PRE_EXECUTE,
+        HookType.TOOL_POST_EXECUTE,
+    ],
+    func: ToolExecuteHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.FILE_PRE_SAVE],
+    func: FilePreSaveHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.FILE_POST_SAVE],
+    func: FilePostSaveHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.LOOP_CONTINUE],
+    func: LoopContinueHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.GENERATION_PRE],
+    func: GenerationPreHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[
+        HookType.MESSAGE_PRE_PROCESS,
+        HookType.MESSAGE_POST_PROCESS,
+        HookType.MESSAGE_TRANSFORM,
+    ],
+    func: MessageProcessHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+# Implementation (catches all other cases)
+# Fallback overload for dynamic registration (when hook_type is not a Literal)
+@overload
+def register_hook(
+    name: str,
+    hook_type: HookType,  # Non-Literal type
+    func: HookFunc,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
 def register_hook(
     name: str,
     hook_type: HookType,
@@ -349,7 +482,12 @@ def register_hook(
     priority: int = 0,
     enabled: bool = True,
 ) -> None:
-    """Register a hook with the global registry."""
+    """Register a hook with the global registry.
+
+    Type-safe overloads ensure that registered hooks match their expected Protocol signatures.
+    Direct calls with Literal hook types get strict type checking.
+    Dynamic calls (non-Literal types) use the generic HookFunc fallback.
+    """
     _registry.register(name, hook_type, func, priority, enabled)
 
 

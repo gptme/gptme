@@ -43,7 +43,7 @@ from ..util.context import md_codeblock
 from .base import ToolSpec
 
 if TYPE_CHECKING:
-    from ..logmanager import LogManager
+    from ..logmanager import Log, LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -188,10 +188,11 @@ def handle_precommit_command(ctx: CommandContext) -> Generator[Message, None, No
 
 
 def run_precommit_on_file(
+    log: "Log | None",
+    workspace: Path | None,
     path: Path,
     content: str,
     created: bool = False,
-    **kwargs,
 ) -> Generator[Message, None, None]:
     """Hook function that runs pre-commit on saved files.
 
