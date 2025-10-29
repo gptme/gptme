@@ -2,6 +2,7 @@
 Tests for auto-compacting functionality that handles conversations with massive tool results.
 """
 
+import time
 from datetime import datetime
 
 import pytest
@@ -166,7 +167,7 @@ def test_get_compacted_name_no_suffix():
     import re
 
     name = _get_compacted_name("2025-10-13-flying-yellow-alien")
-    # Should match: base-name-compacted-YYYYMMDD-HHMMSS
+    # Should match: base-name-before-compact-XXXX where XXXX is timestamp suffix YYYYMMDD-HHMMSS
     assert re.match(r"^2025-10-13-flying-yellow-alien-compacted-\d{8}-\d{6}$", name)
 
 
@@ -175,18 +176,18 @@ def test_get_compacted_name_one_suffix():
     import re
 
     name = _get_compacted_name(
-        "2025-10-13-flying-yellow-alien-compacted-20251028-120000"
+        "2025-10-13-flying-yellow-alien-compacted-20251029-100000"
     )
-    # Should strip old timestamp suffix and add new timestamp
+    # Should strip old suffix and add new one with timestamp
     assert re.match(r"^2025-10-13-flying-yellow-alien-compacted-\d{8}-\d{6}$", name)
 
 
 def test_get_compacted_name_multiple_suffixes():
-    """Test compacted name generation with multiple accumulated timestamp suffixes (should strip all)."""
+    """Test compacted name generation with multiple accumulated suffixes (should strip all)."""
     import re
 
     name = _get_compacted_name(
-        "2025-10-13-flying-yellow-alien-compacted-20251027-100000-compacted-20251028-110000-compacted-20251028-120000"
+        "2025-10-13-flying-yellow-alien-compacted-20251028-120000-compacted-20251029-090000"
     )
     assert re.match(r"^2025-10-13-flying-yellow-alien-compacted-\d{8}-\d{6}$", name)
 
@@ -209,13 +210,11 @@ def test_get_compacted_name_edge_cases():
 
 
 def test_get_compacted_name_uniqueness():
-    """Test that multiple calls produce unique compacted names with timestamps."""
-    import time
-
+    """Test that multiple calls produce unique compacted names."""
     name1 = _get_compacted_name("my-conversation")
-    time.sleep(1.1)  # Ensure different second for timestamp
+    time.sleep(1.1)  # Ensure unique timestamps (second-level resolution)
     name2 = _get_compacted_name("my-conversation")
-    time.sleep(1.1)  # Ensure different second for timestamp
+    time.sleep(1.1)
     name3 = _get_compacted_name("my-conversation")
 
     # All should have the same base but different timestamps
@@ -223,7 +222,7 @@ def test_get_compacted_name_uniqueness():
     assert name2 != name3
     assert name1 != name3
 
-    # All should have compacted suffix with timestamp
+    # All should start with the same base
     assert name1.startswith("my-conversation-compacted-")
     assert name2.startswith("my-conversation-compacted-")
     assert name3.startswith("my-conversation-compacted-")
@@ -234,13 +233,13 @@ def test_get_compacted_name_with_hex_suffix():
 
     This is a regression test for the bug where:
     "my-conversation-compacted-20251028-120000" would become
-    "my-conversation-compacted-20251028-120000-compacted-20251029-130000"
+    "my-conversation-compacted-20251028-120000-compacted-20251029-100000"
     instead of
-    "my-conversation-compacted-20251029-140000"
+    "my-conversation-compacted-20251029-100000"
     """
     import re
 
-    # Test with a backup that has a valid hex suffix (only 0-9a-f)
+    # Test with a compacted name that has a valid timestamp suffix
     name = _get_compacted_name("my-conversation-compacted-20251028-120000")
     # Should strip the old suffix and add a new one
     assert re.match(r"^my-conversation-compacted-\d{8}-\d{6}$", name)
