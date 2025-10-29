@@ -31,6 +31,51 @@ def main(verbose: bool = False):
 
 
 @main.group()
+def providers():
+    """Commands for managing custom providers."""
+    pass
+
+
+@providers.command("list")
+def providers_list():
+    """List configured custom OpenAI-compatible providers."""
+
+    config = get_config()
+
+    if not config.user.providers:
+        click.echo("📭 No custom providers configured")
+        click.echo()
+        click.echo("To add a custom provider, add to your gptme.toml:")
+        click.echo()
+        click.echo("[[providers]]")
+        click.echo('name = "my-provider"')
+        click.echo('base_url = "http://localhost:8000/v1"')
+        click.echo('api_key_env = "MY_PROVIDER_API_KEY"')
+        click.echo('default_model = "my-model"')
+        return
+
+    click.echo(f"🔌 Found {len(config.user.providers)} custom provider(s):")
+    click.echo()
+
+    for provider in config.user.providers:
+        click.echo(f"📡 {provider.name}")
+        click.echo(f"   Base URL: {provider.base_url}")
+
+        # Show API key source (but not the actual key)
+        if provider.api_key:
+            click.echo("   API Key: (configured directly)")
+        elif provider.api_key_env:
+            click.echo(f"   API Key: ${provider.api_key_env}")
+        else:
+            click.echo(f"   API Key: ${provider.name.upper()}_API_KEY (default)")
+
+        if provider.default_model:
+            click.echo(f"   Default Model: {provider.default_model}")
+
+        click.echo()
+
+
+@main.group()
 def mcp():
     """Commands for managing MCP servers."""
     pass

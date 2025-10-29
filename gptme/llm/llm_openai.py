@@ -143,7 +143,19 @@ def init(provider: Provider, config: Config):
         api_key = config.get_env("OPENAI_API_KEY") or "ollama"
         clients[provider] = OpenAI(api_key=api_key, base_url=api_base, timeout=timeout)
     else:
-        raise ValueError(f"Unknown provider: {provider}")
+        # Check if this is a custom provider
+        custom_provider = next(
+            (p for p in config.user.providers if p.name == provider), None
+        )
+        if custom_provider:
+            api_key = custom_provider.get_api_key(config)
+            clients[provider] = OpenAI(
+                api_key=api_key,
+                base_url=custom_provider.base_url,
+                timeout=timeout,
+            )
+        else:
+            raise ValueError(f"Unknown provider: {provider}")
 
     assert clients[provider], f"Provider {provider} not initialized"
 

@@ -44,6 +44,26 @@ class MCPServerConfig:
 
 
 @dataclass
+class ProviderConfig:
+    """Configuration for a custom OpenAI-compatible provider."""
+
+    name: str
+    base_url: str
+    api_key: str | None = None
+    api_key_env: str | None = None
+    default_model: str | None = None
+
+    def get_api_key(self, config: "Config") -> str:
+        """Get the API key from direct value or environment variable."""
+        if self.api_key:
+            return self.api_key
+        if self.api_key_env:
+            return config.get_env_required(self.api_key_env)
+        # Default to provider name in uppercase
+        return config.get_env(f"{self.name.upper()}_API_KEY") or "default-key"
+
+
+@dataclass
 class MCPConfig:
     """Configuration for :ref:`Model Context Protocol <MCP>` support, including which MCP servers to use."""
 
@@ -88,6 +108,7 @@ class UserConfig:
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
+    providers: list[ProviderConfig] = field(default_factory=list)
 
 
 @dataclass
@@ -235,10 +256,14 @@ def load_user_config(path: str | None = None) -> UserConfig:
     env = config.pop("env", {})
     mcp = MCPConfig.from_dict(config.pop("mcp", {}))
 
+    # Parse custom providers
+    providers_config = config.pop("providers", [])
+    providers = [ProviderConfig(**provider) for provider in providers_config]
+
     if config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
 
-    return UserConfig(prompt=prompt, env=env, mcp=mcp)
+    return UserConfig(prompt=prompt, env=env, mcp=mcp, providers=providers)
 
 
 def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
