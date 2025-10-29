@@ -280,7 +280,7 @@ def _get_compacted_name(conversation_name: str) -> str:
     The original conversation stays untouched as the backup.
     The fork gets a new name with timestamp to identify when compaction occurred.
 
-    Strips any existing -compacted-YYYYMMDDHHMM suffixes to prevent accumulation
+    Strips any existing -compacted-YYYYMMDD-HHMMSS suffixes to prevent accumulation
     on repeated compactions.
 
     Examples:
