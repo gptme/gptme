@@ -206,4 +206,4 @@ gptme --verbose
 
 - [Cursor Rules Documentation](https://cursor.com/docs/context/rules)
 - [gptme-contrib Repository](https://github.com/gptme/gptme-contrib)
-- [Lesson System Architecture](https://github.com/gptme/gptme/blob/master/lessons/README.md)
+- [Lesson System Architecture](https://github.com/gptme/gptme/blob/master/docs/lessons/README.md)
