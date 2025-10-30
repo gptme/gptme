@@ -33,6 +33,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
 
 def in_docker() -> bool:
@@ -106,8 +107,6 @@ def docker_reexec(argv: list[str]) -> None:
     result = subprocess.run(docker_cmd)
     sys.exit(result.returncode)
 
-
-logger = logging.getLogger(__name__)
 
 project_dir = Path(__file__).parent.parent.parent
 
