@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from gptme.config import RagConfig
-from gptme.tools.rag import _has_gptme_rag, _run_rag_cmd, _tiered_search
+from gptme.tools.rag import _has_gptme_rag, _tiered_search
 
 
 def benchmark_baseline_performance(
@@ -42,20 +42,16 @@ def benchmark_baseline_performance(
     ] * (num_queries // 5)
 
     latencies = []
+    # Use internal _tiered_search with tiered_search=False for baseline
+    rag_config = RagConfig(enabled=True, tiered_search=False)
 
     for query in test_queries[:num_queries]:
-        # Measure baseline (single-tier) search
-        cmd = [
-            "gptme-rag",
-            "search",
-            query,
-        ]
-
+        # Measure baseline (single-tier) search using internal function
         start = time.perf_counter()
         try:
-            result = _run_rag_cmd(cmd)
+            result = _tiered_search(query, workspace, rag_config)
             elapsed = (time.perf_counter() - start) * 1000  # ms
-            if result.returncode == 0:
+            if result:
                 latencies.append(elapsed)
         except Exception as e:
             print(f"  Warning: Query failed: {e}")
