@@ -126,6 +126,9 @@ def require_auth(f):
 
         # Authentication is required for network binding
         server_token = get_server_token()
+        if not server_token:
+            logger.error("Server token not available but auth is enabled")
+            return jsonify({"error": "Authentication system error"}), 500
 
         # Check Authorization header first (preferred method)
         auth_header = request.headers.get("Authorization")
