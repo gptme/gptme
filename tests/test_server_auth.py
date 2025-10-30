@@ -18,18 +18,23 @@ def auth_token():
     """Set up auth token for tests."""
     import gptme.server.auth
 
-    # Save original token
+    # Save original state
     original_token = gptme.server.auth._server_token
+    original_auth_enabled = gptme.server.auth._auth_enabled
 
     token = "test-token-12345"
     os.environ["GPTME_SERVER_TOKEN"] = token
     gptme.server.auth._server_token = None  # Force regeneration
+
+    # Enable auth for tests (simulate network binding)
+    gptme.server.auth.init_auth("0.0.0.0")
 
     yield token
 
     # Cleanup
     os.environ.pop("GPTME_SERVER_TOKEN", None)
     gptme.server.auth._server_token = original_token
+    gptme.server.auth._auth_enabled = original_auth_enabled
 
 
 def test_auth_success(auth_token):
