@@ -272,6 +272,9 @@ def step(
         ):
             for msg in session_start_msgs:
                 _append_and_notify(manager, session, msg)
+            # Write messages to disk to ensure they're persisted
+            manager.write()
+            logger.debug("Wrote SESSION_START hook messages to disk")
 
     # TODO: This is not the best way to manage the chdir state, since it's
     # essentially a shared global across chats (bad), but the fix at least
@@ -304,6 +307,9 @@ def step(
     ):
         for msg in pre_msgs:
             _append_and_notify(manager, session, msg)
+        # Write messages to disk to ensure they're persisted
+        manager.write()
+        logger.debug("Wrote MESSAGE_PRE_PROCESS hook messages to disk")
 
     # Notify clients about generation status
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
@@ -344,7 +350,9 @@ def step(
         # Persist the assistant message
         msg = Message("assistant", output)
         _append_and_notify(manager, session, msg)
-        logger.debug("Persisted assistant message")
+        # Write immediately after assistant message to ensure it's persisted
+        manager.write()
+        logger.debug("Persisted assistant message and wrote to disk")
 
         # Trigger MESSAGE_POST_PROCESS hook
         if post_msgs := trigger_hook(
@@ -353,6 +361,11 @@ def step(
         ):
             for msg in post_msgs:
                 _append_and_notify(manager, session, msg)
+
+        # Write messages to disk to ensure they're persisted
+        # This fixes race condition where messages might not be available when log is retrieved
+        manager.write()
+        logger.debug("Wrote messages to disk")
 
         # Auto-generate display name for first assistant response if not already set
         # TODO: Consider implementing via hook system to streamline with CLI implementation
