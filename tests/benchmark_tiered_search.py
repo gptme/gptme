@@ -49,10 +49,6 @@ def benchmark_baseline_performance(
             "gptme-rag",
             "search",
             query,
-            "--workspace",
-            str(workspace),
-            "--max-results",
-            "10",
         ]
 
         start = time.perf_counter()
