@@ -198,26 +198,40 @@ def test_message_post_process_hook(client: FlaskClient):
 
         assert response.status_code == 200
 
-        # Wait for step to complete
-        time.sleep(3)
+        # Poll for hook message with timeout (handles different model speeds)
+        max_wait = 10  # seconds (was 3)
+        poll_interval = 0.5  # seconds
+        hook_messages = []
 
-        # Verify hook message was added
-        response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
-        assert response.status_code == 200
-        data = response.get_json()
+        for attempt in range(int(max_wait / poll_interval)):
+            time.sleep(poll_interval)
 
-        messages = data.get("log", [])
+            # Fetch latest messages
+            response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
+            assert response.status_code == 200
+            data = response.get_json()
+            messages = data.get("log", [])
 
-        # Debug: print all messages to see what we have
-        print(f"\n=== DEBUG: Total messages in log: {len(messages)} ===")
-        for i, m in enumerate(messages):
-            role = m.get("role", "?")
-            content = m.get("content", "")[:100]
-            print(f"  [{i}] {role}: {content}")
+            # Check for hook message
+            hook_messages = [
+                m
+                for m in messages
+                if "POST_PROCESS hook triggered" in m.get("content", "")
+            ]
 
-        hook_messages = [
-            m for m in messages if "POST_PROCESS hook triggered" in m.get("content", "")
-        ]
+            if len(hook_messages) > 0:
+                print(
+                    f"\n=== POST_PROCESS hook found after {(attempt + 1) * poll_interval}s ==="
+                )
+                break
+
+        # Debug: print all messages if hook not found
+        if len(hook_messages) == 0:
+            print(f"\n=== DEBUG: Total messages in log: {len(messages)} ===")
+            for i, m in enumerate(messages):
+                role = m.get("role", "?")
+                content = m.get("content", "")[:100]
+                print(f"  [{i}] {role}: {content}")
         assert (
             len(hook_messages) > 0
         ), f"MESSAGE_POST_PROCESS hook message should be in log. Found {len(messages)} messages, searched for 'POST_PROCESS hook triggered'"
