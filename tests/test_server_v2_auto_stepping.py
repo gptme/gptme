@@ -92,12 +92,15 @@ def test_auto_stepping(
 
     messages = resp.json()["log"]
 
-    # Verify message sequence
-    assert len(messages) == 7, f"Expected 7 messages, got {len(messages)}"
+    # Verify message sequence (including SESSION_START hook and TOKEN_BUDGET system message)
+    assert len(messages) == 9, f"Expected 9 messages, got {len(messages)}"
     assert messages[0]["role"] == "system" and "testing" in messages[0]["content"]
-    assert messages[1]["role"] == "user"
-    assert messages[2]["role"] == "assistant"
-    assert messages[3]["role"] == "system"
+    # messages[1] is SESSION_START hook message (triggers before user message)
+    assert messages[1]["role"] == "system"
+    assert messages[2]["role"] == "user"
+    assert messages[3]["role"] == "system" and "token_budget" in messages[3]["content"]
     assert messages[4]["role"] == "assistant"
     assert messages[5]["role"] == "system"
     assert messages[6]["role"] == "assistant"
+    assert messages[7]["role"] == "system"
+    assert messages[8]["role"] == "assistant"
