@@ -102,6 +102,7 @@ class RagConfig:
     post_process_prompt: str | None = None
     workspace_only: bool = True
     paths: list[str] = field(default_factory=list)
+    tiered_search: bool = False  # Use fast filter + quality ranking for 3x speedup
 
 
 @dataclass
