@@ -74,13 +74,16 @@ def test_tool_confirmation_flow(
     )
     assert resp.status_code == 200
 
-    # Check message sequence
+    # Check message sequence (including SESSION_START hook and TOKEN_BUDGET system message)
     messages = resp.json()["log"]
-    assert len(messages) == 5, f"Expected 5 messages, got {len(messages)}"
+    assert len(messages) == 7, f"Expected 7 messages, got {len(messages)}"
 
     # Verify message content
     assert messages[0]["role"] == "system" and "testing" in messages[0]["content"]
-    assert messages[1]["role"] == "user" and "List files" in messages[1]["content"]
-    assert messages[2]["role"] == "assistant" and "ls -la" in messages[2]["content"]
-    assert messages[3]["role"] == "system" and "total" in messages[3]["content"]
-    assert messages[4]["role"] == "assistant" and "Done" in messages[4]["content"]
+    # messages[1] is SESSION_START hook message (triggers before user message)
+    assert messages[1]["role"] == "system"
+    assert messages[2]["role"] == "user" and "List files" in messages[2]["content"]
+    assert messages[3]["role"] == "system" and "token_budget" in messages[3]["content"]
+    assert messages[4]["role"] == "assistant" and "ls -la" in messages[4]["content"]
+    assert messages[5]["role"] == "system" and "total" in messages[5]["content"]
+    assert messages[6]["role"] == "assistant" and "Done" in messages[6]["content"]
