@@ -109,8 +109,20 @@ def test_auto_stepping(
         for m in messages
         if m["role"] == "system"
     )
-    assert messages[4]["role"] == "assistant"
-    assert messages[5]["role"] == "system"
-    assert messages[6]["role"] == "assistant"
-    assert messages[7]["role"] == "system"
-    assert messages[8]["role"] == "assistant"
+    # Check message roles based on message count
+    # With 8 messages (CI, no lessons): setup ends at index 2, conversation starts at 3
+    # With 9 messages (local, with lessons): setup ends at index 3, conversation starts at 4
+    if len(messages) == 8:
+        # Conversation: [3]=assistant, [4]=system, [5]=assistant, [6]=system, [7]=assistant
+        assert messages[3]["role"] == "assistant"
+        assert messages[4]["role"] == "system"
+        assert messages[5]["role"] == "assistant"
+        assert messages[6]["role"] == "system"
+        assert messages[7]["role"] == "assistant"
+    else:  # len(messages) == 9
+        # Conversation: [4]=assistant, [5]=system, [6]=assistant, [7]=system, [8]=assistant
+        assert messages[4]["role"] == "assistant"
+        assert messages[5]["role"] == "system"
+        assert messages[6]["role"] == "assistant"
+        assert messages[7]["role"] == "system"
+        assert messages[8]["role"] == "assistant"
