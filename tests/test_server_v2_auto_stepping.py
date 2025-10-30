@@ -94,8 +94,9 @@ def test_auto_stepping(
 
     # Verify message sequence
     # Note: Message order can vary depending on hook execution order
+    # Message count varies: 8 (CI, no lessons) or 9 (local, with lessons)
     # Expect: system prompt, user message, TOKEN_BUDGET, possibly lessons, then assistant/system messages
-    assert len(messages) == 9, f"Expected 9 messages, got {len(messages)}"
+    assert len(messages) in [8, 9], f"Expected 8 or 9 messages, got {len(messages)}"
     assert messages[0]["role"] == "system" and "testing" in messages[0]["content"]
 
     # Find the user message (should be early in sequence)

@@ -76,9 +76,10 @@ def test_tool_confirmation_flow(
 
     # Check message sequence
     # Note: Message order can vary depending on hook execution order
+    # Message count varies: 6 (CI, no lessons) or 7 (local, with lessons)
     # Expect: system prompt, user message, TOKEN_BUDGET, possibly lessons, then assistant/system messages
     messages = resp.json()["log"]
-    assert len(messages) == 7, f"Expected 7 messages, got {len(messages)}"
+    assert len(messages) in [6, 7], f"Expected 6 or 7 messages, got {len(messages)}"
 
     # Verify message content
     assert messages[0]["role"] == "system" and "testing" in messages[0]["content"]
