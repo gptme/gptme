@@ -47,9 +47,9 @@ class ModelNameMapper:
         """Get a more powerful model for reflection tasks."""
         if base_model.startswith("anthropic/"):
             if "haiku" in base_model.lower():
-                return "claude-3-5-sonnet-20241022"
+                return "anthropic/claude-3-5-sonnet-20241022"
             else:
-                return "claude-3-5-sonnet-20241022"
+                return "anthropic/claude-3-5-sonnet-20241022"
         elif base_model.startswith("openai/"):
             if "gpt-3.5" in base_model.lower() or "gpt-4o-mini" in base_model.lower():
                 return "gpt-4o"
