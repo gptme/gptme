@@ -36,10 +36,12 @@ Configure RAG in your ``gptme.toml``::
 """
 
 import logging
+import os
 import shutil
 import subprocess
 import time
 from dataclasses import replace
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -48,8 +50,24 @@ from ..dirs import get_project_gptme_dir
 from ..llm import _chat_complete
 from ..message import Message
 from .base import ToolSpec, ToolUse
+from .cache import CacheEntry, CacheKey, SmartRAGCache
 
 logger = logging.getLogger(__name__)
+
+# Global cache instance for RAG search results
+_cache: SmartRAGCache | None = None
+
+
+def _get_cache() -> SmartRAGCache:
+    """Get or create the global cache instance."""
+    global _cache
+    if _cache is None:
+        _cache = SmartRAGCache(
+            ttl_seconds=300,  # 5 minutes
+            max_memory_bytes=100 * 1024 * 1024,  # 100MB
+        )
+    return _cache
+
 
 instructions = """
 Use RAG to index and semantically search through text files such as documentation and code.
@@ -110,6 +128,25 @@ Please provide your response, starting with the summary and followed by the rele
 def _has_gptme_rag() -> bool:
     """Check if gptme-rag is available in PATH."""
     return shutil.which("gptme-rag") is not None
+
+
+def _get_workspace_mtime(workspace_path: str) -> float:
+    """Get workspace modification time for freshness tracking."""
+    path = Path(workspace_path)
+    if not path.exists():
+        return 0.0
+    # Sample approach: check workspace root mtime
+    # More sophisticated: walk directory tree
+    return os.path.getmtime(path)
+
+
+def _get_index_mtime(workspace_path: str) -> float:
+    """Get RAG index modification time."""
+    # Check ChromaDB index directory
+    index_path = Path(workspace_path) / ".cache" / "chroma"
+    if not index_path.exists():
+        return 0.0
+    return os.path.getmtime(index_path)
 
 
 def _run_rag_cmd(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -206,7 +243,44 @@ def get_rag_context(
         cmd.extend(["--max-tokens", str(rag_config.max_tokens)])
     if rag_config.min_relevance:
         cmd.extend(["--min-relevance", str(rag_config.min_relevance)])
-    rag_result = _run_rag_cmd(cmd).stdout
+
+    # Try cache first
+    cache = _get_cache()
+    workspace_path = workspace.as_posix() if workspace else "."
+    cache_key = CacheKey.from_search(
+        query=query,
+        workspace_path=workspace_path,
+        workspace_only=rag_config.workspace_only,
+        max_tokens=rag_config.max_tokens or 3000,
+        min_relevance=rag_config.min_relevance or 0.0,
+        embedding_model="modernbert",  # Current default
+        index_version="v1",
+    )
+
+    cache_entry = cache.get(cache_key)
+    if cache_entry is not None:
+        logger.info(f"RAG cache hit for query: {query[:50]}...")
+        # Reconstruct stdout from cached data
+        rag_result = "\n".join(cache_entry.document_ids)
+    else:
+        logger.info(f"RAG cache miss for query: {query[:50]}...")
+        start_time = time.monotonic()
+        rag_result = _run_rag_cmd(cmd).stdout
+        search_time_ms = (time.monotonic() - start_time) * 1000
+
+        # Store in cache
+        entry = CacheEntry(
+            document_ids=[rag_result],  # Store raw stdout as single document
+            relevance_scores=[1.0],  # Placeholder score
+            created_at=datetime.now(),
+            last_accessed=datetime.now(),
+            access_count=1,
+            workspace_mtime=_get_workspace_mtime(workspace_path),
+            index_mtime=_get_index_mtime(workspace_path),
+            embedding_time_ms=search_time_ms,
+            result_count=1,
+        )
+        cache.put(cache_key, entry)
 
     # Post-process the context with an LLM (if enabled)
     if should_post_process:
