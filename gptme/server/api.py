@@ -506,4 +506,9 @@ def create_app(cors_origin: str | None = None) -> flask.Flask:
             },
         )
 
+    # Initialize auth (defaults to local-only, no auth required)
+    from .auth import init_auth  # fmt: skip
+
+    init_auth(host="127.0.0.1", display=False)
+
     return app
