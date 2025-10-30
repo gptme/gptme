@@ -451,3 +451,176 @@ class TestSmartRAGCache:
         result3 = cache.get(key)
         assert result3 is not None
         assert result3.access_count == 3
+
+    def test_invalidate_workspace(self):
+        """Test invalidating all entries for a workspace."""
+        cache = SmartRAGCache(ttl_seconds=300)
+
+        # Create entries for multiple workspaces
+        workspace1 = "/home/user/project1"
+        workspace2 = "/home/user/project2"
+
+        key1 = CacheKey.from_search(
+            query="test query 1",
+            workspace_path=workspace1,
+            workspace_only=True,
+            max_tokens=1000,
+            min_relevance=0.7,
+        )
+        key2 = CacheKey.from_search(
+            query="test query 2",
+            workspace_path=workspace1,
+            workspace_only=True,
+            max_tokens=1000,
+            min_relevance=0.7,
+        )
+        key3 = CacheKey.from_search(
+            query="test query 3",
+            workspace_path=workspace2,
+            workspace_only=True,
+            max_tokens=1000,
+            min_relevance=0.7,
+        )
+
+        entry = CacheEntry(
+            document_ids=["doc1"],
+            relevance_scores=[0.9],
+            created_at=datetime.now(),
+            last_accessed=datetime.now(),
+            access_count=1,
+            workspace_mtime=time.time(),
+            index_mtime=time.time(),
+            embedding_time_ms=50.0,
+            result_count=1,
+        )
+
+        cache.put(key1, entry)
+        cache.put(key2, entry)
+        cache.put(key3, entry)
+
+        assert len(cache.cache) == 3
+
+        # Invalidate workspace1
+        removed = cache.invalidate_workspace(workspace1)
+        assert removed == 2
+        assert len(cache.cache) == 1
+
+        # Only workspace2 entry remains
+        assert cache.get(key3) is not None
+        assert cache.get(key1) is None
+        assert cache.get(key2) is None
+
+    def test_invalidate_file_with_git(self, tmp_path):
+        """Test invalidate_file when .git directory exists."""
+        cache = SmartRAGCache(ttl_seconds=300)
+
+        # Create a fake git workspace
+        workspace = tmp_path / "project"
+        workspace.mkdir()
+        (workspace / ".git").mkdir()
+
+        # Create a file in the workspace
+        file_path = workspace / "src" / "main.py"
+        file_path.parent.mkdir()
+        file_path.touch()
+
+        # Add cache entries for this workspace
+        key = CacheKey.from_search(
+            query="test query",
+            workspace_path=str(workspace),
+            workspace_only=True,
+            max_tokens=1000,
+            min_relevance=0.7,
+        )
+
+        entry = CacheEntry(
+            document_ids=["doc1"],
+            relevance_scores=[0.9],
+            created_at=datetime.now(),
+            last_accessed=datetime.now(),
+            access_count=1,
+            workspace_mtime=time.time(),
+            index_mtime=time.time(),
+            embedding_time_ms=50.0,
+            result_count=1,
+        )
+
+        cache.put(key, entry)
+        assert len(cache.cache) == 1
+
+        # Invalidate by file path
+        removed = cache.invalidate_file(str(file_path))
+        assert removed == 1
+        assert len(cache.cache) == 0
+
+    def test_invalidate_file_fallback(self):
+        """Test invalidate_file fallback when no .git directory."""
+        cache = SmartRAGCache(ttl_seconds=300)
+
+        workspace = "/home/user/project"
+        file_path = f"{workspace}/src/main.py"
+
+        key = CacheKey.from_search(
+            query="test query",
+            workspace_path=workspace,
+            workspace_only=True,
+            max_tokens=1000,
+            min_relevance=0.7,
+        )
+
+        entry = CacheEntry(
+            document_ids=["doc1"],
+            relevance_scores=[0.9],
+            created_at=datetime.now(),
+            last_accessed=datetime.now(),
+            access_count=1,
+            workspace_mtime=time.time(),
+            index_mtime=time.time(),
+            embedding_time_ms=50.0,
+            result_count=1,
+        )
+
+        cache.put(key, entry)
+        assert len(cache.cache) == 1
+
+        # Invalidate by file path (no .git, should use fallback)
+        removed = cache.invalidate_file(file_path)
+        assert removed == 1
+        assert len(cache.cache) == 0
+
+    def test_invalidate_empty(self):
+        """Test invalidation with no matching entries."""
+        cache = SmartRAGCache(ttl_seconds=300)
+
+        # Add entry for workspace1
+        key = CacheKey.from_search(
+            query="test query",
+            workspace_path="/home/user/workspace1",
+            workspace_only=True,
+            max_tokens=1000,
+            min_relevance=0.7,
+        )
+
+        entry = CacheEntry(
+            document_ids=["doc1"],
+            relevance_scores=[0.9],
+            created_at=datetime.now(),
+            last_accessed=datetime.now(),
+            access_count=1,
+            workspace_mtime=time.time(),
+            index_mtime=time.time(),
+            embedding_time_ms=50.0,
+            result_count=1,
+        )
+
+        cache.put(key, entry)
+
+        # Try to invalidate different workspace
+        removed = cache.invalidate_workspace("/home/user/workspace2")
+        assert removed == 0
+        assert len(cache.cache) == 1  # Original entry still there
+
+        # Try to invalidate file in different workspace
+        removed = cache.invalidate_file("/home/user/workspace2/file.py")
+        assert removed == 0
+        assert len(cache.cache) == 1  # Original entry still there

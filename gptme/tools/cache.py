@@ -316,6 +316,84 @@ class SmartRAGCache:
         with self.lock:
             return [key for key, entry in self.cache.items() if entry.is_hot(threshold)]
 
+    def _invalidate_workspace_unlocked(self, workspace_path: str) -> int:
+        """Internal method to invalidate workspace without acquiring lock.
+
+        Args:
+            workspace_path: Path to workspace to invalidate
+
+        Returns:
+            Number of entries removed
+        """
+        keys_to_remove = [
+            key for key in self.cache.keys() if key.workspace_path == workspace_path
+        ]
+
+        for key in keys_to_remove:
+            del self.cache[key]
+
+        logger.debug(
+            f"Invalidated {len(keys_to_remove)} entries for workspace {workspace_path}"
+        )
+        return len(keys_to_remove)
+
+    def invalidate_workspace(self, workspace_path: str) -> int:
+        """Invalidate all cache entries for a specific workspace.
+
+        Removes all cached results for queries in the given workspace.
+        Useful when workspace contents change significantly.
+
+        Args:
+            workspace_path: Path to workspace to invalidate
+
+        Returns:
+            Number of entries removed
+        """
+        with self.lock:
+            return self._invalidate_workspace_unlocked(workspace_path)
+
+    def invalidate_file(self, file_path: str) -> int:
+        """Invalidate cache entries affected by a file change.
+
+        Since we don't track which files each cache entry references,
+        we conservatively invalidate all entries for the workspace
+        containing the changed file.
+
+        Args:
+            file_path: Path to file that changed
+
+        Returns:
+            Number of entries removed
+        """
+        from pathlib import Path
+
+        # Determine workspace from file path by finding .git directory
+        file_path_obj = Path(file_path).resolve()
+
+        # Check file itself and all parent directories for .git
+        for parent in [file_path_obj] + list(file_path_obj.parents):
+            if (parent / ".git").exists():
+                workspace_path = str(parent)
+                logger.debug(
+                    f"Invalidating workspace {workspace_path} for file {file_path}"
+                )
+                return self.invalidate_workspace(workspace_path)
+
+        # No .git found, try matching against cached workspace paths
+        with self.lock:
+            file_str = str(file_path_obj)
+            for key in self.cache.keys():
+                if file_str.startswith(key.workspace_path):
+                    workspace_path = key.workspace_path
+                    logger.debug(
+                        f"Invalidating workspace {workspace_path} for file {file_path}"
+                    )
+                    # Use unlocked internal method since we're already holding the lock
+                    return self._invalidate_workspace_unlocked(workspace_path)
+
+        logger.warning(f"Could not determine workspace for file: {file_path}")
+        return 0
+
 
 class BackgroundRefresher:
     """Background thread for refreshing hot cached queries."""
