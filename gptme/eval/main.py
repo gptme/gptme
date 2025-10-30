@@ -56,6 +56,12 @@ def docker_reexec(argv: list[str]) -> None:
     3. Re-executes the current command inside Docker
     4. Exits with the same return code
     """
+    # Remove argv[0] (provided by Dockerfile entrypoint)
+    argv = argv[1:]
+
+    # Remove --use-docker from args
+    argv = [arg for arg in argv if arg != "--use-docker"]
+
     # Get git root
     try:
         git_root = subprocess.check_output(
@@ -92,7 +98,8 @@ def docker_reexec(argv: list[str]) -> None:
         "run",
         "--rm",
         "-v",
-        f"{Path.home()}/.config/gptme:/home/appuser/.config/gptme",
+        # use seperate config dir for gptme-eval (only stores API keys)
+        f"{Path.home()}/.config/gptme-eval:/home/appuser/.config/gptme",
         "-v",
         f"{git_root}/eval_results:/app/eval_results",
         "-v",
