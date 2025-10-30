@@ -151,6 +151,7 @@ def _run_planner(
                 no_confirm=True,
                 interactive=False,
                 show_hidden=False,
+                tool_format="markdown",
             )
 
         t = threading.Thread(target=run_executor, daemon=True)
@@ -214,6 +215,12 @@ def subagent(
             raise ValueError("Planner mode requires subtasks parameter")
         return _run_planner(agent_id, prompt, subtasks, execution_mode)
 
+    # Validate context_mode parameters
+    if context_mode == "selective" and not context_include:
+        raise ValueError(
+            "context_include parameter required when context_mode='selective'"
+        )
+
     # noreorder
     from gptme import chat  # fmt: skip
     from gptme.cli import get_logdir  # fmt: skip
@@ -253,14 +260,12 @@ def subagent(
             )
         elif context_mode == "selective":
             # Selective context - build from specified components
-            if not context_include:
-                raise ValueError(
-                    "context_include parameter required when context_mode='selective'"
-                )
-
             from ..prompts import prompt_gptme, prompt_tools
 
             initial_msgs = []
+
+            # Type narrowing: context_include validated as not None earlier
+            assert context_include is not None
 
             # Add components based on context_include
             if "agent" in context_include:
@@ -299,6 +304,7 @@ def subagent(
             no_confirm=True,
             interactive=False,
             show_hidden=False,
+            tool_format="markdown",
         )
 
     # start a thread with a subagent
