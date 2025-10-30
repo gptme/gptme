@@ -81,7 +81,8 @@ def docker_reexec(argv: list[str]) -> None:
             print(f"Error: Dockerfile not found at {dockerfile}", file=sys.stderr)
             sys.exit(1)
         subprocess.run(
-            ["docker", "build", "-t", image, "-f", str(dockerfile), git_root],
+            ["make", "build-docker"],
+            cwd=Path(git_root),
             check=True,
         )
 
