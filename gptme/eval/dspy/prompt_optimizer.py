@@ -19,6 +19,7 @@ from gptme.eval.suites.basic import tests
 from gptme.eval.types import EvalSpec
 from gptme.prompts import prompt_gptme
 
+from .hybrid_optimizer import HybridOptimizer
 from .metrics import (
     create_composite_metric,
     create_trajectory_feedback_metric,
@@ -430,6 +431,25 @@ class PromptOptimizer:
                 gepa_kwargs["auto"] = "light"
 
             return GEPA(**gepa_kwargs)
+        elif self.optimizer_type.lower() == "hybrid":
+            # Phase 4.1: Hybrid multi-stage optimization
+            composite_metric = create_composite_metric(eval_specs=eval_specs)
+            trajectory_metric = create_trajectory_feedback_metric(eval_specs=eval_specs)
+            reflection_model = ModelNameMapper.get_reflection_model(self.model)
+            reflection_lm = dspy.LM(reflection_model)
+
+            # Determine auto stage based on self.auto parameter
+            auto_stage = self.auto if self.auto is not None else "medium"
+
+            return HybridOptimizer(
+                metric=composite_metric,
+                trajectory_metric=trajectory_metric,
+                max_demos=self.max_demos,
+                num_trials=self.num_trials,
+                reflection_lm=reflection_lm,
+                num_threads=self.num_threads,
+                auto_stage=auto_stage,
+            )
         else:
             raise ValueError(f"Unknown optimizer type: {self.optimizer_type}")
 
