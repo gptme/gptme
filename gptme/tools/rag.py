@@ -50,12 +50,46 @@ from ..dirs import get_project_gptme_dir
 from ..llm import _chat_complete
 from ..message import Message
 from .base import ToolSpec, ToolUse
-from .cache import CacheEntry, CacheKey, SmartRAGCache
+from .cache import BackgroundRefresher, CacheEntry, CacheKey, SmartRAGCache
 
 logger = logging.getLogger(__name__)
 
 # Global cache instance for RAG search results
 _cache: SmartRAGCache | None = None
+
+# Global background refresher instance
+_refresher: BackgroundRefresher | None = None
+
+
+def _refresh_callback(key: CacheKey) -> tuple[list[str], list[float]]:
+    """Refresh callback for background refresher."""
+    try:
+        # Reconstruct RAG command from cache key
+        cmd = [
+            "gptme-rag",
+            "search",
+            key.query_text,
+        ]
+
+        if key.workspace_path and key.workspace_only:
+            cmd.append(key.workspace_path)
+
+        cmd.extend(["--format", "full"])
+
+        if key.max_tokens:
+            cmd.extend(["--max-tokens", str(key.max_tokens)])
+        if key.min_relevance:
+            cmd.extend(["--min-relevance", str(key.min_relevance)])
+
+        # Run command and get result
+        result = _run_rag_cmd(cmd).stdout
+
+        # Return as single document (raw stdout)
+        return ([result], [1.0])
+
+    except Exception as e:
+        logger.error(f"Failed to refresh query '{key.query_text[:50]}': {e}")
+        raise
 
 
 def _get_cache() -> SmartRAGCache:
@@ -67,6 +101,22 @@ def _get_cache() -> SmartRAGCache:
             max_memory_bytes=100 * 1024 * 1024,  # 100MB
         )
     return _cache
+
+
+def _get_refresher() -> BackgroundRefresher:
+    """Get or create the global background refresher instance."""
+    global _refresher
+    if _refresher is None:
+        cache = _get_cache()
+        _refresher = BackgroundRefresher(
+            cache=cache,
+            refresh_callback=_refresh_callback,
+            refresh_interval_seconds=60,  # Check every minute
+            hot_threshold=5,  # Queries with 5+ accesses are hot
+        )
+        _refresher.start()
+        logger.info("Background refresher started")
+    return _refresher
 
 
 instructions = """
@@ -246,6 +296,8 @@ def get_rag_context(
 
     # Try cache first
     cache = _get_cache()
+    # Ensure background refresher is running
+    _get_refresher()
     workspace_path = workspace.as_posix() if workspace else "."
     cache_key = CacheKey.from_search(
         query=query,

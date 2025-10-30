@@ -10,11 +10,16 @@ Design: knowledge/technical-designs/rag-smart-caching-design.md
 """
 
 import hashlib
+import logging
 import sys
+import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
 from threading import Lock
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -310,3 +315,98 @@ class SmartRAGCache:
         """
         with self.lock:
             return [key for key, entry in self.cache.items() if entry.is_hot(threshold)]
+
+
+class BackgroundRefresher:
+    """Background thread for refreshing hot cached queries."""
+
+    def __init__(
+        self,
+        cache: SmartRAGCache,
+        refresh_callback: Any,  # Callable[[CacheKey], tuple[list[str], list[float]]]
+        refresh_interval_seconds: int = 60,  # Check every minute
+        hot_threshold: int = 5,  # Queries with 5+ accesses are hot
+    ):
+        self.cache = cache
+        self.refresh_callback = refresh_callback
+        self.refresh_interval = refresh_interval_seconds
+        self.hot_threshold = hot_threshold
+
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Start background refresh thread."""
+        if self._thread and self._thread.is_alive():
+            logger.warning("Background refresher already running")
+            return
+
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._refresh_loop, daemon=True)
+        self._thread.start()
+        logger.info("Background refresher started")
+
+    def stop(self, timeout: float = 5.0) -> None:
+        """Stop background refresh thread."""
+        if not self._thread or not self._thread.is_alive():
+            return
+
+        self._stop_event.set()
+        self._thread.join(timeout=timeout)
+
+        if self._thread.is_alive():
+            logger.warning("Background refresher did not stop cleanly")
+        else:
+            logger.info("Background refresher stopped")
+
+    def _refresh_loop(self) -> None:
+        """Background loop for refreshing hot queries."""
+        while not self._stop_event.is_set():
+            try:
+                # Get hot keys (frequently accessed)
+                hot_keys = self.cache.get_hot_keys(threshold=self.hot_threshold)
+
+                if hot_keys:
+                    logger.debug(f"Refreshing {len(hot_keys)} hot queries")
+
+                # Refresh each hot key
+                for key in hot_keys:
+                    if self._stop_event.is_set():
+                        break
+
+                    self._refresh_key(key)
+
+                # Sleep until next refresh cycle
+                self._stop_event.wait(self.refresh_interval)
+
+            except Exception as e:
+                logger.error(f"Background refresh error: {e}", exc_info=True)
+                # Continue despite errors
+
+    def _refresh_key(self, key: CacheKey) -> None:
+        """Refresh a single hot key."""
+        try:
+            # Perform fresh search using callback
+            document_ids, relevance_scores = self.refresh_callback(key)
+
+            # Create new cache entry with fresh data
+            entry = CacheEntry(
+                document_ids=document_ids,
+                relevance_scores=relevance_scores,
+                created_at=datetime.now(),
+                last_accessed=datetime.now(),
+                access_count=0,  # Reset count after refresh
+                workspace_mtime=0.0,  # Will be set by caller
+                index_mtime=0.0,  # Will be set by caller
+                embedding_time_ms=0.0,  # Background refresh
+                result_count=len(document_ids),
+            )
+
+            # Update cache with fresh results
+            self.cache.put(key, entry)
+            logger.debug(f"Refreshed hot query: {key.query_text[:50]}...")
+
+        except Exception as e:
+            logger.error(
+                f"Failed to refresh key {key.query_text[:50]}: {e}", exc_info=True
+            )
