@@ -33,6 +33,80 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def in_docker() -> bool:
+    """Check if currently running inside a Docker container."""
+    try:
+        with open("/proc/1/cgroup") as f:
+            content = f.read()
+            return "docker" in content or "containerd" in content
+    except FileNotFoundError:
+        return False
+
+
+def docker_reexec(argv: list[str]) -> None:
+    """
+    Re-execute current command inside Docker container.
+
+    This function:
+    1. Checks/builds the gptme-eval Docker image
+    2. Mounts config, results, and source code
+    3. Re-executes the current command inside Docker
+    4. Exits with the same return code
+    """
+    # Get git root
+    try:
+        git_root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            cwd=Path(__file__).parent,
+        ).strip()
+    except subprocess.CalledProcessError:
+        print("Error: Not in a git repository", file=sys.stderr)
+        sys.exit(1)
+
+    # Check/build Docker image
+    image = "gptme-eval:latest"
+    try:
+        subprocess.run(
+            ["docker", "image", "inspect", image], check=True, capture_output=True
+        )
+        logger.info(f"Using existing Docker image: {image}")
+    except subprocess.CalledProcessError:
+        logger.info(f"Building Docker image: {image}")
+        dockerfile = Path(git_root) / "scripts" / "Dockerfile.eval"
+        if not dockerfile.exists():
+            print(f"Error: Dockerfile not found at {dockerfile}", file=sys.stderr)
+            sys.exit(1)
+        subprocess.run(
+            ["docker", "build", "-t", image, "-f", str(dockerfile), git_root],
+            check=True,
+        )
+
+    # Construct docker run command
+    docker_cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{Path.home()}/.config/gptme:/home/appuser/.config/gptme",
+        "-v",
+        f"{git_root}/eval_results:/app/eval_results",
+        "-v",
+        f"{git_root}:/app",
+        "-w",
+        "/app",
+        image,
+    ] + argv
+
+    logger.info(f"Re-executing inside Docker: {' '.join(docker_cmd)}")
+
+    # Run and exit with same code
+    result = subprocess.run(docker_cmd)
+    sys.exit(result.returncode)
+
+
 logger = logging.getLogger(__name__)
 
 project_dir = Path(__file__).parent.parent.parent
@@ -215,6 +289,12 @@ def main(
 
     Output from evals will be captured, unless a single eval is run, and saved to the results directory.
     """
+    # Check if we should re-execute inside Docker
+    if use_docker and not in_docker():
+        logger.info("Re-executing inside Docker container...")
+        docker_reexec(sys.argv)
+        # docker_reexec will exit, so this line is never reached
+
     # init
     multiprocessing_logging.install_mp_handler()
 
