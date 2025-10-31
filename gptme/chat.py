@@ -94,7 +94,7 @@ def chat(
     ):
         # Process any messages from session start hooks
         for hook_msg in session_start_msgs:
-            console.log(f"[Session start hook] {hook_msg.content[:100]}...")
+            initial_msgs = initial_msgs + [hook_msg]
 
     default_model = get_default_model()
     assert default_model is not None, "No model loaded and no model specified"
