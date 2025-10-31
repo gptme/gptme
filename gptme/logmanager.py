@@ -44,6 +44,9 @@ class Log:
     def __len__(self) -> int:
         return len(self.messages)
 
+    def len_tokens(self, model: str) -> int:
+        return len_tokens(self.messages, model)
+
     def __iter__(self) -> Generator[Message, None, None]:
         yield from self.messages
 

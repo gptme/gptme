@@ -1,30 +1,26 @@
 import hashlib
 import logging
 import typing
-
-import tiktoken
+from functools import lru_cache
 
 if typing.TYPE_CHECKING:
+    import tiktoken  # fmt: skip
+
     from ..message import Message  # fmt: skip
 
 
 # Global cache mapping hashes to token counts
 _token_cache: dict[tuple[str, str], int] = {}
 
-# Cache for tokenizers to avoid repeated loading
-_tokenizers: dict[str, tiktoken.Encoding] = {}
-
 _warned_models = set()
 
 logger = logging.getLogger(__name__)
 
 
-def get_tokenizer(model: str):
+@lru_cache
+def get_tokenizer(model: str) -> "tiktoken.Encoding":
     """Get the tokenizer for a given model, with caching and fallbacks."""
     import tiktoken  # fmt: skip
-
-    if model in _tokenizers:
-        return _tokenizers[model]
 
     if "gpt-4o" in model:
         return tiktoken.get_encoding("o200k_base")
@@ -59,6 +55,8 @@ def len_tokens(content: "str | Message | list[Message]", model: str) -> int:
     maintaining fast repeated calculations, which is especially important for
     conversations with many messages.
     """
+    from ..message import Message  # fmt: skip
+
     if isinstance(content, list):
         return sum(len_tokens(msg, model) for msg in content)
     if isinstance(content, Message):

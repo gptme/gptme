@@ -68,6 +68,9 @@ class Message:
             and self.timestamp == other.timestamp
         )
 
+    def len_tokens(self, model: str) -> int:
+        return len_tokens(self, model=model)
+
     def replace(self, **kwargs) -> Self:
         """Replace attributes of the message."""
         return dataclasses.replace(self, **kwargs)
