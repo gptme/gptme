@@ -87,7 +87,7 @@ def serve(
     # Initialize authentication and display token
     init_auth(host=host, display=True)
 
-    app = create_app(cors_origin=cors_origin)
+    app = create_app(cors_origin=cors_origin, host=host)
 
     try:
         app.run(debug=debug, host=host, port=int(port))
