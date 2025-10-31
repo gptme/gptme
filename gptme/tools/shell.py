@@ -27,9 +27,10 @@ from pathlib import Path
 import bashlex
 
 from ..message import Message
-from ..util import get_installed_programs, get_tokenizer
+from ..util import get_installed_programs
 from ..util.ask_execute import execute_with_confirmation
 from ..util.output_storage import save_large_output
+from ..util.tokens import get_tokenizer
 from .base import (
     ConfirmFunc,
     Parameter,
