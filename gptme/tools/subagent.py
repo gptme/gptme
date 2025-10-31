@@ -96,6 +96,8 @@ def _run_planner(
     prompt: str,
     subtasks: list[SubtaskDef],
     execution_mode: Literal["parallel", "sequential"] = "parallel",
+    context_mode: Literal["full", "instructions-only", "selective"] = "full",
+    context_include: list[str] | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -104,6 +106,8 @@ def _run_planner(
         prompt: Context prompt shared with all executors
         subtasks: List of subtask definitions to execute
         execution_mode: "parallel" (all at once) or "sequential" (one by one)
+        context_mode: Controls what context is shared with executors (see subagent() docs)
+        context_include: For selective mode, list of context components to include
     """
     from gptme import chat
     from gptme.cli import get_logdir
@@ -129,9 +133,49 @@ def _run_planner(
         def run_executor(prompt=executor_prompt, log_dir=logdir):
             prompt_msgs = [Message("user", prompt)]
             workspace = Path.cwd()
-            initial_msgs = get_prompt(
-                get_tools(), interactive=False, workspace=workspace
-            )
+
+            # Build initial messages based on context_mode
+            if context_mode == "instructions-only":
+                # Minimal system context - just basic instruction
+                initial_msgs = [
+                    Message(
+                        "system",
+                        "You are a helpful AI assistant. Complete the task described by the user. Use the `complete` tool when finished with a summary of your work.",
+                    )
+                ]
+                # Add complete tool for instructions-only mode
+                from ..prompts import prompt_tools
+
+                initial_msgs.extend(
+                    list(
+                        prompt_tools(
+                            tools=[t for t in get_tools() if t.name == "complete"],
+                            tool_format="markdown",
+                        )
+                    )
+                )
+            elif context_mode == "selective":
+                # Selective context - build from specified components
+                from ..prompts import prompt_gptme, prompt_tools
+
+                initial_msgs = []
+
+                # Add components based on context_include
+                if context_include and "agent" in context_include:
+                    initial_msgs.extend(
+                        list(prompt_gptme(False, None, agent_name=None))
+                    )
+                if context_include and "tools" in context_include:
+                    initial_msgs.extend(
+                        list(prompt_tools(tools=get_tools(), tool_format="markdown"))
+                    )
+                # workspace handled by passing workspace parameter to chat() if included
+            else:  # "full" mode (default)
+                # Full context
+                initial_msgs = get_prompt(
+                    get_tools(), interactive=False, workspace=workspace
+                )
+
             complete_prompt = (
                 "When you have finished the task, use the `complete` tool:\n"
                 "```complete\n"
@@ -212,7 +256,9 @@ def subagent(
     if mode == "planner":
         if not subtasks:
             raise ValueError("Planner mode requires subtasks parameter")
-        return _run_planner(agent_id, prompt, subtasks, execution_mode)
+        return _run_planner(
+            agent_id, prompt, subtasks, execution_mode, context_mode, context_include
+        )
 
     # Validate context_mode parameters
     if context_mode == "selective" and not context_include:
