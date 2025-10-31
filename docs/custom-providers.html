@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Alternatives &#8212; gptme</title>
+    <title>Custom OpenAI-Compatible Providers &#8212; gptme</title>
   
   
   
@@ -46,13 +46,13 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.6.3.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'alternatives';</script>
-    <link rel="canonical" href="https://gptme.org/docs/alternatives.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'custom-providers';</script>
+    <link rel="canonical" href="https://gptme.org/docs/custom-providers.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Are we tiny?" href="arewetiny.html" />
-    <link rel="prev" title="API Reference" href="api.html" />
+    <link rel="next" title="Agents" href="agents.html" />
+    <link rel="prev" title="Providers" href="providers.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -149,7 +149,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -162,7 +162,7 @@
 <li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="providers.html">Providers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="custom-providers.html">Custom OpenAI-Compatible Providers</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Custom OpenAI-Compatible Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
@@ -181,8 +181,8 @@
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
-<ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Alternatives</a></li>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
 <li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -320,7 +320,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/alternatives.rst" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/custom-providers.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -350,7 +350,7 @@
       
       
       
-      <li><a href="_sources/alternatives.rst" target="_blank"
+      <li><a href="_sources/custom-providers.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -360,7 +360,7 @@
 <span class="btn__icon-container">
   <i class="fas fa-file"></i>
   </span>
-<span class="btn__text-container">.rst</span>
+<span class="btn__text-container">.md</span>
 </a>
 </li>
       
@@ -426,7 +426,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Alternatives</h1>
+    <h1>Custom OpenAI-Compatible Providers</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -436,19 +436,30 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#comparison">Comparison</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#projects">Projects</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">gptme</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#aider">Aider</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#moatless-tools">Moatless Tools</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openhands">OpenHands</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lovable-dev">Lovable.dev</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cursor">Cursor</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cline">Cline</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude">Claude</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#chatgpt">ChatGPT</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-fields">Configuration Fields</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#api-key-resolution">API Key Resolution</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#with-cli">With CLI</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-listing">Provider Listing</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backward-compatibility">Backward Compatibility</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-details">Implementation Details</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-completed">Phase 1 (Completed)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-planned">Phase 2 (Planned)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-3-planned">Phase 3 (Planned)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-vllm-server">Local vLLM Server</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#groq-cloud">Groq Cloud</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#azure-openai">Azure OpenAI</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
 </ul>
             </nav>
         </div>
@@ -460,273 +471,176 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="alternatives">
-<h1>Alternatives<a class="headerlink" href="#alternatives" title="Link to this heading">#</a></h1>
-<p>The AI-assisted development space is rapidly evolving, with many projects emerging and rapidly improving. Here, we’ll provide an overview of gptme and some similar projects that might be good alternatives (or vice versa) for your use case, highlighting their key features to help you understand the landscape.</p>
-<p>When selecting an AI-assisted development tool, consider the following factors:</p>
+  <section id="custom-openai-compatible-providers">
+<h1>Custom OpenAI-Compatible Providers<a class="headerlink" href="#custom-openai-compatible-providers" title="Link to this heading">#</a></h1>
+<p><strong>Status</strong>: Phase 1 Implementation (Configuration &amp; Loading)</p>
+<p>As of Phase 1, gptme supports configuring multiple custom OpenAI-compatible providers in addition to the built-in providers (openai, azure, openrouter, etc.).</p>
+<section id="configuration">
+<h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
+<p>Add custom providers to your <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/gptme.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vllm-local&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8000/v1&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;meta-llama/Llama-3.1-8B&quot;</span>
+
+<span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;azure-gpt4&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://my-azure-endpoint.openai.azure.com/openai/deployments&quot;</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;AZURE_API_KEY&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gpt-4&quot;</span>
+
+<span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;groq&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.groq.com/openai/v1&quot;</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;GROQ_API_KEY&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama-3.1-70b-versatile&quot;</span>
+</pre></div>
+</div>
+<section id="configuration-fields">
+<h3>Configuration Fields<a class="headerlink" href="#configuration-fields" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code> (required): Provider identifier used in model selection</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">base_url</span></code> (required): Base URL for the OpenAI-compatible API</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">api_key</span></code> (optional): API key directly in config (not recommended)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">api_key_env</span></code> (optional): Environment variable name containing the API key</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">default_model</span></code> (optional): Default model when only provider name is specified</p></li>
+</ul>
+</section>
+<section id="api-key-resolution">
+<h3>API Key Resolution<a class="headerlink" href="#api-key-resolution" title="Link to this heading">#</a></h3>
+<p>The API key is resolved in this priority order:</p>
 <ol class="arabic simple">
-<li><p>Your preferred working environment (terminal, IDE, etc.)</p></li>
-<li><p>The specific tasks you need assistance with</p></li>
-<li><p>Integration with your existing workflow</p></li>
-<li><p>The level of control and customization you require</p></li>
+<li><p><strong>Direct value</strong>: <code class="docutils literal notranslate"><span class="pre">api_key</span> <span class="pre">=</span> <span class="pre">&quot;key-here&quot;</span></code> (not recommended for security)</p></li>
+<li><p><strong>Environment variable</strong>: <code class="docutils literal notranslate"><span class="pre">api_key_env</span> <span class="pre">=</span> <span class="pre">&quot;MY_API_KEY&quot;</span></code></p></li>
+<li><p><strong>Default convention</strong>: <code class="docutils literal notranslate"><span class="pre">${PROVIDER_NAME}_API_KEY</span></code> (e.g., <code class="docutils literal notranslate"><span class="pre">GROQ_API_KEY</span></code> for provider named “groq”)</p></li>
 </ol>
-<p>Each of these projects has its own strengths and may be better suited for different use cases. We encourage you to explore them and find the one that best fits your needs.</p>
-<p>If your answers to these questions are “terminal”, “general-purpose/coding”, “extensible”, and “highly customizable”, gptme might be the right choice for you.</p>
-<p>Remember that the AI-assisted development space is rapidly evolving, and these tools are continuously improving and adding new features. Always check the latest documentation and releases for the most up-to-date information.</p>
-<p>Let’s start with the comparison, we will first show an overview comparison and then dig deeper into each alternative.</p>
-<section id="comparison">
-<h2>Comparison<a class="headerlink" href="#comparison" title="Link to this heading">#</a></h2>
-<p>While we obviously like gptme, there are other great projects in the AI-assisted development space that provide similar but different capabilities, which be more what you are looking for.</p>
-<p>Here we will briefly introduce some we like, along with their key features.</p>
-<div class="pst-scrollable-table-container"><table class="table" id="id6">
-<caption><span class="caption-text">Comparison</span><a class="headerlink" href="#id6" title="Link to this table">#</a></caption>
-<colgroup>
-<col style="width: 20.5%" />
-<col style="width: 10.2%" />
-<col style="width: 20.5%" />
-<col style="width: 10.2%" />
-<col style="width: 14.8%" />
-<col style="width: 10.2%" />
-<col style="width: 13.6%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"></th>
-<th class="head"><p>Type</p></th>
-<th class="head"><p>Focus</p></th>
-<th class="head"><p>Hosting</p></th>
-<th class="head"><p>Price</p></th>
-<th class="head"><p>Funding</p></th>
-<th class="head"><p>Open Source</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>gptme</p></td>
-<td><p>CLI</p></td>
-<td><p>General purpose</p></td>
-<td><p>Local</p></td>
-<td><p>Free</p></td>
-<td><p>Bootstrap</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-odd"><td><p>Open Interpreter</p></td>
-<td><p>CLI</p></td>
-<td><p>General purpose</p></td>
-<td><p>Local</p></td>
-<td><p>Free</p></td>
-<td><p>?</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-even"><td><p>Aider</p></td>
-<td><p>CLI</p></td>
-<td><p>Coding</p></td>
-<td><p>Local</p></td>
-<td><p>Free</p></td>
-<td><p>Bootstrap</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-odd"><td><p>Moatless Tools</p></td>
-<td><p>CLI</p></td>
-<td><p>Coding</p></td>
-<td><p>Local</p></td>
-<td><p>Free</p></td>
-<td><p>Bootstrap</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-even"><td><p>OpenHands</p></td>
-<td><p>CLI/Web</p></td>
-<td><p>General purpose</p></td>
-<td><p>Both</p></td>
-<td><p>Free</p></td>
-<td><p>VC ($5M)</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-odd"><td><p>Lovable.dev</p></td>
-<td><p>Web app</p></td>
-<td><p>Frontend</p></td>
-<td><p>SaaS</p></td>
-<td><p>Credits</p></td>
-<td><p>VC ($8M)</p></td>
-<td><p>❌</p></td>
-</tr>
-<tr class="row-even"><td><p>Cursor</p></td>
-<td><p>IDE fork</p></td>
-<td><p>Coding</p></td>
-<td><p>Desktop</p></td>
-<td><p>$20/mo</p></td>
-<td><p>VC ($1.1B)</p></td>
-<td><p>❌</p></td>
-</tr>
-<tr class="row-odd"><td><p>Claude Desktop</p></td>
-<td><p>Desktop app</p></td>
-<td><p>General purpose</p></td>
-<td><p>Desktop</p></td>
-<td><p>$20/mo</p></td>
-<td><p>VC</p></td>
-<td><p>❌</p></td>
-</tr>
-<tr class="row-even"><td><p>Claude Projects</p></td>
-<td><p>Web app</p></td>
-<td><p>Chat with files</p></td>
-<td><p>SaaS</p></td>
-<td><p>$20/mo</p></td>
-<td><p>VC</p></td>
-<td><p>❌</p></td>
-</tr>
-</tbody>
-</table>
+</section>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
+<section id="with-cli">
+<h3>With CLI<a class="headerlink" href="#with-cli" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use specific custom provider with model</span>
+gptme<span class="w"> </span>--model<span class="w"> </span>vllm-local/my-model<span class="w"> </span><span class="s2">&quot;query&quot;</span>
+
+<span class="c1"># Use custom provider with default model</span>
+gptme<span class="w"> </span>--model<span class="w"> </span>azure-gpt4<span class="w"> </span><span class="s2">&quot;query&quot;</span>
+
+<span class="c1"># List configured providers</span>
+gptme-util<span class="w"> </span>providers<span class="w"> </span>list
+</pre></div>
 </div>
 </section>
-<section id="projects">
-<h2>Projects<a class="headerlink" href="#projects" title="Link to this heading">#</a></h2>
-<p>To begin, lets first introduce gptme and then we will compare it to some of the other projects in the space.</p>
-<section id="gptme">
-<h3>gptme<a class="headerlink" href="#gptme" title="Link to this heading">#</a></h3>
-<p>gptme is a personal AI assistant that runs in your terminal, designed to assist with various programming tasks and knowledge work.</p>
-<p>Key features:</p>
-<ul class="simple">
-<li><p>Runs in the terminal</p></li>
-<li><p>Can execute shell commands and Python code</p></li>
-<li><p>Ability to read, write, and patch files</p></li>
-<li><p>Web browsing capabilities</p></li>
-<li><p>Vision support for images and screenshots</p></li>
-<li><p>Self-correcting behavior</p></li>
-<li><p>Support for multiple LLM providers</p></li>
-<li><p>Extensible tool system</p></li>
-<li><p>Highly customizable, aims to be simple to modify</p></li>
-</ul>
-<p>First commit: March 24, 2023.</p>
+<section id="provider-listing">
+<h3>Provider Listing<a class="headerlink" href="#provider-listing" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme-util<span class="w"> </span>providers<span class="w"> </span>list
+
+🔌<span class="w"> </span>Found<span class="w"> </span><span class="m">3</span><span class="w"> </span>custom<span class="w"> </span>provider<span class="o">(</span>s<span class="o">)</span>:
+
+📡<span class="w"> </span>vllm-local
+<span class="w">   </span>Base<span class="w"> </span>URL:<span class="w"> </span>http://localhost:8000/v1
+<span class="w">   </span>API<span class="w"> </span>Key:<span class="w"> </span><span class="nv">$VLLM_LOCAL_API_KEY</span><span class="w"> </span><span class="o">(</span>default<span class="o">)</span>
+<span class="w">   </span>Default<span class="w"> </span>Model:<span class="w"> </span>meta-llama/Llama-3.1-8B
+
+📡<span class="w"> </span>azure-gpt4
+<span class="w">   </span>Base<span class="w"> </span>URL:<span class="w"> </span>https://my-azure-endpoint.openai.azure.com/openai/deployments
+<span class="w">   </span>API<span class="w"> </span>Key:<span class="w"> </span><span class="nv">$AZURE_API_KEY</span>
+<span class="w">   </span>Default<span class="w"> </span>Model:<span class="w"> </span>gpt-4
+
+📡<span class="w"> </span>groq
+<span class="w">   </span>Base<span class="w"> </span>URL:<span class="w"> </span>https://api.groq.com/openai/v1
+<span class="w">   </span>API<span class="w"> </span>Key:<span class="w"> </span><span class="nv">$GROQ_API_KEY</span>
+<span class="w">   </span>Default<span class="w"> </span>Model:<span class="w"> </span>llama-3.1-70b-versatile
+</pre></div>
+</div>
 </section>
-<section id="aider">
-<h3>Aider<a class="headerlink" href="#aider" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://aider.chat/">Aider</a> is AI pair programming in your terminal.</p>
-<p>Key features:</p>
-<ul class="simple">
-<li><p>Git integration</p></li>
-<li><p>Code editing capabilities</p></li>
-<li><p>Conversation history</p></li>
-<li><p>Customizable prompts</p></li>
-<li><p>Builds a code map for context</p></li>
-<li><p>Scores highly on SWE-Bench</p></li>
-</ul>
-<p>Differences to gptme:</p>
-<ul class="simple">
-<li><p>gptme is less git-commit focused</p></li>
-<li><p>gptme is more general-purpose</p></li>
-<li><p>gptme has wider array of tools</p></li>
-</ul>
-<p>First commit: April 4, 2023.</p>
 </section>
-<section id="moatless-tools">
-<h3>Moatless Tools<a class="headerlink" href="#moatless-tools" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://github.com/aorwall/moatless-tools">Moatless Tools</a> is an impressive AI coding agent that has performed really well on <a class="reference external" href="https://www.swebench.com/">SWE-Bench</a>.</p>
-<p>Key features:</p>
+<section id="backward-compatibility">
+<h2>Backward Compatibility<a class="headerlink" href="#backward-compatibility" title="Link to this heading">#</a></h2>
+<p>The existing <code class="docutils literal notranslate"><span class="pre">local</span></code> provider continues to work using the <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL</span></code> and <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code> environment variables. No changes are required for existing configurations.</p>
+</section>
+<section id="implementation-details">
+<h2>Implementation Details<a class="headerlink" href="#implementation-details" title="Link to this heading">#</a></h2>
+<section id="phase-1-completed">
+<h3>Phase 1 (Completed)<a class="headerlink" href="#phase-1-completed" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p>Various specialized tools for different tasks</p></li>
-<li><p>Integration with popular development environments</p></li>
-<li><p>Focus on specific development workflows</p></li>
-<li><p>Scores highly on SWE-Bench</p></li>
+<li><p>✅ Configuration schema (<code class="docutils literal notranslate"><span class="pre">ProviderConfig</span></code> dataclass)</p></li>
+<li><p>✅ TOML parsing in <code class="docutils literal notranslate"><span class="pre">load_user_config()</span></code></p></li>
+<li><p>✅ Provider initialization in <code class="docutils literal notranslate"><span class="pre">llm_openai.py</span></code></p></li>
+<li><p>✅ <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">providers</span> <span class="pre">list</span></code> command</p></li>
+<li><p>✅ Backward compatibility with <code class="docutils literal notranslate"><span class="pre">local</span></code> provider</p></li>
+<li><p>✅ API key resolution with priority order</p></li>
 </ul>
 </section>
-<section id="openhands">
-<h3>OpenHands<a class="headerlink" href="#openhands" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://github.com/All-Hands-AI/OpenHands">OpenHands</a> (formerly OpenDevin) is a leading open-source platform for software development agents, with impressive performance on benchmarks and a large community.</p>
-<p>Key features:</p>
+<section id="phase-2-planned">
+<h3>Phase 2 (Planned)<a class="headerlink" href="#phase-2-planned" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p>Leading performance on SWE-bench (&gt;50% score)</p></li>
-<li><p>Can do anything a human developer can: write code, run commands, browse web</p></li>
-<li><p>Support for multiple LLM providers</p></li>
-<li><p>Both CLI and web interface</p></li>
-<li><p>Docker-based sandboxed execution</p></li>
-<li><p>Active development and large community (46.9k stars)</p></li>
-</ul>
-<p>Differences to gptme:</p>
-<ul class="simple">
-<li><p>More focused on software development</p></li>
-<li><p>Has web UI in addition to CLI</p></li>
-<li><p>Larger community and more active development</p></li>
-<li><p>Docker-based sandboxing vs gptme’s direct execution</p></li>
-</ul>
-<p>First commit: March 13, 2024.</p>
-</section>
-<section id="lovable-dev">
-<h3>Lovable.dev<a class="headerlink" href="#lovable-dev" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://lovable.dev">lovable.dev</a> (previously <a class="reference external" href="https://gptengineer.app">GPT Engineer.app</a>) lets you build webapps fast using natural language.</p>
-<p>Key features:</p>
-<ul class="simple">
-<li><p>Builds frontends with ease, just by prompting</p></li>
-<li><p>LLM-powered no-code editor for frontends</p></li>
-<li><p>Git/GitHub integration, ability to import projects</p></li>
-<li><p>Supabase integration for backend support</p></li>
-</ul>
-<p>Differences to gptme:</p>
-<ul class="simple">
-<li><p>gptme is terminal-only (for now)</p></li>
-<li><p>gptme is much more general-purpose</p></li>
-<li><p>gptme is far from low/no-code</p></li>
-<li><p>gptme is far from as good at building frontends</p></li>
-<li><p>gptme is not no-code, you still need to select your context yourself</p></li>
-</ul>
-<p>Disclaimer: gptme author Erik was an early hire at Lovable.</p>
-</section>
-<section id="cursor">
-<h3>Cursor<a class="headerlink" href="#cursor" title="Link to this heading">#</a></h3>
-<p>If you are a VSCode user who doesn’t mind using a fork, this seems to be it.</p>
-<p>Key features:</p>
-<ul class="simple">
-<li><p>AI native IDE</p></li>
-<li><p>Git checkpointing</p></li>
-<li><p>Great tab completion (“Babble”, from <a class="reference external" href="https://www.coplay.dev/blog/a-brief-history-of-cursor-s-tab-completion">acquiring Supermaven</a>)</p></li>
-</ul>
-<p>Differences to gptme:</p>
-<ul class="simple">
-<li><p>gptme is in-terminal instead of in-vscode-fork</p></li>
-<li><p>gptme is extensible with tools, more general-purpose</p>
-<ul>
-<li><p>Less true now that Cursor supports MCP</p></li>
-</ul>
-</li>
+<li><p>[ ] Model selection updates for <code class="docutils literal notranslate"><span class="pre">provider/model</span></code> syntax</p></li>
+<li><p>[ ] Provider registry for managing custom providers</p></li>
+<li><p>[ ] Integration tests with mock providers</p></li>
 </ul>
 </section>
-<section id="cline">
-<h3>Cline<a class="headerlink" href="#cline" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://cline.bot/">Cline</a> is a coding agent running as a VSCode extension. Similar to Cursor, but open-source and not a full VSCode fork.</p>
-<p>It also has a fork called <a class="reference external" href="https://github.com/RooVetGit/Roo-Code">Roo Code</a> (prev Roo Cline).</p>
+<section id="phase-3-planned">
+<h3>Phase 3 (Planned)<a class="headerlink" href="#phase-3-planned" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>[ ] Complete documentation with examples</p></li>
+<li><p>[ ] User guide for common provider configurations</p></li>
+<li><p>[ ] Migration guide from <code class="docutils literal notranslate"><span class="pre">local</span></code> provider</p></li>
+</ul>
 </section>
-<section id="claude">
-<h3>Claude<a class="headerlink" href="#claude" title="Link to this heading">#</a></h3>
-<p>Anthropic’s Claude has gotten popular due to its excellent coding capabilities. It has also championed MCP as a way to extend its capabilities and solve the n-to-m problem of tool clients (Claude Desktop, Cursor) and servers (browser, shell, python).</p>
-<p class="rubric">Projects</p>
-<p>Claude Projects lets users upload their files and chat with them. It requires a Claude subscription.</p>
-<p>Released Jun 25, 2024.</p>
-<p class="rubric">Artifacts</p>
-<p>Claude Artifacts allows users to directly preview certain content, like HTML and React components, allowing to build small web apps with Claude.</p>
-<p>It is like a mini-version of Lovable.dev.</p>
-<p>Released Aug 27, 2024.</p>
-<p class="rubric">Desktop</p>
-<p>Claude Desktop is a desktop client for Claude.</p>
-<p>It supports MCP, allowing for a wide array of tools and resources to be used with it. (gptme also intends to support MCP)</p>
-<p>Released October 31st, 2024.</p>
-<p class="rubric">Code</p>
-<p>Claude Code is a “is an agentic coding tool that lives in your terminal, understands your codebase, and helps you code faster through natural language commands”.</p>
-<p>It is pretty much a full-on clone of gptme, with MCP support. Unlike gptme, it is not open-source (and they have <a class="reference external" href="https://github.com/anthropics/claude-code/issues/59">no such plans</a>.</p>
-<p>We have not made a thorough comparison yet. While users we asked have said they still prefer gptme, they acknowledge Claude Code has certain advantages which gptme could learn from.</p>
-<p>Released February 24, 2025.</p>
 </section>
-<section id="chatgpt">
-<h3>ChatGPT<a class="headerlink" href="#chatgpt" title="Link to this heading">#</a></h3>
-<p class="rubric">Code Interpreter</p>
-<p>ChatGPT’s Code Interpreter was one of the early inspirations for gptme as an open-source and local-first alternative, giving the LLM access to your terminal and local files.</p>
-<p>There’s not much to compare here anymore, as gptme has evolved a lot since then (while Code Interpreter hasn’t), but it’s worth mentioning as it was one of the first projects in this space.</p>
-<p>Released July 6, 2023.</p>
-<p class="rubric">Canvas</p>
-<p>ChatGPT Canvas was OpenAI’s response to Claude Artifacts (released ~1 month before).</p>
-<p>Released October 3, 2024.</p>
-<p class="rubric">Codex</p>
-<p><a class="reference external" href="https://github.com/openai/codex">Codex</a> is a “lightweight coding agent that runs in your terminal”.</p>
-<p>It was OpenAI’s response to Claude Code (released ~2 months before). Unlike Claude Code, it is open-source.</p>
-<p>Released April 16th, 2025.</p>
-<p>(not to be confused with OpenAI’s earlier Codex model)</p>
+<section id="examples">
+<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h2>
+<section id="local-vllm-server">
+<h3>Local vLLM Server<a class="headerlink" href="#local-vllm-server" title="Link to this heading">#</a></h3>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vllm-local&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8000/v1&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;meta-llama/Llama-3.1-8B&quot;</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">VLLM_LOCAL_API_KEY</span><span class="o">=</span><span class="s2">&quot;none&quot;</span><span class="w">  </span><span class="c1"># vLLM doesn&#39;t require auth</span>
+gptme<span class="w"> </span>--model<span class="w"> </span>vllm-local<span class="w"> </span><span class="s2">&quot;What is the capital of France?&quot;</span>
+</pre></div>
+</div>
 </section>
+<section id="groq-cloud">
+<h3>Groq Cloud<a class="headerlink" href="#groq-cloud" title="Link to this heading">#</a></h3>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;groq&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.groq.com/openai/v1&quot;</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;GROQ_API_KEY&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama-3.1-70b-versatile&quot;</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">&quot;gsk_...&quot;</span>
+gptme<span class="w"> </span>--model<span class="w"> </span>groq<span class="w"> </span><span class="s2">&quot;Explain quantum computing&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="azure-openai">
+<h3>Azure OpenAI<a class="headerlink" href="#azure-openai" title="Link to this heading">#</a></h3>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;azure-gpt4&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://my-endpoint.openai.azure.com/openai/deployments&quot;</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;AZURE_API_KEY&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gpt-4&quot;</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">AZURE_API_KEY</span><span class="o">=</span><span class="s2">&quot;...&quot;</span>
+gptme<span class="w"> </span>--model<span class="w"> </span>azure-gpt4<span class="w"> </span><span class="s2">&quot;Write a Python function to sort a list&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="related">
+<h2>Related<a class="headerlink" href="#related" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/673">Issue #673</a> - Original feature request</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/514">Issue #514</a> - Requesty provider support</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/548">Issue #548</a> - AI/ML provider support</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/555">Issue #555</a> - Chutes provider support</p></li>
+</ul>
 </section>
 </section>
 
@@ -742,20 +656,20 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="api.html"
+       href="providers.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">API Reference</p>
+        <p class="prev-next-title">Providers</p>
       </div>
     </a>
     <a class="right-next"
-       href="arewetiny.html"
+       href="agents.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Are we tiny?</p>
+        <p class="prev-next-title">Agents</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -776,19 +690,30 @@
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#comparison">Comparison</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#projects">Projects</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">gptme</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#aider">Aider</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#moatless-tools">Moatless Tools</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openhands">OpenHands</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lovable-dev">Lovable.dev</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cursor">Cursor</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cline">Cline</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude">Claude</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#chatgpt">ChatGPT</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-fields">Configuration Fields</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#api-key-resolution">API Key Resolution</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#with-cli">With CLI</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-listing">Provider Listing</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#backward-compatibility">Backward Compatibility</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-details">Implementation Details</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-completed">Phase 1 (Completed)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-planned">Phase 2 (Planned)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-3-planned">Phase 3 (Planned)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-vllm-server">Local vLLM Server</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#groq-cloud">Groq Cloud</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#azure-openai">Azure OpenAI</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
 </ul>
   </nav></div>
 

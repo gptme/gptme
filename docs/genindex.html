@@ -169,6 +169,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="providers.html">Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom-providers.html">Custom OpenAI-Compatible Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
@@ -808,6 +809,8 @@ window.addEventListener("load", () => mermaid.run());
 </li>
         <li><a href="api.html#gptme.config.ProjectConfig.__init__">(gptme.config.ProjectConfig method)</a>
 </li>
+        <li><a href="api.html#gptme.config.ProviderConfig.__init__">(gptme.config.ProviderConfig method)</a>
+</li>
         <li><a href="api.html#gptme.config.RagConfig.__init__">(gptme.config.RagConfig method)</a>
 </li>
         <li><a href="api.html#gptme.config.UserConfig.__init__">(gptme.config.UserConfig method)</a>
@@ -1016,6 +1019,8 @@ window.addEventListener("load", () => mermaid.run());
       <li><a href="hooks.html#gptme.hooks.HookType.GENERATION_PRE">GENERATION_PRE (gptme.hooks.HookType attribute)</a>
 </li>
       <li><a href="hooks.html#gptme.hooks.GenerationPreHook">GenerationPreHook (class in gptme.hooks)</a>
+</li>
+      <li><a href="api.html#gptme.config.ProviderConfig.get_api_key">get_api_key() (gptme.config.ProviderConfig method)</a>
 </li>
       <li><a href="api.html#gptme.message.Message.get_codeblocks">get_codeblocks() (gptme.message.Message method)</a>
 </li>
@@ -1538,10 +1543,10 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-util-prompts-expand-arg-PROMPT">gptme-util-prompts-expand command line option</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="prompts.html#gptme.prompts.prompt_chat_history">prompt_chat_history() (in module gptme.prompts)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="prompts.html#gptme.prompts.prompt_full">prompt_full() (in module gptme.prompts)</a>
 </li>
       <li><a href="prompts.html#gptme.prompts.prompt_gptme">prompt_gptme() (in module gptme.prompts)</a>
@@ -1565,6 +1570,8 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-arg-PROMPTS">gptme command line option</a>
 </li>
       </ul></li>
+      <li><a href="api.html#gptme.config.ProviderConfig">ProviderConfig (class in gptme.config)</a>
+</li>
   </ul></td>
 </tr></table>
 

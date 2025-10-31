@@ -13,6 +13,7 @@
 - [Lessons](https://gptme.org/docs/lessons.html)
 - [Configuration](https://gptme.org/docs/config.html)
 - [Providers](https://gptme.org/docs/providers.html)
+- [Custom OpenAI-Compatible Providers](https://gptme.org/docs/custom-providers.html)
 - [Agents](https://gptme.org/docs/agents.html)
 - [Server](https://gptme.org/docs/server.html)
 - [MCP](https://gptme.org/docs/mcp.html)
