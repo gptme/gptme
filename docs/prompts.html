@@ -1330,13 +1330,40 @@ npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"
 <span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">subagent(agent_id: str, prompt: str): Runs a subagent and returns the resulting JSON output.</span>
+<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list, NoneType], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;instructions-only&quot;, &quot;selective&quot;], context_include: Union[list, NoneType]): Starts an asynchronous subagent. Returns None immediately; output is retrieved later via subagent_wait().</span>
+
+<span class="s">    Args:</span>
+<span class="s">        agent_id: Unique identifier for the subagent</span>
+<span class="s">        prompt: Task prompt for the subagent (used as context for planner mode)</span>
+<span class="s">        mode: &quot;executor&quot; for single task, &quot;planner&quot; for delegating to multiple executors</span>
+<span class="s">        subtasks: List of subtask definitions for planner mode (required when mode=&quot;planner&quot;)</span>
+<span class="s">        execution_mode: &quot;parallel&quot; (default) runs all subtasks concurrently,</span>
+<span class="s">                       &quot;sequential&quot; runs subtasks one after another.</span>
+<span class="s">                       Only applies to planner mode.</span>
+<span class="s">        context_mode: Controls what context is shared with the subagent:</span>
+<span class="s">            - &quot;full&quot; (default): Share complete context (agent identity, tools, workspace)</span>
+<span class="s">            - &quot;instructions-only&quot;: Minimal context, only the user prompt</span>
+<span class="s">            - &quot;selective&quot;: Share only specified context components (requires context_include)</span>
+<span class="s">        context_include: For selective mode, list of context components to include:</span>
+<span class="s">            - &quot;agent&quot;: Agent identity and capabilities</span>
+<span class="s">            - &quot;tools&quot;: Tool descriptions and usage</span>
+<span class="s">            - &quot;workspace&quot;: Workspace files and structure</span>
+
+<span class="s">    Returns:</span>
+<span class="s">        None: Starts asynchronous execution. Use subagent_wait() to retrieve output.</span>
+<span class="s">            In executor mode, starts a single task execution.</span>
+<span class="s">            In planner mode, starts execution of all subtasks using the specified execution_mode.</span>
+
+<span class="s">            Executors use the `complete` tool to signal completion with a summary.</span>
+<span class="s">            The full conversation log is available at the logdir path.</span>
+
 <span class="s">subagent_status(agent_id: str) -&gt; dict: Returns the status of a subagent.</span>
 <span class="s">subagent_wait(agent_id: str) -&gt; dict: Waits for a subagent to finish. Timeout is 1 minute.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
 
+<span class="gu">### Executor Mode (single task)</span>
 <span class="k">&gt; </span><span class="ge">User: compute fib 13 using a subagent</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Starting a subagent to compute the 13th Fibonacci number.</span>
 <span class="sb">```ipython</span>
@@ -1348,6 +1375,53 @@ npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"
 <span class="n">subagent_wait</span><span class="p">(</span><span class="s2">&quot;fib-13&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: {&quot;status&quot;: &quot;success&quot;, &quot;result&quot;: &quot;The 13th Fibonacci number is 233&quot;}.</span>
+
+<span class="gu">### Planner Mode (multi-task delegation)</span>
+
+<span class="k">&gt; </span><span class="ge">User: implement feature X with tests</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use planner mode to delegate implementation and testing to separate subagents.</span>
+<span class="sb">```ipython</span>
+<span class="n">subtasks</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;implement&quot;</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Write implementation for feature X&quot;</span><span class="p">}},</span>
+    <span class="p">{{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;test&quot;</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Write comprehensive tests&quot;</span><span class="p">}},</span>
+<span class="p">]</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;feature-planner&quot;</span><span class="p">,</span> <span class="s2">&quot;Feature X adds new functionality&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;planner&quot;</span><span class="p">,</span> <span class="n">subtasks</span><span class="o">=</span><span class="n">subtasks</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Planner spawned 2 executor subagents.</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Now I&#39;ll wait for both subtasks to complete.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent_wait</span><span class="p">(</span><span class="s2">&quot;feature-planner-implement&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: {&quot;status&quot;: &quot;success&quot;, &quot;result&quot;: &quot;Implementation complete in feature_x.py&quot;}.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent_wait</span><span class="p">(</span><span class="s2">&quot;feature-planner-test&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: {&quot;status&quot;: &quot;success&quot;, &quot;result&quot;: &quot;Tests complete in test_feature_x.py, all passing&quot;}.</span>
+
+<span class="gu">### Context Modes</span>
+
+<span class="gu">#### Full Context (default)</span>
+<span class="k">&gt; </span><span class="ge">User: analyze this codebase</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use full context mode for comprehensive analysis.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;analyze&quot;</span><span class="p">,</span> <span class="s2">&quot;Analyze code quality and suggest improvements&quot;</span><span class="p">,</span> <span class="n">context_mode</span><span class="o">=</span><span class="s2">&quot;full&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+
+<span class="gu">#### Instructions-Only Mode (minimal context)</span>
+
+<span class="k">&gt; </span><span class="ge">User: compute the sum of 1 to 100</span>
+<span class="k">&gt; </span><span class="ge">Assistant: For a simple computation, I&#39;ll use instructions-only mode with minimal context.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;sum&quot;</span><span class="p">,</span> <span class="s2">&quot;Compute sum of integers from 1 to 100&quot;</span><span class="p">,</span> <span class="n">context_mode</span><span class="o">=</span><span class="s2">&quot;instructions-only&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+
+<span class="gu">#### Selective Context (choose specific components)</span>
+
+<span class="k">&gt; </span><span class="ge">User: write tests using pytest</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use selective mode to share only tool descriptions, not workspace files.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;tests&quot;</span><span class="p">,</span> <span class="s2">&quot;Write pytest tests for the calculate function&quot;</span><span class="p">,</span> <span class="n">context_mode</span><span class="o">=</span><span class="s2">&quot;selective&quot;</span><span class="p">,</span> <span class="n">context_include</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;tools&quot;</span><span class="p">])</span>
+<span class="sb">```</span>
 
 <span class="gu">## time-awareness</span>
 
@@ -1640,7 +1714,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 7446</p>
+<p>Tokens: 8238</p>
 </dd></dl>
 
 <dl class="py function">
