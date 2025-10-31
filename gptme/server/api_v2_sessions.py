@@ -156,7 +156,7 @@ class SessionManager:
                     # Load the conversation to trigger the hook
                     from ..logmanager import LogManager
 
-                    manager = LogManager.load(conversation_id, lock=False)
+                    manager = LogManager.load(conversation_id, lock=True)
 
                     logger.debug(
                         f"Last session for conversation {conversation_id}, triggering SESSION_END hook"
@@ -272,9 +272,7 @@ def step(
         ):
             for msg in session_start_msgs:
                 _append_and_notify(manager, session, msg)
-            # Write messages to disk to ensure they're persisted
-            manager.write()
-            logger.debug("Wrote SESSION_START hook messages to disk")
+            logger.debug("Added SESSION_START hook messages")
 
     # TODO: This is not the best way to manage the chdir state, since it's
     # essentially a shared global across chats (bad), but the fix at least
@@ -289,6 +287,16 @@ def step(
         )
         os.chdir(workspace)
 
+    # Trigger MESSAGE_PRE_PROCESS hook BEFORE preparing messages
+    # This ensures hook messages are included in the LLM input
+    if pre_msgs := trigger_hook(
+        HookType.MESSAGE_PRE_PROCESS,
+        manager=manager,
+    ):
+        for msg in pre_msgs:
+            _append_and_notify(manager, session, msg)
+        logger.debug("Added MESSAGE_PRE_PROCESS hook messages")
+
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages)
     if not msgs:
@@ -299,17 +307,6 @@ def step(
         SessionManager.add_event(conversation_id, error_event)
         session.generating = False
         return
-
-    # Trigger MESSAGE_PRE_PROCESS hook
-    if pre_msgs := trigger_hook(
-        HookType.MESSAGE_PRE_PROCESS,
-        manager=manager,
-    ):
-        for msg in pre_msgs:
-            _append_and_notify(manager, session, msg)
-        # Write messages to disk to ensure they're persisted
-        manager.write()
-        logger.debug("Wrote MESSAGE_PRE_PROCESS hook messages to disk")
 
     # Notify clients about generation status
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
@@ -350,9 +347,7 @@ def step(
         # Persist the assistant message
         msg = Message("assistant", output)
         _append_and_notify(manager, session, msg)
-        # Write immediately after assistant message to ensure it's persisted
-        manager.write()
-        logger.debug("Persisted assistant message and wrote to disk")
+        logger.debug("Persisted assistant message")
 
         # Trigger MESSAGE_POST_PROCESS hook
         if post_msgs := trigger_hook(
@@ -361,11 +356,7 @@ def step(
         ):
             for msg in post_msgs:
                 _append_and_notify(manager, session, msg)
-
-        # Write messages to disk to ensure they're persisted
-        # This fixes race condition where messages might not be available when log is retrieved
-        manager.write()
-        logger.debug("Wrote messages to disk")
+            logger.debug("Added MESSAGE_POST_PROCESS hook messages")
 
         # Auto-generate display name for first assistant response if not already set
         # TODO: Consider implementing via hook system to streamline with CLI implementation
