@@ -26,6 +26,7 @@
 - [Finetuning](https://gptme.org/docs/finetuning.html)
 - [Custom Tools](https://gptme.org/docs/custom_tool.html)
 - [Hooks](https://gptme.org/docs/hooks.html)
+- [Server Hooks Analysis](https://gptme.org/docs/misc/server-hooks-analysis.html)
 - [API Reference](https://gptme.org/docs/api.html)
 - [Alternatives](https://gptme.org/docs/alternatives.html)
 - [Are we tiny?](https://gptme.org/docs/arewetiny.html)
