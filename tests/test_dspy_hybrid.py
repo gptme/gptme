@@ -2,7 +2,13 @@
 
 import dspy
 
-from gptme.eval.dspy.hybrid_optimizer import HybridOptimizer, TaskComplexity
+from gptme.eval.dspy.hybrid_optimizer import (
+    HybridOptimizer,
+    OptimizationStrategy,
+    OptimizerStage,
+    TaskComplexity,
+    select_optimization_strategy,
+)
 
 
 def test_task_complexity_simple():
@@ -81,3 +87,75 @@ def test_trainset_complexity_analysis():
     assert (
         optimizer._analyze_trainset_complexity(mixed_trainset) == TaskComplexity.MEDIUM
     )
+
+
+def test_select_optimization_strategy_simple():
+    """Test strategy selection for simple tasks."""
+    strategy = select_optimization_strategy("SIMPLE", "medium")
+
+    assert len(strategy.stages) == 1
+    assert strategy.stages[0] == OptimizerStage.BOOTSTRAP
+    assert strategy.complexity == "SIMPLE"
+    assert strategy.auto_level == "medium"
+    assert strategy.estimated_time_min == 10
+    assert strategy.estimated_cost == 0.10
+
+
+def test_select_optimization_strategy_medium():
+    """Test strategy selection for medium tasks."""
+    strategy = select_optimization_strategy("MEDIUM", "medium")
+
+    assert len(strategy.stages) == 2
+    assert strategy.stages[0] == OptimizerStage.BOOTSTRAP
+    assert strategy.stages[1] == OptimizerStage.MIPRO
+    assert strategy.complexity == "MEDIUM"
+    assert strategy.estimated_time_min == 45
+    assert strategy.estimated_cost == 0.50
+
+
+def test_select_optimization_strategy_complex():
+    """Test strategy selection for complex tasks."""
+    strategy = select_optimization_strategy("COMPLEX", "medium")
+
+    assert len(strategy.stages) == 3
+    assert strategy.stages[0] == OptimizerStage.BOOTSTRAP
+    assert strategy.stages[1] == OptimizerStage.MIPRO
+    assert strategy.stages[2] == OptimizerStage.GEPA
+    assert strategy.complexity == "COMPLEX"
+    assert strategy.estimated_time_min == 90
+    assert strategy.estimated_cost == 1.30
+
+
+def test_select_optimization_strategy_light():
+    """Test strategy selection with light auto_level."""
+    strategy = select_optimization_strategy("COMPLEX", "light")
+
+    assert len(strategy.stages) == 3
+    assert strategy.estimated_time_min == 45  # 90 * 0.5
+    assert strategy.estimated_cost == 0.65  # 1.30 * 0.5
+
+
+def test_select_optimization_strategy_heavy():
+    """Test strategy selection with heavy auto_level."""
+    strategy = select_optimization_strategy("COMPLEX", "heavy")
+
+    assert len(strategy.stages) == 3
+    assert strategy.estimated_time_min == 135  # 90 * 1.5
+    assert abs(strategy.estimated_cost - 1.95) < 0.01  # 1.30 * 1.5 (floating point)
+
+
+def test_optimization_strategy_properties():
+    """Test OptimizationStrategy properties and string representation."""
+    strategy = OptimizationStrategy(
+        stages=[OptimizerStage.BOOTSTRAP, OptimizerStage.MIPRO],
+        complexity="MEDIUM",
+        auto_level="medium",
+        estimated_time_min=45,
+        estimated_cost=0.50,
+    )
+
+    assert strategy.num_stages == 2
+    assert "2-stage" in str(strategy)
+    assert "Bootstrap → Mipro" in str(strategy)
+    assert "45 min" in str(strategy)
+    assert "$0.50" in str(strategy)

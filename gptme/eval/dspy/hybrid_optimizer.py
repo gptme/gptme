@@ -172,6 +172,8 @@ Integration Examples
 """
 
 import logging
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 import dspy
@@ -179,6 +181,47 @@ from dspy import GEPA
 from dspy.teleprompt import BootstrapFewShot, MIPROv2
 
 logger = logging.getLogger(__name__)
+
+
+class OptimizerStage(Enum):
+    """Optimization stages available in hybrid pipeline."""
+
+    BOOTSTRAP = "bootstrap"
+    MIPRO = "mipro"
+    GEPA = "gepa"
+
+
+@dataclass
+class OptimizationStrategy:
+    """
+    Strategy for multi-stage optimization.
+
+    Attributes:
+        stages: Ordered list of optimizer stages to execute
+        complexity: Task complexity level (SIMPLE, MEDIUM, COMPLEX)
+        auto_level: Configuration level ("light", "medium", "heavy")
+        estimated_time_min: Estimated total optimization time in minutes
+        estimated_cost: Estimated total cost in USD
+    """
+
+    stages: list[OptimizerStage]
+    complexity: str
+    auto_level: str
+    estimated_time_min: int
+    estimated_cost: float
+
+    @property
+    def num_stages(self) -> int:
+        """Number of optimization stages."""
+        return len(self.stages)
+
+    def __str__(self) -> str:
+        """Human-readable strategy description."""
+        stage_names = " → ".join(s.value.title() for s in self.stages)
+        return (
+            f"{self.num_stages}-stage ({stage_names}): "
+            f"~{self.estimated_time_min} min, ~${self.estimated_cost:.2f}"
+        )
 
 
 class TaskComplexity:
@@ -318,6 +361,114 @@ class TaskComplexity:
             return TaskComplexity.MEDIUM
         else:
             return TaskComplexity.COMPLEX
+
+
+def select_optimization_strategy(
+    complexity: str,
+    auto_level: str = "medium",
+    budget_limit: float | None = None,
+    time_limit_min: int | None = None,
+) -> OptimizationStrategy:
+    """
+    Select appropriate optimization strategy based on task characteristics.
+
+    This function implements automated optimizer selection based on:
+    - Task complexity (SIMPLE, MEDIUM, COMPLEX)
+    - Configuration level (light, medium, heavy)
+    - Optional budget and time constraints
+
+    Args:
+        complexity: Task complexity from TaskComplexity.analyze()
+            Options: "SIMPLE", "MEDIUM", "COMPLEX"
+        auto_level: Configuration level for optimization aggressiveness
+            Options: "light", "medium", "heavy"
+            Default: "medium"
+        budget_limit: Maximum budget in USD (optional, future use)
+            Currently not applied, reserved for Week 2 subtask 3
+        time_limit_min: Maximum time in minutes (optional, future use)
+            Currently not applied, reserved for Week 2 subtask 3
+
+    Returns:
+        OptimizationStrategy with recommended stages and resource estimates
+
+    Strategy Selection Logic:
+        SIMPLE tasks: 1-stage (Bootstrap)
+            - Fast pattern extraction sufficient
+            - Time: 5-15 min, Cost: $0.10-0.15
+
+        MEDIUM tasks: 2-stage (Bootstrap → MIPROv2)
+            - Combines quick patterns with broader exploration
+            - Time: 30-60 min, Cost: $0.40-0.75
+
+        COMPLEX tasks: 3-stage (Bootstrap → MIPROv2 → GEPA)
+            - Full pipeline with trajectory refinement
+            - Time: 60-180 min, Cost: $1.00-2.50
+
+    Examples:
+        >>> # Simple task, medium configuration
+        >>> strategy = select_optimization_strategy("SIMPLE", "medium")
+        >>> print(strategy.stages)
+        [OptimizerStage.BOOTSTRAP]
+        >>> print(strategy.estimated_time_min)
+        10
+
+        >>> # Complex task, heavy configuration
+        >>> strategy = select_optimization_strategy("COMPLEX", "heavy")
+        >>> print(strategy.stages)
+        [OptimizerStage.BOOTSTRAP, OptimizerStage.MIPRO, OptimizerStage.GEPA]
+        >>> print(strategy.estimated_time_min)
+        135
+    """
+    # Base strategy selection by complexity
+    if complexity == "SIMPLE":
+        stages = [OptimizerStage.BOOTSTRAP]
+        base_time = 10  # minutes
+        base_cost = 0.10  # USD
+    elif complexity == "MEDIUM":
+        stages = [OptimizerStage.BOOTSTRAP, OptimizerStage.MIPRO]
+        base_time = 45
+        base_cost = 0.50
+    else:  # COMPLEX
+        stages = [OptimizerStage.BOOTSTRAP, OptimizerStage.MIPRO, OptimizerStage.GEPA]
+        base_time = 90
+        base_cost = 1.30
+
+    # Adjust estimates based on auto_level
+    if auto_level == "light":
+        time_multiplier = 0.5
+        cost_multiplier = 0.5
+    elif auto_level == "heavy":
+        time_multiplier = 1.5
+        cost_multiplier = 1.5
+    else:  # medium
+        time_multiplier = 1.0
+        cost_multiplier = 1.0
+
+    estimated_time = int(base_time * time_multiplier)
+    estimated_cost = base_cost * cost_multiplier
+
+    # TODO: Apply budget/time constraints (Week 2 subtask 3)
+    # When budget_limit or time_limit_min are provided, downgrade strategy if needed:
+    # if budget_limit and estimated_cost > budget_limit:
+    #     # Remove most expensive stage (GEPA, then MIPROv2)
+    #     if OptimizerStage.GEPA in stages:
+    #         stages = stages[:-1]  # Remove GEPA
+    #         estimated_cost *= 0.6  # Approximate 40% cost reduction
+    #     elif OptimizerStage.MIPRO in stages:
+    #         stages = stages[:-1]  # Remove MIPROv2
+    #         estimated_cost *= 0.2  # Down to Bootstrap only
+    #
+    # if time_limit_min and estimated_time > time_limit_min:
+    #     # Similar downgrade logic for time constraints
+    #     ...
+
+    return OptimizationStrategy(
+        stages=stages,
+        complexity=complexity,
+        auto_level=auto_level,
+        estimated_time_min=estimated_time,
+        estimated_cost=estimated_cost,
+    )
 
 
 class HybridOptimizer:
@@ -469,12 +620,20 @@ class HybridOptimizer:
         complexity = self._analyze_trainset_complexity(trainset)
         logger.info(f"Detected complexity: {complexity}")
 
-        # Execute appropriate pipeline based on complexity
-        if complexity == TaskComplexity.SIMPLE:
+        # Select optimization strategy
+        strategy = select_optimization_strategy(
+            complexity=complexity,
+            auto_level=self.auto_stage,
+        )
+        logger.info(f"Selected strategy: {strategy}")
+
+        # Execute pipeline based on strategy stages
+        num_stages = len(strategy.stages)
+        if num_stages == 1:
             return self._run_1stage(student, trainset)
-        elif complexity == TaskComplexity.MEDIUM:
+        elif num_stages == 2:
             return self._run_2stage(student, trainset)
-        else:  # COMPLEX
+        else:  # 3 stages
             return self._run_3stage(student, trainset)
 
     def _analyze_trainset_complexity(self, trainset: list[dspy.Example]) -> str:
