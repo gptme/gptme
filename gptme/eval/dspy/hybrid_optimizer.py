@@ -188,10 +188,58 @@ class TaskComplexity:
     MEDIUM = "medium"
     COMPLEX = "complex"
 
+    # Keywords indicating complexity factors
+    TOOL_KEYWORDS = [
+        "api",
+        "database",
+        "file",
+        "tool",
+        "execute",
+        "search",
+        "browse",
+        "scrape",
+        "parse",
+    ]
+
+    MULTISTEP_KEYWORDS = [
+        "then",
+        "after",
+        "next",
+        "first",
+        "finally",
+        "step",
+        "stages",
+        "phases",
+        "sequence",
+    ]
+
+    TECHNICAL_KEYWORDS = [
+        "algorithm",
+        "optimization",
+        "architecture",
+        "implementation",
+        "debug",
+        "refactor",
+        "analyze",
+        "benchmark",
+    ]
+
     @staticmethod
     def analyze(task: dspy.Example) -> str:
         """
-        Analyze task complexity based on characteristics.
+        Analyze task complexity based on multiple characteristics.
+
+        Enhanced beyond simple length heuristic (Phase 4.1 Week 2) to consider:
+        - Multi-step reasoning requirements (MULTISTEP_KEYWORDS)
+        - Tool/API usage needs (TOOL_KEYWORDS)
+        - Domain complexity (TECHNICAL_KEYWORDS)
+        - Structural characteristics (questions, requirements)
+        - Length as baseline (< 200 = simple bias, > 1000 = complex bias)
+
+        Scoring system:
+        - 0-1 points: SIMPLE (basic task, minimal reasoning)
+        - 2-3 points: MEDIUM (some complexity, tools or multi-step)
+        - 4+ points: COMPLEX (multiple complexity factors)
 
         Args:
             task: DSPy example with task description and context
@@ -199,18 +247,74 @@ class TaskComplexity:
         Returns:
             One of: "simple", "medium", "complex"
         """
-        # Placeholder implementation - will be enhanced in Phase 4.1 Week 2
-        # For now, simple heuristic based on description length
-        desc_length = (
-            len(task.task_description) if hasattr(task, "task_description") else 0
+        import re
+
+        # Extract text content
+        desc = getattr(task, "task_description", "")
+        context = getattr(task, "context", "")
+        text = (desc + " " + context).lower()
+
+        # Compute features
+        length = len(text)
+        has_tools = any(keyword in text for keyword in TaskComplexity.TOOL_KEYWORDS)
+        has_multistep = any(
+            keyword in text for keyword in TaskComplexity.MULTISTEP_KEYWORDS
         )
-        context_length = len(task.context) if hasattr(task, "context") else 0
+        has_technical = any(
+            keyword in text for keyword in TaskComplexity.TECHNICAL_KEYWORDS
+        )
 
-        total_length = desc_length + context_length
+        # Count structural elements
+        num_questions = text.count("?")
+        num_requirements = (
+            text.count("must") + text.count("should") + text.count("need")
+        )
+        num_steps = len(re.findall(r"\b\d+[\.\)]\s", text))  # "1. ", "2)", etc.
 
-        if total_length < 200:
+        # Scoring: accumulate complexity points
+        score = 0
+
+        # Length contribution (baseline)
+        if length < 200:
+            score += 0  # simple bias
+        elif length < 1000:
+            score += 1  # medium baseline
+        else:
+            score += 2  # complex bias
+
+        # Feature contributions
+        if has_tools:
+            score += 1  # requires tool usage
+        if has_multistep or num_steps >= 3:
+            score += 1  # multi-step reasoning
+        if has_technical:
+            score += 1  # technical domain
+        if num_questions >= 2 or num_requirements >= 3:
+            score += 1  # multiple requirements/questions
+
+        # Classification by total score
+        # If no complexity features found, use pure length classification (backward compatible)
+        has_features = (
+            has_tools
+            or has_multistep
+            or has_technical
+            or num_questions >= 2
+            or num_requirements >= 3
+        )
+
+        if not has_features:
+            # Pure length classification (maintains existing behavior)
+            if length < 200:
+                return TaskComplexity.SIMPLE
+            elif length < 1000:
+                return TaskComplexity.MEDIUM
+            else:
+                return TaskComplexity.COMPLEX
+
+        # Enhanced classification with features
+        if score == 0:
             return TaskComplexity.SIMPLE
-        elif total_length < 1000:
+        elif score <= 2:
             return TaskComplexity.MEDIUM
         else:
             return TaskComplexity.COMPLEX
