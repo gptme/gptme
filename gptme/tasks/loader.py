@@ -139,17 +139,30 @@ class TaskLoader:
 
         return actionable
 
-    def select_next_task(self) -> Task | None:
-        """Select next task to work on based on priority and dependencies."""
+    def select_next_task(self, verbose: bool = False) -> Task | None:
+        """Select next task to work on using MIQ scoring.
+
+        Args:
+            verbose: If True, log MIQ score explanations for top tasks
+
+        Returns:
+            Task with highest MIQ score, or None if no actionable tasks
+        """
+        from .planner import MIQPlanner
+
         actionable = self.get_actionable_tasks()
 
         if not actionable:
             return None
 
-        # Sort by priority (high > medium > low)
-        priority_order = {"high": 3, "medium": 2, "low": 1}
-        actionable.sort(
-            key=lambda t: (priority_order.get(t.priority, 0), t.id), reverse=True
-        )
+        # Score tasks using MIQ framework
+        scored_tasks = MIQPlanner.score_tasks(actionable)
 
-        return actionable[0]
+        if verbose and scored_tasks:
+            # Show top 3 tasks with explanations
+            logger.info("Top tasks by MIQ score:")
+            for i, (task, score) in enumerate(scored_tasks[:3], 1):
+                logger.info(f"\n{i}. {MIQPlanner.explain_score(task, score)}")
+
+        # Return task with highest score
+        return scored_tasks[0][0] if scored_tasks else None
