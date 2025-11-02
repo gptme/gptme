@@ -7,6 +7,7 @@ from typing import Any
 
 from .loader import Task, TaskLoader
 from .planner import MIQPlanner, MIQScore
+from .tracker import TaskProgressTracker
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +227,7 @@ class TaskExecutor:
     def __init__(self, tasks_dir: Path | str):
         """Initialize task executor with task directory."""
         self.loader = TaskLoader(tasks_dir)
+        self.tracker = TaskProgressTracker(tasks_dir)
         self.current_task: Task | None = None
         self.current_plan: ExecutionPlan | None = None
 
@@ -299,6 +301,33 @@ class TaskExecutor:
             results[check_name] = True  # Placeholder
 
         return results
+
+    def _update_task_progress(
+        self, task: Task, execution_result: dict[str, Any]
+    ) -> None:
+        """Update task progress after execution.
+
+        Args:
+            task: Task that was executed
+            execution_result: Result dictionary from execute_task()
+        """
+        from datetime import datetime
+
+        # Update and save task progress
+        execution_start = datetime.now()
+        progress = self.tracker.update_and_save(task, execution_start)
+
+        # Log result
+        if execution_result["success"]:
+            logger.info(
+                f"Updated progress for task {task.id}: "
+                f"{progress.progress_string} ({progress.completion_percentage}%)"
+            )
+        else:
+            logger.warning(
+                f"Task {task.id} failed but progress updated: "
+                f"{progress.progress_string} ({progress.completion_percentage}%)"
+            )
 
     def execute_task(self, task: Task | None = None) -> dict[str, Any]:
         """Execute task using gptme subprocess.
@@ -394,6 +423,7 @@ class TaskExecutor:
         tasks_attempted = 0
         tasks_completed = 0
         tasks_failed = 0
+        task_results: list[dict[str, Any]] = []
 
         logger.info("Starting task loop")
 
@@ -430,8 +460,16 @@ class TaskExecutor:
                 logger.error(f"Task {task.id} failed: {result['error']}")
 
             # 4. Update task state
-            # TODO: Integrate with tracker to update task metadata
-            # For now, just log the result
+            self._update_task_progress(task, result)
+
+            # 5. Track result for reporting
+            task_results.append(
+                {
+                    "task_id": task.id,
+                    "success": result["success"],
+                    "error": result.get("error"),
+                }
+            )
 
         execution_time = time.time() - start_time
 
@@ -440,6 +478,7 @@ class TaskExecutor:
             "tasks_completed": tasks_completed,
             "tasks_failed": tasks_failed,
             "execution_time": execution_time,
+            "task_results": task_results,
         }
 
         logger.info(f"Task loop complete: {summary}")

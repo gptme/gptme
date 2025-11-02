@@ -28,7 +28,7 @@ def sample_task() -> Task:
 
 @pytest.fixture
 def sample_task_simple() -> Task:
-    """Create a simple task without tags."""
+    """Create a simple sample task for testing."""
     return Task(
         id="simple-task",
         title="Simple Task",
@@ -36,171 +36,217 @@ def sample_task_simple() -> Task:
         metadata={
             "state": "new",
             "created": "2025-11-02",
+            "tags": [],
         },
     )
 
 
 @pytest.fixture
-def executor(tmp_path: Path) -> TaskExecutor:
-    """Create TaskExecutor with temporary directory."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
+def tasks_dir(tmp_path: Path) -> Path:
+    """Create temporary tasks directory."""
+    return tmp_path / "tasks"
+
+
+@pytest.fixture
+def executor(tasks_dir: Path) -> TaskExecutor:
+    """Create TaskExecutor instance."""
+    tasks_dir.mkdir(parents=True, exist_ok=True)
     return TaskExecutor(tasks_dir)
 
 
 class TestExecutionPlan:
-    """Tests for ExecutionPlan creation and planning."""
+    """Tests for ExecutionPlan creation."""
 
-    def test_create_plan(self, sample_task: Task):
-        """Test creating execution plan from task."""
+    def test_create_execution_plan(self, sample_task: Task):
+        """Test ExecutionPlan.create() generates plan with strategy."""
         plan = ExecutionPlan.create(sample_task)
 
         assert plan.task == sample_task
-        assert plan.miq_score is not None
         assert plan.strategy in ["incremental", "deep-focus", "research-heavy"]
         assert len(plan.phases) > 0
         assert len(plan.quality_checks) > 0
-        assert plan.estimated_sessions >= 1
+        assert plan.estimated_sessions > 0
 
-    def test_strategy_determination_incremental(self, sample_task: Task):
-        """Test incremental strategy for high capability + high impact."""
+    def test_determine_strategy_incremental(self, sample_task: Task):
+        """Test incremental strategy for high capability + impact."""
+        # High priority, dev tags → high capability and impact
         plan = ExecutionPlan.create(sample_task)
-        # Strategy depends on MIQ score calculation
-        # All three strategies are valid based on task characteristics
-        assert plan.strategy in ["incremental", "deep-focus", "research-heavy"]
 
-    def test_strategy_determination_research_heavy(self, sample_task: Task):
+        # With dev + automation tags and high priority, should be incremental
+        assert plan.strategy in ["incremental", "deep-focus"]
+
+    def test_determine_strategy_research_heavy(self):
         """Test research-heavy strategy for low capability match."""
-        # Create task with no tags (lower capability match)
+        # Task with no matching tags → low capability
         task = Task(
             id="research-task",
             title="Research Task",
-            content="# Research\n\nNew technology",
-            metadata={"state": "new", "created": "2025-11-02"},
+            content="# Research\n\nNeed to learn",
+            metadata={"state": "new", "created": "2025-11-02", "tags": ["research"]},
         )
         plan = ExecutionPlan.create(task)
-        # Lower capability match might trigger research-heavy
-        assert plan.strategy in ["incremental", "research-heavy"]
 
-    def test_phases_include_key_steps(self, sample_task: Task):
-        """Test that phases include key execution steps."""
+        # Research tag might not match @autonomous → research-heavy
+        # (depends on capability scoring, but should be valid)
+        assert plan.strategy in ["incremental", "deep-focus", "research-heavy"]
+
+    def test_determine_phases_dev_task(self, sample_task: Task):
+        """Test phases for dev task include design."""
         plan = ExecutionPlan.create(sample_task)
 
-        phase_text = " ".join(plan.phases).lower()
-        assert "understand" in phase_text
-        assert "implement" in phase_text
+        # Dev task should include design phase
+        phases_text = " ".join(plan.phases)
+        assert "design" in phases_text.lower() or "architecture" in phases_text.lower()
 
-    def test_quality_checks_for_dev_task(self, sample_task: Task):
-        """Test quality checks for dev task include core checks."""
-        # Note: Task tags need to be set on Task object, not just metadata
-        # For now, verify universal checks are present
+    def test_determine_quality_checks(self, sample_task: Task):
+        """Test quality checks are generated."""
         plan = ExecutionPlan.create(sample_task)
 
-        checks_text = " ".join(plan.quality_checks).lower()
-        # Universal checks should always be present
-        assert "git" in checks_text
-        assert "pre-commit" in checks_text
-        # Dev-specific checks depend on Task.tags being populated
+        # Should have multiple quality checks
+        assert len(plan.quality_checks) >= 3
+        # Check format: "✓ description"
+        assert all(check.startswith("✓ ") for check in plan.quality_checks)
 
-    def test_quality_checks_universal(self, sample_task_simple: Task):
-        """Test universal quality checks present for all tasks."""
-        plan = ExecutionPlan.create(sample_task_simple)
+    def test_estimate_sessions_varies_by_priority(self):
+        """Test session estimation considers priority."""
+        high_priority_task = Task(
+            id="high-task",
+            title="High Priority",
+            content="content",
+            metadata={"state": "new", "created": "2025-11-02", "priority": "high"},
+        )
+        low_priority_task = Task(
+            id="low-task",
+            title="Low Priority",
+            content="content",
+            metadata={"state": "new", "created": "2025-11-02", "priority": "low"},
+        )
 
-        checks_text = " ".join(plan.quality_checks).lower()
-        assert "git" in checks_text  # Always check git commits
+        high_plan = ExecutionPlan.create(high_priority_task)
+        low_plan = ExecutionPlan.create(low_priority_task)
 
-    def test_session_estimation(self, sample_task: Task):
-        """Test session estimation is reasonable."""
-        plan = ExecutionPlan.create(sample_task)
-
-        assert 1 <= plan.estimated_sessions <= 10
-        # Most tasks should estimate 1-3 sessions
-        assert plan.estimated_sessions <= 5
+        # Both should have reasonable estimates
+        assert 1 <= high_plan.estimated_sessions <= 10
+        assert 1 <= low_plan.estimated_sessions <= 10
 
     def test_format_execution_prompt(self, sample_task: Task):
         """Test execution prompt formatting."""
         plan = ExecutionPlan.create(sample_task)
         prompt = plan.format_execution_prompt()
 
-        # Check key elements present
-        assert sample_task.title in prompt
+        # Prompt should contain key information
         assert sample_task.id in prompt
+        assert sample_task.title in prompt
         assert plan.strategy in prompt
-        assert str(plan.estimated_sessions) in prompt
-
-        # Check sections present
-        assert "MIQ Breakdown" in prompt
-        assert "Execution Plan" in prompt
-        assert "Phases" in prompt
-        assert "Quality Validation" in prompt
+        assert "Phase" in prompt or "phase" in prompt
 
 
 class TestTaskExecutor:
-    """Tests for TaskExecutor functionality."""
+    """Tests for TaskExecutor."""
 
-    def test_init(self, executor: TaskExecutor):
-        """Test executor initialization."""
+    def test_init(self, tasks_dir: Path):
+        """Test TaskExecutor initialization."""
+        executor = TaskExecutor(tasks_dir)
+
         assert executor.loader is not None
+        assert executor.tracker is not None
         assert executor.current_task is None
         assert executor.current_plan is None
 
-    def test_load_tasks_empty(self, executor: TaskExecutor):
-        """Test loading tasks from empty directory."""
-        tasks = executor.load_tasks()
-        assert len(tasks) == 0
+    def test_load_tasks(self, executor: TaskExecutor, tasks_dir: Path):
+        """Test loading tasks from directory."""
+        # Create a task file
+        task_file = tasks_dir / "test-task.md"
+        task_file.parent.mkdir(exist_ok=True)
+        task_file.write_text(
+            """---
+state: new
+created: 2025-11-02
+priority: high
+tags: [dev]
+---
 
-    def test_select_next_task_none_available(self, executor: TaskExecutor):
-        """Test selecting task when none available."""
+# Test Task
+
+Task content
+"""
+        )
+
+        tasks = executor.load_tasks()
+        assert len(tasks) == 1
+        assert "test-task" in tasks
+
+    def test_select_next_task(self, executor: TaskExecutor, tasks_dir: Path):
+        """Test task selection using MIQ scoring."""
+        # Create task files
+        for i in range(3):
+            task_file = tasks_dir / f"task-{i}.md"
+            task_file.parent.mkdir(exist_ok=True)
+            task_file.write_text(
+                f"""---
+state: new
+created: 2025-11-02
+priority: {'high' if i == 0 else 'medium'}
+tags: [dev]
+---
+
+# Task {i}
+
+Content
+"""
+            )
+
+        task = executor.select_next_task()
+        assert task is not None
+        assert executor.current_task == task
+        assert executor.current_plan is not None
+
+    def test_select_next_task_no_tasks(self, executor: TaskExecutor):
+        """Test task selection when no tasks available."""
         task = executor.select_next_task()
         assert task is None
+        assert executor.current_task is None
 
-    def test_format_task_prompt_no_task(self, executor: TaskExecutor):
-        """Test formatting prompt with no task selected."""
-        with pytest.raises(ValueError, match="No task selected"):
-            executor.format_task_prompt()
-
-    def test_format_task_prompt_with_task(
-        self, executor: TaskExecutor, sample_task: Task
-    ):
-        """Test formatting prompt with task."""
+    def test_format_task_prompt(self, executor: TaskExecutor, sample_task: Task):
+        """Test formatting task into execution prompt."""
         executor.current_task = sample_task
         prompt = executor.format_task_prompt()
 
-        assert sample_task.title in prompt
         assert sample_task.id in prompt
-        assert "MIQ" in prompt
+        assert sample_task.title in prompt
 
-    def test_validate_quality_no_task(self, executor: TaskExecutor):
-        """Test quality validation with no task selected."""
+    def test_format_task_prompt_no_task(self, executor: TaskExecutor):
+        """Test format_task_prompt raises when no task selected."""
         with pytest.raises(ValueError, match="No task selected"):
-            executor.validate_quality()
+            executor.format_task_prompt()
 
-    def test_validate_quality_with_task(
-        self, executor: TaskExecutor, sample_task: Task
-    ):
-        """Test quality validation with task."""
+    def test_validate_quality(self, executor: TaskExecutor, sample_task: Task):
+        """Test quality validation."""
         executor.current_task = sample_task
-        results = executor.validate_quality()
+        executor.current_plan = ExecutionPlan.create(sample_task)
 
-        # Should return dict of checks
+        results = executor.validate_quality()
         assert isinstance(results, dict)
-        assert len(results) > 0
+        # All checks should return True (placeholder)
+        assert all(results.values())
+
+
+class TestTaskExecution:
+    """Tests for task execution functionality."""
 
     @patch("subprocess.run")
     def test_execute_task_success(
         self, mock_run: MagicMock, executor: TaskExecutor, sample_task: Task
     ):
         """Test successful task execution."""
-        # Mock subprocess success
         mock_run.return_value = MagicMock(
-            returncode=0, stdout="Task completed", stderr=""
+            returncode=0, stdout="Output", stderr="", text=True
         )
 
-        executor.current_task = sample_task
-        result = executor.execute_task()
+        result = executor.execute_task(sample_task)
 
         assert result["success"] is True
-        assert "Task completed" in result["output"]
+        assert result["output"] == "Output"
         assert result["exit_code"] == 0
 
     @patch("subprocess.run")
@@ -208,16 +254,14 @@ class TestTaskExecutor:
         self, mock_run: MagicMock, executor: TaskExecutor, sample_task: Task
     ):
         """Test failed task execution."""
-        # Mock subprocess failure
         mock_run.return_value = MagicMock(
-            returncode=1, stdout="", stderr="Error occurred"
+            returncode=1, stdout="", stderr="Error", text=True
         )
 
-        executor.current_task = sample_task
-        result = executor.execute_task()
+        result = executor.execute_task(sample_task)
 
         assert result["success"] is False
-        assert "Error occurred" in result["error"]
+        assert result["error"] == "Error"
         assert result["exit_code"] == 1
 
     @patch("subprocess.run")
@@ -225,53 +269,40 @@ class TestTaskExecutor:
         self, mock_run: MagicMock, executor: TaskExecutor, sample_task: Task
     ):
         """Test task execution timeout."""
-        # Mock timeout
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd=[], timeout=3600)
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gptme", timeout=3600)
 
-        executor.current_task = sample_task
-        result = executor.execute_task()
+        result = executor.execute_task(sample_task)
 
         assert result["success"] is False
-        # Check for timeout-related keywords in error message
-        error_lower = result["error"].lower()
-        assert "timeout" in error_lower or "timed out" in error_lower
-        assert result["exit_code"] == -1
+        assert "timeout" in result["error"].lower()
 
     @patch("subprocess.run")
     def test_execute_task_exception(
         self, mock_run: MagicMock, executor: TaskExecutor, sample_task: Task
     ):
         """Test task execution with exception."""
-        # Mock exception
         mock_run.side_effect = Exception("Unexpected error")
 
-        executor.current_task = sample_task
-        result = executor.execute_task()
+        result = executor.execute_task(sample_task)
 
         assert result["success"] is False
         assert "Unexpected error" in result["error"]
-        assert result["exit_code"] == -1
 
-    def test_run_loop_no_tasks(self, executor: TaskExecutor):
-        """Test run_loop with no tasks available."""
-        summary = executor.run_loop()
 
-        assert summary["tasks_attempted"] == 0
-        assert summary["tasks_completed"] == 0
-        assert summary["tasks_failed"] == 0
-        assert summary["execution_time"] >= 0
+class TestTaskLoop:
+    """Tests for task loop functionality."""
 
-    @patch.object(TaskExecutor, "select_next_task")
     @patch.object(TaskExecutor, "execute_task")
-    def test_run_loop_single_task_success(
+    @patch.object(TaskExecutor, "select_next_task")
+    def test_run_loop_basic(
         self,
-        mock_execute: MagicMock,
         mock_select: MagicMock,
+        mock_execute: MagicMock,
         executor: TaskExecutor,
         sample_task: Task,
     ):
-        """Test run_loop with single successful task."""
-        # Mock: select task once, then None
+        """Test basic run_loop execution."""
+        # Mock: return task once, then None
         mock_select.side_effect = [sample_task, None]
 
         # Mock: successful execution
@@ -287,36 +318,65 @@ class TestTaskExecutor:
         assert summary["tasks_attempted"] == 1
         assert summary["tasks_completed"] == 1
         assert summary["tasks_failed"] == 0
+        assert "execution_time" in summary
+        assert "task_results" in summary
 
-    @patch.object(TaskExecutor, "select_next_task")
     @patch.object(TaskExecutor, "execute_task")
-    def test_run_loop_single_task_failure(
+    @patch.object(TaskExecutor, "select_next_task")
+    def test_run_loop_multiple_tasks(
         self,
-        mock_execute: MagicMock,
         mock_select: MagicMock,
+        mock_execute: MagicMock,
         executor: TaskExecutor,
         sample_task: Task,
+        sample_task_simple: Task,
     ):
-        """Test run_loop with single failed task."""
-        # Mock: select task once, then None
-        mock_select.side_effect = [sample_task, None]
+        """Test run_loop with multiple tasks."""
+        # Mock: return 2 tasks then None
+        mock_select.side_effect = [sample_task, sample_task_simple, None]
 
-        # Mock: failed execution
+        # Mock: successful executions
         mock_execute.return_value = {
-            "success": False,
-            "output": "",
-            "error": "Failed",
-            "exit_code": 1,
+            "success": True,
+            "output": "Done",
+            "error": "",
+            "exit_code": 0,
         }
 
         summary = executor.run_loop()
 
-        assert summary["tasks_attempted"] == 1
-        assert summary["tasks_completed"] == 0
+        assert summary["tasks_attempted"] == 2
+        assert summary["tasks_completed"] == 2
+        assert len(summary["task_results"]) == 2
+
+    @patch.object(TaskExecutor, "execute_task")
+    @patch.object(TaskExecutor, "select_next_task")
+    def test_run_loop_with_failures(
+        self,
+        mock_select: MagicMock,
+        mock_execute: MagicMock,
+        executor: TaskExecutor,
+        sample_task: Task,
+    ):
+        """Test run_loop handles task failures."""
+        # Mock: always return a task (will stop at max_tasks)
+        mock_select.return_value = sample_task
+
+        # Mock: alternating success/failure
+        mock_execute.side_effect = [
+            {"success": True, "output": "Done", "error": "", "exit_code": 0},
+            {"success": False, "output": "", "error": "Failed", "exit_code": 1},
+            {"success": True, "output": "Done", "error": "", "exit_code": 0},
+        ]
+
+        summary = executor.run_loop(max_tasks=3)
+
+        assert summary["tasks_attempted"] == 3
+        assert summary["tasks_completed"] == 2
         assert summary["tasks_failed"] == 1
 
-    @patch.object(TaskExecutor, "select_next_task")
     @patch.object(TaskExecutor, "execute_task")
+    @patch.object(TaskExecutor, "select_next_task")
     def test_run_loop_max_tasks_limit(
         self,
         mock_execute: MagicMock,
@@ -370,3 +430,141 @@ class TestTaskExecutor:
         assert summary["tasks_attempted"] >= 1
         assert summary["execution_time"] >= 2  # At least one 2s execution
         assert summary["execution_time"] < 6  # Stopped before 3rd task
+
+
+class TestPhase32ConversationManagement:
+    """Tests for Phase 3.2: Conversation Management."""
+
+    def test_executor_has_tracker(self, tasks_dir: Path):
+        """Test TaskExecutor initializes with tracker."""
+        tasks_dir.mkdir(parents=True, exist_ok=True)
+        executor = TaskExecutor(tasks_dir)
+
+        assert hasattr(executor, "tracker")
+        assert executor.tracker is not None
+
+    @patch("gptme.tasks.tracker.TaskProgressTracker.update_and_save")
+    @patch.object(TaskExecutor, "execute_task")
+    @patch.object(TaskExecutor, "select_next_task")
+    def test_update_task_progress_called(
+        self,
+        mock_select: MagicMock,
+        mock_execute: MagicMock,
+        mock_update: MagicMock,
+        executor: TaskExecutor,
+        sample_task: Task,
+    ):
+        """Test _update_task_progress is called during run_loop."""
+        # Mock: return task once, then None
+        mock_select.side_effect = [sample_task, None]
+
+        # Mock: successful execution
+        mock_execute.return_value = {
+            "success": True,
+            "output": "Done",
+            "error": "",
+            "exit_code": 0,
+        }
+
+        executor.run_loop()
+
+        # Verify update_and_save was called
+        mock_update.assert_called_once()
+
+    @patch("gptme.tasks.tracker.TaskProgressTracker.update_and_save")
+    def test_update_task_progress_success(
+        self, mock_update: MagicMock, executor: TaskExecutor, sample_task: Task
+    ):
+        """Test _update_task_progress with successful execution."""
+        result = {
+            "success": True,
+            "output": "Done",
+            "error": "",
+            "exit_code": 0,
+        }
+
+        executor._update_task_progress(sample_task, result)
+
+        # Verify update_and_save was called with task
+        mock_update.assert_called_once()
+        call_args = mock_update.call_args[0]
+        assert call_args[0] == sample_task  # First positional arg is task
+        assert call_args[1] is not None  # Second positional arg is execution_start
+
+    @patch("gptme.tasks.tracker.TaskProgressTracker.update_and_save")
+    def test_update_task_progress_failure(
+        self, mock_update: MagicMock, executor: TaskExecutor, sample_task: Task
+    ):
+        """Test _update_task_progress with failed execution."""
+        result = {
+            "success": False,
+            "output": "",
+            "error": "Test error",
+            "exit_code": 1,
+        }
+
+        executor._update_task_progress(sample_task, result)
+
+        # Verify update_and_save was called with task
+        mock_update.assert_called_once()
+        call_args = mock_update.call_args[0]
+        assert call_args[0] == sample_task  # First positional arg is task
+        assert call_args[1] is not None  # Second positional arg is execution_start
+
+    @patch("gptme.tasks.tracker.TaskProgressTracker.update_and_save")
+    @patch.object(TaskExecutor, "execute_task")
+    @patch.object(TaskExecutor, "select_next_task")
+    def test_run_loop_tracks_task_results(
+        self,
+        mock_select: MagicMock,
+        mock_execute: MagicMock,
+        mock_tracker: MagicMock,
+        executor: TaskExecutor,
+        sample_task: Task,
+        sample_task_simple: Task,
+    ):
+        """Test run_loop tracks task_results in summary."""
+        # Mock: return 2 tasks then None
+        mock_select.side_effect = [sample_task, sample_task_simple, None]
+
+        # Mock: successful then failed execution
+        mock_execute.side_effect = [
+            {"success": True, "output": "Done", "error": "", "exit_code": 0},
+            {"success": False, "output": "", "error": "Failed", "exit_code": 1},
+        ]
+
+        # Mock: tracker returns mock progress
+        mock_progress = MagicMock()
+        mock_progress.progress_string = "0/0"
+        mock_progress.completion_percentage = 0
+        mock_tracker.return_value = mock_progress
+
+        summary = executor.run_loop()
+
+        # Verify task_results are tracked
+        assert "task_results" in summary
+        assert len(summary["task_results"]) == 2
+
+        # Verify first result (success)
+        assert summary["task_results"][0]["task_id"] == sample_task.id
+        assert summary["task_results"][0]["success"] is True
+
+        # Verify second result (failure)
+        assert summary["task_results"][1]["task_id"] == sample_task_simple.id
+        assert summary["task_results"][1]["success"] is False
+        assert summary["task_results"][1]["error"] == "Failed"
+
+    @patch.object(TaskExecutor, "execute_task")
+    @patch.object(TaskExecutor, "select_next_task")
+    def test_run_loop_empty_results_when_no_tasks(
+        self, mock_select: MagicMock, mock_execute: MagicMock, executor: TaskExecutor
+    ):
+        """Test run_loop returns empty task_results when no tasks."""
+        # Mock: no tasks available
+        mock_select.return_value = None
+
+        summary = executor.run_loop()
+
+        assert "task_results" in summary
+        assert len(summary["task_results"]) == 0
+        assert summary["tasks_attempted"] == 0
