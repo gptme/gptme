@@ -3,8 +3,8 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from ..message import Message
 from .loader import Task, TaskLoader
 from .planner import MIQPlanner, MIQScore
 
@@ -300,33 +300,147 @@ class TaskExecutor:
 
         return results
 
-    def execute_task(self, task: Task | None = None) -> Message:
-        """Execute task using gptme (placeholder for future implementation).
+    def execute_task(self, task: Task | None = None) -> dict[str, Any]:
+        """Execute task using gptme subprocess.
 
         Args:
             task: Task to execute (uses current_task if None)
 
         Returns:
-            Execution result message
+            Execution result dictionary with:
+                - success: bool
+                - output: str (stdout)
+                - error: str (stderr)
+                - exit_code: int
         """
+        import subprocess
+        import sys
+
         if task is None:
             task = self.current_task
 
         if task is None:
             raise ValueError("No task selected")
 
-        # TODO: Implement actual execution using gptme
-        # This will involve starting a gptme conversation with the task prompt
-        raise NotImplementedError("Task execution not yet implemented")
+        # Get execution prompt
+        prompt = self.format_task_prompt(task)
 
-    def run_loop(self) -> None:
-        """Run task loop, processing tasks until none remain (placeholder).
+        # Build gptme command
+        cmd = [
+            sys.executable,
+            "-m",
+            "gptme",
+            "-n",  # Non-interactive mode
+            "--no-confirm",  # Skip confirmations
+            prompt,
+        ]
 
-        This will be fully implemented in Phase 3 of the task automation system.
-        For now, raises NotImplementedError with helpful message.
+        logger.info(f"Executing task {task.id} with gptme")
+
+        try:
+            # Execute gptme subprocess
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600,  # 1 hour timeout
+            )
+
+            return {
+                "success": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+                "exit_code": result.returncode,
+            }
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"Task {task.id} timed out after 1 hour")
+            return {
+                "success": False,
+                "output": "",
+                "error": "Task execution timed out",
+                "exit_code": -1,
+            }
+        except Exception as e:
+            logger.error(f"Task {task.id} execution failed: {e}")
+            return {
+                "success": False,
+                "output": "",
+                "error": str(e),
+                "exit_code": -1,
+            }
+
+    def run_loop(
+        self,
+        max_tasks: int | None = None,
+        max_time_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        """Run task loop, processing tasks until none remain.
+
+        Args:
+            max_tasks: Maximum number of tasks to process (None = unlimited)
+            max_time_seconds: Maximum execution time in seconds (None = unlimited)
+
+        Returns:
+            Summary dictionary with:
+                - tasks_attempted: int
+                - tasks_completed: int
+                - tasks_failed: int
+                - execution_time: float (seconds)
         """
-        raise NotImplementedError(
-            "Task loop mode not yet fully implemented. "
-            "Phase 2 (MIQ-guided task selection and execution planning) is complete. "
-            "Phase 3 (loop mode implementation) is next."
-        )
+        import time
+
+        start_time = time.time()
+        tasks_attempted = 0
+        tasks_completed = 0
+        tasks_failed = 0
+
+        logger.info("Starting task loop")
+
+        while True:
+            # Check limits
+            if max_tasks and tasks_attempted >= max_tasks:
+                logger.info(f"Reached max_tasks limit ({max_tasks})")
+                break
+
+            if max_time_seconds:
+                elapsed = time.time() - start_time
+                if elapsed >= max_time_seconds:
+                    logger.info(f"Reached max_time limit ({max_time_seconds}s)")
+                    break
+
+            # 1. Select next task
+            task = self.select_next_task(verbose=True)
+            if not task:
+                logger.info("No tasks available")
+                break
+
+            tasks_attempted += 1
+
+            # 2. Execute task
+            logger.info(f"Executing task {task.id} ({tasks_attempted})")
+            result = self.execute_task(task)
+
+            # 3. Check result
+            if result["success"]:
+                tasks_completed += 1
+                logger.info(f"Task {task.id} completed successfully")
+            else:
+                tasks_failed += 1
+                logger.error(f"Task {task.id} failed: {result['error']}")
+
+            # 4. Update task state
+            # TODO: Integrate with tracker to update task metadata
+            # For now, just log the result
+
+        execution_time = time.time() - start_time
+
+        summary = {
+            "tasks_attempted": tasks_attempted,
+            "tasks_completed": tasks_completed,
+            "tasks_failed": tasks_failed,
+            "execution_time": execution_time,
+        }
+
+        logger.info(f"Task loop complete: {summary}")
+        return summary
