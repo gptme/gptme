@@ -1,0 +1,13 @@
+
+--- Start of generation ---
+[03:11:45] Using model: anthropic/claude-3-5-sonnet-20241022                    
+[03:11:46] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-11-02-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-xml-21809                                          
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-11-02-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-xml-21809/workspace                                
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: initialize a git repository, write a main.py file, and commit it
+Assistant: Thinking...                                                                                
