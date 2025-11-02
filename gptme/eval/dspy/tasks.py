@@ -1013,6 +1013,7 @@ def get_prompt_optimization_tasks() -> list[EvalSpec]:
     tasks = []
     tasks.extend(create_essential_tasks())
     tasks.extend(create_advanced_tasks())
+    tasks.extend(create_complexity_test_tasks())
     return tasks
 
 
@@ -1067,3 +1068,111 @@ if __name__ == "__main__":
 
     print(f"\nTotal tasks: {len(get_prompt_optimization_tasks())}")
     print(f"Focus areas covered: {len(coverage)}")
+
+
+def create_medium_complexity_task() -> EvalSpec:
+    """Create a MEDIUM complexity task (~500 chars) for testing 2-stage optimization."""
+    return {
+        "name": "implement-caching-system",
+        "files": {},
+        "run": "python test_cache.py",
+        "prompt": """Research and implement a caching system for an API client with the following requirements:
+
+1. Research common caching strategies (LRU, TTL-based, write-through) and choose one
+2. Implement a cache class with configurable TTL (time-to-live)
+3. Add cache hit/miss tracking metrics
+4. Handle cache invalidation properly (expired entries, manual clear)
+5. Write tests that verify: cache hits work, expired entries are removed, metrics are accurate
+6. Include error handling for edge cases (None values, invalid TTL)
+
+The implementation should be production-ready with proper error handling and clear documentation.""",
+        "expect": {
+            "successful_execution": lambda result: True,  # Simplified validation
+        },
+        "tools": ["save", "shell", "read"],
+    }
+
+
+def create_complex_task() -> EvalSpec:
+    """Create a COMPLEX task (~1200 chars) for testing 3-stage optimization."""
+    return {
+        "name": "optimize-data-pipeline",
+        "files": {
+            "pipeline.py": """import time
+import random
+
+def extract_data():
+    # Simulate slow data extraction
+    data = []
+    for i in range(1000):
+        time.sleep(0.001)  # Slow I/O
+        data.append({"id": i, "value": random.randint(1, 100)})
+    return data
+
+def transform_data(data):
+    # Inefficient transformation
+    result = []
+    for item in data:
+        # Redundant computation
+        total = sum(range(item["value"]))
+        result.append({"id": item["id"], "processed": total})
+    return result
+
+def load_data(data):
+    # Simulate slow database writes
+    for item in data:
+        time.sleep(0.001)  # Slow write
+        pass
+    return len(data)
+
+if __name__ == "__main__":
+    start = time.time()
+    data = extract_data()
+    processed = transform_data(data)
+    count = load_data(processed)
+    elapsed = time.time() - start
+    print(f"Processed {count} records in {elapsed:.2f}s")
+""",
+        },
+        "run": "python optimized_pipeline.py",
+        "prompt": """Analyze and optimize the data processing pipeline in pipeline.py to reduce execution time by 50%.
+
+Current implementation processes 1000 records slowly. Your task:
+
+1. Profile the current implementation to identify bottlenecks (extract, transform, load stages)
+2. Analyze the algorithmic complexity of each stage
+3. Identify optimization opportunities:
+   - Algorithmic improvements (remove redundant computations, better data structures)
+   - Parallel processing (multiprocessing for independent operations)
+   - Caching (memoize expensive repeated calculations)
+   - Batch operations (reduce I/O overhead)
+4. Implement optimizations incrementally in optimized_pipeline.py
+5. Benchmark each change to measure impact
+6. Verify correctness (results must match original)
+7. Document your optimization approach
+
+The pipeline has three stages:
+- extract_data(): Reads 1000 records with I/O delay
+- transform_data(): Applies expensive computation (sum of range)
+- load_data(): Writes results with I/O delay
+
+Provide detailed analysis:
+- Which optimizations provided the most benefit (quantified speedup)
+- Why you chose these approaches over alternatives
+- Any trade-offs made (memory vs speed, complexity vs performance)
+- Before/after performance comparison
+
+Target: Reduce execution time from ~3s to <1.5s while maintaining correctness.""",
+        "expect": {
+            "successful_execution": lambda result: True,  # Simplified validation
+        },
+        "tools": ["save", "read", "patch", "shell", "python"],
+    }
+
+
+def create_complexity_test_tasks() -> list[EvalSpec]:
+    """Create tasks for testing HybridOptimizer multi-stage selection."""
+    return [
+        create_medium_complexity_task(),
+        create_complex_task(),
+    ]
