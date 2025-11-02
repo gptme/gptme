@@ -215,6 +215,13 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - Give the assistant access to a full desktop, allowing it to interact with GUI applications.
 - 🤖 Long-running agents and advanced agent architectures (see [#143](https://github.com/gptme/gptme/issues/143) and [#259](https://github.com/gptme/gptme/issues/259))
   - Create your own agent with persistence using [gptme-agent-template][agent-template], like [Bob][bob].
+- 📋 Task automation system with `--task-loop` mode
+  - Autonomous execution of tasks from a workspace directory
+  - Intelligent task selection based on MIQ scoring (Momentum, Impact, Quality, Urgency, Dependencies)
+  - Automatic progress tracking and state management
+  - Dependency resolution and execution planning
+  - Subprocess-based execution for isolation and reliability
+  - See [gptme/tasks/README.md](gptme/tasks/README.md) for documentation and examples
 - ✨ Many smaller features to ensure a great experience
   - 🚰 Pipe in context via `stdin` or as arguments.
     - Passing a filename as an argument will read the file and include it as context.
@@ -344,6 +351,33 @@ Options:
   --version              Show version and configuration information
   --help                 Show this message and exit.
 ```
+
+### Task Loop Mode
+
+Execute tasks autonomously from a workspace directory using `--task-loop`:
+
+```sh
+# Execute single task (default)
+gptme --task-loop --workspace /path/to/workspace
+
+# Execute multiple tasks in sequence
+gptme --task-loop --max-tasks 3 --workspace /path/to/workspace
+
+# With custom timeout per task
+gptme --task-loop --timeout 600 --workspace /path/to/workspace
+
+# Non-interactive mode for automation
+gptme --task-loop --non-interactive -y --workspace /path/to/workspace
+```
+
+**Features:**
+- Intelligent task selection using MIQ scoring
+- Automatic progress tracking and state management
+- Dependency resolution and execution planning
+- Subprocess-based execution for isolation
+
+See [gptme/tasks/README.md](gptme/tasks/README.md) for complete documentation and examples.
+
 
 ## 📊 Stats
 
