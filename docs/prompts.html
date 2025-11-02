@@ -1447,11 +1447,11 @@ This tool is suitable to run long-running commands or interactive applications t
 Examples of such commands are: <span class="sb">`npm run dev`</span>, <span class="sb">`npm create vue@latest`</span>, <span class="sb">`python3 server.py`</span>, <span class="sb">`python3 train.py`</span>, etc.
 
 Available commands:
-<span class="k">-</span><span class="w"> </span>new_session &lt;command&gt;: Start a new tmux session with the given command
-<span class="k">-</span><span class="w"> </span>send_keys &lt;session_id&gt; &lt;keys&gt; [&lt;keys&gt;]: Send keys to the specified session
-<span class="k">-</span><span class="w"> </span>inspect_pane &lt;session_id&gt;: Show the current content of the specified pane
-<span class="k">-</span><span class="w"> </span>kill_session &lt;session_id&gt;: Terminate the specified tmux session
-<span class="k">-</span><span class="w"> </span>list_sessions: Show all active tmux sessions
+<span class="k">-</span><span class="w"> </span>new-session &lt;command&gt;: Start a new tmux session with the given command
+<span class="k">-</span><span class="w"> </span>send-keys &lt;session_id&gt; &lt;keys&gt; [&lt;keys&gt;]: Send keys to the specified session
+<span class="k">-</span><span class="w"> </span>inspect-pane &lt;session_id&gt;: Show the current content of the specified pane
+<span class="k">-</span><span class="w"> </span>kill-session &lt;session_id&gt;: Terminate the specified tmux session
+<span class="k">-</span><span class="w"> </span>list-sessions: Show all active tmux sessions
 
 
 <span class="gu">### Examples</span>
@@ -1461,14 +1461,14 @@ Available commands:
 <span class="k">&gt; </span><span class="ge">User: Start the dev server</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Certainly! To start the dev server we should use tmux:</span>
 <span class="sb">```tmux</span>
-<span class="s">new_session &#39;npm run dev&#39;</span>
+<span class="s">new-session &#39;npm run dev&#39;</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: Running `npm run dev` in session gptme_1</span>
 
 <span class="k">&gt; </span><span class="ge">User: Can you show me the current content of the pane?</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Of course! Let&#39;s inspect the pane content:</span>
 <span class="sb">```tmux</span>
-<span class="s">inspect_pane gptme_1</span>
+<span class="s">inspect-pane gptme_1</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System:</span>
 <span class="sb">```output</span>
@@ -1478,7 +1478,7 @@ Available commands:
 <span class="k">&gt; </span><span class="ge">User: Stop the dev server</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll send &#39;Ctrl+C&#39; to the pane to stop the server:</span>
 <span class="sb">```tmux</span>
-<span class="s">send_keys 0 C-c</span>
+<span class="s">send-keys 0 C-c</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: Sent &#39;C-c&#39; to pane 0</span>
 
@@ -1487,7 +1487,7 @@ Available commands:
 <span class="k">&gt; </span><span class="ge">User: start top and give me a summary</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Sure! Let&#39;s start the top command in a tmux session:</span>
 <span class="sb">```tmux</span>
-<span class="s">new_session &#39;top&#39;</span>
+<span class="s">new-session &#39;top&#39;</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: Running `top` in session gptme_1.</span>
 <span class="sb">```output</span>
@@ -1500,7 +1500,7 @@ Available commands:
 <span class="k">&gt; </span><span class="ge">User: start ipython</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Let&#39;s start an ipython session:</span>
 <span class="sb">```tmux</span>
-<span class="s">new_session &#39;ipython&#39;</span>
+<span class="s">new-session &#39;ipython&#39;</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: Running `ipython` in session 2.</span>
 <span class="sb">```output</span>
@@ -1508,7 +1508,7 @@ Available commands:
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">User: Run &#39;print(&quot;Hello, world!&quot;)&#39; in the ipython session</span>
 <span class="sb">```tmux</span>
-<span class="s">send_keys 2 &#39;print(&quot;Hello, world!&quot;)&#39; Enter</span>
+<span class="s">send-keys 2 &#39;print(&quot;Hello, world!&quot;)&#39; Enter</span>
 <span class="sb">```</span>
 
 <span class="gu">## todoread</span>
@@ -1716,7 +1716,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 8238</p>
+<p>Tokens: 8237</p>
 </dd></dl>
 
 <dl class="py function">

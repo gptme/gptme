@@ -874,11 +874,11 @@ This tool is suitable to run long-running commands or interactive applications t
 Examples of such commands are: <span class="sb">`npm run dev`</span>, <span class="sb">`npm create vue@latest`</span>, <span class="sb">`python3 server.py`</span>, <span class="sb">`python3 train.py`</span>, etc.
 
 Available commands:
-<span class="k">-</span><span class="w"> </span>new_session &lt;command&gt;: Start a new tmux session with the given command
-<span class="k">-</span><span class="w"> </span>send_keys &lt;session_id&gt; &lt;keys&gt; [&lt;keys&gt;]: Send keys to the specified session
-<span class="k">-</span><span class="w"> </span>inspect_pane &lt;session_id&gt;: Show the current content of the specified pane
-<span class="k">-</span><span class="w"> </span>kill_session &lt;session_id&gt;: Terminate the specified tmux session
-<span class="k">-</span><span class="w"> </span>list_sessions: Show all active tmux sessions
+<span class="k">-</span><span class="w"> </span>new-session &lt;command&gt;: Start a new tmux session with the given command
+<span class="k">-</span><span class="w"> </span>send-keys &lt;session_id&gt; &lt;keys&gt; [&lt;keys&gt;]: Send keys to the specified session
+<span class="k">-</span><span class="w"> </span>inspect-pane &lt;session_id&gt;: Show the current content of the specified pane
+<span class="k">-</span><span class="w"> </span>kill-session &lt;session_id&gt;: Terminate the specified tmux session
+<span class="k">-</span><span class="w"> </span>list-sessions: Show all active tmux sessions
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
@@ -895,7 +895,7 @@ Available commands:
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Certainly! To start the dev server we should use tmux:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">tmux</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">new_session 'npm run dev'
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">new-session 'npm run dev'
 </pre></div></pre>
   </td>
 </tr>
@@ -917,7 +917,7 @@ Available commands:
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Of course! Let's inspect the pane content:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">tmux</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">inspect_pane gptme_1
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">inspect-pane gptme_1
 </pre></div></pre>
   </td>
 </tr>
@@ -941,7 +941,7 @@ Available commands:
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll send 'Ctrl+C' to the pane to stop the server:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">tmux</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">send_keys 0 C-c
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">send-keys 0 C-c
 </pre></div></pre>
   </td>
 </tr>
@@ -964,7 +964,7 @@ Available commands:
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Sure! Let's start the top command in a tmux session:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">tmux</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">new_session 'top'
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">new-session 'top'
 </pre></div></pre>
   </td>
 </tr>
@@ -995,7 +995,7 @@ Available commands:
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Let's start an ipython session:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">tmux</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">new_session 'ipython'
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">new-session 'ipython'
 </pre></div></pre>
   </td>
 </tr>
@@ -1013,7 +1013,7 @@ Available commands:
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Run 'print("Hello, world!")' in the ipython session<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">tmux</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">send_keys 2 'print("Hello, world!")' Enter
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">send-keys 2 'print("Hello, world!")' Enter
 </pre></div></pre>
   </td>
 </tr>
