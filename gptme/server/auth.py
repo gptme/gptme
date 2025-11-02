@@ -178,6 +178,23 @@ def init_auth(host: str = "127.0.0.1", display: bool = True) -> str | None:
     """
     global _auth_enabled
 
+    # Check if auth is explicitly disabled via environment variable
+    if os.environ.get("GPTME_DISABLE_AUTH", "").lower() in ("true", "1", "yes"):
+        _auth_enabled = False
+        if display:
+            logger.info("=" * 60)
+            logger.info("gptme-server (Auth Disabled)")
+            logger.info("=" * 60)
+            logger.info(f"Binding to: {host}")
+            logger.info("Authentication: DISABLED (via GPTME_DISABLE_AUTH)")
+            logger.info("")
+            logger.info("⚠️  WARNING: Server is accessible without authentication!")
+            logger.info(
+                "Only use this in environments with external auth (e.g., k8s ingress)"
+            )
+            logger.info("=" * 60)
+        return None
+
     # Disable auth for local-only binding
     if is_local_host(host):
         _auth_enabled = False

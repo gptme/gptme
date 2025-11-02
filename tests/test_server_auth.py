@@ -100,3 +100,44 @@ def test_auth_invalid_token(auth_token):
         assert response.status_code == 401
         assert response.json is not None
         assert "error" in response.json
+
+
+def test_auth_disabled_via_env():
+    """Test that authentication can be disabled via GPTME_DISABLE_AUTH."""
+    from flask import Flask
+
+    import gptme.server.auth
+
+    # Save original state
+    original_auth_enabled = gptme.server.auth._auth_enabled
+    original_env = os.environ.get("GPTME_DISABLE_AUTH")
+
+    try:
+        # Set environment variable to disable auth
+        os.environ["GPTME_DISABLE_AUTH"] = "true"
+
+        # Re-initialize auth with network binding (would normally enable auth)
+        gptme.server.auth._auth_enabled = True  # Reset state
+        gptme.server.auth.init_auth("0.0.0.0", display=False)
+
+        app = Flask(__name__)
+
+        @app.route("/test")
+        @gptme.server.auth.require_auth
+        def protected_endpoint():
+            return {"success": True}
+
+        with app.test_client() as client:
+            # Should succeed without token since auth is disabled
+            response = client.get("/test")
+            assert response.status_code == 200
+            assert response.json is not None
+            assert response.json["success"] is True
+
+    finally:
+        # Cleanup
+        if original_env is not None:
+            os.environ["GPTME_DISABLE_AUTH"] = original_env
+        else:
+            os.environ.pop("GPTME_DISABLE_AUTH", None)
+        gptme.server.auth._auth_enabled = original_auth_enabled

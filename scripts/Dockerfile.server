@@ -20,6 +20,10 @@ WORKDIR /workspace
 # Expose the server port
 EXPOSE 5700
 
+# Note: Server binds to 0.0.0.0 which enables authentication by default.
+# Set GPTME_DISABLE_AUTH=true to disable auth in environments with external auth (e.g., k8s ingress).
+# Set GPTME_SERVER_TOKEN=xxx to configure a specific auth token.
+
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5700/ || exit 1
