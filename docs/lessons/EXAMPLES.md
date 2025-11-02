@@ -127,7 +127,7 @@ cd worktree/feature-name
 
 **Example**: `tmux-long-running-processes.md`
 
-```yaml
+````yaml
 ---
 match:
   keywords: [timeout, long-running, benchmark]
@@ -142,10 +142,10 @@ When running benchmarks, optimization, or long builds.
 
 # Pattern
 ```bash
-tmux new_session 'long-running-command'
-tmux inspect_pane session_name
+tmux new-session 'long-running-command'
+tmux inspect-pane session_name
 ```
-```
+````
 
 **When to use**: Tool has limitations (timeouts, memory, scope)
 

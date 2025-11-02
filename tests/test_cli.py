@@ -348,11 +348,11 @@ def test_tmux(args: list[str], runner: CliRunner):
     """
     $ gptme '/impersonate lets find out the current load
     ```tmux
-    new_session top
+    new-session top
     ```'
     """
     args.append(
-        "/impersonate lets find out the current load\n```tmux\nnew_session top\n```"
+        "/impersonate lets find out the current load\n```tmux\nnew-session top\n```"
     )
     print(f"running: gptme {' '.join(args)}")
     result = runner.invoke(gptme.cli.main, args)
