@@ -159,3 +159,120 @@ def test_optimization_strategy_properties():
     assert "Bootstrap → Mipro" in str(strategy)
     assert "45 min" in str(strategy)
     assert "$0.50" in str(strategy)
+
+
+def test_budget_constraint_complex_to_medium():
+    """Test budget constraint downgrades COMPLEX to MEDIUM."""
+    # COMPLEX normally costs $1.30, but budget is $0.90
+    strategy = select_optimization_strategy(
+        "COMPLEX", "medium", budget_limit=0.90, time_limit_min=None
+    )
+
+    # Should downgrade to 2-stage (Bootstrap + MIPROv2)
+    assert len(strategy.stages) == 2
+    assert OptimizerStage.BOOTSTRAP in strategy.stages
+    assert OptimizerStage.MIPRO in strategy.stages
+    assert OptimizerStage.GEPA not in strategy.stages
+    # Cost should be ~$0.78 (1.30 * 0.6)
+    assert strategy.estimated_cost < 0.90
+
+
+def test_budget_constraint_complex_to_simple():
+    """Test budget constraint downgrades COMPLEX to SIMPLE."""
+    # COMPLEX normally costs $1.30, but budget is $0.15
+    strategy = select_optimization_strategy(
+        "COMPLEX", "medium", budget_limit=0.15, time_limit_min=None
+    )
+
+    # Should downgrade to 1-stage (Bootstrap only)
+    assert len(strategy.stages) == 1
+    assert OptimizerStage.BOOTSTRAP in strategy.stages
+    assert OptimizerStage.MIPRO not in strategy.stages
+    # Cost should be ~$0.16 (1.30 * 0.6 * 0.2) or similar
+    assert strategy.estimated_cost < 0.20
+
+
+def test_budget_constraint_medium_to_simple():
+    """Test budget constraint downgrades MEDIUM to SIMPLE."""
+    # MEDIUM normally costs $0.50, but budget is $0.15
+    strategy = select_optimization_strategy(
+        "MEDIUM", "medium", budget_limit=0.15, time_limit_min=None
+    )
+
+    # Should downgrade to 1-stage (Bootstrap only)
+    assert len(strategy.stages) == 1
+    assert OptimizerStage.BOOTSTRAP in strategy.stages
+    # Cost should be ~$0.10 (0.50 * 0.2)
+    assert strategy.estimated_cost < 0.15
+
+
+def test_time_constraint_complex_to_medium():
+    """Test time constraint downgrades COMPLEX to MEDIUM."""
+    # COMPLEX normally takes 90 min, but limit is 60 min
+    strategy = select_optimization_strategy(
+        "COMPLEX", "medium", budget_limit=None, time_limit_min=60
+    )
+
+    # Should downgrade to 2-stage (Bootstrap + MIPROv2)
+    assert len(strategy.stages) == 2
+    assert OptimizerStage.BOOTSTRAP in strategy.stages
+    assert OptimizerStage.MIPRO in strategy.stages
+    assert OptimizerStage.GEPA not in strategy.stages
+    # Time should be ~45 min (90 * 0.5)
+    assert strategy.estimated_time_min <= 60
+
+
+def test_time_constraint_complex_to_simple():
+    """Test time constraint downgrades COMPLEX to SIMPLE."""
+    # COMPLEX normally takes 90 min, but limit is 12 min
+    strategy = select_optimization_strategy(
+        "COMPLEX", "medium", budget_limit=None, time_limit_min=12
+    )
+
+    # Should downgrade to 1-stage (Bootstrap only)
+    assert len(strategy.stages) == 1
+    assert OptimizerStage.BOOTSTRAP in strategy.stages
+    # Time should be ~10 min (90 * 0.5 * 0.22) or similar
+    assert strategy.estimated_time_min <= 12
+
+
+def test_both_constraints_together():
+    """Test both budget and time constraints together."""
+    # COMPLEX with tight budget AND time
+    strategy = select_optimization_strategy(
+        "COMPLEX", "medium", budget_limit=0.15, time_limit_min=15
+    )
+
+    # Should downgrade to 1-stage (Bootstrap only)
+    assert len(strategy.stages) == 1
+    assert OptimizerStage.BOOTSTRAP in strategy.stages
+    assert strategy.estimated_cost < 0.20
+    assert strategy.estimated_time_min <= 15
+
+
+def test_no_downgrade_when_within_constraints():
+    """Test no downgrade happens when strategy is within constraints."""
+    # COMPLEX with generous constraints
+    strategy = select_optimization_strategy(
+        "COMPLEX", "medium", budget_limit=2.0, time_limit_min=120
+    )
+
+    # Should keep all 3 stages
+    assert len(strategy.stages) == 3
+    assert OptimizerStage.BOOTSTRAP in strategy.stages
+    assert OptimizerStage.MIPRO in strategy.stages
+    assert OptimizerStage.GEPA in strategy.stages
+    assert strategy.estimated_cost == 1.30
+    assert strategy.estimated_time_min == 90
+
+
+def test_constraint_with_heavy_auto_level():
+    """Test constraints work with heavy auto_level."""
+    # COMPLEX heavy normally costs $1.95, limit is $1.00
+    strategy = select_optimization_strategy(
+        "COMPLEX", "heavy", budget_limit=1.00, time_limit_min=None
+    )
+
+    # Should downgrade to 2-stage or 1-stage
+    assert len(strategy.stages) <= 2
+    assert strategy.estimated_cost < 1.00

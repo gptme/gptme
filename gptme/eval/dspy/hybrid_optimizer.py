@@ -383,10 +383,12 @@ def select_optimization_strategy(
         auto_level: Configuration level for optimization aggressiveness
             Options: "light", "medium", "heavy"
             Default: "medium"
-        budget_limit: Maximum budget in USD (optional, future use)
-            Currently not applied, reserved for Week 2 subtask 3
-        time_limit_min: Maximum time in minutes (optional, future use)
-            Currently not applied, reserved for Week 2 subtask 3
+        budget_limit: Maximum budget in USD (optional)
+            If provided, strategy will be downgraded to fit within budget
+            Downgrade order: Remove GEPA, then MIPROv2
+        time_limit_min: Maximum time in minutes (optional)
+            If provided, strategy will be downgraded to fit within time limit
+            Downgrade order: Remove GEPA, then MIPROv2
 
     Returns:
         OptimizationStrategy with recommended stages and resource estimates
@@ -447,20 +449,35 @@ def select_optimization_strategy(
     estimated_time = int(base_time * time_multiplier)
     estimated_cost = base_cost * cost_multiplier
 
-    # TODO: Apply budget/time constraints (Week 2 subtask 3)
-    # When budget_limit or time_limit_min are provided, downgrade strategy if needed:
-    # if budget_limit and estimated_cost > budget_limit:
-    #     # Remove most expensive stage (GEPA, then MIPROv2)
-    #     if OptimizerStage.GEPA in stages:
-    #         stages = stages[:-1]  # Remove GEPA
-    #         estimated_cost *= 0.6  # Approximate 40% cost reduction
-    #     elif OptimizerStage.MIPRO in stages:
-    #         stages = stages[:-1]  # Remove MIPROv2
-    #         estimated_cost *= 0.2  # Down to Bootstrap only
-    #
-    # if time_limit_min and estimated_time > time_limit_min:
-    #     # Similar downgrade logic for time constraints
-    #     ...
+    # Apply budget/time constraints (Week 2 subtask 3)
+    # Downgrade strategy if it exceeds constraints by removing expensive stages
+    while budget_limit and estimated_cost > budget_limit and len(stages) > 1:
+        # Remove most expensive stage (GEPA first, then MIPROv2)
+        if OptimizerStage.GEPA in stages:
+            stages = stages[:-1]  # Remove GEPA
+            estimated_cost *= 0.6  # Approximate 40% cost reduction
+            estimated_time = int(estimated_time * 0.5)  # GEPA is ~50% of time
+        elif OptimizerStage.MIPRO in stages:
+            stages = stages[:-1]  # Remove MIPROv2
+            estimated_cost *= 0.2  # Down to Bootstrap only (~80% reduction)
+            estimated_time = int(estimated_time * 0.22)  # Bootstrap is ~22% of time
+        else:
+            # Only Bootstrap left, can't downgrade further
+            break
+
+    while time_limit_min and estimated_time > time_limit_min and len(stages) > 1:
+        # Remove most expensive stage by time (similar to cost)
+        if OptimizerStage.GEPA in stages:
+            stages = stages[:-1]  # Remove GEPA
+            estimated_time = int(estimated_time * 0.5)  # GEPA is ~50% of time
+            estimated_cost *= 0.6  # Keep cost estimate consistent
+        elif OptimizerStage.MIPRO in stages:
+            stages = stages[:-1]  # Remove MIPROv2
+            estimated_time = int(estimated_time * 0.22)  # Bootstrap is ~22% of time
+            estimated_cost *= 0.2  # Keep cost estimate consistent
+        else:
+            # Only Bootstrap left, can't downgrade further
+            break
 
     return OptimizationStrategy(
         stages=stages,
