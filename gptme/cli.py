@@ -21,6 +21,7 @@ from .llm.models import get_recommended_model
 from .logmanager import ConversationMeta, get_user_conversations
 from .message import Message
 from .prompts import get_prompt
+from .tasks import TaskExecutor
 from .telemetry import init_telemetry, shutdown_telemetry
 from .tools import ToolFormat, get_available_tools, init_tools
 from .util import epoch_to_age
@@ -174,13 +175,23 @@ def main(
     """Main entrypoint for the CLI."""
     # Handle task loop mode
     if task_loop:
-        print("Task loop mode is currently under development.")
-        print("Phase 1 implementation in progress:")
-        print("  - CLI flag added ✓")
-        print("  - Task loading (TODO)")
-        print("  - Execution engine (TODO)")
-        print("  - Progress tracking (TODO)")
-        print("\nSee: knowledge/technical-designs/task-loop-mode-design.md for details")
+        print("Task loop mode: Starting...")
+
+        # Determine tasks directory (default to ./tasks in workspace)
+        tasks_dir = Path(workspace) / "tasks" if workspace else Path.cwd() / "tasks"
+
+        if not tasks_dir.exists():
+            print(f"Error: Tasks directory not found: {tasks_dir}")
+            print("Please create a tasks directory or specify --workspace")
+            sys.exit(1)
+
+        print(f"Loading tasks from: {tasks_dir}")
+
+        # Create and run task executor
+        executor = TaskExecutor(tasks_dir)
+        executor.run_loop()
+
+        print("\nTask loop mode completed.")
         sys.exit(0)
 
     if profile:
