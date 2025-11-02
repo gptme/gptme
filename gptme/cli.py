@@ -146,6 +146,12 @@ The interface provides user commands that can be used to interact with the syste
     is_flag=True,
     help="Enable profiling and save results to gptme-profile-{timestamp}.prof",
 )
+@click.option(
+    "--task-loop",
+    "task_loop",
+    is_flag=True,
+    help="Enable task loop mode for autonomous task execution.",
+)
 def main(
     prompts: list[str],
     prompt_system: str,
@@ -163,8 +169,20 @@ def main(
     workspace: str | None,
     agent_path: str | None,
     profile: bool,
+    task_loop: bool,
 ):
     """Main entrypoint for the CLI."""
+    # Handle task loop mode
+    if task_loop:
+        print("Task loop mode is currently under development.")
+        print("Phase 1 implementation in progress:")
+        print("  - CLI flag added ✓")
+        print("  - Task loading (TODO)")
+        print("  - Execution engine (TODO)")
+        print("  - Progress tracking (TODO)")
+        print("\nSee: knowledge/technical-designs/task-loop-mode-design.md for details")
+        sys.exit(0)
+
     if profile:
         import cProfile
         import pstats
