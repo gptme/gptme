@@ -1,6 +1,7 @@
 """Task execution engine for task loop mode."""
 
 import logging
+import subprocess
 from pathlib import Path
 
 from ..message import Message
@@ -52,6 +53,54 @@ When done, update progress and commit your changes.
         """Create Message object from task."""
         prompt = self.format_task_prompt(task)
         return Message(role="user", content=prompt)
+
+    def commit_task_progress(self, task: Task, message: str) -> bool:
+        """Commit task progress to git.
+
+        Args:
+            task: Task that was worked on
+            message: Commit message (should use conventional commits format)
+
+        Returns:
+            bool: True if commit successful, False if no changes or failure
+        """
+        try:
+            # Check if there are changes
+            status_result = subprocess.run(
+                ["git", "status", "--porcelain", "--untracked-files=no"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            if not status_result.stdout.strip():
+                logger.info("No changes to commit")
+                return False
+
+            # Stage the task file if it exists
+            if task.file_path:
+                task_file = str(task.file_path)
+                subprocess.run(
+                    ["git", "add", task_file],
+                    check=True,
+                )
+                logger.info(f"Staged {task_file}")
+
+            # Create commit
+            subprocess.run(
+                ["git", "commit", "-m", message],
+                check=True,
+            )
+            logger.info(f"Created commit: {message}")
+
+            return True
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Git command failed: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error committing task progress: {e}")
+            return False
 
     def execute_task(self, task: Task) -> bool:
         """Execute a single task.
