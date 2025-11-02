@@ -169,6 +169,18 @@ Integration Examples
         --auto heavy \\
         --train-size 20 \\
         --val-size 10
+
+See Also
+--------
+**Decision Tree Documentation:**
+    Complete decision tree visualization and path analysis:
+    `/home/bob/gptme-bob/knowledge/technical-designs/gepa-selection-decision-tree.md`
+
+    This document provides:
+    - ASCII decision tree diagram showing all decision paths
+    - 8 detailed path examples (simple to complex, with/without constraints)
+    - Test coverage mapping (19 tests to decision paths)
+    - Implementation details and design rationale
 """
 
 import logging
