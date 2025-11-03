@@ -198,6 +198,9 @@ Content
 """
             )
 
+        # Load tasks after creating files
+        executor.load_tasks()
+
         task = executor.select_next_task()
         assert task is not None
         assert executor.current_task == task
