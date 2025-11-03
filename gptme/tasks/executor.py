@@ -187,6 +187,8 @@ class ExecutionPlan:
         prompt = f"""# Task: {self.task.title}
 
 **Task ID**: {self.task.id}
+**State**: {self.task.state}
+**Priority**: {self.task.priority}
 **MIQ Score**: {self.miq_score.total:.2f}
 **Strategy**: {self.strategy}
 **Estimated Sessions**: {self.estimated_sessions}
@@ -359,15 +361,115 @@ class TaskExecutor:
         if self.current_plan is None or self.current_plan.task != task:
             self.current_plan = ExecutionPlan.create(task)
 
-        # TODO: Implement actual validation logic
-        # For now, return placeholder
+        # Run actual validation checks
         results = {}
         for check in self.current_plan.quality_checks:
             # Extract check name (after "✓ ")
             check_name = check.split("✓ ", 1)[1] if "✓ " in check else check
-            results[check_name] = True  # Placeholder
+
+            # Run the appropriate validation
+            try:
+                if "committed to git" in check_name.lower():
+                    results[check_name] = self._check_git_clean()
+                elif "pre-commit" in check_name.lower():
+                    results[check_name] = self._check_precommit()
+                elif "tests pass" in check_name.lower():
+                    results[check_name] = self._check_tests()
+                elif "type checking" in check_name.lower():
+                    results[check_name] = self._check_mypy()
+                elif "formatting" in check_name.lower():
+                    results[check_name] = self._check_ruff()
+                elif "coverage" in check_name.lower():
+                    results[check_name] = self._check_coverage()
+                elif "documentation builds" in check_name.lower():
+                    results[check_name] = self._check_docs()
+                else:
+                    # Unknown check type - skip validation
+                    results[check_name] = True
+            except Exception as e:
+                # Log error but don't fail task
+                print(f"Warning: Quality check '{check_name}' failed: {e}")
+                results[check_name] = False
 
         return results
+
+    def _check_git_clean(self) -> bool:
+        """Check if working directory is clean (all changes committed)."""
+        import subprocess
+
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0 and not result.stdout.strip()
+
+    def _check_precommit(self) -> bool:
+        """Check if pre-commit hooks pass."""
+        import subprocess
+
+        result = subprocess.run(
+            ["pre-commit", "run", "--all-files"],
+            capture_output=True,
+            timeout=60,
+        )
+        return result.returncode == 0
+
+    def _check_tests(self) -> bool:
+        """Check if pytest tests pass."""
+        import subprocess
+
+        result = subprocess.run(
+            ["pytest", "-x", "--tb=short"],
+            capture_output=True,
+            timeout=300,
+        )
+        return result.returncode == 0
+
+    def _check_mypy(self) -> bool:
+        """Check if mypy type checking passes."""
+        import subprocess
+
+        result = subprocess.run(
+            ["mypy", "."],
+            capture_output=True,
+            timeout=120,
+        )
+        return result.returncode == 0
+
+    def _check_ruff(self) -> bool:
+        """Check if ruff formatting/linting passes."""
+        import subprocess
+
+        result = subprocess.run(
+            ["ruff", "check", "."],
+            capture_output=True,
+            timeout=30,
+        )
+        return result.returncode == 0
+
+    def _check_coverage(self) -> bool:
+        """Check if test coverage meets baseline."""
+        import subprocess
+
+        result = subprocess.run(
+            ["pytest", "--cov", "--cov-report=term-missing", "--cov-fail-under=80"],
+            capture_output=True,
+            timeout=300,
+        )
+        return result.returncode == 0
+
+    def _check_docs(self) -> bool:
+        """Check if documentation builds without errors."""
+        import subprocess
+
+        result = subprocess.run(
+            ["make", "-C", "docs", "html"],
+            capture_output=True,
+            timeout=120,
+        )
+        return result.returncode == 0
 
     def _update_task_progress(
         self, task: Task, execution_result: dict[str, Any]
