@@ -187,6 +187,8 @@ class ExecutionPlan:
         prompt = f"""# Task: {self.task.title}
 
 **Task ID**: {self.task.id}
+**State**: {self.task.state}
+**Priority**: {self.task.priority or "none"}
 **MIQ Score**: {self.miq_score.total:.2f}
 **Strategy**: {self.strategy}
 **Estimated Sessions**: {self.estimated_sessions}
