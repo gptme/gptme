@@ -316,6 +316,10 @@ class TaskExecutor:
                 # No changes to commit
                 return False
 
+            # Skip commit if task has no file_path (e.g., test tasks)
+            if task.file_path is None:
+                return False
+
             # Stage the task file
             subprocess.run(
                 ["git", "add", str(task.file_path)],
