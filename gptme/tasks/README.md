@@ -126,10 +126,10 @@ Task automation is available via the `--task-loop` flag:
 
 ```bash
 # Execute a single task
-gptme --task-loop --workspace /path/to/workspace
+gptme-util tasks loop --workspace /path/to/workspace
 
 # Run multiple tasks with timeout
-gptme --task-loop --max-tasks 5 --timeout 300 --workspace /path/to/workspace
+gptme-util tasks loop --max-tasks 5 --timeout 300 --workspace /path/to/workspace
 ```
 
 **CLI Flags**:
@@ -370,7 +370,7 @@ Task loop mode integrates with autonomous operation:
 ```bash
 # In autonomous-run.sh
 if [ "$TASK_LOOP_MODE" = "true" ]; then
-    gptme --task-loop --max-tasks 1 --workspace /home/bob/gptme-bob
+    gptme-util tasks loop --max-tasks 1 --workspace /home/bob/gptme-bob
 fi
 ```
 

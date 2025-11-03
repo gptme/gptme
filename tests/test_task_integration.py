@@ -201,9 +201,10 @@ def test_workflow_error_handling(temp_git_repo):
 
 def test_cli_flag_acceptance():
     """
-    Test that --task-loop flag is recognized by CLI.
+    Smoke test that CLI help works correctly.
 
-    Note: This is a smoke test. Full CLI integration tested separately.
+    Note: Task loop functionality moved to gptme-util tasks loop.
+    Full CLI integration tested separately.
     """
     # Test flag existence (actual CLI invocation tested in CLI tests)
     import sys
@@ -472,12 +473,14 @@ Feature blocked by external dependency.
 
     def test_cli_integration_with_task_loop(self, realistic_task_repo):
         """
-        Test CLI integration with --task-loop flag.
+        Test TaskExecutor integration with task directory.
+
+        Note: Task loop now accessed via `gptme-util tasks loop` command.
 
         Validates:
-        1. CLI accepts --task-loop flag
+        1. TaskExecutor accepts task directory
         2. Task directory is properly configured
-        3. Execution limits can be set
+        3. Execution limits can be set via run_loop()
         """
         tasks_dir = realistic_task_repo / "tasks"
 
