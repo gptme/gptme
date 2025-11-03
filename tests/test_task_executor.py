@@ -120,8 +120,9 @@ def test_execute_task(temp_tasks_dir):
     task = executor.loader.get_task("task1")
     assert task is not None
 
-    # Mock subprocess.run to prevent actual gptme execution
-    with patch("subprocess.run") as mock_run:
+    # Mock subprocess.run in executor module to prevent actual gptme execution
+    # Must patch in module namespace due to local import at line 415
+    with patch("gptme.tasks.executor.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout="Task completed successfully",
