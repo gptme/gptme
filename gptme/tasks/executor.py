@@ -450,7 +450,7 @@ class TaskExecutor:
             return {
                 "success": False,
                 "output": "",
-                "error": "Task execution timed out",
+                "error": "Task execution timeout",
                 "exit_code": -1,
             }
         except Exception as e:
