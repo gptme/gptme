@@ -215,7 +215,7 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - Give the assistant access to a full desktop, allowing it to interact with GUI applications.
 - 🤖 Long-running agents and advanced agent architectures (see [#143](https://github.com/gptme/gptme/issues/143) and [#259](https://github.com/gptme/gptme/issues/259))
   - Create your own agent with persistence using [gptme-agent-template][agent-template], like [Bob][bob].
-- 📋 Task automation system with `--task-loop` mode
+- 📋 Task automation system with `gptme-util tasks loop`
   - Autonomous execution of tasks from a workspace directory
   - Intelligent task selection based on MIQ scoring (Momentum, Impact, Quality, Urgency, Dependencies)
   - Automatic progress tracking and state management
@@ -354,20 +354,20 @@ Options:
 
 ### Task Loop Mode
 
-Execute tasks autonomously from a workspace directory using `--task-loop`:
+Execute tasks autonomously from a workspace directory using `gptme-util tasks loop`:
 
 ```sh
 # Execute single task (default)
-gptme --task-loop --workspace /path/to/workspace
+gptme-util tasks loop --workspace /path/to/workspace
 
 # Execute multiple tasks in sequence
-gptme --task-loop --max-tasks 3 --workspace /path/to/workspace
+gptme-util tasks loop --max-tasks 3 --workspace /path/to/workspace
 
 # With custom timeout per task
-gptme --task-loop --timeout 600 --workspace /path/to/workspace
+gptme-util tasks loop --timeout 600 --workspace /path/to/workspace
 
-# Non-interactive mode for automation
-gptme --task-loop --non-interactive -y --workspace /path/to/workspace
+# Combine options
+gptme-util tasks loop --workspace /path/to/workspace --max-tasks 5 --timeout 600
 ```
 
 **Features:**

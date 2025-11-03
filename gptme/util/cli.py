@@ -699,5 +699,75 @@ def models_info(model_name: str):
         print(f"Knowledge cutoff: {model.knowledge_cutoff.strftime('%Y-%m-%d')}")
 
 
+@main.group()
+def tasks():
+    """Commands for task management."""
+    pass
+
+
+@tasks.command("loop")
+@click.option(
+    "--workspace",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Path to workspace directory containing tasks/ subdirectory.",
+)
+@click.option(
+    "--max-tasks",
+    type=int,
+    default=None,
+    help="Maximum number of tasks to execute (default: unlimited).",
+)
+@click.option(
+    "--timeout",
+    type=int,
+    default=None,
+    help="Maximum time per task in seconds (default: unlimited).",
+)
+def tasks_loop(
+    workspace: Path | None,
+    max_tasks: int | None,
+    timeout: int | None,
+):
+    """Run autonomous task execution loop.
+
+    Loads tasks from a tasks/ directory and executes them in priority order
+    with dependency resolution. Tasks are represented as Markdown files with
+    YAML frontmatter containing metadata (state, priority, tags, dependencies).
+
+    Example:
+        gptme-util tasks loop --workspace /path/to/project --max-tasks 3
+    """
+    from ..tasks import TaskExecutor
+
+    click.echo("Task loop mode: Starting...")
+
+    # Determine tasks directory (default to ./tasks in workspace or current directory)
+    if workspace:
+        tasks_dir = workspace / "tasks"
+    else:
+        tasks_dir = Path.cwd() / "tasks"
+
+    if not tasks_dir.exists():
+        click.echo(f"Error: Tasks directory not found: {tasks_dir}", err=True)
+        click.echo("Please create a tasks directory or specify --workspace", err=True)
+        sys.exit(1)
+
+    click.echo(f"Loading tasks from: {tasks_dir}")
+
+    # Create and run task executor
+    executor = TaskExecutor(tasks_dir)
+    result = executor.run_loop(
+        max_tasks=max_tasks,
+        max_time_seconds=timeout,
+    )
+
+    # Display results
+    click.echo("\nTask loop mode completed.")
+    click.echo(f"Tasks attempted: {result['tasks_attempted']}")
+    click.echo(f"Tasks completed: {result['tasks_completed']}")
+    click.echo(f"Tasks failed: {result['tasks_failed']}")
+    click.echo(f"Execution time: {result['execution_time']:.1f}s")
+
+
 if __name__ == "__main__":
     main()
