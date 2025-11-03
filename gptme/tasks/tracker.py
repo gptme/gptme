@@ -127,7 +127,8 @@ class TaskProgressTracker:
             task: Task to save
         """
         if not task.file_path:
-            raise ValueError(f"Task {task.id} has no file_path")
+            # Skip saving for tasks without file_path (e.g., test tasks)
+            return
 
         # Read original content
         original = task.file_path.read_text()

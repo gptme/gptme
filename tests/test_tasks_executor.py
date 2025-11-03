@@ -381,8 +381,8 @@ class TestTaskLoop:
     @patch.object(TaskExecutor, "select_next_task")
     def test_run_loop_max_tasks_limit(
         self,
-        mock_execute: MagicMock,
         mock_select: MagicMock,
+        mock_execute: MagicMock,
         executor: TaskExecutor,
         sample_task: Task,
     ):

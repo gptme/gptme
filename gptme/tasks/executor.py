@@ -319,9 +319,16 @@ class TaskExecutor:
                 return False
 
             # Stage the task file (if file_path is set)
+            if task.file_path is not None:
+                subprocess.run(
+                    ["git", "add", str(task.file_path)],
+                    check=True,
+                    cwd=self.loader.tasks_dir,
+                )
+
             # Commit
             subprocess.run(
-                ["git", "commit", "-m", message] + [str(task.file_path)] if task.file_path is not None else [],
+                ["git", "commit", "-m", message],
                 check=True,
                 cwd=self.loader.tasks_dir,
             )
