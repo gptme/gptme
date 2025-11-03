@@ -234,7 +234,7 @@ Content
 class TestTaskExecution:
     """Tests for task execution functionality."""
 
-    @patch("subprocess.run")
+    @patch("gptme.tasks.executor.subprocess.run")
     def test_execute_task_success(
         self, mock_run: MagicMock, executor: TaskExecutor, sample_task: Task
     ):
@@ -249,7 +249,7 @@ class TestTaskExecution:
         assert result["output"] == "Output"
         assert result["exit_code"] == 0
 
-    @patch("subprocess.run")
+    @patch("gptme.tasks.executor.subprocess.run")
     def test_execute_task_failure(
         self, mock_run: MagicMock, executor: TaskExecutor, sample_task: Task
     ):
@@ -264,7 +264,7 @@ class TestTaskExecution:
         assert result["error"] == "Error"
         assert result["exit_code"] == 1
 
-    @patch("subprocess.run")
+    @patch("gptme.tasks.executor.subprocess.run")
     def test_execute_task_timeout(
         self, mock_run: MagicMock, executor: TaskExecutor, sample_task: Task
     ):
@@ -276,7 +276,7 @@ class TestTaskExecution:
         assert result["success"] is False
         assert "timeout" in result["error"].lower()
 
-    @patch("subprocess.run")
+    @patch("gptme.tasks.executor.subprocess.run")
     def test_execute_task_exception(
         self, mock_run: MagicMock, executor: TaskExecutor, sample_task: Task
     ):
