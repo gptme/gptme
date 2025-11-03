@@ -130,7 +130,8 @@ class TaskLoader:
             deps_satisfied = True
             for dep_id in task.depends:
                 dep_task = self.get_task(dep_id)
-                if dep_task and dep_task.state != "done":
+                # Task is blocked if dependency doesn't exist OR isn't done
+                if not dep_task or dep_task.state != "done":
                     deps_satisfied = False
                     break
 
