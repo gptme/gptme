@@ -316,12 +316,13 @@ class TaskExecutor:
                 # No changes to commit
                 return False
 
-            # Stage the task file
-            subprocess.run(
-                ["git", "add", str(task.file_path)],
-                check=True,
-                cwd=self.loader.tasks_dir,
-            )
+            # Stage the task file (if file_path is set)
+            if task.file_path is not None:
+                subprocess.run(
+                    ["git", "add", str(task.file_path)],
+                    check=True,
+                    cwd=self.loader.tasks_dir,
+                )
 
             # Commit
             subprocess.run(
