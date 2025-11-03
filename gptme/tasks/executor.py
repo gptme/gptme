@@ -1,10 +1,12 @@
 """Task execution engine with MIQ-guided planning (Phase 2.3)."""
 
 import logging
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..message import Message
 from .loader import Task, TaskLoader
 from .planner import MIQPlanner, MIQScore
 from .tracker import TaskProgressTracker
@@ -272,6 +274,67 @@ class TaskExecutor:
             self.current_plan = ExecutionPlan.create(task)
 
         return self.current_plan.format_execution_prompt()
+
+    def create_task_message(self, task: Task) -> Message:
+        """Create a message from task for LLM processing.
+
+        Args:
+            task: Task to convert to message
+
+        Returns:
+            Message with task content formatted for LLM
+        """
+        content = f"# Task: {task.title}\n\n"
+        content += f"**ID**: {task.id}\n"
+        content += f"**State**: {task.state}\n"
+        content += f"**Priority**: {task.priority}\n\n"
+        content += task.content
+
+        return Message(role="user", content=content)
+
+    def commit_task_progress(self, task: Task, message: str) -> bool:
+        """Commit task progress to git.
+
+        Args:
+            task: Task whose progress to commit
+            message: Commit message
+
+        Returns:
+            True if commit succeeded, False if no changes to commit
+        """
+        try:
+            # Check if there are changes
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=self.loader.tasks_dir,
+            )
+
+            if not result.stdout.strip():
+                # No changes to commit
+                return False
+
+            # Stage the task file
+            subprocess.run(
+                ["git", "add", str(task.file_path)],
+                check=True,
+                cwd=self.loader.tasks_dir,
+            )
+
+            # Commit
+            subprocess.run(
+                ["git", "commit", "-m", message],
+                check=True,
+                cwd=self.loader.tasks_dir,
+            )
+
+            return True
+
+        except subprocess.CalledProcessError:
+            logger.error(f"Failed to commit task progress: {task.id}")
+            return False
 
     def validate_quality(self, task: Task | None = None) -> dict[str, bool]:
         """Validate quality checks for task.
