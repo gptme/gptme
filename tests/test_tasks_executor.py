@@ -17,11 +17,11 @@ def sample_task() -> Task:
         id="test-task",
         title="Test Task",
         content="# Test Task\n\nTest content",
+        tags=["dev", "automation"],
         metadata={
             "state": "new",
             "created": "2025-11-02",
             "priority": "high",
-            "tags": ["dev", "automation"],
         },
     )
 
