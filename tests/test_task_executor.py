@@ -2,6 +2,7 @@
 
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -119,9 +120,17 @@ def test_execute_task(temp_tasks_dir):
     task = executor.loader.get_task("task1")
     assert task is not None
 
-    # For Phase 1, just check that execution doesn't fail
-    success = executor.execute_task(task)
-    assert success is True
+    # Mock subprocess.run to prevent actual gptme execution
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Task completed successfully",
+            stderr="",
+        )
+
+        # For Phase 1, just check that execution doesn't fail
+        result = executor.execute_task(task)
+        assert result["success"] is True
 
 
 def test_run_loop_no_tasks():
