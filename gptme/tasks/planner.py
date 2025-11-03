@@ -21,11 +21,12 @@ class MIQScore:
     total: float  # Weighted average
 
     @classmethod
-    def calculate(cls, task: Task) -> "MIQScore":
+    def calculate(cls, task: Task, all_tasks: list[Task] | None = None) -> "MIQScore":
         """Calculate MIQ score for a task.
 
         Args:
             task: Task to score
+            all_tasks: Optional list of all tasks for reverse dependency lookup
 
         Returns:
             MIQScore with breakdown
@@ -43,7 +44,7 @@ class MIQScore:
         capability_match = cls._calculate_capability_match(task)
 
         # Dependency value: Tasks with dependents unblock more work
-        dependency_value = cls._calculate_dependency_value(task)
+        dependency_value = cls._calculate_dependency_value(task, all_tasks)
 
         # Weighted average (goal alignment and impact weighted higher)
         weights = {
@@ -177,22 +178,48 @@ class MIQScore:
         return 0.5  # Neutral
 
     @staticmethod
-    def _calculate_dependency_value(task: Task) -> float:
+    def _calculate_dependency_value(task: Task, all_tasks: list[Task] | None = None) -> float:
         """Calculate dependency value score.
 
         Tasks that unblock others have higher value.
-        For now, just check if task has dependents (would need reverse lookup).
+        Uses reverse dependency lookup when all_tasks is provided.
+        
+        Args:
+            task: Task to calculate dependency value for
+            all_tasks: Optional list of all tasks for reverse lookup
+        
+        Returns:
+            Dependency value score (0.0-1.0)
         """
-        # TODO: Implement reverse dependency lookup
-        # For now, use simple heuristic: infrastructure and automation
-        # tasks typically unblock others
-        strategic_tags = {"infrastructure", "automation", "testing"}
-        tags = set(task.tags)
-
-        if tags & strategic_tags:
-            return 0.8
-
-        return 0.5  # Neutral
+        if all_tasks is not None:
+            # Count how many tasks depend on this one
+            dependent_count = 0
+            for other_task in all_tasks:
+                if task.id in other_task.depends:
+                    dependent_count += 1
+            
+            # Scale score based on number of dependents
+            # 0 dependents = 0.3 (low value)
+            # 1 dependent = 0.5 (medium value)
+            # 2 dependents = 0.7 (high value)
+            # 3+ dependents = 0.9 (very high value)
+            if dependent_count == 0:
+                return 0.3
+            elif dependent_count == 1:
+                return 0.5
+            elif dependent_count == 2:
+                return 0.7
+            else:
+                return 0.9
+        else:
+            # Fallback to heuristic when all_tasks not provided
+            strategic_tags = {"infrastructure", "automation", "testing"}
+            tags = set(task.tags)
+            
+            if tags & strategic_tags:
+                return 0.8
+            
+            return 0.5  # Neutral
 
 
 class MIQPlanner:
