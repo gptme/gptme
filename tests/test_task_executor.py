@@ -138,6 +138,9 @@ def test_run_loop_with_tasks(temp_tasks_dir):
     """Test run loop with tasks."""
     executor = TaskExecutor(temp_tasks_dir)
 
+    # Load tasks after creating files
+    executor.load_tasks()
+
     # Should execute without errors
     executor.run_loop()
 
