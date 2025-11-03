@@ -77,6 +77,11 @@ jobs:
       if: contains(matrix.extras, 'browser') || contains(matrix.extras, 'all')
       run: poetry run playwright install chromium
 
+    - name: Configure git
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
     # old comment: OpenAI sometimes randomly aborts connections
     - name: Run tests
       uses: nick-fields/retry@v3
