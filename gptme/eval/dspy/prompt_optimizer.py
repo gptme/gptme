@@ -46,15 +46,9 @@ class ModelNameMapper:
     def get_reflection_model(base_model: str) -> str:
         """Get a more powerful model for reflection tasks."""
         if base_model.startswith("anthropic/"):
-            if "haiku" in base_model.lower():
-                return "anthropic/claude-sonnet-4-5"
-            else:
-                return "anthropic/claude-sonnet-4-5"
+            return "claude-sonnet-4-5"
         elif base_model.startswith("openai/"):
-            if "gpt-3.5" in base_model.lower() or "gpt-4o-mini" in base_model.lower():
-                return "openai/gpt-4o"
-            else:
-                return "openai/gpt-4o"
+            return "gpt-5"
         else:
             return ModelNameMapper.to_dspy_format(base_model)
 
