@@ -1020,7 +1020,9 @@ def _shorten_stdout(
     assert (pre_tokens is None) == (post_tokens is None)
     if pre_tokens is not None and post_tokens is not None:
         if not will_truncate_by_tokens:
-            tokenizer = get_tokenizer("gpt-4")  # TODO: use sane default
+            # Use cl100k_base encoding (used by gpt-4 and default fallback)
+            # This is encoding-agnostic and doesn't assume a specific model
+            tokenizer = get_tokenizer("cl100k_base")
             tokens = tokenizer.encode(stdout)
         if len(tokens) > pre_tokens + post_tokens:
             truncation_msg = "... (output truncated"
