@@ -195,6 +195,7 @@ def _run_planner(
                 no_confirm=True,
                 interactive=False,
                 show_hidden=False,
+                tool_format="markdown",
             )
 
         t = threading.Thread(target=run_executor, daemon=True)
@@ -349,6 +350,7 @@ def subagent(
             no_confirm=True,
             interactive=False,
             show_hidden=False,
+            tool_format="markdown",
         )
 
     # start a thread with a subagent
