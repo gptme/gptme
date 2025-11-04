@@ -47,14 +47,14 @@ class ModelNameMapper:
         """Get a more powerful model for reflection tasks."""
         if base_model.startswith("anthropic/"):
             if "haiku" in base_model.lower():
-                return "claude-3-5-sonnet-20241022"
+                return "anthropic/claude-sonnet-4-5"
             else:
-                return "claude-3-5-sonnet-20241022"
+                return "anthropic/claude-sonnet-4-5"
         elif base_model.startswith("openai/"):
             if "gpt-3.5" in base_model.lower() or "gpt-4o-mini" in base_model.lower():
-                return "gpt-4o"
+                return "openai/gpt-4o"
             else:
-                return "gpt-4o"
+                return "openai/gpt-4o"
         else:
             return ModelNameMapper.to_dspy_format(base_model)
 
