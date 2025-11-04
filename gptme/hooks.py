@@ -148,6 +148,21 @@ class GenerationPreHook(Protocol):
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
+class GenerationPostHook(Protocol):
+    """Hook called after generating response.
+
+    Args:
+        message: The generated message
+        workspace: Workspace directory path (optional)
+    """
+
+    def __call__(
+        self,
+        message: Message,
+        **kwargs: Any,
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
 class FilePreSaveHook(Protocol):
     """Hook called before saving a file.
 
@@ -196,6 +211,7 @@ HookFunc = (
     | MessageProcessHook
     | LoopContinueHook
     | GenerationPreHook
+    | GenerationPostHook
     | FilePreSaveHook
     | FilePostSaveHook
 )
@@ -444,6 +460,16 @@ def register_hook(
     name: str,
     hook_type: Literal[HookType.GENERATION_PRE],
     func: GenerationPreHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.GENERATION_POST],
+    func: GenerationPostHook,
     priority: int = 0,
     enabled: bool = True,
 ) -> None: ...

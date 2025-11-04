@@ -33,6 +33,15 @@ logger = logging.getLogger(__name__)
 # Thread-local storage for lesson index
 _thread_local = threading.local()
 
+# Optional hybrid matching support
+try:
+    from ..lessons.hybrid_matcher import HybridConfig, HybridLessonMatcher
+
+    HYBRID_AVAILABLE = True
+except ImportError:
+    HYBRID_AVAILABLE = False
+    logger.debug("Hybrid matching not available, using keyword-only matching")
+
 
 def _get_lesson_index() -> LessonIndex:
     """Get thread-local lesson index, creating it if needed."""
@@ -154,6 +163,9 @@ def auto_include_lessons_hook(
         logger.debug("Auto-inclusion disabled")
         return
 
+    # Get hybrid matching configuration
+    use_hybrid = config.get_env_bool("GPTME_LESSONS_USE_HYBRID", False)
+
     try:
         max_lessons = int(config.get_env("GPTME_LESSONS_MAX_INCLUDED") or "5")
     except (ValueError, TypeError):
@@ -182,7 +194,21 @@ def auto_include_lessons_hook(
     # Get lesson index and find matching lessons
     try:
         index = _get_lesson_index()
-        matcher = LessonMatcher()
+
+        # Choose matcher based on configuration
+        matcher: LessonMatcher
+        if use_hybrid and HYBRID_AVAILABLE:
+            logger.debug("Using hybrid lesson matcher")
+            hybrid_config = HybridConfig(top_n=max_lessons)
+            matcher = HybridLessonMatcher(config=hybrid_config)
+        else:
+            if use_hybrid:
+                logger.warning(
+                    "Hybrid matching requested but not available, falling back to keyword-only"
+                )
+            logger.debug("Using keyword-only lesson matcher")
+            matcher = LessonMatcher()
+
         match_results = matcher.match(index.lessons, context)
 
         # Filter out already included lessons (MatchResult has .lesson attribute)
@@ -192,7 +218,7 @@ def auto_include_lessons_hook(
             if str(match.lesson.path) not in included_lessons
         ]
 
-        # Limit number of lessons
+        # Limit number of lessons (matcher may already limit, but ensure it)
         if len(new_matches) > max_lessons:
             logger.debug(f"Limiting lessons from {len(new_matches)} to {max_lessons}")
             new_matches = new_matches[:max_lessons]

@@ -22,11 +22,9 @@ from .tools import (
     ToolUse,
     execute_msg,
     get_tools,
-    has_tool,
     set_tool_format,
 )
 from .tools.complete import SessionCompleteException
-from .tools.tts import speak, stop, tts_request_queue
 from .util import console, path_with_tilde
 from .util.ask_execute import ask_execute
 from .util.auto_naming import auto_generate_display_name
@@ -34,7 +32,7 @@ from .util.context import include_paths
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
-from .util.sound import print_bell, wait_for_audio
+from .util.sound import print_bell
 from .util.terminal import set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
@@ -146,7 +144,6 @@ def chat(
         )
     except SessionCompleteException as e:
         console.log(f"Autonomous mode: {e}. Exiting.")
-        _wait_for_tts_if_enabled()
 
         # Trigger session end hooks
         if session_end_msgs := trigger_hook(
@@ -191,7 +188,6 @@ def _run_chat_loop(
                 # Get user input or exit if non-interactive
                 if not interactive:
                     logger.debug("Non-interactive and exhausted prompts")
-                    _wait_for_tts_if_enabled()
                     break
 
                 user_input = _get_user_input(manager.log, manager.workspace)
@@ -414,26 +410,6 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
         return None
 
 
-def _wait_for_tts_if_enabled() -> None:
-    """Wait for TTS to finish if enabled."""
-    if has_tool("tts") and os.environ.get("GPTME_VOICE_FINISH", "").lower() in [
-        "1",
-        "true",
-    ]:
-        logger.info("Waiting for TTS to finish...")
-        set_interruptible()
-        try:
-            # Wait for all TTS processing to complete
-            tts_request_queue.join()
-            logger.info("tts request queue joined")
-            # Then wait for all audio to finish playing
-            wait_for_audio()
-            logger.info("audio playback finished")
-        except KeyboardInterrupt:
-            logger.info("Interrupted while waiting for TTS")
-            stop()
-
-
 @trace_function(name="chat.step", attributes={"component": "chat"})
 def step(
     log: Log | list[Message],
@@ -469,9 +445,14 @@ def step(
             if get_config().get_env_bool("GPTME_COSTS"):
                 log_costs(msgs + [msg_response])
 
-        # speak if TTS tool is available
-        if has_tool("tts"):
-            speak(msg_response.content)
+        # Trigger generation post hooks (e.g., TTS)
+        if generation_post_msgs := trigger_hook(
+            HookType.GENERATION_POST,
+            message=msg_response,
+            workspace=workspace,
+        ):
+            for msg in generation_post_msgs:
+                logger.debug(f"Generation post hook yielded: {msg}")
 
         # log response and run tools
         if msg_response:

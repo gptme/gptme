@@ -449,6 +449,53 @@ def speak(text, block=False, interrupt=True, clean=True):
         log.error(f"Failed to queue text for speech: {e}")
 
 
+# Hook functions for automatic TTS integration
+
+
+def speak_on_generation(message, workspace=None, **kwargs):
+    """Hook: Speak assistant messages after generation.
+
+    Registered for GENERATION_POST hook.
+    """
+    # Only speak assistant messages
+    if message.role != "assistant":
+        return
+
+    # Speak the message content
+    speak(message.content)
+    yield  # Hooks must be generators
+
+
+def wait_on_session_end(manager, **kwargs):
+    """Hook: Wait for TTS to finish before session ends.
+
+    Registered for SESSION_END hook.
+    Replaces the old _wait_for_tts_if_enabled() function.
+    """
+    import os
+
+    # Only wait if GPTME_VOICE_FINISH is enabled
+    if os.environ.get("GPTME_VOICE_FINISH", "").lower() not in ["1", "true"]:
+        return
+
+    log.info("Waiting for TTS to finish...")
+    try:
+        # Wait for all TTS processing to complete
+        tts_request_queue.join()
+        log.info("TTS request queue joined")
+
+        # Then wait for all audio to finish playing
+        from ..util.sound import wait_for_audio
+
+        wait_for_audio()
+        log.info("Audio playback finished")
+    except KeyboardInterrupt:
+        log.info("Interrupted while waiting for TTS")
+        stop()
+
+    yield  # Hooks must be generators
+
+
 tool = ToolSpec(
     "tts",
     desc="Text-to-speech (TTS) tool for generating audio from text.",
@@ -456,4 +503,16 @@ tool = ToolSpec(
     available=is_available,
     functions=[speak, set_speed, set_volume, stop],
     init=init,
+    hooks={
+        "speak_on_generation": (
+            "generation_post",
+            speak_on_generation,
+            0,  # Normal priority
+        ),
+        "wait_on_session_end": (
+            "session_end",
+            wait_on_session_end,
+            0,  # Normal priority
+        ),
+    },
 )
