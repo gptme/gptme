@@ -46,7 +46,7 @@ from .base import ToolSpec
 log = logging.getLogger(__name__)
 
 host = "localhost"
-port = 8000
+port = 8765
 
 # Check for TTS-specific imports
 has_tts_imports = False
@@ -65,7 +65,7 @@ def is_available() -> bool:
         # console.log("TTS tool not available: missing dependencies")
         return False
 
-    # available if a server is running on localhost:8000
+    # available if a server is running on localhost:8765
     server_available = (
         socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect_ex((host, port)) == 0
     )
