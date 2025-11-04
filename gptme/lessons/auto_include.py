@@ -131,6 +131,6 @@ def _format_lessons(matches: list) -> str:
             parts.append(f"\n*Matched by: {', '.join(match.matched_by[:3])}*\n")
 
         # Add lesson content
-        parts.append(f"\n{lesson.content}\n")
+        parts.append(f"\n{lesson.body}\n")
 
     return "".join(parts)
