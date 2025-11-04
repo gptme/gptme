@@ -9,7 +9,6 @@ from gptme.tasks import TaskExecutor, TaskLoader
 
 # 1. Initialize components with tasks directory
 tasks_dir = "/home/bob/gptme-bob/tasks"
-loader = TaskLoader(tasks_dir=tasks_dir)
 executor = TaskExecutor(tasks_dir=tasks_dir)
 
 # 2. Load and select next task
