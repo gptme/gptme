@@ -5,7 +5,7 @@ Basic Task Execution Example
 This example shows the simplest way to execute a single task.
 """
 
-from gptme.tasks import TaskExecutor, TaskLoader
+from gptme.tasks import TaskExecutor
 
 # 1. Initialize components with tasks directory
 tasks_dir = "/home/bob/gptme-bob/tasks"
