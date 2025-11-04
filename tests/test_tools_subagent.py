@@ -3,13 +3,34 @@ import pytest
 from gptme.tools.subagent import SubtaskDef, _subagents, subagent
 
 
+@pytest.fixture
+def mock_chat(monkeypatch):
+    """Mock the chat function to prevent actual execution in threads."""
+
+    def mock_chat_impl(*args, **kwargs):
+        # Simulate a simple chat completion without actual LLM calls
+        # This allows threads to complete successfully for testing
+        return None
+
+    # Mock both import locations where chat is used
+    monkeypatch.setattr("gptme.chat", mock_chat_impl)
+    monkeypatch.setattr("gptme.tools.subagent.chat", mock_chat_impl)
+
+    # Also need to mock in the nested import inside _run_planner
+    import gptme
+
+    monkeypatch.setattr(gptme, "chat", mock_chat_impl)
+
+    return mock_chat_impl
+
+
 def test_planner_mode_requires_subtasks():
     """Test that planner mode requires subtasks parameter."""
     with pytest.raises(ValueError, match="Planner mode requires subtasks"):
         subagent(agent_id="test-planner", prompt="Test task", mode="planner")
 
 
-def test_planner_mode_spawns_executors():
+def test_planner_mode_spawns_executors(mock_chat):
     """Test that planner mode spawns executor subagents."""
     initial_count = len(_subagents)
 
@@ -34,7 +55,7 @@ def test_planner_mode_spawns_executors():
     assert "test-planner-task2" in executor_ids
 
 
-def test_planner_mode_executor_prompts():
+def test_planner_mode_executor_prompts(mock_chat):
     """Test that executor prompts include context and subtask description."""
     subtasks: list[SubtaskDef] = [
         {"id": "task1", "description": "Do something specific"}
@@ -53,7 +74,7 @@ def test_planner_mode_executor_prompts():
     assert "Do something specific" in executor.prompt
 
 
-def test_executor_mode_still_works():
+def test_executor_mode_still_works(mock_chat):
     """Test that default executor mode still works as before."""
     initial_count = len(_subagents)
 
@@ -68,7 +89,7 @@ def test_executor_mode_still_works():
     assert executor.prompt == "Simple task"
 
 
-def test_planner_parallel_mode():
+def test_planner_parallel_mode(mock_chat):
     """Test that parallel mode spawns all executors at once."""
     initial_count = len(_subagents)
 
@@ -94,7 +115,7 @@ def test_planner_parallel_mode():
     assert all(eid.startswith("test-parallel-") for eid in executor_ids)
 
 
-def test_planner_sequential_mode():
+def test_planner_sequential_mode(mock_chat):
     """Test that sequential mode spawns executors one by one."""
     initial_count = len(_subagents)
 
@@ -212,7 +233,7 @@ def test_context_mode_selective_with_agent():
     assert len(_subagents) == initial_count + 1
 
 
-def test_context_mode_selective_with_workspace():
+def test_context_mode_selective_with_workspace(mock_chat):
     """Test selective mode with workspace context."""
     initial_count = len(_subagents)
 
@@ -227,7 +248,7 @@ def test_context_mode_selective_with_workspace():
     assert len(_subagents) == initial_count + 1
 
 
-def test_context_mode_selective_multiple_components():
+def test_context_mode_selective_multiple_components(mock_chat):
     """Test selective mode with multiple context components."""
     initial_count = len(_subagents)
 
