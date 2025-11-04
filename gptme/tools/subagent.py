@@ -129,10 +129,12 @@ def _run_planner(
         executor_prompt = f"Context: {prompt}\n\nSubtask: {subtask['description']}"
         name = f"subagent-{executor_id}"
         logdir = get_logdir(name + "-" + random_string(4))
+        workspace = Path.cwd()  # Capture before thread creation
 
-        def run_executor(prompt=executor_prompt, log_dir=logdir):
+        def run_executor(prompt=executor_prompt, log_dir=logdir, ws=workspace):
             prompt_msgs = [Message("user", prompt)]
-            workspace = Path.cwd()
+            # Use ws parameter to avoid FileNotFoundError in tests
+            workspace = ws
 
             # Build initial messages based on context_mode
             if context_mode == "instructions-only":
@@ -279,10 +281,12 @@ def subagent(
 
     name = f"subagent-{agent_id}"
     logdir = get_logdir(name + "-" + random_string(4))
+    workspace = Path.cwd()  # Capture before thread creation
 
-    def run_subagent():
+    def run_subagent(ws=workspace):
         prompt_msgs = [Message("user", prompt)]
-        workspace = Path.cwd()
+        # Use ws parameter to avoid FileNotFoundError in tests
+        workspace = ws
 
         # Build initial messages based on context_mode
         if context_mode == "instructions-only":
