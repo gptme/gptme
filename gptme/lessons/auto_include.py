@@ -124,7 +124,7 @@ def _format_lessons(matches: list) -> str:
         # Add lesson header with metadata
         parts.append(f"## {lesson.title}\n")
         parts.append(f"\n*Path: {lesson.path}*\n")
-        parts.append(f"\n*Category: {lesson.metadata.category or 'general'}*\n")
+        parts.append(f"\n*Category: {lesson.category or 'general'}*\n")
 
         # Add match info
         if match.matched_by:
