@@ -1,0 +1,3 @@
+fatal: /app/main.py: '/app/main.py' is outside repository at '/home/appuser/.local/share/gptme/logs/2025-11-05-gptme-evals-openai--gpt-4o-markdown-59619/workspace'
+/app/.git: Permission denied
+mkdir: cannot create directory ‘/app/my_project’: Permission denied
