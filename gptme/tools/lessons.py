@@ -31,8 +31,8 @@ if TYPE_CHECKING:
 # Try to import ACE integration for hybrid lesson matching
 try:
     from ace.embedder import LessonEmbedder  # type: ignore[import-not-found]
-    from ace.gptme_integration import (
-        GptmeHybridMatcher,  # type: ignore[import-not-found]
+    from ace.gptme_integration import (  # type: ignore[import-not-found]
+        GptmeHybridMatcher,
     )
 
     ACE_AVAILABLE = True
