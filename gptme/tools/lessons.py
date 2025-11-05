@@ -200,9 +200,31 @@ def auto_include_lessons_hook(
         # Choose matcher based on configuration
         if use_hybrid and ACE_AVAILABLE:
             logger.info("Using ACE hybrid lesson matching")
-            # Initialize with embedder=None for now (triggers keyword fallback inside GptmeHybridMatcher)
-            # TODO: Initialize embedder for full hybrid matching
-            matcher = GptmeHybridMatcher(embedder=None)
+            # Initialize embedder with lesson directories from LessonIndex
+            from pathlib import Path
+
+            lesson_dirs = index.lesson_dirs
+
+            # Use first lesson directory for embedder (typically workspace lessons)
+            # Embeddings stored in .gptme/embeddings/lessons/
+            embeddings_dir = Path.cwd() / ".gptme" / "embeddings" / "lessons"
+
+            try:
+                embedder = LessonEmbedder(
+                    lessons_dir=lesson_dirs[0]
+                    if lesson_dirs
+                    else Path.cwd() / "lessons",
+                    embeddings_dir=embeddings_dir,
+                )
+                logger.info(
+                    f"Initialized ACE embedder with lessons_dir={lesson_dirs[0] if lesson_dirs else 'lessons'}"
+                )
+                matcher = GptmeHybridMatcher(embedder=embedder)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to initialize embedder: {e}. Falling back to keyword matching."
+                )
+                matcher = GptmeHybridMatcher(embedder=None)
         else:
             if use_hybrid and not ACE_AVAILABLE:
                 logger.warning(
