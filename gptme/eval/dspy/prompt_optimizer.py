@@ -268,6 +268,7 @@ class PromptOptimizer:
             )
         elif self.optimizer_type.lower() == "gepa":
             trajectory_metric = create_trajectory_feedback_metric(eval_specs=eval_specs)
+            self._trajectory_metric = trajectory_metric  # Store for evaluation
             reflection_model = ModelNameMapper.get_reflection_model(self.model)
             reflection_lm = dspy.LM(reflection_model)
 
@@ -314,6 +315,7 @@ class PromptOptimizer:
         task_scores = []
         tool_scores = []
         judge_scores = []
+        trajectory_feedbacks = []
         module = GptmeModule(prompt, self.model)
 
         for example in val_data:
@@ -328,6 +330,18 @@ class PromptOptimizer:
             tool_scores.append(tool_metric(example, pred, None))
             judge_scores.append(judge_metric(example, pred, None))
 
+            # If trajectory metric exists (GEPA), collect feedback
+            if hasattr(self, "_trajectory_metric"):
+                trajectory_result = self._trajectory_metric(
+                    example, pred, None, None, None
+                )
+                trajectory_feedbacks.append(
+                    {
+                        "score": trajectory_result.score,
+                        "feedback": trajectory_result.feedback,
+                    }
+                )
+
         # Calculate averages
         avg_task = sum(task_scores) / len(task_scores) if task_scores else 0.0
         avg_tool = sum(tool_scores) / len(tool_scores) if tool_scores else 0.0
@@ -340,7 +354,7 @@ class PromptOptimizer:
             for t, tool, j in zip(task_scores, tool_scores, judge_scores)
         ]
 
-        return {
+        results = {
             "average_score": avg_composite,
             "task_success_rate": avg_task,
             "tool_usage_score": avg_tool,
@@ -352,6 +366,12 @@ class PromptOptimizer:
             "num_examples": len(task_scores),
             "optimized_prompt": prompt,
         }
+
+        # Add trajectory feedback if available (GEPA only)
+        if trajectory_feedbacks:
+            results["trajectory_feedback"] = trajectory_feedbacks
+
+        return results
 
     def compare_prompts(
         self,
