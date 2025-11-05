@@ -233,7 +233,11 @@ def auto_include_lessons_hook(
             logger.debug("Using keyword-only lesson matcher")
             matcher = LessonMatcher()
 
-        match_results = matcher.match(index.lessons, context)
+        # Generate session_id from chat_id for tracking
+        session_id = manager.chat_id if hasattr(manager, "chat_id") else None
+
+        # Call matcher with session_id for tracking
+        match_results = matcher.match(index.lessons, context, session_id=session_id)
 
         # Filter out already included lessons (MatchResult has .lesson attribute)
         new_matches = [
