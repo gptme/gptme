@@ -28,19 +28,21 @@ from .base import ToolSpec
 if TYPE_CHECKING:
     from ..logmanager import LogManager
 
+# Try to import ACE integration for hybrid lesson matching
+try:
+    from ace.embedder import LessonEmbedder
+    from ace.gptme_integration import GptmeHybridMatcher
+
+    ACE_AVAILABLE = True
+except ImportError:
+    ACE_AVAILABLE = False
+    GptmeHybridMatcher = None  # type: ignore
+    LessonEmbedder = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # Thread-local storage for lesson index
 _thread_local = threading.local()
-
-# Optional hybrid matching support
-try:
-    from ..lessons.hybrid_matcher import HybridConfig, HybridLessonMatcher
-
-    HYBRID_AVAILABLE = True
-except ImportError:
-    HYBRID_AVAILABLE = False
-    logger.debug("Hybrid matching not available, using keyword-only matching")
 
 
 def _get_lesson_index() -> LessonIndex:
@@ -196,15 +198,15 @@ def auto_include_lessons_hook(
         index = _get_lesson_index()
 
         # Choose matcher based on configuration
-        matcher: LessonMatcher
-        if use_hybrid and HYBRID_AVAILABLE:
-            logger.debug("Using hybrid lesson matcher")
-            hybrid_config = HybridConfig(top_n=max_lessons)
-            matcher = HybridLessonMatcher(config=hybrid_config)
+        if use_hybrid and ACE_AVAILABLE:
+            logger.info("Using ACE hybrid lesson matching")
+            # Initialize with embedder=None for now (triggers keyword fallback inside GptmeHybridMatcher)
+            # TODO: Initialize embedder for full hybrid matching
+            matcher = GptmeHybridMatcher(embedder=None)
         else:
-            if use_hybrid:
+            if use_hybrid and not ACE_AVAILABLE:
                 logger.warning(
-                    "Hybrid matching requested but not available, falling back to keyword-only"
+                    "Hybrid matching requested but ACE not available, falling back to keyword-only"
                 )
             logger.debug("Using keyword-only lesson matcher")
             matcher = LessonMatcher()
