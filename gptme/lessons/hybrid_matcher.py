@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 # Optional embedding support
 try:
     import numpy as np
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import (
+        SentenceTransformer,  # type: ignore[import-not-found]
+    )
 
     EMBEDDINGS_AVAILABLE = True
 except ImportError:

@@ -30,8 +30,10 @@ if TYPE_CHECKING:
 
 # Try to import ACE integration for hybrid lesson matching
 try:
-    from ace.embedder import LessonEmbedder
-    from ace.gptme_integration import GptmeHybridMatcher
+    from ace.embedder import LessonEmbedder  # type: ignore[import-not-found]
+    from ace.gptme_integration import (
+        GptmeHybridMatcher,  # type: ignore[import-not-found]
+    )
 
     ACE_AVAILABLE = True
 except ImportError:
@@ -233,11 +235,15 @@ def auto_include_lessons_hook(
             logger.debug("Using keyword-only lesson matcher")
             matcher = LessonMatcher()
 
-        # Generate session_id from chat_id for tracking
+        # Generate session_id from chat_id for tracking (only for hybrid matcher)
         session_id = manager.chat_id if hasattr(manager, "chat_id") else None
 
-        # Call matcher with session_id for tracking
-        match_results = matcher.match(index.lessons, context, session_id=session_id)
+        # Call matcher with appropriate parameters
+        # Only GptmeHybridMatcher supports session_id parameter
+        if ACE_AVAILABLE and isinstance(matcher, GptmeHybridMatcher):
+            match_results = matcher.match(index.lessons, context, session_id=session_id)
+        else:
+            match_results = matcher.match(index.lessons, context)
 
         # Filter out already included lessons (MatchResult has .lesson attribute)
         new_matches = [
