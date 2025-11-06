@@ -40,7 +40,10 @@ def test_hybrid_config_defaults():
     assert config.recency_weight == 0.10
     assert config.tool_bonus == 0.20
     assert config.top_k == 20
-    assert config.top_n == 5
+    # Phase 5.5: Dynamic top-K parameters
+    assert config.min_score_threshold == 0.6
+    assert config.min_lessons == 2
+    assert config.max_lessons == 10
 
 
 def test_backward_compatibility():

@@ -34,8 +34,12 @@ class HybridConfig:
     tool_bonus: float = 0.20  # Additional bonus for tool matches
 
     # Retrieval parameters
-    top_k: int = 20  # Candidate filtering
-    top_n: int = 5  # Final selection
+    top_k: int = 20  # Candidate filtering (Stage 1)
+
+    # Dynamic top-K selection (Phase 5.5)
+    min_score_threshold: float = 0.6  # Minimum score for inclusion
+    min_lessons: int = 2  # Always include at least this many (safeguard)
+    max_lessons: int = 10  # Maximum lessons to prevent context explosion
 
     # Recency decay
     recency_decay_days: int = 30  # Half-life for recency score
@@ -96,12 +100,20 @@ class HybridLessonMatcher(LessonMatcher):
         # Stage 2: Hybrid scoring on candidates
         results = self._score_candidates(candidates, context)
 
-        # Filter by threshold
-        results = [r for r in results if r.score >= threshold]
-
-        # Sort and limit
+        # Sort by score (descending)
         results.sort(key=lambda r: r.score, reverse=True)
-        return results[: self.config.top_n]
+
+        # Phase 5.5: Dynamic top-K selection
+        # Filter by threshold, but ensure minimum lessons
+        threshold = max(threshold, self.config.min_score_threshold)
+        filtered = [r for r in results if r.score >= threshold]
+
+        # Safeguard: Always include at least min_lessons (even if below threshold)
+        if len(filtered) < self.config.min_lessons:
+            filtered = results[: self.config.min_lessons]
+
+        # Cap at max_lessons to prevent context explosion
+        return filtered[: self.config.max_lessons]
 
     def _get_candidates(
         self, lessons: list[Lesson], context: MatchContext
