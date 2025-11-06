@@ -273,6 +273,7 @@ def test_message_conversion_with_tool_and_non_tool():
     ]
 
 
+@pytest.mark.requires_api
 def test_timeout_default(monkeypatch):
     """Test that timeout uses NOT_GIVEN (client default) when LLM_API_TIMEOUT is not set."""
     from unittest.mock import Mock, patch
@@ -304,6 +305,7 @@ def test_timeout_default(monkeypatch):
         assert call_kwargs["timeout"] is NOT_GIVEN
 
 
+@pytest.mark.requires_api
 def test_timeout_custom(monkeypatch):
     """Test that custom timeout is used when LLM_API_TIMEOUT is set."""
     from unittest.mock import Mock, patch

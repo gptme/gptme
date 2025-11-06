@@ -165,6 +165,7 @@ def test_message_pre_process_hook(client: FlaskClient):
         unregister_hook("test_pre_process", HookType.MESSAGE_PRE_PROCESS)
 
 
+@pytest.mark.requires_api
 def test_message_post_process_hook(client: FlaskClient):
     """Test that MESSAGE_POST_PROCESS hook is triggered after generation."""
     hook_triggered = []
