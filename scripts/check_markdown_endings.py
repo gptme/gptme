@@ -20,7 +20,7 @@ def check_file(filepath: Path) -> bool:
     Returns True if file passes validation, False if it has issues.
     """
     try:
-        content = filepath.read_text()
+        content = filepath.read_text(encoding="utf-8")
         lines = content.split("\n")
 
         if not lines:
@@ -37,17 +37,14 @@ def check_file(filepath: Path) -> bool:
         if not last_line:
             return True
 
-        # Valid endings that are acceptable
-        valid_endings = ["```", "---", ""]
-
         # Check for suspicious patterns
         is_suspicious = False
         reason = ""
 
-        if last_line.startswith("#") and last_line not in valid_endings:
+        if last_line.startswith("#"):
             is_suspicious = True
             reason = f"ends with header: '{last_line}'"
-        elif last_line.endswith(":") and last_line not in valid_endings:
+        elif last_line.endswith(":"):
             is_suspicious = True
             reason = f"ends with colon: '{last_line}'"
 
