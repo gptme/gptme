@@ -109,6 +109,10 @@ class HybridLessonMatcher(LessonMatcher):
         filtered = [r for r in results if r.score >= threshold]
 
         # Safeguard: Always include at least min_lessons (even if below threshold)
+        # Trade-off: Prioritize minimum context (≥2 lessons) over strict threshold
+        # in edge cases. Having 2 lessons (even if one is below 0.6) is better than
+        # having only 1 lesson or no context. In practice, most runs will have many
+        # lessons above threshold (5-10+), making this a rare edge case.
         if len(filtered) < self.config.min_lessons:
             filtered = results[: self.config.min_lessons]
 
