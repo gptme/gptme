@@ -18,6 +18,7 @@ except (ImportError, ModuleNotFoundError):
     pytest.skip("DSPy not available", allow_module_level=True)
 
 
+@pytest.mark.requires_api
 def test_gepa_integration():
     """Test that GEPA integration works with actual gptme evaluation."""
     # Configure DSPy
