@@ -133,7 +133,6 @@ class GptmeModule(dspy.Module):
             import os
 
             os.environ["GPTME_EVAL_SUPPRESS_OUTPUT"] = "true"
-
             try:
                 eval_result = execute(
                     test=eval_spec,
@@ -144,8 +143,6 @@ class GptmeModule(dspy.Module):
             finally:
                 # Restore normal output after execution (guaranteed cleanup)
                 os.environ.pop("GPTME_EVAL_SUPPRESS_OUTPUT", None)
-
-            # Extract messages from the agent's log if available
             messages = []
             if hasattr(agent, "log_dir") and agent.log_dir:
                 try:
