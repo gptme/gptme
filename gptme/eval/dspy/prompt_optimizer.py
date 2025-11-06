@@ -128,12 +128,21 @@ class GptmeModule(dspy.Module):
                 system_prompt=self.base_system_prompt,
             )
 
+            # Fix #130: Enable output suppression during GEPA optimization
+            # This prevents verbose gptme trajectories from cluttering logs
+            import os
+
+            os.environ["GPTME_EVAL_SUPPRESS_OUTPUT"] = "true"
+
             eval_result = execute(
                 test=eval_spec,
                 agent=agent,
                 timeout=30,
                 parallel=False,
             )
+
+            # Restore normal output after execution
+            os.environ.pop("GPTME_EVAL_SUPPRESS_OUTPUT", None)
 
             # Extract messages from the agent's log if available
             messages = []
