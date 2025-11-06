@@ -132,18 +132,11 @@ class GptmeModule(dspy.Module):
             # Get API key from gptme config and ensure it's in environment
             import os
 
-            try:
-                from gptme.config import get_config
+            from gptme.config import get_config
 
-                config = get_config()
-                api_key = config.get_env_required("ANTHROPIC_API_KEY")
-                os.environ["ANTHROPIC_API_KEY"] = api_key
-            except KeyError:
-                # API key not configured, LiteLLM will fail if trying to use Anthropic
-                pass
-            except Exception:
-                # Could not export ANTHROPIC_API_KEY
-                pass
+            config = get_config()
+            api_key = config.get_env_required("ANTHROPIC_API_KEY")
+            os.environ["ANTHROPIC_API_KEY"] = api_key
 
             # Fix #130: Enable output suppression during GEPA optimization
             # This prevents verbose gptme trajectories from cluttering logs
