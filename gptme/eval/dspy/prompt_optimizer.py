@@ -134,15 +134,16 @@ class GptmeModule(dspy.Module):
 
             os.environ["GPTME_EVAL_SUPPRESS_OUTPUT"] = "true"
 
-            eval_result = execute(
-                test=eval_spec,
-                agent=agent,
-                timeout=30,
-                parallel=False,
-            )
-
-            # Restore normal output after execution
-            os.environ.pop("GPTME_EVAL_SUPPRESS_OUTPUT", None)
+            try:
+                eval_result = execute(
+                    test=eval_spec,
+                    agent=agent,
+                    timeout=30,
+                    parallel=False,
+                )
+            finally:
+                # Restore normal output after execution (guaranteed cleanup)
+                os.environ.pop("GPTME_EVAL_SUPPRESS_OUTPUT", None)
 
             # Extract messages from the agent's log if available
             messages = []
