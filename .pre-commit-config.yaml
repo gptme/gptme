@@ -27,6 +27,13 @@ repos:
     files: \.rst$
     exclude: docs/_build/
     args: [docs/]
+  - id: check-markdown-endings
+    name: Check markdown file endings for cut-offs
+    description: Detects files ending with suspicious patterns indicating incomplete codeblock content
+    entry: python3 scripts/check_markdown_endings.py
+    language: system
+    files: \.md$
+    exclude: ^(journal/2024-|journal/2025-10-|journal/2025-11-0[1-5])
 #- repo: local
 #  hooks:
 #  - id: pytest
