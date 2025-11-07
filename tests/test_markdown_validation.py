@@ -1,32 +1,35 @@
 """Tests for markdown validation hook."""
 
-from gptme.logmanager import LogManager
-from gptme.message import Message
-from gptme.tools.markdown_validation import (
-    check_markdown_ending,
+from gptme.hooks.markdown_validation import (
+    check_last_line_suspicious,
     validate_markdown_on_message_complete,
 )
+from gptme.logmanager import LogManager
+from gptme.message import Message
+
+# Triple backticks for markdown codeblocks in test data
+ticks = "```"
 
 
-def test_check_markdown_ending_header():
+def test_check_last_line_suspicious_header():
     """Test detection of incomplete headers."""
     content = "Some content\n# Incomplete Header"
-    is_suspicious, pattern = check_markdown_ending(content)
+    is_suspicious, pattern = check_last_line_suspicious(content)
     assert is_suspicious
     assert pattern is not None
     assert "header start" in pattern
 
 
-def test_check_markdown_ending_colon():
+def test_check_last_line_suspicious_colon():
     """Test detection of incomplete content with colons."""
     content = "Some content\nTitle:"
-    is_suspicious, pattern = check_markdown_ending(content)
+    is_suspicious, pattern = check_last_line_suspicious(content)
     assert is_suspicious
     assert pattern is not None
     assert "colon" in pattern
 
 
-def test_check_markdown_ending_valid():
+def test_check_last_line_suspicious_valid():
     """Test that valid endings are not flagged."""
     valid_contents = [
         "Normal paragraph ending.",
@@ -36,25 +39,31 @@ def test_check_markdown_ending_valid():
     ]
 
     for content in valid_contents:
-        is_suspicious, pattern = check_markdown_ending(content)
+        is_suspicious, pattern = check_last_line_suspicious(content)
         assert not is_suspicious, f"Should not flag: {content!r}"
 
 
-def test_check_markdown_ending_empty():
+def test_check_last_line_suspicious_empty():
     """Test handling of empty content."""
-    is_suspicious, pattern = check_markdown_ending("")
+    is_suspicious, pattern = check_last_line_suspicious("")
     assert not is_suspicious
 
-    is_suspicious, pattern = check_markdown_ending("   \n  \n  ")
+    is_suspicious, pattern = check_last_line_suspicious("   \n  \n  ")
     assert not is_suspicious
 
 
 def test_validate_markdown_hook_detects_issue(tmp_path):
-    """Test that hook detects suspicious endings and yields warning."""
+    """Test that hook detects suspicious endings in markdown tooluse."""
     manager = LogManager(logdir=tmp_path, lock=False)
 
-    # Add assistant message with suspicious ending
-    manager.append(Message("assistant", "Some content\nTitle:"))
+    # Add assistant message with markdown tooluse that has suspicious ending
+    message_content = f"""Let me create a file.
+
+{ticks}save test.txt
+Some content
+Title:
+{ticks}"""
+    manager.append(Message("assistant", message_content))
 
     # Run the hook
     results = list(validate_markdown_on_message_complete(manager))

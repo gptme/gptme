@@ -7,7 +7,7 @@ from enum import Enum
 from time import time
 from typing import Any, Literal, overload
 
-from .message import Message
+from ..message import Message
 
 logger = logging.getLogger(__name__)
 
@@ -554,3 +554,7 @@ def clear_hooks(hook_type: HookType | None = None) -> None:
         _registry.hooks[hook_type] = []
     else:
         _registry.hooks.clear()
+
+
+# Import hook modules to auto-register them
+from . import markdown_validation  # noqa: F401
