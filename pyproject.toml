@@ -106,7 +106,6 @@ pytest-profiling = "^1.7.0"
 pytest-dotenv = "^0.5.2"
 pytest-timeout = "^2.2.0"
 pytest-retry = "^1.6.3"
-pytest-rerunfailures = "^15.0"
 pytest-mock = "*"
 greenlet = "*"  # dependency of playwright, but needed for coverage
 
