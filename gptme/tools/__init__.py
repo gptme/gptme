@@ -235,10 +235,11 @@ def is_supported_langtag(lang: str) -> bool:
     return bool(get_tool_for_langtag(lang))
 
 
-def get_available_tools() -> list[ToolSpec]:
+def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
     from gptme.tools.mcp_adapter import create_mcp_tools  # fmt: skip
 
-    available_tools = _get_available_tools_cache()
+    # Only use cache if we want MCP tools (cache always includes MCP)
+    available_tools = _get_available_tools_cache() if include_mcp else None
 
     if available_tools is None:
         # We need to load tools first
@@ -251,8 +252,13 @@ def get_available_tools() -> list[ToolSpec]:
             tool_modules = env_tool_modules.split(",")
 
         available_tools = sorted(_discover_tools(tool_modules))
-        available_tools.extend(create_mcp_tools(config))
-        _set_available_tools_cache(available_tools)
+        if include_mcp:
+            available_tools.extend(create_mcp_tools(config))
+            # Only cache if we included MCP tools
+            _set_available_tools_cache(available_tools)
+        else:
+            # Don't cache partial results
+            return available_tools
 
     return available_tools
 

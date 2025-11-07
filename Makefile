@@ -59,6 +59,8 @@ pre-commit:  ## Run pre-commit hooks
 lint: ## Run linters
 	@# check there is no `ToolUse("python"` in the code (should be `ToolUse("ipython"`)
 	! grep -r 'ToolUse("python"' ${SRCDIRS}
+	@# check that there are nu uses of tmp_path fixture (see https://github.com/gptme/gptme/issues/709)
+	@#! grep -r 'def.*tmp_path[:,)]' ${SRCDIRS} tests/
 	@# ruff
 	poetry run ruff check ${RUFF_ARGS}
 	@# pylint (always pass, just output duplicates)

@@ -306,6 +306,66 @@ def set_config_value(key: str, value: str) -> None:  # pragma: no cover
     reload_config()
 
 
+def _merge_config_data(main_config: dict, local_config: dict) -> dict:
+    """
+    Merge local configuration into main configuration.
+
+    For MCP servers, merge by name - local server env vars are merged into main server config.
+    For other sections, local config extends/overrides main config.
+    """
+    import copy
+
+    merged = copy.deepcopy(main_config)
+
+    for key, value in local_config.items():
+        if key == "mcp" and isinstance(value, dict) and "servers" in value:
+            # Special handling for MCP servers - merge by name
+            if "mcp" not in merged:
+                merged["mcp"] = {}
+            if "servers" not in merged["mcp"]:
+                merged["mcp"]["servers"] = []
+
+            local_servers = value.get("servers", [])
+            main_servers = merged["mcp"]["servers"]
+
+            # Create a dict for quick lookup of main servers by name
+            main_servers_by_name = {server["name"]: server for server in main_servers}
+
+            for local_server in local_servers:
+                server_name = local_server["name"]
+                if server_name in main_servers_by_name:
+                    # Merge env vars from local into main server
+                    main_server = main_servers_by_name[server_name]
+                    if "env" not in main_server:
+                        main_server["env"] = {}
+                    if "env" in local_server:
+                        main_server["env"].update(local_server["env"])
+
+                    # Merge other server properties (command, args, enabled)
+                    for server_key, server_value in local_server.items():
+                        if server_key not in ["name", "env"]:
+                            main_server[server_key] = server_value
+                else:
+                    # Add new server from local config
+                    main_servers.append(local_server)
+
+            # Merge other MCP config properties (enabled, auto_start)
+            for mcp_key, mcp_value in value.items():
+                if mcp_key != "servers":
+                    merged["mcp"][mcp_key] = mcp_value
+
+        elif (
+            isinstance(value, dict) and key in merged and isinstance(merged[key], dict)
+        ):
+            # Recursive merge for nested dictionaries
+            merged[key] = _merge_config_data(merged[key], value)
+        else:
+            # Direct override for other keys
+            merged[key] = value
+
+    return merged
+
+
 @lru_cache(maxsize=4)
 def get_project_config(workspace: Path | None) -> ProjectConfig | None:
     """
@@ -331,6 +391,18 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
         # load project config
         with open(project_config_path) as f:
             config_data = tomlkit.load(f).unwrap()
+
+        # Look for local config file in the same directory
+        local_config_path = project_config_path.parent / "gptme.local.toml"
+        if local_config_path.exists():
+            console.log(
+                f"Loading local configuration from {path_with_tilde(local_config_path)}"
+            )
+            with open(local_config_path) as f:
+                local_config_data = tomlkit.load(f).unwrap()
+
+            # Merge local config into main config
+            config_data = _merge_config_data(config_data, local_config_data)
 
         return ProjectConfig.from_dict(config_data, workspace=workspace)
     return None

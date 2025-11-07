@@ -34,7 +34,13 @@ logger = logging.getLogger(__name__)
 script_path = Path(os.path.realpath(__file__))
 commands_help = "\n".join(_gen_help(incl_langtags=False))
 available_tool_names = ", ".join(
-    sorted([tool.name for tool in get_available_tools() if tool.is_available])
+    sorted(
+        [
+            tool.name
+            for tool in get_available_tools(include_mcp=False)
+            if tool.is_available
+        ]
+    )
 )
 
 

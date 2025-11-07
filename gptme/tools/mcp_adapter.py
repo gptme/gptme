@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Callable, Generator
 from logging import getLogger
@@ -177,8 +178,13 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
 
                 tool_specs.append(tool_spec)
 
-        except Exception as e:
-            logger.error(f"Failed to connect to MCP server {server_config.name}: {e}")
+        except (Exception, asyncio.CancelledError) as e:
+            import traceback
+
+            error_details = traceback.format_exc()
+            logger.error(
+                f"Failed to connect to MCP server {server_config.name}: {e}\n{error_details}"
+            )
 
     return tool_specs
 

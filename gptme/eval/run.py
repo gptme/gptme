@@ -332,23 +332,6 @@ def act_process(
     os.setpgrp()
     pgrp = os.getpgrp()
 
-    # Fix #130: Export ANTHROPIC_API_KEY for LiteLLM subprocess calls
-    # Get API key from gptme config and ensure it's in environment
-    try:
-        from gptme.config import get_config
-
-        config = get_config()
-        # Try to get API key from config (checks env, chat, project, user)
-        try:
-            api_key = config.get_env_required("ANTHROPIC_API_KEY")
-            os.environ["ANTHROPIC_API_KEY"] = api_key
-            subprocess_logger.debug("Exported ANTHROPIC_API_KEY to environment")
-        except KeyError:
-            # API key not configured, LiteLLM will fail if trying to use Anthropic
-            subprocess_logger.warning("ANTHROPIC_API_KEY not found in config")
-    except Exception as e:
-        subprocess_logger.warning(f"Could not export ANTHROPIC_API_KEY: {e}")
-
     # Fix #130: Suppress verbose gptme output during optimization
     # Only keep output if not in parallel mode (i.e., interactive testing)
     # During GEPA optimization, suppress full trajectories

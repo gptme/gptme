@@ -141,9 +141,13 @@ def collect(model: str):
         #       wouldn't quite work, since responses depend on context such as which tools/packages are installed etc.
         msgs = _filter_leading_system(msgs)
         assert msgs[0]["role"] == "user"
+        if pipe.tokenizer is None:
+            raise ValueError("Pipeline tokenizer is None")
         prompt = pipe.tokenizer.apply_chat_template(
             msgs, tokenize=False, add_generation_prompt=True
         )
+        if not isinstance(prompt, str):
+            raise TypeError(f"Expected string prompt, got {type(prompt)}")
         convs_strs.append(prompt.replace("\n", "\\n"))
         convs_dicts.append({"text": prompt})
 
@@ -158,8 +162,8 @@ def collect(model: str):
 
     # write to jsonl
     with open("train.jsonl", "w") as f:
-        for conv in convs_dicts:
-            f.write(json.dumps(conv) + "\n")
+        for conv_dict in convs_dicts:
+            f.write(json.dumps(conv_dict) + "\n")
     print("Wrote train.jsonl")
 
     # outputs = pipe(

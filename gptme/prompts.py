@@ -641,7 +641,7 @@ document_prompt_function(
 )(prompt_gptme)
 document_prompt_function()(prompt_user)
 document_prompt_function()(prompt_project)
-document_prompt_function(tools=get_available_tools(), tool_format="markdown")(
+document_prompt_function(tools=lambda: get_available_tools(), tool_format="markdown")(
     prompt_tools
 )
 # document_prompt_function(tool_format="xml")(prompt_tools)

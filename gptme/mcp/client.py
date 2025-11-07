@@ -55,7 +55,7 @@ class MCPClient:
             return result
         except Exception as e:
             if _is_connection_error(e):
-                logger.debug(f"MCP connection error (will retry): {e}")
+                logger.info(f"MCP connection error (will retry): {e}")
             else:
                 logger.error(f"Unexpected MCP error: {e}")
             raise
