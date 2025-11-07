@@ -152,7 +152,10 @@ def document_prompt_function(*args, **kwargs):
 
         init_tools()
 
-        prompt = "\n\n".join([msg.content for msg in func(*args, **kwargs)])
+        # Evaluate callable kwargs (for lazy evaluation)
+        resolved_kwargs = {k: v() if callable(v) else v for k, v in kwargs.items()}
+
+        prompt = "\n\n".join([msg.content for msg in func(*args, **resolved_kwargs)])
         prompt = textwrap.indent(prompt, "   ")
         # Use a default model for documentation purposes
         prompt_tokens = len_tokens(prompt, model="gpt-4")
