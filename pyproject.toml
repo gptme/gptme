@@ -219,7 +219,11 @@ markers = [
     "serial",
     "timeout: marks tests with timeout value in seconds",
     "requires_api: marks tests that require API access",
+    "flaky: marks tests as potentially flaky (will be automatically retried)",
 ]
+# Automatically retry failed tests to handle flakiness (Issue #709)
+# Tests will be retried up to 2 times with 1 second delay between attempts
+addopts = "--reruns 2 --reruns-delay 1"
 
 [tool.coverage.run]
 # Needed to get playwright to play nice with coverage
