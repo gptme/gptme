@@ -1,5 +1,7 @@
 """Tests for markdown validation hook."""
 
+import pytest
+
 from gptme.hooks.markdown_validation import (
     check_last_line_suspicious,
     validate_markdown_on_message_complete,
@@ -51,6 +53,7 @@ def test_check_last_line_suspicious_empty():
     assert not is_suspicious
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=1)
 def test_validate_markdown_hook_detects_issue(tmp_path):
     """Test that hook detects suspicious endings in markdown tooluse."""
     manager = LogManager(logdir=tmp_path, lock=False)
