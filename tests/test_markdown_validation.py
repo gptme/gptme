@@ -21,12 +21,11 @@ def test_check_last_line_suspicious_header():
 
 
 def test_check_last_line_suspicious_colon():
-    """Test detection of incomplete content with colons."""
+    """Test that content ending with colon is NOT flagged (removed due to false positives)."""
     content = "Some content\nTitle:"
     is_suspicious, pattern = check_last_line_suspicious(content)
-    assert is_suspicious
-    assert pattern is not None
-    assert "colon" in pattern
+    assert not is_suspicious
+    assert pattern is None
 
 
 def test_check_last_line_suspicious_valid():
@@ -56,12 +55,12 @@ def test_validate_markdown_hook_detects_issue(tmp_path):
     """Test that hook detects suspicious endings in markdown tooluse."""
     manager = LogManager(logdir=tmp_path, lock=False)
 
-    # Add assistant message with markdown tooluse that has suspicious ending
+    # Add assistant message with markdown tooluse that has suspicious ending (incomplete header)
     message_content = f"""Let me create a file.
 
 {ticks}save test.txt
 Some content
-Title:
+#
 {ticks}"""
     manager.append(Message("assistant", message_content))
 
@@ -73,7 +72,7 @@ Title:
     assert len(messages) == 1
     assert messages[0].role == "system"
     assert "Potential markdown codeblock cut-off" in messages[0].content
-    assert "colon" in messages[0].content
+    assert "header" in messages[0].content
 
 
 def test_validate_markdown_hook_ignores_valid(tmp_path):

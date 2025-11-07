@@ -51,9 +51,6 @@ def check_last_line_suspicious(content: str) -> tuple[bool, str | None]:
     if last_line.startswith("#"):
         return True, f"ends with header start: '{last_line}'"
 
-    if last_line.endswith(":"):
-        return True, f"ends with colon: '{last_line}'"
-
     return False, None
 
 
@@ -93,8 +90,8 @@ def validate_markdown_on_message_complete(
     # Check the last tool use
     last_tool_use = tool_uses[-1]
 
-    # Only check markdown format tool uses with content
-    if last_tool_use._format != "markdown" or not last_tool_use.content:
+    # Only check tool uses with content
+    if not last_tool_use.content:
         return
 
     # Check if the last line is suspicious

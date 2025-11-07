@@ -60,8 +60,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from .logmanager import Log, LogManager
-    from .tools.base import ToolUse
+    from ..logmanager import Log, LogManager
+    from ..tools.base import ToolUse
 
 
 # Protocol classes for different hook signatures
