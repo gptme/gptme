@@ -54,9 +54,9 @@ def test_check_last_line_suspicious_empty():
 
 
 @pytest.mark.flaky(retries=3, delay=1)
-def test_validate_markdown_hook_detects_issue(tmp_path):
+def test_validate_markdown_hook_detects_issue():
     """Test that hook detects suspicious endings in markdown tooluse."""
-    manager = LogManager(logdir=tmp_path, lock=False)
+    manager = LogManager(lock=False)
 
     # Add assistant message with markdown tooluse that has suspicious ending (incomplete header)
     message_content = f"""Let me create a file.
@@ -78,9 +78,9 @@ Some content
     assert "header" in messages[0].content
 
 
-def test_validate_markdown_hook_ignores_valid(tmp_path):
+def test_validate_markdown_hook_ignores_valid():
     """Test that hook doesn't warn on valid content."""
-    manager = LogManager(logdir=tmp_path, lock=False)
+    manager = LogManager(lock=False)
 
     # Add assistant message with valid ending
     manager.append(Message("assistant", "This is valid content."))
@@ -92,9 +92,9 @@ def test_validate_markdown_hook_ignores_valid(tmp_path):
     assert len(messages) == 0
 
 
-def test_validate_markdown_hook_ignores_user_messages(tmp_path):
+def test_validate_markdown_hook_ignores_user_messages():
     """Test that hook only checks assistant messages."""
-    manager = LogManager(logdir=tmp_path, lock=False)
+    manager = LogManager(lock=False)
 
     # Add user message with suspicious ending (should be ignored)
     manager.append(Message("user", "What about\nTitle:"))
@@ -106,9 +106,9 @@ def test_validate_markdown_hook_ignores_user_messages(tmp_path):
     assert len(messages) == 0
 
 
-def test_validate_markdown_hook_empty_log(tmp_path):
+def test_validate_markdown_hook_empty_log():
     """Test that hook handles empty logs gracefully."""
-    manager = LogManager(logdir=tmp_path, lock=False)
+    manager = LogManager(lock=False)
 
     # Don't add any messages
 
