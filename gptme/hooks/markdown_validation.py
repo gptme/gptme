@@ -114,14 +114,6 @@ This often happens when markdown codeblocks lack language tags, causing the pars
 ```txt
 Plain text content
 ```
-
-```python
-# Python code
-```
-
-```shell
-# Shell commands
-```
 """
 
     yield Message("system", warning, hide=False)
