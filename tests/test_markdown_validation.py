@@ -2,12 +2,39 @@
 
 import pytest
 
+from gptme.hooks import clear_hooks
 from gptme.hooks.markdown_validation import (
     check_last_line_suspicious,
     validate_markdown_on_message_complete,
 )
 from gptme.logmanager import LogManager
 from gptme.message import Message
+
+
+@pytest.fixture(autouse=True)
+def setup_hooks(init_):
+    """Clear all hooks and re-register markdown validation hook for each test.
+
+    Depends on init_ fixture to ensure tools are loaded first.
+    """
+    from gptme.hooks import HookType, register_hook
+
+    # Clear all hooks
+    clear_hooks()
+
+    # Re-register the markdown validation hook that was cleared
+    register_hook(
+        "markdown_validation",
+        HookType.MESSAGE_POST_PROCESS,
+        validate_markdown_on_message_complete,
+        priority=1,
+    )
+
+    yield
+
+    # Clean up after test
+    clear_hooks()
+
 
 # Triple backticks for markdown codeblocks in test data
 ticks = "```"
