@@ -61,6 +61,8 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
     start_time = now - timedelta(minutes=30)
     conversation_start_times = _conversation_start_times_var.get()
     shown_milestones = _shown_milestones_var.get()
+    assert conversation_start_times is not None
+    assert shown_milestones is not None
     conversation_start_times[str(workspace)] = start_time
     _conversation_start_times_var.set(conversation_start_times)
     shown_milestones[str(workspace)] = set()
@@ -79,11 +81,13 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
     for elapsed_minutes, expected_time in test_cases:
         # Clear previous milestones to test each individually
         shown_milestones = _shown_milestones_var.get()
+        assert shown_milestones is not None
         shown_milestones[str(workspace)] = set()
         _shown_milestones_var.set(shown_milestones)
 
         # Set conversation start time
         conversation_start_times = _conversation_start_times_var.get()
+        assert conversation_start_times is not None
         conversation_start_times[str(workspace)] = now - timedelta(
             minutes=elapsed_minutes
         )
@@ -124,6 +128,8 @@ def test_milestone_progression(load_time_awareness_tool, tmp_path):
     # Set conversation start 25 minutes ago
     conversation_start_times = _conversation_start_times_var.get()
     shown_milestones = _shown_milestones_var.get()
+    assert conversation_start_times is not None
+    assert shown_milestones is not None
     conversation_start_times[str(workspace)] = now - timedelta(minutes=25)
     _conversation_start_times_var.set(conversation_start_times)
     shown_milestones[str(workspace)] = set()
@@ -178,6 +184,8 @@ def test_time_format_hours(load_time_awareness_tool, tmp_path):
     # Set conversation start 125 minutes ago (2h 5min)
     conversation_start_times = _conversation_start_times_var.get()
     shown_milestones = _shown_milestones_var.get()
+    assert conversation_start_times is not None
+    assert shown_milestones is not None
     conversation_start_times[str(workspace)] = now - timedelta(minutes=125)
     _conversation_start_times_var.set(conversation_start_times)
     shown_milestones[str(workspace)] = set()
@@ -215,10 +223,12 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
     # Test 30, 40, 50 minute marks
     for minutes in [30, 40, 50]:
         shown_milestones = _shown_milestones_var.get()
+        assert shown_milestones is not None
         shown_milestones[str(workspace)] = set()
         _shown_milestones_var.set(shown_milestones)
 
         conversation_start_times = _conversation_start_times_var.get()
+        assert conversation_start_times is not None
         conversation_start_times[str(workspace)] = now - timedelta(
             minutes=minutes
         )

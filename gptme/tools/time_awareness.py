@@ -63,6 +63,8 @@ def add_time_message(
 
         conversation_start_times = _conversation_start_times_var.get()
         shown_milestones = _shown_milestones_var.get()
+        assert conversation_start_times is not None
+        assert shown_milestones is not None
 
         # Initialize conversation start time if first message
         if workspace_str not in conversation_start_times:

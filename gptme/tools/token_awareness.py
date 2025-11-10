@@ -122,6 +122,9 @@ def add_token_usage_warning(
             token_totals = _token_totals_var.get()
             message_counts = _message_counts_var.get()
             last_warning_tokens = _last_warning_tokens_var.get()
+            assert token_totals is not None
+            assert message_counts is not None
+            assert last_warning_tokens is not None
 
             # Incremental counting (O(1) amortized per message)
             current_count = len(log.messages)
@@ -157,6 +160,7 @@ def add_token_usage_warning(
         if log_id:
             _ensure_locals()
             last_warning_tokens = _last_warning_tokens_var.get()
+            assert last_warning_tokens is not None
             last_warning = last_warning_tokens.get(log_id, 0)
 
             # Check if we've crossed a percentage threshold
@@ -185,6 +189,7 @@ def add_token_usage_warning(
             if log_id:
                 _ensure_locals()
                 last_warning_tokens = _last_warning_tokens_var.get()
+                assert last_warning_tokens is not None
                 last_warning_tokens[log_id] = used
                 _last_warning_tokens_var.set(last_warning_tokens)
 
