@@ -25,10 +25,7 @@ from gptme.message import Message
 from gptme.prompts import get_prompt
 from gptme.tools import get_tools
 from gptme.tools.precommit import run_precommit_checks
-from gptme.util.context import (
-    gather_fresh_context,
-    get_changed_files,
-)
+from gptme.util.context import gather_fresh_context, get_changed_files
 
 # Set up logging
 logging.basicConfig(
@@ -105,6 +102,7 @@ def main():
         model="anthropic",
         interactive=False,
         tool_allowlist=["python", "shell", "save", "patch"],
+        tool_format="markdown",
     )
 
     # Set up the conversation

@@ -21,6 +21,7 @@ def initialize_gptme(verbose: bool):
         model=None,  # Let init handle model selection from config
         interactive=False,
         tool_allowlist=None,
+        tool_format="markdown",
     )
 
 

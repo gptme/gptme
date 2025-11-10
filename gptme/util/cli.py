@@ -284,7 +284,12 @@ def chats_list(limit: int, summarize: bool):
         from gptme.init import init  # fmt: skip
 
         # This isn't the best way to initialize the model for summarization, but it works for now
-        init("openai/gpt-4o", interactive=False, tool_allowlist=[])
+        init(
+            "openai/gpt-4o",
+            interactive=False,
+            tool_allowlist=[],
+            tool_format="markdown",
+        )
     list_chats(max_results=limit, include_summary=summarize)
 
 
@@ -300,7 +305,12 @@ def chats_search(query: str, limit: int, summarize: bool):
         from gptme.init import init  # fmt: skip
 
         # This isn't the best way to initialize the model for summarization, but it works for now
-        init("openai/gpt-4o", interactive=False, tool_allowlist=[])
+        init(
+            "openai/gpt-4o",
+            interactive=False,
+            tool_allowlist=[],
+            tool_format="markdown",
+        )
     search_chats(query, max_results=limit)
 
 
@@ -459,7 +469,7 @@ def llm_generate(prompt: str | None, model: str | None, stream: bool):
         console.quiet = True
 
         # Initialize with minimal setup - no tools needed for simple generation
-        init(model, interactive=False, tool_allowlist=[])
+        init(model, interactive=False, tool_allowlist=[], tool_format="markdown")
 
         # Get model or use default
         if not model:
