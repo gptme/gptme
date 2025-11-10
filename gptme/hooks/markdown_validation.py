@@ -23,6 +23,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def register() -> None:
+    """Setup function to register the markdown validation hook."""
+    register_hook(
+        "markdown_validation",
+        HookType.MESSAGE_POST_PROCESS,
+        validate_markdown_on_message_complete,
+        priority=1,  # Low priority to run after most other hooks
+    )
+
+
 def check_last_line_suspicious(content: str) -> tuple[bool, str | None]:
     """Check if the last line of content has suspicious patterns.
 
@@ -82,7 +92,9 @@ def validate_markdown_on_message_complete(
         return
 
     # Extract all tool uses from the message
-    tool_uses = list(ToolUse.iter_from_content(last_msg.content))
+    tool_uses = list(
+        ToolUse.iter_from_content(last_msg.content, tool_format_override="markdown")
+    )
 
     if not tool_uses:
         return
@@ -114,12 +126,3 @@ Plain text content
 """
 
     yield Message("system", warning, hide=False)
-
-
-# Register the hook
-register_hook(
-    "markdown_validation",
-    HookType.MESSAGE_POST_PROCESS,
-    validate_markdown_on_message_complete,
-    priority=1,  # Low priority to run after most other hooks
-)

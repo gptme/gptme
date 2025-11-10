@@ -22,7 +22,6 @@ from .tools import (
     ToolUse,
     execute_msg,
     get_tools,
-    set_tool_format,
 )
 from .tools.complete import SessionCompleteException
 from .util import console, path_with_tilde
@@ -71,19 +70,15 @@ def chat(
     conv_name = logdir.name
     set_current_conv_name(conv_name)
 
-    # init
-    init(model, interactive, tool_allowlist)
-
     # tool_format should already be resolved by this point
     assert (
         tool_format is not None
     ), "tool_format should be resolved before calling chat()"
 
-    # Set tool format early to ensure LogManager and hooks use correct format
-    set_tool_format(tool_format)
+    # init
+    init(model, interactive, tool_allowlist, tool_format)
 
     # Trigger session start hooks
-
     if session_start_msgs := trigger_hook(
         HookType.SESSION_START,
         logdir=logdir,

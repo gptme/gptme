@@ -347,7 +347,9 @@ class PromptOptimizer:
             try:
                 # Run forward pass to get prediction
                 pred = temp_module(
-                    task_description=eval_spec["prompt"], context="", eval_spec=eval_spec
+                    task_description=eval_spec["prompt"],
+                    context="",
+                    eval_spec=eval_spec,
                 )
 
                 # Get trajectory feedback from metric

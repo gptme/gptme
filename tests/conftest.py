@@ -113,7 +113,13 @@ def temp_file():
 
 @pytest.fixture(autouse=True)
 def init_():
-    init(None, interactive=False, tool_allowlist=None)
+    from gptme.tools import init_tools
+
+    # Call init() once if not already done (for model, logging, hooks)
+    # This will be ignored on subsequent tests due to _init_done flag
+    init(None, interactive=False, tool_allowlist=None, tool_format="markdown")
+    # Always re-initialize tools after clear_tools_before() cleared them
+    init_tools(None)
 
 
 @pytest.fixture

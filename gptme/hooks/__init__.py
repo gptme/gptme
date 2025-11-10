@@ -556,5 +556,9 @@ def clear_hooks(hook_type: HookType | None = None) -> None:
         _registry.hooks.clear()
 
 
-# Import hook modules to auto-register them
-from . import markdown_validation  # noqa: F401
+def init_hooks() -> None:
+    """Initialize and register all default hooks."""
+    # Import hook modules to auto-register them
+    from . import markdown_validation
+
+    markdown_validation.register()

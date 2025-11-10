@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from rich.logging import RichHandler
 
 from .config import get_config
+from .hooks import init_hooks
 from .llm import guess_provider_from_config, init_llm
 from .llm.models import (
     PROVIDERS,
@@ -14,14 +15,19 @@ from .llm.models import (
     set_default_model,
 )
 from .setup import ask_for_api_key
-from .tools import init_tools
+from .tools import ToolFormat, init_tools, set_tool_format
 from .util import console
 
 logger = logging.getLogger(__name__)
 _init_done = False
 
 
-def init(model: str | None, interactive: bool, tool_allowlist: list[str] | None):
+def init(
+    model: str | None,
+    interactive: bool,
+    tool_allowlist: list[str] | None,
+    tool_format: ToolFormat,
+):
     global _init_done
     if _init_done:
         logger.warning("init() called twice, ignoring")
@@ -31,6 +37,9 @@ def init(model: str | None, interactive: bool, tool_allowlist: list[str] | None)
     load_dotenv()
     init_model(model, interactive)
     init_tools(tool_allowlist)
+    init_hooks()
+
+    set_tool_format(tool_format)
 
 
 def init_model(

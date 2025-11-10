@@ -2,22 +2,23 @@
 
 import pytest
 
-from gptme.hooks import clear_hooks
+from gptme.hooks import HookType, clear_hooks, register_hook
 from gptme.hooks.markdown_validation import (
     check_last_line_suspicious,
     validate_markdown_on_message_complete,
 )
+from gptme.init import init
 from gptme.logmanager import LogManager
 from gptme.message import Message
 
 
 @pytest.fixture(autouse=True)
-def setup_hooks(init_):
+def setup_hooks():
     """Clear all hooks and re-register markdown validation hook for each test.
 
     Depends on init_ fixture to ensure tools are loaded first.
     """
-    from gptme.hooks import HookType, register_hook
+    init(model=None, interactive=False, tool_allowlist=["save"], tool_format="markdown")
 
     # Clear all hooks
     clear_hooks()
@@ -80,7 +81,6 @@ def test_check_last_line_suspicious_empty():
     assert not is_suspicious
 
 
-@pytest.mark.flaky(retries=3, delay=1)
 def test_validate_markdown_hook_detects_issue():
     """Test that hook detects suspicious endings in markdown tooluse."""
     manager = LogManager(lock=False)
@@ -90,11 +90,13 @@ def test_validate_markdown_hook_detects_issue():
 
 {ticks}save test.txt
 Some content
-#
-{ticks}"""
+# Header
+{ticks}
+"""
     manager.append(Message("assistant", message_content))
 
     # Run the hook
+    print("Running markdown validation hook...")
     results = list(validate_markdown_on_message_complete(manager))
     messages = [msg for msg in results if isinstance(msg, Message)]
 

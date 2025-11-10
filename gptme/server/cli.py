@@ -73,6 +73,7 @@ def serve(
         model,
         interactive=False,
         tool_allowlist=None if tools is None else tools.split(","),
+        tool_format="markdown",
     )
 
     # Initialize telemetry (server is API/WebUI driven, not CLI interactive)
