@@ -26,7 +26,6 @@ from .tools import (
 from .tools.complete import SessionCompleteException
 from .util import console, path_with_tilde
 from .util.ask_execute import ask_execute
-from .util.auto_naming import auto_generate_display_name
 from .util.context import include_paths
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
@@ -297,42 +296,6 @@ def _process_message_conversation(
                 response_msg, manager, confirm_func
             ):
                 return
-
-        # Auto-generate display name after first assistant response if not already set
-        # Runs in background thread to avoid blocking the chat loop
-        # TODO: Consider implementing via hook system to streamline with server implementation
-        # See: gptme/server/api_v2_sessions.py for server's implementation
-        assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
-        if len(assistant_messages) == 1:
-            chat_config = ChatConfig.from_logdir(manager.logdir)
-            if not chat_config.name and model:
-
-                def _auto_name_thread(
-                    config: ChatConfig,
-                    messages: list[Message],
-                    model_name: str,
-                ):
-                    """Background thread for auto-naming to avoid blocking chat loop."""
-                    try:
-                        display_name = auto_generate_display_name(messages, model_name)
-                        if display_name:
-                            config.name = display_name
-                            config.save()
-                            logger.info(
-                                f"Auto-generated conversation name: {display_name}"
-                            )
-                        else:
-                            logger.warning("Auto-naming failed")
-                    except Exception as e:
-                        logger.warning(f"Failed to auto-generate name: {e}")
-
-                # Start naming in background thread (daemon so it doesn't block exit)
-                thread = threading.Thread(
-                    target=_auto_name_thread,
-                    args=(chat_config, manager.log.messages.copy(), model),
-                    daemon=True,
-                )
-                thread.start()
 
         # Check if there are any runnable tools left
         last_content = next(
