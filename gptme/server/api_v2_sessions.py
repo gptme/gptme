@@ -31,7 +31,12 @@ from ..logmanager import LogManager, prepare_messages
 from ..message import Message
 from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools, init_tools
-from .api_v2_common import ConfigChangedEvent, ErrorEvent, EventType, msg2dict
+from .api_v2_common import (
+    ConfigChangedEvent,
+    ErrorEvent,
+    EventType,
+    msg2dict,
+)
 from .auth import require_auth
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
@@ -466,7 +471,7 @@ def start_tool_execution(
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
     @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
-    def execute_tool_thread():
+    def execute_tool_thread() -> None:
         config = Config.from_workspace(workspace=chat_config.workspace)
         config.chat = chat_config
         set_config(config)
@@ -499,7 +504,9 @@ def start_tool_execution(
         # Execute the tool
         try:
             logger.info(f"Executing tool: {tooluse.tool}")
-            tool_outputs = list(tooluse.execute(lambda _: True))
+            tool_outputs = list(
+                tooluse.execute(lambda _: True, manager.log, manager.workspace)
+            )
             logger.info(f"Tool execution complete, outputs: {len(tool_outputs)}")
 
             # Store the tool outputs
@@ -533,7 +540,7 @@ def _start_step_thread(
 ):
     """Start a step execution in a background thread."""
 
-    def step_thread():
+    def step_thread() -> None:
         try:
             # Mark session as generating
             session.generating = True
