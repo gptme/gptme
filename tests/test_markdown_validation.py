@@ -7,20 +7,18 @@ from gptme.hooks.markdown_validation import (
     check_last_line_suspicious,
     validate_markdown_on_message_complete,
 )
-from gptme.init import init
 from gptme.logmanager import LogManager
 from gptme.message import Message
+from gptme.tools import clear_tools
 
 
 @pytest.fixture(autouse=True)
-def setup_hooks():
+def setup_hooks(init_):
     """Clear all hooks and re-register markdown validation hook for each test.
 
     Depends on init_ fixture to ensure tools are loaded first.
     """
     from gptme.tools import init_tools
-
-    init(model=None, interactive=False, tool_allowlist=["save"], tool_format="markdown")
 
     # Ensure save tool is loaded (init() call above is ignored due to _init_done flag)
     # This is needed for ToolUse.iter_from_content() to extract tool uses
@@ -41,6 +39,7 @@ def setup_hooks():
 
     # Clean up after test
     clear_hooks()
+    clear_tools()
 
 
 # Triple backticks for markdown codeblocks in test data
