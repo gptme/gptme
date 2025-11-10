@@ -181,7 +181,7 @@ def test_message_pre_process_hook(client: FlaskClient):
 # for better thread isolation, similar to how tools are handled.
 #
 # See: https://github.com/gptme/gptme/pull/824
-@pytest.mark.skip(reason="Hook testing infrastructure needs improvement")
+@pytest.mark.xfail(reason="Hook testing infrastructure needs improvement")
 def test_message_post_process_hook(client: FlaskClient):
     """Test that MESSAGE_POST_PROCESS hook is triggered after generation."""
     hook_triggered = []
