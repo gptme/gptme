@@ -48,6 +48,12 @@ read_url("https://gptme.org/docs/getting-started.html")
 search("latest developments in LLM agents", "perplexity")
 ```
 
+**Note**: Perplexity search requires either:
+- `PERPLEXITY_API_KEY` - Direct access to Perplexity API
+- `OPENROUTER_API_KEY` - Uses Perplexity via OpenRouter (model: `perplexity/sonar-pro`)
+
+If both keys are available, PERPLEXITY_API_KEY takes precedence.
+
 ### Taking Screenshots
 ```python
 # Screenshot and view

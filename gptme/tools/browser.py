@@ -167,7 +167,7 @@ def search(query: str, engine: EngineType = "google") -> str:
         if has_perplexity:
             return search_perplexity(query)  # type: ignore
         else:
-            return "Error: Perplexity search not available. Set PERPLEXITY_API_KEY environment variable or add it to ~/.config/gptme/config.toml"
+            return "Error: Perplexity search not available. Set PERPLEXITY_API_KEY or OPENROUTER_API_KEY environment variable or add it to ~/.config/gptme/config.toml"
     elif browser == "playwright":
         return search_playwright(query, engine)
     elif browser == "lynx":
