@@ -18,7 +18,13 @@ def setup_hooks():
 
     Depends on init_ fixture to ensure tools are loaded first.
     """
+    from gptme.tools import init_tools
+
     init(model=None, interactive=False, tool_allowlist=["save"], tool_format="markdown")
+
+    # Ensure save tool is loaded (init() call above is ignored due to _init_done flag)
+    # This is needed for ToolUse.iter_from_content() to extract tool uses
+    init_tools(["save"])
 
     # Clear all hooks
     clear_hooks()
