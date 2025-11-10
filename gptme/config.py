@@ -1,6 +1,6 @@
 import logging
 import os
-import threading
+from contextvars import ContextVar
 from dataclasses import (
     asdict,
     dataclass,
@@ -731,50 +731,54 @@ class Config:
 config_path = os.path.expanduser("~/.config/gptme/config.toml")
 
 
-# Thread-local storage for config
-# Each thread gets its own independent copy of the configuration
-_thread_local = threading.local()
+# Context-local storage for config
+# Each context (thread/async task) gets its own independent copy of the configuration
+_config_var: ContextVar[Config | None] = ContextVar("config", default=None)
 
-# Note: Configuration must be initialized in each thread that needs it.
-# The first call to get_config() in a thread will create a new Config instance.
-# Subsequent calls in the same thread will return the same instance.
+# Note: Configuration must be initialized in each context that needs it.
+# The first call to get_config() in a context will create a new Config instance.
+# Subsequent calls in the same context will return the same instance.
 
 
 def get_config() -> Config:
     """Get the current configuration."""
-    if not hasattr(_thread_local, "config"):
-        _thread_local.config = Config()
-    return _thread_local.config
+    config = _config_var.get()
+    if config is None:
+        config = Config()
+        _config_var.set(config)
+    return config
 
 
 def set_config(config: Config):
     """Set the configuration."""
-    _thread_local.config = config
+    _config_var.set(config)
 
 
 def set_config_from_workspace(workspace: Path):
     """Set the configuration to use a specific workspace, possibly having a project config."""
-    _thread_local.config = Config.from_workspace(workspace=workspace)
+    _config_var.set(Config.from_workspace(workspace=workspace))
 
 
 def reload_config() -> Config:
     """Reload the configuration files."""
-    if not hasattr(_thread_local, "config"):
-        _thread_local.config = Config()
-    elif workspace := (
-        _thread_local.config.project and _thread_local.config.project._workspace
-    ):
-        _thread_local.config = Config.from_workspace(workspace=workspace)
+    config = _config_var.get()
+    if config is None:
+        config = Config()
+        _config_var.set(config)
+    elif workspace := (config.project and config.project._workspace):
+        config = Config.from_workspace(workspace=workspace)
+        _config_var.set(config)
     else:
-        _thread_local.config = Config()
+        config = Config()
+        _config_var.set(config)
 
     # Clear tools cache so MCP tools are recreated with new config
     from gptme.tools import clear_tools
 
     clear_tools()
 
-    assert _thread_local.config
-    return _thread_local.config
+    assert config
+    return config
 
 
 def setup_config_from_cli(

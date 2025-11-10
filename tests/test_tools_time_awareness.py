@@ -43,9 +43,13 @@ def test_time_awareness_tool_hooks_registered(load_time_awareness_tool):
 
 def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
     """Test that time messages appear at correct milestones."""
-    from gptme.tools.time_awareness import _ensure_locals, _locals
+    from gptme.tools.time_awareness import (
+        _conversation_start_times_var,
+        _ensure_locals,
+        _shown_milestones_var,
+    )
 
-    # Initialize thread-local storage
+    # Initialize context-local storage
     _ensure_locals()
 
     # Set up test conversation
@@ -55,8 +59,12 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
     # Mock conversation start time to 30 minutes ago
     now = datetime.now()
     start_time = now - timedelta(minutes=30)
-    _locals.conversation_start_times[str(workspace)] = start_time
-    _locals.shown_milestones[str(workspace)] = set()
+    conversation_start_times = _conversation_start_times_var.get()
+    shown_milestones = _shown_milestones_var.get()
+    conversation_start_times[str(workspace)] = start_time
+    _conversation_start_times_var.set(conversation_start_times)
+    shown_milestones[str(workspace)] = set()
+    _shown_milestones_var.set(shown_milestones)
 
     # Trigger hook at different time points
     test_cases = [
@@ -70,12 +78,16 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
 
     for elapsed_minutes, expected_time in test_cases:
         # Clear previous milestones to test each individually
-        _locals.shown_milestones[str(workspace)] = set()
+        shown_milestones = _shown_milestones_var.get()
+        shown_milestones[str(workspace)] = set()
+        _shown_milestones_var.set(shown_milestones)
 
         # Set conversation start time
-        _locals.conversation_start_times[str(workspace)] = now - timedelta(
+        conversation_start_times = _conversation_start_times_var.get()
+        conversation_start_times[str(workspace)] = now - timedelta(
             minutes=elapsed_minutes
         )
+        _conversation_start_times_var.set(conversation_start_times)
 
         # Trigger TOOL_POST_EXECUTE hook
         messages = list(
@@ -96,9 +108,13 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
 
 def test_milestone_progression(load_time_awareness_tool, tmp_path):
     """Test that milestones are shown in sequence without repetition."""
-    from gptme.tools.time_awareness import _ensure_locals, _locals
+    from gptme.tools.time_awareness import (
+        _conversation_start_times_var,
+        _ensure_locals,
+        _shown_milestones_var,
+    )
 
-    # Initialize thread-local storage
+    # Initialize context-local storage
     _ensure_locals()
 
     workspace = tmp_path
@@ -106,8 +122,12 @@ def test_milestone_progression(load_time_awareness_tool, tmp_path):
     now = datetime.now()
 
     # Set conversation start 25 minutes ago
-    _locals.conversation_start_times[str(workspace)] = now - timedelta(minutes=25)
-    _locals.shown_milestones[str(workspace)] = set()
+    conversation_start_times = _conversation_start_times_var.get()
+    shown_milestones = _shown_milestones_var.get()
+    conversation_start_times[str(workspace)] = now - timedelta(minutes=25)
+    _conversation_start_times_var.set(conversation_start_times)
+    shown_milestones[str(workspace)] = set()
+    _shown_milestones_var.set(shown_milestones)
 
     # Trigger multiple times - should only show milestone once
     for i in range(3):
@@ -142,9 +162,13 @@ def test_no_workspace_graceful_handling(
 
 def test_time_format_hours(load_time_awareness_tool, tmp_path):
     """Test time formatting includes hours for long conversations."""
-    from gptme.tools.time_awareness import _ensure_locals, _locals
+    from gptme.tools.time_awareness import (
+        _conversation_start_times_var,
+        _ensure_locals,
+        _shown_milestones_var,
+    )
 
-    # Initialize thread-local storage
+    # Initialize context-local storage
     _ensure_locals()
 
     workspace = tmp_path
@@ -152,8 +176,12 @@ def test_time_format_hours(load_time_awareness_tool, tmp_path):
     now = datetime.now()
 
     # Set conversation start 125 minutes ago (2h 5min)
-    _locals.conversation_start_times[str(workspace)] = now - timedelta(minutes=125)
-    _locals.shown_milestones[str(workspace)] = set()
+    conversation_start_times = _conversation_start_times_var.get()
+    shown_milestones = _shown_milestones_var.get()
+    conversation_start_times[str(workspace)] = now - timedelta(minutes=125)
+    _conversation_start_times_var.set(conversation_start_times)
+    shown_milestones[str(workspace)] = set()
+    _shown_milestones_var.set(shown_milestones)
 
     # Trigger hook
     messages = list(
@@ -171,9 +199,13 @@ def test_time_format_hours(load_time_awareness_tool, tmp_path):
 
 def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
     """Test that messages appear every 10 minutes after 20min mark."""
-    from gptme.tools.time_awareness import _ensure_locals, _locals
+    from gptme.tools.time_awareness import (
+        _conversation_start_times_var,
+        _ensure_locals,
+        _shown_milestones_var,
+    )
 
-    # Initialize thread-local storage
+    # Initialize context-local storage
     _ensure_locals()
 
     workspace = tmp_path
@@ -182,10 +214,15 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
 
     # Test 30, 40, 50 minute marks
     for minutes in [30, 40, 50]:
-        _locals.shown_milestones[str(workspace)] = set()
-        _locals.conversation_start_times[str(workspace)] = now - timedelta(
+        shown_milestones = _shown_milestones_var.get()
+        shown_milestones[str(workspace)] = set()
+        _shown_milestones_var.set(shown_milestones)
+
+        conversation_start_times = _conversation_start_times_var.get()
+        conversation_start_times[str(workspace)] = now - timedelta(
             minutes=minutes
         )
+        _conversation_start_times_var.set(conversation_start_times)
 
         messages = list(
             trigger_hook(

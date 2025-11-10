@@ -718,10 +718,10 @@ def test_reload_config_clears_tools(monkeypatch, tmp_path):
     """Test that reload_config() clears the tools cache so MCP tools are recreated."""
     from unittest.mock import MagicMock
 
-    from gptme.config import Config, _thread_local, reload_config
+    from gptme.config import Config, _config_var, reload_config
 
     # Set up initial config
-    _thread_local.config = Config()
+    _config_var.set(Config())
 
     # Mock clear_tools in the tools module
     mock_clear_tools = MagicMock()

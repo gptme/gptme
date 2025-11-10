@@ -4,7 +4,9 @@ import importlib
 import inspect
 import logging
 import pkgutil
+import threading
 from collections.abc import Generator
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -43,31 +45,30 @@ __all__ = [
     "set_tool_format",
 ]
 
-import threading
+# Context-local storage for tools
+# Each context (thread/async task) gets its own independent copy of tool state
+_loaded_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar("loaded_tools", default=None)
+_available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar("available_tools", default=None)
 
-# Thread-local storage for tools
-# Each thread gets its own independent copy of tool state
-_thread_local = threading.local()
-
-# Note: Tools must be initialized in each thread that needs them.
+# Note: Tools must be initialized in each context that needs them.
 # This is particularly important for server environments where request handling
-# happens in different threads than where tools were initially loaded.
+# happens in different contexts than where tools were initially loaded.
 
 
 def _get_loaded_tools() -> list[ToolSpec]:
-    if not hasattr(_thread_local, "loaded_tools"):
-        _thread_local.loaded_tools = []
-    return _thread_local.loaded_tools
+    tools = _loaded_tools_var.get()
+    if tools is None:
+        tools = []
+        _loaded_tools_var.set(tools)
+    return tools
 
 
 def _get_available_tools_cache() -> list[ToolSpec] | None:
-    if not hasattr(_thread_local, "available_tools"):
-        _thread_local.available_tools = None
-    return _thread_local.available_tools
+    return _available_tools_var.get()
 
 
 def _set_available_tools_cache(tools: list[ToolSpec] | None) -> None:
-    _thread_local.available_tools = tools
+    _available_tools_var.set(tools)
 
 
 def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
@@ -264,9 +265,9 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
 
 
 def clear_tools():
-    """Clear all thread-local tool state."""
+    """Clear all context-local tool state."""
     _set_available_tools_cache(None)
-    _thread_local.loaded_tools = []
+    _loaded_tools_var.set([])
 
 
 def get_tools() -> list[ToolSpec]:

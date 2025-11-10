@@ -14,8 +14,8 @@ Shows time elapsed messages at: 1min, 5min, 10min, 15min, 20min, then every 10mi
 """
 
 import logging
-import threading
 from collections.abc import Generator
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -27,15 +27,17 @@ from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
 
-# Thread-local storage for time tracking (ensures thread safety in gptme-server)
-_locals = threading.local()
+# Context-local storage for time tracking (ensures context safety in gptme-server)
+_conversation_start_times_var: ContextVar[dict[str, datetime]] = ContextVar("conversation_start_times", default={})
+_shown_milestones_var: ContextVar[dict[str, set[int]]] = ContextVar("shown_milestones", default={})
 
 
 def _ensure_locals():
-    """Initialize thread-local storage if needed."""
-    if not hasattr(_locals, "conversation_start_times"):
-        _locals.conversation_start_times = {}
-        _locals.shown_milestones = {}
+    """Initialize context-local storage if needed."""
+    if not _conversation_start_times_var.get():
+        _conversation_start_times_var.set({})
+    if not _shown_milestones_var.get():
+        _shown_milestones_var.set({})
 
 
 def add_time_message(
@@ -56,25 +58,31 @@ def add_time_message(
 
         workspace_str = str(workspace)
 
-        # Ensure thread-local storage is initialized
+        # Ensure context-local storage is initialized
         _ensure_locals()
 
+        conversation_start_times = _conversation_start_times_var.get()
+        shown_milestones = _shown_milestones_var.get()
+
         # Initialize conversation start time if first message
-        if workspace_str not in _locals.conversation_start_times:
-            _locals.conversation_start_times[workspace_str] = datetime.now()
-            _locals.shown_milestones[workspace_str] = set()
+        if workspace_str not in conversation_start_times:
+            conversation_start_times[workspace_str] = datetime.now()
+            _conversation_start_times_var.set(conversation_start_times)
+            shown_milestones[workspace_str] = set()
+            _shown_milestones_var.set(shown_milestones)
             return
 
         # Calculate elapsed time in minutes
-        elapsed = datetime.now() - _locals.conversation_start_times[workspace_str]
+        elapsed = datetime.now() - conversation_start_times[workspace_str]
         elapsed_minutes = int(elapsed.total_seconds() / 60)
 
         # Determine which milestone to show
         milestone = _get_next_milestone(elapsed_minutes)
 
         # Check if we should show this milestone
-        if milestone and milestone not in _locals.shown_milestones[workspace_str]:
-            _locals.shown_milestones[workspace_str].add(milestone)
+        if milestone and milestone not in shown_milestones[workspace_str]:
+            shown_milestones[workspace_str].add(milestone)
+            _shown_milestones_var.set(shown_milestones)
 
             # Format time message
             hours = elapsed_minutes // 60

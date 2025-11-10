@@ -13,8 +13,8 @@ Commands provided:
 """
 
 import logging
-import threading
 from collections.abc import Generator
+from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
@@ -43,15 +43,17 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Thread-local storage for lesson index
-_thread_local = threading.local()
+# Context-local storage for lesson index
+_lesson_index_var: ContextVar[LessonIndex | None] = ContextVar("lesson_index", default=None)
 
 
 def _get_lesson_index() -> LessonIndex:
-    """Get thread-local lesson index, creating it if needed."""
-    if not hasattr(_thread_local, "index"):
-        _thread_local.index = LessonIndex()
-    return _thread_local.index
+    """Get context-local lesson index, creating it if needed."""
+    index = _lesson_index_var.get()
+    if index is None:
+        index = LessonIndex()
+        _lesson_index_var.set(index)
+    return index
 
 
 def _get_included_lessons_from_log(log: list[Message]) -> set[str]:

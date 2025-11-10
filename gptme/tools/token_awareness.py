@@ -10,8 +10,8 @@ Adds:
 """
 
 import logging
-import threading
 from collections.abc import Generator
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -22,16 +22,20 @@ from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
 
-# Thread-local storage for token tracking (ensures thread safety in gptme-server)
-_locals = threading.local()
+# Context-local storage for token tracking (ensures context safety in gptme-server)
+_token_totals_var: ContextVar[dict[str, int]] = ContextVar("token_totals", default={})
+_message_counts_var: ContextVar[dict[str, int]] = ContextVar("message_counts", default={})
+_last_warning_tokens_var: ContextVar[dict[str, int]] = ContextVar("last_warning_tokens", default={})
 
 
 def _ensure_locals():
-    """Initialize thread-local storage if needed."""
-    if not hasattr(_locals, "token_totals"):
-        _locals.token_totals = {}
-        _locals.message_counts = {}
-        _locals.last_warning_tokens = {}
+    """Initialize context-local storage if needed."""
+    if not _token_totals_var.get():
+        _token_totals_var.set({})
+    if not _message_counts_var.get():
+        _message_counts_var.set({})
+    if not _last_warning_tokens_var.get():
+        _last_warning_tokens_var.set({})
 
 
 # Thresholds for showing warnings
@@ -112,30 +116,39 @@ def add_token_usage_warning(
             # This is less efficient (O(N) per call) but ensures correctness
             used = len_tokens(log.messages, model.model)
         else:
-            # Ensure thread-local storage is initialized
+            # Ensure context-local storage is initialized
             _ensure_locals()
+
+            token_totals = _token_totals_var.get()
+            message_counts = _message_counts_var.get()
+            last_warning_tokens = _last_warning_tokens_var.get()
 
             # Incremental counting (O(1) amortized per message)
             current_count = len(log.messages)
-            previous_count = _locals.message_counts.get(log_id, 0)
+            previous_count = message_counts.get(log_id, 0)
 
             if previous_count == 0:
                 # First time: count all messages
                 used = len_tokens(log.messages, model.model)
-                _locals.token_totals[log_id] = used
-                _locals.message_counts[log_id] = current_count
-                _locals.last_warning_tokens[log_id] = 0
+                token_totals[log_id] = used
+                _token_totals_var.set(token_totals)
+                message_counts[log_id] = current_count
+                _message_counts_var.set(message_counts)
+                last_warning_tokens[log_id] = 0
+                _last_warning_tokens_var.set(last_warning_tokens)
             else:
                 # Subsequent times: only count new messages
                 new_messages = log.messages[previous_count:]
                 if new_messages:
                     new_tokens = len_tokens(new_messages, model.model)
-                    used = _locals.token_totals.get(log_id, 0) + new_tokens
-                    _locals.token_totals[log_id] = used
-                    _locals.message_counts[log_id] = current_count
+                    used = token_totals.get(log_id, 0) + new_tokens
+                    token_totals[log_id] = used
+                    _token_totals_var.set(token_totals)
+                    message_counts[log_id] = current_count
+                    _message_counts_var.set(message_counts)
                 else:
                     # No new messages (shouldn't happen but handle gracefully)
-                    used = _locals.token_totals.get(log_id, 0)
+                    used = token_totals.get(log_id, 0)
 
         # Check if we should show a warning
         should_warn = False
@@ -143,7 +156,8 @@ def add_token_usage_warning(
 
         if log_id:
             _ensure_locals()
-            last_warning = _locals.last_warning_tokens.get(log_id, 0)
+            last_warning_tokens = _last_warning_tokens_var.get()
+            last_warning = last_warning_tokens.get(log_id, 0)
 
             # Check if we've crossed a percentage threshold
             current_percent = used / budget
@@ -170,7 +184,9 @@ def add_token_usage_warning(
             # Update last warning tracker
             if log_id:
                 _ensure_locals()
-                _locals.last_warning_tokens[log_id] = used
+                last_warning_tokens = _last_warning_tokens_var.get()
+                last_warning_tokens[log_id] = used
+                _last_warning_tokens_var.set(last_warning_tokens)
 
             # Add usage warning as a system message
             # Using hide=True so it doesn't show in terminal but is sent to the model
