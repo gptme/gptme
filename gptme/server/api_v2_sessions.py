@@ -409,14 +409,6 @@ def step(
             },
         )
 
-        # Trigger MESSAGE_POST_PROCESS hooks (e.g., markdown validation)
-        if post_hook_msgs := trigger_hook(
-            HookType.MESSAGE_POST_PROCESS,
-            manager=manager,
-        ):
-            for hook_msg in post_hook_msgs:
-                _append_and_notify(manager, session, hook_msg)
-
         if len(tooluses) > 1:
             logger.warning(
                 "Multiple tools per message not yet supported, expect issues"
