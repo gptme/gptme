@@ -102,7 +102,6 @@ def auto_name_on_first_assistant_message(
             )
     except Exception as e:
         logger.warning(f"Failed to auto-generate display name: {e}")
-
     # Don't yield any messages - this hook only performs side effects
-    return
+    yield from []
     yield  # Make this a generator function
