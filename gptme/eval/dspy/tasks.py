@@ -699,6 +699,316 @@ if __name__ == "__main__":
 
     return tasks
 
+    # Phase 2 Debugging Tasks
+
+    # debug-memory-leak
+    memory_leak_files = {
+        "leak_example.py": """import gc
+
+data_store = []
+
+def process_data(size):
+    # Bug: appending to global list causes memory leak
+    chunk = [0] * size
+    data_store.append(chunk)
+    return len(chunk)
+
+def main():
+    for i in range(100):
+        process_data(10000)
+    print(f"Processed data, store size: {len(data_store)}")
+
+if __name__ == "__main__":
+    main()
+""",
+        "profiler.py": """import tracemalloc
+import leak_example
+
+tracemalloc.start()
+leak_example.main()
+current, peak = tracemalloc.get_traced_memory()
+print(f"Memory: current={current/1024/1024:.1f}MB peak={peak/1024/1024:.1f}MB")
+tracemalloc.stop()
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("debug-memory-leak")
+        .with_files(memory_leak_files)
+        .with_run("python3 profiler.py")
+        .with_prompt(
+            "Fix the memory leak in leak_example.py. The data_store shouldn't grow unbounded."
+        )
+        .with_tools(["read", "patch", "shell", "python"])
+        .with_focus(["memory_debugging", "profiling", "performance"])
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # debug-test-failures
+    test_failure_files = {
+        "app.py": """def add(a, b):
+    return a + b
+
+def multiply(a, b):
+    # Bug: should multiply not add
+    return a + b
+
+def divide(a, b):
+    # Bug: no zero check
+    return a / b
+""",
+        "test_app.py": """import pytest
+from app import add, multiply, divide
+
+def test_add():
+    assert add(2, 3) == 5
+
+def test_multiply():
+    assert multiply(2, 3) == 6
+
+def test_divide():
+    assert divide(6, 2) == 3
+
+def test_divide_by_zero():
+    with pytest.raises(ZeroDivisionError):
+        divide(5, 0)
+""",
+        "fixtures.py": """import pytest
+
+@pytest.fixture
+def sample_numbers()
+    # Bug: missing colon
+    return [1, 2, 3, 4, 5]
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("debug-test-failures")
+        .with_files(test_failure_files)
+        .with_run("python3 -m pytest test_app.py -v")
+        .with_prompt("Fix all the bugs causing test failures in this project")
+        .with_tools(["read", "patch", "shell"])
+        .with_focus(["test_debugging", "systematic_fixing", "error_handling"])
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # debug-cli-tool
+    cli_tool_files = {
+        "cli.py": """#!/usr/bin/env python3
+import argparse
+from commands import run_command
+
+def main():
+    parser = argparse.ArgumentParser(description='CLI Tool')
+    parser.add_argument('command', help='Command to run')
+    parser.add_argument('--verbose', action='store_true', help='Verbose output')
+    parser.add_argument('--count', type=int, default=1)  # Bug: missing help
+
+    args = parser.parse_args()
+
+    # Bug: not passing verbose flag
+    run_command(args.command, args.count)
+
+if __name__ == "__main__":
+    main()
+""",
+        "commands.py": """def run_command(command, count, verbose=False):
+    for i in range(count):
+        if verbose:
+            print(f"[{i+1}/{count}] Executing: {command}")
+        print(f"Result: {command.upper()}")
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("debug-cli-tool")
+        .with_files(cli_tool_files)
+        .with_run("python3 cli.py test --verbose --count 3")
+        .with_prompt(
+            "Fix the CLI tool so verbose mode works correctly and all arguments are passed"
+        )
+        .with_tools(["read", "patch", "shell"])
+        .with_focus(["cli_debugging", "argument_parsing", "user_interface"])
+        .expect_output_contains("Executing: test")
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # Phase 2 Complex Tasks
+
+    # implement-caching-strategy
+    caching_files = {
+        "app.py": """import time
+
+def expensive_computation(x):
+    time.sleep(0.1)  # Simulate expensive operation
+    return x ** 2
+
+def process_requests(requests):
+    results = []
+    for req in requests:
+        result = expensive_computation(req)
+        results.append(result)
+    return results
+
+if __name__ == "__main__":
+    reqs = [1, 2, 3, 1, 2, 3, 1, 2, 3]  # Many duplicates
+    start = time.time()
+    results = process_requests(reqs)
+    duration = time.time() - start
+    print(f"Results: {results}")
+    print(f"Duration: {duration:.2f}s")
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("implement-caching-strategy")
+        .with_files(caching_files)
+        .with_run("python3 app.py")
+        .with_prompt(
+            "Research caching strategies and implement a multi-layer cache (memory + disk) to optimize this code. The output should complete in <0.5s."
+        )
+        .with_tools(["browser", "read", "save", "patch", "shell"])
+        .with_focus(["research", "caching", "performance_optimization", "architecture"])
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # code-review-enhance
+    code_review_files = {
+        "calculator.py": """def add(a, b):
+    return a + b
+
+def subtract(a, b):
+    return a - b
+
+def multiply(a, b):
+    return a * b
+
+def divide(a, b):
+    return a / b
+""",
+        "test_calculator.py": """from calculator import add, subtract
+
+def test_add():
+    assert add(2, 3) == 5
+
+def test_subtract():
+    assert subtract(5, 3) == 2
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("code-review-enhance")
+        .with_files(code_review_files)
+        .with_run("python3 -m pytest test_calculator.py -v")
+        .with_prompt(
+            "Review calculator.py and enhance it: 1) Add input validation, 2) Add tests for multiply/divide, 3) Handle edge cases like division by zero"
+        )
+        .with_tools(["read", "patch", "save", "shell"])
+        .with_focus(["code_review", "testing", "error_handling", "enhancement"])
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # migration-sql-to-orm
+    sql_migration_files = {
+        "db.py": """import sqlite3
+
+def get_users():
+    conn = sqlite3.connect('app.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users')
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def add_user(name, email):
+    conn = sqlite3.connect('app.db')
+    cursor = conn.cursor()
+    cursor.execute(f"INSERT INTO users (name, email) VALUES ('{name}', '{email}')")  # SQL injection risk
+    conn.commit()
+    conn.close()
+
+def init_db():
+    conn = sqlite3.connect('app.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL
+        )
+    ''')
+    conn.commit()
+    conn.close()
+""",
+        "queries.py": """# Raw SQL queries
+GET_USER_BY_EMAIL = "SELECT * FROM users WHERE email = '%s'"
+DELETE_USER = "DELETE FROM users WHERE id = %d"
+UPDATE_USER = "UPDATE users SET name = '%s', email = '%s' WHERE id = %d"
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("migration-sql-to-orm")
+        .with_files(sql_migration_files)
+        .with_run(
+            'python3 -c \'from models import User, init_db; init_db(); u = User(name="Test", email="test@example.com"); print("ORM working")\''
+        )
+        .with_prompt(
+            "Migrate this raw SQL code to use SQLAlchemy ORM. Create models.py with proper ORM models and refactor db.py to use them. Fix SQL injection vulnerabilities."
+        )
+        .with_tools(["read", "save", "patch", "shell"])
+        .with_focus(["migration", "orm", "security", "architecture"])
+        .expect_output_contains("ORM working")
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # build-mini-framework
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("build-mini-framework")
+        .with_run(
+            'python3 -c \'from framework import App; app = App(); @app.route("/"); def index(): return "Hello"; print(app.routes); print("Framework works")\''
+        )
+        .with_prompt(
+            "Build a mini web framework from scratch with: 1) App class with routing decorator, 2) Request/Response handling, 3) Middleware support. Create framework.py with the implementation."
+        )
+        .with_tools(["save", "shell", "python"])
+        .with_focus(
+            ["architecture", "framework_design", "api_design", "implementation"]
+        )
+        .expect_output_contains("Framework works")
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    return tasks
+
 
 def get_prompt_optimization_tasks() -> list[EvalSpec]:
     """Get all tasks for prompt optimization."""
