@@ -42,7 +42,7 @@ ToolFormat: TypeAlias = Literal["markdown", "xml", "tool"]
 tool_format: ToolFormat = "markdown"
 
 # Match tool name and start of JSON
-toolcall_re = re.compile(r"^@([\w]+)\(([\w\d_\-\:]+)\):\s*({.*)", re.M | re.S)
+toolcall_re = re.compile(r"^@(\w+)\(([\w\-:]+)\):\s*({.*)", re.M | re.S)
 
 
 def find_json_end(s: str, start: int) -> int | None:
