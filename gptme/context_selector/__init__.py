@@ -18,6 +18,9 @@ Example:
 
 from .base import ContextItem, ContextSelector
 from .config import ContextSelectorConfig
+from .file_config import FileSelectorConfig
+from .file_integration import FileItem
+from .file_selector import select_relevant_files
 from .hybrid import HybridSelector
 from .llm_based import LLMSelector
 from .rule_based import RuleBasedSelector
@@ -26,7 +29,10 @@ __all__ = [
     "ContextItem",
     "ContextSelector",
     "ContextSelectorConfig",
+    "FileSelectorConfig",
+    "FileItem",
     "RuleBasedSelector",
     "LLMSelector",
     "HybridSelector",
+    "select_relevant_files",
 ]
