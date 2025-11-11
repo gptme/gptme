@@ -267,6 +267,147 @@ if __name__ == "__main__":
     _task_metadata[spec["name"]] = metadata
     tasks.append(spec)
 
+    # Phase 1 Basic Tasks (6 new tasks)
+
+    # 1. simple-data-processing
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("simple-data-processing")
+        .with_file(
+            "data.csv", "name,age,city\nAlice,30,NYC\nBob,25,LA\nCharlie,35,Chicago"
+        )
+        .with_prompt(
+            "Parse data.csv, filter entries where age > 28, and save results to filtered.csv"
+        )
+        .with_run("python process.py && cat filtered.csv")
+        .with_tools(["read", "save", "python", "shell"])
+        .with_focus(["file_io", "data_manipulation"])
+        .expect_file_exists("filtered.csv")
+        .expect_file_exists("process.py")
+        .expect_output_contains("Alice")
+        .expect_output_contains("Charlie")
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # 2. git-workflow-basic
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("git-workflow-basic")
+        .with_prompt(
+            "Initialize a git repository, create a file called README.md with 'Hello Git', and commit it"
+        )
+        .with_run("git log --oneline && cat README.md")
+        .with_tools(["shell", "save"])
+        .with_focus(["version_control", "git_basics"])
+        .expect_file_exists("README.md")
+        .expect_output_contains("Hello Git")
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # 3. json-api-mock
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("json-api-mock")
+        .with_prompt(
+            "Create a simple Flask API with a /hello endpoint that returns JSON {'message': 'Hello, World!'}"
+        )
+        .with_run("python api.py &\nsleep 2\ncurl http://localhost:5000/hello")
+        .with_tools(["save", "shell"])
+        .with_focus(["web_development", "api_basics"])
+        .expect_file_exists("api.py")
+        .expect_output_contains("Hello, World!")
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # 4. test-driven-simple
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("test-driven-simple")
+        .with_prompt(
+            "Write a test for a function is_palindrome(), then implement the function to make the test pass"
+        )
+        .with_run("python -m pytest test_palindrome.py -v")
+        .with_tools(["save", "shell"])
+        .with_focus(["tdd", "testing"])
+        .expect_file_exists("test_palindrome.py")
+        .expect_file_exists("palindrome.py")
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # 5. refactor-duplicate-code
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("refactor-duplicate-code")
+        .with_file(
+            "duplicates.py",
+            """
+def calculate_area_rectangle(width, height):
+    area = width * height
+    print(f"Area: {area}")
+    return area
+
+def calculate_area_square(side):
+    area = side * side
+    print(f"Area: {area}")
+    return area
+
+def calculate_area_triangle(base, height):
+    area = (base * height) / 2
+    print(f"Area: {area}")
+    return area
+""",
+        )
+        .with_prompt("Extract the common 'print area' logic into a reusable function")
+        .with_run("python duplicates.py")
+        .with_tools(["read", "patch"])
+        .with_focus(["code_organization", "refactoring"])
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # 6. document-generation
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("document-generation")
+        .with_file(
+            "calc.py",
+            """
+def add(a, b):
+    return a + b
+
+def subtract(a, b):
+    return a - b
+
+def multiply(a, b):
+    return a * b
+""",
+        )
+        .with_prompt("Generate a README.md documenting the functions in calc.py")
+        .with_run("cat README.md")
+        .with_tools(["read", "save", "python"])
+        .with_focus(["documentation", "parsing"])
+        .expect_file_exists("README.md")
+        .expect_output_contains("add")
+        .expect_output_contains("subtract")
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
     return tasks
 
 
@@ -306,6 +447,251 @@ if __name__ == "__main__":
         )
         .expect_success()
         .expect_output_contains("Average: 3.0")
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # Phase 1 Debugging Tasks (3 new tasks)
+
+    # 1. debug-web-scraper
+    scraper_files = {
+        "scraper.py": """import requests
+from utils import parse_html
+import config
+
+def fetch_data(url):
+    response = requests.get(url)
+    return parse_html(response.txt)  # Bug: should be response.text
+
+def main():
+    data = fetch_data(config.URL)
+    print(data)
+
+if __name__ == "__main__":
+    main()
+""",
+        "utils.py": """def parse_html(html):
+    # Bug: KeyError if 'title' not found
+    return html.split('<title>')[1].split('</title>')[0]
+""",
+        "config.py": """URL = "http://example.com"
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("debug-web-scraper")
+        .with_files(scraper_files)
+        .with_run("python scraper.py")
+        .with_prompt("Fix all bugs in the web scraper to make it work correctly")
+        .with_tools(["read", "patch", "shell"])
+        .with_focus(["debugging", "error_handling", "multi_file"])
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # 2. debug-database-queries
+    db_files = {
+        "app.py": """from models import get_user
+import queries
+
+def fetch_user_data(user_id):
+    # Bug: SQL injection vulnerability
+    return queries.get_user_by_id(user_id)
+
+if __name__ == "__main__":
+    print(fetch_user_data("1"))
+""",
+        "models.py": """def get_user(user_id):
+    return {"id": user_id, "name": "Test User"}
+""",
+        "queries.py": """def get_user_by_id(user_id):
+    # Bug: String formatting allows SQL injection
+    query = f"SELECT * FROM users WHERE id = {user_id}"
+    return query
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("debug-database-queries")
+        .with_files(db_files)
+        .with_run("python app.py")
+        .with_prompt("Fix SQL injection vulnerability and query bugs")
+        .with_tools(["read", "patch", "shell"])
+        .with_focus(["debugging", "security", "database"])
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # 3. debug-async-race-condition
+    async_files = {
+        "async_worker.py": """import asyncio
+
+counter = 0
+
+async def increment():
+    global counter
+    temp = counter
+    await asyncio.sleep(0.001)  # Race condition window
+    counter = temp + 1
+
+async def main():
+    await asyncio.gather(*[increment() for _ in range(10)])
+    print(f"Counter: {counter}")  # Should be 10, but likely less
+
+if __name__ == "__main__":
+    asyncio.run(main())
+""",
+        "test_race.py": """import asyncio
+from async_worker import main
+
+async def test():
+    await main()
+    # Expected: 10, but race condition causes incorrect value
+
+if __name__ == "__main__":
+    asyncio.run(test())
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("debug-async-race-condition")
+        .with_files(async_files)
+        .with_run("python async_worker.py")
+        .with_prompt(
+            "Fix the race condition in the async code to ensure counter reaches 10"
+        )
+        .with_tools(["read", "patch", "shell"])
+        .with_focus(["debugging", "concurrency", "async"])
+        .expect_output_contains("Counter: 10")
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # Phase 1 Complex Tasks (3 new tasks)
+
+    # 1. optimize-data-processing
+    opt_files = {
+        "slow_processor.py": """def process_data(data):
+    # Inefficient: O(n^2) when O(n) possible
+    results = []
+    for i in range(len(data)):
+        for j in range(len(data)):
+            if i != j and data[i] == data[j]:
+                results.append(data[i])
+    return list(set(results))
+
+if __name__ == "__main__":
+    data = list(range(1000)) * 2
+    result = process_data(data)
+    print(f"Found {len(result)} duplicates")
+""",
+        "benchmark.py": """import time
+from slow_processor import process_data
+
+def benchmark():
+    data = list(range(1000)) * 2
+    start = time.time()
+    result = process_data(data)
+    elapsed = time.time() - start
+    print(f"Time: {elapsed:.3f}s")
+    return elapsed
+
+if __name__ == "__main__":
+    benchmark()
+""",
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("optimize-data-processing")
+        .with_files(opt_files)
+        .with_run("python benchmark.py")
+        .with_prompt(
+            "Analyze and optimize the slow data processing code for better performance"
+        )
+        .with_tools(["read", "patch", "shell", "python"])
+        .with_focus(["performance_optimization", "algorithmic_improvement", "analysis"])
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # 2. research-implement-auth
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("research-implement-auth")
+        .with_prompt(
+            "Research JWT authentication strategies and implement a simple JWT auth system with login and token verification"
+        )
+        .with_run("python auth.py")
+        .with_tools(["browser", "read", "save", "patch", "shell"])
+        .with_focus(["research", "implementation", "security", "authentication"])
+        .expect_file_exists("auth.py")
+        .expect_success()
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    tasks.append(spec)
+
+    # 3. refactor-architecture
+    arch_files = {
+        "monolith.py": """import json
+import sqlite3
+
+class App:
+    def __init__(self):
+        self.db = sqlite3.connect('app.db')
+        self.db.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER, name TEXT)')
+
+    def add_user(self, user_id, name):
+        self.db.execute('INSERT INTO users VALUES (?, ?)', (user_id, name))
+        self.db.commit()
+
+    def get_user(self, user_id):
+        cursor = self.db.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+        return cursor.fetchone()
+
+    def api_create_user(self, data):
+        user_id = data['id']
+        name = data['name']
+        self.add_user(user_id, name)
+        return json.dumps({'status': 'created'})
+
+    def api_get_user(self, user_id):
+        user = self.get_user(user_id)
+        return json.dumps({'id': user[0], 'name': user[1]})
+
+if __name__ == "__main__":
+    app = App()
+    print(app.api_create_user({'id': 1, 'name': 'Alice'}))
+    print(app.api_get_user(1))
+"""
+    }
+
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("refactor-architecture")
+        .with_files(arch_files)
+        .with_run(
+            "python -c 'import api.routes; import models.user; print(\"Refactored!\")'"
+        )
+        .with_prompt(
+            "Refactor monolith.py into a modular structure with separate api/, models/, and utils/ directories"
+        )
+        .with_tools(["read", "save", "patch", "shell"])
+        .with_focus(["architectural_refactoring", "modularity", "multi_file"])
+        .expect_success()
         .build_with_metadata()
     )
     _task_metadata[spec["name"]] = metadata
