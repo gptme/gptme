@@ -16,6 +16,7 @@ from typing import Literal
 
 from .__version__ import __version__
 from .config import config_path, get_config, get_project_config
+from .context_compression.extractive import ExtractiveSummarizer
 from .dirs import get_project_git_dir
 from .llm.models import get_model, get_recommended_model
 from .message import Message, len_tokens
@@ -441,9 +442,23 @@ def prompt_workspace(
         sections.append(f"## Project Structure\n\n{md_codeblock('', tree_output)}\n\n")
 
     files_str = []
+    # Initialize compressor if enabled
+    compressor = None
+    if project is not None and project.compression.enabled:
+        compressor = ExtractiveSummarizer(project.compression)
+
     for file in files:
         if file.exists():
-            files_str.append(md_codeblock(file.resolve(), file.read_text()))
+            content = file.read_text()
+            # Apply compression if enabled and content is long enough
+            if (
+                compressor is not None
+                and project is not None
+                and len(content) >= project.compression.min_section_length
+            ):
+                result = compressor.compress(content)
+                content = result.compressed
+            files_str.append(md_codeblock(file.resolve(), content))
     if files_str:
         sections.append(
             "## Selected files\n\nRead more with `cat`.\n\n" + "\n\n".join(files_str)

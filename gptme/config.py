@@ -21,6 +21,7 @@ from .util import console, path_with_tilde
 
 if TYPE_CHECKING:
     from .tools.base import ToolFormat
+from .context_compression.config import CompressionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,7 @@ class ProjectConfig:
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
     lessons: LessonsConfig = field(default_factory=LessonsConfig)
+    compression: CompressionConfig = field(default_factory=CompressionConfig)
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -170,6 +172,7 @@ class ProjectConfig:
             AgentConfig(**config_data.pop("agent")) if "agent" in config_data else None
         )
         lessons = LessonsConfig(dirs=config_data.pop("lessons", {}).get("dirs", []))
+        compression = CompressionConfig.from_dict(config_data.pop("compression", {}))
         env = config_data.pop("env", {})
         if mcp := config_data.pop("mcp", None):
             mcp = MCPConfig.from_dict(mcp)
@@ -186,6 +189,7 @@ class ProjectConfig:
             rag=rag,
             agent=agent,
             lessons=lessons,
+            compression=compression,
             env=env,
             mcp=mcp,
             **config_data,

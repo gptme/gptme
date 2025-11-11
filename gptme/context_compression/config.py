@@ -8,7 +8,7 @@ from typing import Literal
 class CompressionConfig:
     """Configuration for context compression."""
 
-    enabled: bool = True
+    enabled: bool = False
     compressor: Literal["extractive", "llmlingua", "hybrid"] = "extractive"
     target_ratio: float = 0.7  # 30% reduction
     min_section_length: int = 100  # Minimum chars to compress
