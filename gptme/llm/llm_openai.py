@@ -255,7 +255,7 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
         for tool_call in choice.message.tool_calls or []:
             assert isinstance(tool_call, ChatCompletionMessageToolCall)
             result.append(
-                f"@{tool_call.function.name}({tool_call.id}): {tool_call.function.arguments}"
+                f"@{tool_call.function.name.strip()}({tool_call.id.strip()}): {tool_call.function.arguments}"
             )
     else:
         if reasoning_content := (

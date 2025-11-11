@@ -157,3 +157,11 @@ def test_toolcall_regex_invalid(content):
     set_tool_format("tool")
     tool_uses = list(ToolUse.iter_from_content(content))
     assert len(tool_uses) == 0
+
+
+def test_parse_tool_use_ipython_kimi_k2():
+    """Kimi K2 thinking uses this callstyle"""
+    set_tool_format("tool")
+    call = '@ipython(ipython:0): {"code": "2 + 2"}'
+    tooluses = list(ToolUse.iter_from_content(call))
+    assert tooluses
