@@ -17,7 +17,7 @@ class ContextSelectorConfig:
     llm_model: str = "openai/gpt-4o-mini"
     max_candidates: int = 20  # Pre-filter size for hybrid
     max_selected: int = 5  # Final selection size
-    cost_limit_daily: float = 0.10  # Daily cost limit in USD
+    cost_limit_daily: float = 0.30  # Daily cost limit in USD ($9/month)
 
     # Lesson-specific configuration
     lesson_use_yaml_metadata: bool = True

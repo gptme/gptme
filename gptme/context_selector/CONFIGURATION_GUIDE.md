@@ -287,6 +287,39 @@ config = ContextSelectorConfig(
    )
    ```
 
+
+### Daily Cost Limit
+
+The `cost_limit_daily` parameter provides a safety net for LLM API costs:
+
+```python
+config = ContextSelectorConfig(
+    cost_limit_daily=0.30  # $0.30/day = ~$9/month
+)
+```
+
+**Default: $0.30/day** ($9/month)
+- Validated against hybrid strategy cost: $7.20/month ($0.24/day)
+- Provides ~25% safety margin
+- Prevents runaway costs from unexpected usage spikes
+
+**Tuning Guidelines**:
+- **Minimum**: $0.25/day (supports hybrid strategy barely)
+- **Recommended**: $0.30/day (current default, 25% margin)
+- **Comfortable**: $0.50/day (100% margin, handles usage spikes)
+- **Development**: Higher limits if testing extensively
+
+**When to increase**:
+- High-volume autonomous operations (100+ selections/day)
+- Multiple agents sharing same API key
+- Extensive testing and experimentation
+- Cost less critical than performance
+
+**When limit is reached**:
+- Selector falls back to rule-based strategy (free)
+- Warning logged with cost information
+- Normal operation continues without LLM assistance
+
 ## Monitoring and Metrics
 
 ### What to Track
