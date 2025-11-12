@@ -1,0 +1,36 @@
+id: task-004-gepa-test-validation
+category: testing
+difficulty: medium
+description: Validate GEPA test set results
+prompt: |
+  You are validating results from GEPA test set expansion.
+
+  Context: PR #833 added 7 new GEPA test tasks. Results need validation.
+
+  Your task:
+  1. Review test results in gptme repo
+  2. Validate success criteria for each test
+  3. Compare GEPA vs MIPROv2 performance
+  4. Document validation findings
+
+  Success criteria:
+  - All 7 tests reviewed
+  - Success/failure clearly identified
+  - Performance comparison documented
+  - Findings recorded in journal
+
+context_files:
+  - tasks/implement-gepa-optimization.md
+
+success_criteria:
+  - Journal entry created with validation results
+  - At least 7 tests analyzed
+  - Performance metrics documented
+  - Clear pass/fail determination
+
+expected_duration: 30
+tags:
+  - testing
+  - validation
+  - gepa
+  - performance
