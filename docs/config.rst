@@ -84,6 +84,7 @@ This file currently supports a few options:
 - ``base_prompt``, a string that will be used as the base prompt for the project. This will override the global base prompt ("You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. [...]"). It can be useful to change the identity of the assistant and override some default behaviors.
 - ``context_cmd``, a command used to generate context to include when constructing the system prompt. The command will be run in the workspace root and should output a string that will be included in the system prompt. Examples can be ``git status -v`` or ``scripts/context.sh``.
 - ``rag``, a dictionary to configure the RAG tool. See :ref:`rag` for more information.
+- ``compression``, a dictionary to configure context compression for token reduction. See :doc:`context-compression` for detailed information.
 
 See :class:`gptme.config.ProjectConfig` for the API reference.
 
