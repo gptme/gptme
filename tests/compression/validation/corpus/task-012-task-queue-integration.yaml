@@ -1,0 +1,39 @@
+id: task-012-task-queue-integration
+category: feature
+difficulty: hard
+description: Integrate task queue with autonomous runs
+prompt: |
+  You are integrating the task queue system with autonomous operations.
+
+  Context: Task queue should automatically populate from GitHub issues and be consumed by autonomous runs.
+
+  Your task:
+  1. Design integration points between queue and autonomous-run.sh
+  2. Implement queue reading in autonomous workflow
+  3. Add queue updating after task completion
+  4. Test the integration
+  5. Document the workflow
+
+  Success criteria:
+  - Queue integrated with autonomous runs
+  - Tasks automatically consumed
+  - Queue updates after completion
+  - Documentation complete
+
+context_files:
+  - scripts/runs/autonomous/autonomous-run.sh
+  - packages/task_queue/
+  - state/work-queue.md
+
+success_criteria:
+  - Integration code added
+  - Autonomous runs can read queue
+  - Queue updates on task completion
+  - Tests pass or manual verification
+
+expected_duration: 45
+tags:
+  - feature
+  - integration
+  - task-queue
+  - autonomous

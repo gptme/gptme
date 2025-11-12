@@ -1,0 +1,36 @@
+id: task-001-calendar-https-fix
+category: bug-fix
+difficulty: medium
+description: Fix calendar HTTPS access configuration
+prompt: |
+  You are investigating Issue #147: Setup nginx reverse proxy for calendar HTTPS access.
+
+  The calendar.ics file is served over HTTP but needs HTTPS access for external clients.
+
+  Your task:
+  1. Investigate current nginx configuration
+  2. Design HTTPS reverse proxy setup
+  3. Implement the configuration
+  4. Document the solution
+
+  Success criteria:
+  - nginx config allows HTTPS access to calendar
+  - External clients can access via HTTPS
+  - Configuration documented
+
+context_files:
+  - knowledge/infrastructure/vm-setup.md
+  - state/calendars/autonomous-runs.ics
+
+success_criteria:
+  - nginx configuration file created or modified
+  - HTTPS endpoint documented
+  - Solution commits include "calendar" and "https"
+  - No syntax errors in nginx config
+
+expected_duration: 20
+tags:
+  - infrastructure
+  - nginx
+  - security
+  - configuration

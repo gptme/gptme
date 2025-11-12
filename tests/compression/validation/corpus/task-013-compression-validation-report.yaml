@@ -1,0 +1,37 @@
+id: task-013-compression-validation-report
+category: documentation
+difficulty: medium
+description: Document compression validation results
+prompt: |
+  You are documenting Phase 1 Week 2 validation results for context compression.
+
+  Context: Validation testing complete. Need to document findings, metrics, and conclusions.
+
+  Your task:
+  1. Compile validation test results
+  2. Calculate token reduction metrics
+  3. Document bugs found and fixes applied
+  4. Write recommendations for Phase 2
+
+  Success criteria:
+  - Validation report document created
+  - Metrics clearly presented
+  - Bugs and fixes documented
+  - Recommendations provided
+
+context_files:
+  - gptme/worktree/context-compression/
+
+success_criteria:
+  - Report exists in docs/ or knowledge/
+  - Contains validation metrics
+  - Documents bugs and fixes
+  - Includes recommendations
+  - Well-structured with sections
+
+expected_duration: 25
+tags:
+  - documentation
+  - validation
+  - compression
+  - reporting

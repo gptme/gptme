@@ -1,0 +1,38 @@
+id: task-003-context-selector-docs
+category: documentation
+difficulty: easy
+description: Document LLM Context Selector design
+prompt: |
+  You are creating design documentation for the LLM Context Selector feature.
+
+  Context: A new system for dynamically selecting which context to include based on relevance.
+
+  Your task:
+  1. Read the implementation in packages/context/
+  2. Write design documentation explaining the architecture
+  3. Include examples and usage patterns
+  4. Document configuration options
+
+  Success criteria:
+  - Design doc created in knowledge/technical-designs/
+  - Explains architecture and components
+  - Includes code examples
+  - Documents configuration
+
+context_files:
+  - packages/context/src/context/
+  - tasks/implement-llm-context-selector.md
+
+success_criteria:
+  - New .md file in knowledge/technical-designs/
+  - Contains architecture explanation
+  - Has at least 2 code examples
+  - Documents config options
+  - File is well-structured with headers
+
+expected_duration: 25
+tags:
+  - documentation
+  - design
+  - context
+  - architecture

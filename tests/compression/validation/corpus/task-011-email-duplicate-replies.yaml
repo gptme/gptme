@@ -1,0 +1,38 @@
+id: task-011-email-duplicate-replies
+category: bug-fix
+difficulty: medium
+description: Fix email system creating duplicate replies
+prompt: |
+  You are fixing a bug where email system creates duplicate reply files.
+
+  Error: Multiple reply files created for single email, causing confusion and workflow issues.
+
+  Your task:
+  1. Investigate email reply creation logic
+  2. Identify root cause of duplication
+  3. Implement fix to prevent duplicates
+  4. Test the fix
+  5. Document the solution
+
+  Success criteria:
+  - Root cause identified
+  - Fix implemented
+  - No duplicate replies created
+  - Solution documented
+
+context_files:
+  - gptme-contrib/scripts/email/
+  - email/
+
+success_criteria:
+  - Code change prevents duplicates
+  - Commit message mentions "email" and "duplicate"
+  - Test or verification performed
+  - Analysis documented
+
+expected_duration: 25
+tags:
+  - bug-fix
+  - email
+  - workflow
+  - automation

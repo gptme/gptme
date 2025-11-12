@@ -1,0 +1,36 @@
+id: task-010-token-efficiency-analysis
+category: research
+difficulty: hard
+description: Analyze token efficiency of different compression ratios
+prompt: |
+  You are analyzing token efficiency across different compression ratios.
+
+  Context: Need to understand relationship between sentence selection and token reduction.
+
+  Your task:
+  1. Test multiple compression ratios (0.1, 0.15, 0.3, 0.5, 0.7)
+  2. Measure actual token reduction for each
+  3. Analyze sentence length patterns
+  4. Document findings and recommend optimal ratios
+
+  Success criteria:
+  - At least 5 ratios tested
+  - Token reduction measured for each
+  - Pattern analysis documented
+  - Recommendations provided
+
+context_files:
+  - gptme/context_compression/
+
+success_criteria:
+  - Analysis document created
+  - Contains data for 5+ ratios
+  - Includes visualizations or tables
+  - Clear recommendations
+
+expected_duration: 40
+tags:
+  - research
+  - analysis
+  - compression
+  - optimization
