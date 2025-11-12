@@ -62,7 +62,12 @@ def welch_t_test(group1: list[float], group2: list[float]) -> dict[str, Any]:
         Dictionary with t-statistic and p-value estimate
     """
     if len(group1) < 2 or len(group2) < 2:
-        return {"t_statistic": 0.0, "p_value": 1.0, "error": "Insufficient data"}
+        return {
+            "t_statistic": 0.0,
+            "p_value": 1.0,
+            "significant": False,
+            "error": "Insufficient data",
+        }
 
     mean1 = calculate_mean(group1)
     mean2 = calculate_mean(group2)
@@ -78,7 +83,12 @@ def welch_t_test(group1: list[float], group2: list[float]) -> dict[str, Any]:
     denominator = math.sqrt((std1**2 / n1) + (std2**2 / n2))
 
     if denominator == 0:
-        return {"t_statistic": 0.0, "p_value": 1.0, "error": "Zero variance"}
+        return {
+            "t_statistic": 0.0,
+            "p_value": 1.0,
+            "significant": False,
+            "error": "Zero variance",
+        }
 
     t_stat = numerator / denominator
 
