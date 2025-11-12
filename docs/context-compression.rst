@@ -253,6 +253,3 @@ See Also
 --------
 
 - :doc:`config` - General configuration guide
-- :doc:`validation-phase1-week2` - Validation report
-- :class:`gptme.context_compression.ExtractiveSummarizer` - API reference
-- :class:`gptme.context_compression.CompressionConfig` - Config schema
