@@ -202,7 +202,6 @@ Context compression has been validated on 50 real conversations from gptme logs:
 - High-scoring sentences are longer (sentence count ≠ token count)
 - Quality impact unknown without task completion validation
 
-See :doc:`validation-phase1-week2` for complete validation methodology and results.
 
 Implementation Details
 ----------------------
