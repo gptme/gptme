@@ -127,6 +127,7 @@ autosectionlabel_maxdepth = 2
 
 autodoc_typehints_format = "short"
 autodoc_class_signature = "separated"
+autodoc_mock_imports = ["flask", "flask_cors"]
 napoleon_attr_annotations = False
 
 nitpicky = True
