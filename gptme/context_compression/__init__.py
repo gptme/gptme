@@ -1,6 +1,12 @@
 """Context compression module for reducing token usage."""
 
-from .compressor import ContextCompressor
+from .compressor import CompressionResult, ContextCompressor
 from .config import CompressionConfig
+from .extractive import ExtractiveSummarizer
 
-__all__ = ["ContextCompressor", "CompressionConfig"]
+__all__ = [
+    "CompressionResult",
+    "ContextCompressor",
+    "CompressionConfig",
+    "ExtractiveSummarizer",
+]

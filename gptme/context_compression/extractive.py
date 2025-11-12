@@ -1,9 +1,13 @@
 """Extractive compression using sentence selection."""
 
 import re
+from typing import TYPE_CHECKING
 
 from .compressor import CompressionResult, ContextCompressor
 from .config import CompressionConfig
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 
 class ExtractiveSummarizer(ContextCompressor):
@@ -11,7 +15,7 @@ class ExtractiveSummarizer(ContextCompressor):
 
     def __init__(self, config: CompressionConfig):
         self.config = config
-        self._embedder = None  # Lazy load
+        self._embedder: SentenceTransformer | None = None  # Lazy load
 
     def _get_embedder(self):
         """Lazy load sentence transformer model."""
