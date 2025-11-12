@@ -91,7 +91,11 @@ class ExtractiveSummarizer(ContextCompressor):
         return scores
 
     def _select_sentences(
-        self, sentences: list[str], scores: list[float], target_count: int
+        self,
+        sentences: list[str],
+        scores: list[float],
+        target_count: int,
+        force_include: set[int] | None = None,
     ) -> list[int]:
         """
         Select top sentences based on scores.
@@ -100,20 +104,39 @@ class ExtractiveSummarizer(ContextCompressor):
             sentences: List of sentences
             scores: Relevance scores
             target_count: Number of sentences to select
+            force_include: Set of indices that must be included
 
         Returns:
             List of selected sentence indices (maintains original order)
         """
-        # Get top-k indices by score
-        scored_indices = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
-        selected_indices = sorted([idx for idx, _ in scored_indices[:target_count]])
-        return selected_indices
+        if force_include is None:
+            force_include = set()
+
+        # Start with forced indices
+        selected = set(force_include)
+
+        # Calculate how many more sentences to select
+        remaining_count = target_count - len(selected)
+
+        if remaining_count > 0:
+            # Get top-k indices by score (excluding already selected)
+            available_indices = [
+                (idx, score) for idx, score in enumerate(scores) if idx not in selected
+            ]
+            scored_indices = sorted(available_indices, key=lambda x: x[1], reverse=True)
+
+            # Add top remaining sentences
+            for idx, _ in scored_indices[:remaining_count]:
+                selected.add(idx)
+
+        # Return sorted indices (maintains original order)
+        return sorted(selected)
 
     def compress(
         self, content: str, target_ratio: float = 0.7, context: str = ""
     ) -> CompressionResult:
         """
-        Compress content using extractive summarization.
+        Compress content using extractive summarization with preservation.
 
         Args:
             content: Text to compress
@@ -134,8 +157,28 @@ class ExtractiveSummarizer(ContextCompressor):
                 compression_ratio=1.0,
             )
 
-        # Split into sentences (preservation disabled for baseline)
-        sentences = self._split_sentences(content)
+        # Phase 1: Extract and replace preservable elements with placeholders
+        preserved_map = {}  # placeholder -> original content
+        modified_content = content
+
+        if self.config.preserve_code or self.config.preserve_headings:
+            preserved, positions = self._preserve_structure(content)
+
+            # Sort by position (descending) to maintain correct string indices during replacement
+            for idx, (element, pos) in enumerate(
+                sorted(zip(preserved, positions), key=lambda x: x[1], reverse=True)
+            ):
+                placeholder = f"[PRESERVE_{idx}]"
+                preserved_map[placeholder] = element
+
+                # Replace element with placeholder
+                end_pos = pos + len(element)
+                modified_content = (
+                    modified_content[:pos] + placeholder + modified_content[end_pos:]
+                )
+
+        # Phase 2: Compress modified content (with placeholders)
+        sentences = self._split_sentences(modified_content)
         if not sentences:
             return CompressionResult(
                 compressed=content,
@@ -147,15 +190,30 @@ class ExtractiveSummarizer(ContextCompressor):
         # Score sentences by relevance
         scores = self._score_sentences(sentences, context)
 
+        # Identify sentences containing placeholders (must be preserved)
+        placeholder_indices = set()
+        for idx, sentence in enumerate(sentences):
+            if any(f"[PRESERVE_{i}]" in sentence for i in range(len(preserved_map))):
+                placeholder_indices.add(idx)
+
         # Calculate target sentence count
         target_count = max(1, int(len(sentences) * target_ratio))
 
-        # Select top sentences
-        selected_indices = self._select_sentences(sentences, scores, target_count)
+        # Ensure we select enough sentences to include all placeholders
+        target_count = max(target_count, len(placeholder_indices))
 
-        # Reconstruct compressed content
+        # Select top sentences (including forced placeholder sentences)
+        selected_indices = self._select_sentences(
+            sentences, scores, target_count, force_include=placeholder_indices
+        )
+
+        # Reconstruct compressed content with placeholders
         compressed_sentences = [sentences[i] for i in selected_indices]
         compressed = " ".join(compressed_sentences)
+
+        # Phase 3: Re-insert preserved elements (replace placeholders)
+        for placeholder, original in preserved_map.items():
+            compressed = compressed.replace(placeholder, original)
 
         compressed_length = len(compressed)
         actual_ratio = (
