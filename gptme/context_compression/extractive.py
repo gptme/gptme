@@ -134,10 +134,7 @@ class ExtractiveSummarizer(ContextCompressor):
                 compression_ratio=1.0,
             )
 
-        # Extract preservable elements
-        preserved, _ = self._preserve_structure(content)
-
-        # Split into sentences
+        # Split into sentences (preservation disabled for baseline)
         sentences = self._split_sentences(content)
         if not sentences:
             return CompressionResult(
@@ -159,11 +156,6 @@ class ExtractiveSummarizer(ContextCompressor):
         # Reconstruct compressed content
         compressed_sentences = [sentences[i] for i in selected_indices]
         compressed = " ".join(compressed_sentences)
-
-        # Re-add preserved elements (simplified - could be improved)
-        for elem in preserved:
-            if elem not in compressed:
-                compressed += f"\n\n{elem}"
 
         compressed_length = len(compressed)
         actual_ratio = (
