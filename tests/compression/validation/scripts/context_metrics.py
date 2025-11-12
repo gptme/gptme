@@ -67,6 +67,10 @@ def measure_context_size(workspace: Path) -> dict[str, Any]:
         - user_tokens: Tokens in user messages
         - assistant_tokens: Tokens in assistant messages
     """
+    # TODO: Path should be relative to logdir not workspace (Erik's review comment)
+    # Current: workspace/.gptme/conversation.jsonl
+    # Should be: logdir/conversation.jsonl (requires passing logdir parameter)
+    # Note: This validation framework will be removed per simplification plan
     # Find conversation log
     log_file = workspace / ".gptme" / "conversation.jsonl"
 
