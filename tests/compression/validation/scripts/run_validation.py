@@ -52,10 +52,13 @@ class ValidationRunner:
         self,
         corpus_dir: Path,
         results_dir: Path,
-        gptme_path: Path = Path("gptme"),
+        gptme_path: Path | None = None,
     ):
         self.corpus_dir = corpus_dir
         self.results_dir = results_dir
+        # Default to repository root (4 levels up from this script)
+        if gptme_path is None:
+            gptme_path = Path(__file__).resolve().parent.parent.parent.parent
         self.gptme_path = gptme_path
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -103,7 +106,7 @@ min_section_length = 50
             "gptme",
             "-n",  # Non-interactive
             "--workspace",
-            str(workspace),
+            str(workspace.resolve()),  # Use absolute path
             task["prompt"],
         ]
 
