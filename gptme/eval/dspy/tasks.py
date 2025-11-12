@@ -697,8 +697,6 @@ if __name__ == "__main__":
     _task_metadata[spec["name"]] = metadata
     tasks.append(spec)
 
-    return tasks
-
     # Phase 2 Debugging Tasks
 
     # debug-memory-leak
