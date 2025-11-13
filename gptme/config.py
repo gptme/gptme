@@ -824,14 +824,41 @@ def setup_config_from_cli(
     # Handle tool allowlist with similar precedence
     resolved_tool_allowlist: list[str] | None = None
     if tool_allowlist is not None:
-        # CLI override always takes precedence
-        resolved_tool_allowlist = [tool.strip() for tool in tool_allowlist.split(",")]
+        # Check for additive syntax (starts with '+')
+        if tool_allowlist.startswith("+"):
+            # Strip the '+' prefix and parse the additional tools
+            tool_list_str = tool_allowlist[1:]
+            additional_tools = [
+                tool.strip() for tool in tool_list_str.split(",") if tool.strip()
+            ]
+            # Get default tools and add the additional ones
+            default_tools = [tool.name for tool in get_toolchain(None)]
+            resolved_tool_allowlist = default_tools.copy()
+            for tool in additional_tools:
+                if tool not in resolved_tool_allowlist:
+                    resolved_tool_allowlist.append(tool)
+        else:
+            # Normal mode - CLI override replaces defaults
+            resolved_tool_allowlist = [
+                tool.strip() for tool in tool_allowlist.split(",")
+            ]
     elif existing_chat_config and existing_chat_config.tools:
         # When resuming, use saved conversation tools unless CLI override provided
         resolved_tool_allowlist = existing_chat_config.tools
     elif tools_env := config.get_env("TOOLS"):
         # Fall back to env/config for new conversations or when no saved tools
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
+
+    # Automatically add 'complete' tool in non-interactive mode
+    if not interactive:
+        if resolved_tool_allowlist is None:
+            # Get default tools and add complete to them
+            default_tools = [tool.name for tool in get_toolchain(None)]
+            resolved_tool_allowlist = default_tools
+            if "complete" not in resolved_tool_allowlist:
+                resolved_tool_allowlist.append("complete")
+        elif "complete" not in resolved_tool_allowlist:
+            resolved_tool_allowlist.append("complete")
 
     # Handle tool_format with similar precedence
     if tool_format is not None:

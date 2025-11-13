@@ -57,6 +57,7 @@ The interface provides user commands that can be used to interact with the syste
 
 
 @click.command(help=docstring)
+@click.pass_context
 @click.argument(
     "prompts",
     default=None,
@@ -117,7 +118,8 @@ The interface provides user commands that can be used to interact with the syste
     "--tools",
     "tool_allowlist",
     default=None,
-    help=f"Tools to allow as comma-separated list. Available: {available_tool_names}.",
+    multiple=True,
+    help=f"Tools to allow. Can be specified multiple times or comma-separated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Available: {available_tool_names}.",
 )
 @click.option(
     "--tool-format",
@@ -153,11 +155,12 @@ The interface provides user commands that can be used to interact with the syste
     help="Enable profiling and save results to gptme-profile-{timestamp}.prof",
 )
 def main(
+    ctx: click.Context,
     prompts: list[str],
     prompt_system: str,
     name: str,
     model: str | None,
-    tool_allowlist: str | None,
+    tool_allowlist: tuple[str, ...],
     tool_format: ToolFormat | None,
     stream: bool,
     verbose: bool,
@@ -171,6 +174,43 @@ def main(
     profile: bool,
 ):
     """Main entrypoint for the CLI."""
+    # Convert tool_allowlist from tuple to string or None
+    # Use get_parameter_source to distinguish between default (None) and explicit empty list
+    from click.core import ParameterSource
+
+    tool_allowlist_str: str | None
+    if ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT:
+        # Not provided by user, use None to indicate "use defaults"
+        tool_allowlist_str = None
+    elif tool_allowlist:
+        # User provided tools - flatten any comma-separated values and join
+        tools_list: list[str] = []
+        for tool_spec in tool_allowlist:
+            # Each tool_spec might be comma-separated
+            tools_list.extend(t.strip() for t in tool_spec.split(",") if t.strip())
+
+        # Check if any tool starts with '+' (additive syntax)
+        additive_mode = any(t.startswith("+") for t in tools_list)
+
+        if additive_mode:
+            # Strip '+' prefix from all tools
+            additional_tools = [t[1:] if t.startswith("+") else t for t in tools_list]
+            # Filter out empty strings (e.g., from '+' alone)
+            additional_tools = [t for t in additional_tools if t]
+
+            if additional_tools:
+                # Prefix with '+' to signal additive mode to config layer
+                tool_allowlist_str = "+" + ",".join(additional_tools)
+            else:
+                # Just '+' means use defaults
+                tool_allowlist_str = None
+        else:
+            # Normal mode - replace defaults with specified tools
+            tool_allowlist_str = ",".join(tools_list) if tools_list else None
+    else:
+        # User explicitly provided empty list (e.g., no -t flags with multiple=True)
+        tool_allowlist_str = None
+
     if profile:
         import cProfile
         import pstats
@@ -305,7 +345,7 @@ def main(
         workspace=workspace_path,
         logdir=logdir,
         model=model,
-        tool_allowlist=tool_allowlist,
+        tool_allowlist=tool_allowlist_str,
         tool_format=tool_format,
         stream=stream,
         interactive=interactive,
