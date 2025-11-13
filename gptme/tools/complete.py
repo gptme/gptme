@@ -148,6 +148,7 @@ def auto_reply_hook(
 tool = ToolSpec(
     name="complete",
     desc="Signal that the autonomous session is finished",
+    disabled_by_default=True,  # Only enable in autonomous/non-interactive sessions
     instructions="""
 Use this tool to signal that you have completed your work and the autonomous session should end.
 

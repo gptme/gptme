@@ -833,6 +833,17 @@ def setup_config_from_cli(
         # Fall back to env/config for new conversations or when no saved tools
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
 
+    # Automatically add 'complete' tool in non-interactive mode
+    if not interactive:
+        if resolved_tool_allowlist is None:
+            # Get default tools and add complete to them
+            default_tools = [tool.name for tool in get_toolchain(None)]
+            resolved_tool_allowlist = default_tools
+            if "complete" not in resolved_tool_allowlist:
+                resolved_tool_allowlist.append("complete")
+        elif "complete" not in resolved_tool_allowlist:
+            resolved_tool_allowlist.append("complete")
+
     # Handle tool_format with similar precedence
     if tool_format is not None:
         # CLI override always takes precedence
