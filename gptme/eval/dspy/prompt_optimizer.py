@@ -394,7 +394,6 @@ class PromptOptimizer:
             metric = create_composite_metric(eval_specs=eval_specs)
             return MIPROv2(
                 metric=metric,
-                auto="medium",
                 max_bootstrapped_demos=self.max_demos,
                 max_labeled_demos=self.max_demos * 2,
                 num_candidates=self.num_trials,
