@@ -119,7 +119,7 @@ The interface provides user commands that can be used to interact with the syste
     "tool_allowlist",
     default=None,
     multiple=True,
-    help=f"Tools to allow. Can be specified multiple times or comma-separated. Use '+tool' to add to defaults. Available: {available_tool_names}.",
+    help=f"Tools to allow. Can be specified multiple times or comma-separated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Available: {available_tool_names}.",
 )
 @click.option(
     "--tool-format",
@@ -188,7 +188,25 @@ def main(
         for tool_spec in tool_allowlist:
             # Each tool_spec might be comma-separated
             tools_list.extend(t.strip() for t in tool_spec.split(",") if t.strip())
-        tool_allowlist_str = ",".join(tools_list) if tools_list else None
+
+        # Check if any tool starts with '+' (additive syntax)
+        additive_mode = any(t.startswith("+") for t in tools_list)
+
+        if additive_mode:
+            # Strip '+' prefix from all tools
+            additional_tools = [t[1:] if t.startswith("+") else t for t in tools_list]
+            # Filter out empty strings (e.g., from '+' alone)
+            additional_tools = [t for t in additional_tools if t]
+
+            if additional_tools:
+                # Prefix with '+' to signal additive mode to config layer
+                tool_allowlist_str = "+" + ",".join(additional_tools)
+            else:
+                # Just '+' means use defaults
+                tool_allowlist_str = None
+        else:
+            # Normal mode - replace defaults with specified tools
+            tool_allowlist_str = ",".join(tools_list) if tools_list else None
     else:
         # User explicitly provided empty list (e.g., no -t flags with multiple=True)
         tool_allowlist_str = None
