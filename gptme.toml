@@ -1,9 +1,14 @@
 prompt = "This is gptme"
-files = ["README.md", "Makefile"]
-#files = ["README.md", "Makefile", "gptme/cli.py", "docs/*.rst", "docs/*.md"]
+files = [
+    "README.md",
+    "Makefile",
+]
 
 [lessons]
-dirs = ["docs/lessons"]
+dirs = [
+    "docs/lessons",
+]
 
-#[rag]
-#enabled = true
+[context_compression]
+enabled = false
+target_ratio = 1.0

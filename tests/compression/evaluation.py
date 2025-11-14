@@ -584,6 +584,14 @@ def main():
         with open(compressed_path) as f:
             compressed_data = json.load(f)
 
+        # Add default 'output' field if missing (backward compatibility)
+        for data in baseline_data:
+            if "output" not in data:
+                data["output"] = ""
+        for data in compressed_data:
+            if "output" not in data:
+                data["output"] = ""
+
         # Convert back to TestResult objects
         baseline_results = [TestResult(**data) for data in baseline_data]
         compressed_results = [TestResult(**data) for data in compressed_data]
