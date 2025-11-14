@@ -40,13 +40,14 @@ Each test case includes:
 ### List Test Cases
 
 ```bash
-python3 tests/compression/evaluation.py --list-tests
+poetry run python3 tests/compression/evaluation.py --list-tests
 ```
 
 ### Run Baseline Tests (Original Context)
 
 ```bash
-python3 tests/compression/evaluation.py --run-baseline
+# Use poetry run to access dev dependencies (tomli/tomli_w)
+poetry run python3 tests/compression/evaluation.py --run-baseline
 ```
 
 Results saved to: `tests/compression/results/baseline_results.json`
@@ -55,10 +56,10 @@ Results saved to: `tests/compression/results/baseline_results.json`
 
 ```bash
 # Default ratio (0.15 = 85% compressed)
-python3 tests/compression/evaluation.py --run-compressed
+poetry run python3 tests/compression/evaluation.py --run-compressed
 
 # Custom ratio
-python3 tests/compression/evaluation.py --run-compressed --ratio 0.30
+poetry run python3 tests/compression/evaluation.py --run-compressed --ratio 0.30
 ```
 
 Results saved to: `tests/compression/results/compressed_results_RATIO.json`
@@ -66,7 +67,7 @@ Results saved to: `tests/compression/results/compressed_results_RATIO.json`
 ### Generate Comparison Report
 
 ```bash
-python3 tests/compression/evaluation.py --compare --ratio 0.15
+poetry run python3 tests/compression/evaluation.py --compare --ratio 0.15
 ```
 
 Report saved to: `tests/compression/results/comparison_report_RATIO.md`
