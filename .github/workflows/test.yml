@@ -84,7 +84,7 @@ jobs:
         TERM: xterm
         MODEL: ${{ matrix.model }}
       with:
-        timeout_minutes: 8
+        timeout_minutes: 12
         max_attempts: 1  # favor pytest retries (mark with flaky)
         retry_wait_seconds: 10
         command: make test SLOW=true

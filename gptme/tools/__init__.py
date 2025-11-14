@@ -47,8 +47,12 @@ __all__ = [
 
 # Context-local storage for tools
 # Each context (thread/async task) gets its own independent copy of tool state
-_loaded_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar("loaded_tools", default=None)
-_available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar("available_tools", default=None)
+_loaded_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
+    "loaded_tools", default=None
+)
+_available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
+    "available_tools", default=None
+)
 
 # Note: Tools must be initialized in each context that needs them.
 # This is particularly important for server environments where request handling
