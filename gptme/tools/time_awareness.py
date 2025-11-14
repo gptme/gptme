@@ -28,8 +28,12 @@ from .base import ToolSpec
 logger = logging.getLogger(__name__)
 
 # Context-local storage for time tracking (ensures context safety in gptme-server)
-_conversation_start_times_var: ContextVar[dict[str, datetime] | None] = ContextVar("conversation_start_times", default=None)
-_shown_milestones_var: ContextVar[dict[str, set[int]] | None] = ContextVar("shown_milestones", default=None)
+_conversation_start_times_var: ContextVar[dict[str, datetime] | None] = ContextVar(
+    "conversation_start_times", default=None
+)
+_shown_milestones_var: ContextVar[dict[str, set[int]] | None] = ContextVar(
+    "shown_milestones", default=None
+)
 
 
 def _ensure_locals():

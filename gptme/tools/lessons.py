@@ -44,7 +44,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Context-local storage for lesson index
-_lesson_index_var: ContextVar[LessonIndex | None] = ContextVar("lesson_index", default=None)
+_lesson_index_var: ContextVar[LessonIndex | None] = ContextVar(
+    "lesson_index", default=None
+)
 
 
 def _get_lesson_index() -> LessonIndex:
