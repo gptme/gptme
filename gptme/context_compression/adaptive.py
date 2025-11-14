@@ -142,7 +142,11 @@ class AdaptiveCompressor(ContextCompressor):
             log_analysis: Whether to log analysis results (defaults to config.log_analysis)
         """
         self.config = config
-        self.analyzer = analyzer or TaskAnalyzer()
+        # Create analyzer with config thresholds and ranges
+        self.analyzer = analyzer or TaskAnalyzer(
+            thresholds=config.complexity_thresholds,
+            ratio_ranges=config.ratio_ranges,
+        )
         self.base = base_compressor or ExtractiveSummarizer(config)
         self.log_analysis = (
             log_analysis if log_analysis is not None else config.log_analysis
@@ -158,12 +162,22 @@ class AdaptiveCompressor(ContextCompressor):
 
         Args:
             content: Text to compress
-            target_ratio: Ignored (ratio determined by task analysis)
+            target_ratio: Ignored (ratio determined by task analysis or manual override)
             context: Conversation context containing task description
 
         Returns:
             CompressionResult with compressed text and metrics
         """
+        # Check for manual override first
+        if self.config.manual_override_ratio is not None:
+            # Use manual override, skip analysis
+            result = self.base.compress(
+                content=content,
+                target_ratio=self.config.manual_override_ratio,
+                context=context,
+            )
+            return result
+
         # Extract task description from context (first non-empty line)
         task_description = self._extract_task_description(context)
 
