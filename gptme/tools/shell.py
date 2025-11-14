@@ -120,6 +120,15 @@ deny_groups = [
         ],
         "Killing processes indiscriminately is blocked. Use `ps aux | grep <process-name>` to find specific PIDs and `kill <PID>` to terminate them safely.",
     ),
+    (
+        [
+            # Pipe to shell interpreters (bash, sh, and their variants with paths)
+            r"\|\s*(bash|sh|/bin/bash|/bin/sh)(?:\s|$)",
+            # Pipe to script interpreters
+            r"\|\s*(python|python3|perl|ruby|node)(?:\s|$)",
+        ],
+        "Piping to shell interpreters or script execution is blocked. This pattern can execute arbitrary code and is a security risk.",
+    ),
 ]
 
 candidates = (
@@ -460,11 +469,52 @@ def preview_shell(cmd: str, _: Path | None) -> str:
     return cmd
 
 
+def _has_file_redirection(cmd: str) -> bool:
+    """Check if command contains file output redirection (> or >>).
+
+    Returns True if the command contains > or >> outside of quoted strings.
+    Ignores heredoc operators (<< and <<-).
+    """
+    quoted_regions = _find_quotes(cmd)
+
+    # Look for > or >> that are not in quotes and not part of heredoc
+    i = 0
+    while i < len(cmd):
+        # Skip if we're in a quoted region
+        if _is_in_quoted_region(i, quoted_regions):
+            i += 1
+            continue
+
+        # Check for >>
+        if i < len(cmd) - 1 and cmd[i : i + 2] == ">>":
+            return True
+
+        # Check for > but not << (heredoc)
+        if cmd[i] == ">":
+            # Make sure it's not part of << or <<-
+            if i > 0 and cmd[i - 1] == "<":
+                i += 1
+                continue
+            return True
+
+        i += 1
+
+    return False
+
+
 def is_allowlisted(cmd: str) -> bool:
+    # Check if all commands in the pipeline are allowlisted
     for match in cmd_regex.finditer(cmd):
         for group in match.groups():
             if group and group not in allowlist_commands:
                 return False
+
+    # Check for file redirections (>, >>)
+    # File redirections with allowlisted commands can be used to write malicious content
+    # Example: echo "malicious_code" > /tmp/exploit.sh
+    if _has_file_redirection(cmd):
+        return False
+
     return True
 
 
