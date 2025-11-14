@@ -10,13 +10,17 @@ class CompressionConfig:
 
     enabled: bool = False
     compressor: Literal["extractive", "llmlingua", "hybrid"] = "extractive"
-    target_ratio: float = 0.7  # 30% reduction
+    mode: Literal["fixed", "adaptive"] = "fixed"  # Compression mode
+    target_ratio: float = 0.7  # 30% reduction (used in fixed mode)
     min_section_length: int = 100  # Minimum chars to compress
     preserve_code: bool = True  # Keep code blocks intact
     preserve_headings: bool = True  # Keep markdown headings
 
     # Extractive-specific config
     embedding_model: str = "all-MiniLM-L6-v2"
+
+    # Adaptive mode config
+    log_analysis: bool = True  # Log task analysis decisions
 
     @classmethod
     def from_dict(cls, config: dict) -> "CompressionConfig":
