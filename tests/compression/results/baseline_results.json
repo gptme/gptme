@@ -1,0 +1,261 @@
+[
+  {
+    "task_id": "test-01-bug-fix-pr29",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "bash -n scripts/context.sh (no errors)",
+      "yaml validation passes",
+      "Pre-commit hooks pass",
+      "Commit message format correct",
+      "Files contain conditional checks for tasks.py"
+    ],
+    "failed_items": [],
+    "duration_seconds": 39.56003761291504,
+    "error": ""
+  },
+  {
+    "task_id": "test-02-investigation-twitter",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "Verified monitor() and process_timeline_tweets() functions exist",
+      "Checked all tweet directories",
+      "Analyzed systemd service logs",
+      "Identified authentication issue",
+      "Posted findings with evidence"
+    ],
+    "failed_items": [],
+    "duration_seconds": 188.81187200546265,
+    "error": ""
+  },
+  {
+    "task_id": "test-03-analysis-gepa",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "Results parsed correctly (task success, tool usage, judge score)",
+      "Comparison to baseline calculated (percentage points)",
+      "Analysis document created (knowledge/technical/designs/)",
+      "Document includes: findings, comparison, implications, recommendations",
+      "Task status updated"
+    ],
+    "failed_items": [],
+    "duration_seconds": 184.49988865852356,
+    "error": ""
+  },
+  {
+    "task_id": "test-04-pr-creation-lessons",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "Worktree created correctly",
+      "Directory structure complete",
+      "TEMPLATE.md exists with required sections",
+      "README.md enhanced with guidelines",
+      "Commit message follows format",
+      "PR created successfully"
+    ],
+    "failed_items": [],
+    "duration_seconds": 63.81821274757385,
+    "error": ""
+  },
+  {
+    "task_id": "test-05-ci-fix-agent-name",
+    "compression_ratio": 1.0,
+    "success": false,
+    "completion_rate": 0.0,
+    "verified_items": [],
+    "failed_items": [
+      "CI logs analyzed",
+      "Root cause identified",
+      "Local verification passed (make check-names)",
+      "Commit pushed to trigger CI",
+      "PR comment documents fix and verification"
+    ],
+    "duration_seconds": 300.0164303779602,
+    "error": ""
+  },
+  {
+    "task_id": "test-06-implementation-gepa",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "experiments.py modified (4 lines: import + 3 defaults)",
+      "All 3 methods updated",
+      "Pre-commit hooks pass",
+      "PR created with clear description",
+      "Commit message follows format"
+    ],
+    "failed_items": [],
+    "duration_seconds": 128.0409073829651,
+    "error": ""
+  },
+  {
+    "task_id": "test-07-design-ai-integration",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "Research completed (8+ features identified)",
+      "Analysis document created with decision matrix",
+      "Top priority identified with strategic rationale",
+      "Architecture document created (~400 lines)",
+      "System components defined (UI, engine, pipeline, data)",
+      "Phase 1 and Phase 2 plans documented"
+    ],
+    "failed_items": [],
+    "duration_seconds": 227.34859824180603,
+    "error": ""
+  },
+  {
+    "task_id": "test-08-research-comparison",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "Documentation reviewed (HGM, GEPA, implementation)",
+      "Comparison document created (knowledge/)",
+      "Executive summary (complementary, not competing)",
+      "Differences table (4+ aspects compared)",
+      "Integration strategy documented",
+      "GitHub comment posted on Issue #98",
+      "Comment includes TL;DR, summary, analogy, next steps"
+    ],
+    "failed_items": [],
+    "duration_seconds": 83.35396814346313,
+    "error": ""
+  },
+  {
+    "task_id": "test-09-research-pace-capital",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "Document created in knowledge/strategic/funding/",
+      "Uncapped structure explained clearly",
+      "Pace Capital reputation verified",
+      "Pros and cons listed comprehensively",
+      "Questions prepared for call",
+      "Alternatives compared",
+      "Recommendation provided with rationale",
+      "Issue #148 updated with findings"
+    ],
+    "failed_items": [],
+    "duration_seconds": 73.50697350502014,
+    "error": ""
+  },
+  {
+    "task_id": "test-10-bug-fix-counter",
+    "compression_ratio": 1.0,
+    "success": false,
+    "completion_rate": 0.0,
+    "verified_items": [],
+    "failed_items": [
+      "Code change applied at correct location",
+      "Branch name follows convention",
+      "PR created with description",
+      "Pre-commit hooks pass",
+      "Issue comment posted",
+      "Commit message format correct",
+      "Logic verified: counter increments for both draft types"
+    ],
+    "duration_seconds": 300.0478880405426,
+    "error": ""
+  },
+  {
+    "task_id": "test-11-maintenance-cleanup",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "Task state updated correctly (tasks.py edit)",
+      "Ongoing task not incorrectly marked complete",
+      "New task file created with frontmatter",
+      "Commit messages clear and conventional",
+      "Git status clean (only intended changes)"
+    ],
+    "failed_items": [],
+    "duration_seconds": 187.73838210105896,
+    "error": ""
+  },
+  {
+    "task_id": "test-12-pr-creation-scheduler",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "All files created in correct locations",
+      "scheduler.py has croniter integration",
+      "job.py has YAML schema validation",
+      "Example jobs are functional",
+      "CLI tool works (start/stop/status)",
+      "Systemd service configured correctly",
+      "README complete and clear",
+      "PR created with full description",
+      "Pre-commit hooks pass"
+    ],
+    "failed_items": [],
+    "duration_seconds": 143.81587648391724,
+    "error": ""
+  },
+  {
+    "task_id": "test-13-diagnosis-greptile",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "Bug 1: Error handling code now reachable",
+      "Bug 2: Systemd service compatible with restart",
+      "Bug 3: Library doesn't override logging",
+      "Single cohesive commit",
+      "PR comment posted with explanations",
+      "CI runs and passes"
+    ],
+    "failed_items": [],
+    "duration_seconds": 151.52904319763184,
+    "error": ""
+  },
+  {
+    "task_id": "test-14-phase-design-specs",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "Design document created in correct location",
+      "All 6 Track 1 components specified",
+      "All 4+ Track 2 utilities specified",
+      "Each spec includes architecture + testing",
+      "Dependencies documented",
+      "Implementation sequence clear",
+      "Success criteria defined"
+    ],
+    "failed_items": [],
+    "duration_seconds": 159.1600215435028,
+    "error": ""
+  },
+  {
+    "task_id": "test-15-implementation-orchestrator",
+    "compression_ratio": 1.0,
+    "success": true,
+    "completion_rate": 1.0,
+    "verified_items": [
+      "orchestrator.py has async/await architecture",
+      "input_sources.py has proper base classes",
+      "All 4 sources implemented",
+      "Config example is complete and valid",
+      "Tests cover main functionality",
+      "README explains usage and architecture",
+      "Pre-commit hooks pass",
+      "Branch pushed with proper commit message"
+    ],
+    "failed_items": [],
+    "duration_seconds": 215.4577715396881,
+    "error": ""
+  }
+]
