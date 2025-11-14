@@ -310,12 +310,10 @@ class TestRunner:
             input_file = f.name
 
         try:
-            # Run gptme in non-interactive mode
-            venv_python = self.gptme_path / ".venv" / "bin" / "python3"
+            # Run gptme in non-interactive mode using installed entrypoint
+            gptme_bin = self.gptme_path / ".venv" / "bin" / "gptme"
             cmd = [
-                str(venv_python),
-                "-m",
-                "gptme.cli",
+                str(gptme_bin),
                 "--non-interactive",
                 "--no-confirm",
                 input_file,
