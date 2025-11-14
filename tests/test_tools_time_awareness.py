@@ -18,32 +18,31 @@ def clear_all_hooks():
 
 @pytest.fixture
 def load_time_awareness_tool():
-    """Load the time-awareness tool and its hooks."""
-    from gptme.tools.time_awareness import tool
+    """Load the time-awareness hook."""
+    from gptme.hooks.time_awareness import register
 
-    tool.register_hooks()
-    return tool
-
-
-def test_time_awareness_tool_exists():
-    """Test that the time-awareness tool can be imported."""
-    from gptme.tools.time_awareness import tool
-
-    assert tool.name == "time-awareness"
+    register()
 
 
-def test_time_awareness_tool_hooks_registered(load_time_awareness_tool):
-    """Test that time-awareness tool hooks are registered."""
+def test_time_awareness_hook_exists():
+    """Test that the time-awareness hook can be imported."""
+    from gptme.hooks import time_awareness
+
+    assert time_awareness.register is not None
+
+
+def test_time_awareness_hooks_registered(load_time_awareness_tool):
+    """Test that time-awareness hooks are registered."""
     tool_post_hooks = get_hooks(HookType.TOOL_POST_EXECUTE)
 
     # Should have at least one TOOL_POST_EXECUTE hook (time_message)
     assert len(tool_post_hooks) >= 1
-    assert any("time-awareness.time_message" in h.name for h in tool_post_hooks)
+    assert any("time_awareness.time_message" in h.name for h in tool_post_hooks)
 
 
 def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
     """Test that time messages appear at correct milestones."""
-    from gptme.tools.time_awareness import (
+    from gptme.hooks.time_awareness import (
         _conversation_start_times_var,
         _ensure_locals,
         _shown_milestones_var,
@@ -112,7 +111,7 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
 
 def test_milestone_progression(load_time_awareness_tool, tmp_path):
     """Test that milestones are shown in sequence without repetition."""
-    from gptme.tools.time_awareness import (
+    from gptme.hooks.time_awareness import (
         _conversation_start_times_var,
         _ensure_locals,
         _shown_milestones_var,
@@ -168,7 +167,7 @@ def test_no_workspace_graceful_handling(
 
 def test_time_format_hours(load_time_awareness_tool, tmp_path):
     """Test time formatting includes hours for long conversations."""
-    from gptme.tools.time_awareness import (
+    from gptme.hooks.time_awareness import (
         _conversation_start_times_var,
         _ensure_locals,
         _shown_milestones_var,
@@ -207,7 +206,7 @@ def test_time_format_hours(load_time_awareness_tool, tmp_path):
 
 def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
     """Test that messages appear every 10 minutes after 20min mark."""
-    from gptme.tools.time_awareness import (
+    from gptme.hooks.time_awareness import (
         _conversation_start_times_var,
         _ensure_locals,
         _shown_milestones_var,

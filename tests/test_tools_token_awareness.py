@@ -17,34 +17,33 @@ def clear_all_hooks():
 
 @pytest.fixture
 def load_token_awareness_tool():
-    """Load the token-awareness tool and its hooks."""
-    from gptme.tools.token_awareness import tool
+    """Load the token-awareness hook."""
+    from gptme.hooks.token_awareness import register
 
-    tool.register_hooks()
-    yield tool
+    register()
+    yield
     clear_hooks()
 
 
-def test_token_awareness_tool_exists():
-    """Test that the token-awareness tool can be imported."""
-    from gptme.tools.token_awareness import tool
+def test_token_awareness_hook_exists():
+    """Test that the token-awareness hook can be imported."""
+    from gptme.hooks import token_awareness
 
-    assert tool.name == "token-awareness"
-    assert "token budget" in tool.desc.lower()
+    assert token_awareness.register is not None
 
 
-def test_token_awareness_tool_hooks_registered(load_token_awareness_tool):
-    """Test that token-awareness tool hooks are registered."""
+def test_token_awareness_hooks_registered(load_token_awareness_tool):
+    """Test that token-awareness hooks are registered."""
     session_start_hooks = get_hooks(HookType.SESSION_START)
     tool_post_hooks = get_hooks(HookType.TOOL_POST_EXECUTE)
 
     # Should have at least one SESSION_START hook (token_budget)
     assert len(session_start_hooks) >= 1
-    assert any("token-awareness.token_budget" in h.name for h in session_start_hooks)
+    assert any("token_awareness.token_budget" in h.name for h in session_start_hooks)
 
     # Should have at least one TOOL_POST_EXECUTE hook (token_usage)
     assert len(tool_post_hooks) >= 1
-    assert any("token-awareness.token_usage" in h.name for h in tool_post_hooks)
+    assert any("token_awareness.token_usage" in h.name for h in tool_post_hooks)
 
 
 def test_add_token_budget_hook(load_token_awareness_tool, tmp_path):
@@ -189,7 +188,7 @@ def test_hook_priority(load_token_awareness_tool):
 
     # Find the token_budget hook
     token_budget_hook = next(
-        h for h in session_start_hooks if "token-awareness.token_budget" in h.name
+        h for h in session_start_hooks if "token_awareness.token_budget" in h.name
     )
 
     # Should have high priority (10) to run early
