@@ -14,6 +14,7 @@ from gptme.eval.suites import tests as gptme_eval_tests
 from gptme.eval.types import EvalSpec
 
 from .prompt_optimizer import PromptOptimizer, get_current_gptme_prompt
+from .tasks import get_prompt_optimization_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -275,7 +276,7 @@ class OptimizationExperiment:
     ) -> dict[str, Any]:
         """Run baseline evaluation."""
         if eval_specs is None:
-            eval_specs = gptme_eval_tests
+            eval_specs = get_prompt_optimization_tasks()
 
         baseline = self.runner.run_baseline(eval_specs, num_examples)
         self.results["baseline"] = baseline
@@ -294,7 +295,7 @@ class OptimizationExperiment:
         logger.info(f"Running optimization: {optimizer_name}")
 
         if eval_specs is None:
-            eval_specs = gptme_eval_tests
+            eval_specs = get_prompt_optimization_tasks()
 
         base_prompt = get_current_gptme_prompt(interactive=False, model=self.model)
 
@@ -333,7 +334,7 @@ class OptimizationExperiment:
         logger.info("Running comprehensive comparison...")
 
         if eval_specs is None:
-            eval_specs = gptme_eval_tests
+            eval_specs = get_prompt_optimization_tasks()
 
         # Collect prompts
         prompts = {}
