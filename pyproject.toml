@@ -136,6 +136,8 @@ types-lxml = "*"
 
 # needed for typechecking scripts
 tomli = "^2.2.1"
+tomli_w = "^1.1.0"
+toml = "^0.10.2"
 tiktoken = "^0.12.0"
 
 [tool.poetry.extras]

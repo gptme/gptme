@@ -256,7 +256,8 @@ class TestRunner:
         """Context manager to temporarily configure compression settings."""
         from contextlib import contextmanager
 
-        import toml
+        import tomli
+        import tomli_w
 
         @contextmanager
         def config_context():
@@ -272,7 +273,8 @@ class TestRunner:
             # Modify config
             try:
                 if config_path.exists():
-                    config = toml.load(config_path)
+                    with open(config_path, "rb") as f:
+                        config = tomli.load(f)
                 else:
                     config = {}
 
@@ -284,8 +286,8 @@ class TestRunner:
                 config["context_compression"]["target_ratio"] = ratio
 
                 # Write modified config
-                with open(config_path, "w") as f:
-                    toml.dump(config, f)
+                with open(config_path, "wb") as f:
+                    tomli_w.dump(config, f)
 
                 yield
 
@@ -309,10 +311,11 @@ class TestRunner:
 
         try:
             # Run gptme in non-interactive mode
+            venv_python = self.gptme_path / ".venv" / "bin" / "python3"
             cmd = [
-                "poetry",
-                "run",
-                "gptme",
+                str(venv_python),
+                "-m",
+                "gptme.cli",
                 "--non-interactive",
                 "--no-confirm",
                 input_file,
