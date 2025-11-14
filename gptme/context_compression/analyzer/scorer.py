@@ -154,18 +154,25 @@ def _score_context(context) -> float:
     return score
 
 
-def classify_complexity(score: float) -> str:
+def classify_complexity(
+    score: float,
+    thresholds: dict[str, float] | None = None,
+) -> str:
     """Classify complexity score into category.
 
     Args:
         score: Complexity score 0.0-1.0
+        thresholds: Custom thresholds (defaults to {"focused": 0.3, "architecture": 0.7})
 
     Returns:
         Category: "focused", "mixed", or "architecture"
     """
-    if score < 0.3:
+    if thresholds is None:
+        thresholds = {"focused": 0.3, "architecture": 0.7}
+
+    if score < thresholds["focused"]:
         return "focused"
-    elif score < 0.7:
+    elif score < thresholds["architecture"]:
         return "mixed"
     else:
         return "architecture"

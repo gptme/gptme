@@ -1,6 +1,6 @@
 """Configuration for context compression."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 
@@ -21,6 +21,24 @@ class CompressionConfig:
 
     # Adaptive mode config
     log_analysis: bool = True  # Log task analysis decisions
+
+    # Adaptive mode thresholds and ratio ranges
+    complexity_thresholds: dict[str, float] = field(
+        default_factory=lambda: {
+            "focused": 0.3,  # Tasks with score < 0.3
+            "architecture": 0.7,  # Tasks with score > 0.7
+        }
+    )
+    ratio_ranges: dict[str, tuple[float, float]] = field(
+        default_factory=lambda: {
+            "focused": (0.10, 0.20),  # Aggressive compression for simple tasks
+            "mixed": (0.20, 0.30),  # Moderate compression for mixed tasks
+            "architecture": (0.30, 0.50),  # Conservative for architecture-heavy
+        }
+    )
+    manual_override_ratio: float | None = (
+        None  # Force specific ratio (ignores analysis)
+    )
 
     @classmethod
     def from_dict(cls, config: dict) -> "CompressionConfig":

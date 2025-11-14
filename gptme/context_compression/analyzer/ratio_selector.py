@@ -10,11 +10,17 @@ Higher ratio = more conservative compression (keep more content).
 """
 
 
-def select_compression_ratio(complexity: float) -> float:
+def select_compression_ratio(
+    complexity: float,
+    ratio_ranges: dict[str, tuple[float, float]] | None = None,
+    thresholds: dict[str, float] | None = None,
+) -> float:
     """Select compression ratio based on task complexity score.
 
     Args:
         complexity: Complexity score 0.0-1.0
+        ratio_ranges: Custom ratio ranges (defaults to standard ranges)
+        thresholds: Custom thresholds for category boundaries
 
     Returns:
         Compression ratio 0.10-0.50 where:
@@ -31,23 +37,43 @@ def select_compression_ratio(complexity: float) -> float:
         >>> select_compression_ratio(1.0)  # Architecture
         0.50
     """
+    # Default ranges and thresholds
+    if ratio_ranges is None:
+        ratio_ranges = {
+            "focused": (0.10, 0.20),
+            "mixed": (0.20, 0.30),
+            "architecture": (0.30, 0.50),
+        }
+    if thresholds is None:
+        thresholds = {"focused": 0.3, "architecture": 0.7}
+
     # Clamp complexity to valid range
     complexity = max(0.0, min(1.0, complexity))
 
-    if complexity < 0.3:
-        # Focused: Aggressive compression (0.10-0.20)
+    if complexity < thresholds["focused"]:
+        # Focused: Aggressive compression
+        min_ratio, max_ratio = ratio_ranges["focused"]
         # Linear interpolation within focused range
-        return 0.10 + (complexity * 0.33)
+        normalized = complexity / thresholds["focused"]
+        return min_ratio + (normalized * (max_ratio - min_ratio))
 
-    elif complexity < 0.7:
-        # Mixed: Moderate compression (0.20-0.30)
+    elif complexity < thresholds["architecture"]:
+        # Mixed: Moderate compression
+        min_ratio, max_ratio = ratio_ranges["mixed"]
         # Linear interpolation within mixed range
-        return 0.20 + ((complexity - 0.3) * 0.25)
+        normalized = (complexity - thresholds["focused"]) / (
+            thresholds["architecture"] - thresholds["focused"]
+        )
+        return min_ratio + (normalized * (max_ratio - min_ratio))
 
     else:
-        # Architecture: Conservative compression (0.30-0.50)
+        # Architecture: Conservative compression
+        min_ratio, max_ratio = ratio_ranges["architecture"]
         # Linear interpolation within architecture range
-        return 0.30 + ((complexity - 0.7) * 0.67)
+        normalized = (complexity - thresholds["architecture"]) / (
+            1.0 - thresholds["architecture"]
+        )
+        return min_ratio + (normalized * (max_ratio - min_ratio))
 
 
 def get_ratio_category(ratio: float) -> str:

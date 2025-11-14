@@ -66,6 +66,20 @@ class TaskAnalyzer:
     Analyzes task characteristics and determines appropriate compression ratio.
     """
 
+    def __init__(
+        self,
+        thresholds: dict[str, float] | None = None,
+        ratio_ranges: dict[str, tuple[float, float]] | None = None,
+    ):
+        """Initialize task analyzer with optional custom configuration.
+
+        Args:
+            thresholds: Custom complexity thresholds
+            ratio_ranges: Custom compression ratio ranges
+        """
+        self.thresholds = thresholds
+        self.ratio_ranges = ratio_ranges
+
     def analyze(
         self,
         task_description: str | None = None,
@@ -87,10 +101,16 @@ class TaskAnalyzer:
         complexity_score = calculate_complexity_score(indicators)
 
         # Classify complexity
-        complexity_category = classify_complexity(complexity_score)
+        complexity_category = classify_complexity(
+            complexity_score, thresholds=self.thresholds
+        )
 
         # Select compression ratio
-        compression_ratio = select_compression_ratio(complexity_score)
+        compression_ratio = select_compression_ratio(
+            complexity_score,
+            ratio_ranges=self.ratio_ranges,
+            thresholds=self.thresholds,
+        )
 
         # Get ratio category
         ratio_category = get_ratio_category(compression_ratio)
