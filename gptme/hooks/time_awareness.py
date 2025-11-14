@@ -1,5 +1,5 @@
 """
-Time awareness tool.
+Time awareness hook.
 
 Provides time feedback during conversations to help the assistant manage
 long-running sessions effectively.
@@ -20,10 +20,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..hooks import HookType, StopPropagation
+from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message
-from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -133,26 +132,12 @@ def _get_next_milestone(elapsed_minutes: int) -> int | None:
         return (elapsed_minutes // 10) * 10
 
 
-# Tool specification
-tool = ToolSpec(
-    name="time-awareness",
-    desc="Time tracking awareness for conversations",
-    instructions="""
-This tool provides time awareness to help manage long-running conversations.
-
-The assistant receives periodic updates about how much time has elapsed:
-<system_info>Time elapsed: Xmin</system_info>
-
-Time messages are shown at: 1min, 5min, 10min, 15min, 20min, then every 10 minutes.
-""".strip(),
-    available=True,
-    hooks={
-        "time_message": (
-            HookType.TOOL_POST_EXECUTE.value,
-            add_time_message,
-            0,  # Normal priority
-        ),
-    },
-)
-
-__all__ = ["tool"]
+def register() -> None:
+    """Register the time awareness hook with the hook system."""
+    register_hook(
+        "time_awareness.time_message",
+        HookType.TOOL_POST_EXECUTE,
+        add_time_message,
+        priority=0,  # Normal priority
+    )
+    logger.debug("Registered time awareness hook")

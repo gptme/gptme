@@ -1,5 +1,5 @@
 """
-Token budget awareness tool.
+Token budget awareness hook.
 
 Implements context/token budget awareness similar to Claude 4.5's built-in feature,
 but works across all LLM providers and tool formats.
@@ -15,10 +15,9 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
-from ..hooks import HookType, StopPropagation
+from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message, len_tokens
-from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -215,40 +214,18 @@ def add_token_usage_warning(
         logger.exception(f"Error adding token usage warning: {e}")
 
 
-# Tool specification
-tool = ToolSpec(
-    name="token-awareness",
-    desc="Token budget awareness for conversations",
-    instructions="""
-This tool provides token budget awareness to the assistant across all LLM providers.
-
-At the start of each conversation, the assistant receives information about the total token budget:
-<budget:token_budget>XXX</budget:token_budget>
-
-Token usage warnings are shown at meaningful thresholds to avoid noise:
-- When crossing percentage thresholds: 50%, 75%, 90%, 95%
-- Every 10,000 tokens used
-<system_warning>Token usage: X/Y; Z remaining</system_warning>
-
-This helps the assistant:
-- Understand how much context capacity remains
-- Plan responses to fit within the budget
-- Manage long-running conversations effectively
-- Avoid overwhelming the context with frequent status updates
-""".strip(),
-    available=True,
-    hooks={
-        "token_budget": (
-            HookType.SESSION_START.value,
-            add_token_budget,
-            10,  # High priority to run early
-        ),
-        "token_usage": (
-            HookType.TOOL_POST_EXECUTE.value,
-            add_token_usage_warning,
-            0,  # Normal priority
-        ),
-    },
-)
-
-__all__ = ["tool"]
+def register() -> None:
+    """Register the token awareness hooks with the hook system."""
+    register_hook(
+        "token_awareness.token_budget",
+        HookType.SESSION_START,
+        add_token_budget,
+        priority=10,  # High priority to run early
+    )
+    register_hook(
+        "token_awareness.token_usage",
+        HookType.TOOL_POST_EXECUTE,
+        add_token_usage_warning,
+        priority=0,  # Normal priority
+    )
+    logger.debug("Registered token awareness hooks")

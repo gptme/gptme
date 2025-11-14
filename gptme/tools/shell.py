@@ -630,8 +630,6 @@ def _format_shell_output(
     returncode: int | None,
     interrupted: bool,
     allowlisted: bool,
-    pwd_changed: bool,
-    current_cwd: str,
     timed_out: bool = False,
     timeout_value: float | None = None,
     logdir: Path | None = None,
@@ -685,9 +683,6 @@ def _format_shell_output(
     elif returncode:
         msg += f"Return code: {returncode}\n"
 
-    if pwd_changed:
-        msg += f"Working directory changed to: {current_cwd}"
-
     return msg
 
 
@@ -697,7 +692,6 @@ def execute_shell_impl(
     """Execute shell command and format output."""
     shell = get_shell()
     allowlisted = is_allowlisted(cmd)
-    prev_cwd = os.getcwd()
 
     try:
         returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
@@ -733,9 +727,6 @@ def execute_shell_impl(
         raise ValueError(f"Shell error: {e}") from None
 
     # Format and yield output
-    current_cwd = os.getcwd()
-    pwd_changed = prev_cwd != current_cwd
-
     msg = _format_shell_output(
         cmd,
         stdout,
@@ -743,8 +734,6 @@ def execute_shell_impl(
         returncode,
         interrupted,
         allowlisted,
-        pwd_changed,
-        current_cwd,
         timed_out,
         timeout_value=timeout,
         logdir=logdir,
