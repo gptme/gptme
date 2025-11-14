@@ -75,6 +75,20 @@ def test_task(
     )
 
     passed = category_match and ratio_match
+
+    # Show detailed indicators for failed tests
+    if not passed:
+        print("\nDetailed Indicators:")
+        print("  Scope:")
+        print(f"    files_count: {result.indicators.scope.files_count}")
+        print(f"    lines_estimate: {result.indicators.scope.lines_estimate}")
+        print(f"    new_files: {result.indicators.scope.new_files}")
+        print("  Dependencies:")
+        print(f"    new_classes: {result.indicators.dependencies.new_classes}")
+        print("  Patterns:")
+        print(f"    keywords: {result.indicators.patterns.keywords}")
+        print(f"    mentions_design: {result.indicators.patterns.mentions_design}")
+
     print(f"\n{'✓ PASS' if passed else '✗ FAIL'}")
 
     return passed

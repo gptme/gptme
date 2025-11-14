@@ -158,23 +158,67 @@ class TaskAnalyzer:
 
         text = task_description.lower()
 
-        # Extract file count
+        # Parse enumerated requirements (1. ... 2. ... 3. ...)
+        component_count = 0
+        enumerated_pattern = r"^\s*(\d+)\.\s+(.+?)(?=^\s*\d+\.\s+|\Z)"
+        components = re.findall(
+            enumerated_pattern, task_description, re.MULTILINE | re.DOTALL
+        )
+        if components:
+            component_count = len(components)
+
+        # Extract file count (enhanced)
         files_count = 0
-        file_matches = re.findall(r"(\d+)\s+files?", text)
+
+        # Method 1: Explicit file count ("5 files", "3 modules")
+        file_matches = re.findall(r"(\d+)\s+(?:files?|modules?)", text)
         if file_matches:
             files_count = int(file_matches[0])
 
-        # Extract lines estimate
-        lines_estimate = 0
-        line_matches = re.findall(r"(\d+)\s+lines?", text)
-        if line_matches:
-            lines_estimate = int(line_matches[0])
+        # Method 2: Count .py files mentioned in sub-bullets
+        py_file_pattern = r"(\w+\.py)"
+        py_files = set(re.findall(py_file_pattern, task_description))
+        files_count = max(files_count, len(py_files))
 
-        # Detect new files
+        # Method 3: Count comma-separated module/file names
+        # Find lines with comma-separated lists of identifiers
+        module_lists_count = 0
+        for line in task_description.split("\n"):
+            if "," in line and ("_" in line or ".py" in line):
+                # Split on commas and count word_word patterns or .py files
+                parts = [p.strip() for p in line.split(",")]
+                module_count = sum(1 for p in parts if "_" in p or p.endswith(".py"))
+                if module_count > 1:
+                    module_lists_count += module_count
+
+        # Add module list count to existing file count
+        if module_lists_count > 0:
+            files_count += module_lists_count
+
+        # Method 4: If no explicit count but have components, use component count as proxy
+        if files_count == 0 and component_count > 0:
+            files_count = component_count
+
+        # Extract and sum ALL line estimates (not just first)
+        lines_estimate = 0
+        line_matches = re.findall(r"(?:~)?(\d+)\s+lines?", text)
+        if line_matches:
+            # Sum all line counts found
+            lines_estimate = sum(int(n) for n in line_matches)
+
+        # Detect new files (enhanced with component analysis)
         new_files = any(
             phrase in text
             for phrase in ["create", "new file", "add file", "new module"]
         )
+        # If multiple components each describe a module/class, likely new files
+        if component_count >= 2:
+            component_text = " ".join(comp[1] for comp in components).lower()
+            if any(
+                word in component_text
+                for word in ["module", "class", "file", "package"]
+            ):
+                new_files = True
 
         # Extract file types
         file_types = set()
@@ -223,18 +267,47 @@ class TaskAnalyzer:
         internal_keywords = {"tool", "message", "config", "util", "context"}
         internal_modules = {kw for kw in internal_keywords if kw in text}
 
-        # Detect new class creation
+        # Detect new class creation (enhanced)
         new_classes = 0
         import re
+
+        # Count explicit class names (e.g., "SourceManager class", "PollingLoop class")
+        explicit_class_pattern = r"\b([A-Z][a-zA-Z0-9]*)\s+class\b"
+        explicit_classes = re.findall(explicit_class_pattern, task_description)
+        new_classes = len(explicit_classes)
+
+        # If no explicit names, parse enumerated requirements to count class definitions
+        if new_classes == 0:
+            enumerated_pattern = r"^\s*(\d+)\.\s+(.+?)(?=^\s*\d+\.\s+|\Z)"
+            components = re.findall(
+                enumerated_pattern, task_description, re.MULTILINE | re.DOTALL
+            )
+
+            if components:
+                # Count components that mention classes/definitions
+                for _, component_text in components:
+                    comp_lower = component_text.lower()
+                    if any(
+                        keyword in comp_lower
+                        for keyword in [
+                            "class",
+                            "classes",
+                            "definitions",
+                            "objects",
+                            "types",
+                        ]
+                    ):
+                        new_classes += 1
 
         # Look for patterns like "create 5 new classes" or "add 2 classes"
         numbered_class_matches = re.findall(
             r"(?:create|add)\s+(\d+)\s+(?:new\s+)?class(?:es)?", text
         )
         if numbered_class_matches:
-            new_classes = sum(int(n) for n in numbered_class_matches)
-        else:
-            # Fallback: count individual "create/add class" mentions
+            new_classes = max(new_classes, sum(int(n) for n in numbered_class_matches))
+
+        # Fallback: count individual "create/add class" mentions
+        if new_classes == 0:
             class_matches = re.findall(r"(?:create|add|new)\s+class", text)
             new_classes = len(class_matches)
 
@@ -252,7 +325,7 @@ class TaskAnalyzer:
 
         text = task_description.lower()
 
-        # Architecture keywords
+        # Architecture keywords (expanded)
         arch_keywords = {
             "implement",
             "refactor",
@@ -261,6 +334,11 @@ class TaskAnalyzer:
             "system",
             "infrastructure",
             "framework",
+            "orchestrator",
+            "service",
+            "coordinator",
+            "manager",
+            "controller",
         }
         keywords = {kw for kw in arch_keywords if kw in text}
 
@@ -268,9 +346,18 @@ class TaskAnalyzer:
         action_verbs = {"fix", "implement", "add", "update", "refactor", "create"}
         verbs = {verb for verb in action_verbs if verb in text}
 
-        # Design mentions
+        # Design mentions (expanded to include more architecture terms)
         mentions_design = any(
-            word in text for word in ["design", "architecture", "system"]
+            word in text
+            for word in [
+                "design",
+                "architecture",
+                "system",
+                "orchestrator",
+                "service",
+                "coordinator",
+                "infrastructure",
+            ]
         )
 
         # Reference mentions
