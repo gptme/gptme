@@ -1,0 +1,90 @@
+"""Compression ratio selection based on task complexity.
+
+Maps complexity scores to compression ratios:
+- Focused (0.0-0.3): ratio 0.10-0.20 (aggressive, 80-90% reduction)
+- Mixed (0.3-0.7): ratio 0.20-0.30 (moderate, 70-80% reduction)
+- Architecture (0.7-1.0): ratio 0.30-0.50 (conservative, 50-70% reduction)
+
+Lower ratio = more aggressive compression (keep less content).
+Higher ratio = more conservative compression (keep more content).
+"""
+
+
+def select_compression_ratio(complexity: float) -> float:
+    """Select compression ratio based on task complexity score.
+
+    Args:
+        complexity: Complexity score 0.0-1.0
+
+    Returns:
+        Compression ratio 0.10-0.50 where:
+        - Lower ratio = more aggressive compression (keep less)
+        - Higher ratio = more conservative compression (keep more)
+
+    Examples:
+        >>> select_compression_ratio(0.0)  # Very focused
+        0.10
+        >>> select_compression_ratio(0.2)  # Focused
+        0.166
+        >>> select_compression_ratio(0.5)  # Mixed
+        0.25
+        >>> select_compression_ratio(1.0)  # Architecture
+        0.50
+    """
+    # Clamp complexity to valid range
+    complexity = max(0.0, min(1.0, complexity))
+
+    if complexity < 0.3:
+        # Focused: Aggressive compression (0.10-0.20)
+        # Linear interpolation within focused range
+        return 0.10 + (complexity * 0.33)
+
+    elif complexity < 0.7:
+        # Mixed: Moderate compression (0.20-0.30)
+        # Linear interpolation within mixed range
+        return 0.20 + ((complexity - 0.3) * 0.25)
+
+    else:
+        # Architecture: Conservative compression (0.30-0.50)
+        # Linear interpolation within architecture range
+        return 0.30 + ((complexity - 0.7) * 0.67)
+
+
+def get_ratio_category(ratio: float) -> str:
+    """Get category name for compression ratio.
+
+    Args:
+        ratio: Compression ratio 0.10-0.50
+
+    Returns:
+        Category: "aggressive", "moderate", or "conservative"
+    """
+    if ratio < 0.20:
+        return "aggressive"
+    elif ratio < 0.30:
+        return "moderate"
+    else:
+        return "conservative"
+
+
+def estimate_reduction(ratio: float) -> float:
+    """Estimate token reduction percentage for given ratio.
+
+    Args:
+        ratio: Compression ratio 0.10-0.50
+
+    Returns:
+        Reduction percentage (0.0-1.0)
+        e.g., 0.85 means 85% reduction
+
+    Examples:
+        >>> estimate_reduction(0.15)  # Aggressive
+        0.85
+        >>> estimate_reduction(0.25)  # Moderate
+        0.75
+        >>> estimate_reduction(0.40)  # Conservative
+        0.60
+    """
+    # Reduction = 1 - ratio
+    # ratio 0.15 → keep 15% → reduce 85%
+    return 1.0 - ratio
