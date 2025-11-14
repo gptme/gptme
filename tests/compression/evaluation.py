@@ -215,8 +215,18 @@ class TestRunner:
         try:
             # Configure compression settings
             with self._configure_compression(compression_ratio):
-                # Run gptme with test input
-                output = self._run_gptme(test_case.input_text)
+                # Wrap input with completion instructions (like autonomous prompts)
+                wrapped_input = f"""You are a test agent. Complete the following task and use the `complete` tool when all verification items are satisfied.
+
+{test_case.input_text}
+
+Verification checklist (from test specification):
+{chr(10).join(f"- [ ] {item}" for item in test_case.verification_checklist)}
+
+IMPORTANT: Use the `complete` tool to signal task completion when all verification items are satisfied.
+"""
+                # Run gptme with wrapped input
+                output = self._run_gptme(wrapped_input)
 
             # Verify output against checklist
             collector = ResultCollector()
