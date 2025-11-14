@@ -43,9 +43,10 @@ class TestCase:
     input_text: str
     expected_output: list[str]
     verification_checklist: list[str]
+    workspace: str = "/home/bob/gptme"  # Repository path for test execution
 
     def __str__(self) -> str:
-        return f"TestCase({self.task_id}, {self.task_type}, {self.duration_minutes}min)"
+        return f"TestCase({self.task_id}, {self.task_type}, {self.duration_minutes}min, workspace={self.workspace})"
 
 
 @dataclass
@@ -108,6 +109,7 @@ class CorpusLoader:
         task_type = ""
         source_session = ""
         duration_minutes = 0
+        workspace = "/home/bob/gptme"  # Default workspace
         input_text = ""
         expected_output = []
         verification_checklist = []
@@ -135,6 +137,8 @@ class CorpusLoader:
                     duration_minutes = int(num_str)
                 except (ValueError, IndexError):
                     duration_minutes = 0
+            elif line.startswith("**Workspace**:"):
+                workspace = line.split(":", 1)[1].strip()
 
             # Content sections
             elif line.startswith("**Input**:"):
@@ -184,6 +188,7 @@ class CorpusLoader:
             input_text=input_text,
             expected_output=expected_output,
             verification_checklist=verification_checklist,
+            workspace=workspace,
         )
 
 
@@ -226,7 +231,7 @@ Verification checklist (from test specification):
 IMPORTANT: Use the `complete` tool to signal task completion when all verification items are satisfied.
 """
                 # Run gptme with wrapped input
-                output = self._run_gptme(wrapped_input)
+                output = self._run_gptme(wrapped_input, test_case.workspace)
 
             # Verify output against checklist
             collector = ResultCollector()
@@ -310,7 +315,7 @@ IMPORTANT: Use the `complete` tool to signal task completion when all verificati
 
         return config_context()
 
-    def _run_gptme(self, input_text: str) -> str:
+    def _run_gptme(self, input_text: str, workspace: str) -> str:
         """Execute gptme with given input and capture output."""
         # Create temporary file with input
         import tempfile
@@ -331,7 +336,7 @@ IMPORTANT: Use the `complete` tool to signal task completion when all verificati
 
             result = subprocess.run(
                 cmd,
-                cwd=self.gptme_path,
+                cwd=workspace,  # Use test-specific workspace
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
