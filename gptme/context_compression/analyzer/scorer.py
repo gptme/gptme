@@ -143,7 +143,30 @@ def _score_patterns(patterns) -> float:
     # Priority 2: Design/planning indicators (boost to architecture range)
     planning_keywords = {"planning", "roadmap", "phases", "milestones"}
     if any(kw in patterns.keywords for kw in planning_keywords):
-        score += 0.20  # Strong boost toward architecture complexity
+        score += 0.25  # Increased from 0.20 to push architecture tasks over threshold
+
+    # Priority 4: Maintenance indicators (boost to mixed range)
+    maintenance_keywords = {"maintenance", "cleanup", "review", "validation"}
+    if any(kw in patterns.keywords for kw in maintenance_keywords):
+        score += 0.12  # Boost maintenance tasks to mixed complexity
+
+    # Priority 5: Architecture scope phrases (additional boost for architecture tasks)
+    # Detect compound architectural phrases like "system architecture", "package structure"
+    architecture_phrases = [
+        "system" in patterns.keywords and "architecture" in patterns.keywords,
+        "system" in patterns.keywords and "infrastructure" in patterns.keywords,
+    ]
+    if any(architecture_phrases):
+        score += 0.15  # Increased from 0.10 to push architecture tasks over threshold
+
+    # Priority 6: Architectural component keywords (system-level implementation)
+    # Detect scheduler, queue, package - architectural components
+    component_keywords = {"scheduler", "queue", "package"}
+    if any(kw in patterns.keywords for kw in component_keywords):
+        if "system" in patterns.keywords:
+            score += 0.20  # Strong architecture boost for system components
+        else:
+            score += 0.10  # Moderate boost for components alone
 
     return score
 
