@@ -200,11 +200,27 @@ class TaskAnalyzer:
             files_count = component_count
 
         # Extract and sum ALL line estimates (not just first)
+        # Priority 3: Enhanced documentation workload parsing
         lines_estimate = 0
+
+        # Pattern 1: Standard "N lines" or "~N lines"
         line_matches = re.findall(r"(?:~)?(\d+)\s+lines?", text)
         if line_matches:
-            # Sum all line counts found
             lines_estimate = sum(int(n) for n in line_matches)
+
+        # Pattern 2: Parenthetical documentation indicators
+        # Matches: (600+ lines), (~350 lines), (400 lines)
+        paren_matches = re.findall(r"\(~?(\d+)\+?\s+lines?\)", text)
+        if paren_matches:
+            lines_estimate += sum(int(n) for n in paren_matches)
+
+        # Pattern 3: Plus sign indicators "600+ lines"
+        plus_matches = re.findall(r"(\d+)\+\s+lines?", text)
+        if plus_matches:
+            # Avoid double-counting if already caught by other patterns
+            for match in plus_matches:
+                if match not in line_matches:
+                    lines_estimate += int(match)
 
         # Detect new files (enhanced with component analysis)
         new_files = any(
@@ -339,6 +355,18 @@ class TaskAnalyzer:
             "coordinator",
             "manager",
             "controller",
+            # Priority 1: Research/Analysis indicators
+            "research",
+            "analyze",
+            "investigation",
+            "analysis",
+            "comparative",
+            "evaluate",
+            # Priority 2: Design/Planning indicators
+            "planning",
+            "roadmap",
+            "phases",
+            "milestones",
         }
         keywords = {kw for kw in arch_keywords if kw in text}
 
@@ -357,6 +385,11 @@ class TaskAnalyzer:
                 "service",
                 "coordinator",
                 "infrastructure",
+                # Priority 2: Design/Planning indicators
+                "planning",
+                "roadmap",
+                "phases",
+                "milestones",
             ]
         )
 
@@ -365,11 +398,37 @@ class TaskAnalyzer:
             phrase in text for phrase in ["like", "similar to", "based on", "example"]
         )
 
+        # Priority 1: Research/Analysis output indicators
+        mentions_research = any(
+            phrase in text
+            for phrase in [
+                "analysis document",
+                "comprehensive analysis",
+                "report generation",
+                "research findings",
+                "comparative analysis",
+                "evaluation report",
+            ]
+        )
+
+        # Priority 2: Multi-phase structure detection
+        mentions_multiphase = any(
+            phrase in text
+            for phrase in [
+                "phase 1",
+                "phase 2",
+                "phase 3",
+                "milestone",
+                "roadmap",
+                "multi-phase",
+            ]
+        )
+
         return PatternIndicators(
             keywords=keywords,
             verbs=verbs,
-            mentions_design=mentions_design,
-            mentions_reference=mentions_reference,
+            mentions_design=mentions_design or mentions_multiphase,
+            mentions_reference=mentions_reference or mentions_research,
         )
 
     def _extract_context(self, workspace_path: Path | None) -> ContextIndicators:

@@ -110,6 +110,8 @@ def _score_patterns(patterns) -> float:
     Architecture keywords:
     - "implement", "design", "create", "build"
     - Design/architecture mentions
+    - Research/analysis indicators (Priority 1)
+    - Design/planning indicators (Priority 2)
     """
     score = 0.0
 
@@ -125,6 +127,23 @@ def _score_patterns(patterns) -> float:
     # Reference mentions (bonus, helps identify need for examples)
     if patterns.mentions_reference:
         score += 0.05
+
+    # Priority 1: Research/analysis indicators (boost to mixed range)
+    research_keywords = {
+        "research",
+        "analyze",
+        "investigation",
+        "analysis",
+        "comparative",
+        "evaluate",
+    }
+    if any(kw in patterns.keywords for kw in research_keywords):
+        score += 0.15  # Strong boost toward mixed complexity
+
+    # Priority 2: Design/planning indicators (boost to architecture range)
+    planning_keywords = {"planning", "roadmap", "phases", "milestones"}
+    if any(kw in patterns.keywords for kw in planning_keywords):
+        score += 0.20  # Strong boost toward architecture complexity
 
     return score
 
