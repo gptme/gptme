@@ -367,6 +367,15 @@ class TaskAnalyzer:
             "roadmap",
             "phases",
             "milestones",
+            # Priority 4: Maintenance indicators
+            "maintenance",
+            "cleanup",
+            "review",
+            "validation",
+            # Priority 6: Architectural component keywords
+            "scheduler",
+            "queue",
+            "package",
         }
         keywords = {kw for kw in arch_keywords if kw in text}
 
