@@ -58,6 +58,7 @@ class PatternIndicators:
     verbs: set[str] = field(default_factory=set)  # Action verbs (fix, implement, etc.)
     mentions_design: bool = False  # Contains "design", "architecture", "system"
     mentions_reference: bool = False  # Contains "like", "similar to", "based on"
+    mentions_pr_creation: bool = False  # Contains "create pr", "pr #", etc.
 
     def to_dict(self) -> dict:
         """Convert to dictionary for logging/debugging."""
@@ -66,6 +67,7 @@ class PatternIndicators:
             "verbs": list(self.verbs),
             "mentions_design": self.mentions_design,
             "mentions_reference": self.mentions_reference,
+            "mentions_pr_creation": self.mentions_pr_creation,
         }
 
 

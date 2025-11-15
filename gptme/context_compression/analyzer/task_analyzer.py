@@ -433,11 +433,24 @@ class TaskAnalyzer:
             ]
         )
 
+        # Week 6 Day 3: PR creation detection
+        mentions_pr_creation = any(
+            pattern in text
+            for pattern in [
+                "create pr",
+                "open pr",
+                "submit pr",
+                "pr #",
+                "pull request",
+            ]
+        )
+
         return PatternIndicators(
             keywords=keywords,
             verbs=verbs,
             mentions_design=mentions_design or mentions_multiphase,
             mentions_reference=mentions_reference or mentions_research,
+            mentions_pr_creation=mentions_pr_creation,
         )
 
     def _extract_context(self, workspace_path: Path | None) -> ContextIndicators:

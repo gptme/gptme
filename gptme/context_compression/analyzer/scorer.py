@@ -168,6 +168,10 @@ def _score_patterns(patterns) -> float:
         else:
             score += 0.10  # Moderate boost for components alone
 
+    # Week 6 Day 3: PR creation complexity (git workflow + review preparation)
+    if patterns.mentions_pr_creation:
+        score += 0.10  # PR tasks require git workflow, pre-commit, review prep
+
     return score
 
 
