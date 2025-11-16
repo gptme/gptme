@@ -50,6 +50,7 @@ class GptmeApiClient:
 
         Raises:
             requests.HTTPError: If session creation fails
+            ValueError: If session_id not received or is None
         """
         url = f"{self.base_url}/api/v2/conversations/{conversation_id}/events"
 
@@ -59,18 +60,24 @@ class GptmeApiClient:
         response = self.session.get(url, stream=True, timeout=10)
         response.raise_for_status()
 
-        # Read first event which contains session_id
-        for line in response.iter_lines():
-            if line and line.startswith(b"data:"):
-                data = json.loads(line[5:].strip())
-                if data.get("type") == "connected":
-                    session_id = cast(str, data.get("session_id"))
-                    logger.info(f"Session created: {session_id}")
-                    # Close initial connection
-                    response.close()
-                    return session_id
+        try:
+            # Read first event which contains session_id
+            for line in response.iter_lines():
+                if line and line.startswith(b"data:"):
+                    data = json.loads(line[5:].strip())
+                    if data.get("type") == "connected":
+                        session_id = data.get("session_id")
+                        if session_id is None:
+                            raise ValueError(
+                                "Received connected event with null session_id"
+                            )
+                        logger.info(f"Session created: {session_id}")
+                        return cast(str, session_id)
 
-        raise ValueError("Failed to get session_id from events stream")
+            raise ValueError("Failed to get session_id from events stream")
+        finally:
+            # Always close connection to prevent resource leak
+            response.close()
 
     def take_step(
         self,
