@@ -19,7 +19,7 @@ class ConversationEvent:
     """Event from conversation event stream."""
 
     type: str
-    data: dict
+    data: dict[str, Any]
 
 
 class GptmeApiClient:
