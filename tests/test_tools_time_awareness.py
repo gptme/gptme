@@ -228,9 +228,7 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
 
         conversation_start_times = _conversation_start_times_var.get()
         assert conversation_start_times is not None
-        conversation_start_times[str(workspace)] = now - timedelta(
-            minutes=minutes
-        )
+        conversation_start_times[str(workspace)] = now - timedelta(minutes=minutes)
         _conversation_start_times_var.set(conversation_start_times)
 
         messages = list(
