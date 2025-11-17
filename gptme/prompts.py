@@ -444,8 +444,8 @@ def prompt_workspace(
     files_str = []
     # Initialize compressor if enabled
     compressor = None
-    if project is not None and project.compression.enabled:
-        compressor = ExtractiveSummarizer(project.compression)
+    if project is not None and project.context.compression.enabled:
+        compressor = ExtractiveSummarizer(project.context.compression)
 
     for file in files:
         if file.exists():
@@ -454,7 +454,7 @@ def prompt_workspace(
             if (
                 compressor is not None
                 and project is not None
-                and len(content) >= project.compression.min_section_length
+                and len(content) >= project.context.compression.min_section_length
             ):
                 result = compressor.compress(content)
                 content = result.compressed

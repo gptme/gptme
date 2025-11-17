@@ -141,6 +141,13 @@ class LessonsConfig:
 
 
 @dataclass
+class ContextConfig:
+    """Configuration for context management (compression, selection, etc.)."""
+
+    compression: CompressionConfig = field(default_factory=CompressionConfig)
+
+
+@dataclass
 class ProjectConfig:
     """Project-level configuration, such as which files to include in the context by default.
 
@@ -156,7 +163,7 @@ class ProjectConfig:
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
     lessons: LessonsConfig = field(default_factory=LessonsConfig)
-    compression: CompressionConfig = field(default_factory=CompressionConfig)
+    context: ContextConfig = field(default_factory=ContextConfig)
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -172,7 +179,24 @@ class ProjectConfig:
             AgentConfig(**config_data.pop("agent")) if "agent" in config_data else None
         )
         lessons = LessonsConfig(dirs=config_data.pop("lessons", {}).get("dirs", []))
-        compression = CompressionConfig.from_dict(config_data.pop("compression", {}))
+
+        # Load context config (includes compression)
+        context_data = config_data.pop("context", {})
+        context = ContextConfig(
+            compression=CompressionConfig.from_dict(context_data.get("compression", {}))
+        )
+
+        # Also support old compression config at top level for backward compatibility
+        if "compression" in config_data:
+            logger.warning(
+                "Using deprecated 'compression' config. Please move to 'context.compression' in gptme.toml"
+            )
+            context = ContextConfig(
+                compression=CompressionConfig.from_dict(
+                    config_data.pop("compression", {})
+                )
+            )
+
         env = config_data.pop("env", {})
         if mcp := config_data.pop("mcp", None):
             mcp = MCPConfig.from_dict(mcp)
@@ -189,7 +213,7 @@ class ProjectConfig:
             rag=rag,
             agent=agent,
             lessons=lessons,
-            compression=compression,
+            context=context,
             env=env,
             mcp=mcp,
             **config_data,
