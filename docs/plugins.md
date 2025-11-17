@@ -11,7 +11,9 @@ my_plugin/
 ├── tools/               # Tool modules (optional)
 │   ├── __init__.py     # Makes tools/ a package
 │   └── my_tool.py      # Individual tool modules
-├── hooks/               # Hook modules (future)
+├── hooks/               # Hook modules (optional)
+│   ├── __init__.py     # Makes hooks/ a package
+│   └── my_hook.py      # Individual hook modules
 └── commands/            # Command modules (future)
 
 
@@ -74,9 +76,15 @@ Hello from my plugin!
 ## How It Works
 
 1. **Discovery**: gptme searches configured plugin paths for directories with `__init__.py`
-2. **Loading**: For each plugin, gptme discovers tool modules in `tools/` subdirectory
-3. **Integration**: Plugin tools are loaded using the same mechanism as built-in tools
-4. **Availability**: Tools appear in `--tools` list and can be used like built-in tools
+2. **Loading**: For each plugin, gptme discovers:
+   - Tool modules in `tools/` subdirectory
+   - Hook modules in `hooks/` subdirectory
+3. **Integration**:
+   - Plugin tools are loaded using the same mechanism as built-in tools
+   - Plugin hooks are registered during initialization via their `register()` functions
+4. **Availability**:
+   - Tools appear in `--tools` list and can be used like built-in tools
+   - Hooks are automatically triggered at appropriate lifecycle points
 
 ## Plugin Tool Modules
 
@@ -104,6 +112,103 @@ my_plugin/tools/
 
 
 Each file will be imported as `my_plugin.tools.tool1`, `my_plugin.tools.tool2`, etc.
+
+
+
+## Plugin Hook Modules
+
+Plugins can provide hooks to extend gptme's behavior at various lifecycle points, similar to how tools work.
+
+### Option 1: hooks/ as a Package
+
+Create `hooks/__init__.py` and define a `register()` function:
+
+```python
+# my_plugin/hooks/__init__.py
+from gptme.hooks import HookType, register_hook
+from gptme.message import Message
+
+def my_session_hook(logdir, workspace, initial_msgs):
+    """Hook called at session start."""
+    yield Message("system", f"Plugin initialized in workspace: {workspace}")
+
+def register():
+    """Register all hooks from this module."""
+    register_hook(
+        "my_plugin.session_start",
+        HookType.SESSION_START,
+        my_session_hook,
+        priority=0
+    )
+```
+
+### Option 2: Individual Hook Files
+
+Create individual hook modules without `hooks/__init__.py`:
+
+```python
+# my_plugin/hooks/logging_hook.py
+from gptme.hooks import HookType, register_hook
+from gptme.message import Message
+
+def log_tool_execution(log, workspace, tool_use):
+    """Log tool executions."""
+    print(f"Executing tool: {tool_use.tool}")
+    yield  # Hooks must be generators
+
+def register():
+    """Register hooks from this module."""
+    register_hook(
+        "my_plugin.log_tool",
+        HookType.TOOL_PRE_EXECUTE,
+        log_tool_execution,
+        priority=0
+    )
+```
+
+### Hook Types
+
+Available hook types:
+- `SESSION_START` - Called at session start
+- `SESSION_END` - Called at session end
+- `TOOL_PRE_EXECUTE` - Before tool execution
+- `TOOL_POST_EXECUTE` - After tool execution
+- `FILE_PRE_SAVE` - Before saving a file
+- `FILE_POST_SAVE` - After saving a file
+- `GENERATION_PRE` - Before generating response
+- `GENERATION_POST` - After generating response
+- And more (see `gptme.hooks.HookType`)
+
+### Hook Registration
+
+Every hook module must have a `register()` function that calls `register_hook()` for each hook it provides. The plugin system automatically calls `register()` during initialization.
+
+## Example: Logging Plugin
+
+A complete example of a plugin that logs tool executions:
+
+```python
+# my_logging_plugin/hooks/tool_logger.py
+from gptme.hooks import HookType, register_hook
+import logging
+
+logger = logging.getLogger(__name__)
+
+def log_tool_pre(log, workspace, tool_use):
+    """Log before tool execution."""
+    logger.info(f"Executing tool: {tool_use.tool} with args: {tool_use.args}")
+    yield  # Hooks must be generators
+
+def log_tool_post(log, workspace, tool_use, result):
+    """Log after tool execution."""
+    logger.info(f"Tool {tool_use.tool} completed")
+    yield
+
+def register():
+    register_hook("tool_logger.pre", HookType.TOOL_PRE_EXECUTE, log_tool_pre)
+    register_hook("tool_logger.post", HookType.TOOL_POST_EXECUTE, log_tool_post)
+```
+
 
 ## Example: Weather Plugin
 

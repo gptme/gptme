@@ -25,6 +25,7 @@ __all__ = [
     "Plugin",
     "discover_plugins",
     "get_plugin_tool_modules",
+    "register_plugin_hooks",
 ]
 
 
@@ -37,7 +38,8 @@ class Plugin:
 
     # Module names for discovered components
     tool_modules: list[str] = field(default_factory=list)
-    # Future: hook_modules, command_modules
+    hook_modules: list[str] = field(default_factory=list)
+    # Future: command_modules
 
 
 def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
@@ -117,10 +119,21 @@ def _load_plugin(plugin_path: Path) -> Plugin | None:
                 plugin.tool_modules.append(module_name)
                 logger.debug(f"  Found tool module: {module_name}")
 
-    # Future: Discover hooks similarly
-    # hooks_dir = plugin_path / "hooks"
-    # if hooks_dir.exists() and hooks_dir.is_dir():
-    #     plugin.hook_modules = _discover_hook_modules(plugin_name, hooks_dir)
+    # Discover hooks
+    hooks_dir = plugin_path / "hooks"
+    if hooks_dir.exists() and hooks_dir.is_dir():
+        if (hooks_dir / "__init__.py").exists():
+            # hooks/ is a package, register the package module
+            plugin.hook_modules.append(f"{plugin_name}.hooks")
+            logger.debug(f"  Found hooks package: {plugin_name}.hooks")
+        else:
+            # hooks/ is a directory with individual modules
+            for hook_file in hooks_dir.glob("*.py"):
+                if hook_file.name.startswith("_"):
+                    continue
+                module_name = f"{plugin_name}.hooks.{hook_file.stem}"
+                plugin.hook_modules.append(module_name)
+                logger.debug(f"  Found hook module: {module_name}")
 
     # Future: Discover commands similarly
     # commands_dir = plugin_path / "commands"
@@ -161,3 +174,50 @@ def get_plugin_tool_modules(
 
     logger.info(f"Loaded {len(tool_modules)} tool modules from {len(plugins)} plugins")
     return tool_modules
+
+
+def register_plugin_hooks(
+    plugin_paths: list[Path],
+    enabled_plugins: list[str] | None = None,
+) -> None:
+    """
+    Register hooks from all enabled plugins.
+
+    Discovers plugins, imports their hook modules, and calls their register()
+    functions to register hooks with the gptme hook system.
+
+    Args:
+        plugin_paths: Paths to search for plugins
+        enabled_plugins: Optional allowlist of plugin names (None = all)
+    """
+    plugins = discover_plugins(plugin_paths)
+
+    hooks_registered = 0
+    for plugin in plugins:
+        # Apply allowlist if provided
+        if enabled_plugins and plugin.name not in enabled_plugins:
+            logger.debug(f"Skipping plugin {plugin.name}: not in allowlist")
+            continue
+
+        # Register hooks from each module
+        for module_name in plugin.hook_modules:
+            try:
+                # Import the hook module
+                module = __import__(module_name, fromlist=["register"])
+
+                # Call the module's register() function if it exists
+                if hasattr(module, "register"):
+                    module.register()
+                    hooks_registered += 1
+                    logger.debug(f"Registered hooks from {module_name}")
+                else:
+                    logger.warning(
+                        f"Hook module {module_name} has no register() function"
+                    )
+
+            except Exception as e:
+                logger.error(f"Failed to register hooks from {module_name}: {e}")
+
+    logger.info(
+        f"Registered {hooks_registered} hook modules from {len(plugins)} plugins"
+    )

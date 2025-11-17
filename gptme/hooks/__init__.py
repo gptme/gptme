@@ -4,6 +4,7 @@ import logging
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from time import time
 from typing import Any, Literal, overload
 
@@ -56,7 +57,6 @@ class HookType(str, Enum):
     LOOP_CONTINUE = "loop_continue"  # Decide whether/how to continue the chat loop
 
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -565,3 +565,14 @@ def init_hooks() -> None:
     markdown_validation.register()
     time_awareness.register()
     token_awareness.register()
+
+    # Register plugin hooks
+    from ..config import get_config
+    from ..plugins import register_plugin_hooks
+
+    config = get_config()
+    if config.project and config.project.plugins and config.project.plugins.paths:
+        register_plugin_hooks(
+            plugin_paths=[Path(p) for p in config.project.plugins.paths],
+            enabled_plugins=config.project.plugins.enabled,
+        )
