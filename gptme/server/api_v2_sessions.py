@@ -265,6 +265,12 @@ def step(
         lock=False,
     )
 
+    # Set the model as default before triggering hooks
+    # This ensures hooks like token_awareness can access the model
+    from ..llm.models import set_default_model
+
+    set_default_model(model)
+
     # Trigger SESSION_START hook for new conversations
     assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
     if len(assistant_messages) == 0:
@@ -722,6 +728,12 @@ def api_conversation_step(conversation_id: str):
         default_model is not None
     ), "No model loaded and no model specified in request"
     model = req_json.get("model", chat_config.model or default_model.full)
+
+    # Set the model as default before starting step thread
+    # This ensures hooks like token_awareness can access it
+    from ..llm.models import set_default_model
+
+    set_default_model(model)
 
     # Start step execution in a background thread
     _start_step_thread(

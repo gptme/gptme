@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class PluginsConfig:
+    """Configuration for the plugin system."""
+
+    # Plugin search paths (relative to config directory or absolute)
+    paths: list[str] = field(default_factory=list)
+
+    # Optional: plugin allowlist (empty = all discovered plugins enabled)
+    enabled: list[str] = field(default_factory=list)
+
+
+@dataclass
 class MCPServerConfig:
     """Configuration for a MCP server."""
 
@@ -155,6 +166,7 @@ class ProjectConfig:
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
     lessons: LessonsConfig = field(default_factory=LessonsConfig)
+    plugins: PluginsConfig = field(default_factory=PluginsConfig)
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -170,6 +182,11 @@ class ProjectConfig:
             AgentConfig(**config_data.pop("agent")) if "agent" in config_data else None
         )
         lessons = LessonsConfig(dirs=config_data.pop("lessons", {}).get("dirs", []))
+        plugins_data = config_data.pop("plugins", {})
+        plugins = PluginsConfig(
+            paths=plugins_data.get("paths", []),
+            enabled=plugins_data.get("enabled", []),
+        )
         env = config_data.pop("env", {})
         if mcp := config_data.pop("mcp", None):
             mcp = MCPConfig.from_dict(mcp)
@@ -186,6 +203,7 @@ class ProjectConfig:
             rag=rag,
             agent=agent,
             lessons=lessons,
+            plugins=plugins,
             env=env,
             mcp=mcp,
             **config_data,

@@ -241,6 +241,7 @@ def is_supported_langtag(lang: str) -> bool:
 
 
 def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
+    from gptme.plugins import get_plugin_tool_modules
     from gptme.tools.mcp_adapter import create_mcp_tools  # fmt: skip
 
     # Only use cache if we want MCP tools (cache always includes MCP)
@@ -255,6 +256,28 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
 
         if env_tool_modules:
             tool_modules = env_tool_modules.split(",")
+
+        # Add plugin tool modules
+        if config.project and config.project.plugins.paths:
+            from pathlib import Path
+
+            # Resolve plugin paths (support ~ and relative paths)
+            plugin_paths = []
+            for path_str in config.project.plugins.paths:
+                path = Path(path_str).expanduser()
+                if not path.is_absolute() and config.project._workspace:
+                    # Relative to workspace
+                    path = config.project._workspace / path
+                plugin_paths.append(path)
+
+            # Get tool modules from plugins
+            plugin_tool_modules = get_plugin_tool_modules(
+                plugin_paths,
+                enabled_plugins=config.project.plugins.enabled
+                if config.project.plugins.enabled is not None
+                else None,
+            )
+            tool_modules.extend(plugin_tool_modules)
 
         available_tools = sorted(_discover_tools(tool_modules))
         if include_mcp:
