@@ -729,6 +729,12 @@ def api_conversation_step(conversation_id: str):
     ), "No model loaded and no model specified in request"
     model = req_json.get("model", chat_config.model or default_model.full)
 
+    # Set the model as default before starting step thread
+    # This ensures hooks like token_awareness can access it
+    from ..llm.models import set_default_model
+
+    set_default_model(model)
+
     # Start step execution in a background thread
     _start_step_thread(
         conversation_id=conversation_id,
