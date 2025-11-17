@@ -559,7 +559,13 @@ def clear_hooks(hook_type: HookType | None = None) -> None:
 def init_hooks() -> None:
     """Initialize and register all default hooks."""
     # Import hook modules to auto-register them
-    from . import context, cwd_tracking, markdown_validation, time_awareness, token_awareness
+    from . import (
+        context,
+        cwd_tracking,
+        markdown_validation,
+        time_awareness,
+        token_awareness,
+    )
 
     context.register()
     cwd_tracking.register()
