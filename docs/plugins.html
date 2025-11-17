@@ -456,6 +456,13 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-hooks-as-a-package">Option 1: hooks/ as a Package</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-hook-files">Option 2: Individual Hook Files</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-command-modules">Plugin Command Modules</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-commands-as-a-package">Option 1: commands/ as a Package</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-command-files">Option 2: Individual Command Files</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#using-plugin-commands">Using Plugin Commands</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-handler-requirements">Command Handler Requirements</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
 </ul>
 </li>
@@ -478,7 +485,7 @@
                   
   <section id="plugin-system">
 <h1>Plugin System<a class="headerlink" href="#plugin-system" title="Link to this heading">#</a></h1>
-<p>The plugin system allows extending gptme with custom tools, hooks, and commands (future) without modifying the core codebase.</p>
+<p>The plugin system allows extending gptme with custom tools, hooks, and commands without modifying the core codebase.</p>
 <section id="plugin-structure">
 <h2>Plugin Structure<a class="headerlink" href="#plugin-structure" title="Link to this heading">#</a></h2>
 <p>A plugin is a Python package (directory with <code class="docutils literal notranslate"><span class="pre">__init__.py</span></code>) that can contain:</p>
@@ -490,7 +497,9 @@
 ├── hooks/               # Hook modules (optional)
 │   ├── <strong>init</strong>.py     # Makes hooks/ a package
 │   └── my_hook.py      # Individual hook modules
-└── commands/            # Command modules (future)</p>
+└── commands/            # Command modules (optional)
+├── <strong>init</strong>.py     # Makes commands/ a package
+└── my_command.py   # Individual command modules</p>
 </section>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
@@ -555,18 +564,21 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <ul class="simple">
 <li><p>Tool modules in <code class="docutils literal notranslate"><span class="pre">tools/</span></code> subdirectory</p></li>
 <li><p>Hook modules in <code class="docutils literal notranslate"><span class="pre">hooks/</span></code> subdirectory</p></li>
+<li><p>Command modules in <code class="docutils literal notranslate"><span class="pre">commands/</span></code> subdirectory</p></li>
 </ul>
 </li>
 <li><p><strong>Integration</strong>:</p>
 <ul class="simple">
 <li><p>Plugin tools are loaded using the same mechanism as built-in tools</p></li>
 <li><p>Plugin hooks are registered during initialization via their <code class="docutils literal notranslate"><span class="pre">register()</span></code> functions</p></li>
+<li><p>Plugin commands are registered during initialization via their <code class="docutils literal notranslate"><span class="pre">register()</span></code> functions</p></li>
 </ul>
 </li>
 <li><p><strong>Availability</strong>:</p>
 <ul class="simple">
 <li><p>Tools appear in <code class="docutils literal notranslate"><span class="pre">--tools</span></code> list and can be used like built-in tools</p></li>
 <li><p>Hooks are automatically triggered at appropriate lifecycle points</p></li>
+<li><p>Commands can be invoked with <code class="docutils literal notranslate"><span class="pre">/</span></code> prefix like built-in commands</p></li>
 </ul>
 </li>
 </ol>
@@ -654,6 +666,81 @@ my_plugin/tools/
 <li><p><code class="docutils literal notranslate"><span class="pre">FILE_PRE_SAVE</span></code> - Before saving a file</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">FILE_POST_SAVE</span></code> - After saving a file</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_PRE</span></code> - Before generating response</p></li>
+</ul>
+</section>
+</section>
+<section id="plugin-command-modules">
+<h2>Plugin Command Modules<a class="headerlink" href="#plugin-command-modules" title="Link to this heading">#</a></h2>
+<p>Plugins can provide custom commands that users can invoke with the <code class="docutils literal notranslate"><span class="pre">/</span></code> prefix, similar to built-in commands like <code class="docutils literal notranslate"><span class="pre">/help</span></code> or <code class="docutils literal notranslate"><span class="pre">/exit</span></code>.</p>
+<section id="option-1-commands-as-a-package">
+<h3>Option 1: commands/ as a Package<a class="headerlink" href="#option-1-commands-as-a-package" title="Link to this heading">#</a></h3>
+<p>Create <code class="docutils literal notranslate"><span class="pre">commands/__init__.py</span></code> and define a <code class="docutils literal notranslate"><span class="pre">register()</span></code> function:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/commands/__init__.py</span>
+<span class="kn">from</span> <span class="nn">gptme.commands</span> <span class="kn">import</span> <span class="n">register_command</span><span class="p">,</span> <span class="n">CommandContext</span>
+<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+
+<span class="k">def</span> <span class="nf">weather_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle the /weather command.&quot;&quot;&quot;</span>
+    <span class="n">location</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">full_args</span> <span class="ow">or</span> <span class="s2">&quot;Stockholm&quot;</span>
+    <span class="c1"># Your weather logic here</span>
+    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Weather in </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">: Sunny, 20°C&quot;</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register all commands from this module.&quot;&quot;&quot;</span>
+    <span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;weather&quot;</span><span class="p">,</span> <span class="n">weather_handler</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;w&quot;</span><span class="p">])</span>
+</pre></div>
+</div>
+</section>
+<section id="option-2-individual-command-files">
+<h3>Option 2: Individual Command Files<a class="headerlink" href="#option-2-individual-command-files" title="Link to this heading">#</a></h3>
+<p>Create individual command modules without <code class="docutils literal notranslate"><span class="pre">commands/__init__.py</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/commands/joke.py</span>
+<span class="kn">from</span> <span class="nn">gptme.commands</span> <span class="kn">import</span> <span class="n">register_command</span><span class="p">,</span> <span class="n">CommandContext</span>
+<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+
+<span class="k">def</span> <span class="nf">joke_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tell a random joke.&quot;&quot;&quot;</span>
+    <span class="n">jokes</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;Why did the AI cross the road? To optimize the other side!&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;What&#39;s an AI&#39;s favorite snack? Microchips!&quot;</span><span class="p">,</span>
+    <span class="p">]</span>
+    <span class="kn">import</span> <span class="nn">random</span>
+    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">jokes</span><span class="p">))</span>
+
+<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register command.&quot;&quot;&quot;</span>
+    <span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;joke&quot;</span><span class="p">,</span> <span class="n">joke_handler</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;j&quot;</span><span class="p">])</span>
+</pre></div>
+</div>
+</section>
+<section id="using-plugin-commands">
+<h3>Using Plugin Commands<a class="headerlink" href="#using-plugin-commands" title="Link to this heading">#</a></h3>
+<p>Once registered, commands can be used like built-in commands:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme
+&gt;<span class="w"> </span>/weather<span class="w"> </span>London
+Weather<span class="w"> </span><span class="k">in</span><span class="w"> </span>London:<span class="w"> </span>Sunny,<span class="w"> </span><span class="m">20</span>°C
+
+&gt;<span class="w"> </span>/joke
+Why<span class="w"> </span>did<span class="w"> </span>the<span class="w"> </span>AI<span class="w"> </span>cross<span class="w"> </span>the<span class="w"> </span>road?<span class="w"> </span>To<span class="w"> </span>optimize<span class="w"> </span>the<span class="w"> </span>other<span class="w"> </span>side!
+</pre></div>
+</div>
+</section>
+<section id="command-handler-requirements">
+<h3>Command Handler Requirements<a class="headerlink" href="#command-handler-requirements" title="Link to this heading">#</a></h3>
+<p>Command handlers must:</p>
+<ol class="arabic simple">
+<li><p>Accept a <code class="docutils literal notranslate"><span class="pre">CommandContext</span></code> parameter with:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">args</span></code>: List of space-separated arguments</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">full_args</span></code>: Complete argument string</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">manager</span></code>: LogManager instance</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">confirm</span></code>: Confirmation function</p></li>
+</ul>
+</li>
+<li><p>Be a generator (use <code class="docutils literal notranslate"><span class="pre">yield</span></code>) that yields <code class="docutils literal notranslate"><span class="pre">Message</span></code> objects</p></li>
+<li><p>Be registered via <code class="docutils literal notranslate"><span class="pre">register_command()</span></code> in a <code class="docutils literal notranslate"><span class="pre">register()</span></code> function</p></li>
+</ol>
+<ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_POST</span></code> - After generating response</p></li>
 <li><p>And more (see <code class="docutils literal notranslate"><span class="pre">gptme.hooks.HookType</span></code>)</p></li>
 </ul>
@@ -853,6 +940,13 @@ gptme
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-hooks-as-a-package">Option 1: hooks/ as a Package</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-hook-files">Option 2: Individual Hook Files</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-command-modules">Plugin Command Modules</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-commands-as-a-package">Option 1: commands/ as a Package</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-command-files">Option 2: Individual Command Files</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#using-plugin-commands">Using Plugin Commands</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-handler-requirements">Command Handler Requirements</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
 </ul>
 </li>

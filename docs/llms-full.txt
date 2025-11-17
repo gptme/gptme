@@ -3396,7 +3396,7 @@ See Also
 
 # Plugin System
 
-The plugin system allows extending gptme with custom tools, hooks, and commands (future) without modifying the core codebase.
+The plugin system allows extending gptme with custom tools, hooks, and commands without modifying the core codebase.
 
 ## Plugin Structure
 
@@ -3410,7 +3410,9 @@ my_plugin/
 ├── hooks/               # Hook modules (optional)
 │   ├── __init__.py     # Makes hooks/ a package
 │   └── my_hook.py      # Individual hook modules
-└── commands/            # Command modules (future)
+└── commands/            # Command modules (optional)
+    ├── __init__.py     # Makes commands/ a package
+    └── my_command.py   # Individual command modules
 
 
 ## Configuration
@@ -3475,12 +3477,15 @@ Hello from my plugin!
 2. **Loading**: For each plugin, gptme discovers:
    - Tool modules in `tools/` subdirectory
    - Hook modules in `hooks/` subdirectory
+   - Command modules in `commands/` subdirectory
 3. **Integration**:
    - Plugin tools are loaded using the same mechanism as built-in tools
    - Plugin hooks are registered during initialization via their `register()` functions
+   - Plugin commands are registered during initialization via their `register()` functions
 4. **Availability**:
    - Tools appear in `--tools` list and can be used like built-in tools
    - Hooks are automatically triggered at appropriate lifecycle points
+   - Commands can be invoked with `/` prefix like built-in commands
 
 ## Plugin Tool Modules
 
@@ -3572,6 +3577,77 @@ Available hook types:
 - `FILE_PRE_SAVE` - Before saving a file
 - `FILE_POST_SAVE` - After saving a file
 - `GENERATION_PRE` - Before generating response
+
+## Plugin Command Modules
+
+Plugins can provide custom commands that users can invoke with the `/` prefix, similar to built-in commands like `/help` or `/exit`.
+
+### Option 1: commands/ as a Package
+
+Create `commands/__init__.py` and define a `register()` function:
+
+```python
+# my_plugin/commands/__init__.py
+from gptme.commands import register_command, CommandContext
+from gptme.message import Message
+
+def weather_handler(ctx: CommandContext):
+    """Handle the /weather command."""
+    location = ctx.full_args or "Stockholm"
+    # Your weather logic here
+    yield Message("system", f"Weather in {location}: Sunny, 20°C")
+
+def register():
+    """Register all commands from this module."""
+    register_command("weather", weather_handler, aliases=["w"])
+```
+
+### Option 2: Individual Command Files
+
+Create individual command modules without `commands/__init__.py`:
+
+```python
+# my_plugin/commands/joke.py
+from gptme.commands import register_command, CommandContext
+from gptme.message import Message
+
+def joke_handler(ctx: CommandContext):
+    """Tell a random joke."""
+    jokes = [
+        "Why did the AI cross the road? To optimize the other side!",
+        "What's an AI's favorite snack? Microchips!",
+    ]
+    import random
+    yield Message("system", random.choice(jokes))
+
+def register():
+    """Register command."""
+    register_command("joke", joke_handler, aliases=["j"])
+```
+
+### Using Plugin Commands
+
+Once registered, commands can be used like built-in commands:
+
+```bash
+$ gptme
+> /weather London
+Weather in London: Sunny, 20°C
+
+> /joke
+Why did the AI cross the road? To optimize the other side!
+```
+
+### Command Handler Requirements
+
+Command handlers must:
+1. Accept a `CommandContext` parameter with:
+   - `args`: List of space-separated arguments
+   - `full_args`: Complete argument string
+   - `manager`: LogManager instance
+   - `confirm`: Confirmation function
+2. Be a generator (use `yield`) that yields `Message` objects
+3. Be registered via `register_command()` in a `register()` function
 - `GENERATION_POST` - After generating response
 - And more (see `gptme.hooks.HookType`)
 
