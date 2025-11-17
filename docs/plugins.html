@@ -452,6 +452,14 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-tool-files">Option 2: Individual Tool Files</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-hook-modules">Plugin Hook Modules</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-hooks-as-a-package">Option 1: hooks/ as a Package</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-hook-files">Option 2: Individual Hook Files</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-from-tool-modules">Migration from TOOL_MODULES</a></li>
@@ -479,7 +487,9 @@
 ├── tools/               # Tool modules (optional)
 │   ├── <strong>init</strong>.py     # Makes tools/ a package
 │   └── my_tool.py      # Individual tool modules
-├── hooks/               # Hook modules (future)
+├── hooks/               # Hook modules (optional)
+│   ├── <strong>init</strong>.py     # Makes hooks/ a package
+│   └── my_hook.py      # Individual hook modules
 └── commands/            # Command modules (future)</p>
 </section>
 <section id="configuration">
@@ -541,9 +551,24 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading">#</a></h2>
 <ol class="arabic simple">
 <li><p><strong>Discovery</strong>: gptme searches configured plugin paths for directories with <code class="docutils literal notranslate"><span class="pre">__init__.py</span></code></p></li>
-<li><p><strong>Loading</strong>: For each plugin, gptme discovers tool modules in <code class="docutils literal notranslate"><span class="pre">tools/</span></code> subdirectory</p></li>
-<li><p><strong>Integration</strong>: Plugin tools are loaded using the same mechanism as built-in tools</p></li>
-<li><p><strong>Availability</strong>: Tools appear in <code class="docutils literal notranslate"><span class="pre">--tools</span></code> list and can be used like built-in tools</p></li>
+<li><p><strong>Loading</strong>: For each plugin, gptme discovers:</p>
+<ul class="simple">
+<li><p>Tool modules in <code class="docutils literal notranslate"><span class="pre">tools/</span></code> subdirectory</p></li>
+<li><p>Hook modules in <code class="docutils literal notranslate"><span class="pre">hooks/</span></code> subdirectory</p></li>
+</ul>
+</li>
+<li><p><strong>Integration</strong>:</p>
+<ul class="simple">
+<li><p>Plugin tools are loaded using the same mechanism as built-in tools</p></li>
+<li><p>Plugin hooks are registered during initialization via their <code class="docutils literal notranslate"><span class="pre">register()</span></code> functions</p></li>
+</ul>
+</li>
+<li><p><strong>Availability</strong>:</p>
+<ul class="simple">
+<li><p>Tools appear in <code class="docutils literal notranslate"><span class="pre">--tools</span></code> list and can be used like built-in tools</p></li>
+<li><p>Hooks are automatically triggered at appropriate lifecycle points</p></li>
+</ul>
+</li>
 </ol>
 </section>
 <section id="plugin-tool-modules">
@@ -569,6 +594,99 @@ my_plugin/tools/
 └── tool2.py</p>
 <p>Each file will be imported as <code class="docutils literal notranslate"><span class="pre">my_plugin.tools.tool1</span></code>, <code class="docutils literal notranslate"><span class="pre">my_plugin.tools.tool2</span></code>, etc.</p>
 </section>
+</section>
+<section id="plugin-hook-modules">
+<h2>Plugin Hook Modules<a class="headerlink" href="#plugin-hook-modules" title="Link to this heading">#</a></h2>
+<p>Plugins can provide hooks to extend gptme’s behavior at various lifecycle points, similar to how tools work.</p>
+<section id="option-1-hooks-as-a-package">
+<h3>Option 1: hooks/ as a Package<a class="headerlink" href="#option-1-hooks-as-a-package" title="Link to this heading">#</a></h3>
+<p>Create <code class="docutils literal notranslate"><span class="pre">hooks/__init__.py</span></code> and define a <code class="docutils literal notranslate"><span class="pre">register()</span></code> function:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/hooks/__init__.py</span>
+<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+
+<span class="k">def</span> <span class="nf">my_session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hook called at session start.&quot;&quot;&quot;</span>
+    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Plugin initialized in workspace: </span><span class="si">{</span><span class="n">workspace</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register all hooks from this module.&quot;&quot;&quot;</span>
+    <span class="n">register_hook</span><span class="p">(</span>
+        <span class="s2">&quot;my_plugin.session_start&quot;</span><span class="p">,</span>
+        <span class="n">HookType</span><span class="o">.</span><span class="n">SESSION_START</span><span class="p">,</span>
+        <span class="n">my_session_hook</span><span class="p">,</span>
+        <span class="n">priority</span><span class="o">=</span><span class="mi">0</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="option-2-individual-hook-files">
+<h3>Option 2: Individual Hook Files<a class="headerlink" href="#option-2-individual-hook-files" title="Link to this heading">#</a></h3>
+<p>Create individual hook modules without <code class="docutils literal notranslate"><span class="pre">hooks/__init__.py</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/hooks/logging_hook.py</span>
+<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+
+<span class="k">def</span> <span class="nf">log_tool_execution</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Log tool executions.&quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Executing tool: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">yield</span>  <span class="c1"># Hooks must be generators</span>
+
+<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register hooks from this module.&quot;&quot;&quot;</span>
+    <span class="n">register_hook</span><span class="p">(</span>
+        <span class="s2">&quot;my_plugin.log_tool&quot;</span><span class="p">,</span>
+        <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_PRE_EXECUTE</span><span class="p">,</span>
+        <span class="n">log_tool_execution</span><span class="p">,</span>
+        <span class="n">priority</span><span class="o">=</span><span class="mi">0</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="hook-types">
+<h3>Hook Types<a class="headerlink" href="#hook-types" title="Link to this heading">#</a></h3>
+<p>Available hook types:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">SESSION_START</span></code> - Called at session start</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">SESSION_END</span></code> - Called at session end</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_PRE_EXECUTE</span></code> - Before tool execution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_POST_EXECUTE</span></code> - After tool execution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PRE_SAVE</span></code> - Before saving a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_POST_SAVE</span></code> - After saving a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_PRE</span></code> - Before generating response</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_POST</span></code> - After generating response</p></li>
+<li><p>And more (see <code class="docutils literal notranslate"><span class="pre">gptme.hooks.HookType</span></code>)</p></li>
+</ul>
+</section>
+<section id="hook-registration">
+<h3>Hook Registration<a class="headerlink" href="#hook-registration" title="Link to this heading">#</a></h3>
+<p>Every hook module must have a <code class="docutils literal notranslate"><span class="pre">register()</span></code> function that calls <code class="docutils literal notranslate"><span class="pre">register_hook()</span></code> for each hook it provides. The plugin system automatically calls <code class="docutils literal notranslate"><span class="pre">register()</span></code> during initialization.</p>
+</section>
+</section>
+<section id="example-logging-plugin">
+<h2>Example: Logging Plugin<a class="headerlink" href="#example-logging-plugin" title="Link to this heading">#</a></h2>
+<p>A complete example of a plugin that logs tool executions:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_logging_plugin/hooks/tool_logger.py</span>
+<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">log_tool_pre</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Log before tool execution.&quot;&quot;&quot;</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Executing tool: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2"> with args: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">args</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">yield</span>  <span class="c1"># Hooks must be generators</span>
+
+<span class="k">def</span> <span class="nf">log_tool_post</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">,</span> <span class="n">result</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Log after tool execution.&quot;&quot;&quot;</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Tool </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2"> completed&quot;</span><span class="p">)</span>
+    <span class="k">yield</span>
+
+<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.pre&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_PRE_EXECUTE</span><span class="p">,</span> <span class="n">log_tool_pre</span><span class="p">)</span>
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.post&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_POST_EXECUTE</span><span class="p">,</span> <span class="n">log_tool_post</span><span class="p">)</span>
+</pre></div>
+</div>
 </section>
 <section id="example-weather-plugin">
 <h2>Example: Weather Plugin<a class="headerlink" href="#example-weather-plugin" title="Link to this heading">#</a></h2>
@@ -731,6 +849,14 @@ gptme
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-tool-files">Option 2: Individual Tool Files</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-hook-modules">Plugin Hook Modules</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-hooks-as-a-package">Option 1: hooks/ as a Package</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-hook-files">Option 2: Individual Hook Files</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-from-tool-modules">Migration from TOOL_MODULES</a></li>
