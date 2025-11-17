@@ -574,5 +574,5 @@ def init_hooks() -> None:
     if config.project and config.project.plugins and config.project.plugins.paths:
         register_plugin_hooks(
             plugin_paths=[Path(p) for p in config.project.plugins.paths],
-            enabled_plugins=config.project.plugins.enabled,
+            enabled_plugins=config.project.plugins.enabled or None,
         )
