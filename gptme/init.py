@@ -5,6 +5,7 @@ from typing import cast
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 
+from .commands import init_commands
 from .config import get_config
 from .hooks import init_hooks
 from .llm import guess_provider_from_config, init_llm
@@ -38,6 +39,7 @@ def init(
     init_model(model, interactive)
     init_tools(tool_allowlist)
     init_hooks()
+    init_commands()
 
     set_tool_format(tool_format)
 

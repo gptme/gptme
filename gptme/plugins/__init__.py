@@ -26,6 +26,7 @@ __all__ = [
     "discover_plugins",
     "get_plugin_tool_modules",
     "register_plugin_hooks",
+    "register_plugin_commands",
 ]
 
 
@@ -39,7 +40,7 @@ class Plugin:
     # Module names for discovered components
     tool_modules: list[str] = field(default_factory=list)
     hook_modules: list[str] = field(default_factory=list)
-    # Future: command_modules
+    command_modules: list[str] = field(default_factory=list)
 
 
 def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
@@ -135,10 +136,21 @@ def _load_plugin(plugin_path: Path) -> Plugin | None:
                 plugin.hook_modules.append(module_name)
                 logger.debug(f"  Found hook module: {module_name}")
 
-    # Future: Discover commands similarly
-    # commands_dir = plugin_path / "commands"
-    # if commands_dir.exists() and commands_dir.is_dir():
-    #     plugin.command_modules = _discover_command_modules(plugin_name, commands_dir)
+    # Discover commands
+    commands_dir = plugin_path / "commands"
+    if commands_dir.exists() and commands_dir.is_dir():
+        if (commands_dir / "__init__.py").exists():
+            # commands/ is a package, register the package module
+            plugin.command_modules.append(f"{plugin_name}.commands")
+            logger.debug(f"  Found commands package: {plugin_name}.commands")
+        else:
+            # commands/ is a directory with individual modules
+            for command_file in commands_dir.glob("*.py"):
+                if command_file.name.startswith("_"):
+                    continue
+                module_name = f"{plugin_name}.commands.{command_file.stem}"
+                plugin.command_modules.append(module_name)
+                logger.debug(f"  Found command module: {module_name}")
 
     return plugin
 
@@ -220,4 +232,51 @@ def register_plugin_hooks(
 
     logger.info(
         f"Registered {hooks_registered} hook modules from {len(plugins)} plugins"
+    )
+
+
+def register_plugin_commands(
+    plugin_paths: list[Path],
+    enabled_plugins: list[str] | None = None,
+) -> None:
+    """
+    Register commands from all enabled plugins.
+
+    Discovers plugins, imports their command modules, and calls their register()
+    functions to register commands with the gptme command system.
+
+    Args:
+        plugin_paths: Paths to search for plugins
+        enabled_plugins: Optional allowlist of plugin names (None = all)
+    """
+    plugins = discover_plugins(plugin_paths)
+
+    commands_registered = 0
+    for plugin in plugins:
+        # Apply allowlist if provided
+        if enabled_plugins and plugin.name not in enabled_plugins:
+            logger.debug(f"Skipping plugin {plugin.name}: not in allowlist")
+            continue
+
+        # Register commands from each module
+        for module_name in plugin.command_modules:
+            try:
+                # Import the command module
+                module = __import__(module_name, fromlist=["register"])
+
+                # Call the module's register() function if it exists
+                if hasattr(module, "register"):
+                    module.register()
+                    commands_registered += 1
+                    logger.debug(f"Registered commands from {module_name}")
+                else:
+                    logger.warning(
+                        f"Command module {module_name} has no register() function"
+                    )
+
+            except Exception as e:
+                logger.error(f"Failed to register commands from {module_name}: {e}")
+
+    logger.info(
+        f"Registered {commands_registered} command modules from {len(plugins)} plugins"
     )

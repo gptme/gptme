@@ -538,3 +538,18 @@ def get_user_commands() -> list[str]:
     """Returns a list of all user commands, including tool-registered commands"""
     # Get all registered commands (includes built-in + tool-registered)
     return [f"/{cmd}" for cmd in _command_registry.keys()]
+
+
+def init_commands() -> None:
+    """Initialize plugin commands."""
+    from pathlib import Path
+
+    from .config import get_config
+    from .plugins import register_plugin_commands
+
+    config = get_config()
+    if config.project and config.project.plugins and config.project.plugins.paths:
+        register_plugin_commands(
+            plugin_paths=[Path(p) for p in config.project.plugins.paths],
+            enabled_plugins=config.project.plugins.enabled or None,
+        )
