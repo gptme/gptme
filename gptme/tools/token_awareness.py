@@ -23,9 +23,15 @@ from .base import ToolSpec
 logger = logging.getLogger(__name__)
 
 # Context-local storage for token tracking (ensures context safety in gptme-server)
-_token_totals_var: ContextVar[dict[str, int] | None] = ContextVar("token_totals", default=None)
-_message_counts_var: ContextVar[dict[str, int] | None] = ContextVar("message_counts", default=None)
-_last_warning_tokens_var: ContextVar[dict[str, int] | None] = ContextVar("last_warning_tokens", default=None)
+_token_totals_var: ContextVar[dict[str, int] | None] = ContextVar(
+    "token_totals", default=None
+)
+_message_counts_var: ContextVar[dict[str, int] | None] = ContextVar(
+    "message_counts", default=None
+)
+_last_warning_tokens_var: ContextVar[dict[str, int] | None] = ContextVar(
+    "last_warning_tokens", default=None
+)
 
 
 def _ensure_locals():
