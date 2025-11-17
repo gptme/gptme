@@ -5,7 +5,7 @@ The plugin system allows extending gptme with custom tools, hooks, and commands 
 ## Plugin Structure
 
 A plugin is a Python package (directory with `__init__.py`) that can contain:
-text
+
 my_plugin/
 ├── __init__.py          # Plugin metadata
 ├── tools/               # Tool modules (optional)

@@ -273,7 +273,9 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
             # Get tool modules from plugins
             plugin_tool_modules = get_plugin_tool_modules(
                 plugin_paths,
-                enabled_plugins=config.project.plugins.enabled or None,
+                enabled_plugins=config.project.plugins.enabled
+                if config.project.plugins.enabled is not None
+                else None,
             )
             tool_modules.extend(plugin_tool_modules)
 
