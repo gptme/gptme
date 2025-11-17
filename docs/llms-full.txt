@@ -50,6 +50,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    finetuning
    custom_tool
    hooks
+   plugins
    misc/server-hooks-analysis
    api
 
@@ -3391,6 +3392,213 @@ See Also
 - :doc:`tools` - Tool system documentation
 - :doc:`config` - Configuration options
 - `Issue #156 <https://github.com/gptme/gptme/issues/156>`_ - Original feature request
+
+
+# Plugin System
+
+The plugin system allows extending gptme with custom tools, hooks, and commands (future) without modifying the core codebase.
+
+## Plugin Structure
+
+A plugin is a Python package (directory with `__init__.py`) that can contain:
+
+my_plugin/
+├── __init__.py          # Plugin metadata
+├── tools/               # Tool modules (optional)
+│   ├── __init__.py     # Makes tools/ a package
+│   └── my_tool.py      # Individual tool modules
+├── hooks/               # Hook modules (future)
+└── commands/            # Command modules (future)
+
+
+## Configuration
+
+Add plugin paths to your `gptme.toml`:
+
+```toml
+[plugins]
+# Paths to search for plugins (supports ~ expansion and relative paths)
+paths = [
+    "~/.config/gptme/plugins",
+    "~/.local/share/gptme/plugins",
+]
+
+# Optional: only enable specific plugins (empty = all discovered)
+enabled = ["my_plugin", "another_plugin"]
+```
+
+## Creating a Plugin
+
+### 1. Create Plugin Directory Structure
+
+```bash
+mkdir -p ~/.config/gptme/plugins/my_plugin/tools
+touch ~/.config/gptme/plugins/my_plugin/__init__.py
+touch ~/.config/gptme/plugins/my_plugin/tools/__init__.py
+```
+
+### 2. Create a Tool Module
+
+**my_plugin/tools/hello.py:**
+```python
+from gptme.tools.base import ToolSpec
+
+def hello_world():
+    """Say hello to the world."""
+    print("Hello from my plugin!")
+    return "Hello, World!"
+
+# Tool specification that gptme will discover
+hello_tool = ToolSpec(
+    name="hello",
+    desc="Say hello",
+    instructions="Use this tool to greet the world.",
+    functions=[hello_world],
+)
+```
+
+### 3. Use Your Plugin
+
+Start gptme and your plugin tools will be automatically discovered and available:
+
+```bash
+$ gptme "use the hello tool"
+> Using tool: hello
+Hello from my plugin!
+```
+
+## How It Works
+
+1. **Discovery**: gptme searches configured plugin paths for directories with `__init__.py`
+2. **Loading**: For each plugin, gptme discovers tool modules in `tools/` subdirectory
+3. **Integration**: Plugin tools are loaded using the same mechanism as built-in tools
+4. **Availability**: Tools appear in `--tools` list and can be used like built-in tools
+
+## Plugin Tool Modules
+
+Plugins can provide tools in two ways:
+
+### Option 1: tools/ as a Package
+
+Create `tools/__init__.py` and gptme will import `my_plugin.tools` as a package:
+
+```python
+# my_plugin/tools/__init__.py
+from gptme.tools.base import ToolSpec
+
+tool1 = ToolSpec(...)
+tool2 = ToolSpec(...)
+```
+
+### Option 2: Individual Tool Files
+
+Skip `tools/__init__.py` and create individual files:
+text
+my_plugin/tools/
+├── tool1.py
+└── tool2.py
+
+
+Each file will be imported as `my_plugin.tools.tool1`, `my_plugin.tools.tool2`, etc.
+
+## Example: Weather Plugin
+
+A complete example of a weather information plugin:
+
+**my_weather/tools/weather.py:**
+```python
+from gptme.tools.base import ToolSpec, ToolUse
+import requests
+
+def get_weather(location: str) -> str:
+    """Get weather for a location."""
+    # Implementation
+    return f"Weather in {location}: Sunny, 72°F"
+
+weather_tool = ToolSpec(
+    name="weather",
+    desc="Get current weather information",
+    instructions="Use this tool to get weather for a location.",
+    functions=[get_weather],
+)
+```
+
+**Configuration (~/.config/gptme/gptme.toml):**
+```toml
+[plugins]
+paths = ["~/.config/gptme/plugins"]
+```
+
+**Usage:**
+```bash
+$ gptme "what's the weather in San Francisco?"
+> Using tool: weather
+Weather in San Francisco: Sunny, 72°F
+```
+
+## Distribution
+
+Plugins can be distributed as:
+
+1. **Git repositories**: Clone into plugin directory
+   ```bash
+   git clone https://github.com/user/gptme-plugin ~/.config/gptme/plugins/plugin-name
+   ```
+
+2. **PyPI packages**: Install and add to plugin path
+   ```bash
+   pip install gptme-weather-plugin
+   # Add site-packages location to plugins.paths in gptme.toml
+   ```
+
+3. **Local directories**: Copy plugin folder to plugin path
+   ```bash
+   cp -r my_plugin ~/.config/gptme/plugins/
+   ```
+
+## Migration from TOOL_MODULES
+
+The plugin system is compatible with the existing `TOOL_MODULES` environment variable.
+
+**Old approach:**
+```bash
+export TOOL_MODULES="gptme.tools,my_custom_tools"
+gptme
+```
+
+**New approach (gptme.toml):**
+```toml
+[plugins]
+paths = ["~/.config/gptme/plugins"]
+enabled = ["my_plugin"]
+```
+
+Both approaches work and can coexist. The plugin system provides better organization and discoverability for complex tool collections.
+
+## Future: Hooks and Commands
+
+Future phases will add support for:
+
+- **Hooks**: Plugin-provided hooks for events (e.g., pre-generation, post-execution)
+- **Commands**: Plugin-provided commands for the gptme CLI
+
+Stay tuned for updates!
+
+## Troubleshooting
+
+**Plugin not discovered:**
+- Ensure plugin directory has `__init__.py`
+- Check plugin path is correctly configured in `gptme.toml`
+- Verify path is absolute or relative to config directory
+
+**Tools not loading:**
+- Check `tools/` directory exists and has proper structure
+- Verify tool modules define `ToolSpec` instances
+- Look for import errors in gptme logs
+
+**Plugin not enabled:**
+- If using `plugins.enabled` allowlist, ensure plugin name is included
+- Remove `enabled` list to load all discovered plugins
 
 
 # Server Hooks Analysis

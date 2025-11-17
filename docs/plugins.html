@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>MCP &#8212; gptme</title>
+    <title>Plugin System &#8212; gptme</title>
   
   
   
@@ -46,13 +46,13 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.6.3.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'mcp';</script>
-    <link rel="canonical" href="https://gptme.org/docs/mcp.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'plugins';</script>
+    <link rel="canonical" href="https://gptme.org/docs/plugins.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="CLI Reference" href="cli.html" />
-    <link rel="prev" title="Server" href="server.html" />
+    <link rel="next" title="Server Hooks Analysis" href="misc/server-hooks-analysis.html" />
+    <link rel="prev" title="Hooks" href="hooks.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -149,7 +149,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="current nav bd-sidenav">
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -165,11 +165,11 @@
 <li class="toctree-l1"><a class="reference internal" href="custom-providers.html">Custom OpenAI-Compatible Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">MCP</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
@@ -178,7 +178,7 @@
 <li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
 <li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
-<li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Plugin System</a></li>
 <li class="toctree-l1"><a class="reference internal" href="misc/server-hooks-analysis.html">Server Hooks Analysis</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
 </ul>
@@ -322,7 +322,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/mcp.rst" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/plugins.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -352,7 +352,7 @@
       
       
       
-      <li><a href="_sources/mcp.rst" target="_blank"
+      <li><a href="_sources/plugins.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -362,7 +362,7 @@
 <span class="btn__icon-container">
   <i class="fas fa-file"></i>
   </span>
-<span class="btn__text-container">.rst</span>
+<span class="btn__text-container">.md</span>
 </a>
 </li>
       
@@ -428,7 +428,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>MCP</h1>
+    <h1>Plugin System</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -438,18 +438,25 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-structure">Plugin Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#management-tool">Management Tool</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-a-plugin">Creating a Plugin</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-plugin-directory-structure">1. Create Plugin Directory Structure</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-a-tool-module">2. Create a Tool Module</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-your-plugin">3. Use Your Plugin</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-examples">MCP Server Examples</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sqlite-server">SQLite Server</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">How It Works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-tool-modules">Plugin Tool Modules</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-tools-as-a-package">Option 1: tools/ as a Package</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-tool-files">Option 2: Individual Tool Files</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-mcp-servers">Running MCP Servers</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-mcp-servers">Managing MCP Servers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-from-tool-modules">Migration from TOOL_MODULES</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#future-hooks-and-commands">Future: Hooks and Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
 </ul>
             </nav>
         </div>
@@ -461,136 +468,206 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="mcp">
-<span id="id1"></span><h1>MCP<a class="headerlink" href="#mcp" title="Link to this heading">#</a></h1>
-<p>gptme acts as a MCP client supporting MCP servers (<a class="reference external" href="https://modelcontextprotocol.io/">Model Context Protocol</a>), allowing integration with external tools and services through a standardized protocol.</p>
-<p>We also intend to expose tools in gptme as MCP servers, allowing you to use gptme tools in other MCP clients.</p>
+  <section id="plugin-system">
+<h1>Plugin System<a class="headerlink" href="#plugin-system" title="Link to this heading">#</a></h1>
+<p>The plugin system allows extending gptme with custom tools, hooks, and commands (future) without modifying the core codebase.</p>
+<section id="plugin-structure">
+<h2>Plugin Structure<a class="headerlink" href="#plugin-structure" title="Link to this heading">#</a></h2>
+<p>A plugin is a Python package (directory with <code class="docutils literal notranslate"><span class="pre">__init__.py</span></code>) that can contain:</p>
+<p>my_plugin/
+├── <strong>init</strong>.py          # Plugin metadata
+├── tools/               # Tool modules (optional)
+│   ├── <strong>init</strong>.py     # Makes tools/ a package
+│   └── my_tool.py      # Individual tool modules
+├── hooks/               # Hook modules (future)
+└── commands/            # Command modules (future)</p>
+</section>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
-<p>You can configure MCP in your <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>) file:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[mcp]</span>
-<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<span class="n">auto_start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-
-<span class="k">[[mcp.servers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-server&quot;</span>
-<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;server-command&quot;</span>
-<span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;--arg1&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--arg2&quot;</span><span class="p">]</span>
-<span class="n">env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">API_KEY</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;your-key&quot;</span><span class="w"> </span><span class="p">}</span>
-
-<span class="c1"># HTTP MCP Server example</span>
-<span class="k">[[mcp.servers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http-server&quot;</span>
-<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://example.com/mcp&quot;</span>
-<span class="n">headers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Authorization</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;Bearer your-token&quot;</span><span class="w"> </span><span class="p">}</span>
-</pre></div>
-</div>
-<p>We also intend to support specifying it in the <a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a>, and the ability to set it per-conversation.</p>
-</section>
-<section id="management-tool">
-<h2>Management Tool<a class="headerlink" href="#management-tool" title="Link to this heading">#</a></h2>
-<p>gptme includes a powerful MCP management tool that allows you to discover and dynamically load MCP servers during a conversation.</p>
-<section id="commands">
-<h3>Commands<a class="headerlink" href="#commands" title="Link to this heading">#</a></h3>
-<p>The <code class="docutils literal notranslate"><span class="pre">mcp</span></code> tool provides the following slash-commands:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">/search</span> <span class="pre">[query]</span></code>: Search for MCP servers across registries</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/info</span> <span class="pre">&lt;server-name&gt;</span></code>: Get detailed information about a specific server</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/load</span> <span class="pre">&lt;server-name&gt;</span></code>: Dynamically load an MCP server into the current session</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/unload</span> <span class="pre">&lt;server-name&gt;</span></code>: Unload a previously loaded MCP server</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/list</span></code>: List all currently configured and loaded MCP servers</p></li>
-</ul>
-<p>Once loaded, the server’s tools will be available as <code class="docutils literal notranslate"><span class="pre">&lt;server-name&gt;.&lt;tool-name&gt;</span></code> in the conversation.</p>
-</section>
-<section id="configuration-options">
-<h3>Configuration Options<a class="headerlink" href="#configuration-options" title="Link to this heading">#</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">enabled</span></code>: Enable/disable MCP support globally</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auto_start</span></code>: Automatically start MCP servers when needed</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">servers</span></code>: List of MCP server configurations</p>
-<ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code>: Unique identifier for the server</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">enabled</span></code>: Enable/disable individual server</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">command</span></code>: Command to start the server (for stdio servers)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">args</span></code>: List of command-line arguments (for stdio servers)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">url</span></code>: HTTP endpoint URL (for HTTP servers)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">headers</span></code>: HTTP headers dictionary (for HTTP servers)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">env</span></code>: Environment variables for the server</p></li>
-</ul>
-</li>
-</ul>
-</section>
-</section>
-<section id="mcp-server-examples">
-<h2>MCP Server Examples<a class="headerlink" href="#mcp-server-examples" title="Link to this heading">#</a></h2>
-<section id="sqlite-server">
-<h3>SQLite Server<a class="headerlink" href="#sqlite-server" title="Link to this heading">#</a></h3>
-<p>The SQLite server provides database interaction and business intelligence capabilities through SQLite. It enables running SQL queries, analyzing business data, and automatically generating business insight memos:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[mcp.servers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sqlite&quot;</span>
-<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;uvx&quot;</span>
-<span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="s2">&quot;mcp-server-sqlite&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;--db-path&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;/path/to/sqlitemcp-store.sqlite&quot;</span>
+<p>Add plugin paths to your <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
+<span class="c1"># Paths to search for plugins (supports ~ expansion and relative paths)</span>
+<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="s2">&quot;~/.config/gptme/plugins&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;~/.local/share/gptme/plugins&quot;</span><span class="p">,</span>
 <span class="p">]</span>
+
+<span class="c1"># Optional: only enable specific plugins (empty = all discovered)</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;my_plugin&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;another_plugin&quot;</span><span class="p">]</span>
 </pre></div>
 </div>
-<p>The server provides these core tools:</p>
-<p>Query Tools:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">read_query</span></code>: Execute SELECT queries to read data</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">write_query</span></code>: Execute INSERT, UPDATE, or DELETE queries</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">create_table</span></code>: Create new tables in the database</p></li>
-</ul>
-<p>Schema Tools:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">list_tables</span></code>: Get a list of all tables</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">describe_table</span></code>: View schema information for a specific table</p></li>
-</ul>
-<p>Analysis Tools:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">append_insight</span></code>: Add business insights to the memo resource</p></li>
-</ul>
-<p>Resources:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">memo://insights</span></code>: A continuously updated business insights memo</p></li>
-</ul>
-<p>The server also includes a demonstration prompt <code class="docutils literal notranslate"><span class="pre">mcp-demo</span></code> that guides users through database operations and analysis.</p>
 </section>
-</section>
-<section id="running-mcp-servers">
-<h2>Running MCP Servers<a class="headerlink" href="#running-mcp-servers" title="Link to this heading">#</a></h2>
-<p>Each server provides its own set of tools that become available to the assistant.</p>
-<p>MCP servers can be run in several ways:</p>
-<ul class="simple">
-<li><p>Using package managers like <code class="docutils literal notranslate"><span class="pre">npx</span></code>, <code class="docutils literal notranslate"><span class="pre">uvx</span></code>, or <code class="docutils literal notranslate"><span class="pre">pipx</span></code> for convenient installation and execution</p></li>
-<li><p>Running from source or pre-built binaries</p></li>
-<li><p>Using Docker containers</p></li>
-</ul>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>Be cautious when using MCP servers from unknown sources, as they run with the same privileges as your user.</p>
-</div>
-<p>You can find a list of available MCP servers in the <a class="reference external" href="https://modelcontextprotocol.io/examples">example servers</a> and MCP directories like <a class="reference external" href="https://mcp.so/">MCP.so</a>.</p>
-</section>
-<section id="managing-mcp-servers">
-<h2>Managing MCP Servers<a class="headerlink" href="#managing-mcp-servers" title="Link to this heading">#</a></h2>
-<p>gptme provides CLI commands to manage and test your MCP servers:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># List all configured MCP servers and check their health</span>
-gptme-util<span class="w"> </span>mcp<span class="w"> </span>list
-
-<span class="c1"># Test connection to a specific server</span>
-gptme-util<span class="w"> </span>mcp<span class="w"> </span><span class="nb">test</span><span class="w"> </span>server-name
-
-<span class="c1"># Show detailed information about a server</span>
-gptme-util<span class="w"> </span>mcp<span class="w"> </span>info<span class="w"> </span>server-name
+<section id="creating-a-plugin">
+<h2>Creating a Plugin<a class="headerlink" href="#creating-a-plugin" title="Link to this heading">#</a></h2>
+<section id="create-plugin-directory-structure">
+<h3>1. Create Plugin Directory Structure<a class="headerlink" href="#create-plugin-directory-structure" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.config/gptme/plugins/my_plugin/tools
+touch<span class="w"> </span>~/.config/gptme/plugins/my_plugin/__init__.py
+touch<span class="w"> </span>~/.config/gptme/plugins/my_plugin/tools/__init__.py
 </pre></div>
 </div>
-<p>These commands help you verify that your MCP servers are properly configured and accessible.</p>
+</section>
+<section id="create-a-tool-module">
+<h3>2. Create a Tool Module<a class="headerlink" href="#create-a-tool-module" title="Link to this heading">#</a></h3>
+<p><strong>my_plugin/tools/hello.py:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+
+<span class="k">def</span> <span class="nf">hello_world</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Say hello to the world.&quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Hello from my plugin!&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">&quot;Hello, World!&quot;</span>
+
+<span class="c1"># Tool specification that gptme will discover</span>
+<span class="n">hello_tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;hello&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Say hello&quot;</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Use this tool to greet the world.&quot;</span><span class="p">,</span>
+    <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">hello_world</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="use-your-plugin">
+<h3>3. Use Your Plugin<a class="headerlink" href="#use-your-plugin" title="Link to this heading">#</a></h3>
+<p>Start gptme and your plugin tools will be automatically discovered and available:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;use the hello tool&quot;</span>
+&gt;<span class="w"> </span>Using<span class="w"> </span>tool:<span class="w"> </span>hello
+Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </span>plugin!
+</pre></div>
+</div>
+</section>
+</section>
+<section id="how-it-works">
+<h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Discovery</strong>: gptme searches configured plugin paths for directories with <code class="docutils literal notranslate"><span class="pre">__init__.py</span></code></p></li>
+<li><p><strong>Loading</strong>: For each plugin, gptme discovers tool modules in <code class="docutils literal notranslate"><span class="pre">tools/</span></code> subdirectory</p></li>
+<li><p><strong>Integration</strong>: Plugin tools are loaded using the same mechanism as built-in tools</p></li>
+<li><p><strong>Availability</strong>: Tools appear in <code class="docutils literal notranslate"><span class="pre">--tools</span></code> list and can be used like built-in tools</p></li>
+</ol>
+</section>
+<section id="plugin-tool-modules">
+<h2>Plugin Tool Modules<a class="headerlink" href="#plugin-tool-modules" title="Link to this heading">#</a></h2>
+<p>Plugins can provide tools in two ways:</p>
+<section id="option-1-tools-as-a-package">
+<h3>Option 1: tools/ as a Package<a class="headerlink" href="#option-1-tools-as-a-package" title="Link to this heading">#</a></h3>
+<p>Create <code class="docutils literal notranslate"><span class="pre">tools/__init__.py</span></code> and gptme will import <code class="docutils literal notranslate"><span class="pre">my_plugin.tools</span></code> as a package:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_plugin/tools/__init__.py</span>
+<span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+
+<span class="n">tool1</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">tool2</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="option-2-individual-tool-files">
+<h3>Option 2: Individual Tool Files<a class="headerlink" href="#option-2-individual-tool-files" title="Link to this heading">#</a></h3>
+<p>Skip <code class="docutils literal notranslate"><span class="pre">tools/__init__.py</span></code> and create individual files:
+text
+my_plugin/tools/
+├── tool1.py
+└── tool2.py</p>
+<p>Each file will be imported as <code class="docutils literal notranslate"><span class="pre">my_plugin.tools.tool1</span></code>, <code class="docutils literal notranslate"><span class="pre">my_plugin.tools.tool2</span></code>, etc.</p>
+</section>
+</section>
+<section id="example-weather-plugin">
+<h2>Example: Weather Plugin<a class="headerlink" href="#example-weather-plugin" title="Link to this heading">#</a></h2>
+<p>A complete example of a weather information plugin:</p>
+<p><strong>my_weather/tools/weather.py:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span><span class="p">,</span> <span class="n">ToolUse</span>
+<span class="kn">import</span> <span class="nn">requests</span>
+
+<span class="k">def</span> <span class="nf">get_weather</span><span class="p">(</span><span class="n">location</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get weather for a location.&quot;&quot;&quot;</span>
+    <span class="c1"># Implementation</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Weather in </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">: Sunny, 72°F&quot;</span>
+
+<span class="n">weather_tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;weather&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Get current weather information&quot;</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Use this tool to get weather for a location.&quot;</span><span class="p">,</span>
+    <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">get_weather</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Configuration (~/.config/gptme/gptme.toml):</strong></p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
+<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/.config/gptme/plugins&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p><strong>Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;what&#39;s the weather in San Francisco?&quot;</span>
+&gt;<span class="w"> </span>Using<span class="w"> </span>tool:<span class="w"> </span>weather
+Weather<span class="w"> </span><span class="k">in</span><span class="w"> </span>San<span class="w"> </span>Francisco:<span class="w"> </span>Sunny,<span class="w"> </span><span class="m">72</span>°F
+</pre></div>
+</div>
+</section>
+<section id="distribution">
+<h2>Distribution<a class="headerlink" href="#distribution" title="Link to this heading">#</a></h2>
+<p>Plugins can be distributed as:</p>
+<ol class="arabic">
+<li><p><strong>Git repositories</strong>: Clone into plugin directory</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/user/gptme-plugin<span class="w"> </span>~/.config/gptme/plugins/plugin-name
+</pre></div>
+</div>
+</li>
+<li><p><strong>PyPI packages</strong>: Install and add to plugin path</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>gptme-weather-plugin
+<span class="c1"># Add site-packages location to plugins.paths in gptme.toml</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Local directories</strong>: Copy plugin folder to plugin path</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>-r<span class="w"> </span>my_plugin<span class="w"> </span>~/.config/gptme/plugins/
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+<section id="migration-from-tool-modules">
+<h2>Migration from TOOL_MODULES<a class="headerlink" href="#migration-from-tool-modules" title="Link to this heading">#</a></h2>
+<p>The plugin system is compatible with the existing <code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code> environment variable.</p>
+<p><strong>Old approach:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MODULES</span><span class="o">=</span><span class="s2">&quot;gptme.tools,my_custom_tools&quot;</span>
+gptme
+</pre></div>
+</div>
+<p><strong>New approach (gptme.toml):</strong></p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
+<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/.config/gptme/plugins&quot;</span><span class="p">]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;my_plugin&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>Both approaches work and can coexist. The plugin system provides better organization and discoverability for complex tool collections.</p>
+</section>
+<section id="future-hooks-and-commands">
+<h2>Future: Hooks and Commands<a class="headerlink" href="#future-hooks-and-commands" title="Link to this heading">#</a></h2>
+<p>Future phases will add support for:</p>
+<ul class="simple">
+<li><p><strong>Hooks</strong>: Plugin-provided hooks for events (e.g., pre-generation, post-execution)</p></li>
+<li><p><strong>Commands</strong>: Plugin-provided commands for the gptme CLI</p></li>
+</ul>
+<p>Stay tuned for updates!</p>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
+<p><strong>Plugin not discovered:</strong></p>
+<ul class="simple">
+<li><p>Ensure plugin directory has <code class="docutils literal notranslate"><span class="pre">__init__.py</span></code></p></li>
+<li><p>Check plugin path is correctly configured in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
+<li><p>Verify path is absolute or relative to config directory</p></li>
+</ul>
+<p><strong>Tools not loading:</strong></p>
+<ul class="simple">
+<li><p>Check <code class="docutils literal notranslate"><span class="pre">tools/</span></code> directory exists and has proper structure</p></li>
+<li><p>Verify tool modules define <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> instances</p></li>
+<li><p>Look for import errors in gptme logs</p></li>
+</ul>
+<p><strong>Plugin not enabled:</strong></p>
+<ul class="simple">
+<li><p>If using <code class="docutils literal notranslate"><span class="pre">plugins.enabled</span></code> allowlist, ensure plugin name is included</p></li>
+<li><p>Remove <code class="docutils literal notranslate"><span class="pre">enabled</span></code> list to load all discovered plugins</p></li>
+</ul>
 </section>
 </section>
 
@@ -606,20 +683,20 @@ gptme-util<span class="w"> </span>mcp<span class="w"> </span>info<span class="w"
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="server.html"
+       href="hooks.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Server</p>
+        <p class="prev-next-title">Hooks</p>
       </div>
     </a>
     <a class="right-next"
-       href="cli.html"
+       href="misc/server-hooks-analysis.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">CLI Reference</p>
+        <p class="prev-next-title">Server Hooks Analysis</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -640,18 +717,25 @@ gptme-util<span class="w"> </span>mcp<span class="w"> </span>info<span class="w"
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-structure">Plugin Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#management-tool">Management Tool</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-a-plugin">Creating a Plugin</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-plugin-directory-structure">1. Create Plugin Directory Structure</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-a-tool-module">2. Create a Tool Module</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-your-plugin">3. Use Your Plugin</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-examples">MCP Server Examples</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sqlite-server">SQLite Server</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">How It Works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-tool-modules">Plugin Tool Modules</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-tools-as-a-package">Option 1: tools/ as a Package</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-tool-files">Option 2: Individual Tool Files</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-mcp-servers">Running MCP Servers</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-mcp-servers">Managing MCP Servers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-from-tool-modules">Migration from TOOL_MODULES</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#future-hooks-and-commands">Future: Hooks and Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
 </ul>
   </nav></div>
 
