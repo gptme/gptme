@@ -391,6 +391,63 @@ def subagent_wait(agent_id: str) -> dict:
     return asdict(status)
 
 
+def subagent_read_log(
+    agent_id: str,
+    max_messages: int = 50,
+    include_system: bool = False,
+    message_filter: str | None = None,
+) -> str:
+    """Read the conversation log of a subagent.
+
+    Args:
+        agent_id: The subagent to read logs from
+        max_messages: Maximum number of messages to return
+        include_system: Whether to include system messages
+        message_filter: Filter messages by role (user/assistant/system) or None for all
+
+    Returns:
+        Formatted log output showing the conversation
+    """
+    subagent = None
+    for sa in _subagents:
+        if sa.agent_id == agent_id:
+            subagent = sa
+            break
+
+    if subagent is None:
+        raise ValueError(f"Subagent with ID {agent_id} not found.")
+
+    try:
+        log_manager = subagent.get_log()
+        messages = log_manager.log.messages
+
+        # Filter messages
+        if not include_system:
+            messages = [m for m in messages if m.role != "system" or not m.hide]
+        if message_filter:
+            messages = [m for m in messages if m.role == message_filter]
+
+        # Limit number of messages
+        if len(messages) > max_messages:
+            messages = messages[-max_messages:]
+
+        # Format output
+        output = f"=== Subagent Log: {agent_id} ===\n"
+        output += f"Total messages: {len(messages)}\n"
+        output += f"Logdir: {subagent.logdir}\n\n"
+
+        for msg in messages:
+            timestamp = msg.timestamp.strftime("%H:%M:%S") if msg.timestamp else "N/A"
+            content_preview = (
+                msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
+            )
+            output += f"[{timestamp}] {msg.role}:\n{content_preview}\n\n"
+
+        return output
+    except Exception as e:
+        return f"Error reading log: {e}\nLogdir: {subagent.logdir}"
+
+
 def examples(tool_format):
     return f"""
 ### Executor Mode (single task)
@@ -437,14 +494,16 @@ Assistant: I'll use selective mode to share only tool descriptions, not workspac
 
 
 instructions = """
-You can create, check status and wait for subagents.
+You can create, check status, wait for, and read logs from subagents.
+
+Use subagent_read_log() to inspect a subagent's conversation log for debugging or detailed understanding of what happened.
 """.strip()
 
 tool = ToolSpec(
     name="subagent",
     desc="Create and manage subagents",
     examples=examples,
-    functions=[subagent, subagent_status, subagent_wait],
+    functions=[subagent, subagent_status, subagent_wait, subagent_read_log],
     disabled_by_default=True,
 )
 __doc__ = tool.get_doc(__doc__)
