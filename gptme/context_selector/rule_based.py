@@ -1,6 +1,7 @@
 """Rule-based context selection using keyword/pattern matching."""
 
 import logging
+from collections.abc import Sequence
 
 from .base import ContextItem, ContextSelector
 from .config import ContextSelectorConfig
@@ -21,7 +22,7 @@ class RuleBasedSelector(ContextSelector):
     async def select(
         self,
         query: str,
-        candidates: list[ContextItem],
+        candidates: Sequence[ContextItem],
         max_results: int = 5,
     ) -> list[ContextItem]:
         """Select items by keyword matching."""

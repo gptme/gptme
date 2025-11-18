@@ -5,6 +5,7 @@ using different strategies (rule-based, LLM-based, hybrid).
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -47,7 +48,7 @@ class ContextSelector(ABC):
     async def select(
         self,
         query: str,
-        candidates: list[ContextItem],
+        candidates: Sequence[ContextItem],
         max_results: int = 5,
     ) -> list[ContextItem]:
         """Select the most relevant items from candidates.

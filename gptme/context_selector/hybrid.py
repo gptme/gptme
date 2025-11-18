@@ -1,6 +1,7 @@
 """Hybrid context selection combining rule-based and LLM-based approaches."""
 
 import logging
+from collections.abc import Sequence
 
 from .base import ContextItem, ContextSelector
 from .config import ContextSelectorConfig
@@ -32,7 +33,7 @@ class HybridSelector(ContextSelector):
     async def select(
         self,
         query: str,
-        candidates: list[ContextItem],
+        candidates: Sequence[ContextItem],
         max_results: int = 5,
     ) -> list[ContextItem]:
         """Select using hybrid approach: rule pre-filter + LLM refinement."""

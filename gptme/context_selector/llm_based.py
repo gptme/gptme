@@ -2,6 +2,7 @@
 
 import logging
 import time
+from collections.abc import Sequence
 
 from ..llm import Message, reply
 from .base import ContextItem, ContextSelector
@@ -55,7 +56,7 @@ class LLMSelector(ContextSelector):
     async def select(
         self,
         query: str,
-        candidates: list[ContextItem],
+        candidates: Sequence[ContextItem],
         max_results: int = 5,
     ) -> list[ContextItem]:
         """Select items using LLM evaluation."""
@@ -96,7 +97,7 @@ class LLMSelector(ContextSelector):
 
         return selected[:max_results]
 
-    def _format_candidates(self, candidates: list[ContextItem]) -> str:
+    def _format_candidates(self, candidates: Sequence[ContextItem]) -> str:
         """Format candidates for LLM evaluation."""
         lines = ["<candidates>"]
 
@@ -124,7 +125,7 @@ class LLMSelector(ContextSelector):
         # Look for <selected>...</selected> tags
         if "<selected>" in response and "</selected>" in response:
             start = response.index("<selected>") + len("<selected>")
-            end = response.index("</selected>")
+            end = response.index("</selected>", start)  # Find closing tag after opening
             content = response[start:end].strip()
 
             if content:
