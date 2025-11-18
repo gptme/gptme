@@ -6,6 +6,7 @@ prevent resumption, compacting them to allow the conversation to continue.
 """
 
 import logging
+import re
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,22 +25,56 @@ _last_autocompact_time = 0.0
 _autocompact_min_interval = 60  # Minimum 60 seconds between autocompact attempts
 
 
+def strip_reasoning(content: str, model: str = "gpt-4") -> tuple[str, int]:
+    """
+    Strip reasoning tags from message content.
+
+    Removes <think>...</think> and <thinking>...</thinking> blocks
+    while preserving the rest of the content.
+
+    Args:
+        content: Message content potentially containing reasoning tags
+        model: Model name for token counting
+
+    Returns:
+        Tuple of (stripped_content, tokens_saved)
+    """
+    original_tokens = len_tokens(content, model)
+
+    # Remove <think>...</think> blocks (including newlines inside)
+    stripped = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+
+    # Remove <thinking>...</thinking> blocks (including newlines inside)
+    stripped = re.sub(r"<thinking>.*?</thinking>", "", stripped, flags=re.DOTALL)
+
+    # Clean up extra whitespace left by removals
+    stripped = re.sub(r"\n\n\n+", "\n\n", stripped)  # Multiple blank lines -> two
+    stripped = stripped.strip()
+
+    tokens_saved = original_tokens - len_tokens(stripped, model)
+    return stripped, tokens_saved
+
+
 def auto_compact_log(
     log: list[Message],
     limit: int | None = None,
     max_tool_result_tokens: int = 2000,
+    reasoning_strip_age_threshold: int = 5,
     logdir: Path | None = None,
 ) -> Generator[Message, None, None]:
     """
     Auto-compact log for conversations with massive tool results.
 
-    More aggressive than reduce_log - completely removes massive tool results
-    instead of just truncating them, to allow conversation resumption.
+    More aggressive than reduce_log - implements strategic removal:
+    1. Strips reasoning tags from older messages (age-based)
+    2. Removes massive tool results (existing behavior)
+    3. Prioritizes keeping recent context (phase-aware)
 
     Args:
         log: List of messages to compact
         limit: Token limit (defaults to 80% of model context)
         max_tool_result_tokens: Maximum tokens allowed in a tool result before removal
+        reasoning_strip_age_threshold: Strip reasoning from messages >N positions back
         logdir: Path to conversation directory for saving removed outputs
     """
     from ..llm.models import get_default_model, get_model
@@ -53,26 +88,60 @@ def auto_compact_log(
     tokens = len_tokens(log, model=model.model)
     close_to_limit = tokens >= int(0.7 * model.context)
 
-    # Only return early if we're not close to limit and don't have massive tool results
-    if tokens <= limit and not close_to_limit:
+    # Calculate message positions from end (for age-based reasoning stripping)
+    log_length = len(log)
+
+    # Check if any reasoning stripping is needed
+    needs_reasoning_strip = any(
+        (log_length - idx - 1) >= reasoning_strip_age_threshold
+        and ("<think>" in msg.content or "<thinking>" in msg.content)
+        for idx, msg in enumerate(log)
+    )
+    needs_compacting = tokens > limit or close_to_limit
+
+    # Only return early if nothing needs processing
+    if not needs_reasoning_strip and not needs_compacting:
         yield from log
         return
 
-    logger.info(f"Auto-compacting log: {tokens} tokens exceeds limit of {limit}")
+    if needs_compacting:
+        logger.info(f"Auto-compacting log: {tokens} tokens exceeds limit of {limit}")
+    if needs_reasoning_strip:
+        logger.info(
+            f"Stripping reasoning from messages beyond threshold {reasoning_strip_age_threshold}"
+        )
 
     # Process messages and remove massive tool results
     compacted_log = []
     tokens_saved = 0
+    reasoning_tokens_saved = 0
 
-    for msg in log:
+    for idx, msg in enumerate(log):
         # Skip processing pinned messages
         if msg.pinned:
             compacted_log.append(msg)
             continue
 
+        # Calculate distance from end (for age-based processing)
+        distance_from_end = log_length - idx - 1
+
+        # Phase 1: Strategic reasoning stripping for older messages
+        # Strip reasoning from messages beyond the threshold
+        if distance_from_end >= reasoning_strip_age_threshold:
+            stripped_content, reasoning_saved = strip_reasoning(
+                msg.content, model.model
+            )
+            if reasoning_saved > 0:
+                msg = msg.replace(content=stripped_content)
+                reasoning_tokens_saved += reasoning_saved
+                logger.info(
+                    f"Stripped reasoning from message {idx}: "
+                    f"saved {reasoning_saved} tokens (distance from end: {distance_from_end})"
+                )
+
         msg_tokens = len_tokens(msg.content, model.model)
 
-        # Check if this is a massive tool result (system message with huge content)
+        # Phase 2: Check if this is a massive tool result (system message with huge content)
         # Use same logic as should_auto_compact: over limit OR close to limit with massive tool result
         close_to_limit = tokens >= int(0.8 * model.context)
         if (
@@ -99,9 +168,12 @@ def auto_compact_log(
 
     # Check if we're now within limits
     final_tokens = len_tokens(compacted_log, model.model)
+    total_saved = tokens_saved + reasoning_tokens_saved
     if final_tokens <= limit:
         logger.info(
-            f"Auto-compacting successful: {tokens} -> {final_tokens} tokens (saved {tokens_saved})"
+            f"Auto-compacting successful: {tokens} -> {final_tokens} tokens "
+            f"(saved {total_saved}: {tokens_saved} from tool results, "
+            f"{reasoning_tokens_saved} from reasoning)"
         )
         yield from compacted_log
         return

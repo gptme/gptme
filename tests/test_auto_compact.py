@@ -254,6 +254,101 @@ def test_get_compacted_name_empty_string():
         _get_compacted_name("")
 
 
+def test_strip_reasoning_removes_think_tags():
+    """Test that strip_reasoning removes <think> tags."""
+    from gptme.tools.autocompact import strip_reasoning
+
+    content = "Before <think>This is reasoning</think> After"
+    stripped, tokens_saved = strip_reasoning(content, "gpt-4")
+
+    assert "<think>" not in stripped
+    assert "</think>" not in stripped
+    assert "Before" in stripped
+    assert "After" in stripped
+    assert tokens_saved > 0
+
+
+def test_strip_reasoning_removes_thinking_tags():
+    """Test that strip_reasoning removes <thinking> tags."""
+    from gptme.tools.autocompact import strip_reasoning
+
+    content = "Before <thinking>This is reasoning</thinking> After"
+    stripped, tokens_saved = strip_reasoning(content, "gpt-4")
+
+    assert "<thinking>" not in stripped
+    assert "</thinking>" not in stripped
+    assert "Before" in stripped
+    assert "After" in stripped
+    assert tokens_saved > 0
+
+
+def test_strip_reasoning_handles_multiple_blocks():
+    """Test that strip_reasoning removes multiple reasoning blocks."""
+    from gptme.tools.autocompact import strip_reasoning
+
+    content = "<think>First</think> Middle <thinking>Second</thinking> End"
+    stripped, tokens_saved = strip_reasoning(content, "gpt-4")
+
+    assert "<think>" not in stripped
+    assert "<thinking>" not in stripped
+    assert "Middle" in stripped
+    assert "End" in stripped
+    assert tokens_saved > 0
+
+
+def test_strip_reasoning_preserves_content_without_tags():
+    """Test that strip_reasoning preserves content without reasoning tags."""
+    from gptme.tools.autocompact import strip_reasoning
+
+    content = "This is normal content without reasoning"
+    stripped, tokens_saved = strip_reasoning(content, "gpt-4")
+
+    assert stripped == content
+    assert tokens_saved == 0
+
+
+def test_auto_compact_strips_reasoning_from_older_messages():
+    """Test that auto_compact_log strips reasoning from older messages."""
+    messages = [
+        Message("user", "First <think>old reasoning</think>", datetime.now()),
+        Message("assistant", "Second <think>old reasoning</think>", datetime.now()),
+        Message("user", "Third <think>old reasoning</think>", datetime.now()),
+        Message("assistant", "Fourth <think>old reasoning</think>", datetime.now()),
+        Message("user", "Fifth <think>old reasoning</think>", datetime.now()),
+        Message("assistant", "Recent <think>recent reasoning</think>", datetime.now()),
+        Message("user", "Most recent <think>recent reasoning</think>", datetime.now()),
+    ]
+
+    # Apply auto-compacting with reasoning_strip_age_threshold=5
+    compacted = list(auto_compact_log(messages, reasoning_strip_age_threshold=5))
+
+    # First two messages (distance from end >= 5) should have reasoning stripped
+    assert "<think>" not in compacted[0].content
+    assert "<think>" not in compacted[1].content
+
+    # Last 5 messages (distance from end < 5) should keep reasoning
+    for i in range(-5, 0):
+        # Check if original had <think>, if so, compacted should too
+        if "<think>" in messages[i].content:
+            assert "<think>" in compacted[i].content
+
+
+def test_auto_compact_reasoning_strip_threshold_zero():
+    """Test that threshold=0 strips reasoning from all messages."""
+    messages = [
+        Message("user", "Message 1 <think>reasoning 1</think>", datetime.now()),
+        Message("assistant", "Message 2 <think>reasoning 2</think>", datetime.now()),
+        Message("user", "Message 3 <think>reasoning 3</think>", datetime.now()),
+    ]
+
+    # Apply with threshold=0 (strip all)
+    compacted = list(auto_compact_log(messages, reasoning_strip_age_threshold=0))
+
+    # All messages should have reasoning stripped
+    for msg in compacted:
+        assert "<think>" not in msg.content
+
+
 if __name__ == "__main__":
     # Allow running the test directly
     pytest.main([__file__])
