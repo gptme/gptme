@@ -1,6 +1,7 @@
 """Hook system for extending gptme functionality at various lifecycle points."""
 
 import logging
+import threading
 from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -393,6 +394,19 @@ _registry_var: ContextVar[HookRegistry | None] = ContextVar(
     "hook_registry", default=None
 )
 
+# Global lock for thread-safe hook initialization
+_hooks_init_lock = threading.Lock()
+
+
+def _thread_safe_init(func):
+    """Decorator for thread-safe initialization."""
+
+    def wrapper(*args, **kwargs):
+        with _hooks_init_lock:
+            return func(*args, **kwargs)
+
+    return wrapper
+
 
 def get_registry() -> HookRegistry:
     """Get the current hook registry, creating one if needed."""
@@ -574,6 +588,7 @@ def clear_hooks(hook_type: HookType | None = None) -> None:
         registry.hooks.clear()
 
 
+@_thread_safe_init
 def init_hooks(allowlist: list[str] | None = None) -> None:
     """Initialize and register hooks in a thread-safe manner.
 
