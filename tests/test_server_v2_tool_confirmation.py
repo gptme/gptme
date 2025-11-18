@@ -1,7 +1,6 @@
 """Tests for the tool confirmation flow in the V2 API."""
 
 import logging
-import os
 import unittest.mock
 
 import pytest
@@ -12,7 +11,6 @@ from gptme.tools import ToolUse
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.xfail("CI" in os.environ, reason="Flaky on CI (sometimes)")
 @pytest.mark.timeout(20)
 def test_tool_confirmation_flow(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event

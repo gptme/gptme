@@ -12,7 +12,6 @@ from gptme.tools import ToolUse
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.xfail("CI" in os.environ, reason="Flaky, esp in CI")
 @pytest.mark.timeout(30)
 def test_auto_stepping(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event
