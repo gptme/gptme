@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Custom OpenAI-Compatible Providers &#8212; gptme</title>
+    <title>Custom Providers &#8212; gptme</title>
   
   
   
@@ -162,7 +162,7 @@
 <li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="providers.html">Providers</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Custom OpenAI-Compatible Providers</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Custom Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
@@ -179,7 +179,6 @@
 <li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
-<li class="toctree-l1"><a class="reference internal" href="misc/server-hooks-analysis.html">Server Hooks Analysis</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
@@ -429,7 +428,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Custom OpenAI-Compatible Providers</h1>
+    <h1>Custom Providers</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -474,10 +473,9 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="custom-openai-compatible-providers">
-<h1>Custom OpenAI-Compatible Providers<a class="headerlink" href="#custom-openai-compatible-providers" title="Link to this heading">#</a></h1>
-<p><strong>Status</strong>: Phase 1 Implementation (Configuration &amp; Loading)</p>
-<p>As of Phase 1, gptme supports configuring multiple custom OpenAI-compatible providers in addition to the built-in providers (openai, azure, openrouter, etc.).</p>
+  <section id="custom-providers">
+<h1>Custom Providers<a class="headerlink" href="#custom-providers" title="Link to this heading">#</a></h1>
+<p>gptme supports configuring multiple custom OpenAI-compatible providers (completions API) in addition to the built-in providers (openai, openrouter, etc.).</p>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
 <p>Add custom providers to your <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/gptme.toml</span></code>:</p>

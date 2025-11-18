@@ -1,8 +1,6 @@
-# Custom OpenAI-Compatible Providers
+# Custom Providers
 
-**Status**: Phase 1 Implementation (Configuration & Loading)
-
-As of Phase 1, gptme supports configuring multiple custom OpenAI-compatible providers in addition to the built-in providers (openai, azure, openrouter, etc.).
+gptme supports configuring multiple custom OpenAI-compatible providers (completions API) in addition to the built-in providers (openai, openrouter, etc.).
 
 ## Configuration
 
