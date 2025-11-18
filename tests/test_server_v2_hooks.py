@@ -35,176 +35,132 @@ def create_conversation(client: FlaskClient):
     return {"conversation_id": convname, "session_id": data["session_id"]}
 
 
-def test_session_start_hook(client: FlaskClient):
+def test_session_start_hook(client: FlaskClient, monkeypatch):
     """Test that SESSION_START hook is triggered for new conversations."""
-    hook_triggered = []
+    # Set hook allowlist to include test hooks
+    monkeypatch.setenv("HOOK_ALLOWLIST", "test,token_awareness")
 
-    def session_start_hook(logdir, workspace, initial_msgs):
-        hook_triggered.append("SESSION_START")
-        yield Message("system", "SESSION_START hook triggered")
+    # Create a new conversation
+    conv = create_conversation(client)
 
-    # Register the hook
-    register_hook("test_session_start", HookType.SESSION_START, session_start_hook)
+    # First, add a user message
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}",
+        json={"role": "user", "content": "Hello"},
+    )
+    assert response.status_code == 200
 
-    try:
-        # Create a new conversation
-        conv = create_conversation(client)
+    # Then call step to generate response (should trigger SESSION_START hooks)
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}/step",
+        json={
+            "session_id": conv["session_id"],
+            "stream": False,
+        },
+    )
 
-        # First, add a user message
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}",
-            json={"role": "user", "content": "Hello"},
-        )
-        assert response.status_code == 200
+    assert response.status_code == 200
 
-        # Then call step to generate response (should trigger SESSION_START)
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}/step",
-            json={
-                "session_id": conv["session_id"],
-                "stream": False,
-            },
-        )
+    # Wait for step to complete (runs in background thread)
+    time.sleep(2)
 
-        assert response.status_code == 200
+    # Get conversation log to verify hook messages were added
+    response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
+    assert response.status_code == 200
+    data = response.get_json()
 
-        # Wait for step to complete (runs in background thread)
-        time.sleep(3)
+    messages = data.get("log", [])
 
-        # Get conversation log to verify hook message was added
-        response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
-        assert response.status_code == 200
-        data = response.get_json()
-
-        messages = data.get("log", [])
-
-        # Debug: print all messages
-        print(f"\nTotal messages: {len(messages)}")
-        for i, m in enumerate(messages):
-            print(
-                f"Message {i}: role={m.get('role')}, content={m.get('content', '')[:100]}"
-            )
-
-        # Check if SESSION_START hook message is in the log
-        hook_messages = [
-            m
-            for m in messages
-            if "SESSION_START hook triggered" in m.get("content", "")
-        ]
-        assert (
-            len(hook_messages) > 0
-        ), f"SESSION_START hook message should be in log. Found {len(messages)} messages total"
-
-        # Also verify the hook was triggered (via the list, though this is fragile due to threading)
-        # We're mainly checking the log message above as the reliable indicator
-
-    finally:
-        # Clean up
-        unregister_hook("test_session_start", HookType.SESSION_START)
-
-
-def test_message_pre_process_hook(client: FlaskClient):
-    """Test that MESSAGE_PRE_PROCESS hook is triggered before generation."""
-    hook_triggered = []
-
-    def pre_process_hook(manager):
-        hook_triggered.append("MESSAGE_PRE_PROCESS")
-        yield Message("system", "PRE_PROCESS hook triggered")
-
-    # Register the hook
-    register_hook("test_pre_process", HookType.MESSAGE_PRE_PROCESS, pre_process_hook)
-
-    try:
-        # Create a new conversation
-        conv = create_conversation(client)
-
-        # First, add a user message
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}",
-            json={"role": "user", "content": "Say hello"},
-        )
-        assert response.status_code == 200
-
-        # Then call step to generate response
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}/step",
-            json={
-                "session_id": conv["session_id"],
-                "stream": False,
-            },
+    # Debug: print all messages
+    print(f"\nTotal messages: {len(messages)}")
+    for i, m in enumerate(messages):
+        print(
+            f"Message {i}: role={m.get('role')}, content={m.get('content', '')[:100]}"
         )
 
-        assert response.status_code == 200
-
-        # Wait for step to complete
-        time.sleep(3)
-
-        # Verify hook message was added
-        response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
-        assert response.status_code == 200
-        data = response.get_json()
-
-        messages = data.get("log", [])
-
-        # Debug: print all messages
-        print(f"\n=== PRE_PROCESS DEBUG: Total messages: {len(messages)} ===")
-        for i, m in enumerate(messages):
-            role = m.get("role", "?")
-            content = m.get("content", "")[:100]
-            print(f"  [{i}] {role}: {content}")
-
-        hook_messages = [
-            m for m in messages if "PRE_PROCESS hook triggered" in m.get("content", "")
-        ]
-        assert (
-            len(hook_messages) > 0
-        ), f"MESSAGE_PRE_PROCESS hook message should be in log. Found {len(messages)} messages"
-
-    finally:
-        # Clean up
-        unregister_hook("test_pre_process", HookType.MESSAGE_PRE_PROCESS)
+    # Check if test SESSION_START hook message is in the log
+    test_hook_messages = [
+        m
+        for m in messages
+        if "TEST_SESSION_START hook triggered" in m.get("content", "")
+    ]
+    assert (
+        len(test_hook_messages) > 0
+    ), f"TEST_SESSION_START hook message should be in log. Found {len(messages)} messages total"
 
 
-# FIXME: This test is currently failing in CI
-#
-# The test registers a MESSAGE_POST_PROCESS hook in the test thread,
-# but the hook message doesn't appear in the conversation log when checked.
-# MESSAGE_POST_PROCESS hooks DO work in production (both CLI and server),
-# so this is a testing infrastructure issue, not a production bug.
-#
-# Potential causes to investigate:
-# - Hook registry visibility across Flask/worker threads
-# - LogManager instance synchronization
-# - Timing issues in the test
-#
-# TODO: Change hook registry to use threading.local() or contextvars
-# for better thread isolation, similar to how tools are handled.
-#
-# See: https://github.com/gptme/gptme/pull/824
-@pytest.mark.xfail(reason="Hook testing infrastructure needs improvement")
-def test_message_post_process_hook(client: FlaskClient):
-    """Test that MESSAGE_POST_PROCESS hook is triggered after generation."""
-    hook_triggered = []
+def test_message_pre_process_hook(client: FlaskClient, monkeypatch):
+    """Test that MESSAGE_PRE_PROCESS hooks work."""
+    # Set hook allowlist to include test hooks
+    monkeypatch.setenv("HOOK_ALLOWLIST", "test")
 
-    def post_process_hook(manager):
-        hook_triggered.append("MESSAGE_POST_PROCESS")
-        yield Message("system", "POST_PROCESS hook triggered")
+    # Create a new conversation
+    conv = create_conversation(client)
 
-    # Register the hook
-    register_hook("test_post_process", HookType.MESSAGE_POST_PROCESS, post_process_hook)
+    # First, add a user message
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}",
+        json={"role": "user", "content": "Say hello"},
+    )
+    assert response.status_code == 200
 
-    try:
-        # Create a new conversation
-        conv = create_conversation(client)
+    # Call step to generate response (should trigger MESSAGE_PRE_PROCESS hooks)
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}/step",
+        json={
+            "session_id": conv["session_id"],
+            "stream": False,
+        },
+    )
 
-        # First, add a user message
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}",
-            json={"role": "user", "content": "Say hello"},
-        )
-        assert response.status_code == 200
+    assert response.status_code == 200
 
-        # Then call step to generate response
+    # Wait for step to complete
+    time.sleep(2)
+
+    # Verify that MESSAGE_PRE_PROCESS hook was triggered
+    response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
+    assert response.status_code == 200
+    data = response.get_json()
+
+    messages = data.get("log", [])
+
+    # Check if test MESSAGE_PRE_PROCESS hook message is in the log
+    test_hook_messages = [
+        m
+        for m in messages
+        if "TEST_MESSAGE_PRE_PROCESS hook triggered" in m.get("content", "")
+    ]
+    assert (
+        len(test_hook_messages) > 0
+    ), f"TEST_MESSAGE_PRE_PROCESS hook message should be in log. Found {len(messages)} messages total"
+
+
+def test_message_post_process_hook(client: FlaskClient, monkeypatch):
+    """Test that MESSAGE_POST_PROCESS hooks work."""
+    import unittest.mock
+
+    # Set hook allowlist to include test hooks
+    monkeypatch.setenv("HOOK_ALLOWLIST", "test")
+
+    # Create a new conversation
+    conv = create_conversation(client)
+
+    # First, add a user message
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}",
+        json={"role": "user", "content": "Say hello"},
+    )
+    assert response.status_code == 200
+
+    # Mock _chat_complete (since stream=False)
+    def mock_chat_complete(messages, model, tools=None):
+        return [["Hello! How can I help you?"]]
+
+    with unittest.mock.patch(
+        "gptme.server.api_v2_sessions._chat_complete", mock_chat_complete
+    ):
+        # Call step to generate response (should trigger MESSAGE_POST_PROCESS hooks)
         response = client.post(
             f"/api/v2/conversations/{conv['conversation_id']}/step",
             json={
@@ -215,33 +171,25 @@ def test_message_post_process_hook(client: FlaskClient):
 
         assert response.status_code == 200
 
-        # Wait for step to complete
-        time.sleep(3)
+        # Wait for step to complete (keep mock active)
+        time.sleep(2)
 
-        # Verify hook message was added
-        response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
-        assert response.status_code == 200
-        data = response.get_json()
+    # Verify that MESSAGE_POST_PROCESS hook was triggered
+    response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
+    assert response.status_code == 200
+    data = response.get_json()
 
-        messages = data.get("log", [])
+    messages = data.get("log", [])
 
-        # Debug: print all messages to see what we have
-        print(f"\n=== DEBUG: Total messages in log: {len(messages)} ===")
-        for i, m in enumerate(messages):
-            role = m.get("role", "?")
-            content = m.get("content", "")[:100]
-            print(f"  [{i}] {role}: {content}")
-
-        hook_messages = [
-            m for m in messages if "POST_PROCESS hook triggered" in m.get("content", "")
-        ]
-        assert (
-            len(hook_messages) > 0
-        ), f"MESSAGE_POST_PROCESS hook message should be in log. Found {len(messages)} messages, searched for 'POST_PROCESS hook triggered'"
-
-    finally:
-        # Clean up
-        unregister_hook("test_post_process", HookType.MESSAGE_POST_PROCESS)
+    # Check if test MESSAGE_POST_PROCESS hook message is in the log
+    test_hook_messages = [
+        m
+        for m in messages
+        if "TEST_MESSAGE_POST_PROCESS hook triggered" in m.get("content", "")
+    ]
+    assert (
+        len(test_hook_messages) > 0
+    ), f"TEST_MESSAGE_POST_PROCESS hook message should be in log. Found {len(messages)} messages total"
 
 
 def test_session_end_hook(client: FlaskClient):
@@ -303,53 +251,53 @@ def test_session_end_hook(client: FlaskClient):
         unregister_hook("test_session_end", HookType.SESSION_END)
 
 
-def test_hooks_work_with_tools(client: FlaskClient):
-    """Test that hooks work correctly when tools are executed."""
-    pre_hook_triggered = []
-    post_hook_triggered = []
+def test_hooks_work_with_tools(client: FlaskClient, monkeypatch):
+    """Test that hooks work correctly (simplified test)."""
+    # Set hook allowlist to include test hooks
+    monkeypatch.setenv("HOOK_ALLOWLIST", "test")
 
-    def pre_hook(manager):
-        pre_hook_triggered.append("PRE")
-        # Don't yield any message to keep it simple
+    # Create a new conversation
+    conv = create_conversation(client)
 
-    def post_hook(manager):
-        post_hook_triggered.append("POST")
-        # Don't yield any message to keep it simple
+    # First, add a user message
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}",
+        json={"role": "user", "content": "Hello"},
+    )
+    assert response.status_code == 200
 
-    # Register both hooks
-    register_hook("test_pre", HookType.MESSAGE_PRE_PROCESS, pre_hook)
-    register_hook("test_post", HookType.MESSAGE_POST_PROCESS, post_hook)
+    # Call step - hooks should work without breaking things
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}/step",
+        json={
+            "session_id": conv["session_id"],
+            "stream": False,
+        },
+    )
 
-    try:
-        # Create a new conversation
-        conv = create_conversation(client)
+    assert response.status_code == 200
 
-        # First, add a user message
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}",
-            json={"role": "user", "content": "Run: echo 'test'"},
-        )
-        assert response.status_code == 200
+    # Wait for step to complete
+    time.sleep(2)
 
-        # Then call step to generate response
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}/step",
-            json={
-                "session_id": conv["session_id"],
-                "stream": False,
-            },
-        )
+    # Verify that hooks were triggered
+    response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
+    assert response.status_code == 200
+    data = response.get_json()
 
-        assert response.status_code == 200
+    messages = data.get("log", [])
 
-        # Wait for step to complete
-        time.sleep(3)
+    # Verify both SESSION_START and MESSAGE_PRE_PROCESS hooks were triggered
+    session_start_messages = [
+        m
+        for m in messages
+        if "TEST_SESSION_START hook triggered" in m.get("content", "")
+    ]
+    pre_process_messages = [
+        m
+        for m in messages
+        if "TEST_MESSAGE_PRE_PROCESS hook triggered" in m.get("content", "")
+    ]
 
-        # We can't reliably check the hook_triggered lists due to threading,
-        # but we can verify the hooks were registered and didn't error
-        # The hooks should have been called even if we can't detect it via the list
-
-    finally:
-        # Clean up
-        unregister_hook("test_pre", HookType.MESSAGE_PRE_PROCESS)
-        unregister_hook("test_post", HookType.MESSAGE_POST_PROCESS)
+    assert len(session_start_messages) > 0, "Should have SESSION_START hook message"
+    assert len(pre_process_messages) > 0, "Should have MESSAGE_PRE_PROCESS hook message"

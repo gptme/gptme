@@ -24,7 +24,7 @@ from flask import request
 from gptme.config import ChatConfig, Config, set_config
 
 from ..dirs import get_logs_dir
-from ..hooks import HookType, trigger_hook
+from ..hooks import HookType, init_hooks, trigger_hook
 from ..llm import _chat_complete, _stream
 from ..llm.models import get_default_model
 from ..logmanager import LogManager, prepare_messages
@@ -255,8 +255,9 @@ def step(
     # Load .env file if present
     load_dotenv(dotenv_path=workspace / ".env")
 
-    # Initialize tools in this thread
+    # Initialize tools and hooks in this thread
     init_tools(chat_config.tools)
+    init_hooks()
 
     # Load conversation
     manager = LogManager.load(
@@ -482,8 +483,9 @@ def start_tool_execution(
         config.chat = chat_config
         set_config(config)
 
-        # Initialize tools in this thread
+        # Initialize tools and hooks in this thread
         init_tools(None)
+        init_hooks()
 
         # Load .env file if present
         load_dotenv(dotenv_path=chat_config.workspace / ".env")
@@ -724,18 +726,24 @@ def api_conversation_step(conversation_id: str):
     # Get the branch and model
     branch = req_json.get("branch", "main")
     default_model = get_default_model()
-    assert (
-        default_model is not None
-    ), "No model loaded and no model specified in request"
-    model = req_json.get("model", chat_config.model or default_model.full)
 
-    # Set the model as default before starting step thread
-    # This ensures hooks like token_awareness can access it
-    from ..llm.models import set_default_model
-
-    set_default_model(model)
+    # Get model from request, config, or default (in that order)
+    model = req_json.get("model")
+    if not model:
+        model = chat_config.model
+    if not model and default_model:
+        model = default_model.full
+    if not model:
+        # Try to get from environment/config as last resort
+        config = Config.from_workspace(workspace=chat_config.workspace)
+        model = config.get_env("MODEL")
+    if not model:
+        return flask.jsonify(
+            {"error": "No model specified and no default model set"}
+        ), 400
 
     # Start step execution in a background thread
+    # Model will be set in the worker thread by step()
     _start_step_thread(
         conversation_id=conversation_id,
         session=session,

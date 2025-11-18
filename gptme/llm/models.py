@@ -1,4 +1,5 @@
 import logging
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from typing import (
@@ -79,8 +80,10 @@ class _ModelDictMeta(TypedDict):
     knowledge_cutoff: NotRequired[datetime]
 
 
-# default model
-DEFAULT_MODEL: ModelMeta | None = None
+# default model - using ContextVar for thread safety
+_default_model_var: ContextVar[ModelMeta | None] = ContextVar(
+    "default_model", default=None
+)
 
 # known models metadata
 # TODO: can we get this from the API?
@@ -349,13 +352,14 @@ assert set(PROVIDERS) == set(MODELS.keys())
 
 
 def get_default_model() -> ModelMeta | None:
-    return DEFAULT_MODEL
+    return _default_model_var.get()
 
 
 def get_default_model_summary() -> ModelMeta | None:
-    if not DEFAULT_MODEL:
+    default_model = get_default_model()
+    if not default_model:
         return None
-    provider = DEFAULT_MODEL.provider
+    provider = default_model.provider
     assert provider != "unknown"
     return get_model(f"{provider}/{get_summary_model(provider)}")
 
@@ -363,8 +367,7 @@ def get_default_model_summary() -> ModelMeta | None:
 def set_default_model(model: str | ModelMeta) -> None:
     modelmeta = model if isinstance(model, ModelMeta) else get_model(model)
     assert modelmeta
-    global DEFAULT_MODEL
-    DEFAULT_MODEL = modelmeta
+    _default_model_var.set(modelmeta)
 
 
 _logged_warnings = set()

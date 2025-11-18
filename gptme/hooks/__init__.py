@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Generator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -387,8 +388,24 @@ class HookRegistry:
                     logger.debug(f"Disabled hook '{name}'")
 
 
-# Global hook registry
-_registry = HookRegistry()
+# Context-local registry (each thread/context has its own)
+_registry_var: ContextVar[HookRegistry | None] = ContextVar(
+    "hook_registry", default=None
+)
+
+
+def get_registry() -> HookRegistry:
+    """Get the current hook registry, creating one if needed."""
+    registry = _registry_var.get()
+    if registry is None:
+        registry = HookRegistry()
+        _registry_var.set(registry)
+    return registry
+
+
+def set_registry(registry: HookRegistry) -> None:
+    """Set the hook registry for this context."""
+    _registry_var.set(registry)
 
 
 # Type-safe overloads for register_hook
@@ -514,12 +531,12 @@ def register_hook(
     Direct calls with Literal hook types get strict type checking.
     Dynamic calls (non-Literal types) use the generic HookFunc fallback.
     """
-    _registry.register(name, hook_type, func, priority, enabled)
+    get_registry().register(name, hook_type, func, priority, enabled)
 
 
 def unregister_hook(name: str, hook_type: HookType | None = None) -> None:
-    """Unregister a hook from the global registry."""
-    _registry.unregister(name, hook_type)
+    """Unregister a hook from the registry."""
+    get_registry().unregister(name, hook_type)
 
 
 def trigger_hook(
@@ -527,7 +544,7 @@ def trigger_hook(
 ) -> Generator[Message, None, None]:
     """Trigger hooks of a given type."""
     try:
-        yield from _registry.trigger(hook_type, *args, **kwargs)
+        yield from get_registry().trigger(hook_type, *args, **kwargs)
     except KeyboardInterrupt:
         logger.debug(f"Hook trigger {hook_type} interrupted by user")
         return
@@ -535,42 +552,87 @@ def trigger_hook(
 
 def get_hooks(hook_type: HookType | None = None) -> list[Hook]:
     """Get all registered hooks."""
-    return _registry.get_hooks(hook_type)
+    return get_registry().get_hooks(hook_type)
 
 
 def enable_hook(name: str, hook_type: HookType | None = None) -> None:
     """Enable a hook."""
-    _registry.enable_hook(name, hook_type)
+    get_registry().enable_hook(name, hook_type)
 
 
 def disable_hook(name: str, hook_type: HookType | None = None) -> None:
     """Disable a hook."""
-    _registry.disable_hook(name, hook_type)
+    get_registry().disable_hook(name, hook_type)
 
 
 def clear_hooks(hook_type: HookType | None = None) -> None:
     """Clear all hooks, optionally filtered by type."""
+    registry = get_registry()
     if hook_type:
-        _registry.hooks[hook_type] = []
+        registry.hooks[hook_type] = []
     else:
-        _registry.hooks.clear()
+        registry.hooks.clear()
 
 
-def init_hooks() -> None:
-    """Initialize and register all default hooks."""
-    # Import hook modules to auto-register them
-    from . import cwd_tracking, markdown_validation, time_awareness, token_awareness
+def init_hooks(allowlist: list[str] | None = None) -> None:
+    """Initialize and register hooks in a thread-safe manner.
 
-    cwd_tracking.register()
-    markdown_validation.register()
-    time_awareness.register()
-    token_awareness.register()
-
-    # Register plugin hooks
+    If allowlist is not provided, it will be loaded from the environment variable
+    HOOK_ALLOWLIST or the chat config (if set).
+    """
     from ..config import get_config
-    from ..plugins import register_plugin_hooks
 
     config = get_config()
+
+    # Get allowlist from parameter, environment, or config
+    if allowlist is None:
+        env_allowlist = config.get_env("HOOK_ALLOWLIST")
+        if env_allowlist:
+            allowlist = env_allowlist.split(",")
+        # Note: hooks are not yet in chat config, but could be added later
+        # elif config.chat and config.chat.hooks:
+        #     allowlist = config.chat.hooks
+
+    # Available hooks with their register functions
+    available_hooks = {
+        "cwd_tracking": lambda: __import__(
+            "gptme.hooks.cwd_tracking", fromlist=["register"]
+        ).register(),
+        "markdown_validation": lambda: __import__(
+            "gptme.hooks.markdown_validation", fromlist=["register"]
+        ).register(),
+        "time_awareness": lambda: __import__(
+            "gptme.hooks.time_awareness", fromlist=["register"]
+        ).register(),
+        "token_awareness": lambda: __import__(
+            "gptme.hooks.token_awareness", fromlist=["register"]
+        ).register(),
+        "test": lambda: __import__(
+            "gptme.hooks.test", fromlist=["register_test_hooks"]
+        ).register_test_hooks(),
+    }
+
+    # Determine which hooks to register
+    if allowlist is not None:
+        hooks_to_register = allowlist
+    else:
+        # Register all default hooks except test
+        hooks_to_register = [h for h in available_hooks if h != "test"]
+
+    # Register the hooks
+    for hook_name in hooks_to_register:
+        if hook_name in available_hooks:
+            try:
+                available_hooks[hook_name]()
+                logger.debug(f"Registered hook: {hook_name}")
+            except Exception as e:
+                logger.warning(f"Failed to register hook '{hook_name}': {e}")
+        else:
+            logger.warning(f"Hook '{hook_name}' not found")
+
+    # Register plugin hooks
+    from ..plugins import register_plugin_hooks
+
     if config.project and config.project.plugins and config.project.plugins.paths:
         register_plugin_hooks(
             plugin_paths=[Path(p) for p in config.project.plugins.paths],
