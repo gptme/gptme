@@ -18,6 +18,8 @@ To get inspiration for your first prompt, see the :doc:`examples`.
    :local:
    :backlinks: none
 
+.. _commands:
+
 Commands
 --------
 
