@@ -47,6 +47,7 @@ class Subagent:
     prompt: str
     thread: threading.Thread
     logdir: Path
+    model: str | None
 
     def get_log(self) -> "LogManager":
         # noreorder
@@ -66,6 +67,7 @@ class Subagent:
         last_msg = log[-1]
 
         # Check for complete tool call in last message
+        # Try parsing as ToolUse first
         tool_uses = list(ToolUse.iter_from_content(last_msg.content))
         complete_tool = next((tu for tu in tool_uses if tu.tool == "complete"), None)
 
@@ -76,6 +78,21 @@ class Subagent:
                 "success",
                 result + f"\n\nFull log: {self.logdir}",
             )
+
+        # Fallback: Check for complete code block directly
+        if "```complete" in last_msg.content:
+            # Extract content between ```complete and ```
+            import re
+
+            match = re.search(
+                r"```complete\s*\n(.*?)\n```", last_msg.content, re.DOTALL
+            )
+            if match:
+                result = match.group(1).strip() or "Task completed"
+                return ReturnType(
+                    "success",
+                    result + f"\n\nFull log: {self.logdir}",
+                )
 
         # Check if session ended with system completion message
         if last_msg.role == "system" and "Task complete" in last_msg.content:
@@ -91,6 +108,107 @@ class Subagent:
         )
 
 
+def _create_subagent_thread(
+    prompt: str,
+    logdir: Path,
+    model: str | None,
+    context_mode: Literal["full", "instructions-only", "selective"],
+    context_include: list[str] | None,
+    workspace: Path,
+    target: str = "parent",
+) -> None:
+    """Shared function for running subagent threads.
+
+    Args:
+        prompt: Task prompt for the subagent
+        logdir: Directory for conversation logs
+        model: Model to use for the subagent
+        context_mode: Controls what context is shared
+        context_include: For selective mode, list of context components
+        workspace: Workspace directory
+        target: Who will review the results ("parent" or "planner")
+    """
+    # noreorder
+    from gptme import chat  # fmt: skip
+    from gptme.llm.models import set_default_model  # fmt: skip
+    from gptme.tools import init_tools  # fmt: skip
+
+    from ..prompts import get_prompt  # fmt: skip
+
+    # Initialize model and tools for this thread
+    if model:
+        set_default_model(model)
+    init_tools(allowlist=None)
+
+    prompt_msgs = [Message("user", prompt)]
+
+    # Build initial messages based on context_mode
+    if context_mode == "instructions-only":
+        # Minimal system context - just basic instruction
+        initial_msgs = [
+            Message(
+                "system",
+                "You are a helpful AI assistant. Complete the task described by the user. Use the `complete` tool when finished with a summary of your work.",
+            )
+        ]
+        # Add complete tool for instructions-only mode
+        from ..prompts import prompt_tools
+
+        initial_msgs.extend(
+            list(
+                prompt_tools(
+                    tools=[t for t in get_tools() if t.name == "complete"],
+                    tool_format="markdown",
+                )
+            )
+        )
+    elif context_mode == "selective":
+        # Selective context - build from specified components
+        from ..prompts import prompt_gptme, prompt_tools
+
+        initial_msgs = []
+
+        # Type narrowing: context_include validated as not None by caller
+        assert context_include is not None
+
+        # Add components based on context_include
+        if "agent" in context_include:
+            initial_msgs.extend(list(prompt_gptme(False, None, agent_name=None)))
+        if "tools" in context_include:
+            initial_msgs.extend(
+                list(prompt_tools(tools=get_tools(), tool_format="markdown"))
+            )
+    else:  # "full" mode (default)
+        # Full context
+        initial_msgs = get_prompt(get_tools(), interactive=False, workspace=workspace)
+
+    # Add completion instruction as a system message
+    complete_instruction = Message(
+        "system",
+        "When you have finished the task, use the `complete` tool to signal completion:\n"
+        "```complete\n"
+        "Brief summary of what was accomplished.\n"
+        "```\n\n"
+        f"This signals task completion. The full conversation log will be available to the {target} for review.",
+    )
+    initial_msgs.append(complete_instruction)
+
+    # Note: workspace parameter is always passed to chat() (required parameter)
+    # Workspace context in messages is controlled by initial_msgs
+    chat(
+        prompt_msgs,
+        initial_msgs,
+        logdir=logdir,
+        workspace=workspace,
+        model=model,
+        stream=False,
+        no_confirm=True,
+        interactive=False,
+        show_hidden=False,
+        tool_format="markdown",
+    )
+
+
 def _run_planner(
     agent_id: str,
     prompt: str,
@@ -98,6 +216,7 @@ def _run_planner(
     execution_mode: Literal["parallel", "sequential"] = "parallel",
     context_mode: Literal["full", "instructions-only", "selective"] = "full",
     context_include: list[str] | None = None,
+    model: str | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -109,10 +228,7 @@ def _run_planner(
         context_mode: Controls what context is shared with executors (see subagent() docs)
         context_include: For selective mode, list of context components to include
     """
-    from gptme import chat
     from gptme.cli import get_logdir
-
-    from ..prompts import get_prompt
 
     logger.info(
         f"Starting planner {agent_id} with {len(subtasks)} subtasks "
@@ -131,77 +247,20 @@ def _run_planner(
         logdir = get_logdir(name + "-" + random_string(4))
 
         def run_executor(prompt=executor_prompt, log_dir=logdir):
-            prompt_msgs = [Message("user", prompt)]
-            workspace = Path.cwd()
-
-            # Build initial messages based on context_mode
-            if context_mode == "instructions-only":
-                # Minimal system context - just basic instruction
-                initial_msgs = [
-                    Message(
-                        "system",
-                        "You are a helpful AI assistant. Complete the task described by the user. Use the `complete` tool when finished with a summary of your work.",
-                    )
-                ]
-                # Add complete tool for instructions-only mode
-                from ..prompts import prompt_tools
-
-                initial_msgs.extend(
-                    list(
-                        prompt_tools(
-                            tools=[t for t in get_tools() if t.name == "complete"],
-                            tool_format="markdown",
-                        )
-                    )
-                )
-            elif context_mode == "selective":
-                # Selective context - build from specified components
-                from ..prompts import prompt_gptme, prompt_tools
-
-                initial_msgs = []
-
-                # Add components based on context_include
-                if context_include and "agent" in context_include:
-                    initial_msgs.extend(
-                        list(prompt_gptme(False, None, agent_name=None))
-                    )
-                if context_include and "tools" in context_include:
-                    initial_msgs.extend(
-                        list(prompt_tools(tools=get_tools(), tool_format="markdown"))
-                    )
-                # workspace handled by passing workspace parameter to chat() if included
-            else:  # "full" mode (default)
-                # Full context
-                initial_msgs = get_prompt(
-                    get_tools(), interactive=False, workspace=workspace
-                )
-
-            complete_prompt = (
-                "When you have finished the task, use the `complete` tool:\n"
-                "```complete\n"
-                "Brief summary of what was accomplished.\n"
-                "```\n\n"
-                "This signals task completion. The full conversation log will be "
-                "available to the planner for review."
-            )
-            prompt_msgs.append(Message("user", complete_prompt))
-            chat(
-                prompt_msgs,
-                initial_msgs,
+            _create_subagent_thread(
+                prompt=prompt,
                 logdir=log_dir,
-                workspace=workspace,
-                model=None,
-                stream=False,
-                no_confirm=True,
-                interactive=False,
-                show_hidden=False,
-                tool_format="markdown",
+                model=model,
+                context_mode=context_mode,
+                context_include=context_include,
+                workspace=Path.cwd(),
+                target="planner",
             )
 
         t = threading.Thread(target=run_executor, daemon=True)
         t.start()
         threads.append(t)
-        _subagents.append(Subagent(executor_id, executor_prompt, t, logdir))
+        _subagents.append(Subagent(executor_id, executor_prompt, t, logdir, model))
 
         # Sequential mode: wait for each task to complete before starting next
         if execution_mode == "sequential":
@@ -254,11 +313,25 @@ def subagent(
             Executors use the `complete` tool to signal completion with a summary.
             The full conversation log is available at the logdir path.
     """
+    # noreorder
+    from gptme.cli import get_logdir  # fmt: skip
+    from gptme.llm.models import get_default_model  # fmt: skip
+
+    # Get current model from parent conversation (needed for both executor and planner modes)
+    current_model = get_default_model()
+    model_name = current_model.full if current_model else None
+
     if mode == "planner":
         if not subtasks:
             raise ValueError("Planner mode requires subtasks parameter")
         return _run_planner(
-            agent_id, prompt, subtasks, execution_mode, context_mode, context_include
+            agent_id,
+            prompt,
+            subtasks,
+            execution_mode,
+            context_mode,
+            context_include,
+            model_name,
         )
 
     # Validate context_mode parameters
@@ -266,12 +339,6 @@ def subagent(
         raise ValueError(
             "context_include parameter required when context_mode='selective'"
         )
-
-    # noreorder
-    from gptme import chat  # fmt: skip
-    from gptme.cli import get_logdir  # fmt: skip
-
-    from ..prompts import get_prompt  # fmt: skip
 
     def random_string(n):
         s = string.ascii_lowercase + string.digits
@@ -281,76 +348,14 @@ def subagent(
     logdir = get_logdir(name + "-" + random_string(4))
 
     def run_subagent():
-        prompt_msgs = [Message("user", prompt)]
-        workspace = Path.cwd()
-
-        # Build initial messages based on context_mode
-        if context_mode == "instructions-only":
-            # Minimal system context - just basic instruction
-            initial_msgs = [
-                Message(
-                    "system",
-                    "You are a helpful AI assistant. Complete the task described by the user. Use the `complete` tool when finished with a summary of your work.",
-                )
-            ]
-            # Add complete tool for instructions-only mode
-            from ..prompts import prompt_tools
-
-            initial_msgs.extend(
-                list(
-                    prompt_tools(
-                        tools=[t for t in get_tools() if t.name == "complete"],
-                        tool_format="markdown",
-                    )
-                )
-            )
-        elif context_mode == "selective":
-            # Selective context - build from specified components
-            from ..prompts import prompt_gptme, prompt_tools
-
-            initial_msgs = []
-
-            # Type narrowing: context_include validated as not None earlier
-            assert context_include is not None
-
-            # Add components based on context_include
-            if "agent" in context_include:
-                initial_msgs.extend(list(prompt_gptme(False, None, agent_name=None)))
-            if "tools" in context_include:
-                initial_msgs.extend(
-                    list(prompt_tools(tools=get_tools(), tool_format="markdown"))
-                )
-            # workspace handled by passing workspace parameter to chat() if included
-        else:  # "full" mode (default)
-            # Current behavior - full context
-            initial_msgs = get_prompt(
-                get_tools(), interactive=False, workspace=workspace
-            )
-
-        # add the return prompt
-        return_prompt = """Thank you for doing the task, please reply with a JSON codeblock on the format:
-
-```json
-{
-    result: 'A description of the task result/outcome',
-    status: 'success' | 'failure',
-}
-```"""
-        prompt_msgs.append(Message("user", return_prompt))
-
-        # Note: workspace parameter is always passed to chat() (required parameter)
-        # Workspace context in messages is controlled by initial_msgs
-        chat(
-            prompt_msgs,
-            initial_msgs,
+        _create_subagent_thread(
+            prompt=prompt,
             logdir=logdir,
-            workspace=workspace,
-            model=None,
-            stream=False,
-            no_confirm=True,
-            interactive=False,
-            show_hidden=False,
-            tool_format="markdown",
+            model=model_name,
+            context_mode=context_mode,
+            context_include=context_include,
+            workspace=Path.cwd(),
+            target="parent",
         )
 
     # start a thread with a subagent
@@ -359,7 +364,7 @@ def subagent(
         daemon=True,
     )
     t.start()
-    _subagents.append(Subagent(agent_id, prompt, t, logdir))
+    _subagents.append(Subagent(agent_id, prompt, t, logdir, model_name))
 
 
 def subagent_status(agent_id: str) -> dict:
