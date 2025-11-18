@@ -161,8 +161,10 @@
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Providers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
+<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Providers</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
@@ -443,7 +445,24 @@
   <section id="providers">
 <h1>Providers<a class="headerlink" href="#providers" title="Link to this heading">#</a></h1>
 <p>We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Deepseek, Azure, and any OpenAI-compatible server (e.g. <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">llama-cpp-python</span></code>).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>We are in the process of adding support for configurable <a class="reference external" href="custom-providers">custom providers</a>.</p>
+</div>
 <p>You can find our model recommendations on the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> page.</p>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="custom-providers.html">Custom Providers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#configuration">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#backward-compatibility">Backward Compatibility</a></li>
+<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#implementation-details">Implementation Details</a></li>
+<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#examples">Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="custom-providers.html#related">Related</a></li>
+</ul>
+</li>
+</ul>
+</div>
 <p>To select a provider and model, run <code class="docutils literal notranslate"><span class="pre">gptme</span></code> with the <code class="docutils literal notranslate"><span class="pre">-m</span></code>/<code class="docutils literal notranslate"><span class="pre">--model</span></code> flag set to <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model&gt;</span></code>, for example:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic<span class="w">  </span><span class="c1"># will use provider default</span>
