@@ -472,7 +472,7 @@
 <h1>Custom Tools<a class="headerlink" href="#custom-tools" title="Link to this heading">#</a></h1>
 <section id="introduction">
 <h2>Introduction<a class="headerlink" href="#introduction" title="Link to this heading">#</a></h2>
-<p>There are three main approaches to extending gptme’s functionality:</p>
+<p>There are three main approaches to extending gptme’s available tools:</p>
 <ol class="arabic simple">
 <li><p><strong>Custom Tools</strong>: Native gptme tools that integrate deeply with the assistant.</p></li>
 <li><p><strong>Script Tools</strong>: Standalone scripts that can be called via the shell tool.</p></li>
@@ -517,7 +517,7 @@
 <p>Custom tools are necessary when you need to:</p>
 <ul class="simple">
 <li><p>Attach files/images to messages</p></li>
-<li><p>Get included in the tools section</p></li>
+<li><p>Get included in the tools section of the system prompt</p></li>
 <li><p>Use without shell tool access</p></li>
 <li><p>Validate arguments</p></li>
 <li><p>Handle complex interactions</p></li>
@@ -582,7 +582,7 @@
 </section>
 <section id="command-registration">
 <h2>Command Registration<a class="headerlink" href="#command-registration" title="Link to this heading">#</a></h2>
-<p>In addition to defining tools, you can register custom commands that users can invoke with <code class="docutils literal notranslate"><span class="pre">/command</span></code> syntax.</p>
+<p>In addition to defining tools, you can register custom <a class="reference internal" href="usage.html#commands"><span class="std std-ref">commands</span></a> that users can invoke with <code class="docutils literal notranslate"><span class="pre">/command</span></code> syntax.</p>
 <section id="registering-commands-in-tools">
 <h3>Registering Commands in Tools<a class="headerlink" href="#registering-commands-in-tools" title="Link to this heading">#</a></h3>
 <p>Tools can register commands in their <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> definition:</p>

@@ -324,7 +324,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/plugins.md" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/plugins.rst" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -354,7 +354,7 @@
       
       
       
-      <li><a href="_sources/plugins.md" target="_blank"
+      <li><a href="_sources/plugins.rst" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -364,7 +364,7 @@
 <span class="btn__icon-container">
   <i class="fas fa-file"></i>
   </span>
-<span class="btn__text-container">.md</span>
+<span class="btn__text-container">.rst</span>
 </a>
 </li>
       
@@ -458,6 +458,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-hooks-as-a-package">Option 1: hooks/ as a Package</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-hook-files">Option 2: Individual Hook Files</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-command-modules">Plugin Command Modules</a><ul class="nav section-nav flex-column">
@@ -465,7 +466,6 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-command-files">Option 2: Individual Command Files</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#using-plugin-commands">Using Plugin Commands</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-handler-requirements">Command Handler Requirements</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
@@ -487,21 +487,23 @@
                   
   <section id="plugin-system">
 <h1>Plugin System<a class="headerlink" href="#plugin-system" title="Link to this heading">#</a></h1>
-<p>The plugin system allows extending gptme with custom tools, hooks, and commands without modifying the core codebase.</p>
+<p>The plugin system allows extending gptme with <a class="reference internal" href="custom_tool.html"><span class="doc">custom tools</span></a>, <a class="reference internal" href="hooks.html"><span class="doc">hooks</span></a>, and <a class="reference internal" href="usage.html#commands"><span class="std std-ref">commands</span></a> without modifying the core codebase.</p>
 <section id="plugin-structure">
 <h2>Plugin Structure<a class="headerlink" href="#plugin-structure" title="Link to this heading">#</a></h2>
 <p>A plugin is a Python package (directory with <code class="docutils literal notranslate"><span class="pre">__init__.py</span></code>) that can contain:</p>
-<p>my_plugin/
-├── <strong>init</strong>.py          # Plugin metadata
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my_plugin/
+├── __init__.py          # Plugin metadata
 ├── tools/               # Tool modules (optional)
-│   ├── <strong>init</strong>.py     # Makes tools/ a package
+│   ├── __init__.py     # Makes tools/ a package
 │   └── my_tool.py      # Individual tool modules
 ├── hooks/               # Hook modules (optional)
-│   ├── <strong>init</strong>.py     # Makes hooks/ a package
+│   ├── __init__.py     # Makes hooks/ a package
 │   └── my_hook.py      # Individual hook modules
 └── commands/            # Command modules (optional)
-├── <strong>init</strong>.py     # Makes commands/ a package
-└── my_command.py   # Individual command modules</p>
+    ├── __init__.py     # Makes commands/ a package
+    └── my_command.py   # Individual command modules
+</pre></div>
+</div>
 </section>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
@@ -601,11 +603,12 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 </section>
 <section id="option-2-individual-tool-files">
 <h3>Option 2: Individual Tool Files<a class="headerlink" href="#option-2-individual-tool-files" title="Link to this heading">#</a></h3>
-<p>Skip <code class="docutils literal notranslate"><span class="pre">tools/__init__.py</span></code> and create individual files:
-text
-my_plugin/tools/
+<p>Skip <code class="docutils literal notranslate"><span class="pre">tools/__init__.py</span></code> and create individual files:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my_plugin/tools/
 ├── tool1.py
-└── tool2.py</p>
+└── tool2.py
+</pre></div>
+</div>
 <p>Each file will be imported as <code class="docutils literal notranslate"><span class="pre">my_plugin.tools.tool1</span></code>, <code class="docutils literal notranslate"><span class="pre">my_plugin.tools.tool2</span></code>, etc.</p>
 </section>
 </section>
@@ -668,7 +671,13 @@ my_plugin/tools/
 <li><p><code class="docutils literal notranslate"><span class="pre">FILE_PRE_SAVE</span></code> - Before saving a file</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">FILE_POST_SAVE</span></code> - After saving a file</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_PRE</span></code> - Before generating response</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_POST</span></code> - After generating response</p></li>
+<li><p>And more (see <code class="docutils literal notranslate"><span class="pre">gptme.hooks.HookType</span></code>)</p></li>
 </ul>
+</section>
+<section id="hook-registration">
+<h3>Hook Registration<a class="headerlink" href="#hook-registration" title="Link to this heading">#</a></h3>
+<p>Every hook module must have a <code class="docutils literal notranslate"><span class="pre">register()</span></code> function that calls <code class="docutils literal notranslate"><span class="pre">register_hook()</span></code> for each hook it provides. The plugin system automatically calls <code class="docutils literal notranslate"><span class="pre">register()</span></code> during initialization.</p>
 </section>
 </section>
 <section id="plugin-command-modules">
@@ -742,14 +751,6 @@ Why<span class="w"> </span>did<span class="w"> </span>the<span class="w"> </span
 <li><p>Be a generator (use <code class="docutils literal notranslate"><span class="pre">yield</span></code>) that yields <code class="docutils literal notranslate"><span class="pre">Message</span></code> objects</p></li>
 <li><p>Be registered via <code class="docutils literal notranslate"><span class="pre">register_command()</span></code> in a <code class="docutils literal notranslate"><span class="pre">register()</span></code> function</p></li>
 </ol>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_POST</span></code> - After generating response</p></li>
-<li><p>And more (see <code class="docutils literal notranslate"><span class="pre">gptme.hooks.HookType</span></code>)</p></li>
-</ul>
-</section>
-<section id="hook-registration">
-<h3>Hook Registration<a class="headerlink" href="#hook-registration" title="Link to this heading">#</a></h3>
-<p>Every hook module must have a <code class="docutils literal notranslate"><span class="pre">register()</span></code> function that calls <code class="docutils literal notranslate"><span class="pre">register_hook()</span></code> for each hook it provides. The plugin system automatically calls <code class="docutils literal notranslate"><span class="pre">register()</span></code> during initialization.</p>
 </section>
 </section>
 <section id="example-logging-plugin">
@@ -942,6 +943,7 @@ gptme
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-hooks-as-a-package">Option 1: hooks/ as a Package</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-hook-files">Option 2: Individual Hook Files</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-command-modules">Plugin Command Modules</a><ul class="nav section-nav flex-column">
@@ -949,7 +951,6 @@ gptme
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-individual-command-files">Option 2: Individual Command Files</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#using-plugin-commands">Using Plugin Commands</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command-handler-requirements">Command Handler Requirements</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
