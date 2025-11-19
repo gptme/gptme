@@ -139,10 +139,18 @@ def select_relevant_files(
     # For LLM/hybrid: use context selector for semantic refinement
     selector: ContextSelector = HybridSelector(config)
 
-    # Use last user message as query if not provided
+    # Use last meaningful message as query if not provided
+    # This allows assistant's own thoughts/plans to drive context discovery in autonomous mode
     if query is None:
-        user_msgs = [msg for msg in msgs if msg.role == "user"]
-        query = user_msgs[-1].content if user_msgs else ""
+        query = ""
+        for msg in reversed(msgs):
+            if (
+                msg.role in ("user", "assistant")
+                and msg.content
+                and msg.content.strip()
+            ):
+                query = msg.content
+                break
 
     # Select using context selector (sync)
     try:
