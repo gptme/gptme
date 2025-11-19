@@ -13,7 +13,6 @@ TODO:
 
 import logging
 import sys
-from pathlib import Path
 from typing import Literal
 
 from lxml import etree
@@ -25,7 +24,6 @@ from gptme.message import Message
 from gptme.prompts import get_prompt
 from gptme.tools import get_tools
 from gptme.tools.precommit import run_precommit_checks
-from gptme.util.context import gather_fresh_context, get_changed_files
 
 # Set up logging
 logging.basicConfig(
@@ -34,15 +32,6 @@ logging.basicConfig(
 
 
 EvalAction = Literal["continue", "undo", "done"]
-
-
-def gather_changed_context() -> Message:
-    """Gather fresh context focused on changed files."""
-    # Create a dummy message with changed files
-    dummy_msg = Message("system", "", files=get_changed_files())
-
-    # Use gather_fresh_context with only the changed files
-    return gather_fresh_context([dummy_msg], Path.cwd())
 
 
 def llm_confirm(msg: str) -> bool:
@@ -88,14 +77,6 @@ For example:
     return tree.xpath("//action")[0].text
 
 
-def update_context(log: Log) -> Log:
-    """Update context in the conversation log."""
-    # Remove any previous context messages
-    msgs = [msg for msg in log if not msg.content.startswith("# Context")]
-    # Add fresh context
-    return Log(msgs + [gather_changed_context()])
-
-
 def main():
     print("Initializing the autonomous agent...")
     init(
@@ -128,10 +109,6 @@ def main():
                 f"Pre-commit checks found issues:\n\n{precommit_output}",
             )
             log = log.append(system_msg)
-
-        # Gather and update context
-        log = update_context(log)
-        print(f"Context updated. Iteration: {iteration}/{max_iterations}")
 
         # Step the conversation forward
         log = step(log)

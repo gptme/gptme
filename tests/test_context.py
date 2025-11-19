@@ -5,7 +5,6 @@ from gptme.message import Message
 from gptme.util.context import (
     append_file_content,
     file_to_display_path,
-    gather_fresh_context,
     get_mentioned_files,
 )
 
@@ -47,7 +46,9 @@ def test_append_file_content(tmp_path):
     assert "<file was modified after message>" in result.content
 
 
-def test_gather_fresh_context(tmp_path):
+def test_context_hook(tmp_path):
+    from gptme.hooks.context import context_hook
+
     # Create test files
     file1 = tmp_path / "file1.txt"
     file2 = tmp_path / "file2.txt"
@@ -61,7 +62,11 @@ def test_gather_fresh_context(tmp_path):
     ]
 
     # Should include both files in context
-    context = gather_fresh_context(msgs, tmp_path)
+    # context_hook returns a generator yielding one message
+    context_gen = context_hook(msgs, tmp_path)
+    context = next(context_gen)
+
+    assert isinstance(context, Message)
     assert "file1.txt" in context.content
     assert "file2.txt" in context.content
     assert "content 1" in context.content
@@ -92,13 +97,17 @@ def test_use_fresh_context(monkeypatch):
     """Test use_fresh_context environment variable detection."""
     from gptme.util.context import use_fresh_context
 
+    # Test default (unset) -> True
+    monkeypatch.delenv("GPTME_FRESH", raising=False)
+    assert use_fresh_context()
+
     # Test various true values
     for value in ["1", "true", "True", "TRUE", "yes", "YES"]:
         monkeypatch.setenv("GPTME_FRESH", value)
         assert use_fresh_context()
 
-    # Test false/unset values
-    for value in ["0", "false", "no", ""]:
+    # Test false values
+    for value in ["0", "false", "no"]:
         monkeypatch.setenv("GPTME_FRESH", value)
         assert not use_fresh_context()
 
