@@ -219,6 +219,10 @@ ignore_missing_imports = true
 module = "flask.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "aw_client"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
