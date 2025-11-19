@@ -256,7 +256,7 @@ def test_get_compacted_name_empty_string():
 
 def test_strip_reasoning_removes_think_tags():
     """Test that strip_reasoning removes <think> tags."""
-    from gptme.tools.autocompact import strip_reasoning
+    from gptme.context import strip_reasoning
 
     content = "Before <think>This is reasoning</think> After"
     stripped, tokens_saved = strip_reasoning(content, "gpt-4")
@@ -270,7 +270,7 @@ def test_strip_reasoning_removes_think_tags():
 
 def test_strip_reasoning_removes_thinking_tags():
     """Test that strip_reasoning removes <thinking> tags."""
-    from gptme.tools.autocompact import strip_reasoning
+    from gptme.context import strip_reasoning
 
     content = "Before <thinking>This is reasoning</thinking> After"
     stripped, tokens_saved = strip_reasoning(content, "gpt-4")
@@ -284,7 +284,7 @@ def test_strip_reasoning_removes_thinking_tags():
 
 def test_strip_reasoning_handles_multiple_blocks():
     """Test that strip_reasoning removes multiple reasoning blocks."""
-    from gptme.tools.autocompact import strip_reasoning
+    from gptme.context import strip_reasoning
 
     content = "<think>First</think> Middle <thinking>Second</thinking> End"
     stripped, tokens_saved = strip_reasoning(content, "gpt-4")
@@ -298,7 +298,7 @@ def test_strip_reasoning_handles_multiple_blocks():
 
 def test_strip_reasoning_preserves_content_without_tags():
     """Test that strip_reasoning preserves content without reasoning tags."""
-    from gptme.tools.autocompact import strip_reasoning
+    from gptme.context import strip_reasoning
 
     content = "This is normal content without reasoning"
     stripped, tokens_saved = strip_reasoning(content, "gpt-4")
