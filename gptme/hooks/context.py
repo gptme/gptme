@@ -17,13 +17,18 @@ logger = logging.getLogger(__name__)
 
 def context_hook(
     messages: list[Message],
-    workspace: Path | None,
+    **kwargs,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Active Context Discovery hook.
 
     Scans the workspace for relevant files based on recent messages and
     injects them into the context.
+
+    Args:
+        messages: List of conversation messages
+        **kwargs: Includes workspace and manager (optional)
     """
+    workspace = kwargs.get("workspace")
     if not workspace:
         return
 
@@ -82,4 +87,4 @@ This context message will be removed and replaced with fresh context on every ne
 
 
 def register():
-    register_hook("active_context", HookType.CONTEXT_ENRICH, context_hook)
+    register_hook("active_context", HookType.GENERATION_PRE, context_hook)

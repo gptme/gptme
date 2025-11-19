@@ -241,7 +241,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
         # Generate the resume using LLM
         m = get_default_model()
         assert m
-        resume_response = llm.reply(llm_msgs, model=m.model, tools=[])
+        resume_response = llm.reply(llm_msgs, model=m.model, tools=[], workspace=None)
         resume_content = resume_response.content
 
         # Save RESUME.md file

@@ -436,7 +436,7 @@ def step(
 
         # generate response
         with terminal_state_title("🤔 generating"):
-            msg_response = reply(msgs, get_model(model).full, stream, tools)
+            msg_response = reply(msgs, get_model(model).full, stream, tools, workspace)
             if get_config().get_env_bool("GPTME_COSTS"):
                 log_costs(msgs + [msg_response])
 

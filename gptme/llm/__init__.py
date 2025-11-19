@@ -4,6 +4,7 @@ import sys
 import time
 from collections.abc import Iterator
 from functools import lru_cache
+from pathlib import Path
 from typing import cast
 
 from rich import print as rprint
@@ -56,14 +57,21 @@ def reply(
     model: str,
     stream: bool = False,
     tools: list[ToolSpec] | None = None,
+    workspace: Path | None = None,
 ) -> Message:
-    # Trigger GENERATION_PRE hooks before generating response
+    # Trigger GENERATION_PRE hooks and collect context messages
     from ..hooks import HookType, trigger_hook
 
-    for _ in trigger_hook(
-        HookType.GENERATION_PRE, messages, workspace=None, manager=None
-    ):
-        pass  # GENERATION_PRE hooks can raise SessionCompleteException to stop
+    context_msgs = list(
+        trigger_hook(
+            HookType.GENERATION_PRE, messages, workspace=workspace, manager=None
+        )
+    )
+
+    # Add context messages for generation (don't modify original messages)
+    generation_msgs = list(messages)  # Create a copy
+    if context_msgs:
+        generation_msgs.extend(context_msgs)
 
     init_llm(get_provider_from_model(model))
     config = get_config()
@@ -71,11 +79,11 @@ def reply(
     if stream:
         break_on_tooluse = bool(config.get_env_bool("GPTME_BREAK_ON_TOOLUSE", True))
         return _reply_stream(
-            messages, model, tools, break_on_tooluse, agent_name=agent_name
+            generation_msgs, model, tools, break_on_tooluse, agent_name=agent_name
         )
     else:
         rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
-        response = _chat_complete(messages, model, tools)
+        response = _chat_complete(generation_msgs, model, tools)
         rprint(" " * shutil.get_terminal_size().columns, end="\r")
         rprint(f"{prompt_assistant(agent_name)}: {response}")
         return Message("assistant", response)

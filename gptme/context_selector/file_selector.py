@@ -126,9 +126,12 @@ def select_relevant_files(
 
     # Apply metadata boosts before selection
     scored_items = []
+
+    # Extract query terms for name matching
+    query_terms = set(query.lower().split()) if query else set()
+
     for item in file_items:
         # Calculate boost factors
-        mention_boost = config.get_mention_boost(item.mention_count)
         hours_since_modified = (
             (now - item.mtime) / 3600 if item.mtime > 0 else float("inf")
         )
@@ -136,9 +139,19 @@ def select_relevant_files(
         file_type = item.metadata["file_type"]
         type_weight = config.get_file_type_weight(file_type)
 
-        # Composite score
-        base_score = 1.0
-        final_score = base_score * mention_boost * recency_boost * type_weight
+        # Name matching boost - HUGE boost if filename matches query
+        name_boost = 1.0
+        stem = item.path.stem.lower()
+        if stem in query_terms:
+            name_boost = 10.0  # Exact filename match
+        elif any(term in stem for term in query_terms if len(term) > 3):
+            name_boost = 3.0  # Partial filename match
+
+        # Additive base score (so zero-mention files aren't crushed)
+        base_score = 1.0 + (item.mention_count * 0.3)
+
+        # Multiplicative boosts
+        final_score = base_score * recency_boost * type_weight * name_boost
         scored_items.append((item, final_score))
 
     # Sort by score (for rule-based, this is the final ranking)

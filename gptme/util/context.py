@@ -252,34 +252,8 @@ def enrich_messages_with_context(
         append_file_content(msg, workspace, check_modified=use_fresh_context())
         for msg in msgs
     ]
-    if use_fresh_context():
-        from ..hooks import HookType, trigger_hook
-
-        # Trigger active context hook
-        context_msgs = list(
-            trigger_hook(
-                HookType.CONTEXT_ENRICH,
-                messages=msgs,
-                workspace=workspace,
-            )
-        )
-
-        # insert right before the last user message
-        last_user_idx = next(
-            (i for i, msg in enumerate(reversed(msgs)) if msg.role == "user"), None
-        )
-
-        insert_idx = -1
-        if last_user_idx is not None:
-            # If last user msg is at index 0 (in reversed), we want to insert before it (at -1).
-            # If at index 1, insert at -2.
-            insert_idx = -(last_user_idx + 1)
-
-        for msg in context_msgs:
-            msgs.insert(insert_idx, msg)
-    else:
-        # Legacy mode: file contents already included at the time of message creation
-        pass
+    # Context is now added at generation time via GENERATION_PRE hook
+    # (not inserted into the log, preventing bloat and improving cache hits)
 
     return msgs
 
