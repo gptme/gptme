@@ -238,32 +238,31 @@ def get_rag_context(
     return msg
 
 
-def rag_enhance_messages(
-    messages: list[Message], workspace: Path | None = None
-) -> list[Message]:
-    """Enhance messages with context from RAG."""
+def _rag_context_hook(
+    messages: list[Message],
+    **kwargs,
+):
+    """Hook to add RAG context before generation."""
     if not _has_gptme_rag():
-        return messages
+        return
+
+    workspace = kwargs.get("workspace")
 
     # Load config
     config = get_project_config(Path.cwd())
     rag_config = config.rag if config and config.rag else RagConfig()
 
     if not rag_config.enabled:
-        return messages
+        return
 
     last_msg = messages[-1] if messages else None
     if last_msg and last_msg.role == "user":
         try:
             # Get context using gptme-rag CLI
             msg = get_rag_context(last_msg.content, rag_config, workspace)
-
-            # Append context message right before the last user message
-            messages.insert(-1, msg)
+            yield msg
         except Exception as e:
-            logger.warning(f"Error getting context: {e}")
-
-    return messages
+            logger.warning(f"Error getting RAG context: {e}")
 
 
 tool = ToolSpec(
@@ -274,6 +273,9 @@ tool = ToolSpec(
     functions=[rag_index, rag_search, rag_status],
     available=_has_gptme_rag,
     init=init,
+    hooks={
+        "rag_context": ("generation_pre", _rag_context_hook, 0),
+    },
 )
 
 __doc__ = tool.get_doc(__doc__)

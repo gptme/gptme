@@ -6,40 +6,41 @@ import pytest
 
 from gptme.config import RagConfig
 from gptme.message import Message
-from gptme.tools.rag import _has_gptme_rag, rag_enhance_messages
+from gptme.tools.rag import _has_gptme_rag, _rag_context_hook
 
 
 @pytest.mark.skipif(not _has_gptme_rag(), reason="RAG is not available")
-def test_enhance_messages_with_rag():
-    """Test that enhancement works when RAG is available."""
+def test_rag_context_hook():
+    """Test that RAG context hook yields context messages."""
     messages = [
         Message("user", "Tell me about Python"),
         Message("assistant", "Python is a programming language"),
     ]
 
-    enhanced = rag_enhance_messages(messages)
+    # Call the hook
+    context_msgs = list(_rag_context_hook(messages, workspace=None))
 
-    # Enhanced messages should have extra RAG context msg
-    assert len(enhanced) >= len(messages)
+    # Should yield at least one context message
+    assert len(context_msgs) >= 1
+    assert all(msg.role == "system" for msg in context_msgs)
 
 
-def test_enhance_messages_no_rag():
-    """Test that enhancement works even without RAG available."""
+def test_rag_context_hook_no_rag():
+    """Test that hook returns nothing when RAG is unavailable."""
     with patch("gptme.tools.rag._has_gptme_rag", return_value=False):
         messages = [
             Message("user", "Tell me about Python"),
             Message("assistant", "Python is a programming language"),
         ]
 
-        enhanced = rag_enhance_messages(messages)
+        context_msgs = list(_rag_context_hook(messages, workspace=None))
 
-        # Should be unchanged when RAG is not available
-        assert len(enhanced) == len(messages)
-        assert enhanced == messages
+        # Should yield nothing when RAG is not available
+        assert len(context_msgs) == 0
 
 
-def test_enhance_messages_disabled():
-    """Test message enhancement when RAG is disabled in config."""
+def test_rag_context_hook_disabled():
+    """Test hook when RAG is disabled in config."""
     with (
         patch("subprocess.run", return_value=type("Proc", (), {"returncode": 0})),
         patch("gptme.tools.rag.get_project_config") as mock_config,
@@ -50,8 +51,7 @@ def test_enhance_messages_disabled():
             Message("assistant", "Python is a programming language"),
         ]
 
-        enhanced = rag_enhance_messages(messages)
+        context_msgs = list(_rag_context_hook(messages, workspace=None))
 
-        # Should be unchanged when RAG is disabled
-        assert len(enhanced) == len(messages)
-        assert enhanced == messages
+        # Should yield nothing when RAG is disabled
+        assert len(context_msgs) == 0

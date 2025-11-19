@@ -88,10 +88,10 @@ def textfile_as_codeblock(path: Path) -> str | None:
     return None
 
 
-def append_file_content(
+def embed_attached_file_content(
     msg: Message, workspace: Path | None = None, check_modified=False
 ) -> Message:
-    """Append attached text files to a message."""
+    """Embed attached file contents inline in a message."""
     files = [file_to_display_path(f, workspace).expanduser() for f in msg.files]
     files_text = {}
     for f in files:
@@ -233,27 +233,19 @@ def enrich_messages_with_context(
     msgs: list[Message], workspace: Path | None = None
 ) -> list[Message]:
     """
-    Enrich messages with context.
-    Embeds file contents where they occur in the conversation.
+    Enrich messages with context by embedding attached file contents.
 
-    If GPTME_FRESH enabled, a context message will be added that includes:
-    - git status
-    - contents of files modified after their message timestamp
+    Note: Fresh context (git status, modified files) and RAG enhancement are now
+    added at generation time via GENERATION_PRE hooks, not here.
     """
-    from ..tools.rag import rag_enhance_messages  # fmt: skip
-
     # Make a copy of messages to avoid modifying the original
     msgs = copy(msgs)
 
-    # First enhance messages with context, if gptme-rag is available
-    msgs = rag_enhance_messages(msgs, workspace)
-
+    # Embed attached file contents inline
     msgs = [
-        append_file_content(msg, workspace, check_modified=use_fresh_context())
+        embed_attached_file_content(msg, workspace, check_modified=use_fresh_context())
         for msg in msgs
     ]
-    # Context is now added at generation time via GENERATION_PRE hook
-    # (not inserted into the log, preventing bloat and improving cache hits)
 
     return msgs
 
