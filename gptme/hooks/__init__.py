@@ -8,9 +8,21 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from time import time
-from typing import Any, Literal, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    Protocol,
+    overload,
+)
 
+from ..config import get_config
 from ..message import Message
+from ..plugins import register_plugin_hooks
+
+if TYPE_CHECKING:
+    from ..logmanager import Log, LogManager  # fmt: skip
+    from ..tools.base import ToolUse  # fmt: skip
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +41,6 @@ class StopPropagation:
 
 class HookType(str, Enum):
     """Types of hooks that can be registered."""
-
-    # Context management
-    CONTEXT_ENRICH = "context_enrich"  # Enrich messages with extra context
 
     # Message lifecycle
     MESSAGE_PRE_PROCESS = "message_pre_process"  # Before processing a message
@@ -60,13 +69,6 @@ class HookType(str, Enum):
 
     # Loop control
     LOOP_CONTINUE = "loop_continue"  # Decide whether/how to continue the chat loop
-
-
-from typing import TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from ..logmanager import Log, LogManager
-    from ..tools.base import ToolUse
 
 
 # Protocol classes for different hook signatures
@@ -117,21 +119,6 @@ class MessageProcessHook(Protocol):
 
     def __call__(
         self, manager: "LogManager"
-    ) -> Generator[Message | StopPropagation, None, None]: ...
-
-
-class ContextEnrichHook(Protocol):
-    """Hook called to enrich messages with context.
-
-    Args:
-        messages: List of conversation messages
-        workspace: Workspace directory path
-    """
-
-    def __call__(
-        self,
-        messages: list[Message],
-        workspace: Path | None,
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
@@ -229,7 +216,6 @@ HookFunc = (
     | SessionEndHook
     | ToolExecuteHook
     | MessageProcessHook
-    | ContextEnrichHook
     | LoopContinueHook
     | GenerationPreHook
     | GenerationPostHook
@@ -539,16 +525,6 @@ def register_hook(
 ) -> None: ...
 
 
-@overload
-def register_hook(
-    name: str,
-    hook_type: Literal[HookType.CONTEXT_ENRICH],
-    func: ContextEnrichHook,
-    priority: int = 0,
-    enabled: bool = True,
-) -> None: ...
-
-
 # Implementation (catches all other cases)
 # Fallback overload for dynamic registration (when hook_type is not a Literal)
 @overload
@@ -624,7 +600,6 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
     If allowlist is not provided, it will be loaded from the environment variable
     HOOK_ALLOWLIST or the chat config (if set).
     """
-    from ..config import get_config
 
     config = get_config()
 
@@ -651,8 +626,8 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
         "token_awareness": lambda: __import__(
             "gptme.hooks.token_awareness", fromlist=["register"]
         ).register(),
-        "context": lambda: __import__(
-            "gptme.hooks.context", fromlist=["register"]
+        "active_context": lambda: __import__(
+            "gptme.hooks.active_context", fromlist=["register"]
         ).register(),
         "test": lambda: __import__(
             "gptme.hooks.test", fromlist=["register_test_hooks"]
@@ -678,7 +653,6 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
             logger.warning(f"Hook '{hook_name}' not found")
 
     # Register plugin hooks
-    from ..plugins import register_plugin_hooks
 
     if config.project and config.project.plugins and config.project.plugins.paths:
         register_plugin_hooks(
