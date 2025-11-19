@@ -74,8 +74,7 @@ def config():
 class TestRuleBasedSelector:
     """Tests for RuleBasedSelector."""
 
-    @pytest.mark.asyncio
-    async def test_keyword_matching(self, sample_items, config):
+    def test_keyword_matching(self, sample_items, config):
         """Test basic keyword matching."""
         selector = RuleBasedSelector(config)
 
@@ -88,8 +87,7 @@ class TestRuleBasedSelector:
         assert len(results) <= 2
         assert results[0].identifier in ("item1", "item4")
 
-    @pytest.mark.asyncio
-    async def test_case_insensitive(self, sample_items, config):
+    def test_case_insensitive(self, sample_items, config):
         """Test case-insensitive matching."""
         selector = RuleBasedSelector(config)
 
@@ -103,8 +101,7 @@ class TestRuleBasedSelector:
         git_items = [r for r in results if "git" in r.metadata["keywords"]]
         assert len(git_items) >= 2
 
-    @pytest.mark.asyncio
-    async def test_priority_boost(self, sample_items, config):
+    def test_priority_boost(self, sample_items, config):
         """Test priority boosting."""
         selector = RuleBasedSelector(config)
 
@@ -120,8 +117,7 @@ class TestRuleBasedSelector:
             ]
             assert len(high_priority_items) >= 1
 
-    @pytest.mark.asyncio
-    async def test_no_matches(self, sample_items, config):
+    def test_no_matches(self, sample_items, config):
         """Test behavior when no keywords match."""
         selector = RuleBasedSelector(config)
 
@@ -201,14 +197,13 @@ class TestLLMSelector:
 
         return _mock_response
 
-    @pytest.mark.asyncio
-    async def test_basic_selection(self, sample_items, mock_llm_response):
+    def test_basic_selection(self, sample_items, mock_llm_response):
         """Test basic LLM selection."""
         config = ContextSelectorConfig(strategy="llm")
         selector = LLMSelector(config)
 
         # Mock the reply function
-        with patch("gptme.context_selector.llm_based.reply") as mock_reply:
+        with patch("gptme.llm.reply") as mock_reply:
             mock_reply.return_value = mock_llm_response(["item1", "item3"])
 
             results = selector.select(
@@ -219,13 +214,12 @@ class TestLLMSelector:
         assert results[0].identifier == "item1"
         assert results[1].identifier == "item3"
 
-    @pytest.mark.asyncio
-    async def test_empty_response(self, sample_items, mock_llm_response):
+    def test_empty_response(self, sample_items, mock_llm_response):
         """Test handling of empty LLM response."""
         config = ContextSelectorConfig(strategy="llm")
         selector = LLMSelector(config)
 
-        with patch("gptme.context_selector.llm_based.reply") as mock_reply:
+        with patch("gptme.llm.reply") as mock_reply:
             mock_reply.return_value = mock_llm_response([])
 
             results = selector.select(
@@ -234,8 +228,7 @@ class TestLLMSelector:
 
         assert len(results) == 0
 
-    @pytest.mark.asyncio
-    async def test_multiple_selected_tags(self, sample_items):
+    def test_multiple_selected_tags(self, sample_items):
         """Test parsing bug fix: multiple <selected> tags should be handled correctly."""
         config = ContextSelectorConfig(strategy="llm")
         selector = LLMSelector(config)
@@ -251,7 +244,7 @@ class TestLLMSelector:
         Note: <selected> tags indicate selection.
         """
 
-        with patch("gptme.context_selector.llm_based.reply") as mock_reply:
+        with patch("gptme.llm.reply") as mock_reply:
             mock_reply.return_value = response
 
             results = selector.select(
@@ -263,13 +256,12 @@ class TestLLMSelector:
         assert results[0].identifier == "item1"
         assert results[1].identifier == "item2"
 
-    @pytest.mark.asyncio
-    async def test_invalid_identifiers_filtered(self, sample_items, mock_llm_response):
+    def test_invalid_identifiers_filtered(self, sample_items, mock_llm_response):
         """Test that invalid identifiers are filtered out."""
         config = ContextSelectorConfig(strategy="llm")
         selector = LLMSelector(config)
 
-        with patch("gptme.context_selector.llm_based.reply") as mock_reply:
+        with patch("gptme.llm.reply") as mock_reply:
             # LLM returns mix of valid and invalid IDs
             mock_reply.return_value = mock_llm_response(
                 ["item1", "invalid_id", "item3"]
@@ -299,14 +291,13 @@ class TestHybridSelector:
 
         return _mock_response
 
-    @pytest.mark.asyncio
-    async def test_short_circuit_path(self, sample_items):
+    def test_short_circuit_path(self, sample_items):
         """Test that hybrid selector short-circuits when pre-filtered <= max_results."""
         config = ContextSelectorConfig(strategy="hybrid")
         selector = HybridSelector(config)
 
         # With only 3 items and max_results=5, should skip LLM
-        with patch("gptme.context_selector.llm_based.reply") as mock_reply:
+        with patch("gptme.llm.reply") as mock_reply:
             results = selector.select(
                 query="git workflow", candidates=sample_items, max_results=5
             )
@@ -316,8 +307,7 @@ class TestHybridSelector:
 
         assert len(results) <= 5
 
-    @pytest.mark.asyncio
-    async def test_llm_refinement_path(self, mock_llm_response):
+    def test_llm_refinement_path(self, mock_llm_response):
         """Test that hybrid selector uses LLM when pre-filtered > max_results."""
         # Create more items to trigger LLM refinement
         many_items = [
@@ -336,7 +326,7 @@ class TestHybridSelector:
         )
         selector = HybridSelector(config)
 
-        with patch("gptme.context_selector.llm_based.reply") as mock_reply:
+        with patch("gptme.llm.reply") as mock_reply:
             # Mock LLM to select specific items
             mock_reply.return_value = mock_llm_response([f"item{i}" for i in range(5)])
 
@@ -352,8 +342,7 @@ class TestHybridSelector:
         assert len(results) == 5
         assert all(r.identifier.startswith("item") for r in results)
 
-    @pytest.mark.asyncio
-    async def test_preserves_llm_selection_order(self, mock_llm_response):
+    def test_preserves_llm_selection_order(self, mock_llm_response):
         """Test that hybrid selector preserves LLM's selection order."""
         many_items = [
             SimpleItem(
@@ -371,7 +360,7 @@ class TestHybridSelector:
         )
         selector = HybridSelector(config)
 
-        with patch("gptme.context_selector.llm_based.reply") as mock_reply:
+        with patch("gptme.llm.reply") as mock_reply:
             # LLM returns specific order
             mock_reply.return_value = mock_llm_response(
                 ["item10", "item5", "item20", "item1", "item15"]
