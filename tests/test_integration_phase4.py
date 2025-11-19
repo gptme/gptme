@@ -231,8 +231,7 @@ class TestLessonSelectionIntegration:
         assert any("shell" in title for title in titles)
 
     @pytest.mark.slow
-    @pytest.mark.asyncio
-    async def test_llm_based_selection_git_conversation(
+    def test_llm_based_selection_git_conversation(
         self, conversation_about_git, sample_lessons
     ):
         """Test LLM-based lesson selection for git conversation."""
@@ -254,8 +253,7 @@ class TestLessonSelectionIntegration:
         assert any("git" in result.lesson.title.lower() for result in results[:2])
 
     @pytest.mark.slow
-    @pytest.mark.asyncio
-    async def test_hybrid_selection_mixed_conversation(
+    def test_hybrid_selection_mixed_conversation(
         self, conversation_mixed_topics, sample_lessons
     ):
         """Test hybrid lesson selection for mixed conversation."""
@@ -293,10 +291,7 @@ def temp_workspace():
 class TestFileSelectionIntegration:
     """Test file selection with real conversations."""
 
-    @pytest.mark.asyncio
-    async def test_rule_based_file_selection(
-        self, conversation_about_git, temp_workspace
-    ):
+    def test_rule_based_file_selection(self, conversation_about_git, temp_workspace):
         """Test rule-based file selection."""
         config = FileSelectorConfig(strategy="rule")
 
@@ -315,13 +310,10 @@ class TestFileSelectionIntegration:
         assert all(isinstance(f, Path) for f in result)
 
     @pytest.mark.slow
-    @pytest.mark.asyncio
     @pytest.mark.xfail(
         reason="Needs more realistic file fixtures with substantial content"
     )
-    async def test_llm_based_file_selection(
-        self, conversation_about_git, temp_workspace
-    ):
+    def test_llm_based_file_selection(self, conversation_about_git, temp_workspace):
         """Test LLM-based file selection."""
         config = FileSelectorConfig(strategy="llm")
 
@@ -340,13 +332,10 @@ class TestFileSelectionIntegration:
         assert all(f.exists() for f in files)
 
     @pytest.mark.slow
-    @pytest.mark.asyncio
     @pytest.mark.xfail(
         reason="Needs more realistic file fixtures with substantial content"
     )
-    async def test_hybrid_file_selection(
-        self, conversation_mixed_topics, temp_workspace
-    ):
+    def test_hybrid_file_selection(self, conversation_mixed_topics, temp_workspace):
         """Test hybrid file selection."""
         config = FileSelectorConfig(strategy="hybrid")
 
@@ -391,8 +380,7 @@ class TestPerformanceMetrics:
         assert duration < 0.1  # <100ms
 
     @pytest.mark.slow
-    @pytest.mark.asyncio
-    async def test_llm_based_latency(self, conversation_about_git, sample_lessons):
+    def test_llm_based_latency(self, conversation_about_git, sample_lessons):
         """Measure LLM-based selection latency."""
         import time
 
@@ -419,11 +407,10 @@ class TestEndToEndWorkflow:
     """Test the complete workflow end-to-end."""
 
     @pytest.mark.slow
-    @pytest.mark.asyncio
     @pytest.mark.xfail(
         reason="Needs more realistic file fixtures with substantial content"
     )
-    async def test_full_context_selection_workflow(
+    def test_full_context_selection_workflow(
         self, conversation_mixed_topics, sample_lessons, temp_workspace
     ):
         """Test complete workflow: lesson + file selection."""

@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from gptme.context.selector.config import ContextSelectorConfig
 from gptme.lessons import (
     EnhancedLessonMatcher,
@@ -151,8 +149,7 @@ class TestEnhancedLessonMatcher:
         assert len(results) > 0
         assert results[0].lesson.metadata.keywords == ["git", "workflow"]
 
-    @pytest.mark.asyncio
-    async def test_match_with_selector_rule_based(self):
+    def test_match_with_selector_rule_based(self):
         """Test matching with rule-based selector."""
         selector_config = ContextSelectorConfig(strategy="rule")
         matcher = EnhancedLessonMatcher(
@@ -180,8 +177,7 @@ class TestEnhancedLessonMatcher:
         assert len(results) > 0
         assert results[0].lesson.category == "workflow"
 
-    @pytest.mark.asyncio
-    async def test_metadata_boosts_applied(self):
+    def test_metadata_boosts_applied(self):
         """Test that metadata boosts are applied to scores."""
         selector_config = ContextSelectorConfig(strategy="rule")
         lesson_config = LessonSelectorConfig()

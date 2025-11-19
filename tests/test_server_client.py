@@ -2,13 +2,12 @@
 
 import pytest
 
-from gptme.server.client import ConversationEvent, GptmeApiClient
-
-# Skip if flask not installed
+# Skip if flask not installed - MUST be before any imports that use flask
 pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
+from gptme.server.client import ConversationEvent, GptmeApiClient  # fmt: skip
 
 pytestmark = [pytest.mark.timeout(10)]
 

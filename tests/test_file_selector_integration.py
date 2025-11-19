@@ -127,8 +127,7 @@ class TestFileSelectorConfig:
 class TestSelectRelevantFiles:
     """Test select_relevant_files function."""
 
-    @pytest.mark.asyncio
-    async def test_rule_based_selection(self, temp_files: dict[str, Path]):
+    def test_rule_based_selection(self, temp_files: dict[str, Path]):
         """Test rule-based file selection."""
         # Create messages mentioning files multiple times
         msgs = [
@@ -150,8 +149,7 @@ class TestSelectRelevantFiles:
         assert len(selected) <= 2
         assert temp_files["recent_py"] in selected
 
-    @pytest.mark.asyncio
-    async def test_fallback_without_selector(self, temp_files: dict[str, Path]):
+    def test_fallback_without_selector(self, temp_files: dict[str, Path]):
         """Test fallback to simple sorting when selector disabled."""
         msgs = [
             Message("user", "Look at old.py", files=[temp_files["old_py"]]),
@@ -167,8 +165,7 @@ class TestSelectRelevantFiles:
 
         assert len(selected) <= 2
 
-    @pytest.mark.asyncio
-    async def test_empty_messages(self):
+    def test_empty_messages(self):
         """Test with no messages."""
         selected = select_relevant_files(
             [],
@@ -179,8 +176,7 @@ class TestSelectRelevantFiles:
 
         assert selected == []
 
-    @pytest.mark.asyncio
-    async def test_no_files_mentioned(self):
+    def test_no_files_mentioned(self):
         """Test with messages but no files."""
         msgs = [
             Message("user", "Hello"),
@@ -196,8 +192,7 @@ class TestSelectRelevantFiles:
 
         assert selected == []
 
-    @pytest.mark.asyncio
-    async def test_mention_count_boost(self, temp_files: dict[str, Path]):
+    def test_mention_count_boost(self, temp_files: dict[str, Path]):
         """Test that frequently mentioned files rank higher."""
         msgs = [
             Message("user", "Check old.py", files=[temp_files["old_py"]]),
