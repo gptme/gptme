@@ -8,8 +8,50 @@ import requests
 
 from ..message import Message
 from .base import ConfirmFunc, ToolSpec
+from .python import register_function
 
 logger = logging.getLogger(__name__)
+
+
+@register_function
+def get_activity_summary(days: int = 1) -> str:
+    """
+    Get formatted activity summary for last N days.
+
+    Usage in IPython:
+        get_activity_summary(7)  # Last week
+    """
+    try:
+        data = query_activity(days=days)
+        return format_summary(data)
+    except Exception as e:
+        return f"Error getting activity summary: {e}"
+
+
+@register_function
+def query_time_spent(app: str, days: int = 1) -> float:
+    """
+    Query time spent in specific app over last N days.
+
+    Args:
+        app: Application name (case-insensitive partial match)
+        days: Number of days to query
+
+    Returns:
+        Hours spent in the application
+
+    Usage in IPython:
+        query_time_spent("vscode", 7)  # VSCode time last week
+    """
+    try:
+        data = query_activity(days=days)
+        for app_data in data.get("apps", []):
+            if app.lower() in app_data["name"].lower():
+                return app_data["time_hours"]
+        return 0.0
+    except Exception as e:
+        raise ActivityWatchError(f"Failed to query time for '{app}': {e}") from e
+
 
 # ActivityWatch API base URL (localhost)
 BASE_URL = "http://localhost:5600/api/0"
@@ -261,6 +303,7 @@ def execute_activitywatch(
 tool = ToolSpec(
     name="activitywatch",
     desc="Query and analyze ActivityWatch data",
+    functions=[get_activity_summary, query_time_spent],
     instructions="""
 Query ActivityWatch data to analyze productivity and activity patterns.
 
