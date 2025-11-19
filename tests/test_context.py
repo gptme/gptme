@@ -46,8 +46,11 @@ def test_embed_attached_file_content(tmp_path):
     assert "<file was modified after message>" in result.content
 
 
-def test_context_hook(tmp_path):
+def test_context_hook(tmp_path, monkeypatch):
     from gptme.hooks.active_context import context_hook
+
+    # Enable fresh context mode (required for active context discovery)
+    monkeypatch.setenv("GPTME_FRESH", "1")
 
     # Create test files
     file1 = tmp_path / "file1.txt"
@@ -98,9 +101,9 @@ def test_use_fresh_context(monkeypatch):
     """Test use_fresh_context environment variable detection."""
     from gptme.util.context import use_fresh_context
 
-    # Test default (unset) -> True
+    # Test default (unset) -> False (active context is now default)
     monkeypatch.delenv("GPTME_FRESH", raising=False)
-    assert use_fresh_context()
+    assert not use_fresh_context()
 
     # Test various true values
     for value in ["1", "true", "True", "TRUE", "yes", "YES"]:
