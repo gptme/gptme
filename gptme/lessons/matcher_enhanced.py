@@ -60,7 +60,7 @@ class EnhancedLessonMatcher(LessonMatcher):
 
         return self._selector
 
-    async def match_with_selector(
+    def match_with_selector(
         self,
         lessons: list[Lesson],
         context: MatchContext,
@@ -81,7 +81,7 @@ class EnhancedLessonMatcher(LessonMatcher):
 
         # Use selector to find best matches
         selector = self._get_selector()
-        selected_items = await selector.select(
+        selected_items = selector.select(
             query=context.message,
             candidates=lesson_items,  # type: ignore[arg-type]
             max_results=max_results,
@@ -144,13 +144,9 @@ class EnhancedLessonMatcher(LessonMatcher):
             List of match results, sorted by score (descending)
         """
         if self.use_selector:
-            # Use async selector
-            import asyncio
-
+            # Use sync selector
             try:
-                return asyncio.run(
-                    self.match_with_selector(lessons, context, max_results=5)
-                )
+                return self.match_with_selector(lessons, context, max_results=5)
             except Exception as e:
                 logger.warning(
                     f"Selector failed, falling back to keyword matching: {e}"

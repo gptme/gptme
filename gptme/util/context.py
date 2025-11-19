@@ -37,7 +37,9 @@ def use_fresh_context() -> bool:
     - Including contents of recently modified files
     - Marking outdated file contents in the conversation history
     """
-    flag: str = get_config().get_env("GPTME_FRESH", "")  # type: ignore
+    flag: str | None = get_config().get_env("GPTME_FRESH")
+    if flag is None:
+        return True  # Default to True
     return flag.lower() in ("1", "true", "yes")
 
 
@@ -209,71 +211,7 @@ def get_mentioned_files(msgs: list[Message], workspace: Path | None) -> list[Pat
     return sorted(files.keys(), key=file_score, reverse=True)
 
 
-def gather_fresh_context(
-    msgs: list[Message],
-    workspace: Path | None,
-    git=True,
-    precommit=False,
-) -> Message:
-    """Gather fresh context from files and git status."""
-
-    # Import here to avoid circular dependency
-    from ..context_selector.file_selector import select_relevant_files
-
-    try:
-        # Use the selector to find files (including workspace candidates)
-        files = select_relevant_files(msgs, workspace, max_files=10, use_selector=True)
-    except Exception as e:
-        logger.error(f"Failed to select files with context selector: {e}")
-        # Fallback to simple mention counting if selector fails
-        files = get_mentioned_files(msgs, workspace)[:10]
-
-    sections = []
-
-    # Add pre-commit check results if there are issues
-    if precommit:
-        from ..tools.precommit import run_precommit_checks
-
-        success, precommit_output = run_precommit_checks()
-        if not success and precommit_output:
-            sections.append(precommit_output)
-
-    if git and (git_status_output := git_status()):
-        sections.append(git_status_output)
-
-    # if pr_status_output := gh_pr_status():
-    #     sections.append(pr_status_output)
-
-    # Read contents of most relevant files
-    for f in files[:10]:  # Limit to top 10 files
-        if f.exists():
-            try:
-                with open(f) as file:
-                    content = file.read()
-            except UnicodeDecodeError:
-                logger.debug(f"Skipping binary file: {f}")
-                content = "<binary file>"
-            display_path = file_to_display_path(f, workspace)
-            logger.info(f"Read file: {display_path}")
-            sections.append(md_codeblock(display_path, content))
-        else:
-            logger.info(f"File not found: {f}")
-
-    cwd = Path.cwd()
-    return Message(
-        "system",
-        f"""# Context
-Working directory: {cwd}
-
-This context message is always inserted before the last user message.
-It contains the current state of relevant files and git status at the time of processing.
-The file contents shown in this context message are the source of truth.
-Any file contents shown elsewhere in the conversation history may be outdated.
-This context message will be removed and replaced with fresh context on every new message.
-
-"""
-        + "\n\n".join(sections),
-    )
+# gather_fresh_context removal: Logic moved to gptme.hooks.context
 
 
 def get_changed_files() -> list[Path]:
@@ -315,13 +253,30 @@ def enrich_messages_with_context(
         for msg in msgs
     ]
     if use_fresh_context():
-        # insert right before the last user message
-        fresh_content_msg = gather_fresh_context(msgs, workspace)
-        logger.info(fresh_content_msg.content)
-        last_user_idx = next(
-            (i for i, msg in enumerate(msgs[::-1]) if msg.role == "user"), None
+        from ..hooks import HookType, trigger_hook
+
+        # Trigger active context hook
+        context_msgs = list(
+            trigger_hook(
+                HookType.CONTEXT_ENRICH,
+                messages=msgs,
+                workspace=workspace,
+            )
         )
-        msgs.insert(-last_user_idx if last_user_idx else -1, fresh_content_msg)
+
+        # insert right before the last user message
+        last_user_idx = next(
+            (i for i, msg in enumerate(reversed(msgs)) if msg.role == "user"), None
+        )
+
+        insert_idx = -1
+        if last_user_idx is not None:
+            # If last user msg is at index 0 (in reversed), we want to insert before it (at -1).
+            # If at index 1, insert at -2.
+            insert_idx = -(last_user_idx + 1)
+
+        for msg in context_msgs:
+            msgs.insert(insert_idx, msg)
     else:
         # Legacy mode: file contents already included at the time of message creation
         pass

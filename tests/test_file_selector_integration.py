@@ -138,7 +138,7 @@ class TestSelectRelevantFiles:
         ]
 
         config = FileSelectorConfig(strategy="rule")
-        selected = await select_relevant_files(
+        selected = select_relevant_files(
             msgs,
             workspace=temp_files["recent_py"].parent,
             max_files=2,
@@ -158,7 +158,7 @@ class TestSelectRelevantFiles:
             Message("user", "And README.md", files=[temp_files["readme"]]),
         ]
 
-        selected = await select_relevant_files(
+        selected = select_relevant_files(
             msgs,
             workspace=temp_files["old_py"].parent,
             max_files=2,
@@ -170,7 +170,7 @@ class TestSelectRelevantFiles:
     @pytest.mark.asyncio
     async def test_empty_messages(self):
         """Test with no messages."""
-        selected = await select_relevant_files(
+        selected = select_relevant_files(
             [],
             workspace=None,
             max_files=10,
@@ -187,7 +187,7 @@ class TestSelectRelevantFiles:
             Message("assistant", "Hi there"),
         ]
 
-        selected = await select_relevant_files(
+        selected = select_relevant_files(
             msgs,
             workspace=None,
             max_files=10,
@@ -207,7 +207,7 @@ class TestSelectRelevantFiles:
         ]
 
         config = FileSelectorConfig(strategy="rule")
-        selected = await select_relevant_files(
+        selected = select_relevant_files(
             msgs,
             workspace=temp_files["old_py"].parent,
             max_files=1,

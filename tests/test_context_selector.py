@@ -79,7 +79,7 @@ class TestRuleBasedSelector:
         """Test basic keyword matching."""
         selector = RuleBasedSelector(config)
 
-        results = await selector.select(
+        results = selector.select(
             query="How do I use git commit?",
             candidates=sample_items,
             max_results=2,
@@ -93,7 +93,7 @@ class TestRuleBasedSelector:
         """Test case-insensitive matching."""
         selector = RuleBasedSelector(config)
 
-        results = await selector.select(
+        results = selector.select(
             query="GIT COMMANDS",
             candidates=sample_items,
             max_results=5,
@@ -108,7 +108,7 @@ class TestRuleBasedSelector:
         """Test priority boosting."""
         selector = RuleBasedSelector(config)
 
-        results = await selector.select(
+        results = selector.select(
             query="git",
             candidates=sample_items,
             max_results=5,
@@ -125,7 +125,7 @@ class TestRuleBasedSelector:
         """Test behavior when no keywords match."""
         selector = RuleBasedSelector(config)
 
-        results = await selector.select(
+        results = selector.select(
             query="python programming",
             candidates=sample_items,
             max_results=5,
@@ -211,7 +211,7 @@ class TestLLMSelector:
         with patch("gptme.context_selector.llm_based.reply") as mock_reply:
             mock_reply.return_value = mock_llm_response(["item1", "item3"])
 
-            results = await selector.select(
+            results = selector.select(
                 query="git workflow", candidates=sample_items, max_results=2
             )
 
@@ -228,7 +228,7 @@ class TestLLMSelector:
         with patch("gptme.context_selector.llm_based.reply") as mock_reply:
             mock_reply.return_value = mock_llm_response([])
 
-            results = await selector.select(
+            results = selector.select(
                 query="nonexistent topic", candidates=sample_items, max_results=2
             )
 
@@ -254,7 +254,7 @@ class TestLLMSelector:
         with patch("gptme.context_selector.llm_based.reply") as mock_reply:
             mock_reply.return_value = response
 
-            results = await selector.select(
+            results = selector.select(
                 query="test", candidates=sample_items, max_results=5
             )
 
@@ -275,7 +275,7 @@ class TestLLMSelector:
                 ["item1", "invalid_id", "item3"]
             )
 
-            results = await selector.select(
+            results = selector.select(
                 query="test", candidates=sample_items, max_results=5
             )
 
@@ -307,7 +307,7 @@ class TestHybridSelector:
 
         # With only 3 items and max_results=5, should skip LLM
         with patch("gptme.context_selector.llm_based.reply") as mock_reply:
-            results = await selector.select(
+            results = selector.select(
                 query="git workflow", candidates=sample_items, max_results=5
             )
 
@@ -340,7 +340,7 @@ class TestHybridSelector:
             # Mock LLM to select specific items
             mock_reply.return_value = mock_llm_response([f"item{i}" for i in range(5)])
 
-            results = await selector.select(
+            results = selector.select(
                 query="git workflow best practices",
                 candidates=many_items,
                 max_results=5,
@@ -377,7 +377,7 @@ class TestHybridSelector:
                 ["item10", "item5", "item20", "item1", "item15"]
             )
 
-            results = await selector.select(
+            results = selector.select(
                 query="git workflow",  # Match the keywords
                 candidates=many_items,
                 max_results=5,

@@ -174,7 +174,7 @@ class TestEnhancedLessonMatcher:
         ]
 
         context = MatchContext(message="I need help with git workflow")
-        results = await matcher.match_with_selector(lessons, context, max_results=2)
+        results = matcher.match_with_selector(lessons, context, max_results=2)
 
         # Should match git lesson with higher category weight
         assert len(results) > 0
@@ -205,7 +205,7 @@ class TestEnhancedLessonMatcher:
         ]
 
         context = MatchContext(message="test message")
-        results = await matcher.match_with_selector(lessons, context, max_results=2)
+        results = matcher.match_with_selector(lessons, context, max_results=2)
 
         # Workflow category (1.5 weight) should score higher than tools (1.3 weight)
         assert results[0].lesson.category == "workflow"

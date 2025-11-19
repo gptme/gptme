@@ -245,9 +245,7 @@ class TestLessonSelectionIntegration:
         )
 
         context = messages_to_context(conversation_about_git)
-        results = await matcher.match_with_selector(
-            sample_lessons, context, max_results=3
-        )
+        results = matcher.match_with_selector(sample_lessons, context, max_results=3)
 
         # LLM should select relevant lessons
         assert len(results) >= 1
@@ -270,9 +268,7 @@ class TestLessonSelectionIntegration:
         )
 
         context = messages_to_context(conversation_mixed_topics)
-        results = await matcher.match_with_selector(
-            sample_lessons, context, max_results=5
-        )
+        results = matcher.match_with_selector(sample_lessons, context, max_results=5)
 
         # Hybrid should combine rule + LLM selection
         assert len(results) >= 2
@@ -305,7 +301,7 @@ class TestFileSelectionIntegration:
         config = FileSelectorConfig(strategy="rule")
 
         # Get files (async even for rule-based)
-        result = await select_relevant_files(
+        result = select_relevant_files(
             conversation_about_git,
             temp_workspace,
             max_files=5,
@@ -329,7 +325,7 @@ class TestFileSelectionIntegration:
         """Test LLM-based file selection."""
         config = FileSelectorConfig(strategy="llm")
 
-        files = await select_relevant_files(
+        files = select_relevant_files(
             conversation_about_git,
             temp_workspace,
             max_files=3,
@@ -354,7 +350,7 @@ class TestFileSelectionIntegration:
         """Test hybrid file selection."""
         config = FileSelectorConfig(strategy="hybrid")
 
-        files = await select_relevant_files(
+        files = select_relevant_files(
             conversation_mixed_topics,
             temp_workspace,
             max_files=5,
@@ -411,7 +407,7 @@ class TestPerformanceMetrics:
         context = messages_to_context(conversation_about_git)
 
         start = time.time()
-        await matcher.match_with_selector(sample_lessons, context)
+        matcher.match_with_selector(sample_lessons, context)
         duration = time.time() - start
 
         # LLM-based will be slower but should be reasonable
@@ -440,13 +436,13 @@ class TestEndToEndWorkflow:
             use_selector=True,
         )
         context = messages_to_context(conversation_mixed_topics)
-        lesson_results = await lesson_matcher.match_with_selector(
+        lesson_results = lesson_matcher.match_with_selector(
             sample_lessons, context, max_results=3
         )
 
         # 2. Select files
         file_config = FileSelectorConfig(strategy="hybrid")
-        files = await select_relevant_files(
+        files = select_relevant_files(
             conversation_mixed_topics,
             temp_workspace,
             max_files=3,

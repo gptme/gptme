@@ -30,6 +30,9 @@ class StopPropagation:
 class HookType(str, Enum):
     """Types of hooks that can be registered."""
 
+    # Context management
+    CONTEXT_ENRICH = "context_enrich"  # Enrich messages with extra context
+
     # Message lifecycle
     MESSAGE_PRE_PROCESS = "message_pre_process"  # Before processing a message
     MESSAGE_POST_PROCESS = "message_post_process"  # After processing a message
@@ -114,6 +117,21 @@ class MessageProcessHook(Protocol):
 
     def __call__(
         self, manager: "LogManager"
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+class ContextEnrichHook(Protocol):
+    """Hook called to enrich messages with context.
+
+    Args:
+        messages: List of conversation messages
+        workspace: Workspace directory path
+    """
+
+    def __call__(
+        self,
+        messages: list[Message],
+        workspace: Path | None,
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
@@ -211,6 +229,7 @@ HookFunc = (
     | SessionEndHook
     | ToolExecuteHook
     | MessageProcessHook
+    | ContextEnrichHook
     | LoopContinueHook
     | GenerationPreHook
     | GenerationPostHook
@@ -520,6 +539,16 @@ def register_hook(
 ) -> None: ...
 
 
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.CONTEXT_ENRICH],
+    func: ContextEnrichHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
 # Implementation (catches all other cases)
 # Fallback overload for dynamic registration (when hook_type is not a Literal)
 @overload
@@ -621,6 +650,9 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
         ).register(),
         "token_awareness": lambda: __import__(
             "gptme.hooks.token_awareness", fromlist=["register"]
+        ).register(),
+        "context": lambda: __import__(
+            "gptme.hooks.context", fromlist=["register"]
         ).register(),
         "test": lambda: __import__(
             "gptme.hooks.test", fromlist=["register_test_hooks"]
