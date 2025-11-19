@@ -24,7 +24,6 @@ from pygments.lexer import RegexLexer
 from pygments.token import Name, Text
 from rich.console import Console
 
-from gptme.config import get_config
 from gptme.llm.models import get_default_model
 
 from ..dirs import get_pt_history_file
@@ -354,6 +353,8 @@ class GptmeCompleter(Completer):
 @lru_cache
 def llm_suggest(text: str) -> list[str]:
     # TODO: Improve LLM suggestions
+    from gptme.config import get_config
+
     from ..llm import _chat_complete  # fmt: skip
     from ..message import Message  # fmt: skip
 

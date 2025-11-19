@@ -35,12 +35,8 @@ class ModelNameMapper:
     @staticmethod
     def to_dspy_format(gptme_model: str) -> str:
         """Convert gptme model name to DSPy/litellm format."""
-        if gptme_model.startswith("anthropic/"):
-            return gptme_model.replace("anthropic/", "")
-        elif gptme_model.startswith("openai/"):
-            return gptme_model.replace("openai/", "")
-        else:
-            return gptme_model
+        # Pass through full model name to let LiteLLM handle it
+        return gptme_model
 
     @staticmethod
     def get_reflection_model(base_model: str) -> str:
@@ -49,6 +45,8 @@ class ModelNameMapper:
             return "claude-sonnet-4-5"
         elif base_model.startswith("openai/"):
             return "gpt-5"
+        elif "gemini" in base_model or base_model.startswith("google/"):
+            return "google/gemini-3-pro-preview"
         else:
             return ModelNameMapper.to_dspy_format(base_model)
 
