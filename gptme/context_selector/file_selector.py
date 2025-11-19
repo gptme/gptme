@@ -67,7 +67,20 @@ def select_relevant_files(
     # Get files with mention counts (existing logic)
     mentioned_files = get_mentioned_files(msgs, workspace)
 
-    if not use_selector:
+    # Load config if not provided
+    if config is None:
+        if workspace:
+            from dataclasses import asdict
+
+            from ..config import get_project_config
+
+            if pc := get_project_config(workspace):
+                # Create FileSelectorConfig from project's ContextSelectorConfig
+                config = FileSelectorConfig(**asdict(pc.context_selector))
+
+    config = config or FileSelectorConfig()
+
+    if not use_selector or not config.enabled:
         # Fallback: return top N by mention count + recency (existing behavior)
         return mentioned_files[:max_files]
 
@@ -112,7 +125,6 @@ def select_relevant_files(
         return []
 
     # Apply metadata boosts before selection
-    config = config or FileSelectorConfig()
     scored_items = []
     for item in file_items:
         # Calculate boost factors

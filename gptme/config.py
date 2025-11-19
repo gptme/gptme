@@ -17,6 +17,7 @@ from tomlkit.container import Container
 from tomlkit.exceptions import TOMLKitError
 from typing_extensions import Self
 
+from .context_selector.config import ContextSelectorConfig
 from .util import console, path_with_tilde
 
 if TYPE_CHECKING:
@@ -166,6 +167,9 @@ class ProjectConfig:
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
     lessons: LessonsConfig = field(default_factory=LessonsConfig)
+    context_selector: ContextSelectorConfig = field(
+        default_factory=ContextSelectorConfig
+    )
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
 
     env: dict[str, str] = field(default_factory=dict)
@@ -182,6 +186,11 @@ class ProjectConfig:
             AgentConfig(**config_data.pop("agent")) if "agent" in config_data else None
         )
         lessons = LessonsConfig(dirs=config_data.pop("lessons", {}).get("dirs", []))
+
+        # Handle context selector config using from_dict if available, else keyword args
+        context_selector_data = config_data.pop("context_selector", {})
+        context_selector = ContextSelectorConfig.from_dict(context_selector_data)
+
         plugins_data = config_data.pop("plugins", {})
         plugins = PluginsConfig(
             paths=plugins_data.get("paths", []),
@@ -203,6 +212,7 @@ class ProjectConfig:
             rag=rag,
             agent=agent,
             lessons=lessons,
+            context_selector=context_selector,
             plugins=plugins,
             env=env,
             mcp=mcp,
