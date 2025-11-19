@@ -37,7 +37,7 @@ def test_init_tools_allowlist_from_env():
             return "save,patch"
         return default  # Return the default value for other keys
 
-    with patch("gptme.tools.get_config") as mock_get_config:
+    with patch("gptme.config.get_config") as mock_get_config:
         # Mock the get_config function to return a mock object
         mock_config = mock_get_config.return_value
         # Mock the get_env method to return the custom_env_value
@@ -81,7 +81,7 @@ def test_get_available_tools():
     clear_tools()
     custom_env_value = "gptme.tools.save,gptme.tools.patch"
 
-    with patch("gptme.tools.get_config") as mock_get_config:
+    with patch("gptme.config.get_config") as mock_get_config:
         # Mock the get_config function to return a mock object
         mock_config = mock_get_config.return_value
         # Mock the get_env method to return the custom_env_value
