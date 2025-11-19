@@ -17,6 +17,7 @@ from tomlkit.container import Container
 from tomlkit.exceptions import TOMLKitError
 from typing_extensions import Self
 
+from .config_context import ContextConfig
 from .context_selector.config import ContextSelectorConfig
 from .util import console, path_with_tilde
 
@@ -167,9 +168,10 @@ class ProjectConfig:
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
     lessons: LessonsConfig = field(default_factory=LessonsConfig)
-    context_selector: ContextSelectorConfig = field(
-        default_factory=ContextSelectorConfig
-    )
+
+    # Unified context configuration (replaces GPTME_FRESH + context_selector)
+    context: ContextConfig = field(default_factory=ContextConfig)
+
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
 
     env: dict[str, str] = field(default_factory=dict)
@@ -187,9 +189,22 @@ class ProjectConfig:
         )
         lessons = LessonsConfig(dirs=config_data.pop("lessons", {}).get("dirs", []))
 
-        # Handle context selector config using from_dict if available, else keyword args
+        # Handle unified context config (replaces GPTME_FRESH + context_selector)
+        # Support both old and new config formats for backward compatibility
+        context_data = config_data.pop("context", {})
         context_selector_data = config_data.pop("context_selector", {})
-        context_selector = ContextSelectorConfig.from_dict(context_selector_data)
+
+        # If new [context] section exists, use it
+        if context_data:
+            context = ContextConfig.from_dict(context_data)
+        # Otherwise, migrate old config format
+        elif context_selector_data:
+            # Create ContextConfig with selector from old config
+            selector = ContextSelectorConfig.from_dict(context_selector_data)
+            context = ContextConfig(enabled=False, selector=selector)
+        else:
+            # No config, use defaults
+            context = ContextConfig()
 
         plugins_data = config_data.pop("plugins", {})
         plugins = PluginsConfig(
@@ -212,7 +227,7 @@ class ProjectConfig:
             rag=rag,
             agent=agent,
             lessons=lessons,
-            context_selector=context_selector,
+            context=context,
             plugins=plugins,
             env=env,
             mcp=mcp,

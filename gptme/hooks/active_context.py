@@ -28,6 +28,12 @@ def context_hook(
         messages: List of conversation messages
         **kwargs: Includes workspace and manager (optional)
     """
+    from ..util.context import use_fresh_context
+
+    # Check if fresh context mode is enabled (opt-in)
+    if not use_fresh_context():
+        return
+
     workspace = kwargs.get("workspace")
     if not workspace:
         return

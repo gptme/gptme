@@ -30,17 +30,34 @@ logger = logging.getLogger(__name__)
 def use_fresh_context() -> bool:
     """Check if fresh context mode is enabled.
 
-    Fresh context mode (GPTME_FRESH=true) ensures that file contents shown in the context
+    Fresh context mode ensures that file contents shown in the context
     are always up to date by:
     - Adding a context message before each user message
     - Including current git status
     - Including contents of recently modified files
     - Marking outdated file contents in the conversation history
+
+    Configuration:
+        [context]
+        enabled = true  # Opt-in (default: false)
+
+    Backward compatibility:
+        - Checks GPTME_FRESH env var if [context] config not available
+        - Defaults to False (opt-in) if neither is set
     """
-    flag: str | None = get_config().get_env("GPTME_FRESH")
-    if flag is None:
-        return True  # Default to True
-    return flag.lower() in ("1", "true", "yes")
+    config = get_config()
+
+    # Check new unified config first
+    if config.project and config.project.context:
+        return config.project.context.enabled
+
+    # Backward compatibility: check GPTME_FRESH env var
+    flag: str | None = config.get_env("GPTME_FRESH")
+    if flag is not None:
+        return flag.lower() in ("1", "true", "yes")
+
+    # Default: opt-in (false)
+    return False
 
 
 def file_to_display_path(f: Path, workspace: Path | None = None) -> Path:
@@ -95,14 +112,23 @@ def embed_attached_file_content(
     files = [file_to_display_path(f, workspace).expanduser() for f in msg.files]
     files_text = {}
     for f in files:
-        if not check_modified or f.stat().st_mtime <= datetime.timestamp(msg.timestamp):
+        try:
+            stat = f.stat()
+        except FileNotFoundError:
+            stat = None
+        if not check_modified or (
+            stat and stat.st_mtime <= datetime.timestamp(msg.timestamp)
+        ):
             content = textfile_as_codeblock(f)
             if not content:
                 # Non-text file, skip
                 continue
             files_text[f] = content
         else:
-            files_text[f] = md_codeblock(f, "<file was modified after message>")
+            if not stat:
+                files_text[f] = md_codeblock(f, "<file not found, may have been moved>")
+            else:
+                files_text[f] = md_codeblock(f, "<file was modified after message>")
     return replace(
         msg,
         content=msg.content + "\n\n".join(files_text.values()),

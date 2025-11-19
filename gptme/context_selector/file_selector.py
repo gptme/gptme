@@ -116,8 +116,8 @@ def select_relevant_files(
             from ..config import get_project_config
 
             if pc := get_project_config(workspace):
-                # Create FileSelectorConfig from project's ContextSelectorConfig
-                config = FileSelectorConfig(**asdict(pc.context_selector))
+                # Create FileSelectorConfig from project's unified context config
+                config = FileSelectorConfig(**asdict(pc.context.selector))
 
     config = config or FileSelectorConfig()
 
