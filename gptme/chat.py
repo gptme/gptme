@@ -1,8 +1,15 @@
 import logging
 import os
 import sys
-import termios
 import threading
+try:
+    import termios
+except ImportError:
+    termios = None  # type: ignore
+
+msvcrt = None  # type: object
+if os.name == 'nt':
+    import msvcrt  # type: ignore
 from collections.abc import Generator
 from pathlib import Path
 
@@ -463,9 +470,12 @@ def step(
 
 def prompt_user(value=None) -> str:  # pragma: no cover
     print_bell()
-    # Flush stdin to clear any buffered input before prompting (only if stdin is a TTY)
-    if sys.stdin.isatty():
+    # Flush stdin to clear any buffered input before prompting
+    if termios:
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    elif msvcrt:
+        while msvcrt.kbhit():  # type: ignore
+            msvcrt.getch()  # type: ignore
     response = ""
     with terminal_state_title("⌨️ waiting for input"):
         while not response:

@@ -2,9 +2,20 @@
 Utilities for asking user confirmation and handling editable/copiable content.
 """
 
+import os
 import re
 import sys
-import termios
+try:
+    import termios
+except ImportError:
+    termios = None  # type: ignore
+
+msvcrt = None
+if os.name == 'nt':
+    try:
+        import msvcrt  # type: ignore
+    except ImportError:
+        pass
 from collections.abc import Callable, Generator
 from pathlib import Path
 from textwrap import wrap
@@ -103,7 +114,12 @@ def ask_execute(question="Execute code?", default=True) -> bool:
         return True
 
     print_bell()  # Ring the bell just before asking for input
-    termios.tcflush(sys.stdin, termios.TCIFLUSH)  # flush stdin
+    if termios:
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)  # flush stdin
+    elif msvcrt:
+        # Windows alternative using msvcrt
+        while msvcrt.kbhit():  # type: ignore
+            msvcrt.getch()  # type: ignore
 
     # Build choice string with available options
     choicestr = f"[{'Y' if default else 'y'}/{'n' if default else 'N'}"

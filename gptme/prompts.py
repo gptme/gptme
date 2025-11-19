@@ -443,7 +443,7 @@ def prompt_workspace(
     files_str = []
     for file in files:
         if file.exists():
-            files_str.append(md_codeblock(file.resolve(), file.read_text()))
+            files_str.append(md_codeblock(file.resolve(), file.read_text(encoding='utf-8')))
     if files_str:
         sections.append(
             "## Selected files\n\nRead more with `cat`.\n\n" + "\n\n".join(files_str)
