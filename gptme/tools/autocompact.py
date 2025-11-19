@@ -11,6 +11,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..context import strip_reasoning
 from ..hooks import StopPropagation
 from ..message import Message, len_tokens
 from ..util.output_storage import create_tool_result_summary
@@ -23,36 +24,6 @@ logger = logging.getLogger(__name__)
 # Reentrancy guard to prevent infinite loops
 _last_autocompact_time = 0.0
 _autocompact_min_interval = 60  # Minimum 60 seconds between autocompact attempts
-
-
-def strip_reasoning(content: str, model: str = "gpt-4") -> tuple[str, int]:
-    """
-    Strip reasoning tags from message content.
-
-    Removes <think>...</think> and <thinking>...</thinking> blocks
-    while preserving the rest of the content.
-
-    Args:
-        content: Message content potentially containing reasoning tags
-        model: Model name for token counting
-
-    Returns:
-        Tuple of (stripped_content, tokens_saved)
-    """
-    original_tokens = len_tokens(content, model)
-
-    # Remove <think>...</think> blocks (including newlines inside)
-    stripped = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
-
-    # Remove <thinking>...</thinking> blocks (including newlines inside)
-    stripped = re.sub(r"<thinking>.*?</thinking>", "", stripped, flags=re.DOTALL)
-
-    # Clean up extra whitespace left by removals
-    stripped = re.sub(r"\n\n\n+", "\n\n", stripped)  # Multiple blank lines -> two
-    stripped = stripped.strip()
-
-    tokens_saved = original_tokens - len_tokens(stripped, model)
-    return stripped, tokens_saved
 
 
 def auto_compact_log(
@@ -371,7 +342,6 @@ def _get_compacted_name(conversation_name: str) -> str:
     if not conversation_name:
         raise ValueError("conversation name cannot be empty")
 
-    import re
     from datetime import datetime
 
     # Strip any existing compacted suffixes: -compacted-YYYYMMDDHHMM
