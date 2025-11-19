@@ -27,17 +27,15 @@ def get_workspace_files(workspace: Path) -> list[Path]:
             check=True,
         )
         files = [workspace / f for f in p.stdout.splitlines()]
-        # Filter existing files and exclude worktree
-        files = [f for f in files if f.exists() and "worktree" not in f.parts]
+        # Filter existing files
+        files = [f for f in files if f.exists()]
     except (OSError, subprocess.CalledProcessError):
         # Fallback to glob if not a git repo or git fails
         # We exclude hidden files/dirs
         files = [
             f
             for f in workspace.rglob("*")
-            if f.is_file()
-            and not any(p.startswith(".") for p in f.parts)
-            and "worktree" not in f.parts
+            if f.is_file() and not any(p.startswith(".") for p in f.parts)
         ]
     return files
 
