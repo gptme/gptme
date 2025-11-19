@@ -1,20 +1,16 @@
 """Enhanced lesson matching with context selector support."""
 
 import logging
-from typing import TYPE_CHECKING
 
-from ..context_selector.base import ContextSelector
-from ..context_selector.config import ContextSelectorConfig
-from ..context_selector.hybrid import HybridSelector
-from ..context_selector.llm_based import LLMSelector
-from ..context_selector.rule_based import RuleBasedSelector
+from ..context.selector.base import ContextSelector
+from ..context.selector.config import ContextSelectorConfig
+from ..context.selector.hybrid import HybridSelector
+from ..context.selector.llm_based import LLMSelector
+from ..context.selector.rule_based import RuleBasedSelector
 from .matcher import LessonMatcher, MatchContext, MatchResult
 from .parser import Lesson
 from .selector_config import LessonSelectorConfig
 from .selector_integration import LessonItem
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

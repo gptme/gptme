@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from gptme.context_selector.config import ContextSelectorConfig
+from gptme.context.selector.config import ContextSelectorConfig
 from gptme.lessons import (
     EnhancedLessonMatcher,
     Lesson,

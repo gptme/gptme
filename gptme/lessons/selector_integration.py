@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from ..context_selector.base import ContextItem
+from ..context.selector.base import ContextItem
 from .parser import Lesson
 
 

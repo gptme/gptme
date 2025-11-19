@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from gptme.context_selector import (
+from gptme.context.selector import (
     ContextSelectorConfig,
     FileSelectorConfig,
     select_relevant_files,

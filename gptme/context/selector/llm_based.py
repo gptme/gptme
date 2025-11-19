@@ -4,7 +4,7 @@ import logging
 import time
 from collections.abc import Sequence
 
-from ..message import Message
+from ...message import Message
 from .base import ContextItem, ContextSelector
 from .config import ContextSelectorConfig
 
@@ -77,7 +77,7 @@ class LLMSelector(ContextSelector):
         ]
 
         # Call LLM
-        from ..llm import reply
+        from ...llm import reply  # fmt: skip
 
         start = time.monotonic()
         response = reply(

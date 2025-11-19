@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 from contextvars import ContextVar
@@ -17,8 +18,9 @@ from tomlkit.container import Container
 from tomlkit.exceptions import TOMLKitError
 from typing_extensions import Self
 
-from .config_context import ContextConfig
-from .context_selector.config import ContextSelectorConfig
+from .context.config import ContextConfig
+from .context.selector.config import ContextSelectorConfig
+from .tools import get_toolchain
 from .util import console, path_with_tilde
 
 if TYPE_CHECKING:
@@ -356,7 +358,6 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
     For MCP servers, merge by name - local server env vars are merged into main server config.
     For other sections, local config extends/overrides main config.
     """
-    import copy
 
     merged = copy.deepcopy(main_config)
 
@@ -816,7 +817,7 @@ def reload_config() -> Config:
         _config_var.set(config)
 
     # Clear tools cache so MCP tools are recreated with new config
-    from gptme.tools import clear_tools
+    from gptme.tools import clear_tools  # fmt: skip
 
     clear_tools()
 
@@ -839,7 +840,6 @@ def setup_config_from_cli(
 
     Handles the precedence: CLI args -> saved conversation config -> env vars -> config files -> defaults
     """
-    from .tools import get_toolchain
 
     # Load base config from workspace
     set_config_from_workspace(workspace)

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .context_selector.config import ContextSelectorConfig
+from .selector.config import ContextSelectorConfig
 
 
 @dataclass

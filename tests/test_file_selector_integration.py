@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from gptme.context_selector import FileItem, FileSelectorConfig, select_relevant_files
+from gptme.context.selector import FileItem, FileSelectorConfig, select_relevant_files
 from gptme.message import Message
 
 

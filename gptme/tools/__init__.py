@@ -10,13 +10,9 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from ..logmanager import Log
-
-from gptme.config import get_config
-from gptme.constants import INTERRUPT_CONTENT
-
+from ..constants import INTERRUPT_CONTENT
 from ..message import Message
+from ..plugins import get_plugin_tool_modules
 from ..telemetry import trace_function
 from ..util.interrupt import clear_interruptible
 from ..util.terminal import terminal_state_title
@@ -29,6 +25,9 @@ from .base import (
     get_tool_format,
     set_tool_format,
 )
+
+if TYPE_CHECKING:
+    from ..logmanager import Log
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +129,8 @@ def init_tools(
     If allowlist is not provided, it will be loaded from the environment variable
     TOOL_ALLOWLIST or the chat config (if set).
     """
+    from ..config import get_config  # fmt: skip
+
     with _tools_init_lock:
         loaded_tools = _get_loaded_tools()
         config = get_config()
@@ -241,8 +242,8 @@ def is_supported_langtag(lang: str) -> bool:
 
 
 def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
-    from gptme.plugins import get_plugin_tool_modules
-    from gptme.tools.mcp_adapter import create_mcp_tools  # fmt: skip
+    from ..config import get_config  # fmt: skip
+    from .mcp_adapter import create_mcp_tools  # fmt: skip
 
     # Only use cache if we want MCP tools (cache always includes MCP)
     available_tools = _get_available_tools_cache() if include_mcp else None
@@ -259,8 +260,6 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
 
         # Add plugin tool modules
         if config.project and config.project.plugins.paths:
-            from pathlib import Path
-
             # Resolve plugin paths (support ~ and relative paths)
             plugin_paths = []
             for path_str in config.project.plugins.paths:

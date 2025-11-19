@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from ..message import Message
+from ...message import Message
 from .base import ContextSelector
 from .file_config import FileSelectorConfig
 from .file_integration import FileItem
@@ -103,7 +103,7 @@ def select_relevant_files(
         List of most relevant file paths, ordered by relevance
     """
     # Import here to avoid circular dependency
-    from ..util.context import get_mentioned_files
+    from ...util.context import get_mentioned_files
 
     # Get files with mention counts (existing logic)
     mentioned_files = get_mentioned_files(msgs, workspace)
@@ -113,7 +113,7 @@ def select_relevant_files(
         if workspace:
             from dataclasses import asdict
 
-            from ..config import get_project_config
+            from ...config import get_project_config
 
             if pc := get_project_config(workspace):
                 # Create FileSelectorConfig from project's unified context config

@@ -2,7 +2,7 @@ import logging
 from collections.abc import Generator
 from pathlib import Path
 
-from ..context_selector.file_selector import select_relevant_files
+from ..context.selector.file_selector import select_relevant_files
 from ..message import Message
 from ..util.context import (
     file_to_display_path,

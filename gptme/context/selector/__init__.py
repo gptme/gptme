@@ -4,7 +4,7 @@ This module provides a general-purpose framework for selecting the most relevant
 context items using different strategies (rule-based, LLM-based, hybrid).
 
 Example:
-    from gptme.context_selector import HybridSelector, ContextSelectorConfig
+    from gptme.context.selector import HybridSelector, ContextSelectorConfig
 
     config = ContextSelectorConfig(strategy="hybrid")
     selector = HybridSelector(config)

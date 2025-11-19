@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from gptme.context_selector import (
+from gptme.context.selector import (
     ContextItem,
     ContextSelectorConfig,
     HybridSelector,

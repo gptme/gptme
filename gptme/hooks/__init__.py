@@ -16,7 +16,6 @@ from typing import (
     overload,
 )
 
-from ..config import get_config
 from ..message import Message
 from ..plugins import register_plugin_hooks
 
@@ -600,6 +599,7 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
     If allowlist is not provided, it will be loaded from the environment variable
     HOOK_ALLOWLIST or the chat config (if set).
     """
+    from ..config import get_config  # fmt: skip
 
     config = get_config()
 
