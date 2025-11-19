@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import cast
 
 import click
+
 from gptme.eval.suites import tests as gptme_eval_tests
 from gptme.eval.types import EvalSpec
 

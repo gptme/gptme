@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+
 from gptme.config import RagConfig
 from gptme.message import Message
 from gptme.tools.rag import _has_gptme_rag, rag_enhance_messages

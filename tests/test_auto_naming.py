@@ -4,6 +4,7 @@ import os
 
 import pytest
 import requests
+
 from gptme.config import ChatConfig
 from gptme.dirs import get_logs_dir
 

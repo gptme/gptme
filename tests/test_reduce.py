@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from gptme.message import Message, len_tokens
 from gptme.util.reduce import reduce_log, truncate_msg
 

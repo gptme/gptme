@@ -2,7 +2,7 @@
 
 import logging
 
-from gptme.tools import init_tools, get_tools, _get_loaded_tools
+from gptme.tools import _get_loaded_tools, get_tools, init_tools
 
 
 def test_init_tools_idempotent(caplog):

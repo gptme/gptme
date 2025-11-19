@@ -109,7 +109,11 @@ def execute_save_impl(
 
     # Trigger pre-save hooks
     if pre_save_msgs := trigger_hook(
-        HookType.FILE_PRE_SAVE, path=path, content=content
+        HookType.FILE_PRE_SAVE,
+        log=None,
+        workspace=None,
+        path=path,
+        content=content,
     ):
         yield from pre_save_msgs
 
@@ -144,7 +148,12 @@ def execute_save_impl(
 
     # Trigger post-save hooks
     if post_save_msgs := trigger_hook(
-        HookType.FILE_POST_SAVE, path=path, content=content, created=not overwrite
+        HookType.FILE_POST_SAVE,
+        log=None,
+        workspace=None,
+        path=path,
+        content=content,
+        created=not overwrite,
     ):
         yield from post_save_msgs
 

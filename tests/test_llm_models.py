@@ -1,9 +1,9 @@
 from unittest.mock import patch
 
 from gptme.llm.models import (
-    get_model,
-    _get_models_for_provider,
     ModelMeta,
+    _get_models_for_provider,
+    get_model,
 )
 
 

@@ -1,14 +1,16 @@
 """Tests for lesson parser."""
 
-import pytest
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
+
 from gptme.lessons.parser import (
     Lesson,
     LessonMetadata,
-    _extract_title,
     _extract_description,
+    _extract_title,
     parse_lesson,
 )
 

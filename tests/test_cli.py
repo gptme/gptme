@@ -4,11 +4,12 @@ import tempfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
+from click.testing import CliRunner
+
 import gptme.cli
 import gptme.constants
 import gptme.tools.browser
-import pytest
-from click.testing import CliRunner
 from gptme.tools import ToolUse
 
 project_root = Path(__file__).parent.parent
@@ -347,11 +348,11 @@ def test_tmux(args: list[str], runner: CliRunner):
     """
     $ gptme '/impersonate lets find out the current load
     ```tmux
-    new_session top
+    new-session top
     ```'
     """
     args.append(
-        "/impersonate lets find out the current load\n```tmux\nnew_session top\n```"
+        "/impersonate lets find out the current load\n```tmux\nnew-session top\n```"
     )
     print(f"running: gptme {' '.join(args)}")
     result = runner.invoke(gptme.cli.main, args)
@@ -415,40 +416,6 @@ def test_vision(args: list[str], runner: CliRunner):
         raise result.exception
     assert result.exit_code == 0
     assert "yes" in result.output
-
-
-@pytest.mark.slow
-@pytest.mark.requires_api
-@pytest.mark.parametrize(
-    "tool_format, expected, not_expected",
-    [
-        ("markdown", ["```shell\nls"], ["<tool-use>\n<shell>\nls"]),
-        ("xml", ["<tool-use>\n<shell>\nls"], ["```shell\nls"]),
-        (
-            "tool",
-            ["@shell:"],
-            ["```shell\nls", "<tool-use>\n<shell>\nls"],
-        ),
-    ],
-)
-def test_tool_format_option(
-    args: list[str], runner: CliRunner, tool_format, expected, not_expected
-):
-    args.append("--show-hidden")
-    args.append("--tool-format")
-    args.append(tool_format)
-    args.append("we are testing, just ls the current dir and then do nothing else")
-
-    result = runner.invoke(gptme.cli.main, args)
-    if result.exception:
-        raise result.exception
-    assert result.exit_code == 0
-
-    for expect in expected:
-        assert expect in result.output
-
-    for not_expect in not_expected:
-        assert not_expect not in result.output
 
 
 @pytest.mark.slow

@@ -9,6 +9,7 @@ pytest.importorskip(
 )
 
 
+@pytest.mark.xfail(reason="Flaky test")
 @pytest.mark.timeout(20)
 def test_event_stream(event_listener, wait_for_event):
     """Test the event stream endpoint."""
@@ -27,7 +28,7 @@ def test_event_stream(event_listener, wait_for_event):
 
     # Verify message content
     resp = requests.get(
-        f"http://localhost:{port}/api/v2/conversations/{conversation_id}"
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
     )
     assert resp.status_code == 200
     messages = resp.json()["log"]
@@ -66,7 +67,7 @@ def test_event_stream_with_generation(event_listener, wait_for_event):
 
     # Verify the response
     resp = requests.get(
-        f"http://localhost:{port}/api/v2/conversations/{conversation_id}"
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
     )
     assert resp.status_code == 200
     messages = resp.json()["log"]

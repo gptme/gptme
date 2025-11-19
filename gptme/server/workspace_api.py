@@ -14,7 +14,7 @@ from flask import request
 from pydantic import BaseModel, Field
 
 from ..logmanager import LogManager
-from .openapi_docs import api_doc_simple, ErrorResponse
+from .openapi_docs import ErrorResponse, api_doc_simple
 
 logger = logging.getLogger(__name__)
 

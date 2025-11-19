@@ -34,6 +34,24 @@ You can configure MCP in your :ref:`global-config` (``~/.config/gptme/config.tom
 
 We also intend to support specifying it in the :ref:`project-config`, and the ability to set it per-conversation.
 
+Management Tool
+---------------
+
+gptme includes a powerful MCP management tool that allows you to discover and dynamically load MCP servers during a conversation.
+
+Commands
+~~~~~~~~
+
+The ``mcp`` tool provides the following slash-commands:
+
+- ``/search [query]``: Search for MCP servers across registries
+- ``/info <server-name>``: Get detailed information about a specific server
+- ``/load <server-name>``: Dynamically load an MCP server into the current session
+- ``/unload <server-name>``: Unload a previously loaded MCP server
+- ``/list``: List all currently configured and loaded MCP servers
+
+Once loaded, the server's tools will be available as ``<server-name>.<tool-name>`` in the conversation.
+
 Configuration Options
 ~~~~~~~~~~~~~~~~~~~~~
 

@@ -1,8 +1,10 @@
 from unittest.mock import patch
 
 import pytest
+
 from gptme.tools import (
     _discover_tools,
+    clear_tools,
     get_available_tools,
     get_tool,
     get_tool_for_langtag,
@@ -75,6 +77,8 @@ def test_tool_loading_with_missing_package():
 
 
 def test_get_available_tools():
+    # Clear cache to ensure test uses mocked config
+    clear_tools()
     custom_env_value = "gptme.tools.save,gptme.tools.patch"
 
     with patch("gptme.tools.get_config") as mock_get_config:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from gptme.tools.todo import _todoread, _todowrite, _current_todos, TodoItem
+from gptme.tools.todo import TodoItem, _current_todos, _todoread, _todowrite
 
 
 @pytest.fixture(autouse=True)

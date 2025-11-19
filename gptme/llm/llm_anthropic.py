@@ -12,6 +12,8 @@ from typing import (
     cast,
 )
 
+from httpx import RemoteProtocolError
+
 from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, msgs2dicts
 from ..telemetry import record_llm_request
@@ -115,16 +117,22 @@ def _handle_anthropic_transient_error(e, attempt, max_retries, base_delay):
                 keyword in error_msg for keyword in ["overload", "internal", "timeout"]
             ):
                 should_retry = True
+    # Also check for "httpx.RemoteProtocolError: peer closed connection without sending complete message body"
+    elif isinstance(e, RemoteProtocolError):
+        should_retry = True
 
     # Re-raise if not transient or max retries reached
     if not should_retry or attempt == max_retries - 1:
         raise e
 
     delay = base_delay * (2**attempt)
+    status_code = getattr(e, "status_code", "unknown")
     logger.warning(
-        f"Anthropic API transient error (status {getattr(e, 'status_code', 'unknown')}), "
+        f"Anthropic API transient error (status {status_code}), "
         f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
     )
+    if status_code in [200, "200"]:
+        logger.warning(f"Status code was strangely 200. Error details: {str(e)}")
     time.sleep(delay)
 
 
@@ -233,6 +241,9 @@ def chat(messages: list[Message], model: str, tools: list[ToolSpec] | None) -> s
             if use_thinking
             else NOT_GIVEN
         ),
+        # We set a timeout for non-streaming requests to prevent Anthropic's
+        # "Streaming is strongly recommended" warning/error.
+        timeout=60,
     )
     content = response.content
     _record_usage(response.usage, model)

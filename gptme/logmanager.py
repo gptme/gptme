@@ -15,6 +15,7 @@ import logging
 import shutil
 import textwrap
 from collections.abc import Generator
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from itertools import islice, zip_longest
@@ -54,6 +55,9 @@ class Log:
     def __len__(self) -> int:
         return len(self.messages)
 
+    def len_tokens(self, model: str) -> int:
+        return len_tokens(self.messages, model)
+
     def __iter__(self) -> Generator[Message, None, None]:
         yield from self.messages
 
@@ -85,10 +89,22 @@ class Log:
         print_msg(self.messages, oneline=False, show_hidden=show_hidden)
 
 
+# Context-local storage for current LogManager instance
+# Each context (thread/async task) gets its own independent reference
+_current_log_var: ContextVar["LogManager | None"] = ContextVar(
+    "current_log", default=None
+)
+
+
 class LogManager:
     """Manages a conversation log."""
 
     _lock_fd: TextIO | None = None
+
+    @classmethod
+    def get_current_log(cls) -> "LogManager | None":
+        """Get the current LogManager instance for this context."""
+        return _current_log_var.get()
 
     def __init__(
         self,
@@ -107,6 +123,9 @@ class LogManager:
             self.logdir = Path(fpath)
         self.chat_id = self.logdir.name
 
+        # Set as current log for tools to access (context-local)
+        _current_log_var.set(self)
+
         # Create and optionally lock the directory
         self.logdir.mkdir(parents=True, exist_ok=True)
         is_pytest = "PYTEST_CURRENT_TEST" in os.environ
@@ -122,6 +141,11 @@ class LogManager:
                 elif os.name == 'nt':
                     msvcrt.locking(self._lock_fd.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore
                 # logger.debug(f"Acquired lock on {self.logdir}")
+
+                # Register cleanup handler to release lock on exit
+                import atexit
+
+                atexit.register(self._release_lock)
             except BlockingIOError:
                 self._lock_fd.close()
                 self._lock_fd = None
@@ -144,7 +168,7 @@ class LogManager:
             if _branch not in self._branches:
                 self._branches[_branch] = Log.read_jsonl(file)
 
-    def __del__(self):
+    def _release_lock(self):
         """Release the lock and close the file descriptor"""
         if self._lock_fd:
             try:
@@ -154,9 +178,14 @@ class LogManager:
                 elif fcntl:
                     fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
                 self._lock_fd.close()
+                self._lock_fd = None
                 # logger.debug(f"Released lock on {self.logdir}")
             except Exception as e:
                 logger.warning(f"Error releasing lock: {e}")
+
+    def __del__(self):
+        """Release the lock on garbage collection"""
+        self._release_lock()
 
     @property
     def workspace(self) -> Path:
@@ -192,9 +221,13 @@ class LogManager:
         if not msg.quiet:
             print_msg(msg, oneline=False)
 
-    def write(self, branches=True) -> None:
+    def write(self, branches=True, sync=False) -> None:
         """
         Writes to the conversation log.
+
+        Args:
+            branches: Whether to write other branches
+            sync: If True, force fsync to ensure data is on disk
         """
         # create directory if it doesn't exist
         Path(self.logfile).parent.mkdir(parents=True, exist_ok=True)
@@ -212,6 +245,11 @@ class LogManager:
                     continue
                 branch_path = branches_dir / f"{branch}.jsonl"
                 log.write_jsonl(branch_path)
+
+        # Force sync to disk if requested
+        if sync:
+            with open(self.logfile, "rb") as f:
+                os.fsync(f.fileno())
 
     def _save_backup_branch(self, type="edit") -> None:
         """backup the current log to a new branch, usually before editing/undoing"""

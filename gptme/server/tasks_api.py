@@ -17,13 +17,13 @@ from typing import Any, Literal
 import flask
 from pydantic import BaseModel, Field
 
+from ..config import ChatConfig
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager
-from ..config import ChatConfig
 from ..message import Message
 from ..prompts import get_prompt
 from ..tools import get_toolchain
-from .openapi_docs import api_doc_simple, ErrorResponse, StatusResponse
+from .openapi_docs import ErrorResponse, StatusResponse, api_doc_simple
 
 logger = logging.getLogger(__name__)
 

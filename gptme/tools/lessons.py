@@ -2,39 +2,60 @@
 Lesson system tool for gptme.
 
 Provides structured lessons with metadata that can be automatically included in context.
-Similar to .cursorrules but with keyword-based triggering.
+Similar to .cursorrules or "Claude Skills". Has keyword-based triggering.
+
+Commands provided:
+
+- ``/lesson list`` - View all available lessons
+- ``/lesson search <query>`` - Find lessons matching query
+- ``/lesson show <id>`` - Display a specific lesson
+- ``/lesson refresh`` - Reload lessons from disk
 """
 
 import logging
-import threading
 from collections.abc import Generator
+from contextvars import ContextVar
+from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
 from ..config import get_config
-from ..hooks import HookType
+from ..hooks import HookType, StopPropagation
+from ..lessons import LessonIndex, LessonMatcher, MatchContext
+from ..lessons.commands import lesson
 from ..message import Message
 from .base import ToolSpec
 
+if TYPE_CHECKING:
+    from ..logmanager import LogManager
+
+# Try to import ACE integration for hybrid lesson matching
+try:
+    from ace.embedder import LessonEmbedder  # type: ignore[import-not-found]
+    from ace.gptme_integration import (  # type: ignore[import-not-found]
+        GptmeHybridMatcher,
+    )
+
+    ACE_AVAILABLE = True
+except ImportError:
+    ACE_AVAILABLE = False
+    GptmeHybridMatcher = None  # type: ignore
+    LessonEmbedder = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
-# Import lesson utilities
-try:
-    from ..lessons import LessonIndex, LessonMatcher, MatchContext
-
-    HAS_LESSONS = True
-except ImportError:
-    HAS_LESSONS = False
-    logger.warning("Lessons module not available")
-
-# Thread-local storage for lesson index
-_thread_local = threading.local()
+# Context-local storage for lesson index
+_lesson_index_var: ContextVar[LessonIndex | None] = ContextVar(
+    "lesson_index", default=None
+)
 
 
 def _get_lesson_index() -> LessonIndex:
-    """Get thread-local lesson index, creating it if needed."""
-    if not hasattr(_thread_local, "index"):
-        _thread_local.index = LessonIndex()
-    return _thread_local.index
+    """Get context-local lesson index, creating it if needed."""
+    index = _lesson_index_var.get()
+    if index is None:
+        index = LessonIndex()
+        _lesson_index_var.set(index)
+    return index
 
 
 def _get_included_lessons_from_log(log: list[Message]) -> set[str]:
@@ -123,70 +144,25 @@ def _extract_message_content(log: list[Message], limit: int = 10) -> str:
     return combined
 
 
-def _format_lessons(matches: list) -> str:
-    """Format matched lessons for inclusion.
-
-    Args:
-        matches: List of MatchResult objects
-
-    Returns:
-        Formatted lessons as string
-    """
-    parts = []
-
-    for i, match in enumerate(matches, 1):
-        lesson = match.lesson
-
-        # Add separator between lessons
-        if i > 1:
-            parts.append("\n---\n")
-
-        # Add lesson with context
-        parts.append(f"## {lesson.title}\n")
-        parts.append(f"*Path: {lesson.path}*\n")
-        parts.append(f"*Category: {lesson.category}*\n")
-        parts.append(f"*Matched by: {', '.join(match.matched_by)}*\n\n")
-        parts.append(lesson.body)
-
-    return "\n".join(parts)
-
-
 def handle_lesson_command(ctx: CommandContext) -> Generator[Message, None, None]:
     """Handle /lesson command."""
-    if not HAS_LESSONS:
-        yield Message(
-            role="system",
-            content="Lessons module not available. Install PyYAML to enable lessons.",
-        )
-        return
-
-    # Import command handler
-    from ..lessons.commands import lesson
-
     # Delegate to the command handler
     yield from lesson(ctx)
 
 
 def auto_include_lessons_hook(
-    log: list[Message], workspace: str | None = None, **kwargs
-) -> Generator[Message, None, None]:
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
     """Hook to automatically include relevant lessons in context.
 
     Extracts keywords from both user and assistant messages to trigger lessons.
-    This enables lessons to be relevant in both interactive and autonomous contexts.
 
     Args:
-        log: Current conversation log
-        workspace: Optional workspace directory path
-        **kwargs: Additional hook arguments (unused)
+        manager: Conversation manager with log and workspace
 
     Returns:
         Generator of messages to prepend (lessons as system message)
     """
-    if not HAS_LESSONS:
-        logger.debug("Lessons module not available, skipping auto-inclusion")
-        return
-
     # Get configuration
     config = get_config()
     auto_include = config.get_env_bool("GPTME_LESSONS_AUTO_INCLUDE", True)
@@ -195,17 +171,23 @@ def auto_include_lessons_hook(
         logger.debug("Auto-inclusion disabled")
         return
 
+    # Get hybrid matching configuration
+    use_hybrid = config.get_env_bool("GPTME_LESSONS_USE_HYBRID", False)
+
     try:
         max_lessons = int(config.get_env("GPTME_LESSONS_MAX_INCLUDED") or "5")
     except (ValueError, TypeError):
         max_lessons = 5
 
+    # Get messages from log
+    messages = manager.log.messages
+
     # Get lessons already included
-    included_lessons = _get_included_lessons_from_log(log)
+    included_lessons = _get_included_lessons_from_log(messages)
 
     # Extract message content from recent user and assistant messages
-    message_content = _extract_message_content(log)
-    tools = _extract_recent_tools(log)
+    message_content = _extract_message_content(messages)
+    tools = _extract_recent_tools(messages)
 
     if not message_content and not tools:
         logger.debug("No message content or tools to match, skipping lesson inclusion")
@@ -220,8 +202,52 @@ def auto_include_lessons_hook(
     # Get lesson index and find matching lessons
     try:
         index = _get_lesson_index()
-        matcher = LessonMatcher()
-        match_results = matcher.match(index.lessons, context)
+
+        # Choose matcher based on configuration
+        if use_hybrid and ACE_AVAILABLE:
+            logger.info("Using ACE hybrid lesson matching")
+            # Initialize embedder with lesson directories from LessonIndex
+            from pathlib import Path
+
+            lesson_dirs = index.lesson_dirs
+
+            # Use first lesson directory for embedder (typically workspace lessons)
+            # Embeddings stored in .gptme/embeddings/lessons/
+            embeddings_dir = Path.cwd() / ".gptme" / "embeddings" / "lessons"
+
+            try:
+                embedder = LessonEmbedder(
+                    lessons_dir=lesson_dirs[0]
+                    if lesson_dirs
+                    else Path.cwd() / "lessons",
+                    embeddings_dir=embeddings_dir,
+                )
+                logger.info(
+                    f"Initialized ACE embedder with lessons_dir={lesson_dirs[0] if lesson_dirs else 'lessons'}"
+                )
+                matcher = GptmeHybridMatcher(embedder=embedder)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to initialize embedder: {e}. Falling back to keyword matching."
+                )
+                matcher = GptmeHybridMatcher(embedder=None)
+        else:
+            if use_hybrid and not ACE_AVAILABLE:
+                logger.warning(
+                    "Hybrid matching requested but ACE not available, falling back to keyword-only"
+                )
+            logger.debug("Using keyword-only lesson matcher")
+            matcher = LessonMatcher()
+
+        # Generate session_id from chat_id for tracking (only for hybrid matcher)
+        session_id = manager.chat_id if hasattr(manager, "chat_id") else None
+
+        # Call matcher with appropriate parameters
+        # Only GptmeHybridMatcher supports session_id parameter
+        if ACE_AVAILABLE and isinstance(matcher, GptmeHybridMatcher):
+            match_results = matcher.match(index.lessons, context, session_id=session_id)
+        else:
+            match_results = matcher.match(index.lessons, context)
 
         # Filter out already included lessons (MatchResult has .lesson attribute)
         new_matches = [
@@ -230,7 +256,7 @@ def auto_include_lessons_hook(
             if str(match.lesson.path) not in included_lessons
         ]
 
-        # Limit number of lessons
+        # Limit number of lessons (matcher may already limit, but ensure it)
         if len(new_matches) > max_lessons:
             logger.debug(f"Limiting lessons from {len(new_matches)} to {max_lessons}")
             new_matches = new_matches[:max_lessons]
@@ -256,8 +282,8 @@ def auto_include_lessons_hook(
         )
 
         titles = [str(match.lesson.title) for match in new_matches]
-        newline = "\n- "
-        logger.info(f"Auto-included {len(new_matches)} lessons: \n{newline.join(titles)}")
+        titles_list = "\n".join(f"- {title}" for title in titles)
+        logger.info(f"Auto-included {len(new_matches)} lessons:\n{titles_list}")
 
         yield lesson_msg
 
@@ -271,18 +297,12 @@ tool = ToolSpec(
     name="lessons",
     desc="Lesson system for structured guidance",
     instructions="""
-Use lessons to improve your performance and avoid known failure modes.
+Use lessons to learn and remember skills/tools/workflows, improve your performance, and avoid known failure modes.
 
 How lessons help you:
 - Automatically included when relevant keywords or tools match
 - Extracted from both user and assistant messages in the conversation
 - Limited to 5 most relevant lessons to conserve context
-
-Commands available:
-- /lesson list - View all available lessons
-- /lesson search <query> - Find lessons matching query
-- /lesson show <id> - Display a specific lesson
-- /lesson refresh - Reload lessons from disk
 
 Leverage lessons for self-improvement:
 - Pay attention to lessons included in context
@@ -292,7 +312,6 @@ Leverage lessons for self-improvement:
 """.strip(),
     examples="",
     functions=[],
-    available=HAS_LESSONS,
     hooks={
         "auto_include_lessons": (
             HookType.MESSAGE_PRE_PROCESS.value,

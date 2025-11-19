@@ -58,7 +58,7 @@ def reply(
     tools: list[ToolSpec] | None = None,
 ) -> Message:
     # Trigger GENERATION_PRE hooks before generating response
-    from ..hooks import trigger_hook, HookType
+    from ..hooks import HookType, trigger_hook
 
     for _ in trigger_hook(
         HookType.GENERATION_PRE, messages, workspace=None, manager=None

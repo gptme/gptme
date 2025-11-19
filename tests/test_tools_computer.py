@@ -7,12 +7,12 @@ from unittest import mock
 import pytest
 
 from gptme.tools.computer import (
+    COMMON_KEY_MAP,
+    IS_MACOS,
+    MODIFIER_KEYS,
     _parse_key_sequence,
     _scale_coordinates,
     _ScalingSource,
-    IS_MACOS,
-    COMMON_KEY_MAP,
-    MODIFIER_KEYS,
 )
 
 

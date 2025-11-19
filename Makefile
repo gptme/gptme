@@ -1,14 +1,7 @@
-.PHONY: docs help check-rst install-completions
+.PHONY: test docs build build-docker check-rst install-completions help
 
 # set default shell
 SHELL := $(shell which bash)
-
-help:
-	@echo "gptme Makefile commands:"
-	@echo
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
-	@echo
-	@echo "Run 'make <command>' to execute a command."
 
 # src dirs and files
 SRCDIRS = gptme tests scripts
@@ -21,29 +14,29 @@ SRCFILES = $(shell echo "${SRCFILES_RAW}" | tr ' ' '\n' | grep -v -f <(echo "${E
 # radon args
 RADON_ARGS = --exclude "scripts/Kokoro-82M/*" --exclude "*/Kokoro-82M/*"
 
-build:
+build: ## Build the project (install dependencies)
 	poetry install
 
-build-docker:
+build-docker: ## Build Docker images
 	docker build . -t gptme:latest -f scripts/Dockerfile
 	docker build . -t gptme-server:latest -f scripts/Dockerfile.server --build-arg BASE=gptme:latest
 	docker build . -t gptme-eval:latest -f scripts/Dockerfile.eval
 	# docker build . -t gptme-eval:latest -f scripts/Dockerfile.eval --build-arg RUST=yes --build-arg BROWSER=yes
 
-build-docker-computer:
+build-docker-computer: ## Build Docker image for gptme-computer
 	docker build . -t gptme-computer:latest -f scripts/Dockerfile.computer
 
-build-docker-dev:
+build-docker-dev: ## Build Docker image for development
 	docker build . -t gptme-dev:latest -f scripts/Dockerfile.dev
 
-build-docker-full:
+build-docker-full: ## Build full Docker images with Rust and Playwright
 	docker build . -t gptme:latest -f scripts/Dockerfile
 	docker build . -t gptme-eval:latest -f scripts/Dockerfile.eval --build-arg RUST=yes --build-arg PLAYWRIGHT=no
 
 build-server-exe: ## Build gptme-server executable with PyInstaller
 	./scripts/build_server_executable.sh
 
-test:
+test: ## Run tests
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests
 	poetry run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
 		--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html --junitxml=junit.xml \
@@ -52,23 +45,28 @@ test:
 		$(if $(SLOW), --timeout 60 --retries 2 --retry-delay 5, --timeout 10 -m "not slow and not eval") \
 		$(if $(PROFILE), --profile-svg)
 
-eval:
+eval: ## Run evaluation suite
 	poetry run gptme-eval
 
-typecheck:
+typecheck: ## Run mypy type checking
 	poetry run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE)))
 
 RUFF_ARGS=${SRCDIRS} $(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))
 
-lint:
+pre-commit:  ## Run pre-commit hooks
+	poetry run pre-commit run --all-files
+
+lint: ## Run linters
 	@# check there is no `ToolUse("python"` in the code (should be `ToolUse("ipython"`)
 	! grep -r 'ToolUse("python"' ${SRCDIRS}
+	@# check that there are nu uses of tmp_path fixture (see https://github.com/gptme/gptme/issues/709)
+	@#! grep -r 'def.*tmp_path[:,)]' ${SRCDIRS} tests/
 	@# ruff
 	poetry run ruff check ${RUFF_ARGS}
 	@# pylint (always pass, just output duplicates)
 	poetry run pylint --disable=all --enable=duplicate-code --exit-zero gptme/
 
-format:
+format: ## Format code
 	poetry run ruff check --fix-only ${RUFF_ARGS}
 	poetry run ruff format ${RUFF_ARGS}
 
@@ -76,7 +74,7 @@ update-models:
 	wayback_url=$$(curl "https://archive.org/wayback/available?url=openai.com/api/pricing/" | jq -r '.archived_snapshots.closest.url') && \
 		gptme 'update the model metadata from this page' gptme/models.py gptme/llm_openai_models.py "$${wayback_url}" --non-interactive
 
-precommit: format lint typecheck check-rst
+precommit: format lint typecheck check-rst  ## Run all pre-commit checks
 
 check-rst:
 	@echo "Checking RST files for proper nested list formatting..."
@@ -129,7 +127,7 @@ site/dist/style.css: site/style.css
 site/dist/docs: docs
 	cp -r docs/_build/html site/dist/docs
 
-version:
+version:  ## Bump version using ./scripts/bump_version.sh
 	@./scripts/bump_version.sh
 
 ./scripts/build_changelog.py:
@@ -156,19 +154,19 @@ docs/releases/%.md: ./scripts/build_changelog.py
 	PREV_VERSION=$$(./scripts/get-last-version.sh $${VERSION}) && \
 		./scripts/build_changelog.py --range $${PREV_VERSION}...$${VERSION} --project-title gptme --org gptme --repo gptme --output $@ --add-version-header
 
-release: version dist/CHANGELOG.md
+release: version dist/CHANGELOG.md  ## Release new version
 	# Insert new version at top of changelog toctree
 	# Stage changelog and release notes with version bump
 	# Amend version commit to include changelog
 	# Force-update tag to amended commit
 	@VERSION=v$$(poetry version --short) && \
 		echo "Releasing version $${VERSION}"; \
-		awk '/^   releases\// && !done { \
+		grep $${VERSION} docs/changelog.rst || (awk '/^   releases\// && !done { \
 			print "   releases/'"$${VERSION}"'.md"; \
 			done=1; \
 		} \
 		{print}' docs/changelog.rst > docs/changelog.rst.tmp && \
-		mv docs/changelog.rst.tmp docs/changelog.rst && \
+		mv docs/changelog.rst.tmp docs/changelog.rst) && \
 		git add docs/changelog.rst docs/releases/$${VERSION}.md && \
 		git commit --amend --no-edit && \
 		git tag -f $${VERSION} && \
@@ -185,15 +183,16 @@ install-completions: ## Install shell completions (Fish)
 	@echo "✅ Fish completions installed to ~/.config/fish/completions/"
 	@echo "Restart your shell or run 'exec fish' to enable completions"
 
-clean: clean-docs clean-site clean-test clean-build
+clean: clean-docs clean-site clean-test clean-build  ## Clean all build artifacts
+	@echo "Cleaned all build artifacts."
 
-clean-site:
+clean-site:  ## Clean generated site files
 	rm -rf site/dist
 
-clean-docs:
+clean-docs:  ## Clean generated documentation
 	poetry run make -C docs clean
 
-clean-test:
+clean-test:  ## Clean test logs and outputs
 	echo $$HOME/.local/share/gptme/logs/*test-*-test_*
 	rm -I $$HOME/.local/share/gptme/logs/*test-*-test_*/*.jsonl || true
 	rm --dir $$HOME/.local/share/gptme/logs/*test-*-test_*/ || true
@@ -204,7 +203,7 @@ clean-build: ## Clean PyInstaller build artifacts
 rename-logs:
 	./scripts/auto_rename_logs.py $(if $(APPLY),--no-dry-run) --limit $(or $(LIMIT),10)
 
-cloc: cloc-core cloc-tools cloc-server cloc-tests
+cloc: cloc-core cloc-tools cloc-server cloc-tests  ## Run cloc to count lines of code
 
 FILES_LLM=gptme/llm/*.py
 FILES_CORE=gptme/*.py $(FILES_LLM) gptme/util/*.py gptme/tools/__init__.py gptme/tools/base.py
@@ -232,7 +231,7 @@ cloc-total:
 # Code metrics
 .PHONY: metrics
 
-metrics:
+metrics:  ## Generate code metrics report
 	@echo "=== Code Metrics Summary ==="
 	@echo
 	@echo "Project Overview:"
@@ -248,16 +247,24 @@ metrics:
 	@echo
 	@make metrics-duplicates
 
-metrics-duplicates:
+metrics-duplicates:  ## Find duplicated code using jscpd
 	@echo "Most Duplicated Files:"
 	@npx jscpd gptme/** docs/**.{md,rst} scripts/**.{sh,py} | perl -pe 's/\e\[[0-9;]*m//g'
 
-bench-import:
+bench-import:  ## Benchmark import time
 	@echo "Benchmarking import time for gptme"
 	time poetry run python -X importtime -m gptme --model openai --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n | tail -n 10
 	@#time poetry run python -X importtime -m gptme --model openrouter --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n
 	@#time poetry run python -X importtime -m gptme --model anthropic --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n
 
-bench-startup:
+bench-startup:  ## Benchmark startup time
 	@echo "Benchmarking startup time for gptme"
 	hyperfine "poetry run gptme '/exit'" -M 5 || poetry run gptme '/exit' || exit 1
+
+help:  ## Show this help message
+	@echo $(MAKEFILE_LIST)
+	@echo "gptme Makefile commands:"
+	@echo
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	@echo
+	@echo "Run 'make <command>' to execute a command."

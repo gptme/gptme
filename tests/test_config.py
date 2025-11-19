@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import tomlkit
+
 from gptme.config import (
     ChatConfig,
     Config,
@@ -668,7 +669,7 @@ workspace = "{str(workspace)}"
             workspace=workspace,
             logdir=logdir,
             model="anthropic/claude-3-sonnet",  # CLI override
-            tool_allowlist="browser,read",  # CLI override
+            tool_allowlist="read,save",  # CLI override
             tool_format="markdown",  # CLI override
             stream=True,
             interactive=True,
@@ -683,8 +684,8 @@ workspace = "{str(workspace)}"
             config.chat.tool_format == "markdown"
         ), "Should use CLI tool_format when provided"
         assert config.chat.tools == [
-            "browser",
             "read",
+            "save",
         ], "Should use CLI tools when provided"
 
         # Test 3: New conversation (no saved config) - should fall back to env/defaults
@@ -717,10 +718,10 @@ def test_reload_config_clears_tools(monkeypatch, tmp_path):
     """Test that reload_config() clears the tools cache so MCP tools are recreated."""
     from unittest.mock import MagicMock
 
-    from gptme.config import _thread_local, reload_config, Config
+    from gptme.config import Config, _config_var, reload_config
 
     # Set up initial config
-    _thread_local.config = Config()
+    _config_var.set(Config())
 
     # Mock clear_tools in the tools module
     mock_clear_tools = MagicMock()

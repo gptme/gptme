@@ -10,8 +10,10 @@ eval[_-]results*
 eval-results*
 eval_results*
 
-# git worktrees for dev/ branches
+# git worktrees
 dev/
+worktree/
+worktrees/
 
 # logs
 *.log
@@ -62,3 +64,4 @@ config.toml
 
 # VSCode
 .vscode
+profiles/

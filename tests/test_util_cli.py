@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+
 from gptme.logmanager import ConversationMeta
 from gptme.util.cli import main
 

@@ -1,17 +1,33 @@
 """
-Autocommit hook tool that automatically commits changes after message processing.
+Autocommit hook tool that automatically provides hints for committing changes after message processing.
+
+When GPTME_AUTOCOMMIT=true is set, after each message is processed:
+1. Checks if there are file modifications
+2. If modifications exist, returns a message asking the LLM to review and commit
+
+The tool hooks into MESSAGE_POST_PROCESS and runs with low priority
+(after pre-commit checks and other validation).
+
+To enable autocommit:
+```bash
+export GPTME_AUTOCOMMIT=true
+```
 """
 
 import logging
 import subprocess
 from collections.abc import Generator
+from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
 from ..config import get_config
-from ..hooks import HookType
-from ..logmanager import Log
+from ..hooks import HookType, StopPropagation
+from ..logmanager import check_for_modifications
 from ..message import Message
 from .base import ToolSpec
+
+if TYPE_CHECKING:
+    from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +90,11 @@ EOF
         return Message("system", commit_prompt)
 
     except subprocess.CalledProcessError as e:
+        if e.returncode == -2:
+            raise KeyboardInterrupt from e
         return Message(
-            "system", f"Git operation failed: {e.stderr or e.stdout or str(e)}"
+            "system",
+            f"Git operation failed (code {e.returncode}): {e.stderr or e.stdout or str(e)}",
         )
     except Exception as e:
         logger.error(f"Autocommit failed: {e}")
@@ -98,13 +117,12 @@ def handle_commit_command(ctx: CommandContext) -> Generator[Message, None, None]
 
 
 def autocommit_on_message_complete(
-    log: Log, workspace, **kwargs
-) -> Generator[Message, None, None]:
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
     """Hook function that handles auto-commit after message processing.
 
     Args:
-        log: The conversation log
-        workspace: Workspace directory path
+        manager: Conversation manager with log and workspace
 
     Yields:
         Message asking LLM to review and commit if changes exist
@@ -115,9 +133,8 @@ def autocommit_on_message_complete(
         return
 
     # Check if there are modifications
-    from ..logmanager import check_for_modifications
 
-    if not check_for_modifications(log):
+    if not check_for_modifications(manager.log):
         logger.debug("No modifications detected, skipping autocommit")
         return
 
@@ -131,24 +148,11 @@ def autocommit_on_message_complete(
 
 
 # Tool specification
+# TODO: should probably be disabled by default, or at least in non-interactive modes
 tool = ToolSpec(
     name="autocommit",
-    desc="Automatically commit changes after message processing",
-    instructions="""
-This tool automatically commits changes made during a conversation.
-
-When GPTME_AUTOCOMMIT=true is set, after each message is processed:
-1. Checks if there are file modifications
-2. If modifications exist, returns a message asking the LLM to review and commit
-
-The tool hooks into MESSAGE_POST_PROCESS and runs with low priority
-(after pre-commit checks and other validation).
-
-To enable autocommit:
-```bash
-export GPTME_AUTOCOMMIT=true
-```
-""".strip(),
+    desc="Automatic hints to commit changes after message processing",
+    instructions="This tool will automatically provide hints to commit changes before returning control to the user".strip(),
     available=True,
     hooks={
         "autocommit": (

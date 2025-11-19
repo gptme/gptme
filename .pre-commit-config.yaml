@@ -27,6 +27,13 @@ repos:
     files: \.rst$
     exclude: docs/_build/
     args: [docs/]
+  - id: check-poetry-lock-sync
+    name: Check poetry.lock is in sync
+    description: Ensures poetry.lock is in sync with pyproject.toml
+    entry: bash scripts/check_poetry_lock_sync.sh
+    language: system
+    files: ^(pyproject\.toml|poetry\.lock)$
+    pass_filenames: false
 #- repo: local
 #  hooks:
 #  - id: pytest

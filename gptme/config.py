@@ -1,6 +1,6 @@
 import logging
 import os
-import threading
+from contextvars import ContextVar
 from dataclasses import (
     asdict,
     dataclass,
@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class PluginsConfig:
+    """Configuration for the plugin system."""
+
+    # Plugin search paths (relative to config directory or absolute)
+    paths: list[str] = field(default_factory=list)
+
+    # Optional: plugin allowlist (empty = all discovered plugins enabled)
+    enabled: list[str] = field(default_factory=list)
+
+
+@dataclass
 class MCPServerConfig:
     """Configuration for a MCP server."""
 
@@ -41,6 +52,26 @@ class MCPServerConfig:
     def is_http(self) -> bool:
         """Check if this is an HTTP MCP server."""
         return bool(self.url and self.url.startswith(("http://", "https://")))
+
+
+@dataclass
+class ProviderConfig:
+    """Configuration for a custom OpenAI-compatible provider."""
+
+    name: str
+    base_url: str
+    api_key: str | None = None
+    api_key_env: str | None = None
+    default_model: str | None = None
+
+    def get_api_key(self, config: "Config") -> str:
+        """Get the API key from direct value or environment variable."""
+        if self.api_key:
+            return self.api_key
+        if self.api_key_env:
+            return config.get_env_required(self.api_key_env)
+        # Default to provider name in uppercase
+        return config.get_env(f"{self.name.upper()}_API_KEY") or "default-key"
 
 
 @dataclass
@@ -88,6 +119,7 @@ class UserConfig:
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
+    providers: list[ProviderConfig] = field(default_factory=list)
 
 
 @dataclass
@@ -134,6 +166,7 @@ class ProjectConfig:
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
     lessons: LessonsConfig = field(default_factory=LessonsConfig)
+    plugins: PluginsConfig = field(default_factory=PluginsConfig)
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -149,6 +182,11 @@ class ProjectConfig:
             AgentConfig(**config_data.pop("agent")) if "agent" in config_data else None
         )
         lessons = LessonsConfig(dirs=config_data.pop("lessons", {}).get("dirs", []))
+        plugins_data = config_data.pop("plugins", {})
+        plugins = PluginsConfig(
+            paths=plugins_data.get("paths", []),
+            enabled=plugins_data.get("enabled", []),
+        )
         env = config_data.pop("env", {})
         if mcp := config_data.pop("mcp", None):
             mcp = MCPConfig.from_dict(mcp)
@@ -165,6 +203,7 @@ class ProjectConfig:
             rag=rag,
             agent=agent,
             lessons=lessons,
+            plugins=plugins,
             env=env,
             mcp=mcp,
             **config_data,
@@ -235,10 +274,14 @@ def load_user_config(path: str | None = None) -> UserConfig:
     env = config.pop("env", {})
     mcp = MCPConfig.from_dict(config.pop("mcp", {}))
 
+    # Parse custom providers
+    providers_config = config.pop("providers", [])
+    providers = [ProviderConfig(**provider) for provider in providers_config]
+
     if config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
 
-    return UserConfig(prompt=prompt, env=env, mcp=mcp)
+    return UserConfig(prompt=prompt, env=env, mcp=mcp, providers=providers)
 
 
 def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
@@ -281,6 +324,66 @@ def set_config_value(key: str, value: str) -> None:  # pragma: no cover
     reload_config()
 
 
+def _merge_config_data(main_config: dict, local_config: dict) -> dict:
+    """
+    Merge local configuration into main configuration.
+
+    For MCP servers, merge by name - local server env vars are merged into main server config.
+    For other sections, local config extends/overrides main config.
+    """
+    import copy
+
+    merged = copy.deepcopy(main_config)
+
+    for key, value in local_config.items():
+        if key == "mcp" and isinstance(value, dict) and "servers" in value:
+            # Special handling for MCP servers - merge by name
+            if "mcp" not in merged:
+                merged["mcp"] = {}
+            if "servers" not in merged["mcp"]:
+                merged["mcp"]["servers"] = []
+
+            local_servers = value.get("servers", [])
+            main_servers = merged["mcp"]["servers"]
+
+            # Create a dict for quick lookup of main servers by name
+            main_servers_by_name = {server["name"]: server for server in main_servers}
+
+            for local_server in local_servers:
+                server_name = local_server["name"]
+                if server_name in main_servers_by_name:
+                    # Merge env vars from local into main server
+                    main_server = main_servers_by_name[server_name]
+                    if "env" not in main_server:
+                        main_server["env"] = {}
+                    if "env" in local_server:
+                        main_server["env"].update(local_server["env"])
+
+                    # Merge other server properties (command, args, enabled)
+                    for server_key, server_value in local_server.items():
+                        if server_key not in ["name", "env"]:
+                            main_server[server_key] = server_value
+                else:
+                    # Add new server from local config
+                    main_servers.append(local_server)
+
+            # Merge other MCP config properties (enabled, auto_start)
+            for mcp_key, mcp_value in value.items():
+                if mcp_key != "servers":
+                    merged["mcp"][mcp_key] = mcp_value
+
+        elif (
+            isinstance(value, dict) and key in merged and isinstance(merged[key], dict)
+        ):
+            # Recursive merge for nested dictionaries
+            merged[key] = _merge_config_data(merged[key], value)
+        else:
+            # Direct override for other keys
+            merged[key] = value
+
+    return merged
+
+
 @lru_cache(maxsize=4)
 def get_project_config(workspace: Path | None) -> ProjectConfig | None:
     """
@@ -306,6 +409,18 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
         # load project config
         with open(project_config_path) as f:
             config_data = tomlkit.load(f).unwrap()
+
+        # Look for local config file in the same directory
+        local_config_path = project_config_path.parent / "gptme.local.toml"
+        if local_config_path.exists():
+            console.log(
+                f"Loading local configuration from {path_with_tilde(local_config_path)}"
+            )
+            with open(local_config_path) as f:
+                local_config_data = tomlkit.load(f).unwrap()
+
+            # Merge local config into main config
+            config_data = _merge_config_data(config_data, local_config_data)
 
         return ProjectConfig.from_dict(config_data, workspace=workspace)
     return None
@@ -634,50 +749,54 @@ class Config:
 config_path = os.path.expanduser("~/.config/gptme/config.toml")
 
 
-# Thread-local storage for config
-# Each thread gets its own independent copy of the configuration
-_thread_local = threading.local()
+# Context-local storage for config
+# Each context (thread/async task) gets its own independent copy of the configuration
+_config_var: ContextVar[Config | None] = ContextVar("config", default=None)
 
-# Note: Configuration must be initialized in each thread that needs it.
-# The first call to get_config() in a thread will create a new Config instance.
-# Subsequent calls in the same thread will return the same instance.
+# Note: Configuration must be initialized in each context that needs it.
+# The first call to get_config() in a context will create a new Config instance.
+# Subsequent calls in the same context will return the same instance.
 
 
 def get_config() -> Config:
     """Get the current configuration."""
-    if not hasattr(_thread_local, "config"):
-        _thread_local.config = Config()
-    return _thread_local.config
+    config = _config_var.get()
+    if config is None:
+        config = Config()
+        _config_var.set(config)
+    return config
 
 
 def set_config(config: Config):
     """Set the configuration."""
-    _thread_local.config = config
+    _config_var.set(config)
 
 
 def set_config_from_workspace(workspace: Path):
     """Set the configuration to use a specific workspace, possibly having a project config."""
-    _thread_local.config = Config.from_workspace(workspace=workspace)
+    _config_var.set(Config.from_workspace(workspace=workspace))
 
 
 def reload_config() -> Config:
     """Reload the configuration files."""
-    if not hasattr(_thread_local, "config"):
-        _thread_local.config = Config()
-    elif workspace := (
-        _thread_local.config.project and _thread_local.config.project._workspace
-    ):
-        _thread_local.config = Config.from_workspace(workspace=workspace)
+    config = _config_var.get()
+    if config is None:
+        config = Config()
+        _config_var.set(config)
+    elif workspace := (config.project and config.project._workspace):
+        config = Config.from_workspace(workspace=workspace)
+        _config_var.set(config)
     else:
-        _thread_local.config = Config()
+        config = Config()
+        _config_var.set(config)
 
     # Clear tools cache so MCP tools are recreated with new config
     from gptme.tools import clear_tools
 
     clear_tools()
 
-    assert _thread_local.config
-    return _thread_local.config
+    assert config
+    return config
 
 
 def setup_config_from_cli(
@@ -723,14 +842,41 @@ def setup_config_from_cli(
     # Handle tool allowlist with similar precedence
     resolved_tool_allowlist: list[str] | None = None
     if tool_allowlist is not None:
-        # CLI override always takes precedence
-        resolved_tool_allowlist = [tool.strip() for tool in tool_allowlist.split(",")]
+        # Check for additive syntax (starts with '+')
+        if tool_allowlist.startswith("+"):
+            # Strip the '+' prefix and parse the additional tools
+            tool_list_str = tool_allowlist[1:]
+            additional_tools = [
+                tool.strip() for tool in tool_list_str.split(",") if tool.strip()
+            ]
+            # Get default tools and add the additional ones
+            default_tools = [tool.name for tool in get_toolchain(None)]
+            resolved_tool_allowlist = default_tools.copy()
+            for tool in additional_tools:
+                if tool not in resolved_tool_allowlist:
+                    resolved_tool_allowlist.append(tool)
+        else:
+            # Normal mode - CLI override replaces defaults
+            resolved_tool_allowlist = [
+                tool.strip() for tool in tool_allowlist.split(",")
+            ]
     elif existing_chat_config and existing_chat_config.tools:
         # When resuming, use saved conversation tools unless CLI override provided
         resolved_tool_allowlist = existing_chat_config.tools
     elif tools_env := config.get_env("TOOLS"):
         # Fall back to env/config for new conversations or when no saved tools
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
+
+    # Automatically add 'complete' tool in non-interactive mode
+    if not interactive:
+        if resolved_tool_allowlist is None:
+            # Get default tools and add complete to them
+            default_tools = [tool.name for tool in get_toolchain(None)]
+            resolved_tool_allowlist = default_tools
+            if "complete" not in resolved_tool_allowlist:
+                resolved_tool_allowlist.append("complete")
+        elif "complete" not in resolved_tool_allowlist:
+            resolved_tool_allowlist.append("complete")
 
     # Handle tool_format with similar precedence
     if tool_format is not None:

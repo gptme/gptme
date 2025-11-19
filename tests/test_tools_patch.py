@@ -1,3 +1,5 @@
+import pytest
+
 from gptme.tools.patch import Patch, apply, execute_patch
 
 example_patch = """
@@ -238,3 +240,58 @@ def test_apply_with_nested_codeblock():
 
     result = apply(example_patch_with_nested_codeblock.strip(), content)
     assert result == expected
+
+
+spaces = "    "  # 4 spaces
+
+content = """
+def hello():
+    print('hello')
+{spaces}
+    print('world')
+""".strip()
+
+content_without_spaces = """
+def hello():
+    print('hello')
+
+    print('world')
+""".strip()
+
+# TODO: make these xfails actually pass by improving the patch matching algorithm
+#       See: https://github.com/gptme/gptme/issues/767
+
+
+@pytest.mark.xfail
+def test_apply_with_differing_whitespace():
+    """Test that patches work correctly even if there are lines with only whitespace that differ."""
+
+    # first lets try to patch content with spaces using ORIGINAL without spaces
+    codeblock = f"""
+<<<<<<< ORIGINAL
+{content_without_spaces}
+=======
+def hello():
+    print('hello')
+{spaces}
+    print('world2')
+>>>>>>> UPDATED
+"""
+
+    # this should successfully match the case with spaces even if they differ, returning the case without
+    result = apply(codeblock, content)
+    assert result == content.replace("world", "world2")
+
+
+@pytest.mark.xfail
+def test_apply_with_differing_whitespace_reverse():
+    # now try the reverse, patching content without spaces using ORIGINAL with spaces
+    codeblock = f"""
+<<<<<<< ORIGINAL
+{content}
+=======
+{content_without_spaces.replace("world", "world3")}
+>>>>>>> UPDATED
+"""
+    result2 = apply(codeblock, content_without_spaces)
+    assert result2 == content_without_spaces.replace("world", "world3")

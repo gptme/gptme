@@ -229,7 +229,7 @@ def play_sound_file(file_path: Path, block: bool = False):
 
 def play_ding():
     """Play the UI ding sound."""
-    log.info("Playing ding sound")
+    log.debug("Playing ding sound")
     # Get the bell sound file from the package
     bell_path = media_path / "bell.wav"
 

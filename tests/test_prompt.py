@@ -2,13 +2,14 @@ import os
 from unittest.mock import patch
 
 import pytest
+from pygments.token import Name, Text
+
 from gptme.util.prompt import (
     PathLexer,
     check_cwd,
     get_input,
     is_valid_path,
 )
-from pygments.token import Name, Text
 
 
 @pytest.fixture

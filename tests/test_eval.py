@@ -1,5 +1,6 @@
 import pytest
 from click.testing import CliRunner
+
 from gptme.config import get_config
 from gptme.eval import execute, tests
 from gptme.eval.agents import GPTMe

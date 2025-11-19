@@ -13,6 +13,7 @@ from contextlib import contextmanager
 
 import pytest
 import requests
+
 from gptme.config import get_config
 from gptme.init import init  # noqa
 from gptme.tools import clear_tools
@@ -79,6 +80,12 @@ def download_model():
         ef._download_model_if_not_exists()  # type: ignore
 
 
+@pytest.fixture
+def auth_headers():
+    """Provide authentication headers for HTTP requests to test server."""
+    return {"Authorization": "Bearer test-token-for-server-thread"}
+
+
 @pytest.fixture(autouse=True)
 def clear_tools_before():
     # Clear all tools and cache to prevent test conflicts
@@ -106,12 +113,17 @@ def temp_file():
 
 @pytest.fixture(autouse=True)
 def init_():
-    init(None, interactive=False, tool_allowlist=None)
+    init(None, interactive=False, tool_allowlist=None, tool_format="markdown")
 
 
 @pytest.fixture
 def server_thread():
     """Start a server in a thread for testing."""
+    # Skip if flask not installed
+    pytest.importorskip(
+        "flask", reason="flask not installed, install server extras (-E server)"
+    )
+
     from gptme.server.api import create_app  # fmt: skip
 
     app = create_app()
@@ -146,8 +158,10 @@ def client():
     from gptme.server.api import create_app  # fmt: skip
 
     app = create_app()
-    with app.test_client() as client:
-        yield client
+
+    # Create a test client without authentication by default
+    with app.test_client() as test_client:
+        yield test_client
 
 
 @pytest.fixture(scope="function")
@@ -160,6 +174,7 @@ def setup_conversation(server_thread):
     # Use "@log" to create workspace in the conversation's log directory
     resp = requests.put(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers={"Authorization": "Bearer test-token-for-server-thread"},
         json={
             "prompt": "You are an AI assistant for testing.",
             "config": {
@@ -189,6 +204,7 @@ def event_listener(setup_conversation):
         nonlocal tool_id, tool_output_received, tool_executing_received
         resp = requests.get(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/events?session_id={session_id}",
+            headers={"Authorization": "Bearer test-token-for-server-thread"},
             stream=True,
         )
         try:

@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 from gptme.tools.save import execute_append, execute_save
 
 

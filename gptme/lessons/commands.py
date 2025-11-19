@@ -1,8 +1,8 @@
 """CLI commands for lesson management."""
 
 import logging
-from typing import TYPE_CHECKING
 from collections.abc import Generator
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..commands import CommandContext

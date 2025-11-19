@@ -15,9 +15,9 @@ from contextlib import contextmanager
 from logging import getLogger
 from typing import TYPE_CHECKING, TypeVar
 
-from . import get_tools
 from ..message import Message
 from ..util.ask_execute import print_preview
+from . import get_tools
 from .base import (
     ConfirmFunc,
     Parameter,

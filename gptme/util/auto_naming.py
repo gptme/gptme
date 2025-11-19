@@ -97,7 +97,7 @@ def _generate_llm_name(
                 summary_model_name = get_summary_model(current_model.provider)
                 naming_model = f"{current_model.provider}/{summary_model_name}"
         except Exception:
-            pass
+            logger.exception("exception during auto-name")
 
         # Create context from recent messages
         context = ""
@@ -109,6 +109,7 @@ def _generate_llm_name(
                 context += f"{msg.role.title()}: {content}\n"
 
         if not context.strip():
+            logger.warning("no context for auto-name")
             return None
 
         # Create prompt based on format
@@ -166,7 +167,7 @@ Title:"""
             response = response[think_end + len("</think>") :]
         elif "<think>" in response:
             # Incomplete think tag, skip this response
-            logger.debug("Incomplete think tag in response, skipping")
+            logger.warning("Incomplete think tag in response, skipping")
             return None
 
         name = response.strip().strip('"').strip("'").split("\n")[0][:50]
@@ -174,7 +175,7 @@ Title:"""
             return name
 
     except Exception as e:
-        logger.debug(f"LLM naming failed: {e}")
+        logger.warning(f"LLM naming failed: {e}")
 
     return None
 

@@ -1,6 +1,6 @@
 [project]
 name = "gptme"
-version = "0.28.3"
+version = "0.30.0"
 description = "Powerful AI agent for coding and general tasks. Terminal-first with shell, code execution, file editing, web browsing, vision, computer use. Unconstrained."
 authors = [
     { name = "Erik Bjäreholt", email = "erik@bjareho.lt" },
@@ -48,6 +48,7 @@ mcp = "^1.13.0"
 questionary = "^2.1.0"
 deprecated = "^1.2.18"
 python-dateutil = "^2.9.0.post0"
+pyyaml = "^6.0.3"
 
 # providers
 openai = "^1.0"
@@ -86,6 +87,10 @@ opentelemetry-exporter-otlp = {version = "^1.34.1", optional=true}
 opentelemetry-exporter-prometheus = {version = "^0.55b1", optional=true}
 opentelemetry-instrumentation-anthropic = {version="^0.47.3", optional=true}
 opentelemetry-instrumentation-openai = {version="^0.47.3", optional=true}
+sentence-transformers = {version = "^5.1.2", optional=true}
+
+# build
+pyinstaller = {version="^6.15", python=">=3.10,<3.15", optional=true}  # not yet compatible with Python 3.15+
 
 [tool.poetry.group.dev.dependencies]
 # lint
@@ -105,6 +110,7 @@ pytest-dotenv = "^0.5.2"
 pytest-timeout = "^2.2.0"
 pytest-retry = "^1.6.3"
 pytest-mock = "*"
+pytest-asyncio = "*"
 greenlet = "*"  # dependency of playwright, but needed for coverage
 
 # build
@@ -134,16 +140,17 @@ server = ["flask", "flask-cors", "pydantic"]
 browser = ["playwright"]
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 computer = []  # pillow (non-opt)
+pyinstaller = ["pyinstaller"]
 youtube = ["youtube_transcript_api"]
 tts = ["sounddevice", "scipy", "numpy"]
-pyinstaller = ["pyinstaller"]
 telemetry = [
     "opentelemetry-api", "opentelemetry-sdk",
     "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus",
     "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-requests",
     "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-openai",
 ]
-dspy = ["dspy"]
+dspy = ["dspy", "sentence-transformers"]
+eval = ["dspy", "sentence-transformers"]
 all = [
     # server
     "flask", "flask-cors", "pydantic",
@@ -158,7 +165,7 @@ all = [
     # tts
     "sounddevice", "scipy", "numpy",
     # dspy prompt optimization
-    "dspy",
+    "dspy", "sentence-transformers",
     # telemetry
     "opentelemetry-api", "opentelemetry-sdk",
     "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus",
@@ -173,7 +180,7 @@ target-version = "py310"
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
 # Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
 # McCabe complexity (`C901`) by default.
-select = ["E4", "E7", "E9", "F", "B", "UP"]
+select = ["E4", "E7", "E9", "F", "B", "UP", "I"]
 ignore = ["E402", "E501", "B905"]
 #fixable = ["ALL"]
 #unfixable = ["B"]

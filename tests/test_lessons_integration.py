@@ -1,12 +1,13 @@
 """Integration tests using actual lesson files from docs/lessons/."""
 
-import pytest
 from pathlib import Path
-from gptme.lessons import LessonIndex, LessonMatcher, MatchContext
-from gptme.tools.lessons import auto_include_lessons_hook, _extract_recent_tools
-from gptme.message import Message
 from unittest.mock import patch
 
+import pytest
+
+from gptme.lessons import LessonIndex, LessonMatcher, MatchContext
+from gptme.message import Message
+from gptme.tools.lessons import _extract_recent_tools, auto_include_lessons_hook
 
 # Path to example lessons
 DOCS_LESSONS_DIR = Path(__file__).parent.parent / "docs" / "lessons"
@@ -200,6 +201,17 @@ class TestDocsLessonsMatching:
 class TestDocsLessonsAutoInclude:
     """Tests auto-include functionality with docs lessons."""
 
+    @staticmethod
+    def _create_manager(messages):
+        """Helper to create a mock manager from a list of messages."""
+        from unittest.mock import MagicMock
+
+        from gptme.logmanager import Log
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+        return manager
+
     def test_extract_recent_tools_from_log(self):
         """Test extracting recent tool usage from conversation log."""
         log = [
@@ -220,25 +232,25 @@ class TestDocsLessonsAutoInclude:
             Message(role="user", content="How do I use the patch tool?"),
         ]
 
-        with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-                with patch("gptme.tools.lessons.get_config") as mock_config:
-                    # Setup mocks
-                    mock_get_index.return_value = docs_lesson_index
-                    mock_cfg = mock_config.return_value
-                    mock_cfg.get_env_bool.return_value = True
-                    mock_cfg.get_env.return_value = "5"
+        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
+            with patch("gptme.tools.lessons.get_config") as mock_config:
+                # Setup mocks
+                mock_get_index.return_value = docs_lesson_index
+                mock_cfg = mock_config.return_value
+                mock_cfg.get_env_bool.return_value = True
+                mock_cfg.get_env.return_value = "5"
 
-                    messages = list(auto_include_lessons_hook(log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(log)) or []
+                )
 
-                    assert len(messages) > 0, "Should include lessons"
+                assert len(messages) > 0, "Should include lessons"
 
-                    lesson_msg = messages[0]
-                    assert lesson_msg.role == "system"
-                    assert "# Relevant Lessons" in lesson_msg.content
-                    assert (
-                        "Patch" in lesson_msg.content or "patch" in lesson_msg.content
-                    )
+                lesson_msg = messages[0]
+                assert isinstance(lesson_msg, Message)
+                assert lesson_msg.role == "system"
+                assert "# Relevant Lessons" in lesson_msg.content
+                assert "Patch" in lesson_msg.content or "patch" in lesson_msg.content
 
     def test_auto_include_with_tool_usage(self, docs_lesson_index):
         """Test auto-include based on recent tool usage."""
@@ -248,20 +260,19 @@ class TestDocsLessonsAutoInclude:
             Message(role="user", content="Looks good"),
         ]
 
-        with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-                with patch("gptme.tools.lessons.get_config") as mock_config:
-                    # Setup mocks
-                    mock_get_index.return_value = docs_lesson_index
-                    mock_cfg = mock_config.return_value
-                    mock_cfg.get_env_bool.return_value = True
-                    mock_cfg.get_env.return_value = "5"
+        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
+            with patch("gptme.tools.lessons.get_config") as mock_config:
+                # Setup mocks
+                mock_get_index.return_value = docs_lesson_index
+                mock_cfg = mock_config.return_value
+                mock_cfg.get_env_bool.return_value = True
+                mock_cfg.get_env.return_value = "5"
 
-                    messages = list(auto_include_lessons_hook(log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(log)) or []
+                )
 
-                    assert (
-                        len(messages) > 0
-                    ), "Should include lessons based on tool usage"
+                assert len(messages) > 0, "Should include lessons based on tool usage"
 
     def test_deduplication_from_history(self, docs_lesson_index):
         """Test that lessons aren't included twice."""
@@ -281,23 +292,25 @@ class TestDocsLessonsAutoInclude:
             Message(role="user", content="Use patch again"),
         ]
 
-        with patch("gptme.tools.lessons.HAS_LESSONS", True):
-            with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-                with patch("gptme.tools.lessons.get_config") as mock_config:
-                    # Setup mocks
-                    mock_get_index.return_value = docs_lesson_index
-                    mock_cfg = mock_config.return_value
-                    mock_cfg.get_env_bool.return_value = True
-                    mock_cfg.get_env.return_value = "5"
+        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
+            with patch("gptme.tools.lessons.get_config") as mock_config:
+                # Setup mocks
+                mock_get_index.return_value = docs_lesson_index
+                mock_cfg = mock_config.return_value
+                mock_cfg.get_env_bool.return_value = True
+                mock_cfg.get_env.return_value = "5"
 
-                    messages = list(auto_include_lessons_hook(log) or [])
+                messages = list(
+                    auto_include_lessons_hook(self._create_manager(log)) or []
+                )
 
-                    # Should not include patch lesson again since it's in history
-                    if messages:
-                        assert (
-                            str(patch_lesson.path) not in messages[0].content
-                            or "# Relevant Lessons" not in messages[0].content
-                        ), "Should not include already-included lessons"
+                # Should not include patch lesson again since it's in history
+                if messages:
+                    assert isinstance(messages[0], Message)
+                    assert (
+                        str(patch_lesson.path) not in messages[0].content
+                        or "# Relevant Lessons" not in messages[0].content
+                    ), "Should not include already-included lessons"
 
 
 class TestDocsLessonsREADME:
@@ -316,3 +329,61 @@ class TestDocsLessonsREADME:
             if "readme" in lesson.title.lower()
         ]
         assert len(readme_lessons) == 0, "README.md should not be indexed as a lesson"
+
+
+class TestGptmeLessonsDirectory:
+    """Tests for .gptme/lessons/ directory detection."""
+
+    def test_gptme_lessons_directory_detected(self, tmp_path, monkeypatch):
+        """Test that .gptme/lessons/ directory is detected."""
+        from gptme.lessons import LessonIndex
+
+        # Create .gptme/lessons/ directory structure
+        gptme_dir = tmp_path / ".gptme" / "lessons"
+        gptme_dir.mkdir(parents=True)
+
+        # Create a simple lesson file
+        lesson_file = gptme_dir / "test-lesson.md"
+        lesson_file.write_text("""---
+match:
+  keywords: [test]
+---
+
+# Test Lesson
+
+This is a test lesson for .gptme/lessons/ detection.
+""")
+
+        # Change to tmp directory
+        monkeypatch.chdir(tmp_path)
+
+        # Create index (should auto-detect .gptme/lessons/)
+        index = LessonIndex()
+
+        # Verify the .gptme/lessons/ directory is included
+        assert any(".gptme/lessons" in str(d) for d in index.lesson_dirs)
+
+        # Verify the lesson is loaded
+        assert len(index.lessons) >= 1
+        assert any(
+            "test-lesson" in lesson.path.name.lower() for lesson in index.lessons
+        )
+
+    def test_cursorrules_detection_logged(self, tmp_path, monkeypatch, caplog):
+        """Test that .cursorrules file detection logs helpful message."""
+        from gptme.lessons import LessonIndex
+
+        # Create .cursorrules file
+        cursorrules_file = tmp_path / ".cursorrules"
+        cursorrules_file.write_text("# Example Cursor rules\n")
+
+        # Change to tmp directory
+        monkeypatch.chdir(tmp_path)
+
+        # Create index (should detect .cursorrules)
+        with caplog.at_level("INFO"):
+            LessonIndex()
+
+        # Verify helpful message was logged
+        assert any("cursorrules" in record.message.lower() for record in caplog.records)
+        assert any("convert" in record.message.lower() for record in caplog.records)

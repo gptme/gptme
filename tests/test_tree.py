@@ -1,7 +1,8 @@
 def test_get_tree_output_different_methods(tmp_path, monkeypatch):
     """Test that get_tree_output works with different tree methods."""
-    from gptme.util.tree import get_tree_output, TreeMethod
     from typing import cast
+
+    from gptme.util.tree import TreeMethod, get_tree_output
 
     # Enable GPTME_CONTEXT_TREE and mock tree command exists
     monkeypatch.setenv("GPTME_CONTEXT_TREE", "true")

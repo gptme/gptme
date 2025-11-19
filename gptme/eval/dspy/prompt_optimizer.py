@@ -9,20 +9,21 @@ import logging
 import os
 from typing import Any
 
+import dspy
+from dspy import GEPA
+from dspy.teleprompt import BootstrapFewShot, MIPROv2
+
 from gptme.eval.agents import GPTMe
 from gptme.eval.run import execute
 from gptme.eval.suites.basic import tests
 from gptme.eval.types import EvalSpec
 from gptme.prompts import prompt_gptme
 
-import dspy
-from dspy import GEPA
-from dspy.teleprompt import BootstrapFewShot, MIPROv2
-
 from .metrics import (
     create_composite_metric,
     create_trajectory_feedback_metric,
 )
+from .reasoning_program import GptmeReasoningProgram
 from .signatures import GptmeTaskSignature, PromptImprovementSignature
 
 logger = logging.getLogger(__name__)
@@ -45,15 +46,9 @@ class ModelNameMapper:
     def get_reflection_model(base_model: str) -> str:
         """Get a more powerful model for reflection tasks."""
         if base_model.startswith("anthropic/"):
-            if "haiku" in base_model.lower():
-                return "claude-3-5-sonnet-20241022"
-            else:
-                return "claude-3-5-sonnet-20241022"
+            return "claude-sonnet-4-5"
         elif base_model.startswith("openai/"):
-            if "gpt-3.5" in base_model.lower() or "gpt-4o-mini" in base_model.lower():
-                return "gpt-4o"
-            else:
-                return "gpt-4o"
+            return "gpt-5"
         else:
             return ModelNameMapper.to_dspy_format(base_model)
 
@@ -133,14 +128,29 @@ class GptmeModule(dspy.Module):
                 system_prompt=self.base_system_prompt,
             )
 
-            eval_result = execute(
-                test=eval_spec,
-                agent=agent,
-                timeout=30,
-                parallel=False,
-            )
+            # Fix #130: Export ANTHROPIC_API_KEY for LiteLLM subprocess calls
+            # Get API key from gptme config and ensure it's in environment
+            import os
 
-            # Extract messages from the agent's log if available
+            from gptme.config import get_config
+
+            config = get_config()
+            api_key = config.get_env_required("ANTHROPIC_API_KEY")
+            os.environ["ANTHROPIC_API_KEY"] = api_key
+
+            # Fix #130: Enable output suppression during GEPA optimization
+            # This prevents verbose gptme trajectories from cluttering logs
+            os.environ["GPTME_EVAL_SUPPRESS_OUTPUT"] = "true"
+            try:
+                eval_result = execute(
+                    test=eval_spec,
+                    agent=agent,
+                    timeout=30,
+                    parallel=False,
+                )
+            finally:
+                # Restore normal output after execution (guaranteed cleanup)
+                os.environ.pop("GPTME_EVAL_SUPPRESS_OUTPUT", None)
             messages = []
             if hasattr(agent, "log_dir") and agent.log_dir:
                 try:
@@ -167,6 +177,59 @@ class GptmeModule(dspy.Module):
             return dspy.Prediction(response=f"Error: {str(e)}", messages=[])
 
 
+class PromptImprovementModule(dspy.Module):
+    """Module for iteratively improving prompts using trajectory feedback."""
+
+    def __init__(self):
+        super().__init__()
+        self.improver = dspy.ChainOfThought(PromptImprovementSignature)
+
+    def forward(
+        self,
+        current_prompt: str,
+        trajectory_feedback: list[dict[str, Any]],
+        task_examples: list[str] | None = None,
+    ) -> dspy.Prediction:
+        """Generate an improved prompt from trajectory feedback."""
+        # Format feedback for the improvement signature
+        feedback_summary = self._format_feedback(trajectory_feedback)
+
+        # Format task examples
+        examples_text = (
+            "\n".join(task_examples) if task_examples else "No specific examples"
+        )
+
+        # Generate improvement
+        result = self.improver(
+            current_prompt=current_prompt,
+            performance_feedback=feedback_summary,
+            task_examples=examples_text,
+            improvement_areas="tool usage, reasoning quality, error handling, task completion",
+        )
+
+        return result
+
+    def _format_feedback(self, trajectory_feedback: list[dict[str, Any]]) -> str:
+        """Format trajectory feedback into human-readable summary."""
+        if not trajectory_feedback:
+            return "No feedback available"
+
+        summaries = []
+        for i, feedback in enumerate(trajectory_feedback, 1):
+            summary_parts = [f"Example {i}:"]
+
+            # Extract key metrics from feedback
+            if "score" in feedback:
+                summary_parts.append(f"  Score: {feedback['score']:.2f}")
+
+            if "feedback" in feedback and isinstance(feedback["feedback"], str):
+                summary_parts.append(f"  Feedback: {feedback['feedback']}")
+
+            summaries.append("\n".join(summary_parts))
+
+        return "\n\n".join(summaries)
+
+
 class PromptOptimizer:
     """Main class for optimizing gptme system prompts using DSPy."""
 
@@ -182,6 +245,7 @@ class PromptOptimizer:
         max_metric_calls: int | None = None,
         reflection_minibatch_size: int = 3,
         num_threads: int = 4,
+        use_reasoning_program: bool = False,
     ):
         self.model = model
         self.optimizer_type = optimizer_type
@@ -193,6 +257,7 @@ class PromptOptimizer:
         self.max_metric_calls = max_metric_calls
         self.reflection_minibatch_size = reflection_minibatch_size
         self.num_threads = num_threads
+        self.use_reasoning_program = use_reasoning_program
         self._setup_dspy()
 
     def _setup_dspy(self):
@@ -224,17 +289,29 @@ class PromptOptimizer:
         val_data = PromptDataset(eval_specs[train_size : train_size + val_size])
 
         # Create module and optimizer
-        module = GptmeModule(base_prompt, self.model)
+        # Create module based on configuration
+        if self.use_reasoning_program:
+            # Multi-stage reasoning for GEPA optimization (Phase 1.3)
+            module = GptmeReasoningProgram(base_prompt)
+        else:
+            module = GptmeModule(base_prompt, self.model)
         optimizer = self._create_optimizer(eval_specs)
 
         try:
             logger.info(f"Running {self.optimizer_type} optimization...")
             optimized_module = optimizer.compile(module, trainset=list(train_data))
 
-            # Extract optimized prompt
-            optimized_prompt = getattr(
-                optimized_module, "base_system_prompt", base_prompt
-            )
+            # For GEPA: Use trajectory feedback to improve prompt
+            if self.optimizer_type.lower() == "gepa":
+                logger.info("Generating improved prompt from trajectory feedback...")
+                optimized_prompt = self._improve_prompt_with_feedback(
+                    base_prompt, train_data
+                )
+            else:
+                # For other optimizers: try to extract from module
+                optimized_prompt = getattr(
+                    optimized_module, "base_system_prompt", base_prompt
+                )
 
             # Evaluate results (now uses individual metrics internally)
             results = self._evaluate_prompt(optimized_prompt, val_data)
@@ -246,13 +323,77 @@ class PromptOptimizer:
             logger.error(f"Optimization failed: {e}")
             return base_prompt, {"error": str(e)}
 
+    def _improve_prompt_with_feedback(
+        self, base_prompt: str, train_data: "PromptDataset"
+    ) -> str:
+        """Improve prompt using trajectory feedback from training data."""
+        logger.info("Collecting trajectory feedback from training examples...")
+
+        # Use stored trajectory metric to collect feedback
+        if not hasattr(self, "_trajectory_metric"):
+            logger.warning("No trajectory metric available, returning base prompt")
+            return base_prompt
+
+        trajectory_metric = self._trajectory_metric
+        trajectory_feedback = []
+
+        # Collect feedback from training examples
+        for example in train_data:
+            eval_spec = example.eval_spec
+
+            # Create a temporary module to run evaluation
+            temp_module = GptmeModule(base_prompt, self.model)
+
+            try:
+                # Run forward pass to get prediction
+                pred = temp_module(
+                    task_description=eval_spec["prompt"],
+                    context="",
+                    eval_spec=eval_spec,
+                )
+
+                # Get trajectory feedback from metric
+                feedback_pred = trajectory_metric(example, pred, None, None, None)
+
+                trajectory_feedback.append(
+                    {"score": feedback_pred.score, "feedback": feedback_pred.feedback}
+                )
+
+            except Exception as e:
+                logger.warning(f"Failed to collect feedback for example: {e}")
+                continue
+
+        if not trajectory_feedback:
+            logger.warning("No trajectory feedback collected, returning base prompt")
+            return base_prompt
+
+        # Use PromptImprovementModule to generate improved prompt
+        logger.info(
+            f"Generating improved prompt from {len(trajectory_feedback)} feedback items..."
+        )
+        improver = PromptImprovementModule()
+
+        # Extract task examples
+        task_examples = [ex.eval_spec["prompt"] for ex in train_data][:5]  # Limit to 5
+
+        improvement = improver(
+            current_prompt=base_prompt,
+            trajectory_feedback=trajectory_feedback,
+            task_examples=task_examples,
+        )
+
+        improved_prompt = improvement.improved_prompt
+        changes_made = improvement.changes_made
+
+        logger.info(f"Prompt improved. Changes: {changes_made}")
+        return improved_prompt
+
     def _create_optimizer(self, eval_specs: list[EvalSpec]):
         """Create the appropriate DSPy optimizer."""
         if self.optimizer_type.lower() == "miprov2":
             metric = create_composite_metric(eval_specs=eval_specs)
             return MIPROv2(
                 metric=metric,
-                auto="medium",
                 max_bootstrapped_demos=self.max_demos,
                 max_labeled_demos=self.max_demos * 2,
                 num_candidates=self.num_trials,
@@ -266,6 +407,7 @@ class PromptOptimizer:
             )
         elif self.optimizer_type.lower() == "gepa":
             trajectory_metric = create_trajectory_feedback_metric(eval_specs=eval_specs)
+            self._trajectory_metric = trajectory_metric  # Store for evaluation
             reflection_model = ModelNameMapper.get_reflection_model(self.model)
             reflection_lm = dspy.LM(reflection_model)
 
@@ -296,10 +438,10 @@ class PromptOptimizer:
     def _evaluate_prompt(self, prompt: str, val_data: PromptDataset) -> dict[str, Any]:
         """Evaluate a prompt against validation data with individual metric breakdowns."""
         from .metrics import (
+            compose_metric_scores,
+            create_llm_judge_metric,
             create_task_success_metric,
             create_tool_usage_metric,
-            create_llm_judge_metric,
-            compose_metric_scores,
         )
 
         # Create individual metrics - no duplication, single source of truth
@@ -312,6 +454,7 @@ class PromptOptimizer:
         task_scores = []
         tool_scores = []
         judge_scores = []
+        trajectory_feedbacks = []
         module = GptmeModule(prompt, self.model)
 
         for example in val_data:
@@ -326,6 +469,18 @@ class PromptOptimizer:
             tool_scores.append(tool_metric(example, pred, None))
             judge_scores.append(judge_metric(example, pred, None))
 
+            # If trajectory metric exists (GEPA), collect feedback
+            if hasattr(self, "_trajectory_metric"):
+                trajectory_result = self._trajectory_metric(
+                    example, pred, None, None, None
+                )
+                trajectory_feedbacks.append(
+                    {
+                        "score": trajectory_result.score,
+                        "feedback": trajectory_result.feedback,
+                    }
+                )
+
         # Calculate averages
         avg_task = sum(task_scores) / len(task_scores) if task_scores else 0.0
         avg_tool = sum(tool_scores) / len(tool_scores) if tool_scores else 0.0
@@ -338,7 +493,7 @@ class PromptOptimizer:
             for t, tool, j in zip(task_scores, tool_scores, judge_scores)
         ]
 
-        return {
+        results = {
             "average_score": avg_composite,
             "task_success_rate": avg_task,
             "tool_usage_score": avg_tool,
@@ -350,6 +505,12 @@ class PromptOptimizer:
             "num_examples": len(task_scores),
             "optimized_prompt": prompt,
         }
+
+        # Add trajectory feedback if available (GEPA only)
+        if trajectory_feedbacks:
+            results["trajectory_feedback"] = trajectory_feedbacks
+
+        return results
 
     def compare_prompts(
         self,

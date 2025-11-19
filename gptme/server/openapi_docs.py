@@ -16,8 +16,9 @@ from typing import (
 )
 
 from flask import Blueprint, current_app, jsonify
-from gptme.__version__ import __version__
 from pydantic import BaseModel, Field
+
+from gptme.__version__ import __version__
 
 # Pydantic Models (auto-generate OpenAPI schemas)
 # -----------------------------------------------

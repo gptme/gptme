@@ -13,6 +13,7 @@ from gptme.config import MCPConfig, MCPServerConfig, UserConfig
 def test_mcp_cli_commands():
     """Test MCP CLI command logic"""
     from click.testing import CliRunner
+
     from gptme.util.cli import mcp_info
 
     # Test with mock data - this would normally use the config system
@@ -20,7 +21,9 @@ def test_mcp_cli_commands():
 
     # Test info command with non-existent server
     result = runner.invoke(mcp_info, ["nonexistent"])
-    assert "not found in config" in result.output
+    # Updated to match improved error message that searches registries
+    assert "not configured locally" in result.output
+    assert "not found in registries either" in result.output
 
 
 def test_mcp_server_config_http():

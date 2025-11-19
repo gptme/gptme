@@ -19,27 +19,6 @@ EMOJI_WARN = "⚠️"
 logger = logging.getLogger(__name__)
 console = Console(log_path=False)
 
-_warned_models = set()
-
-
-@lru_cache
-def get_tokenizer(model: str):
-    import tiktoken  # fmt: skip
-
-    if "gpt-4o" in model:
-        return tiktoken.get_encoding("o200k_base")
-
-    try:
-        return tiktoken.encoding_for_model(model)
-    except KeyError:
-        global _warned_models
-        if model not in _warned_models:
-            logger.debug(
-                f"No tokenizer for '{model}'. Using tiktoken cl100k_base. Use results only as estimates."
-            )
-            _warned_models |= {model}
-        return tiktoken.get_encoding("cl100k_base")
-
 
 def epoch_to_age(epoch, incl_date=False):
     # takes epoch and returns "x minutes ago", "3 hours ago", "yesterday", etc.
@@ -173,7 +152,10 @@ def document_prompt_function(*args, **kwargs):
 
         init_tools()
 
-        prompt = "\n\n".join([msg.content for msg in func(*args, **kwargs)])
+        # Evaluate callable kwargs (for lazy evaluation)
+        resolved_kwargs = {k: v() if callable(v) else v for k, v in kwargs.items()}
+
+        prompt = "\n\n".join([msg.content for msg in func(*args, **resolved_kwargs)])
         prompt = textwrap.indent(prompt, "   ")
         # Use a default model for documentation purposes
         prompt_tokens = len_tokens(prompt, model="gpt-4")

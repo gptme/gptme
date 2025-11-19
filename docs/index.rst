@@ -29,6 +29,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    usage
    examples
    tools
+   lessons
    config
    providers
    agents
@@ -48,6 +49,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    finetuning
    custom_tool
    hooks
+   plugins
    api
 
 .. toctree::

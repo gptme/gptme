@@ -1,5 +1,29 @@
 """
 Pre-commit hook tool that automatically runs pre-commit checks after file saves.
+
+This tool automatically runs pre-commit checks in two scenarios:
+
+1. **Per-file checks (FILE_POST_SAVE)**: After each file is saved
+   - Runs pre-commit on the specific saved file
+   - Provides immediate feedback on formatting/linting issues
+
+2. **Full checks (MESSAGE_POST_PROCESS)**: After message processing completes
+   - Runs pre-commit on all modified files
+   - Ensures all changes pass checks before auto-commit
+
+Commands:
+- /pre-commit: Manually run pre-commit checks
+
+Pre-commit checks include:
+- Code formatting (black, prettier, etc.)
+- Linting (ruff, eslint, etc.)
+- Type checking (mypy, etc.)
+- Other configured hooks
+
+The tool will report any failures and suggest fixes.
+
+Enable with: --tools precommit
+Or configure pre-commit checks via: GPTME_CHECK=true
 """
 
 import logging
@@ -8,6 +32,7 @@ import subprocess
 import time
 from collections.abc import Generator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
 from ..config import get_config
@@ -16,6 +41,9 @@ from ..logmanager import check_for_modifications
 from ..message import Message
 from ..util.context import md_codeblock
 from .base import ToolSpec
+
+if TYPE_CHECKING:
+    from ..logmanager import Log, LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +126,7 @@ def run_precommit_checks() -> tuple[bool, str | None]:
     except subprocess.CalledProcessError as e:
         # if exit code is 130, it means the user interrupted the process
         if e.returncode == 130:
-            logger.info("Pre-commit checks interrupted by user")
-            return False, None
+            raise KeyboardInterrupt() from None
         # If no pre-commit config found
         # Can happen in nested git repos, since we check parent dirs but pre-commit only checks the current repo.
         if ".pre-commit-config.yaml is not a file" in e.stdout:
@@ -153,13 +180,19 @@ def handle_precommit_command(ctx: CommandContext) -> Generator[Message, None, No
         else:
             yield Message("system", "Pre-commit checks not enabled or no issues found")
 
+    except KeyboardInterrupt:
+        raise
     except Exception as e:
         logger.exception(f"Error running pre-commit checks: {e}")
         yield Message("system", f"Pre-commit check failed: {e}")
 
 
 def run_precommit_on_file(
-    path: Path, content: str, created: bool = False
+    log: "Log | None",
+    workspace: Path | None,
+    path: Path,
+    content: str,
+    created: bool = False,
 ) -> Generator[Message, None, None]:
     """Hook function that runs pre-commit on saved files.
 
@@ -189,6 +222,8 @@ def run_precommit_on_file(
             logger.debug("pre-commit not available, skipping hook")
             return
 
+    except KeyboardInterrupt:
+        raise
     except (subprocess.TimeoutExpired, FileNotFoundError):
         logger.debug("pre-commit not found or timed out, skipping hook")
         return
@@ -218,6 +253,8 @@ def run_precommit_on_file(
                 hide=True,  # Hide success messages to reduce noise
             )
 
+    except KeyboardInterrupt:
+        raise
     except subprocess.TimeoutExpired:
         yield Message(
             "system", f"Pre-commit checks timed out for {path.name}", hide=True
@@ -231,23 +268,16 @@ def run_precommit_on_file(
 
 def check_precommit_available() -> bool:
     """Check if pre-commit is available."""
-    try:
-        result = subprocess.run(
-            ["pre-commit", "--version"], capture_output=True, timeout=5
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
+    return shutil.which("pre-commit") is not None
 
 
 def run_full_precommit_checks(
-    log, workspace, **kwargs
+    manager: "LogManager",
 ) -> Generator[Message | StopPropagation, None, None]:
     """Hook function that runs full pre-commit checks after message processing.
 
     Args:
-        log: The conversation log
-        workspace: Workspace directory path
+        manager: Conversation manager with log and workspace
 
     Yields:
         Messages with pre-commit check results
@@ -259,7 +289,7 @@ def run_full_precommit_checks(
 
     # Check if there are modifications
 
-    if not check_for_modifications(log):
+    if not check_for_modifications(manager.log):
         logger.debug("No modifications, skipping pre-commit checks")
         return
 
@@ -274,6 +304,8 @@ def run_full_precommit_checks(
         elif success:
             yield Message("system", "Pre-commit checks passed", hide=True)
 
+    except KeyboardInterrupt:
+        raise
     except Exception as e:
         logger.exception(f"Error running pre-commit checks: {e}")
         yield Message("system", f"Pre-commit check failed: {e}", hide=True)
@@ -284,29 +316,6 @@ tool = ToolSpec(
     name="precommit",
     desc="Automatic pre-commit checks on file saves and after message processing",
     instructions="""
-This tool automatically runs pre-commit checks in two scenarios:
-
-1. **Per-file checks (FILE_POST_SAVE)**: After each file is saved
-   - Runs pre-commit on the specific saved file
-   - Provides immediate feedback on formatting/linting issues
-
-2. **Full checks (MESSAGE_POST_PROCESS)**: After message processing completes
-   - Runs pre-commit on all modified files
-   - Ensures all changes pass checks before auto-commit
-
-Pre-commit checks include:
-- Code formatting (black, prettier, etc.)
-- Linting (ruff, eslint, etc.)
-- Type checking (mypy, etc.)
-- Other configured hooks
-
-The tool will report any failures and suggest fixes.
-
-Commands:
-- /pre-commit: Manually run pre-commit checks
-
-Enable with: --tools precommit
-Or configure pre-commit checks via: GPTME_CHECK=true
 """.strip(),
     available=check_precommit_available,
     hooks={

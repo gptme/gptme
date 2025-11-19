@@ -10,6 +10,8 @@ import traceback
 from collections.abc import Callable
 from typing import Any
 
+import dspy
+
 from gptme.codeblock import Codeblock
 from gptme.eval.agents import GPTMe
 from gptme.eval.run import execute
@@ -18,8 +20,6 @@ from gptme.logmanager import LogManager
 from gptme.message import Message
 from gptme.tools import get_tool_for_langtag, init_tools
 from gptme.tools.base import ToolUse
-
-import dspy
 
 from .signatures import PromptEvaluationSignature
 
@@ -234,6 +234,9 @@ def create_task_success_metric(
 
         Returns a score between 0 and 1 indicating success rate.
         """
+        if not hasattr(pred, "eval_result") or not pred.eval_result:
+            return 0.0
+
         result: EvalResult = pred.eval_result  # type: ignore
 
         # Calculate success rate based on passed expectations

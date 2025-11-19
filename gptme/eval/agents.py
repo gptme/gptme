@@ -3,9 +3,8 @@ import random
 from abc import abstractmethod
 from pathlib import Path
 
-from gptme import Message
+from gptme import Message, get_prompt
 from gptme import chat as gptme_chat
-from gptme import get_prompt
 from gptme.dirs import get_logs_dir
 from gptme.tools import init_tools
 from gptme.util.auto_naming import generate_conversation_id

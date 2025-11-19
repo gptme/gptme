@@ -31,9 +31,9 @@ Example usage:
 """
 
 import json
-from pathlib import Path
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import TypedDict
 
 from dateutil.parser import isoparse

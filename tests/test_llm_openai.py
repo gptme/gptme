@@ -1,4 +1,5 @@
 import pytest
+
 from gptme.config import get_config
 from gptme.llm.llm_openai import _prepare_messages_for_api
 from gptme.llm.models import get_default_model, get_model, set_default_model
@@ -274,10 +275,12 @@ def test_message_conversion_with_tool_and_non_tool():
 
 def test_timeout_default(monkeypatch):
     """Test that timeout uses NOT_GIVEN (client default) when LLM_API_TIMEOUT is not set."""
-    import gptme.llm.llm_openai as llm_openai
     from unittest.mock import Mock, patch
-    from gptme.config import get_config
+
     from openai._types import NOT_GIVEN
+
+    import gptme.llm.llm_openai as llm_openai
+    from gptme.config import get_config
 
     # Clear any existing LLM_API_TIMEOUT config
     monkeypatch.delenv("LLM_API_TIMEOUT", raising=False)
@@ -303,8 +306,9 @@ def test_timeout_default(monkeypatch):
 
 def test_timeout_custom(monkeypatch):
     """Test that custom timeout is used when LLM_API_TIMEOUT is set."""
-    import gptme.llm.llm_openai as llm_openai
     from unittest.mock import Mock, patch
+
+    import gptme.llm.llm_openai as llm_openai
     from gptme.config import get_config
 
     # Set custom timeout
@@ -331,10 +335,11 @@ def test_timeout_custom(monkeypatch):
 
 def test_timeout_all_providers(monkeypatch):
     """Test that timeout is passed to all OpenAI-compatible providers."""
-    import gptme.llm.llm_openai as llm_openai
-    from unittest.mock import Mock, patch
-    from gptme.config import get_config
     from typing import cast
+    from unittest.mock import Mock, patch
+
+    import gptme.llm.llm_openai as llm_openai
+    from gptme.config import get_config
     from gptme.llm.models import Provider
 
     # Set custom timeout
@@ -373,8 +378,9 @@ def test_timeout_all_providers(monkeypatch):
 
 def test_timeout_invalid_value(monkeypatch):
     """Test that invalid timeout values raise appropriate errors."""
-    import gptme.llm.llm_openai as llm_openai
     from unittest.mock import patch
+
+    import gptme.llm.llm_openai as llm_openai
     from gptme.config import get_config
 
     # Set invalid timeout

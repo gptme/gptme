@@ -16,7 +16,7 @@ try:
 
     if not _has_dspy():
         pytest.skip("DSPy not available", allow_module_level=True)
-except ImportError:
+except (ImportError, ModuleNotFoundError):
     pytest.skip("DSPy module not available", allow_module_level=True)
 
 # Try to import all DSPy components directly - skip gracefully if any fail
@@ -41,10 +41,10 @@ try:
     )
     from gptme.eval.dspy.tasks import (  # fmt: skip
         analyze_task_coverage,
+        create_advanced_tasks,
+        create_essential_tasks,
         get_prompt_optimization_tasks,
         get_tasks_by_focus_area,
-        create_essential_tasks,
-        create_advanced_tasks,
     )
 except (ImportError, AttributeError) as e:
     pytest.skip(f"DSPy imports failed: {e}", allow_module_level=True)

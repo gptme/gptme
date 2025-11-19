@@ -239,8 +239,9 @@ def test_parse_prompt_files(tmp_path, monkeypatch):
 
 def test_parse_prompt_files_home_expansion(tmp_path, monkeypatch):
     """Test _parse_prompt_files with home directory expansion."""
-    from gptme.util.context import _parse_prompt_files
     import pathlib
+
+    from gptme.util.context import _parse_prompt_files
 
     # Test home directory expansion
     home_file = tmp_path / "home_test.txt"

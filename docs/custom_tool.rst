@@ -3,7 +3,7 @@ Custom Tools
 
 Introduction
 ------------
-There are three main approaches to extending gptme's functionality:
+There are three main approaches to extending gptme's available tools:
 
 1. **Custom Tools**: Native gptme tools that integrate deeply with the assistant.
 2. **Script Tools**: Standalone scripts that can be called via the shell tool.
@@ -50,7 +50,7 @@ When you need deeper integration with gptme, you can create a custom tool by def
 Custom tools are necessary when you need to:
 
 - Attach files/images to messages
-- Get included in the tools section
+- Get included in the tools section of the system prompt
 - Use without shell tool access
 - Validate arguments
 - Handle complex interactions
@@ -118,7 +118,7 @@ Here's a minimal example of a custom tool:
 Command Registration
 --------------------
 
-In addition to defining tools, you can register custom commands that users can invoke with ``/command`` syntax.
+In addition to defining tools, you can register custom :ref:`commands <commands>` that users can invoke with ``/command`` syntax.
 
 Registering Commands in Tools
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

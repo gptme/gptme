@@ -12,6 +12,37 @@ import socket
 
 logger = logging.getLogger(__name__)
 
+
+class TelemetryConnectionErrorFilter(logging.Filter):
+    """Filter to truncate verbose connection error stack traces from OpenTelemetry."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Truncate connection error messages to a single line.
+
+        Note: Returns True to allow the modified record to pass through.
+        We want to show the error but without the verbose stack trace.
+        """
+        # Check if this is a connection error from OpenTelemetry exporters
+        if (
+            record.name.startswith("opentelemetry.")
+            and record.levelno == logging.ERROR
+            and hasattr(record, "exc_info")
+            and record.exc_info
+        ):
+            exc_type, exc_value, _ = record.exc_info
+            # Check if it's a connection-related error
+            if exc_type and (
+                "ConnectionError" in exc_type.__name__
+                or "NewConnectionError" in exc_type.__name__
+                or "MaxRetryError" in exc_type.__name__
+            ):
+                # Replace the full stack trace with a simple message
+                record.exc_info = None
+                record.exc_text = None
+                record.msg = f"Telemetry connection failed: {exc_value}"
+        return True
+
+
 # Global variables to track telemetry state
 _telemetry_enabled = False
 _tracer = None
@@ -44,10 +75,13 @@ try:
     from opentelemetry.sdk.metrics.export import (
         PeriodicExportingMetricReader,  # fmt: skip
     )
+    from opentelemetry.sdk.metrics.view import (  # fmt: skip
+        ExplicitBucketHistogramAggregation,
+        View,
+    )
     from opentelemetry.sdk.resources import Resource  # fmt: skip
     from opentelemetry.sdk.trace import TracerProvider  # fmt: skip
     from opentelemetry.sdk.trace.export import BatchSpanProcessor  # fmt: skip
-    from opentelemetry.sdk.metrics.view import View, ExplicitBucketHistogramAggregation  # fmt: skip
 
     TELEMETRY_AVAILABLE = True
 except ImportError as e:
@@ -282,6 +316,17 @@ def init_telemetry(
             AnthropicInstrumentor().instrument()
 
         _telemetry_enabled = True
+
+        # Apply connection error filter to OpenTelemetry loggers
+        # This truncates verbose connection error stack traces to single lines
+        telemetry_filter = TelemetryConnectionErrorFilter()
+        for otel_logger_name in [
+            "opentelemetry.exporter.otlp.proto.http",
+            "opentelemetry.sdk._shared_internal",
+            "opentelemetry.sdk.metrics._internal.export",
+        ]:
+            otel_logger = logging.getLogger(otel_logger_name)
+            otel_logger.addFilter(telemetry_filter)
 
         # Import console for user-visible messages
         from . import console  # fmt: skip

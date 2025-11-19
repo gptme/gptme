@@ -17,10 +17,12 @@ try:
     import select
 except ImportError:
     select = None  # type: ignore
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -28,8 +30,10 @@ from pathlib import Path
 import bashlex
 
 from ..message import Message
-from ..util import get_installed_programs, get_tokenizer
+from ..util import get_installed_programs
 from ..util.ask_execute import execute_with_confirmation
+from ..util.output_storage import save_large_output
+from ..util.tokens import get_tokenizer
 from .base import (
     ConfirmFunc,
     Parameter,
@@ -112,6 +116,22 @@ deny_groups = [
         ],
         "Overly permissive chmod operations are blocked. Use safer permissions like `chmod 755` or `chmod 644` and be specific about target files.",
     ),
+    (
+        [
+            r"pkill\s",
+            r"killall\s",
+        ],
+        "Killing processes indiscriminately is blocked. Use `ps aux | grep <process-name>` to find specific PIDs and `kill <PID>` to terminate them safely.",
+    ),
+    (
+        [
+            # Pipe to shell interpreters (bash, sh, and their variants with paths)
+            r"\|\s*(bash|sh|/bin/bash|/bin/sh)(?:\s|$)",
+            # Pipe to script interpreters
+            r"\|\s*(python|python3|perl|ruby|node)(?:\s|$)",
+        ],
+        "Piping to shell interpreters or script execution is blocked. This pattern can execute arbitrary code and is a security risk.",
+    ),
 ]
 
 candidates = (
@@ -125,6 +145,10 @@ candidates = (
     "pandoc",
     "git",
     "docker",
+    "rg",
+    "ag",
+    "ast-grep",
+    "hyperfine",
 )
 
 
@@ -260,57 +284,37 @@ class ShellSession:
     ) -> tuple[int | None, str, str]:
         assert self.process.stdin
 
-        # Check if this is a compound command (for, while, if, case, function, etc.)
-        # These should not be parsed with shlex as it breaks their syntax
-        compound_keywords = {
-            "for",
-            "while",
-            "if",
-            "case",
-            "function",
-            "until",
-            "select",
-        }
-        is_compound = any(
-            command.strip().startswith(kw + " ") for kw in compound_keywords
-        )
+        # Redirect stdin to /dev/null to prevent commands from inheriting bash's pipe stdin
+        # Use shlex to properly parse commands and respect quotes
+        # Only add for commands that don't already redirect stdin
+        try:
+            command_parts = list(
+                shlex.shlex(command, posix=True, punctuation_chars=True)
+            )
 
-        # Detect various types of redirects without parsing
-        # This preserves file descriptor redirects (2>, 2>&1, etc.) and other complex syntax
-        has_stdin_redirect = bool(
-            re.search(r"<(?![<>])|<<(?!<)|<<<", command)  # <, <<, <<< but not <<<< etc.
-        )
-        has_stdout_redirect = bool(
-            re.search(r"\d*>&?\d*|>>?|&>>?", command)  # >, >>, 2>, 2>&1, &>, etc.
-        )
-        has_pipe = "|" in command and not is_compound
-        has_compound_operators = bool(re.search(r"&&|\|\||;", command))
+            # Check if there's already stdin redirection
+            has_stdin_redirect = (
+                "<" in command_parts or "<<" in command_parts or "<<<" in command_parts
+            )
 
-        # Don't add stdin redirection if:
-        # - Command already has stdin redirect
-        # - Command has compound operators (complex command structure)
-        # - Command has any output redirects (file descriptor redirects like 2>)
-        # - Command is a compound command
-        should_add_stdin_redirect = (
-            not has_stdin_redirect
-            and not has_compound_operators
-            and not has_stdout_redirect  # Don't add if any output redirects present
-            and not is_compound
-        )
-
-        # For simple pipelines without redirects, add stdin redirect to first command
-        if should_add_stdin_redirect and has_pipe:
-            # Find first pipe (not inside quotes)
-            # Simple approach: split on first unquoted |
-            # This avoids breaking jq filters and other tool-specific syntax
-            pipe_idx = command.find("|")
-            if pipe_idx > 0:
-                first_cmd = command[:pipe_idx].rstrip()
-                rest = command[pipe_idx:].lstrip("|").lstrip()
-                command = f"{first_cmd} < /dev/null | {rest}"
-        elif should_add_stdin_redirect and not has_pipe:
-            # Simple command with no redirects - add stdin redirect
-            command += " < /dev/null"
+            # For pipelines, redirect stdin for the first command only
+            if "|" in command_parts and not has_stdin_redirect:
+                # Find first unquoted pipe in original command
+                # We can't use shlex.join() because it quotes shell operators like 2>&1
+                try:
+                    pipe_pos = _find_first_unquoted_pipe(command)
+                    if pipe_pos is not None and pipe_pos > 0:
+                        first_cmd = command[:pipe_pos].rstrip()
+                        rest = command[pipe_pos + 1 :].lstrip()
+                        command = f"{first_cmd} < /dev/null | {rest}"
+                except Exception as e:
+                    # Fallback to raw command if parsing fails
+                    logger.warning(f"Failed to parse pipe in command '{command}': {e}")
+            elif not has_stdin_redirect and "|" not in command_parts:
+                # No pipe and no stdin redirection - add /dev/null
+                command += " < /dev/null"
+        except ValueError as e:
+            logger.warning(f"Failed shlex parsing command, using raw command: {e}")
 
         full_command = f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
@@ -575,11 +579,52 @@ def preview_shell(cmd: str, _: Path | None) -> str:
     return cmd
 
 
+def _has_file_redirection(cmd: str) -> bool:
+    """Check if command contains file output redirection (> or >>).
+
+    Returns True if the command contains > or >> outside of quoted strings.
+    Ignores heredoc operators (<< and <<-).
+    """
+    quoted_regions = _find_quotes(cmd)
+
+    # Look for > or >> that are not in quotes and not part of heredoc
+    i = 0
+    while i < len(cmd):
+        # Skip if we're in a quoted region
+        if _is_in_quoted_region(i, quoted_regions):
+            i += 1
+            continue
+
+        # Check for >>
+        if i < len(cmd) - 1 and cmd[i : i + 2] == ">>":
+            return True
+
+        # Check for > but not << (heredoc)
+        if cmd[i] == ">":
+            # Make sure it's not part of << or <<-
+            if i > 0 and cmd[i - 1] == "<":
+                i += 1
+                continue
+            return True
+
+        i += 1
+
+    return False
+
+
 def is_allowlisted(cmd: str) -> bool:
+    # Check if all commands in the pipeline are allowlisted
     for match in cmd_regex.finditer(cmd):
         for group in match.groups():
             if group and group not in allowlist_commands:
                 return False
+
+    # Check for file redirections (>, >>)
+    # File redirections with allowlisted commands can be used to write malicious content
+    # Example: echo "malicious_code" > /tmp/exploit.sh
+    if _has_file_redirection(cmd):
+        return False
+
     return True
 
 
@@ -679,6 +724,34 @@ def _is_in_quoted_region(pos: int, quoted_regions: list[tuple[int, int]]) -> boo
     return False
 
 
+def _find_first_unquoted_pipe(command: str) -> int | None:
+    """Find the position of the first pipe operator that's not in quotes.
+
+    Returns None if no unquoted pipe is found.
+    Skips logical OR operators (||).
+    """
+    quoted_regions = _find_quotes(command)
+
+    pos = 0
+    while True:
+        pipe_pos = command.find("|", pos)
+        if pipe_pos == -1:
+            return None
+
+        # Check if this pipe is inside quotes
+        if not _is_in_quoted_region(pipe_pos, quoted_regions):
+            # Check if this is part of || (logical OR)
+            if pipe_pos + 1 < len(command) and command[pipe_pos + 1] == "|":
+                # Skip the || operator
+                pos = pipe_pos + 2
+                continue
+
+            return pipe_pos
+
+        # Try next pipe
+        pos = pipe_pos + 1
+
+
 def is_denylisted(cmd: str) -> tuple[bool, str | None, str | None]:
     """Check if a command contains dangerous patterns that should be denied.
 
@@ -717,19 +790,22 @@ def _format_shell_output(
     returncode: int | None,
     interrupted: bool,
     allowlisted: bool,
-    pwd_changed: bool,
-    current_cwd: str,
     timed_out: bool = False,
     timeout_value: float | None = None,
+    logdir: Path | None = None,
 ) -> str:
     """Format shell command output into a message."""
     # Strip ANSI escape sequences from output
     stdout = strip_ansi_codes(stdout)
     stderr = strip_ansi_codes(stderr)
 
-    # Apply shortening logic
-    stdout = _shorten_stdout(stdout, pre_tokens=2000, post_tokens=8000)
-    stderr = _shorten_stdout(stderr, pre_tokens=2000, post_tokens=2000)
+    # Apply shortening logic with output storage
+    stdout = _shorten_stdout(
+        stdout, pre_tokens=2000, post_tokens=8000, logdir=logdir, cmd=cmd
+    )
+    stderr = _shorten_stdout(
+        stderr, pre_tokens=2000, post_tokens=2000, logdir=logdir, cmd=f"{cmd} (stderr)"
+    )
 
     # Format header
     if timed_out:
@@ -767,19 +843,15 @@ def _format_shell_output(
     elif returncode:
         msg += f"Return code: {returncode}\n"
 
-    if pwd_changed:
-        msg += f"Working directory changed to: {current_cwd}"
-
     return msg
 
 
 def execute_shell_impl(
-    cmd: str, _: Path | None, confirm: ConfirmFunc, timeout: float | None = None
+    cmd: str, logdir: Path | None, confirm: ConfirmFunc, timeout: float | None = None
 ) -> Generator[Message, None, None]:
     """Execute shell command and format output."""
     shell = get_shell()
     allowlisted = is_allowlisted(cmd)
-    prev_cwd = os.getcwd()
 
     try:
         returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
@@ -815,9 +887,6 @@ def execute_shell_impl(
         raise ValueError(f"Shell error: {e}") from None
 
     # Format and yield output
-    current_cwd = os.getcwd()
-    pwd_changed = prev_cwd != current_cwd
-
     msg = _format_shell_output(
         cmd,
         stdout,
@@ -825,10 +894,9 @@ def execute_shell_impl(
         returncode,
         interrupted,
         allowlisted,
-        pwd_changed,
-        current_cwd,
         timed_out,
         timeout_value=timeout,
+        logdir=logdir,
     )
     yield Message("system", msg)
 
@@ -867,8 +935,10 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
         return False, False, ""
 
     # Default excluded codes
+    # SC2002: Useless cat. Consider 'cmd < file | ..' or 'cmd file | ..' instead
+    # SC2016: Expressions don't expand in single quotes, use double quotes for that.
     # SC2164: Use 'cd ... || exit' in case cd fails (too noisy for interactive commands)
-    default_excludes = ["SC2164"]
+    default_excludes = ["SC2002", "SC2016", "SC2164"]
 
     # Get custom excludes from environment variable
     custom_excludes = os.environ.get("GPTME_SHELLCHECK_EXCLUDE", "").split(",")
@@ -893,7 +963,6 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
         error_codes = default_error_codes
 
     # Write command to temp file
-    import tempfile
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
         f.write("#!/bin/bash\n")
@@ -917,7 +986,6 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
             output = result.stdout.replace(temp_path, "<command>")
 
             # Extract error codes from shellcheck output
-            import re
 
             triggered_codes = set()
             for line in output.splitlines():
@@ -991,7 +1059,8 @@ def execute_shell(
 
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
-        yield from execute_shell_impl(cmd, None, lambda _: True, timeout=timeout)
+        logdir = get_path_fn()
+        yield from execute_shell_impl(cmd, logdir, lambda _: True, timeout=timeout)
     else:
         # Create a wrapper function that passes timeout to execute_shell_impl
         def execute_fn(
@@ -1033,8 +1102,35 @@ def _shorten_stdout(
     post_tokens=None,
     strip_dates=False,
     strip_common_prefix_lines=0,
+    logdir: Path | None = None,
+    cmd: str | None = None,
 ) -> str:
     lines = stdout.split("\n")
+
+    # Save full output before truncation if it will be truncated
+    will_truncate_by_lines = (
+        pre_lines is not None
+        and post_lines is not None
+        and len(lines) > pre_lines + post_lines
+    )
+    will_truncate_by_tokens = False
+    if pre_tokens is not None and post_tokens is not None:
+        tokenizer = get_tokenizer("gpt-4")
+        tokens = tokenizer.encode(stdout)
+        will_truncate_by_tokens = len(tokens) > pre_tokens + post_tokens
+
+    # If truncation will happen, save full output to file
+    saved_path = None
+    if (will_truncate_by_lines or will_truncate_by_tokens) and logdir:
+        command_info = f"Command: {cmd}" if cmd else None
+        original_tokens = len(tokens) if will_truncate_by_tokens else None
+        _, saved_path = save_large_output(
+            content=stdout,
+            logdir=logdir,
+            output_type="shell",
+            command_info=command_info,
+            original_tokens=original_tokens,
+        )
 
     # NOTE: This can cause issues when, for example, reading a CSV with dates in the first column
     if strip_dates:
@@ -1057,26 +1153,33 @@ def _shorten_stdout(
 
     # check that if pre_lines is set, so is post_lines, and vice versa
     assert (pre_lines is None) == (post_lines is None)
+    # Skip line truncation if token truncation will happen (token truncation is more precise)
     if (
         pre_lines is not None
         and post_lines is not None
         and len(lines) > pre_lines + post_lines
+        and not will_truncate_by_tokens
     ):
-        lines = (
-            lines[:pre_lines]
-            + [f"... ({len(lines) - pre_lines - post_lines} truncated) ..."]
-            + lines[-post_lines:]
-        )
+        truncation_msg = f"... ({len(lines) - pre_lines - post_lines} lines truncated"
+        if saved_path:
+            truncation_msg += f", full output saved to {saved_path}"
+        truncation_msg += ") ..."
+        lines = lines[:pre_lines] + [truncation_msg] + lines[-post_lines:]
 
     # check that if pre_tokens is set, so is post_tokens, and vice versa
     assert (pre_tokens is None) == (post_tokens is None)
     if pre_tokens is not None and post_tokens is not None:
-        tokenizer = get_tokenizer("gpt-4")  # TODO: use sane default
-        tokens = tokenizer.encode(stdout)
+        if not will_truncate_by_tokens:
+            tokenizer = get_tokenizer("gpt-4")  # TODO: use sane default
+            tokens = tokenizer.encode(stdout)
         if len(tokens) > pre_tokens + post_tokens:
+            truncation_msg = "... (output truncated"
+            if saved_path:
+                truncation_msg += f", full output saved to {saved_path}"
+            truncation_msg += ") ..."
             lines = (
                 [tokenizer.decode(tokens[:pre_tokens])]
-                + ["... (truncated output) ..."]
+                + [truncation_msg]
                 + [tokenizer.decode(tokens[-post_tokens:])]
             )
 
@@ -1114,7 +1217,31 @@ def split_commands(script: str) -> list[str]:
     # Preprocess script to handle quoted heredoc delimiters that bashlex can't parse
     processed_script = _preprocess_quoted_heredocs(script)
 
-    parts = bashlex.parse(processed_script)
+    try:
+        parts = bashlex.parse(processed_script)
+    except Exception as e:
+        # Fall back to treating script as single command if bashlex can't parse it
+        # bashlex (a Python port of GNU bash parser) cannot handle bash reserved words
+        # like 'time', 'coproc', etc. These are special keywords in bash that have
+        # different parsing rules. When bashlex encounters them, it raises an exception.
+        error_msg = str(e)
+
+        # bashlex reserved word errors contain "token =" in the message
+        # These are valid bash syntax that bashlex can't parse - allow them
+        if "token =" in error_msg:
+            logger.warning(
+                f"bashlex cannot parse bash reserved word. "
+                f"Treating script as single command. Error: {e}"
+            )
+            return [script]
+
+        # Other parsing errors are likely syntax errors - fail fast
+        # Common errors: "unexpected EOF", "unexpected token", etc.
+        raise ValueError(
+            f"Shell syntax error: {e}\n"
+            f"Please fix the syntax or use a different approach."
+        ) from e
+
     commands = []
     for part in parts:
         if part.kind == "command":

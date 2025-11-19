@@ -1,4 +1,5 @@
 import pytest
+
 from gptme.tools.shell import ShellSession
 
 

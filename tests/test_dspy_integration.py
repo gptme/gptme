@@ -5,6 +5,7 @@ These tests verify integration with gptme's existing evaluation framework.
 """
 
 import argparse
+import importlib.util
 import tempfile
 from pathlib import Path
 from typing import cast
@@ -12,10 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Check if DSPy is available and handle import errors gracefully
-from gptme.eval.dspy import _has_dspy  # fmt: skip
-
-if not _has_dspy():
+if importlib.util.find_spec("dspy") is None:
     pytest.skip("DSPy not available", allow_module_level=True)
 
 # Try to import all DSPy components - skip gracefully if any fail
@@ -25,9 +23,11 @@ try:
         OptimizationExperiment,
         quick_prompt_test,
     )
-    from gptme.eval.dspy.prompt_optimizer import GptmeModule  # fmt: skip
-    from gptme.eval.dspy.prompt_optimizer import PromptDataset  # fmt: skip
-    from gptme.eval.dspy.prompt_optimizer import get_current_gptme_prompt  # fmt: skip
+    from gptme.eval.dspy.prompt_optimizer import (
+        GptmeModule,  # fmt: skip
+        PromptDataset,  # fmt: skip
+        get_current_gptme_prompt,  # fmt: skip
+    )
     from gptme.eval.dspy.tasks import (  # fmt: skip
         get_prompt_optimization_tasks,
         get_task_metadata,

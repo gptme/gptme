@@ -1,15 +1,17 @@
 """Tests for lesson CLI commands."""
 
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from gptme.lessons.commands import (
-    lesson,
     _lesson_help,
     _lesson_list,
+    _lesson_refresh,
     _lesson_search,
     _lesson_show,
-    _lesson_refresh,
+    lesson,
 )
 from gptme.lessons.parser import Lesson, LessonMetadata
 

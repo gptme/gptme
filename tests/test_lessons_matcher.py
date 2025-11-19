@@ -1,13 +1,15 @@
 """Tests for lesson matcher."""
 
+from pathlib import Path
+
 import pytest
+
 from gptme.lessons.matcher import (
     LessonMatcher,
     MatchContext,
     MatchResult,
 )
 from gptme.lessons.parser import Lesson, LessonMetadata
-from pathlib import Path
 
 
 @pytest.fixture

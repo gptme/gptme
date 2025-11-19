@@ -208,7 +208,7 @@ def execute_tmux(
             continue
 
         command = parts[0]
-        if command == "list_sessions":
+        if command == "list-sessions":
             yield list_sessions()
             continue
 
@@ -217,14 +217,14 @@ def execute_tmux(
             continue
 
         _args = parts[1]
-        if command == "new_session":
+        if command == "new-session":
             yield new_session(_args)
-        elif command == "send_keys":
+        elif command == "send-keys":
             pane_id, keys = _args.split(maxsplit=1)
             yield send_keys(pane_id, keys)
-        elif command == "inspect_pane":
+        elif command == "inspect-pane":
             yield inspect_pane(_args)
-        elif command == "kill_session":
+        elif command == "kill-session":
             yield kill_session(_args)
         else:
             yield Message("system", f"Error: Unknown command: {command}")
@@ -237,11 +237,11 @@ This tool is suitable to run long-running commands or interactive applications t
 Examples of such commands are: `npm run dev`, `npm create vue@latest`, `python3 server.py`, `python3 train.py`, etc.
 
 Available commands:
-- new_session <command>: Start a new tmux session with the given command
-- send_keys <session_id> <keys> [<keys>]: Send keys to the specified session
-- inspect_pane <session_id>: Show the current content of the specified pane
-- kill_session <session_id>: Terminate the specified tmux session
-- list_sessions: Show all active tmux sessions
+- new-session <command>: Start a new tmux session with the given command
+- send-keys <session_id> <keys> [<keys>]: Send keys to the specified session
+- inspect-pane <session_id>: Show the current content of the specified pane
+- kill-session <session_id>: Terminate the specified tmux session
+- list-sessions: Show all active tmux sessions
 """
 # TODO: implement smart-wait, where we wait for n seconds and then until output is stable
 # TODO: change the "commands" to Python functions registered with the Python tool?
@@ -254,25 +254,25 @@ def examples(tool_format):
 
 > User: Start the dev server
 > Assistant: Certainly! To start the dev server we should use tmux:
-{ToolUse("tmux", [], "new_session 'npm run dev'").to_output(tool_format)}
+{ToolUse("tmux", [], "new-session 'npm run dev'").to_output(tool_format)}
 > System: Running `npm run dev` in session gptme_1
 
 > User: Can you show me the current content of the pane?
 > Assistant: Of course! Let's inspect the pane content:
-{ToolUse("tmux", [], "inspect_pane gptme_1").to_output(tool_format)}
+{ToolUse("tmux", [], "inspect-pane gptme_1").to_output(tool_format)}
 > System:
 {ToolUse("output", [], "Server is running on localhost:5600").to_output()}
 
 > User: Stop the dev server
 > Assistant: I'll send 'Ctrl+C' to the pane to stop the server:
-{ToolUse("tmux", [], "send_keys 0 C-c").to_output(tool_format)}
+{ToolUse("tmux", [], "send-keys 0 C-c").to_output(tool_format)}
 > System: Sent 'C-c' to pane 0
 
 #### Get info from ncurses applications
 
 > User: start top and give me a summary
 > Assistant: Sure! Let's start the top command in a tmux session:
-{ToolUse("tmux", [], "new_session 'top'").to_output(tool_format)}
+{ToolUse("tmux", [], "new-session 'top'").to_output(tool_format)}
 > System: Running `top` in session gptme_1.
 {ToolUse("output", [], "(output from top shown here)").to_output()}
 > Assistant: The load is...
@@ -281,16 +281,16 @@ def examples(tool_format):
 
 > User: start ipython
 > Assistant: Let's start an ipython session:
-{ToolUse("tmux", [], "new_session 'ipython'").to_output(tool_format)}
+{ToolUse("tmux", [], "new-session 'ipython'").to_output(tool_format)}
 > System: Running `ipython` in session 2.
 {ToolUse("output", [], "(output from ipython shown here)").to_output()}
 > User: Run 'print("Hello, world!")' in the ipython session
-{ToolUse("tmux", [], f'send_keys 2 {escaped_hello_world} Enter').to_output(tool_format)}
+{ToolUse("tmux", [], f'send-keys 2 {escaped_hello_world} Enter').to_output(tool_format)}
 
 #### Listing active sessions
 
 > User: List all active tmux sessions
-{ToolUse("tmux", [], "list_sessions").to_output(tool_format)}
+{ToolUse("tmux", [], "list-sessions").to_output(tool_format)}
 > System: Active tmux sessions ['0', 'gptme_1']
 
 #### Ending a session
@@ -298,7 +298,7 @@ def examples(tool_format):
 > User: I changed my mind
 > Assistant: No problem! Let's kill the session and start over:
 > Assistant:
-{ToolUse("tmux", [], "kill_session gptme_1").to_output(tool_format)}
+{ToolUse("tmux", [], "kill-session gptme_1").to_output(tool_format)}
 > System: Killed tmux session with ID gptme_1
 """
     # we want to skip the last two examples in prompting

@@ -29,7 +29,6 @@ from .tools import (
     get_tool_format,
     get_tools,
 )
-
 from .util.auto_naming import generate_llm_name
 from .util.cost import log_costs
 from .util.export import export_chat_to_html
@@ -399,10 +398,6 @@ def cmd_export(ctx: CommandContext) -> None:
     print(f"Exported conversation to {output_path}")
 
 
-# Note: /commit command is now registered by the autocommit tool
-# Note: /pre-commit command is registered by the precommit tool
-
-
 @command("setup")
 def cmd_setup(ctx: CommandContext) -> None:
     """Setup gptme with completions, configuration, and project setup."""
@@ -425,7 +420,8 @@ def execute_cmd(msg: Message, log: LogManager, confirm: ConfirmFunc) -> bool:
 
     # if message starts with / treat as command
     # when command has been run,
-    if msg.content[:1] in ["/"]:
+    # absolute paths dont trigger false positives by checking for single /
+    if msg.content.startswith("/") and msg.content.split(" ")[0].count("/") == 1:
         for resp in handle_cmd(msg.content, log, confirm):
             log.append(resp)
         return True
@@ -454,7 +450,7 @@ def handle_cmd(
     # Fallback to tool execution
     tooluse = ToolUse(name, [], full_args)
     if tooluse.is_runnable:
-        yield from tooluse.execute(confirm)
+        yield from tooluse.execute(confirm, manager.log, manager.workspace)
     else:
         manager.undo(1, quiet=True)
         print("Unknown command")
@@ -539,11 +535,21 @@ def print_available_models() -> None:
 
 
 def get_user_commands() -> list[str]:
-    """Returns a list of all user commands"""
-    commands = [f"/{cmd}" for cmd in action_descriptions.keys()]
+    """Returns a list of all user commands, including tool-registered commands"""
+    # Get all registered commands (includes built-in + tool-registered)
+    return [f"/{cmd}" for cmd in _command_registry.keys()]
 
-    # check if command is valid tooluse
-    # TODO: check for registered tools instead of hardcoding
-    commands.extend(["/python", "/shell"])
 
-    return commands
+def init_commands() -> None:
+    """Initialize plugin commands."""
+    from pathlib import Path
+
+    from .config import get_config
+    from .plugins import register_plugin_commands
+
+    config = get_config()
+    if config.project and config.project.plugins and config.project.plugins.paths:
+        register_plugin_commands(
+            plugin_paths=[Path(p) for p in config.project.plugins.paths],
+            enabled_plugins=config.project.plugins.enabled or None,
+        )
