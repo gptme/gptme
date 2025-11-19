@@ -47,7 +47,7 @@ def test_embed_attached_file_content(tmp_path):
 
 
 def test_context_hook(tmp_path):
-    from gptme.hooks.context import context_hook
+    from gptme.hooks.active_context import context_hook
 
     # Create test files
     file1 = tmp_path / "file1.txt"
