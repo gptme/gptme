@@ -267,6 +267,19 @@ test = ["anyio[trio]", "coverage[toml] (>=7)", "exceptiongroup (>=1.2.0)", "hypo
 trio = ["trio (>=0.26.1)"]
 
 [[package]]
+name = "appdirs"
+version = "1.4.4"
+description = "A small Python module for determining appropriate platform-specific dirs, e.g. a \"user data dir\"."
+optional = true
+python-versions = "*"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "appdirs-1.4.4-py2.py3-none-any.whl", hash = "sha256:a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128"},
+    {file = "appdirs-1.4.4.tar.gz", hash = "sha256:7d5d0167b2b1ba821647616af46a749d1c653740dd0d2415100fe26e27afdf41"},
+]
+
+[[package]]
 name = "astroid"
 version = "3.3.6"
 description = "An abstract syntax tree for Python with inference support."
@@ -345,6 +358,52 @@ dev = ["cloudpickle ; platform_python_implementation == \"CPython\"", "hypothesi
 docs = ["cogapp", "furo", "myst-parser", "sphinx", "sphinx-notfound-page", "sphinxcontrib-towncrier", "towncrier"]
 tests = ["cloudpickle ; platform_python_implementation == \"CPython\"", "hypothesis", "mypy (>=1.11.1) ; platform_python_implementation == \"CPython\" and python_version >= \"3.10\"", "pympler", "pytest (>=4.3.0)", "pytest-mypy-plugins ; platform_python_implementation == \"CPython\" and python_version >= \"3.10\"", "pytest-xdist[psutil]"]
 tests-mypy = ["mypy (>=1.11.1) ; platform_python_implementation == \"CPython\" and python_version >= \"3.10\"", "pytest-mypy-plugins ; platform_python_implementation == \"CPython\" and python_version >= \"3.10\""]
+
+[[package]]
+name = "aw-client"
+version = "0.5.12"
+description = "Client library for ActivityWatch"
+optional = true
+python-versions = ">=3.8,<4.0"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "aw_client-0.5.12-py3-none-any.whl", hash = "sha256:12bd6cbc02a06e970267f7f192a31a0036b4a9f9ae0852bd0a8bc718b9b8ea5a"},
+    {file = "aw_client-0.5.12.tar.gz", hash = "sha256:824b5e83abe755d5f089bbbf87eaabdc8895220c1642904a5aa6b66fba09b6ba"},
+]
+
+[package.dependencies]
+aw-core = ">=0.5.7,<0.6.0"
+click = ">=8.0,<9.0"
+persist-queue = "*"
+requests = "*"
+tabulate = "*"
+typing-extensions = "*"
+
+[[package]]
+name = "aw-core"
+version = "0.5.13"
+description = "Core library for ActivityWatch"
+optional = true
+python-versions = ">=3.8,<4.0"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "aw_core-0.5.13-py3-none-any.whl", hash = "sha256:dc77b19701a120dd4c86a8b75203230a23fff2bdc3017d50093098c138b8ae08"},
+    {file = "aw_core-0.5.13.tar.gz", hash = "sha256:4e41cd056602216ddbececa74073caa5f4920f33f68a20a306556f6dd13af61e"},
+]
+
+[package.dependencies]
+appdirs = ">=1.4.4,<2.0.0"
+deprecation = "*"
+iso8601 = ">=1.0.2,<2.0.0"
+jsonschema = ">=4.3,<5.0"
+peewee = ">=3.0.0,<4.0.0"
+rfc3339-validator = ">=0.1.4,<0.2.0"
+strict-rfc3339 = ">=0.7,<0.8"
+TakeTheTime = ">=0.3.1,<0.4.0"
+timeslot = "*"
+tomlkit = "*"
 
 [[package]]
 name = "babel"
@@ -1096,6 +1155,22 @@ wrapt = ">=1.10,<2"
 
 [package.extras]
 dev = ["PyTest", "PyTest-Cov", "bump2version (<1)", "setuptools ; python_version >= \"3.12\"", "tox"]
+
+[[package]]
+name = "deprecation"
+version = "2.1.0"
+description = "A library to handle automated deprecations"
+optional = true
+python-versions = "*"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "deprecation-2.1.0-py2.py3-none-any.whl", hash = "sha256:a10811591210e1fb0e768a8c25517cabeabcba6f0bf96564f8ff45189f90b14a"},
+    {file = "deprecation-2.1.0.tar.gz", hash = "sha256:72b3bde64e5d778694b0cf68178aed03d15e15477116add3fb773e581f9518ff"},
+]
+
+[package.dependencies]
+packaging = "*"
 
 [[package]]
 name = "dill"
@@ -1992,6 +2067,19 @@ parallel = ["ipyparallel"]
 qtconsole = ["qtconsole"]
 test = ["packaging", "pickleshare", "pytest", "pytest-asyncio (<0.22)", "testpath"]
 test-extra = ["curio", "ipython[test]", "matplotlib (!=3.2.0)", "nbformat", "numpy (>=1.23)", "pandas", "trio"]
+
+[[package]]
+name = "iso8601"
+version = "1.1.0"
+description = "Simple module to parse ISO 8601 dates"
+optional = true
+python-versions = ">=3.6.2,<4.0"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "iso8601-1.1.0-py3-none-any.whl", hash = "sha256:8400e90141bf792bce2634df533dc57e3bee19ea120a87bebcd3da89a58ad73f"},
+    {file = "iso8601-1.1.0.tar.gz", hash = "sha256:32811e7b81deee2063ea6d2e94f8819a86d1f3811e49d23623a41fa832bef03f"},
+]
 
 [[package]]
 name = "isort"
@@ -4105,7 +4193,7 @@ files = [
     {file = "packaging-24.2-py3-none-any.whl", hash = "sha256:09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759"},
     {file = "packaging-24.2.tar.gz", hash = "sha256:c228a6dc5e932d346bc5739379109d49e8853dd8223571c7c5b55260edc0b97f"},
 ]
-markers = {main = "python_version < \"3.15\" or extra == \"datascience\" or extra == \"all\" or extra == \"telemetry\" or extra == \"dspy\" or extra == \"eval\""}
+markers = {main = "python_version < \"3.15\" or extra == \"activitywatch\" or extra == \"datascience\" or extra == \"all\" or extra == \"telemetry\" or extra == \"dspy\" or extra == \"eval\""}
 
 [[package]]
 name = "pandas"
@@ -4224,6 +4312,18 @@ files = [
 ]
 
 [[package]]
+name = "peewee"
+version = "3.18.3"
+description = "a little orm"
+optional = true
+python-versions = "*"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "peewee-3.18.3.tar.gz", hash = "sha256:62c3d93315b1a909360c4b43c3a573b47557a1ec7a4583a71286df2a28d4b72e"},
+]
+
+[[package]]
 name = "pefile"
 version = "2023.2.7"
 description = "Python PE parsing module"
@@ -4235,6 +4335,23 @@ files = [
     {file = "pefile-2023.2.7-py3-none-any.whl", hash = "sha256:da185cd2af68c08a6cd4481f7325ed600a88f6a813bad9dea07ab3ef73d8d8d6"},
     {file = "pefile-2023.2.7.tar.gz", hash = "sha256:82e6114004b3d6911c77c3953e3838654b04511b8b66e8583db70c65998017dc"},
 ]
+
+[[package]]
+name = "persist-queue"
+version = "1.1.0"
+description = "A thread-safe disk based persistent queue in Python."
+optional = true
+python-versions = "*"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "persist_queue-1.1.0-py3-none-any.whl", hash = "sha256:be431ad90cd57621be5563dcd2424e21d81db3bb8cdfb918ade722369d640763"},
+    {file = "persist_queue-1.1.0.tar.gz", hash = "sha256:4c042a3d39c9af4fa24497da76697fb4fff7abe6af04bcf55f099e0c23bc2c67"},
+]
+
+[package.extras]
+async = ["aiofiles (>=0.8.0)", "aiosqlite (>=0.17.0)"]
+extra = ["DBUtils (<3.0.0)", "PyMySQL", "cbor2 (>=5.2.0)", "msgpack (>=0.5.6)"]
 
 [[package]]
 name = "pexpect"
@@ -5522,11 +5639,12 @@ version = "0.1.4"
 description = "A pure python RFC3339 validator"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
-groups = ["dev"]
+groups = ["main", "dev"]
 files = [
     {file = "rfc3339_validator-0.1.4-py2.py3-none-any.whl", hash = "sha256:24f6ec1eda14ef823da9e36ec7113124b39c04d50a4d3d3a3c2859577e7791fa"},
     {file = "rfc3339_validator-0.1.4.tar.gz", hash = "sha256:138a2abdf93304ad60530167e51d2dfb9549521a836871b88d7f4695d0022f6b"},
 ]
+markers = {main = "extra == \"activitywatch\""}
 
 [package.dependencies]
 six = "*"
@@ -6422,6 +6540,18 @@ anyio = ">=3.6.2,<5"
 full = ["httpx (>=0.27.0,<0.29.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.18)", "pyyaml"]
 
 [[package]]
+name = "strict-rfc3339"
+version = "0.7"
+description = "Strict, simple, lightweight RFC3339 functions"
+optional = true
+python-versions = "*"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "strict-rfc3339-0.7.tar.gz", hash = "sha256:5cad17bedfc3af57b399db0fed32771f18fc54bbd917e85546088607ac5e1277"},
+]
+
+[[package]]
 name = "sympy"
 version = "1.14.0"
 description = "Computer algebra system (CAS) in Python"
@@ -6454,6 +6584,18 @@ files = [
 
 [package.extras]
 widechars = ["wcwidth"]
+
+[[package]]
+name = "takethetime"
+version = "0.3.1"
+description = "Take The Time, a time-taking library for Python"
+optional = true
+python-versions = "*"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "TakeTheTime-0.3.1.tar.gz", hash = "sha256:dbe30453a1b596a38f9e2e3fa8e1adc5af2dbf646ca0837ad5c2059a16fe2ff9"},
+]
 
 [[package]]
 name = "tenacity"
@@ -6532,6 +6674,19 @@ requests = ">=2.26.0"
 
 [package.extras]
 blobfile = ["blobfile (>=2)"]
+
+[[package]]
+name = "timeslot"
+version = "0.1.2"
+description = "Data type for representing time slots with a start and end."
+optional = true
+python-versions = ">=3.6,<4.0"
+groups = ["main"]
+markers = "extra == \"activitywatch\""
+files = [
+    {file = "timeslot-0.1.2-py3-none-any.whl", hash = "sha256:2f8efaec7b0a4c1e56a92ec05533219332dd9d8b577539077664c233996911b5"},
+    {file = "timeslot-0.1.2.tar.gz", hash = "sha256:a2ac998657e3f3b9ca928757b4906add2c05390c5fc14ed792bb9028d08547b1"},
+]
 
 [[package]]
 name = "tokenizers"
@@ -7777,6 +7932,7 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
+activitywatch = ["aw-client"]
 all = ["dspy", "flask", "flask-cors", "matplotlib", "numpy", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "scipy", "sentence-transformers", "sounddevice", "youtube_transcript_api"]
 browser = ["playwright"]
 computer = []
@@ -7792,4 +7948,4 @@ youtube = ["youtube_transcript_api"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "3306b2d7c7f372a0580ac4086359951f05bc794039dfc9277c3caeb31c16e856"
+content-hash = "8e36a0d7dc24f37799f553a6b808d0c54eb514f2dddb3b25c10a165d4929d025"

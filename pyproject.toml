@@ -58,6 +58,7 @@ anthropic = "^0.47"
 ipython = "^8.17.2"
 bashlex = "^0.18"
 playwright = {version = "1.49.1", optional=true}  # version constrained due to annoying to have to run `playwright install` on every update
+aw-client = {version = ">=0.5.0", optional=true}  # for ActivityWatch integration
 youtube_transcript_api = {version = "^0.6.1", optional=true}
 python-xlib = {version = "^0.33", optional=true}  # for X11 interaction
 
@@ -138,6 +139,7 @@ tomli = "^2.2.1"
 [tool.poetry.extras]
 server = ["flask", "flask-cors", "pydantic"]
 browser = ["playwright"]
+activitywatch = ["aw-client"]
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 computer = []  # pillow (non-opt)
 pyinstaller = ["pyinstaller"]
