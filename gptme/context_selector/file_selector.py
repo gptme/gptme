@@ -1,6 +1,7 @@
 """Enhanced file selection using context selector."""
 
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -13,7 +14,33 @@ from .hybrid import HybridSelector
 logger = logging.getLogger(__name__)
 
 
-async def select_relevant_files(
+def get_workspace_files(workspace: Path) -> list[Path]:
+    """Get all tracked files in the workspace."""
+    files: list[Path] = []
+    # Try git first
+    try:
+        p = subprocess.run(
+            ["git", "ls-files"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        files = [workspace / f for f in p.stdout.splitlines()]
+        # Filter existing files
+        files = [f for f in files if f.exists()]
+    except (OSError, subprocess.CalledProcessError):
+        # Fallback to glob if not a git repo or git fails
+        # We exclude hidden files/dirs
+        files = [
+            f
+            for f in workspace.rglob("*")
+            if f.is_file() and not any(p.startswith(".") for p in f.parts)
+        ]
+    return files
+
+
+def select_relevant_files(
     msgs: list[Message],
     workspace: Path | None,
     query: str | None = None,
@@ -38,21 +65,45 @@ async def select_relevant_files(
     from ..util.context import get_mentioned_files
 
     # Get files with mention counts (existing logic)
-    files = get_mentioned_files(msgs, workspace)
+    mentioned_files = get_mentioned_files(msgs, workspace)
 
-    if not files or not use_selector:
+    if not use_selector:
         # Fallback: return top N by mention count + recency (existing behavior)
-        return files[:max_files]
+        return mentioned_files[:max_files]
+
+    # Gather all candidate files
+    # 1. Mentioned files
+    candidates = {f: 0 for f in mentioned_files}
+
+    # 2. Workspace files (if available)
+    if workspace:
+        for f in get_workspace_files(workspace):
+            if f not in candidates:
+                candidates[f] = 0
 
     # Convert to FileItems with metadata
     now = datetime.now().timestamp()
     file_items = []
-    for f in files:
+
+    # Pre-calculate counts for mentioned files only (optimization)
+    # For non-mentioned workspace files, count is 0
+    # Instead of re-iterating msgs for every file, we trust get_mentioned_files ordering/existence specific for mentioned ones
+    # But we need actual counts for boosting?
+    # Let's do a quick pass to count mentions if we really need them for scoring
+
+    # Optimization: build mention map locally
+    # TODO: get_mentioned_files should probably return counts
+    mention_counts: dict[Path, int] = {}
+    for msg in msgs:
+        for f in msg.files:
+            path = (workspace / f).resolve() if workspace else f.resolve()
+            mention_counts[path] = mention_counts.get(path, 0) + 1
+
+    for f in candidates.keys():
         try:
             mtime = f.stat().st_mtime if f.exists() else 0
-            # Count mentions (already done in get_mentioned_files, but we need count)
-            mention_count = sum(1 for msg in msgs if f in msg.files)
-            file_items.append(FileItem(f, mention_count, mtime))
+            count = mention_counts.get(f, 0)
+            file_items.append(FileItem(f, count, mtime))
         except OSError:
             logger.debug(f"Skipping file {f}: stat failed")
             continue
@@ -93,9 +144,9 @@ async def select_relevant_files(
         user_msgs = [msg for msg in msgs if msg.role == "user"]
         query = user_msgs[-1].content if user_msgs else ""
 
-    # Select using context selector (async)
+    # Select using context selector (sync)
     try:
-        selected = await selector.select(
+        selected = selector.select(
             query=query,
             candidates=[item for item, _ in scored_items],
             max_results=max_files,

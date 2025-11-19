@@ -19,7 +19,7 @@ class RuleBasedSelector(ContextSelector):
     def __init__(self, config: ContextSelectorConfig):
         self.config = config
 
-    async def select(
+    def select(
         self,
         query: str,
         candidates: Sequence[ContextItem],

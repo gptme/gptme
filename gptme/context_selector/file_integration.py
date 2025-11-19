@@ -44,12 +44,29 @@ class FileItem(ContextItem):
         except OSError:
             pass
 
+        # Generate keywords from path parts and stem
+        keywords = list(self.path.parts)
+        if self.path.stem not in keywords:
+            keywords.append(self.path.stem)
+
+        # Split compound keywords (e.g. context_selector -> context, selector)
+        extra_keywords = []
+        for kw in keywords:
+            if "_" in kw:
+                extra_keywords.extend(kw.split("_"))
+            if "-" in kw:
+                extra_keywords.extend(kw.split("-"))
+
+        # Filter out empty strings and very short keywords from splits
+        keywords = [k for k in keywords + extra_keywords if k and len(k) > 2]
+
         return {
             "mention_count": self.mention_count,
             "mtime": self.mtime,
             "file_type": self.path.suffix[1:] if self.path.suffix else "unknown",
             "file_size": file_size,
             "path": str(self.path),
+            "keywords": keywords,
         }
 
     @property

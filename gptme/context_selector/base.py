@@ -45,7 +45,7 @@ class ContextSelector(ABC):
     """
 
     @abstractmethod
-    async def select(
+    def select(
         self,
         query: str,
         candidates: Sequence[ContextItem],

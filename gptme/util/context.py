@@ -217,7 +217,17 @@ def gather_fresh_context(
 ) -> Message:
     """Gather fresh context from files and git status."""
 
-    files = get_mentioned_files(msgs, workspace)
+    # Import here to avoid circular dependency
+    from ..context_selector.file_selector import select_relevant_files
+
+    try:
+        # Use the selector to find files (including workspace candidates)
+        files = select_relevant_files(msgs, workspace, max_files=10, use_selector=True)
+    except Exception as e:
+        logger.error(f"Failed to select files with context selector: {e}")
+        # Fallback to simple mention counting if selector fails
+        files = get_mentioned_files(msgs, workspace)[:10]
+
     sections = []
 
     # Add pre-commit check results if there are issues

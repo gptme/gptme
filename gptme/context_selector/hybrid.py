@@ -30,7 +30,7 @@ class HybridSelector(ContextSelector):
         self.rule_selector = RuleBasedSelector(config)
         self.llm_selector = LLMSelector(config)
 
-    async def select(
+    def select(
         self,
         query: str,
         candidates: Sequence[ContextItem],
@@ -40,7 +40,7 @@ class HybridSelector(ContextSelector):
 
         # Phase 1: Rule-based pre-filter
         max_candidates = self.config.max_candidates
-        pre_filtered = await self.rule_selector.select(
+        pre_filtered = self.rule_selector.select(
             query=query,
             candidates=candidates,
             max_results=max_candidates,
@@ -60,7 +60,7 @@ class HybridSelector(ContextSelector):
         logger.debug(
             f"HybridSelector: LLM refining {len(pre_filtered)} -> {max_results}"
         )
-        refined = await self.llm_selector.select(
+        refined = self.llm_selector.select(
             query=query,
             candidates=pre_filtered,
             max_results=max_results,

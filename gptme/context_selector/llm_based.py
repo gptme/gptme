@@ -53,7 +53,7 @@ class LLMSelector(ContextSelector):
         self.config = config
         self.prompt = DEFAULT_SELECTION_PROMPT
 
-    async def select(
+    def select(
         self,
         query: str,
         candidates: Sequence[ContextItem],
