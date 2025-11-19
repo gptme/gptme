@@ -40,6 +40,47 @@ def get_workspace_files(workspace: Path) -> list[Path]:
     return files
 
 
+def get_git_status_files(workspace: Path) -> dict[Path, str]:
+    """Get files with their git status.
+
+    Returns:
+        Dict mapping file paths to their status:
+        - 'staged': Files staged for commit
+        - 'modified': Files with unstaged changes
+        - 'untracked': New files not yet tracked
+    """
+    try:
+        result = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        status_map = {}
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+
+            # Format: "XY filename" where X=staged, Y=unstaged
+            status_code = line[:2]
+            filepath = line[3:].strip()
+            path = (workspace / filepath).resolve()
+
+            # Determine status priority
+            if status_code[0] in ("M", "A", "D", "R"):
+                status_map[path] = "staged"
+            elif status_code[1] == "M":
+                status_map[path] = "modified"
+            elif status_code == "??":
+                status_map[path] = "untracked"
+
+        return status_map
+    except (OSError, subprocess.CalledProcessError):
+        return {}
+
+
 def select_relevant_files(
     msgs: list[Message],
     workspace: Path | None,
@@ -124,11 +165,15 @@ def select_relevant_files(
     if not file_items:
         return []
 
+    # Get git status for additional boosting
+    git_status_map = get_git_status_files(workspace) if workspace else {}
+
     # Apply metadata boosts before selection
     scored_items = []
 
     # Extract query terms for name matching
     query_terms = set(query.lower().split()) if query else set()
+    num_query_terms = max(len(query_terms), 1)  # Avoid division by zero
 
     for item in file_items:
         # Calculate boost factors
@@ -139,19 +184,41 @@ def select_relevant_files(
         file_type = item.metadata["file_type"]
         type_weight = config.get_file_type_weight(file_type)
 
-        # Name matching boost - HUGE boost if filename matches query
+        # Git status boost - STRONG signal for active work
+        git_boost = 1.0
+        if item.path in git_status_map:
+            status = git_status_map[item.path]
+            if status == "staged":
+                git_boost = 3.0  # Staged files: very relevant
+            elif status == "modified":
+                git_boost = 2.5  # Modified files: actively working on
+            elif status == "untracked":
+                git_boost = 1.8  # New files: potentially relevant
+
+        # Name matching boost - normalized by query length
         name_boost = 1.0
         stem = item.path.stem.lower()
+        matched_terms = 0.0  # Use float to allow fractional partial matches
+
+        # Count exact matches
         if stem in query_terms:
-            name_boost = 10.0  # Exact filename match
-        elif any(term in stem for term in query_terms if len(term) > 3):
-            name_boost = 3.0  # Partial filename match
+            matched_terms += 1
+
+        # Count partial matches (only for longer terms)
+        for term in query_terms:
+            if len(term) > 3 and term in stem:
+                matched_terms += 0.5  # Partial match worth less
+
+        if matched_terms > 0:
+            # Normalize boost by total query terms to prevent single-term domination
+            # Max boost of 3x, but divided by query length
+            name_boost = 1.0 + (2.0 * matched_terms / num_query_terms)
 
         # Additive base score (so zero-mention files aren't crushed)
         base_score = 1.0 + (item.mention_count * 0.3)
 
         # Multiplicative boosts
-        final_score = base_score * recency_boost * type_weight * name_boost
+        final_score = base_score * recency_boost * type_weight * name_boost * git_boost
         scored_items.append((item, final_score))
 
     # Sort by score (for rule-based, this is the final ranking)
@@ -164,18 +231,60 @@ def select_relevant_files(
     # For LLM/hybrid: use context selector for semantic refinement
     selector: ContextSelector = HybridSelector(config)
 
-    # Use last meaningful message as query if not provided
-    # This allows assistant's own thoughts/plans to drive context discovery in autonomous mode
+    # Build query from recent conversation context
+    # This provides continuity across turns by considering multiple recent messages
     if query is None:
-        query = ""
-        for msg in reversed(msgs):
-            if (
-                msg.role in ("user", "assistant")
-                and msg.content
-                and msg.content.strip()
-            ):
-                query = msg.content
-                break
+        # Extract terms from recent messages with decay weighting
+        term_weights: dict[str, float] = {}
+        recent_msgs = list(reversed(msgs))[:5]  # Last 5 messages (user + assistant)
+
+        for i, msg in enumerate(recent_msgs):
+            if msg.role not in ("user", "assistant") or not msg.content.strip():
+                continue
+
+            content = msg.content.lower()
+
+            # Skip very short messages
+            if len(content) < 10:
+                continue
+
+            # Extract meaningful terms (filter stopwords, short words)
+            # Weight decays: most recent = 1.0, then 0.5, 0.33, 0.25, 0.2
+            weight = 1.0 / (i + 1)
+
+            # Simple tokenization
+            words = content.split()
+            for word in words:
+                # Filter stopwords and short words
+                if len(word) > 3 and word not in {
+                    "this",
+                    "that",
+                    "with",
+                    "from",
+                    "have",
+                    "were",
+                    "been",
+                    "what",
+                    "when",
+                    "where",
+                    "which",
+                    "their",
+                    "there",
+                    "does",
+                    "about",
+                    "would",
+                    "could",
+                    "should",
+                    "these",
+                    "those",
+                }:
+                    # Accumulate weights for repeated terms across messages
+                    term_weights[word] = term_weights.get(word, 0) + weight
+
+        # Build query from top weighted terms (preserves multi-message context)
+        sorted_terms = sorted(term_weights.items(), key=lambda x: x[1], reverse=True)
+        top_terms = [term for term, _ in sorted_terms[:20]]  # Top 20 terms
+        query = " ".join(top_terms) if top_terms else ""
 
     # Select using context selector (sync)
     try:
