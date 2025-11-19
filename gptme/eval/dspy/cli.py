@@ -93,7 +93,7 @@ def cli(ctx: click.Context, verbose: bool) -> None:
 @click.option(
     "--optimizers",
     multiple=True,
-    type=click.Choice(["miprov2", "bootstrap"]),
+    type=click.Choice(["miprov2", "bootstrap", "gepa", "hybrid"]),
     help="Optimizers to use (default: miprov2, bootstrap)",
 )
 @click.option(
@@ -141,6 +141,22 @@ def optimize(
             "optimizer_type": "bootstrap",
             "max_demos": max_demos,
             "num_trials": max(num_trials // 2, 3),
+        }
+
+    if "gepa" in optimizers:
+        optimizer_configs["gepa"] = {
+            "optimizer_type": "gepa",
+            "max_demos": max_demos,
+            "num_trials": num_trials,
+            "auto": "medium",
+        }
+
+    if "hybrid" in optimizers:
+        optimizer_configs["hybrid"] = {
+            "optimizer_type": "hybrid",
+            "max_demos": max_demos,
+            "num_trials": num_trials,
+            "auto": "medium",
         }
 
     # Run experiment
