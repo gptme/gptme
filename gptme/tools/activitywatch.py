@@ -6,11 +6,21 @@ Requires a running ActivityWatch instance (aw-server) on localhost:5600.
 """
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from .base import ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
+
+
+def _check_aw_available():
+    """Check if aw-client is available."""
+    try:
+        import aw_client  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
 
 
 # Lazy import to avoid hard dependency
@@ -47,7 +57,6 @@ def get_today_summary(
         ImportError: If aw-client is not installed.
     """
     import socket
-    from datetime import datetime, timedelta
 
     ActivityWatchClient = _get_aw_client()
 
@@ -195,7 +204,7 @@ get_today_summary(hostname: Optional[str]) -> str:
     """.strip(),
     examples=examples,
     functions=[get_today_summary],
-    available=lambda: True,  # Tool is always available, will error if AW not installed/running
+    available=lambda: _check_aw_available(),
 )
 
 __doc__ = tool.get_doc(__doc__)
