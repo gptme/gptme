@@ -197,11 +197,17 @@ clean-test:  ## Clean test logs and outputs
 	rm -I $$HOME/.local/share/gptme/logs/*test-*-test_*/*.jsonl || true
 	rm --dir $$HOME/.local/share/gptme/logs/*test-*-test_*/ || true
 
+clean-eval:  ## Clean messy leftovers from evals
+	rm -r $$HOME/.local/share/gptme/logs/*/workspace/node_modules
+
 clean-build: ## Clean PyInstaller build artifacts
 	rm -rf build/ dist/ *.spec.bak
 
 rename-logs:
 	./scripts/auto_rename_logs.py $(if $(APPLY),--no-dry-run) --limit $(or $(LIMIT),10)
+
+analyze-compression: ## Analyze compression ratios of conversation logs
+	poetry run python scripts/analyze_compression.py --limit $(or $(LIMIT),100) $(if $(VERBOSE),-v) $(if $(DETAILED),-d)
 
 cloc: cloc-core cloc-tools cloc-server cloc-tests  ## Run cloc to count lines of code
 
