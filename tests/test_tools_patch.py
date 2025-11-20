@@ -244,7 +244,7 @@ def test_apply_with_nested_codeblock():
 
 spaces = "    "  # 4 spaces
 
-content = """
+content = f"""
 def hello():
     print('hello')
 {spaces}
@@ -258,11 +258,7 @@ def hello():
     print('world')
 """.strip()
 
-# TODO: make these xfails actually pass by improving the patch matching algorithm
-#       See: https://github.com/gptme/gptme/issues/767
 
-
-@pytest.mark.xfail
 def test_apply_with_differing_whitespace():
     """Test that patches work correctly even if there are lines with only whitespace that differ."""
 
@@ -283,7 +279,6 @@ def hello():
     assert result == content.replace("world", "world2")
 
 
-@pytest.mark.xfail
 def test_apply_with_differing_whitespace_reverse():
     # now try the reverse, patching content without spaces using ORIGINAL with spaces
     codeblock = f"""
