@@ -73,6 +73,8 @@ def serve(
 
     # Try to initialize with provided/configured model
     # If init fails due to missing model/API keys, use fallback
+    from gptme.server.exceptions import ModelConfigurationError
+
     try:
         init(
             model,
@@ -81,27 +83,36 @@ def serve(
             tool_format="markdown",
         )
     except (ValueError, KeyError) as e:
-        # Handle case where no model/API keys are configured
-        if (
-            "No API key found" in str(e)
-            or "No model specified" in str(e)
-            or "not set in env or config" in str(e)
-        ):
-            fallback_model = DEFAULT_FALLBACK_MODEL
-            logger.warning(
-                f"No default model configured. Using fallback: {fallback_model}. "
-                "Set MODEL environment variable or use --model flag for explicit configuration."
-            )
-            # Retry init with fallback model
-            init(
-                fallback_model,
-                interactive=False,
-                tool_allowlist=None if tools is None else tools.split(","),
-                tool_format="markdown",
-            )
+        # Detect model configuration errors and wrap in custom exception
+        error_msg = str(e)
+        is_config_error = (
+            "No API key found" in error_msg
+            or "No model specified" in error_msg
+            or "not set in env or config" in error_msg
+        )
+
+        if is_config_error:
+            # Wrap in custom exception for type-based error handling
+            raise ModelConfigurationError(
+                f"Model configuration missing: {error_msg}"
+            ) from e
         else:
-            # Re-raise other ValueError exceptions
+            # Re-raise other exceptions unchanged
             raise
+    except ModelConfigurationError:
+        # Handle model configuration errors with fallback
+        fallback_model = DEFAULT_FALLBACK_MODEL
+        logger.warning(
+            f"No default model configured. Using fallback: {fallback_model}. "
+            "Set MODEL environment variable or use --model flag for explicit configuration."
+        )
+        # Retry init with fallback model
+        init(
+            fallback_model,
+            interactive=False,
+            tool_allowlist=None if tools is None else tools.split(","),
+            tool_format="markdown",
+        )
 
     # Initialize telemetry (server is API/WebUI driven, not CLI interactive)
     init_telemetry(
