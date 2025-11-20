@@ -80,9 +80,13 @@ def serve(
             tool_allowlist=None if tools is None else tools.split(","),
             tool_format="markdown",
         )
-    except ValueError as e:
+    except (ValueError, KeyError) as e:
         # Handle case where no model/API keys are configured
-        if "No API key found" in str(e) or "No model specified" in str(e):
+        if (
+            "No API key found" in str(e)
+            or "No model specified" in str(e)
+            or "not set in env or config" in str(e)
+        ):
             fallback_model = DEFAULT_FALLBACK_MODEL
             logger.warning(
                 f"No default model configured. Using fallback: {fallback_model}. "
