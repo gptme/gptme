@@ -153,7 +153,7 @@ def analyze_log_compression(
 
 
 def analyze_incremental_compression(
-    messages: list[Message], level: int = 6
+    messages: list[Message], level: int = 6, min_size: int = 50
 ) -> list[tuple[Message, CompressionStats]]:
     """
     Analyze marginal information contribution of each message to the conversation.
@@ -173,37 +173,51 @@ def analyze_incremental_compression(
     Args:
         messages: List of messages in conversation
         level: Compression level
+        min_size: Minimum message size in bytes to analyze (default: 50).
+                  Short messages naturally don't compress well and can skew results.
 
     Returns:
         List of (message, stats) tuples showing incremental contribution.
         The stats show the marginal compression contribution, not independent compression.
+        Short messages (< min_size) are excluded from analysis.
 
     Use cases:
     - Identify where to draw compression boundaries for auto-compact
     - Detect when tool outputs duplicate previous context
     - Prioritize high-novelty messages in context windows
     - Track information density trajectory over conversation
+
+    Note:
+        Short messages are filtered because they naturally have less compression
+        opportunity, which can inflate novelty ratios and skew statistics.
     """
     trajectory: list[tuple[Message, CompressionStats]] = []
 
     if not messages:
         return trajectory
 
+    # Filter messages by size - build mapping to maintain positions
+    sized_messages = [
+        (i, msg) for i, msg in enumerate(messages) if len(msg.content) >= min_size
+    ]
+
+    if not sized_messages:
+        return trajectory
+
     # First message has no context, so use independent compression
-    first_msg = messages[0]
+    first_idx, first_msg = sized_messages[0]
     first_stats = analyze_message_compression(first_msg, level=level)
     trajectory.append((first_msg, first_stats))
 
     # For subsequent messages, measure marginal contribution
-    for i in range(1, len(messages)):
-        msg = messages[i]
-
-        # Compress context before this message
-        context_before = "\n\n".join(m.content for m in messages[:i])
+    # Use original message list for context, but only analyze sized messages
+    for idx, msg in sized_messages[1:]:
+        # Compress context before this message (using all messages up to idx)
+        context_before = "\n\n".join(m.content for m in messages[:idx])
         size_before = len(zlib.compress(context_before.encode("utf-8"), level=level))
 
         # Compress context including this message
-        context_after = "\n\n".join(m.content for m in messages[: i + 1])
+        context_after = "\n\n".join(m.content for m in messages[: idx + 1])
         size_after = len(zlib.compress(context_after.encode("utf-8"), level=level))
 
         # Calculate marginal contribution
