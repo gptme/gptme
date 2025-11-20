@@ -38,6 +38,7 @@ from .api_v2_common import (
     msg2dict,
 )
 from .auth import require_auth
+from .constants import DEFAULT_FALLBACK_MODEL
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
     ErrorResponse,
@@ -749,7 +750,7 @@ def api_conversation_step(conversation_id: str):
                     "4. Configure model in workspace chat config"
                 ),
                 "example_models": [
-                    "anthropic/claude-sonnet-4-5",
+                    DEFAULT_FALLBACK_MODEL,
                     "openai/gpt-4",
                     "openai/gpt-4o-mini",
                 ],

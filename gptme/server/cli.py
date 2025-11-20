@@ -11,6 +11,7 @@ from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
 from .api import create_app
 from .auth import get_server_token, init_auth
+from .constants import DEFAULT_FALLBACK_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ def serve(
     except ValueError as e:
         # Handle case where no model/API keys are configured
         if "No API key found" in str(e) or "No model specified" in str(e):
-            fallback_model = "anthropic/claude-sonnet-4-5"
+            fallback_model = DEFAULT_FALLBACK_MODEL
             logger.warning(
                 f"No default model configured. Using fallback: {fallback_model}. "
                 "Set MODEL environment variable or use --model flag for explicit configuration."
