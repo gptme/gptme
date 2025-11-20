@@ -69,23 +69,34 @@ def serve(
     """
     init_logging(verbose)
     set_config_from_workspace(Path.cwd())
-    init(
-        model,
-        interactive=False,
-        tool_allowlist=None if tools is None else tools.split(","),
-        tool_format="markdown",
-    )
 
-    # Ensure a default model is set for server operations
-    # If init didn't set one (e.g., no API keys, no config), use a sensible fallback
-    from ..llm.models import get_default_model, set_default_model
-    if not get_default_model():
-        fallback_model = "anthropic/claude-sonnet-4-5"
-        logger.warning(
-            f"No default model configured. Using fallback: {fallback_model}. "
-            "Set MODEL environment variable or use --model flag for explicit configuration."
+    # Try to initialize with provided/configured model
+    # If init fails due to missing model/API keys, use fallback
+    try:
+        init(
+            model,
+            interactive=False,
+            tool_allowlist=None if tools is None else tools.split(","),
+            tool_format="markdown",
         )
-        set_default_model(fallback_model)
+    except ValueError as e:
+        # Handle case where no model/API keys are configured
+        if "No API key found" in str(e) or "No model specified" in str(e):
+            fallback_model = "anthropic/claude-sonnet-4-5"
+            logger.warning(
+                f"No default model configured. Using fallback: {fallback_model}. "
+                "Set MODEL environment variable or use --model flag for explicit configuration."
+            )
+            # Retry init with fallback model
+            init(
+                fallback_model,
+                interactive=False,
+                tool_allowlist=None if tools is None else tools.split(","),
+                tool_format="markdown",
+            )
+        else:
+            # Re-raise other ValueError exceptions
+            raise
 
     # Initialize telemetry (server is API/WebUI driven, not CLI interactive)
     init_telemetry(
