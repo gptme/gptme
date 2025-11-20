@@ -739,7 +739,21 @@ def api_conversation_step(conversation_id: str):
         model = config.get_env("MODEL")
     if not model:
         return flask.jsonify(
-            {"error": "No model specified and no default model set"}
+            {
+                "error": "No model specified and no default model set",
+                "message": (
+                    "Please specify a model in one of the following ways:\n"
+                    "1. Include 'model' in the request JSON\n"
+                    "2. Set MODEL environment variable when starting the server\n"
+                    "3. Use --model flag when starting the server (gptme-server serve --model <model>)\n"
+                    "4. Configure model in workspace chat config"
+                ),
+                "example_models": [
+                    "anthropic/claude-sonnet-4-5",
+                    "openai/gpt-4",
+                    "openai/gpt-4o-mini",
+                ],
+            }
         ), 400
 
     # Start step execution in a background thread

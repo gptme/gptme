@@ -76,6 +76,17 @@ def serve(
         tool_format="markdown",
     )
 
+    # Ensure a default model is set for server operations
+    # If init didn't set one (e.g., no API keys, no config), use a sensible fallback
+    from ..llm.models import get_default_model, set_default_model
+    if not get_default_model():
+        fallback_model = "anthropic/claude-sonnet-4-5"
+        logger.warning(
+            f"No default model configured. Using fallback: {fallback_model}. "
+            "Set MODEL environment variable or use --model flag for explicit configuration."
+        )
+        set_default_model(fallback_model)
+
     # Initialize telemetry (server is API/WebUI driven, not CLI interactive)
     init_telemetry(
         service_name="gptme-server",
