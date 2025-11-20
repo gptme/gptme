@@ -24,6 +24,8 @@ from .util.tokens import len_tokens
 
 logger = logging.getLogger(__name__)
 
+RoleLiteral = Literal["system", "user", "assistant"]
+
 
 @dataclass(frozen=True, eq=False)
 class Message:
@@ -41,7 +43,7 @@ class Message:
                This is not persisted to the log file.
     """
 
-    role: Literal["system", "user", "assistant"]
+    role: RoleLiteral
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
     files: list[Path] = field(default_factory=list)
