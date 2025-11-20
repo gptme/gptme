@@ -367,9 +367,9 @@ class TaskComplexity:
                 return TaskComplexity.COMPLEX
 
         # Enhanced classification with features
-        if score == 0:
+        if score <= 1:
             return TaskComplexity.SIMPLE
-        elif score <= 2:
+        elif score <= 3:
             return TaskComplexity.MEDIUM
         else:
             return TaskComplexity.COMPLEX
@@ -391,7 +391,7 @@ def select_optimization_strategy(
 
     Args:
         complexity: Task complexity from TaskComplexity.analyze()
-            Options: "SIMPLE", "MEDIUM", "COMPLEX"
+            Returns lowercase ("simple", "medium", "complex") but accepts either case
         auto_level: Configuration level for optimization aggressiveness
             Options: "light", "medium", "heavy"
             Default: "medium"
@@ -433,12 +433,15 @@ def select_optimization_strategy(
         >>> print(strategy.estimated_time_min)
         135
     """
+    # Normalize complexity to lowercase (TaskComplexity.analyze returns lowercase)
+    complexity = complexity.lower()
+
     # Base strategy selection by complexity
-    if complexity == "SIMPLE":
+    if complexity == "simple":
         stages = [OptimizerStage.BOOTSTRAP]
         base_time = 10  # minutes
         base_cost = 0.10  # USD
-    elif complexity == "MEDIUM":
+    elif complexity == "medium":
         stages = [OptimizerStage.BOOTSTRAP, OptimizerStage.MIPRO]
         base_time = 45
         base_cost = 0.50

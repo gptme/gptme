@@ -95,7 +95,7 @@ def test_select_optimization_strategy_simple():
 
     assert len(strategy.stages) == 1
     assert strategy.stages[0] == OptimizerStage.BOOTSTRAP
-    assert strategy.complexity == "SIMPLE"
+    assert strategy.complexity == "simple"
     assert strategy.auto_level == "medium"
     assert strategy.estimated_time_min == 10
     assert strategy.estimated_cost == 0.10
@@ -108,7 +108,7 @@ def test_select_optimization_strategy_medium():
     assert len(strategy.stages) == 2
     assert strategy.stages[0] == OptimizerStage.BOOTSTRAP
     assert strategy.stages[1] == OptimizerStage.MIPRO
-    assert strategy.complexity == "MEDIUM"
+    assert strategy.complexity == "medium"
     assert strategy.estimated_time_min == 45
     assert strategy.estimated_cost == 0.50
 
@@ -121,7 +121,7 @@ def test_select_optimization_strategy_complex():
     assert strategy.stages[0] == OptimizerStage.BOOTSTRAP
     assert strategy.stages[1] == OptimizerStage.MIPRO
     assert strategy.stages[2] == OptimizerStage.GEPA
-    assert strategy.complexity == "COMPLEX"
+    assert strategy.complexity == "complex"
     assert strategy.estimated_time_min == 90
     assert strategy.estimated_cost == 1.30
 
