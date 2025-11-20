@@ -17,6 +17,7 @@ from collections import defaultdict
 from typing import Any
 
 from gptme.context.compress import (
+    analyze_incremental_compression,
     analyze_log_compression,
 )
 from gptme.logmanager import Log, get_user_conversations
@@ -27,6 +28,105 @@ logger = logging.getLogger(__name__)
 def _default_stats() -> dict[str, int | float]:
     """Factory function for defaultdict stats."""
     return {"count": 0, "total_ratio": 0.0}
+
+
+def analyze_conversations_incremental(limit: int = 100, verbose: bool = False) -> dict:
+    """
+    Analyze incremental compression ratios for recent conversations.
+
+    This measures marginal information contribution of each message,
+    revealing information density trajectory over the conversation.
+
+    Returns:
+        Dictionary with incremental analysis results
+    """
+    results: dict = {
+        "conversations": [],
+        "overall_stats": {
+            "total_conversations": 0,
+            "total_messages": 0,
+            "avg_novelty_ratio": 0.0,
+            "low_novelty_messages": 0,  # ratio < 0.3
+            "high_novelty_messages": 0,  # ratio > 0.7
+        },
+        "by_role": defaultdict(_default_stats),
+    }
+
+    print(f"Analyzing incremental compression for up to {limit} conversations...")
+    print()
+
+    conversations = list(get_user_conversations())[:limit]
+    results["overall_stats"]["total_conversations"] = len(conversations)
+
+    for i, conv in enumerate(conversations):
+        if verbose:
+            print(f"[{i+1}/{len(conversations)}] Analyzing: {conv.name}")
+
+        try:
+            log = Log.read_jsonl(conv.path)
+            if not log.messages or len(log.messages) < 2:
+                continue
+
+            # Analyze incremental compression
+            trajectory = analyze_incremental_compression(log.messages)
+
+            # Store conversation results
+            conv_result: dict[str, Any] = {
+                "name": conv.name,
+                "id": conv.id,
+                "messages": len(log.messages),
+                "low_novelty_msgs": [],
+                "trajectory": [],
+            }
+
+            results["overall_stats"]["total_messages"] += len(log.messages)
+
+            # Analyze trajectory
+            for msg, stats in trajectory:
+                # Track by role
+                results["by_role"][msg.role]["count"] += 1
+                results["by_role"][msg.role]["total_ratio"] += stats.ratio
+
+                # Track trajectory point
+                conv_result["trajectory"].append(
+                    {
+                        "role": msg.role,
+                        "ratio": stats.ratio,
+                        "size": stats.original_size,
+                    }
+                )
+
+                # Track low novelty messages (redundant with context)
+                if stats.ratio < 0.3 and len(msg.content) > 100:
+                    results["overall_stats"]["low_novelty_messages"] += 1
+                    conv_result["low_novelty_msgs"].append(
+                        {
+                            "role": msg.role,
+                            "preview": msg.content[:100] + "...",
+                            "stats": stats,
+                        }
+                    )
+
+                # Track high novelty messages
+                if stats.ratio > 0.7:
+                    results["overall_stats"]["high_novelty_messages"] += 1
+
+            results["conversations"].append(conv_result)
+
+        except Exception as e:
+            logger.error(f"Error analyzing {conv.name}: {e}")
+            if verbose:
+                logger.exception(e)
+
+    # Calculate averages
+    total_ratio = sum(
+        role_data["total_ratio"] for role_data in results["by_role"].values()
+    )
+    total_msgs = results["overall_stats"]["total_messages"]
+    if total_msgs > 0:
+        results["overall_stats"]["avg_novelty_ratio"] = total_ratio / total_msgs
+
+    return results
 
 
 def analyze_conversations(limit: int = 100, verbose: bool = False) -> dict:
@@ -208,6 +308,64 @@ def print_results(results: dict, detailed: bool = False):
             print()
 
 
+def print_results_incremental(results: dict, detailed: bool = False):
+    """Print incremental compression analysis results."""
+    stats = results["overall_stats"]
+
+    print("=" * 80)
+    print("INCREMENTAL COMPRESSION ANALYSIS RESULTS")
+    print("=" * 80)
+    print()
+
+    # Overall statistics
+    print("Overall Statistics:")
+    print(f"  Total conversations analyzed: {stats['total_conversations']}")
+    print(f"  Total messages: {stats['total_messages']}")
+    print(f"  Average novelty ratio: {stats['avg_novelty_ratio']:.3f}")
+    print(f"  Low novelty messages (ratio < 0.3): {stats['low_novelty_messages']}")
+    print(f"  High novelty messages (ratio > 0.7): {stats['high_novelty_messages']}")
+    print()
+
+    # By role statistics
+    print("Information Novelty by Role:")
+    for role, data in sorted(results["by_role"].items()):
+        avg_ratio = data["total_ratio"] / data["count"] if data["count"] > 0 else 0
+        print(f"  {role:12s}: {avg_ratio:.3f} (n={data['count']:,})")
+    print()
+
+    # Interpretation guide
+    print("Interpretation Guide:")
+    print("  Ratio < 0.3: Redundant with context (low novelty)")
+    print("  Ratio 0.3-0.7: Moderate novelty")
+    print("  Ratio > 0.7: High novelty (adds unique information)")
+    print()
+
+    # Detailed breakdown
+    if detailed:
+        print("=" * 80)
+        print("TOP 10 CONVERSATIONS WITH MOST LOW-NOVELTY MESSAGES")
+        print("=" * 80)
+        print()
+
+        sorted_convs = sorted(
+            results["conversations"],
+            key=lambda x: len(x["low_novelty_msgs"]),
+            reverse=True,
+        )
+
+        for i, conv in enumerate(sorted_convs[:10], 1):
+            print(f"{i}. {conv['name']}")
+            print(f"   Messages: {conv['messages']}")
+            print(f"   Low novelty messages: {len(conv['low_novelty_msgs'])}")
+
+            if conv["low_novelty_msgs"]:
+                print("   Examples of redundant messages:")
+                for msg in conv["low_novelty_msgs"][:3]:
+                    print(f"     - {msg['role']}: {msg['preview']}")
+                    print(f"       {msg['stats']}")
+            print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Analyze compression ratios of conversation logs"
@@ -224,6 +382,12 @@ def main():
     parser.add_argument(
         "--detailed", "-d", action="store_true", help="Show detailed results"
     )
+    parser.add_argument(
+        "--incremental",
+        "-i",
+        action="store_true",
+        help="Use incremental compression analysis (measures marginal information contribution)",
+    )
 
     args = parser.parse_args()
 
@@ -232,8 +396,14 @@ def main():
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    results = analyze_conversations(limit=args.limit, verbose=args.verbose)
-    print_results(results, detailed=args.detailed)
+    if args.incremental:
+        results = analyze_conversations_incremental(
+            limit=args.limit, verbose=args.verbose
+        )
+        print_results_incremental(results, detailed=args.detailed)
+    else:
+        results = analyze_conversations(limit=args.limit, verbose=args.verbose)
+        print_results(results, detailed=args.detailed)
 
 
 if __name__ == "__main__":

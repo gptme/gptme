@@ -2,6 +2,56 @@
 
 Provides core compression utilities that can be used via hooks,
 shell tool integration, or direct invocation.
+
+This module implements two complementary compression analysis approaches:
+
+1. **Independent Compression** (analyze_log_compression):
+   Compresses each message independently to measure inherent compressibility.
+   - High ratio (>0.7): Unique content, high information density
+   - Low ratio (<0.3): Repetitive content, low information density
+
+   Use cases:
+   - Identify highly repetitive tool outputs
+   - Detect messages with low information value
+   - Classify message types by compression patterns
+
+2. **Incremental Compression** (analyze_incremental_compression):
+   Measures marginal information contribution of each message to the
+   conversation context. For message at position n:
+
+   ```python
+   size_before = compress(messages[0:n-1])
+   size_after = compress(messages[0:n])
+   marginal_contribution = size_after - size_before
+   ratio = marginal_contribution / len(messages[n])
+   ```
+
+   - Low ratio (<0.3): Message is redundant with existing context
+   - High ratio (>0.7): Message adds novel information
+
+   Use cases:
+   - Identify where to draw compression boundaries for auto-compact
+   - Detect when tool outputs duplicate previous context
+   - Prioritize high-novelty messages in context windows
+   - Track information density trajectory over conversation
+
+Example:
+    >>> from gptme.context.compress import analyze_incremental_compression
+    >>> from gptme.logmanager import Log
+    >>>
+    >>> log = Log.read_jsonl("conversation.jsonl")
+    >>> trajectory = analyze_incremental_compression(log.messages)
+    >>>
+    >>> # Find low-novelty messages
+    >>> redundant = [
+    ...     (i, msg, stats)
+    ...     for i, (msg, stats) in enumerate(trajectory)
+    ...     if stats.ratio < 0.3
+    ... ]
+    >>>
+    >>> # These messages are good candidates for aggressive summarization
+    >>> for i, msg, stats in redundant[:5]:
+    ...     print(f"Message {i}: {stats}")
 """
 
 import logging
@@ -100,6 +150,80 @@ def analyze_log_compression(
     ]
 
     return overall_stats, message_stats
+
+
+def analyze_incremental_compression(
+    messages: list[Message], level: int = 6
+) -> list[tuple[Message, CompressionStats]]:
+    """
+    Analyze marginal information contribution of each message to the conversation.
+
+    This measures how much new information each message adds by comparing
+    compression with and without the message in context.
+
+    For each message at position n:
+    - size_before = compress(messages[0:n-1])
+    - size_after = compress(messages[0:n])
+    - marginal_contribution = size_after - size_before
+    - ratio = marginal_contribution / len(messages[n])
+
+    Low ratio (<0.3): Message is redundant with existing context (low novelty)
+    High ratio (>0.7): Message adds unique information (high novelty)
+
+    Args:
+        messages: List of messages in conversation
+        level: Compression level
+
+    Returns:
+        List of (message, stats) tuples showing incremental contribution.
+        The stats show the marginal compression contribution, not independent compression.
+
+    Use cases:
+    - Identify where to draw compression boundaries for auto-compact
+    - Detect when tool outputs duplicate previous context
+    - Prioritize high-novelty messages in context windows
+    - Track information density trajectory over conversation
+    """
+    trajectory: list[tuple[Message, CompressionStats]] = []
+
+    if not messages:
+        return trajectory
+
+    # First message has no context, so use independent compression
+    first_msg = messages[0]
+    first_stats = analyze_message_compression(first_msg, level=level)
+    trajectory.append((first_msg, first_stats))
+
+    # For subsequent messages, measure marginal contribution
+    for i in range(1, len(messages)):
+        msg = messages[i]
+
+        # Compress context before this message
+        context_before = "\n\n".join(m.content for m in messages[:i])
+        size_before = len(zlib.compress(context_before.encode("utf-8"), level=level))
+
+        # Compress context including this message
+        context_after = "\n\n".join(m.content for m in messages[: i + 1])
+        size_after = len(zlib.compress(context_after.encode("utf-8"), level=level))
+
+        # Calculate marginal contribution
+        marginal_contribution = size_after - size_before
+        msg_size = len(msg.content.encode("utf-8"))
+
+        # Calculate ratio (marginal / original)
+        ratio = marginal_contribution / msg_size if msg_size > 0 else 0.0
+        savings = (1 - ratio) * 100
+
+        stats = CompressionStats(
+            original_size=msg_size,
+            compressed_size=marginal_contribution,
+            ratio=ratio,
+            savings_pct=savings,
+        )
+
+        trajectory.append((msg, stats))
+
+    return trajectory
 
 
 def strip_reasoning(content: str, model: str = "gpt-4") -> tuple[str, int]:
