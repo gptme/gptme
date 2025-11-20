@@ -1,5 +1,3 @@
-import pytest
-
 from gptme.tools.patch import Patch, apply, execute_patch
 
 example_patch = """

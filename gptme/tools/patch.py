@@ -96,7 +96,7 @@ class Patch:
             if new_content == content:
                 raise ValueError("patch did not change the file")
             return new_content
-        
+
         # Fallback: try relaxed matching (treat whitespace-only lines as equivalent)
         actual_original = self._find_relaxed_match(content)
         if actual_original is None:
@@ -107,13 +107,13 @@ class Patch:
                 else ""
             )
             raise ValueError(f"original chunk not found in file\n{file_contents}")
-        
+
         # Apply the replacement using the actual matched content
         new_content = content.replace(actual_original, self.updated, 1)
         if new_content == content:
             raise ValueError("patch did not change the file")
         return new_content
-    
+
     def _find_relaxed_match(self, content: str) -> str | None:
         """
         Find a match for self.original in content using relaxed whitespace matching.
@@ -122,31 +122,35 @@ class Patch:
         """
         original_lines = self.original.splitlines(keepends=True)
         content_lines = content.splitlines(keepends=True)
-        
+
         # Slide a window through content looking for matches
         matches = []
         for i in range(len(content_lines) - len(original_lines) + 1):
-            window = content_lines[i:i + len(original_lines)]
+            window = content_lines[i : i + len(original_lines)]
             if self._lines_match_relaxed(window, original_lines):
                 # Found a match - extract the actual substring
                 actual_match = "".join(window)
                 matches.append((i, actual_match))
-        
+
         if len(matches) == 0:
             return None
         if len(matches) > 1:
-            raise ValueError("original chunk not unique (multiple matches with relaxed whitespace matching)")
-        
+            raise ValueError(
+                "original chunk not unique (multiple matches with relaxed whitespace matching)"
+            )
+
         return matches[0][1]
-    
-    def _lines_match_relaxed(self, window_lines: list[str], original_lines: list[str]) -> bool:
+
+    def _lines_match_relaxed(
+        self, window_lines: list[str], original_lines: list[str]
+    ) -> bool:
         """
         Check if lines match using relaxed whitespace rules.
         Lines containing only whitespace (spaces, tabs, etc.) are treated as equivalent.
         """
         if len(window_lines) != len(original_lines):
             return False
-        
+
         for window_line, original_line in zip(window_lines, original_lines):
             # If both lines are whitespace-only, they match
             if window_line.strip() == "" and original_line.strip() == "":
@@ -154,7 +158,7 @@ class Patch:
             # Otherwise they must match exactly
             if window_line != original_line:
                 return False
-        
+
         return True
 
     def diff_minimal(self, strip_context=False) -> str:
