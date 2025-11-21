@@ -1131,6 +1131,7 @@ if __name__ == "__main__":
     count = load_data(processed)
     elapsed = time.time() - start
     print(f"Processed {count} records in {elapsed:.2f}s")
+"""
 
     spec, metadata = (
         TaskBuilder()
