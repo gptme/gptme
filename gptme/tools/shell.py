@@ -244,6 +244,7 @@ class ShellSession:
             stderr=subprocess.PIPE,
             bufsize=0,  # Unbuffered
             universal_newlines=True,
+            start_new_session=True,  # Create new process group for proper signal handling
         )
         self.stdout_fd = self.process.stdout.fileno()  # type: ignore
         self.stderr_fd = self.process.stderr.fileno()  # type: ignore
@@ -345,12 +346,13 @@ class ShellSession:
                     if elapsed >= timeout:
                         # Timeout exceeded
                         logger.info(f"Command timed out after {timeout} seconds")
-                        # Terminate the command gracefully
+                        # Terminate the entire process group (bash + all child processes)
                         try:
-                            self.process.send_signal(signal.SIGTERM)
+                            pgid = os.getpgid(self.process.pid)
+                            os.killpg(pgid, signal.SIGTERM)
                             time.sleep(0.1)  # Give it a moment to terminate
                             if self.process.poll() is None:
-                                self.process.kill()
+                                os.killpg(pgid, signal.SIGKILL)
                         except Exception as e:
                             logger.warning(f"Error terminating timed-out process: {e}")
 
