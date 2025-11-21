@@ -46,14 +46,13 @@ def test_callable_signature():
     assert callable_signature(h) == 'h(a: Literal["a", "b"]) -> str'
 
     # Test generic types
-    from typing import Optional
 
     def i(a: list[int]) -> str:
         return str(a)
 
     assert callable_signature(i) == "i(a: list[int]) -> str"
 
-    def j(a: Optional[list[int]]) -> str:
+    def j(a: list[int] | None) -> str:
         return str(a)
 
     assert callable_signature(j) == "j(a: Union[list[int], None]) -> str"

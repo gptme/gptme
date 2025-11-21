@@ -132,28 +132,28 @@ class Parameter:
 # TODO: there must be a better way?
 def derive_type(t) -> str:
     origin = get_origin(t)
-    
+
     # Handle Literal types
     if origin == Literal:
         v = ", ".join(f'"{a}"' for a in get_args(t))
         return f"Literal[{v}]"
-    
+
     # Handle Union types (both typing.Union and types.UnionType)
     if origin == Union or origin == types.UnionType:
         v = ", ".join(derive_type(a) for a in get_args(t))
         return f"Union[{v}]"
-    
+
     # Handle other generic types (list[int], dict[str, int], etc.)
     if origin is not None:
         args = get_args(t)
         if args:
             type_args = ", ".join(derive_type(arg) for arg in args)
             return f"{origin.__name__}[{type_args}]"
-    
+
     # Special case for NoneType
     if t is type(None):
         return "None"
-    
+
     # Fallback to type name
     return t.__name__
 
