@@ -1132,7 +1132,7 @@ if __name__ == "__main__":
     elapsed = time.time() - start
     print(f"Processed {count} records in {elapsed:.2f}s")
 """
-    
+
     spec, metadata = (
         TaskBuilder()
         .with_name("optimize-data-pipeline")

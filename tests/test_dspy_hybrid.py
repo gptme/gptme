@@ -1,5 +1,16 @@
 """Tests for hybrid optimizer implementation (Phase 4.1)."""
 
+import pytest
+
+# Check if DSPy is available and handle import errors gracefully
+try:
+    from gptme.eval.dspy import _has_dspy  # fmt: skip
+
+    if not _has_dspy():
+        pytest.skip("DSPy not available", allow_module_level=True)
+except (ImportError, ModuleNotFoundError):
+    pytest.skip("DSPy module not available", allow_module_level=True)
+
 import dspy
 
 from gptme.eval.dspy.hybrid_optimizer import (
