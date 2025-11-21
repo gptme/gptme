@@ -592,7 +592,7 @@ This is gptme
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ff58b728e00&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f570c4a8d60&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -632,7 +632,7 @@ to append the code block content to the file at the given path.
 <span class="sb">```txt</span>
 <span class="s">read_url(url: str) -&gt; str: Read a webpage in a text format.</span>
 <span class="s">search(query: str, engine: Literal[&quot;google&quot;, &quot;duckduckgo&quot;, &quot;perplexity&quot;]) -&gt; str: Search for a query on a search engine.</span>
-<span class="s">screenshot_url(url: str, path: Union[Path, str, NoneType]) -&gt; Path: Take a screenshot of a webpage.</span>
+<span class="s">screenshot_url(url: str, path: Union[Path, str, None]) -&gt; Path: Take a screenshot of a webpage.</span>
 <span class="s">read_logs() -&gt; str: Read browser console logs from the last read URL.</span>
 <span class="sb">```</span>
 
@@ -858,7 +858,7 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">computer(action: Literal[&quot;key&quot;, &quot;type&quot;, &quot;mouse_move&quot;, &quot;left_click&quot;, &quot;left_click_drag&quot;, &quot;right_click&quot;, &quot;middle_click&quot;, &quot;double_click&quot;, &quot;screenshot&quot;, &quot;cursor_position&quot;], text: Union[str, NoneType], coordinate: Union[tuple, NoneType]) -&gt; Union[Message, NoneType]:</span>
+<span class="s">computer(action: Literal[&quot;key&quot;, &quot;type&quot;, &quot;mouse_move&quot;, &quot;left_click&quot;, &quot;left_click_drag&quot;, &quot;right_click&quot;, &quot;middle_click&quot;, &quot;double_click&quot;, &quot;screenshot&quot;, &quot;cursor_position&quot;], text: Union[str, None], coordinate: Union[tuple[int, int], None]) -&gt; Union[Message, None]:</span>
 <span class="s">    Perform computer interactions in X11 or macOS environments.</span>
 
 <span class="s">    Args:</span>
@@ -1157,7 +1157,7 @@ Use RAG to index and semantically search through text files such as documentatio
 The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">rag_index(paths: str, glob: Union[str, NoneType]) -&gt; str: Index documents in specified paths.</span>
+<span class="s">rag_index(paths: str, glob: Union[str, None]) -&gt; str: Index documents in specified paths.</span>
 <span class="s">rag_search(query: str, return_full: bool) -&gt; str: Search indexed documents.</span>
 <span class="s">rag_status() -&gt; str: Show index status.</span>
 <span class="sb">```</span>
@@ -1267,7 +1267,7 @@ To write to a file, use a code block with the language tag: <span class="sb">`sa
 <span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">screenshot(path: Union[Path, NoneType]) -&gt; Path:</span>
+<span class="s">screenshot(path: Union[Path, None]) -&gt; Path:</span>
 <span class="s">    Take a screenshot and save it to a file.</span>
 
 <span class="sb">```</span>
@@ -1369,7 +1369,7 @@ npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"
 <span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list, NoneType], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;instructions-only&quot;, &quot;selective&quot;], context_include: Union[list, NoneType]): Starts an asynchronous subagent. Returns None immediately; output is retrieved later via subagent_wait().</span>
+<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;instructions-only&quot;, &quot;selective&quot;], context_include: Union[list[str], None]): Starts an asynchronous subagent. Returns None immediately; output is retrieved later via subagent_wait().</span>
 
 <span class="s">    Args:</span>
 <span class="s">        agent_id: Unique identifier for the subagent</span>
@@ -1398,7 +1398,7 @@ npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"
 
 <span class="s">subagent_status(agent_id: str) -&gt; dict: Returns the status of a subagent.</span>
 <span class="s">subagent_wait(agent_id: str) -&gt; dict: Waits for a subagent to finish. Timeout is 1 minute.</span>
-<span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, NoneType]) -&gt; str: Read the conversation log of a subagent.</span>
+<span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, None]) -&gt; str: Read the conversation log of a subagent.</span>
 
 <span class="s">    Args:</span>
 <span class="s">        agent_id: The subagent to read logs from</span>
@@ -1733,7 +1733,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 8286</p>
+<p>Tokens: 8285</p>
 </dd></dl>
 
 <dl class="py function">
