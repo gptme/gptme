@@ -308,7 +308,200 @@ def print_results(results: dict, detailed: bool = False):
             print()
 
 
-def print_results_incremental(results: dict, detailed: bool = False):
+def classify_redundancy(ratio: float) -> tuple[str, str]:
+    """
+    Classify a message's redundancy level and recommended action.
+
+    Returns:
+        Tuple of (category, action)
+    """
+    if ratio < 0.2:
+        return ("HIGHLY_REDUNDANT", "Aggressive compression (90% reduction)")
+    elif ratio < 0.3:
+        return ("REDUNDANT", "Strong compression (70% reduction)")
+    elif ratio < 0.5:
+        return ("MODERATE", "Light compression (30% reduction)")
+    elif ratio < 0.7:
+        return ("UNIQUE", "Preserve (minimal compression)")
+    else:
+        return ("NOVEL", "Preserve completely")
+
+
+def analyze_distribution(results: dict) -> dict:
+    """Analyze the distribution of compression ratios."""
+    # Collect all ratios from trajectory
+    all_ratios = []
+    for conv in results["conversations"]:
+        for point in conv.get("trajectory", []):
+            all_ratios.append(point["ratio"])
+
+    if not all_ratios:
+        return {}
+
+    # Create distribution buckets
+    buckets: dict[str, list[float]] = {
+        "0.0-0.1": [],
+        "0.1-0.2": [],
+        "0.2-0.3": [],
+        "0.3-0.4": [],
+        "0.4-0.5": [],
+        "0.5-0.6": [],
+        "0.6-0.7": [],
+        "0.7-0.8": [],
+        "0.8-0.9": [],
+        "0.9-1.0": [],
+    }
+
+    for ratio in all_ratios:
+        if ratio < 0.1:
+            buckets["0.0-0.1"].append(ratio)
+        elif ratio < 0.2:
+            buckets["0.1-0.2"].append(ratio)
+        elif ratio < 0.3:
+            buckets["0.2-0.3"].append(ratio)
+        elif ratio < 0.4:
+            buckets["0.3-0.4"].append(ratio)
+        elif ratio < 0.5:
+            buckets["0.4-0.5"].append(ratio)
+        elif ratio < 0.6:
+            buckets["0.5-0.6"].append(ratio)
+        elif ratio < 0.7:
+            buckets["0.6-0.7"].append(ratio)
+        elif ratio < 0.8:
+            buckets["0.7-0.8"].append(ratio)
+        elif ratio < 0.9:
+            buckets["0.8-0.9"].append(ratio)
+        else:
+            buckets["0.9-1.0"].append(ratio)
+
+    return {
+        "buckets": buckets,
+        "total": len(all_ratios),
+        "min": min(all_ratios),
+        "max": max(all_ratios),
+        "median": sorted(all_ratios)[len(all_ratios) // 2],
+    }
+
+
+def print_distribution(distribution: dict):
+    """Print distribution as ASCII histogram."""
+    if not distribution:
+        return
+
+    print("=" * 80)
+    print("REDUNDANCY DISTRIBUTION")
+    print("=" * 80)
+    print()
+
+    buckets = distribution["buckets"]
+    total = distribution["total"]
+    max_count = max(len(v) for v in buckets.values())
+
+    print(f"Total messages analyzed: {total}")
+    print(f"Range: {distribution['min']:.3f} - {distribution['max']:.3f}")
+    print(f"Median: {distribution['median']:.3f}")
+    print()
+
+    # ASCII histogram
+    print("Distribution (novelty ratio):")
+    print()
+
+    for bucket_name, ratios in buckets.items():
+        count = len(ratios)
+        pct = (count / total * 100) if total > 0 else 0
+
+        # Create bar (max 50 chars)
+        bar_len = int((count / max_count) * 50) if max_count > 0 else 0
+        bar = "█" * bar_len
+
+        # Color code based on redundancy
+        if float(bucket_name.split("-")[0]) < 0.3:
+            label = "🔴"  # Highly redundant
+        elif float(bucket_name.split("-")[0]) < 0.5:
+            label = "🟡"  # Moderate
+        else:
+            label = "🟢"  # Novel
+
+        print(f"  {label} {bucket_name}: {bar} {count:4d} ({pct:5.1f}%)")
+
+    print()
+    print("Classification:")
+    print("  🔴 0.0-0.3: Redundant (compress aggressively)")
+    print("  🟡 0.3-0.5: Moderate (compress lightly)")
+    print("  🟢 0.5-1.0: Novel (preserve)")
+    print()
+
+
+def create_plot(distribution: dict, output_file: str = "compression_distribution.png"):
+    """Create matplotlib plot of distribution."""
+    try:
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError:
+        print("Note: Install matplotlib for plot generation: pip install matplotlib")
+        return
+
+    buckets = distribution["buckets"]
+    bucket_names = list(buckets.keys())
+    counts = [len(buckets[name]) for name in bucket_names]
+
+    # Create figure
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Histogram
+    colors = [
+        "red" if i < 3 else "orange" if i < 5 else "green"
+        for i in range(len(bucket_names))
+    ]
+    ax1.bar(range(len(bucket_names)), counts, color=colors, alpha=0.7)
+    ax1.set_xlabel("Novelty Ratio")
+    ax1.set_ylabel("Message Count")
+    ax1.set_title("Distribution of Information Novelty")
+    ax1.set_xticks(range(len(bucket_names)))
+    ax1.set_xticklabels(bucket_names, rotation=45, ha="right")
+    ax1.grid(axis="y", alpha=0.3)
+
+    # Add classification zones
+    ax1.axvline(
+        x=2.5, color="red", linestyle="--", alpha=0.5, label="Redundant threshold"
+    )
+    ax1.axvline(
+        x=4.5, color="orange", linestyle="--", alpha=0.5, label="Moderate threshold"
+    )
+    ax1.legend()
+
+    # Cumulative distribution
+    cumsum = np.cumsum(counts)
+    ax2.plot(
+        range(len(bucket_names)),
+        cumsum / cumsum[-1] * 100,
+        marker="o",
+        linewidth=2,
+        markersize=6,
+    )
+    ax2.set_xlabel("Novelty Ratio")
+    ax2.set_ylabel("Cumulative Percentage (%)")
+    ax2.set_title("Cumulative Distribution")
+    ax2.set_xticks(range(len(bucket_names)))
+    ax2.set_xticklabels(bucket_names, rotation=45, ha="right")
+    ax2.grid(alpha=0.3)
+    ax2.axhline(y=50, color="gray", linestyle=":", alpha=0.5)
+
+    # Add compression zones
+    ax2.axvspan(-0.5, 2.5, alpha=0.2, color="red", label="Compress aggressively")
+    ax2.axvspan(2.5, 4.5, alpha=0.2, color="orange", label="Compress lightly")
+    ax2.axvspan(4.5, 9.5, alpha=0.2, color="green", label="Preserve")
+    ax2.legend()
+
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=150, bbox_inches="tight")
+    print(f"Plot saved to: {output_file}")
+    plt.close()
+
+
+def print_results_incremental(
+    results: dict, detailed: bool = False, plot: bool = False
+):
     """Print incremental compression analysis results."""
     stats = results["overall_stats"]
 
@@ -332,6 +525,14 @@ def print_results_incremental(results: dict, detailed: bool = False):
         avg_ratio = data["total_ratio"] / data["count"] if data["count"] > 0 else 0
         print(f"  {role:12s}: {avg_ratio:.3f} (n={data['count']:,})")
     print()
+
+    # Distribution analysis
+    distribution = analyze_distribution(results)
+    if distribution:
+        print_distribution(distribution)
+
+        if plot:
+            create_plot(distribution)
 
     # Interpretation guide
     print("Interpretation Guide:")
@@ -388,6 +589,12 @@ def main():
         action="store_true",
         help="Use incremental compression analysis (measures marginal information contribution)",
     )
+    parser.add_argument(
+        "--plot",
+        "-p",
+        action="store_true",
+        help="Generate matplotlib plot of distribution (requires matplotlib)",
+    )
 
     args = parser.parse_args()
 
@@ -400,7 +607,7 @@ def main():
         results = analyze_conversations_incremental(
             limit=args.limit, verbose=args.verbose
         )
-        print_results_incremental(results, detailed=args.detailed)
+        print_results_incremental(results, detailed=args.detailed, plot=args.plot)
     else:
         results = analyze_conversations(limit=args.limit, verbose=args.verbose)
         print_results(results, detailed=args.detailed)
