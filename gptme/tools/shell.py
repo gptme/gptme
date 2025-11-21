@@ -420,9 +420,14 @@ class ShellSession:
     def close(self):
         assert self.process.stdin
         self.process.stdin.close()
-        self.process.terminate()
-        self.process.wait(timeout=0.2)
-        self.process.kill()
+        try:
+            pgid = os.getpgid(self.process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+            self.process.wait(timeout=0.2)
+            if self.process.poll() is None:
+                os.killpg(pgid, signal.SIGKILL)
+        except Exception as e:
+            logger.warning(f"Error terminating process during close: {e}")
 
     def restart(self):
         self.close()
@@ -758,19 +763,15 @@ def execute_shell_impl(
         # Terminate subprocess gracefully
         logger.info("Shell command interrupted, sending SIGINT to subprocess")
         try:
-            shell.process.send_signal(signal.SIGINT)
+            pgid = os.getpgid(shell.process.pid)
+            os.killpg(pgid, signal.SIGINT)
             shell.process.wait(timeout=2.0)
         except subprocess.TimeoutExpired:
             logger.info("Process didn't exit gracefully, terminating")
-            shell.process.terminate()
-            try:
-                shell.process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                logger.info("Process didn't terminate, killing")
-                shell.process.kill()
-                shell.process.wait()
-        except Exception:
-            pass
+            pgid = os.getpgid(shell.process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+        except Exception as e:
+            logger.warning(f"Error terminating interrupted process: {e}")
 
         returncode = shell.process.returncode
         interrupted = True
