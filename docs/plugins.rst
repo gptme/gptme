@@ -412,6 +412,14 @@ Future phases will add support for:
 
 Stay tuned for updates!
 
+Advanced Topics
+---------------
+
+.. toctree::
+   :maxdepth: 2
+
+   plugins/context-plugins
+
 Troubleshooting
 ---------------
 
