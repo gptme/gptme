@@ -198,7 +198,7 @@ clean-test:  ## Clean test logs and outputs
 	rm --dir $$HOME/.local/share/gptme/logs/*test-*-test_*/ || true
 
 clean-eval:  ## Clean messy leftovers from evals
-	rm -r $$HOME/.local/share/gptme/logs/*/workspace/node_modules
+	rm -rf $$HOME/.local/share/gptme/logs/*/workspace/node_modules || true
 
 clean-build: ## Clean PyInstaller build artifacts
 	rm -rf build/ dist/ *.spec.bak

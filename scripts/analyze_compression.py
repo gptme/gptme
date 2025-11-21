@@ -435,8 +435,8 @@ def print_distribution(distribution: dict):
 def create_plot(distribution: dict, output_file: str = "compression_distribution.png"):
     """Create matplotlib plot of distribution."""
     try:
-        import matplotlib.pyplot as plt
-        import numpy as np
+        import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+        import numpy as np  # type: ignore[import-not-found]
     except ImportError:
         print("Note: Install matplotlib for plot generation: pip install matplotlib")
         return
