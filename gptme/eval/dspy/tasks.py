@@ -1072,11 +1072,11 @@ if __name__ == "__main__":
 
 def create_medium_complexity_task() -> EvalSpec:
     """Create a MEDIUM complexity task (~500 chars) for testing 2-stage optimization."""
-    return {
-        "name": "implement-caching-system",
-        "files": {},
-        "run": "python test_cache.py",
-        "prompt": """Research and implement a caching system for an API client with the following requirements:
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("implement-caching-system")
+        .with_run("python test_cache.py")
+        .with_prompt("""Research and implement a caching system for an API client with the following requirements:
 
 1. Research common caching strategies (LRU, TTL-based, write-through) and choose one
 2. Implement a cache class with configurable TTL (time-to-live)
@@ -1085,20 +1085,19 @@ def create_medium_complexity_task() -> EvalSpec:
 5. Write tests that verify: cache hits work, expired entries are removed, metrics are accurate
 6. Include error handling for edge cases (None values, invalid TTL)
 
-The implementation should be production-ready with proper error handling and clear documentation.""",
-        "expect": {
-            "successful_execution": lambda result: True,  # Simplified validation
-        },
-        "tools": ["save", "shell", "read"],
-    }
+The implementation should be production-ready with proper error handling and clear documentation.""")
+        .with_tools(["save", "shell", "read"])
+        .with_focus(["system_design", "testing", "complexity_medium"])
+        .with_expectation("successful_execution", lambda result: True)
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    return spec
 
 
 def create_complex_task() -> EvalSpec:
     """Create a COMPLEX task (~1200 chars) for testing 3-stage optimization."""
-    return {
-        "name": "optimize-data-pipeline",
-        "files": {
-            "pipeline.py": """import time
+    pipeline_code = """import time
 import random
 
 def extract_data():
@@ -1132,10 +1131,14 @@ if __name__ == "__main__":
     count = load_data(processed)
     elapsed = time.time() - start
     print(f"Processed {count} records in {elapsed:.2f}s")
-""",
-        },
-        "run": "python optimized_pipeline.py",
-        "prompt": """Analyze and optimize the data processing pipeline in pipeline.py to reduce execution time by 50%.
+"""
+    
+    spec, metadata = (
+        TaskBuilder()
+        .with_name("optimize-data-pipeline")
+        .with_file("pipeline.py", pipeline_code)
+        .with_run("python optimized_pipeline.py")
+        .with_prompt("""Analyze and optimize the data processing pipeline in pipeline.py to reduce execution time by 50%.
 
 Current implementation processes 1000 records slowly. Your task:
 
@@ -1162,12 +1165,14 @@ Provide detailed analysis:
 - Any trade-offs made (memory vs speed, complexity vs performance)
 - Before/after performance comparison
 
-Target: Reduce execution time from ~3s to <1.5s while maintaining correctness.""",
-        "expect": {
-            "successful_execution": lambda result: True,  # Simplified validation
-        },
-        "tools": ["save", "read", "patch", "shell", "python"],
-    }
+Target: Reduce execution time from ~3s to <1.5s while maintaining correctness.""")
+        .with_tools(["save", "read", "patch", "shell", "python"])
+        .with_focus(["performance_optimization", "profiling", "complexity_high"])
+        .with_expectation("successful_execution", lambda result: True)
+        .build_with_metadata()
+    )
+    _task_metadata[spec["name"]] = metadata
+    return spec
 
 
 def create_complexity_test_tasks() -> list[EvalSpec]:
