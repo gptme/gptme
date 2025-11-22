@@ -43,7 +43,7 @@ def eval_spec():
     return EvalSpec(
         name="test_task",
         prompt="Test task prompt",
-        files=[],
+        files={},
         run="echo 'test'",
         expect={},
     )
