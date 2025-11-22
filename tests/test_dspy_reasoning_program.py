@@ -315,6 +315,9 @@ def test_reasoning_program_very_long_inputs(reasoning_program, eval_spec):
     assert result is not None
 
 
+@pytest.mark.skip(
+    reason="Integration test requires LLM API access. Run with --eval flag if needed."
+)
 def test_execute_with_recovery_max_retries(reasoning_program):
     """Test that execute_with_recovery respects max_retries."""
     # Test with 0 retries - should only try once
