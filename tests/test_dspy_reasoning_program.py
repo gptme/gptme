@@ -44,6 +44,7 @@ def eval_spec():
         name="test_task",
         prompt="Test task prompt",
         files=[],
+        run="echo 'test'",
         expect={},
     )
 
