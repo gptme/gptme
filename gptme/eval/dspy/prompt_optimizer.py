@@ -230,7 +230,60 @@ class PromptImprovementModule(dspy.Module):
 
 
 class PromptOptimizer:
-    """Main class for optimizing gptme system prompts using DSPy."""
+    """
+    Main class for optimizing gptme system prompts using DSPy.
+
+    This class provides two execution modes for prompt optimization:
+
+    1. **Standard Mode** (use_reasoning_program=False, default):
+       - Direct prompt execution using GptmeModule
+       - Faster iteration with simpler traces
+       - Best for: Well-defined tasks, quick experiments, baseline evaluation
+       - Trade-offs: Less structured reasoning, may struggle with complex tasks
+
+    2. **Reasoning Program Mode** (use_reasoning_program=True):
+       - Multi-stage reasoning with GptmeReasoningProgram
+       - Structured pipeline: analyze → plan → execute → monitor → recover
+       - Best for: Complex tasks, debugging, research-heavy workflows
+       - Trade-offs: Slower execution, more token usage, richer feedback for optimization
+
+    Usage Examples:
+
+        # Standard mode for quick baseline optimization
+        optimizer = PromptOptimizer(
+            model="anthropic/claude-sonnet-4-5",
+            optimizer_type="miprov2",
+            use_reasoning_program=False  # default
+        )
+
+        # Reasoning program mode for complex task optimization
+        optimizer = PromptOptimizer(
+            model="anthropic/claude-sonnet-4-5",
+            optimizer_type="gepa",
+            use_reasoning_program=True,  # enable structured reasoning
+            reflection_minibatch_size=3
+        )
+
+    Args:
+        model: Base model for prompt execution (e.g., "anthropic/claude-sonnet-4-5")
+        optimizer_type: Optimization algorithm ("miprov2" or "gepa")
+        max_demos: Maximum number of demonstration examples to include
+        num_trials: Number of optimization trials to run
+        auto: GEPA auto mode setting (None, "light", "medium", "heavy")
+        max_full_evals: Maximum number of full evaluations for GEPA
+        max_metric_calls: Maximum number of metric calls for GEPA
+        reflection_minibatch_size: Batch size for reflection in GEPA
+        num_threads: Number of parallel threads for optimization
+        use_reasoning_program: Enable multi-stage reasoning program instead of direct execution.
+            When True, uses GptmeReasoningProgram for structured task breakdown.
+            When False (default), uses GptmeModule for direct execution.
+            Reasoning program provides richer optimization signals but requires more tokens.
+
+    Related:
+        - GptmeReasoningProgram: Multi-stage reasoning implementation (reasoning_program.py)
+        - GptmeModule: Standard direct execution module
+        - GEPA: Optimization algorithm that benefits most from reasoning traces
+    """
 
     def __init__(
         self,
