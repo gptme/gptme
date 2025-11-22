@@ -19,6 +19,7 @@ except (ImportError, ModuleNotFoundError):
 # Try to import reasoning program components
 try:
     import dspy
+
     from gptme.eval.dspy.reasoning_program import (
         ExecutionSignature,
         GptmeReasoningProgram,
