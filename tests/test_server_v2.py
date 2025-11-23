@@ -100,6 +100,8 @@ def test_v2_create_conversation_default_system_prompt(
     """Test creating a V2 conversation with a default system prompt."""
     # Use tmp_path as workspace to avoid workspace context message
     monkeypatch.chdir(tmp_path)
+    # Explicitly disable chat history for this test
+    monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
 
     convname = f"test-server-v2-{random.randint(0, 1000000)}"
     response = client.put(
