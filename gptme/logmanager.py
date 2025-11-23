@@ -25,6 +25,7 @@ from .config import ChatConfig, get_project_config
 from .dirs import get_logs_dir
 from .message import Message, len_tokens, print_msg
 from .tools import ToolUse
+from .tools.autocompact import auto_compact_log
 from .util.context import enrich_messages_with_context
 from .util.reduce import limit_log, reduce_log
 
@@ -399,6 +400,27 @@ def prepare_messages(
 
     model = get_default_model()
     assert model is not None, "No model loaded"
+
+    # Phase 3.2: Auto-compact trigger
+    # Check if we need auto-compaction (70% threshold)
+    tokens_after_reduce = len_tokens(msgs_reduced, model.model)
+    auto_compact_threshold = int(0.7 * model.context)
+
+    if tokens_after_reduce > auto_compact_threshold:
+        logger.info(
+            f"Auto-compact triggered: {tokens_after_reduce} tokens exceeds {auto_compact_threshold} threshold"
+        )
+        # Apply auto-compaction with 80% target limit
+        msgs_reduced = list(
+            auto_compact_log(
+                msgs_reduced, limit=int(0.8 * model.context), logdir=workspace
+            )
+        )
+        tokens_after_compact = len_tokens(msgs_reduced, model.model)
+        logger.info(
+            f"Auto-compacted: {tokens_after_reduce} → {tokens_after_compact} tokens"
+        )
+
     if (len_from := len_tokens(msgs, model.model)) != (
         len_to := len_tokens(msgs_reduced, model.model)
     ):
