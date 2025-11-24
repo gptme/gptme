@@ -131,6 +131,10 @@ class Parameter:
 
 # TODO: there must be a better way?
 def derive_type(t) -> str:
+    # Handle string annotations (forward references)
+    if isinstance(t, str):
+        return t
+
     origin = get_origin(t)
 
     # Handle Literal types
