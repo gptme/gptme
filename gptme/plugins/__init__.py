@@ -341,7 +341,6 @@ def detect_install_environment() -> str:
         or os.environ.get("UV_HOME")
     ):
         return "uvx"
-        return "uvx"
 
     # Check for virtualenv
     if sys.prefix != sys.base_prefix:
