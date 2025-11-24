@@ -80,8 +80,8 @@ def test_discover_plugins_without_tools():
 
         assert len(plugins) == 1
         assert plugins[0].name == "minimal_plugin"
-        # Empty tools directory means no tool modules discovered
-        assert plugins[0].tool_modules == []
+        # Tools package with only __init__.py is still a valid package
+        assert "minimal_plugin.tools" in plugins[0].tool_modules
 
 
 def test_discover_plugins_invalid_package():
