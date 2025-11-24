@@ -17,8 +17,7 @@ max_candidates = 30
 #[rag]
 #enabled = true
 
-[plugins]
-paths = [
-    "../gptme-bob/gptme-contrib/plugins/consortium",
-    "../gptme-bob/gptme-contrib/plugins/imagen"
-]
+#[plugins]
+#paths = [
+#    # Add your local plugin paths here
+#]

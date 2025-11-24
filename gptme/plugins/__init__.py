@@ -338,8 +338,8 @@ def detect_install_environment() -> str:
     if os.environ.get("PIPX_HOME") or "pipx/venvs" in sys.prefix:
         return "pipx"
 
-    # Check for uvx
-    if "uv" in sys.prefix or os.environ.get("UV_HOME"):
+    # Check for uvx (use path separators to avoid false positives like /home/uvalde/)
+    if "/.uv/" in sys.prefix or "\\.uv\\" in sys.prefix or os.environ.get("UV_HOME"):
         return "uvx"
 
     # Check for virtualenv

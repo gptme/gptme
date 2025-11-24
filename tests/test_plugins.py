@@ -65,16 +65,22 @@ def test_discover_plugins_with_valid_plugin():
 
 
 def test_discover_plugins_without_tools():
-    """Test plugin discovery for plugin without tools directory."""
+    """Test plugin discovery for plugin with empty tools directory."""
     with tempfile.TemporaryDirectory() as tmpdir:
         plugin_dir = Path(tmpdir) / "minimal_plugin"
         plugin_dir.mkdir()
         (plugin_dir / "__init__.py").write_text("# Plugin init")
 
+        # Create empty tools directory to make it a valid plugin
+        tools_dir = plugin_dir / "tools"
+        tools_dir.mkdir()
+        (tools_dir / "__init__.py").write_text("# Empty tools package")
+
         plugins = discover_plugins([Path(tmpdir)])
 
         assert len(plugins) == 1
         assert plugins[0].name == "minimal_plugin"
+        # Empty tools directory means no tool modules discovered
         assert plugins[0].tool_modules == []
 
 
