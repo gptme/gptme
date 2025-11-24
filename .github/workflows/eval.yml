@@ -36,7 +36,7 @@ jobs:
       IMAGE_SUFFIX: ${{ github.event.inputs.image-suffix || '' }}
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         ref: eval-results
         token: ${{ secrets.GITHUB_TOKEN }}

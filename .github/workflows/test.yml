@@ -48,7 +48,7 @@ jobs:
           #  model: 'openrouter/meta-llama/llama-3.3-70B-instruct'
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
       with:
         submodules: 'recursive'
     - name: Install apt dependencies
