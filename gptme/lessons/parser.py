@@ -19,6 +19,13 @@ class LessonMetadata:
     keywords: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     status: str = "active"  # active, automated, deprecated, or archived
+    
+    # Skills-specific fields
+    type: str = "lesson"  # "lesson" or "skill"
+    scripts: list[str] = field(default_factory=list)  # Paths to bundled scripts
+    dependencies: list[str] = field(default_factory=list)  # Required packages
+    hooks: list[str] = field(default_factory=list)  # Hook points (pre/post execution)
+    
     # Future extensions:
     # globs: list[str] = field(default_factory=list)
     # semantic: list[str] = field(default_factory=list)
@@ -107,10 +114,21 @@ def parse_lesson(path: Path) -> Lesson:
                     match_data = frontmatter.get("match", {})
                     # Extract status (defaults to "active" if not present)
                     status = frontmatter.get("status", "active")
+                    # Extract type (defaults to "lesson" if not present)
+                    lesson_type = frontmatter.get("type", "lesson")
+                    # Extract skills-specific fields
+                    scripts = frontmatter.get("scripts", [])
+                    dependencies = frontmatter.get("dependencies", [])
+                    hooks = frontmatter.get("hooks", [])
+                    
                     metadata = LessonMetadata(
                         keywords=match_data.get("keywords", []),
                         tools=match_data.get("tools", []),
                         status=status,
+                        type=lesson_type,
+                        scripts=scripts,
+                        dependencies=dependencies,
+                        hooks=hooks,
                     )
             except yaml.YAMLError as e:
                 raise ValueError(f"Invalid YAML frontmatter in {path}: {e}") from e
