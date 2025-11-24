@@ -132,10 +132,11 @@ def test_discover_plugins_with_commands_package():
         plugin_dir.mkdir()
         (plugin_dir / "__init__.py").write_text("# Plugin init")
 
-        # Create commands directory with __init__.py
+        # Create commands directory with __init__.py and actual command file
         commands_dir = plugin_dir / "commands"
         commands_dir.mkdir()
         (commands_dir / "__init__.py").write_text("# Commands init")
+        (commands_dir / "my_command.py").write_text("# Command implementation")
 
         plugins = discover_plugins([Path(tmpdir)])
 
@@ -269,10 +270,11 @@ def test_discover_plugins_with_hooks():
         # Create __init__.py
         (plugin_dir / "__init__.py").write_text("# Plugin init")
 
-        # Create hooks directory with __init__.py
+        # Create hooks directory with __init__.py and actual hook file
         hooks_dir = plugin_dir / "hooks"
         hooks_dir.mkdir()
         (hooks_dir / "__init__.py").write_text("# Hooks init")
+        (hooks_dir / "my_hook.py").write_text("# Hook implementation")
 
         # Discover plugins
         plugins = discover_plugins([Path(tmpdir)])

@@ -41,7 +41,12 @@ def _record_usage(usage, model: str) -> None:
     total_tokens = getattr(usage, "total_tokens", None)
 
     # subtract cache_read_tokens from prompt_tokens to avoid double counting
-    input_tokens = (prompt_tokens - (cache_read_tokens or 0)) if prompt_tokens else None
+    # Ensure we have actual integers, not Mock objects from tests
+    if isinstance(prompt_tokens, int):
+        cache_tokens = cache_read_tokens if isinstance(cache_read_tokens, int) else 0
+        input_tokens = prompt_tokens - cache_tokens
+    else:
+        input_tokens = None
 
     # Record the LLM request with token usage
     record_llm_request(
