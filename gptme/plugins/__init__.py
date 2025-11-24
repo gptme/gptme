@@ -141,9 +141,18 @@ def _load_plugin(plugin_path: Path) -> Plugin | None:
     tools_dir = plugin_path / "tools"
     if tools_dir.exists() and tools_dir.is_dir():
         if (tools_dir / "__init__.py").exists():
-            # tools/ is a package, register the package module
-            plugin.tool_modules.append(f"{plugin_name}.tools")
-            logger.debug(f"  Found tools package: {plugin_name}.tools")
+            # tools/ is a package, check if it contains any tool files
+            tool_files = [
+                f
+                for f in tools_dir.glob("*.py")
+                if f.name != "__init__.py" and not f.name.startswith("_")
+            ]
+            if tool_files:
+                # Has actual tool files, register the package module
+                plugin.tool_modules.append(f"{plugin_name}.tools")
+                logger.debug(f"  Found tools package: {plugin_name}.tools")
+            else:
+                logger.debug(f"  Skipping empty tools package: {plugin_name}.tools")
         else:
             # tools/ is a directory with individual modules
             for tool_file in tools_dir.glob("*.py"):
@@ -157,9 +166,18 @@ def _load_plugin(plugin_path: Path) -> Plugin | None:
     hooks_dir = plugin_path / "hooks"
     if hooks_dir.exists() and hooks_dir.is_dir():
         if (hooks_dir / "__init__.py").exists():
-            # hooks/ is a package, register the package module
-            plugin.hook_modules.append(f"{plugin_name}.hooks")
-            logger.debug(f"  Found hooks package: {plugin_name}.hooks")
+            # hooks/ is a package, check if it contains any hook files
+            hook_files = [
+                f
+                for f in hooks_dir.glob("*.py")
+                if f.name != "__init__.py" and not f.name.startswith("_")
+            ]
+            if hook_files:
+                # Has actual hook files, register the package module
+                plugin.hook_modules.append(f"{plugin_name}.hooks")
+                logger.debug(f"  Found hooks package: {plugin_name}.hooks")
+            else:
+                logger.debug(f"  Skipping empty hooks package: {plugin_name}.hooks")
         else:
             # hooks/ is a directory with individual modules
             for hook_file in hooks_dir.glob("*.py"):
@@ -173,9 +191,20 @@ def _load_plugin(plugin_path: Path) -> Plugin | None:
     commands_dir = plugin_path / "commands"
     if commands_dir.exists() and commands_dir.is_dir():
         if (commands_dir / "__init__.py").exists():
-            # commands/ is a package, register the package module
-            plugin.command_modules.append(f"{plugin_name}.commands")
-            logger.debug(f"  Found commands package: {plugin_name}.commands")
+            # commands/ is a package, check if it contains any command files
+            command_files = [
+                f
+                for f in commands_dir.glob("*.py")
+                if f.name != "__init__.py" and not f.name.startswith("_")
+            ]
+            if command_files:
+                # Has actual command files, register the package module
+                plugin.command_modules.append(f"{plugin_name}.commands")
+                logger.debug(f"  Found commands package: {plugin_name}.commands")
+            else:
+                logger.debug(
+                    f"  Skipping empty commands package: {plugin_name}.commands"
+                )
         else:
             # commands/ is a directory with individual modules
             for command_file in commands_dir.glob("*.py"):
