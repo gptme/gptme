@@ -414,6 +414,145 @@ def cmd_help(ctx: CommandContext) -> None:
     help()
 
 
+@command("plugin")
+def cmd_plugin(ctx: CommandContext) -> None:
+    """Manage plugins - list, show info, check installation status."""
+    from pathlib import Path
+
+    from .config import get_config
+    from .plugins import (
+        Plugin,
+        detect_install_environment,
+        discover_plugins,
+        get_install_instructions,
+    )
+
+    ctx.manager.undo(1, quiet=True)
+
+    config = get_config()
+
+    if not ctx.args:
+        print("Usage: /plugin <list|info> [name]")
+        print("")
+        print("Commands:")
+        print("  list       Show all discovered plugins")
+        print("  info NAME  Show details about a specific plugin")
+        return
+
+    subcommand = ctx.args[0]
+
+    if subcommand == "list":
+        # Get plugin paths from config
+        plugin_paths = []
+        if config.project and config.project.plugins and config.project.plugins.paths:
+            plugin_paths = [
+                Path(p).expanduser().resolve() for p in config.project.plugins.paths
+            ]
+
+        if not plugin_paths:
+            print("No plugin paths configured.")
+            print("")
+            print("Add plugin paths to your gptme.toml:")
+            print("")
+            print("[plugins]")
+            print('paths = ["path/to/plugin1", "path/to/plugin2"]')
+            return
+
+        plugins = discover_plugins(plugin_paths)
+
+        if not plugins:
+            print("No plugins discovered in configured paths.")
+            return
+
+        print(f"Discovered {len(plugins)} plugin(s):")
+        for plugin in plugins:
+            print(f"\n  {plugin.name}")
+            print(f"    path: {plugin.path}")
+            if plugin.tool_modules:
+                print(f"    tools: {len(plugin.tool_modules)} module(s)")
+            if plugin.hook_modules:
+                print(f"    hooks: {len(plugin.hook_modules)} module(s)")
+            if plugin.command_modules:
+                print(f"    commands: {len(plugin.command_modules)} module(s)")
+
+            # Check if plugin has dependencies
+            pyproject_path = plugin.path.parent / "pyproject.toml"
+            if not pyproject_path.exists():
+                # Check one level up for src/ layout
+                pyproject_path = plugin.path.parent.parent / "pyproject.toml"
+
+            if pyproject_path.exists():
+                print("    📦 Has dependencies (needs installation)")
+
+    elif subcommand == "info":
+        if len(ctx.args) < 2:
+            print("Usage: /plugin info <plugin_name>")
+            return
+
+        plugin_name = ctx.args[1]
+
+        # Get plugin paths from config
+        plugin_paths = []
+        if config.project and config.project.plugins and config.project.plugins.paths:
+            plugin_paths = [
+                Path(p).expanduser().resolve() for p in config.project.plugins.paths
+            ]
+
+        if not plugin_paths:
+            print("No plugin paths configured.")
+            return
+
+        plugins = discover_plugins(plugin_paths)
+        selected_plugin: Plugin | None = next(
+            (p for p in plugins if p.name == plugin_name), None
+        )
+
+        if selected_plugin is None:
+            print(f"Plugin '{plugin_name}' not found.")
+            print(f"Available plugins: {', '.join(p.name for p in plugins)}")
+            return
+
+        print(f"Plugin: {selected_plugin.name}")
+        print(f"  Path: {selected_plugin.path}")
+
+        # Check if plugin has dependencies (pyproject.toml)
+        pyproject_path = selected_plugin.path.parent / "pyproject.toml"
+        if not pyproject_path.exists():
+            # Check one level up for src/ layout
+            pyproject_path = selected_plugin.path.parent.parent / "pyproject.toml"
+
+        if pyproject_path.exists():
+            print(f"\n  📦 Plugin package: {pyproject_path.parent}")
+
+            # Show installation instructions
+            env_type = detect_install_environment()
+            install_cmd = get_install_instructions(pyproject_path.parent, env_type)
+            print(f"\n  To install dependencies ({env_type} environment):")
+            print(f"    {install_cmd}")
+            print("")
+            print("  Note: Installation must be done manually to respect your")
+            print("        environment (pipx/uvx/venv/system).")
+
+        if selected_plugin.tool_modules:
+            print(f"\n  Tool modules ({len(selected_plugin.tool_modules)}):")
+            for module in selected_plugin.tool_modules:
+                print(f"    - {module}")
+
+        if selected_plugin.hook_modules:
+            print(f"\n  Hook modules ({len(selected_plugin.hook_modules)}):")
+            for module in selected_plugin.hook_modules:
+                print(f"    - {module}")
+
+        if selected_plugin.command_modules:
+            print(f"\n  Command modules ({len(selected_plugin.command_modules)}):")
+            for module in selected_plugin.command_modules:
+                print(f"    - {module}")
+
+    else:
+        print(f"Unknown subcommand: {subcommand}")
+        print("Available commands: list, info")
+
+
 def execute_cmd(msg: Message, log: LogManager, confirm: ConfirmFunc) -> bool:
     """Executes any user-command, returns True if command was executed."""
     assert msg.role == "user"

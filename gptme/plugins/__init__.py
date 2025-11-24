@@ -27,6 +27,8 @@ __all__ = [
     "get_plugin_tool_modules",
     "register_plugin_hooks",
     "register_plugin_commands",
+    "detect_install_environment",
+    "get_install_instructions",
 ]
 
 
@@ -45,11 +47,16 @@ class Plugin:
 
 def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
     """
-    Discover plugins from the given search paths.
+    Discover plugins from the given search paths with smart src/ layout detection.
+
+    For each path, tries in order:
+    1. If path itself is a plugin (has __init__.py + tools/hooks/commands), load it
+    2. If path has pyproject.toml + src/ subdirectory, search src/ for plugins
+    3. Otherwise search for plugin directories in the path
 
     A valid plugin is a directory containing:
     - __init__.py (makes it a Python package)
-    - Optionally: tools/, hooks/, commands/ subdirectories
+    - At least one of: tools/, hooks/, commands/ subdirectories
 
     Args:
         plugin_paths: List of paths to search for plugins
@@ -70,23 +77,59 @@ def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
 
         logger.debug(f"Searching for plugins in: {search_path}")
 
-        # Find all directories with __init__.py (valid Python packages)
-        for plugin_dir in search_path.iterdir():
-            if not plugin_dir.is_dir():
-                continue
-
-            # Check for __init__.py to ensure it's a valid Python package
-            if not (plugin_dir / "__init__.py").exists():
-                logger.debug(f"Skipping {plugin_dir.name}: not a Python package")
-                continue
-
-            # Discover plugin components
-            plugin = _load_plugin(plugin_dir)
+        # Strategy 1: Check if path itself is a plugin
+        if _is_plugin_dir(search_path):
+            plugin = _load_plugin(search_path)
             if plugin:
                 plugins.append(plugin)
                 logger.info(f"Discovered plugin: {plugin.name}")
+            continue
+
+        # Strategy 2: Check for src/ layout (pyproject.toml + src/ directory)
+        if (search_path / "pyproject.toml").exists() and (search_path / "src").exists():
+            logger.debug(f"Detected src/ layout in {search_path}")
+            src_dir = search_path / "src"
+            for plugin_dir in src_dir.iterdir():
+                if not plugin_dir.is_dir():
+                    continue
+                if _is_plugin_dir(plugin_dir):
+                    plugin = _load_plugin(plugin_dir)
+                    if plugin:
+                        plugins.append(plugin)
+                        logger.info(f"Discovered plugin: {plugin.name}")
+            continue
+
+        # Strategy 3: Search for plugin directories in the path
+        for plugin_dir in search_path.iterdir():
+            if not plugin_dir.is_dir():
+                continue
+            if _is_plugin_dir(plugin_dir):
+                plugin = _load_plugin(plugin_dir)
+                if plugin:
+                    plugins.append(plugin)
+                    logger.info(f"Discovered plugin: {plugin.name}")
 
     return plugins
+
+
+def _is_plugin_dir(path: Path) -> bool:
+    """
+    Check if a directory is a valid plugin.
+
+    A valid plugin has:
+    - __init__.py (making it a Python package)
+    - At least one of: tools/, hooks/, commands/ subdirectories
+    """
+    if not (path / "__init__.py").exists():
+        return False
+
+    # Check for at least one component directory
+    has_components = any(
+        (path / component).exists() and (path / component).is_dir()
+        for component in ["tools", "hooks", "commands"]
+    )
+
+    return has_components
 
 
 def _load_plugin(plugin_path: Path) -> Plugin | None:
@@ -280,3 +323,53 @@ def register_plugin_commands(
     logger.info(
         f"Registered {commands_registered} command modules from {len(plugins)} plugins"
     )
+
+
+def detect_install_environment() -> str:
+    """
+    Detect how gptme is installed.
+
+    Returns:
+        Environment type: 'pipx', 'uvx', 'venv', or 'system'
+    """
+    import os
+
+    # Check for pipx
+    if os.environ.get("PIPX_HOME") or "pipx/venvs" in sys.prefix:
+        return "pipx"
+
+    # Check for uvx
+    if "uv" in sys.prefix or os.environ.get("UV_HOME"):
+        return "uvx"
+
+    # Check for virtualenv
+    if sys.prefix != sys.base_prefix:
+        return "venv"
+
+    return "system"
+
+
+def get_install_instructions(plugin_path: Path, env_type: str | None = None) -> str:
+    """
+    Get installation instructions for a plugin based on the environment.
+
+    Args:
+        plugin_path: Path to the plugin directory (with pyproject.toml)
+        env_type: Environment type ('pipx', 'uvx', 'venv', 'system').
+                  If None, auto-detects using detect_install_environment()
+
+    Returns:
+        Installation command string
+    """
+    if env_type is None:
+        env_type = detect_install_environment()
+
+    if env_type == "pipx":
+        return f"pipx inject gptme {plugin_path}"
+    elif env_type == "uvx":
+        # Note: uvx doesn't have inject yet, may need different approach
+        return f"uv pip install --system -e {plugin_path}"
+    elif env_type == "venv":
+        return f"pip install -e {plugin_path}"
+    else:  # system
+        return f"pip install --user -e {plugin_path}"
