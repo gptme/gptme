@@ -232,6 +232,6 @@ Example:
 
 ## Related
 
-- [Lesson System](../lessons/README.md)
+- [Lesson System](../lessons)
 - [Issue #686](https://github.com/gptme/gptme/issues/686) - Phase 4: Skills Integration
 - [Claude Skills](https://simonwillison.net/2025/Oct/10/claude-skills/) - Inspiration
