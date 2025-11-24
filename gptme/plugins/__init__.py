@@ -116,20 +116,10 @@ def _is_plugin_dir(path: Path) -> bool:
     """
     Check if a directory is a valid plugin.
 
-    A valid plugin has:
-    - __init__.py (making it a Python package)
-    - At least one of: tools/, hooks/, commands/ subdirectories
+    A valid plugin must be a Python package (__init__.py exists).
+    Component directories (tools/, hooks/, commands/) are optional.
     """
-    if not (path / "__init__.py").exists():
-        return False
-
-    # Check for at least one component directory
-    has_components = any(
-        (path / component).exists() and (path / component).is_dir()
-        for component in ["tools", "hooks", "commands"]
-    )
-
-    return has_components
+    return (path / "__init__.py").exists()
 
 
 def _load_plugin(plugin_path: Path) -> Plugin | None:
@@ -338,8 +328,19 @@ def detect_install_environment() -> str:
     if os.environ.get("PIPX_HOME") or "pipx/venvs" in sys.prefix:
         return "pipx"
 
-    # Check for uvx (use path separators to avoid false positives like /home/uvalde/)
-    if "/.uv/" in sys.prefix or "\\.uv\\" in sys.prefix or os.environ.get("UV_HOME"):
+    # Check for uvx (comprehensive cross-platform detection to avoid false positives)
+    if (
+        "/.uv/" in sys.prefix
+        or "\\.uv\\" in sys.prefix
+        or "/uv/" in sys.prefix
+        or "\\uv\\" in sys.prefix
+        or sys.prefix.endswith("/.uv")
+        or sys.prefix.endswith("\\.uv")
+        or sys.prefix.endswith("/uv")
+        or sys.prefix.endswith("\\uv")
+        or os.environ.get("UV_HOME")
+    ):
+        return "uvx"
         return "uvx"
 
     # Check for virtualenv

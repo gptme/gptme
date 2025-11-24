@@ -20,4 +20,5 @@ max_candidates = 30
 #[plugins]
 #paths = [
 #    # Add your local plugin paths here
+#    # Example: "../gptme-contrib/plugins/consortium"
 #]
