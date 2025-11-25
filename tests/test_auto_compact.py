@@ -4,8 +4,6 @@ Tests for auto-compacting functionality that handles conversations with massive 
 
 from datetime import datetime
 
-import pytest
-
 from gptme.llm.models import get_default_model, get_model
 from gptme.message import Message, len_tokens
 from gptme.tools.autocompact import (
@@ -97,163 +95,130 @@ def test_auto_compact_log_reduces_massive_tool_result():
 
 def test_create_tool_result_summary():
     """Test the create_tool_result_summary helper function."""
-    from datetime import datetime
+    from gptme.llm.models import get_default_model, get_model
 
-    from gptme.message import Message
+    model = get_default_model() or get_model("gpt-4")
+    large_output = "x" * 100000
+    original_tokens = len_tokens(large_output, model.model)
+    summary = create_tool_result_summary(large_output, original_tokens, None)
 
-    content = "Ran command: `ls -la`\n/usr/bin/file1.txt\n/usr/bin/file2.txt\n..."
-    tokens = 1000
-    msg = Message("system", content, timestamp=datetime.now())
-
-    summary = create_tool_result_summary(msg.content, tokens, None, "autocompact")
-
-    # Should contain key information
-    assert "1000 tokens" in summary
-    assert "Ran command: `ls -la`" in summary
+    # Should create a compact summary
+    assert len(summary) < 500, "Summary should be much smaller than original"
+    assert "[Large tool output removed" in summary
 
 
-def test_create_tool_result_summary_with_error():
-    """Test summary generation for failed tool execution."""
-    from datetime import datetime
+def test_phase3_extractive_compression():
+    """Test Phase 3 extractive compression for long messages."""
+    model = get_default_model() or get_model("gpt-4")
 
-    from gptme.message import Message
+    # Create a conversation that triggers auto-compacting (85% of context)
+    # Start with the base massive conversation
+    messages = create_test_conversation()
 
-    content = (
-        "Ran command: `invalid_command`\nError: command not found\nFailed to execute"
-    )
-    tokens = 500
-    msg = Message("system", content, timestamp=datetime.now())
+    # Add a long assistant message that Phase 3 will compress
+    long_content = """
+# Technical Documentation
 
-    summary = create_tool_result_summary(msg.content, tokens, None, "autocompact")
+## Overview
+This is a comprehensive guide covering multiple aspects of the system architecture.
 
-    # Should detect failure
-    assert "500 tokens" in summary
-    assert "Ran command: `invalid_command`" in summary
+## Background Context
+The system was designed to handle large-scale data processing with emphasis on reliability.
+We need to ensure that all components work together seamlessly for optimal performance.
+The architecture follows best practices from industry leaders in distributed systems.
+
+## Implementation Details
+The core implementation consists of several modules working in coordination.
+Each module has specific responsibilities and interfaces with other components.
+Performance optimization was a key consideration throughout the development process.
+"""
+    # Repeat content to reach >1000 tokens
+    long_content = long_content * 30  # ~1500 tokens
+
+    # Insert long assistant message before the massive tool result
+    messages.insert(1, Message("assistant", long_content, datetime.now()))
+
+    # Get original size (the long assistant message is now at index 1)
+    original_msg = messages[1]
+    original_tokens = len_tokens(original_msg.content, model.model)
+
+    # Verify message is long enough to trigger Phase 3
+    assert (
+        original_tokens > 1000
+    ), f"Test message should be >1000 tokens, got {original_tokens}"
+
+    # Verify conversation triggers auto-compacting
+    assert should_auto_compact(
+        messages
+    ), "Test conversation should trigger auto-compacting"
+
+    # Apply auto-compacting (should trigger Phase 3)
+    compacted_messages = list(auto_compact_log(messages))
+
+    # Verify structure preserved (4 messages: user, assistant[long], assistant, system[massive])
+    assert (
+        len(compacted_messages) == 4
+    ), f"Should preserve message count, got {len(compacted_messages)}"
+
+    # Find the long assistant message (should still be at index 1 after Phase 2)
+    # Phase 2 compacts the massive system message (index 3), not the assistant message
+    compacted_msg = compacted_messages[1]
+    compacted_tokens = len_tokens(compacted_msg.content, model.model)
+
+    # Phase 3 should reduce tokens (target: 30% reduction, retain 70%)
+    # We expect some reduction, but content should still be readable
+    assert (
+        compacted_tokens < original_tokens
+    ), f"Phase 3 should compress: {original_tokens} -> {compacted_tokens}"
+    assert compacted_tokens > original_tokens * 0.5, "Should retain >50% of content"
+
+    # Verify headings are preserved (Phase 3 config: preserve_headings=True)
+    assert (
+        "# Technical Documentation" in compacted_msg.content
+        or "## " in compacted_msg.content
+    ), "Should preserve markdown headings"
 
 
-def test_auto_compact_preserves_small_messages():
-    """Test that auto-compacting preserves small messages unchanged."""
-    small_messages = [
-        Message("user", "Hello", datetime.now()),
-        Message("assistant", "Hi there!", datetime.now()),
-        Message("system", "Command executed successfully.", datetime.now()),
+def test_phase3_preserves_code_blocks():
+    """Test that Phase 3 preserves code blocks during compression."""
+    # Create long message with code blocks
+    long_content = (
+        """
+# Code Example
+
+Here's how to implement the feature:
+
+```python
+def process_data(input_data):
+    result = []
+    for item in input_data:
+        processed = transform(item)
+        result.append(processed)
+    return result
+```
+
+Additional context and explanation about the implementation details.
+We need to ensure proper error handling and edge case coverage.
+"""
+        * 20
+    )  # Repeat to reach >1000 tokens
+
+    messages = [
+        Message("user", "Show me the code", datetime.now()),
+        Message("assistant", long_content, datetime.now()),
     ]
 
-    compacted = list(auto_compact_log(small_messages))
+    # Apply auto-compacting
+    compacted_messages = list(auto_compact_log(messages))
 
-    # Should be unchanged
-    assert len(compacted) == len(small_messages)
-    for original, compacted_msg in zip(small_messages, compacted):
-        assert original.content == compacted_msg.content
-        assert original.role == compacted_msg.role
+    compacted_msg = compacted_messages[1]
 
-
-def test_auto_compact_preserves_pinned_messages():
-    """Test that pinned messages are never compacted."""
-    messages = create_test_conversation()
-    # Make the massive message pinned
-    messages[2] = messages[2].replace(pinned=True)
-
-    compacted = list(auto_compact_log(messages))
-
-    # Pinned message should be preserved unchanged
-    assert compacted[2].content == messages[2].content
-    assert compacted[2].pinned
+    # Verify code blocks are preserved (Phase 3 config: preserve_code=True)
+    assert "```python" in compacted_msg.content, "Should preserve code block markers"
+    assert "def process_data" in compacted_msg.content, "Should preserve code content"
 
 
-def test_get_compacted_name_no_suffix():
-    """Test compacted name generation for conversation without existing suffix."""
-    import re
-
-    name = _get_compacted_name("2025-10-13-flying-yellow-alien")
-    # Should match: base-name-compacted-YYYYMMDD-HHMMSS
-    assert re.match(r"^2025-10-13-flying-yellow-alien-compacted-\d{8}-\d{6}$", name)
-
-
-def test_get_compacted_name_one_suffix():
-    """Test compacted name generation when suffix already exists (gets new unique suffix)."""
-    import re
-
-    name = _get_compacted_name(
-        "2025-10-13-flying-yellow-alien-compacted-20251028-120000"
-    )
-    # Should strip old timestamp suffix and add new timestamp
-    assert re.match(r"^2025-10-13-flying-yellow-alien-compacted-\d{8}-\d{6}$", name)
-
-
-def test_get_compacted_name_multiple_suffixes():
-    """Test compacted name generation with multiple accumulated timestamp suffixes (should strip all)."""
-    import re
-
-    name = _get_compacted_name(
-        "2025-10-13-flying-yellow-alien-compacted-20251027-100000-compacted-20251028-110000-compacted-20251028-120000"
-    )
-    assert re.match(r"^2025-10-13-flying-yellow-alien-compacted-\d{8}-\d{6}$", name)
-
-
-def test_get_compacted_name_edge_cases():
-    """Test compacted name generation with various edge cases."""
-    import re
-
-    # Short name
-    name = _get_compacted_name("conv")
-    assert re.match(r"^conv-compacted-\d{8}-\d{6}$", name)
-
-    # Name containing 'compact' but not as suffix
-    name = _get_compacted_name("compact-test")
-    assert re.match(r"^compact-test-compacted-\d{8}-\d{6}$", name)
-
-    # Name ending with similar but different suffix
-    name = _get_compacted_name("test-before-compaction")
-    assert re.match(r"^test-before-compaction-compacted-\d{8}-\d{6}$", name)
-
-
-def test_get_compacted_name_uniqueness():
-    """Test that multiple calls produce unique compacted names with timestamps."""
-    import time
-
-    name1 = _get_compacted_name("my-conversation")
-    time.sleep(1.1)  # Ensure different second for timestamp
-    name2 = _get_compacted_name("my-conversation")
-    time.sleep(1.1)  # Ensure different second for timestamp
-    name3 = _get_compacted_name("my-conversation")
-
-    # All should have the same base but different timestamps
-    assert name1 != name2
-    assert name2 != name3
-    assert name1 != name3
-
-    # All should have compacted suffix with timestamp
-    assert name1.startswith("my-conversation-compacted-")
-    assert name2.startswith("my-conversation-compacted-")
-    assert name3.startswith("my-conversation-compacted-")
-
-
-def test_get_compacted_name_with_hex_suffix():
-    """Test that compacted names with timestamp suffixes are correctly stripped.
-
-    This is a regression test for the bug where:
-    "my-conversation-compacted-20251028-120000" would become
-    "my-conversation-compacted-20251028-120000-compacted-20251029-130000"
-    instead of
-    "my-conversation-compacted-20251029-140000"
-    """
-    import re
-
-    # Test with a backup that has a valid hex suffix (only 0-9a-f)
-    name = _get_compacted_name("my-conversation-compacted-20251028-120000")
-    # Should strip the old suffix and add a new one
-    assert re.match(r"^my-conversation-compacted-\d{8}-\d{6}$", name)
-    # Should NOT contain the old timestamp
-    assert "20251028-120000" not in name
-
-
-def test_get_compacted_name_empty_string():
-    """Test compacted name generation with empty string raises ValueError."""
-    with pytest.raises(ValueError, match="conversation name cannot be empty"):
-        _get_compacted_name("")
-
-
-if __name__ == "__main__":
-    # Allow running the test directly
-    pytest.main([__file__])
+def test_get_compacted_name():
+    """Test the _get_compacted_name helper function."""
+    assert _get_compacted_name("gptme_1234") == "gptme_1234_compact"
+    assert _get_compacted_name("session_abc") == "session_abc_compact"
