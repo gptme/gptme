@@ -3,6 +3,32 @@ import pytest
 from gptme.tools.subagent import SubtaskDef, _subagents, subagent
 
 
+@pytest.fixture(autouse=True)
+def reduce_anthropic_retries(monkeypatch):
+    """Reduce Anthropic API retries during tests to prevent timeouts.
+
+    Anthropic API can have transient errors (5xx, overloaded) that trigger
+    exponential backoff retries. With default max_retries=5 and 60s timeout
+    per retry, a test with 2 sequential subagents can take ~10.5 minutes,
+    causing GitHub Actions timeout (15 min).
+
+    Reducing to max_retries=2 brings total time to ~4 minutes, well under
+    the timeout while still allowing some retry resilience.
+    """
+    # Monkeypatch the retry handler to reduce retries
+    import gptme.llm.llm_anthropic as anthropic_module
+
+    original_handler = anthropic_module._handle_anthropic_transient_error
+
+    def patched_handler(e, attempt, max_retries, base_delay):
+        # Force max_retries to 2 for tests
+        return original_handler(e, attempt, 2, base_delay)
+
+    monkeypatch.setattr(
+        anthropic_module, "_handle_anthropic_transient_error", patched_handler
+    )
+
+
 def test_planner_mode_requires_subtasks():
     """Test that planner mode requires subtasks parameter."""
     with pytest.raises(ValueError, match="Planner mode requires subtasks"):
