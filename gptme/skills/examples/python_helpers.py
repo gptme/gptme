@@ -95,11 +95,23 @@ def quick_plot(data: Any, kind: str = "line", **kwargs) -> None:
         print("matplotlib not installed")
 
 
-# Auto-import common libraries on module load
-try:
-    import numpy as np  # noqa: F401
-    import pandas as pd  # noqa: F401
+def setup_common_imports() -> None:
+    """Load common libraries (numpy, pandas) into the global namespace.
 
-    print("Loaded numpy as np, pandas as pd")
-except ImportError:
-    pass
+    Call this function at the start of your REPL session to
+    automatically import numpy as np and pandas as pd.
+    """
+    import sys
+
+    try:
+        import numpy as np
+        import pandas as pd
+
+        # Add to caller's global namespace
+        frame = sys._getframe(1)
+        frame.f_globals["np"] = np
+        frame.f_globals["pd"] = pd
+
+        print("Loaded numpy as np, pandas as pd")
+    except ImportError as e:
+        print(f"Failed to import: {e}")

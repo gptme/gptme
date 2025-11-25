@@ -95,5 +95,5 @@ def slow_operation():
 
 ## Related
 
-- Lesson: [python](../../gptme/lessons/tools/python.md)
+- Lesson: [python](../../../docs/lessons/tools/python.md)
 - Tool: ipython
