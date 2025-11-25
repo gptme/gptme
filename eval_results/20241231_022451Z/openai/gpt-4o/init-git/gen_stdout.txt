@@ -1,19 +1,0 @@
-
---- Start of generation ---
-           Using model: openai/gpt-4o
-[02:24:29] Using logdir
-           ~/.local/share/gptme/logs/2024-12-31-gptme-evals-openai--gpt-4o-59456
-           8
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-31-gptme-evals-openai--gpt-4o-59456
-           8/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant: Let's go through the steps to initialize a git repository, create a `main.py` file, and commit it.
-
-1. **Initialize a Git Repository**: We'll use `git init` to create a new git repository.
-2. **Create `main.py`**: We'll write a simple Python script in `main.py`.
-3. **Commit the File**: We'll add the file to the staging area and commit it.
-
-Let's start by initializing the git repository. I'll run the command for you.                                                                                --- Finished generation ---

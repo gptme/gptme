@@ -1,39 +1,0 @@
-
---- Start of generation ---
-[02:23:34] Using model: openrouter/meta-llama/llama-3.1-70b-instruct
-           Using logdir
-           ~/.local/share/gptme/logs/2025-01-24-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-70b-instruct-xml-235959
-           Using workspace at
-           ~/.local/share/gptme/logs/2025-01-24-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-70b-instruct-xml-235959/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant: Let's initialize a git repository, write a main.py file, and commit it.
-
-First, let's initialize a git repository using the `shell` tool:
-```shell
-git init
-```
-
-Preview
-git init
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2025-01-24-gptme-evals-openrouter--meta-llama--llama-3.1-70b-instruct-xml-235959/workspace/.git/
-System:
-Ran command: `git init`
-
- `Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2025-01-24-gptme-evals-openrouter--meta-ll
-ama--llama-3.1-70b-instruct-xml-235959/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant: Now that the repository is initialized, let's write a main.py file using the `save` tool:
-```save main.py
-print("Hello, world!")
-```<|eom_id|><|start_header_id|>assistant<|end_header_id|>
-
-Now that the main.py file is written, let's commit it using the `shell` tool:
-```shell
-git add main.py
-git commit -m "Initial commit"
-```                                                                                --- Finished generation ---

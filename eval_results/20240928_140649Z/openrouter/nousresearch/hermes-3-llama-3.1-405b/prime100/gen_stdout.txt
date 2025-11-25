@@ -1,47 +1,0 @@
-
---- Start of generation ---
-[14:06:29] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--nousresearch--hermes-3-llama-3.1-405b-465265
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--nousresearch--hermes-3-llama-3.1-405b-465265/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script prime.py that computes and prints the 100th prime number
-Assistant: Thinking...                                                                                Assistant: Here is a Python script that computes and prints the 100th prime number:
-
-```save prime.py
-def is_prime(n):
-    if n <= 1:
-        return False
-    for i in range(2, int(n**0.5) + 1):
-        if n % i == 0:
-            return False
-    return True
-
-def nth_prime(n):
-    count = 0
-    num = 2
-    while count < n:
-        if is_prime(num):
-            count += 1
-        num += 1
-    return num - 1
-
-print(nth_prime(100))
-```                                                                                Skipping confirmation.
-Saving to prime.py
-System: Saved to prime.py
-Assistant: Thinking...                                                                                Assistant: To verify that the script works correctly, let's run it:
-
-```bash
-python prime.py
-```
-541
-
-System:
-Ran command: `python prime.py`
-
-stdout: `541`
-Assistant: Thinking...                                                                                Assistant: The script correctly computed and printed the 100th prime number, which is 541.                                                                                --- Finished generation ---

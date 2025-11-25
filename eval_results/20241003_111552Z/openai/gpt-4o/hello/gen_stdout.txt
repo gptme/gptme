@@ -1,19 +1,0 @@
-
---- Start of generation ---
-[11:14:40] Using logdir
-           ~/.local/share/gptme/logs/2024-10-03-gptme-evals-openai--gpt-4o-45453
-           0
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-10-03-gptme-evals-openai--gpt-4o-45453
-           0/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: Sure! I'll create a script named `hello.py` that prints "Hello, world!".
-
-```save hello.py
-print("Hello, world!")
-```                                                                                Skipping confirmation.
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: The script `hello.py` has been created and saved. You can run it using Python to see the output. Would you like to execute it now?                                                                                --- Finished generation ---

@@ -1,86 +1,0 @@
-
---- Start of generation ---
-[03:03:20] Using model: anthropic/claude-haiku-4-5
-           Using logdir:
-           ~/.local/share/gptme/logs/2025-11-15-gptme-evals-anthropic--claude-ha
-           iku-4-5-tool-24951
-           Using workspace:
-           ~/.local/share/gptme/logs/2025-11-15-gptme-evals-anthropic--claude-ha
-           iku-4-5-tool-24951/workspace
-System: <budget:token_budget>200000</budget:token_budget>
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant:
-<thinking>          <thinking>
-The user wants me to:
-1. Initialize a git repository
-2. Write a main.py file
-3. Commit it
-
-I'll need to:
-1. Use shell to initialize git with `git init`
-2. Use save to create main.py
-3. Use shell to add and commit the file
-
-Let me do these steps.
-</thinking>           </thinking>
-@shell(toolu_01KMvUn6dQzvTrFx9pZHdHip): {"command": "git init"}
-
-Preview
-git init
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2025-11-15-gptme-evals-anthropic--claude-haiku-4-5-tool-24951/workspace/.git/
-System:
-Ran command: `git init`
-
-`Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2025-11-15-gptme-evals-anthropic--claude-h
-aiku-4-5-tool-24951/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant:
-Now let me create the main.py file:
-@save(toolu_01JPbUPxrc1e1peJH5Q23jHk): {"path": "main.py", "content": "#!/usr/bin/env python3\n\ndef main():\n    print(\"Hello, World!\")\n\nif __name__ == \"__main__\":\n    main()\n"}
-Preview
-#!/usr/bin/env python3
-
-def main():
-    print("Hello, World!")
-
-if __name__ == "__main__":
-    main()
-
-System: ✅ Saved to main.py
-Assistant: Thinking...                                                                                Assistant:
-Now let me configure git and commit:
-@shell(toolu_01CEB85SPFJzgkPqj7G4Mn5r): {"command": "git config user.email \"dev@example.com\" && git config user.name \"Developer\""}
-
-Preview
-git config user.email "dev@example.com" && git config user.name "Developer"
-
-System:
-Ran command: `git config user.email "dev@example.com" && git config user.name
-"Developer"`
-
-No output
-Assistant: Thinking...                                                                                Assistant:
-
-@shell(toolu_01JeKTFMzhJDEVosrcuB7wPb): {"command": "git add main.py && git commit -m \"Initial commit: add main.py\""}
-Preview
-git add main.py && git commit -m "Initial commit: add main.py"
-
-[main (root-commit) 8bbbc19] Initial commit: add main.py
- 1 file changed, 7 insertions(+)
- create mode 100644 main.py
-System:
-Ran command: `git add main.py && git commit -m "Initial commit: add main.py"`
-
-```stdout
- Initial commit: add main.py
- 1 file changed, 7 insertions(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant:
-Done! I've:
-1. Initialized a git repository
-2. Created a `main.py` file with a simple "Hello, World!" program
-3. Committed it with the message "Initial commit: add main.py"                                                                                --- Finished generation ---

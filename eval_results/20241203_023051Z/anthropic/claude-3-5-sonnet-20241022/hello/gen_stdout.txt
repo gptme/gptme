@@ -1,48 +1,0 @@
-
---- Start of generation ---
-[02:30:30] Using model: anthropic/claude-3-5-sonnet-20241022
-           Using logdir
-           ~/.local/share/gptme/logs/2024-12-03-gptme-evals-anthropic--claude-3-
-           5-sonnet-20241022-594455
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-03-gptme-evals-anthropic--claude-3-
-           5-sonnet-20241022-594455/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: <thinking>
-This is a simple task that requires creating a new Python file with a basic print statement.
-I'll use the save tool to write the file directly.
-</thinking>
-
-```save hello.py
-print("Hello, world!")
-```
-                                                                                [02:30:32] Tokens: 3098/49 in/out
-           Cost:   $0.01
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: <thinking>
-Let's verify that the file was created correctly and test it by running it.
-</thinking>
-
-```shell
-python3 hello.py
-```                                                                                [02:30:34] Tokens: 3151/31 in/out (session: 6249/80, turns: 2)
-           Cost:   $0.01          (session: $0.02)
-
-
-
-
-Preview
-python3 hello.py
-
-Hello, world!
-
-System:
-Ran command: `python3 hello.py`
-
- `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: The script works as expected, printing "Hello, world!" when executed. Is there anything else you'd like me to help you with?                                                                                [02:30:35] Tokens: 3198/28 in/out (session: 9447/108, turns: 3)
-           Cost:   $0.01          (session: $0.03)
---- Finished generation ---

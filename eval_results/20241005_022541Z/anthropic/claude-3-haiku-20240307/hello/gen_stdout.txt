@@ -1,40 +1,0 @@
-
---- Start of generation ---
-[02:24:38] Using logdir
-           ~/.local/share/gptme/logs/2024-10-05-gptme-evals-anthropic--claude-3-
-           haiku-20240307-17847
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-10-05-gptme-evals-anthropic--claude-3-
-           haiku-20240307-17847/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: Okay, let's write the `hello.py` script that prints "Hello, world!":
-
-```save hello.py
-print("Hello, world!")
-```                                                                                Skipping confirmation.
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: Great, the `hello.py` file has been saved with the contents:
-
-```python
-print("Hello, world!")
-```
-
-Now, let's verify that the script works as expected:
-
-```bash
-python hello.py
-```
-Hello, world!
-
-System:
-Ran command: `python hello.py`
-
-stdout: `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: Excellent, the `hello.py` script is working as expected! It prints the message "Hello, world!" when executed.
-
-We've successfully created a simple "Hello, world!" program in Python. This is a common first step when learning a new programming language, as it demonstrates the basic ability to write and run code.
-
-Let me know if you have any other questions or if you'd like to try something else!                                                                                --- Finished generation ---

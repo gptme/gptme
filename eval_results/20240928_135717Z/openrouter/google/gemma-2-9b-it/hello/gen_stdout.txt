@@ -1,14 +1,0 @@
-
---- Start of generation ---
-[13:57:10] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--google--gemma-2-9b-it-384960
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--google--gemma-2-9b-it-384960/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: ```python
-print("Hello, world!")
-```                                                                                --- Finished generation ---

@@ -1,50 +1,0 @@
-
---- Start of generation ---
-[02:26:08] Using model: openai/gpt-4o
-[02:26:09] Using logdir
-           ~/.local/share/gptme/logs/2025-01-19-gptme-evals-openai--gpt-4o-tool-
-           511447
-           Using workspace at
-           ~/.local/share/gptme/logs/2025-01-19-gptme-evals-openai--gpt-4o-tool-
-           511447/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant:
-@shell(call_vGJKpvgZn8lmBzGkWpnrRoxH): {"command": "git init"}
-
-Preview
-git init
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2025-01-19-gptme-evals-openai--gpt-4o-tool-511447/workspace/.git/
-System:
-Ran command: `git init`
-
- `Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2025-01-19-gptme-evals-openai--gpt-4o-tool
--511447/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant:
-@save(call_7m0NG64lwa01ubTQxh0TdZuQ): {"path":"main.py","content":"print(\"Hello, World!\")"}
-Preview
-print("Hello, World!")
-
-System: Saved to main.py
-Assistant: Thinking...                                                                                Assistant:
-@shell(call_jPm8Qx4rbjrYDoU6jjUFD9c3): {"command":"git add main.py && git commit -m \"Add main.py with Hello World script\""}
-Preview
-git add main.py && git commit -m "Add main.py with Hello World script"
-
-[main (root-commit) 81b9b91] Add main.py with Hello World script
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-System:
-Ran command: `git add main.py && git commit -m "Add main.py with Hello World
-script"`
-
-
-```stdout
- Add main.py with Hello World script
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant: The Git repository has been initialized, and the `main.py` file containing a "Hello, World!" script has been created and committed.                                                                                --- Finished generation ---

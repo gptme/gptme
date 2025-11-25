@@ -1,12 +1,0 @@
-
---- Start of generation ---
-[13:59:44] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--meta-llama--llama-3.2-90b-vision-instruct-478699
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--meta-llama--llama-3.2-90b-vision-instruct-478699/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                --- Finished generation ---

@@ -1,124 +1,0 @@
-
---- Start of generation ---
-[02:28:32] Using model: anthropic/claude-3-5-haiku-20241022
-           Using logdir
-           ~/.local/share/gptme/logs/2024-12-18-gptme-evals-anthropic--claude-3-
-           5-haiku-20241022-110168
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-18-gptme-evals-anthropic--claude-3-
-           5-haiku-20241022-110168/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant: I'll help you initialize a Git repository, create a main.py file, and commit it. I'll break this down into steps:
-
-1. Initialize the Git repository
-```shell
-git init
-```
-                                                                                [02:28:34] Tokens: 2851/42 in/out
-           Cost:   $0.00
-
-Preview
-git init
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2024-12-18-gptme-evals-anthropic--claude-3-5-haiku-20241022-110168/workspace/.git/
-System:
-Ran command: `git init`
-
- `Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2024-12-18-gptme-evals-anthropic--claude-3
--5-haiku-20241022-110168/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant: Great! Now I'll create a simple main.py file:
-
-```save main.py
-def main():
-    print("Hello, Git repository!")
-
-if __name__ == "__main__":
-    main()
-```
-                                                                                [02:28:36] Tokens: 2955/41 in/out (session: 5806/83, turns: 2)
-           Cost:   $0.00          (session: $0.01)
-
-Preview
-def main():
-    print("Hello, Git repository!")
-
-if __name__ == "__main__":
-    main()
-
-System: Saved to main.py
-Assistant: Thinking...                                                                                Assistant: Now, I'll add the file to the Git staging area and commit it:
-
-```shell
-git add main.py
-git commit -m "Initial commit: Add main.py with a simple print function"
-```                                                                                [02:28:37] Tokens: 3000/42 in/out (session: 8806/125, turns: 3)
-           Cost:   $0.00          (session: $0.01)
-
-Preview
-git add main.py
-git commit -m "Initial commit: Add main.py with a simple print function"
-
-[main (root-commit) 0a025f5] Initial commit: Add main.py with a simple print function
- 1 file changed, 5 insertions(+)
- create mode 100644 main.py
-System:
-Ran command:
-```bash
-git add main.py
-git commit -m "Initial commit: Add main.py with a simple print function"
-```
-
-
-```stdout
- Initial commit: Add main.py with a simple print function
- 1 file changed, 5 insertions(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant: Perfect! Let me verify the repository status and show the log:
-
-```shell
-git status
-git log
-```                                                                                [02:28:39] Tokens: 3122/23 in/out (session: 11928/148, turns: 4)
-           Cost:   $0.00          (session: $0.01)
-
-Preview
-git status
-git log
-
-On branch main
-nothing to commit, working tree clean
-commit 0a025f5c061493ed9fd9a5580e7ec43c066cabaf
-Author: gptme <gptme@superuserlabs.org>
-Date:   Wed Dec 18 02:28:37 2024 +0000
-
-    Initial commit: Add main.py with a simple print function
-System:
-Ran command:
-```bash
-git status
-git log
-```
-
-
-```stdout
-On branch main
-nothing to commit, working tree cleancommit
-0a025f5c061493ed9fd9a5580e7ec43c066cabaf
-Author: gptme <gptme@superuserlabs.org>
-Date:   Wed Dec 18 02:28:37 2024 +0000
-
-    Initial commit: Add main.py with a simple print function
-```
-Assistant: Thinking...                                                                                Assistant: Great! We've successfully:
-1. Initialized a Git repository
-2. Created a main.py file with a simple function
-3. Added the file to Git
-4. Committed the changes
-
-The repository is now set up with an initial commit. Would you like to do anything else with this repository?                                                                                [02:28:41] Tokens: 3250/62 in/out (session: 15178/210, turns: 5)
-           Cost:   $0.00          (session: $0.02)
---- Finished generation ---

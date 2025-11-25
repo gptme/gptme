@@ -1,1 +1,0 @@
-python: can't open file '/tmp/gptme-evals-uc_7w6u0/prime.py': [Errno 2] No such file or directory

@@ -1,57 +1,0 @@
-
---- Start of generation ---
-[02:30:32] Using model: anthropic/claude-3-5-haiku-20241022
-           Using logdir
-           ~/.local/share/gptme/logs/2024-12-03-gptme-evals-anthropic--claude-3-
-           5-haiku-20241022-594455
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-03-gptme-evals-anthropic--claude-3-
-           5-haiku-20241022-594455/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: I'll use the `save` tool to create the `hello.py` script:
-
-```save hello.py
-print("Hello, world!")
-```
-                                                                                [02:30:34] Tokens: 3098/30 in/out
-           Cost:   $0.00
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: Great! Now, let's verify the contents of the file and then run it:
-
-```shell
-cat hello.py
-```
-                                                                                [02:30:35] Tokens: 3132/26 in/out (session: 6230/56, turns: 2)
-           Cost:   $0.00          (session: $0.01)
-
-
-
-print("Hello, world!")
-
-System:
-Ran allowlisted command: `cat hello.py`
-
- `print("Hello, world!")`
-Assistant: Thinking...                                                                                Assistant: Now, I'll run the Python script:
-
-```shell
-python3 hello.py
-```
-                                                                                [02:30:36] Tokens: 3177/19 in/out (session: 9407/75, turns: 3)
-           Cost:   $0.00          (session: $0.01)
-
-Preview
-python3 hello.py
-
-Hello, world!
-
-System:
-Ran command: `python3 hello.py`
-
- `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: The script works perfectly! It prints "Hello, world!" as expected. Is there anything else you'd like me to do with this script?                                                                                [02:30:38] Tokens: 3212/29 in/out (session: 12619/104, turns: 4)
-           Cost:   $0.00          (session: $0.01)
---- Finished generation ---

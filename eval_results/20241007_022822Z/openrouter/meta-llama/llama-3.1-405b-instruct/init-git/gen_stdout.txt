@@ -1,80 +1,0 @@
-
---- Start of generation ---
-[02:27:27] Using logdir
-           ~/.local/share/gptme/logs/2024-10-07-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-405b-instruct-203527
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-10-07-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-405b-instruct-203527/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant: Let's initialize a git repository, write a main.py file, and commit it.
-
-First, we'll initialize a new git repository:
-```bash
-git init
-```
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2024-10-07-gptme-evals-openrouter--meta-llama--llama-3.1-405b-instruct-203527/workspace/.git/
-
-System:
-Ran command: `git init`
-
-stdout: `Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2024-10-07-gptme-evals-openrouter--meta-ll
-ama--llama-3.1-405b-instruct-203527/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant: Now, let's write a main.py file:
-```save main.py
-print("Hello, World!")
-```                                                                                Skipping confirmation.
-Saving to main.py
-System: Saved to main.py
-Assistant: Thinking...                                                                                Assistant:
-
-Next, we'll add the main.py file to the git repository and commit it:
-```bash
-git add main.py
-git commit -m "Initial commit"
-```
-[main (root-commit) 5b0c72f] Initial commit
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-
-System:
-Ran command:
-```bash
-git add main.py
-git commit -m "Initial commit"
-```
-
-stdout:
-```
- Initial commit
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant: Our main.py file has been successfully committed to the git repository.
-
-Let's check the git log to confirm:
-```bash
-git log
-```                                                                                commit 5b0c72f7331ca1d26ec527424bd32ff6974c7e5b
-Author: gptme <gptme@superuserlabs.org>
-Date:   Mon Oct 7 02:27:35 2024 +0000
-
-    Initial commit
-
-System:
-Ran command: `git log`
-
-stdout:
-```
-commit 5b0c72f7331ca1d26ec527424bd32ff6974c7e5b
-Author: gptme <gptme@superuserlabs.org>
-Date:   Mon Oct 7 02:27:35 2024 +0000
-
-    Initial commit
-```
-Assistant: Thinking...                                                                                Assistant: The git log shows our initial commit with the message "Initial commit". This confirms that our main.py file has been successfully committed to the git repository.
-
-We've successfully initialized a git repository, written a main.py file, and committed it. If you'd like to make changes to the main.py file or add new files to the repository, we can do that next. Just let me know what you'd like to do!                                                                                --- Finished generation ---

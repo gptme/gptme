@@ -1,65 +1,0 @@
-
---- Start of generation ---
-[03:06:03] Using model: openai/gpt-4o-mini
-           Using logdir:
-           ~/.local/share/gptme/logs/2025-11-20-gptme-evals-openai--gpt-4o-mini-
-           tool-10545
-           Using workspace:
-           ~/.local/share/gptme/logs/2025-11-20-gptme-evals-openai--gpt-4o-mini-
-           tool-10545/workspace
-System: <budget:token_budget>128000</budget:token_budget>
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant:
-
-@shell(call_y7gvTt122yBlz2x8MhmzZT4e): {"command": "git init"}
-
-Preview
-git init
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2025-11-20-gptme-evals-openai--gpt-4o-mini-tool-10545/workspace/.git/
-System:
-Ran command: `git init`
-
-`Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2025-11-20-gptme-evals-openai--gpt-4o-mini
--tool-10545/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant:
-
-@save(call_r6UQ84z35r41rgoX6Q3PXXPt): {"path":"main.py","content":"print(\"Hello, World!\")"}
-Preview
-print("Hello, World!")
-
-System: ✅ Saved to main.py
-Assistant: Thinking...                                                                                Assistant:
-
-@shell(call_Swobd7BUTZYu9wZ0wTkspzAr): {"command":"git add main.py"}
-Preview
-git add main.py
-
-System:
-Ran command: `git add main.py`
-
-No output
-Assistant: Thinking...                                                                                Assistant:
-
-@shell(call_ttib7bJFHYTCm3svL6nPp2kL): {"command":"git commit -m \"Initial commit with main.py\""}
-Preview
-git commit -m "Initial commit with main.py"
-
-[main (root-commit) 93c97e4] Initial commit with main.py
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-System:
-Ran command: `git commit -m "Initial commit with main.py"`
-
-```stdout
- Initial commit with main.py
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant:
-I have initialized a Git repository, created a `main.py` file with the content `print("Hello, World!")`, added it to the staging area, and committed it with the message "Initial commit with main.py".
-
-If you need any further actions or modifications, let me know!                                                                                --- Finished generation ---

@@ -1,1 +1,0 @@
-python: can't open file '/tmp/gptme-evals-qr34qp4l/hello.py': [Errno 2] No such file or directory

@@ -1,51 +1,0 @@
-
---- Start of generation ---
-[02:30:26] Using model: openai/gpt-4o-mini
-[02:30:27] Using logdir
-           ~/.local/share/gptme/logs/2024-12-03-gptme-evals-openai--gpt-4o-mini-
-           594455
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-03-gptme-evals-openai--gpt-4o-mini-
-           594455/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: Let's create a simple Python script named `hello.py` that prints "Hello, world!".
-
-Here is the code for the script:
-
-```python
-print("Hello, world!")
-```
-
-I'll save this code to `hello.py`.
-
-```save hello.py
-print("Hello, world!")
-```                                                                                [02:30:29] Tokens: 3098/62 in/out
-           Cost:   $0.00
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: The script `hello.py` has been successfully created and saved. You can run it using the command:
-
-```shell
-python hello.py
-```
-                                                                                [02:30:31] Tokens: 3164/30 in/out (session: 6262/92, turns: 2)
-           Cost:   $0.00          (session: $0.00)
-
-
-
-
-Preview
-python hello.py
-
-Hello, world!
-
-System:
-Ran command: `python hello.py`
-
- `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: The script executed successfully and printed "Hello, world!" as expected. If you have any more tasks or questions, feel free to ask!                                                                                [02:30:32] Tokens: 3209/28 in/out (session: 9471/120, turns: 3)
-           Cost:   $0.00          (session: $0.00)
---- Finished generation ---

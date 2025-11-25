@@ -1,3 +1,0 @@
-
---- Start of generation ---
-[02:31:03] Using model: gemini/gemini-1.5-flash-latest

@@ -1,12 +1,0 @@
-
---- Start of generation ---
-[11:43:27] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-29-gptme-evals-openai--
-           gpt-4-turbo-384934
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-29-gptme-evals-openai--
-           gpt-4-turbo-384934/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: who is the CEO of Superuser Labs? write the answer to answer.txt
-Assistant: Thinking...                                                                                Assistant: To find out who the CEO of Superuser Labs is, I'll need to search the web. Let's start by searching for this information.                                                                                --- Finished generation ---

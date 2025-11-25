@@ -1,72 +1,0 @@
-
---- Start of generation ---
-[03:12:32] Using model: anthropic/claude-haiku-4-5
-           Using logdir:
-           ~/.local/share/gptme/logs/2025-11-17-gptme-evals-anthropic--claude-ha
-           iku-4-5-tool-58530
-           Using workspace:
-           ~/.local/share/gptme/logs/2025-11-17-gptme-evals-anthropic--claude-ha
-           iku-4-5-tool-58530/workspace
-System: <budget:token_budget>200000</budget:token_budget>
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant:
-<thinking>          <thinking>
-The user wants me to:
-1. Initialize a git repository
-2. Write a main.py file
-3. Commit it
-
-Let me do this step by step:
-1. First, initialize git with `git init`
-2. Create a main.py file
-3. Add it and commit
-
-Since the shell commands are stateful, I can do these in sequence. Let me start by initializing git, then creating the file, then committing.
-</thinking>           </thinking>
-@shell(toolu_0117pyRn8F8oTXgwTb3SbsXC): {"command": "git init"}
-
-Preview
-git init
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2025-11-17-gptme-evals-anthropic--claude-haiku-4-5-tool-58530/workspace/.git/
-System:
-Ran command: `git init`
-
-`Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2025-11-17-gptme-evals-anthropic--claude-h
-aiku-4-5-tool-58530/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant:
-Now let me create a main.py file:
-@save(toolu_01BEbMGeJf6Lp7bYGZDzS2Bk): {"path": "main.py", "content": "#!/usr/bin/env python3\n\"\"\"Main entry point for the application.\"\"\"\n\nif __name__ == \"__main__\":\n    print(\"Hello, World!\")\n"}
-Preview
-#!/usr/bin/env python3
-"""Main entry point for the application."""
-
-if __name__ == "__main__":
-    print("Hello, World!")
-
-System: ✅ Saved to main.py
-Assistant: Thinking...                                                                                Assistant:
-Now let me add and commit it:
-@shell(toolu_01E41nut8bfoZiKE1aFxP5f9): {"command": "git add main.py && git commit -m \"Initial commit: add main.py\""}
-Preview
-git add main.py && git commit -m "Initial commit: add main.py"
-
-[main (root-commit) 6e924ce] Initial commit: add main.py
- 1 file changed, 5 insertions(+)
- create mode 100644 main.py
-System:
-Ran command: `git add main.py && git commit -m "Initial commit: add main.py"`
-
-```stdout
- Initial commit: add main.py
- 1 file changed, 5 insertions(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant:
-Done! I've:
-1. Initialized a git repository
-2. Created a main.py file with a simple "Hello, World!" program
-3. Committed it with the message "Initial commit: add main.py"                                                                                --- Finished generation ---

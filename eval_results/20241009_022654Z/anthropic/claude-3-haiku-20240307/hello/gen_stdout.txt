@@ -1,44 +1,0 @@
-
---- Start of generation ---
-[02:25:48] Using logdir
-           ~/.local/share/gptme/logs/2024-10-09-gptme-evals-anthropic--claude-3-
-           haiku-20240307-381913
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-10-09-gptme-evals-anthropic--claude-3-
-           haiku-20240307-381913/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: Okay, let's write the `hello.py` script that prints "Hello, world!":
-
-```save hello.py
-print("Hello, world!")
-```                                                                                Skipping confirmation.
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: Great, the `hello.py` script has been saved with the contents:
-
-```python
-print("Hello, world!")
-```
-
-Now, let's verify that the script works as expected:
-
-```shell
-python hello.py
-```
-Hello, world!
-
-System:
-Ran command: `python hello.py`
-
- `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: Excellent, the `hello.py` script executed successfully and printed "Hello, world!" as expected.
-
-We were able to:
-<thinking>
-1. Use the `save` tool to create the `hello.py` file with the desired content.
-2. Verify the script by running `python hello.py` in the shell and observing the output.
-</thinking>
-
-This is a great start to our programming session. Let me know if you have any other tasks you'd like me to help with!                                                                                --- Finished generation ---

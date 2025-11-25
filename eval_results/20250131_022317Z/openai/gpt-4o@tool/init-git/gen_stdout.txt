@@ -1,54 +1,0 @@
-
---- Start of generation ---
-           Using model: openai/gpt-4o
-[02:22:36] Using logdir
-           ~/.local/share/gptme/logs/2025-01-31-gptme-evals-openai--gpt-4o-tool-
-           728291
-           Using workspace at
-           ~/.local/share/gptme/logs/2025-01-31-gptme-evals-openai--gpt-4o-tool-
-           728291/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant:
-@shell(call_wyJo1MN3b8vJ4fK65jzun20B): {"command": "git init"}
-
-Preview
-git init
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2025-01-31-gptme-evals-openai--gpt-4o-tool-728291/workspace/.git/
-System:
-Ran command: `git init`
-
- `Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2025-01-31-gptme-evals-openai--gpt-4o-tool
--728291/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant:
-@save(call_FtKdVgThjBbYayvxdOq0ecva): {"path":"main.py","content":"def main():\n    print(\"Hello, World!\")\n\nif __name__ == \"__main__\":\n    main()\n"}
-Preview
-def main():
-    print("Hello, World!")
-
-if __name__ == "__main__":
-    main()
-
-System: Saved to main.py
-Assistant: Thinking...                                                                                Assistant:
-@shell(call_tzRcG3SE5yR4nwe6AXZosPVS): {"command":"git add main.py && git commit -m \"Add main.py with a simple hello world function\""}
-Preview
-git add main.py && git commit -m "Add main.py with a simple hello world function
-
-[main (root-commit) 2b87fde] Add main.py with a simple hello world function
- 1 file changed, 5 insertions(+)
- create mode 100644 main.py
-System:
-Ran command: `git add main.py && git commit -m "Add main.py with a simple hello
-world function"`
-
-
-```stdout
- Add main.py with a simple hello world function
- 1 file changed, 5 insertions(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant: The Git repository has been initialized, and `main.py` has been created and committed with a simple "Hello, World!" function.                                                                                --- Finished generation ---

@@ -1,86 +1,0 @@
-
---- Start of generation ---
-[02:30:46] Using model: openai/gpt-4o
-[02:30:47] Using logdir
-           ~/.local/share/gptme/logs/2024-12-13-gptme-evals-openai--gpt-4o-34314
-           1
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-13-gptme-evals-openai--gpt-4o-34314
-           1/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant: Let's start by initializing a git repository, creating a `main.py` file, and then committing it. Here are the steps:
-
-1. Initialize a git repository.
-2. Create a `main.py` file with some content.
-3. Add the file to the git staging area.
-4. Commit the file to the repository.
-
-I'll execute these steps for you. Let's begin by initializing the git repository.
-
-```shell
-git init
-```
-                                                                                [02:30:51] Tokens: 2865/90 in/out
-           Cost:   $0.02
-
-Preview
-git init
-
-
-
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2024-12-13-gptme-evals-openai--gpt-4o-343141/workspace/.git/
-
-System:
-Ran command: `git init`
-
- `Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2024-12-13-gptme-evals-openai--gpt-4o-3431
-41/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant: The git repository has been initialized. Next, let's create a `main.py` file with some content. I'll write a simple Python script that prints "Hello, World!".
-
-```save main.py
-print("Hello, World!")
-```
-                                                                                [02:30:53] Tokens: 3009/48 in/out (session: 5874/138, turns: 2)
-           Cost:   $0.02          (session: $0.03)
-
-Preview
-print("Hello, World!")
-
-System: Saved to main.py
-Assistant: Thinking...                                                                                Assistant: The `main.py` file has been created with a simple "Hello, World!" script. Now, let's add this file to the git staging area and commit it.
-
-```shell
-git add main.py
-git commit -m "Add main.py with a simple Hello World script"
-```                                                                                [02:30:54] Tokens: 3061/58 in/out (session: 8935/196, turns: 3)
-           Cost:   $0.02          (session: $0.05)
-
-Preview
-git add main.py
-git commit -m "Add main.py with a simple Hello World script"
-
-
-[main (root-commit) 3fdcfe7] Add main.py with a simple Hello World script
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-
-System:
-Ran command:
-```bash
-git add main.py
-git commit -m "Add main.py with a simple Hello World script"
-```
-
-
-```stdout
- Add main.py with a simple Hello World script
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant: The `main.py` file has been successfully added and committed to the git repository with the message "Add main.py with a simple Hello World script". If you need any further assistance, feel free to ask!                                                                                [02:30:55] Tokens: 3194/42 in/out (session: 12129/238, turns: 4)
-           Cost:   $0.02          (session: $0.06)
---- Finished generation ---

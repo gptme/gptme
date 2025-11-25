@@ -1,24 +1,0 @@
-
---- Start of generation ---
-[16:57:42] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openai--
-           o1-mini-632820
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openai--
-           o1-mini-632820/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: who is the CEO of Superuser Labs? write the answer to answer.txt
-Assistant: Thinking...                                                                                Assistant: <thinking>
-Determined that the CEO of Superuser Labs is Prashanth Chandrasekar.
-Now, writing this information to `answer.txt`.
-</thinking>
-```save answer.txt
-The CEO of Superuser Labs is Prashanth Chandrasekar.
-```
-Skipping confirmation.
-Saving to answer.txt
-System: Saved to answer.txt
-Assistant: Thinking...                                                                                Assistant: Understood. The information has been saved to `answer.txt`. How can I
-assist you further?
---- Finished generation ---

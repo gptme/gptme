@@ -1,16 +1,0 @@
-
---- Start of generation ---
-[02:28:22] Using model: openrouter/meta-llama/llama-3.1-70b-instruct
-[02:28:23] Using logdir
-           ~/.local/share/gptme/logs/2025-03-07-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-70b-instruct-xml-471142
-           Using workspace at
-           ~/.local/share/gptme/logs/2025-03-07-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-70b-instruct-xml-471142/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant:
-Let's initialize a git repository, write a main.py file, and commit it.
-
-First, let's initialize a git repository using the `git init` command.                                                                                --- Finished generation ---

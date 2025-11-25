@@ -1,82 +1,0 @@
-
---- Start of generation ---
-[17:11:58] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openrout
-           er--meta-llama--llama-3.1-405b-instruct-100255
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openrout
-           er--meta-llama--llama-3.1-405b-instruct-100255/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: create a Rust project in a hello_world directory, write a hello world
-program (that doesnt take input), build it to a binary called `hello_world`, and
-run it
-Assistant: Thinking...                                                                                Assistant: Let's create a new Rust project in the `hello_world` directory.
-
-First, we'll create the directory and navigate into it:
-```bash
-mkdir hello_world
-cd hello_world
-```
-
-
-System:
-Ran command:
-```bash
-mkdir hello_world
-cd hello_world
-```
-
-No output
-Assistant: Thinking...                                                                                Assistant:
-
-Next, we'll create a new Rust project using Cargo:
-```bash
-cargo init
-```
-System:
-Ran command: `cargo init`
-
-stderr:
-```
-Creating binary (application) package
-note: see more `Cargo.toml` keys and their definitions at
-https://doc.rust-lang.org/cargo/reference/manifest.html
-```
-Assistant: Thinking...                                                                                Assistant:
-
-Now, let's write a "Hello, World!" program in Rust.
-
-We'll replace the contents of `src/main.rs` with the following code:
-```save src/main.rs
-fn main() {
-    println!("Hello, World!");
-}
-```                                                                                Skipping confirmation.
-Skipping overwrite confirmation.
-Saving to src/main.rs
-System: Saved to src/main.rs
-Assistant: Thinking...                                                                                Assistant: Next, we'll build the program to a binary called `hello_world`:
-```bash
-cargo build --release
-```
-System:
-Ran command: `cargo build --release`
-
-stderr:
-```
-Compiling hello_world v0.1.0
-(/home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openrouter--meta-l
-lama--llama-3.1-405b-instruct-100255/workspace/hello_world)
-    Finished `release` profile  target(s) in 0.07s
-```
-Assistant: Thinking...                                                                                Assistant: Finally, we'll run the `hello_world` binary:
-```bash
-./target/release/hello_world
-```                                                                                Hello, World!
-
-System:
-Ran command: `./target/release/hello_world`
-
-stdout: `Hello, World!`
-Assistant: Thinking...                                                                                Assistant: The "Hello, World!" program has been successfully compiled and run. The output is as expected.                                                                                --- Finished generation ---

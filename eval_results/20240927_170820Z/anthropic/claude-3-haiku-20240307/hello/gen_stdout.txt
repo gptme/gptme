@@ -1,30 +1,0 @@
-
---- Start of generation ---
-[17:07:49] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-anthropi
-           c--claude-3-haiku-20240307-221607
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-anthropi
-           c--claude-3-haiku-20240307-221607/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: Okay, let's write the `hello.py` script that prints "Hello, world!":
-
-```save hello.py
-print("Hello, world!")
-```                                                                                Skipping confirmation.
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: Great, the `hello.py` script has been saved. Let's verify the contents:
-
-```bash
-cat hello.py
-```
-print("Hello, world!")
-
-System:
-Ran command: `cat hello.py`
-
-stdout: `print("Hello, world!")`
-Assistant: Thinking...                                                                                Assistant: Excellent, the `hello.py` script contains the expected "Hello, world!" print statement. We've successfully created the script as requested.                                                                                --- Finished generation ---

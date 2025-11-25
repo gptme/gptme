@@ -1,48 +1,0 @@
-
---- Start of generation ---
-[02:30:27] Using model: anthropic/claude-3-5-sonnet-20241022
-           Using logdir
-           ~/.local/share/gptme/logs/2024-12-05-gptme-evals-anthropic--claude-3-
-           5-sonnet-20241022-458527
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-05-gptme-evals-anthropic--claude-3-
-           5-sonnet-20241022-458527/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: <thinking>
-This is a simple task that requires creating a new Python file with a print statement.
-I'll use the save tool to write the file directly.
-</thinking>
-
-```save hello.py
-print("Hello, world!")
-```
-                                                                                [02:30:29] Tokens: 3090/48 in/out
-           Cost:   $0.01
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: <thinking>
-Let's verify the script works by running it.
-</thinking>
-
-```shell
-python3 hello.py
-```                                                                                [02:30:30] Tokens: 3142/25 in/out (session: 6232/73, turns: 2)
-           Cost:   $0.01          (session: $0.02)
-
-
-
-
-Preview
-python3 hello.py
-
-Hello, world!
-
-System:
-Ran command: `python3 hello.py`
-
- `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: The script works as expected, printing "Hello, world!" when executed. Is there anything else you'd like me to help you with?                                                                                [02:30:32] Tokens: 3183/28 in/out (session: 9415/101, turns: 3)
-           Cost:   $0.01          (session: $0.03)
---- Finished generation ---

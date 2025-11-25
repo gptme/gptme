@@ -1,26 +1,0 @@
-
---- Start of generation ---
-[02:30:09] Using model: openai/gpt-4o
-[02:30:10] Using logdir
-           ~/.local/share/gptme/logs/2024-12-11-gptme-evals-openai--gpt-4o-73061
-           1
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-11-gptme-evals-openai--gpt-4o-73061
-           1/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User:
-modify hello.py to ask the user for their name and print 'Hello, <name>!'. don't
-try to execute it
-
-```hello.py
-print("Hello, world!")
-```
-Assistant: Thinking...                                                                                Assistant: Here's the modified version of `hello.py` to ask the user for their name and print a personalized greeting:
-
-```python
-name = input("What is your name? ")
-print(f"Hello, {name}!")
-```                                                                                [02:30:12] Tokens: 2899/46 in/out
-           Cost:   $0.02
---- Finished generation ---

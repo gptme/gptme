@@ -1,40 +1,0 @@
-
---- Start of generation ---
-[17:09:21] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openai--
-           o1-mini-683157
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openai--
-           o1-mini-683157/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: <thinking>
-To create a `hello.py` script that prints "Hello, world!", I will use the `save`
-tool to write the necessary Python code to the file.
-</thinking>
-```save hello.py
-print("Hello, world!")
-```
-Skipping confirmation.
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: <thinking>
-Now that `hello.py` has been saved, I can execute it to display the output.
-</thinking>
-```bash
-python hello.py
-```
-
-Hello, world!
-
-System:
-Ran command: `python hello.py`
-
-stdout: `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: <thinking>
-The `hello.py` script has been successfully created and executed, printing
-"Hello, world!". Would you like to make any modifications to this script or
-proceed with another task?
-</thinking>
---- Finished generation ---

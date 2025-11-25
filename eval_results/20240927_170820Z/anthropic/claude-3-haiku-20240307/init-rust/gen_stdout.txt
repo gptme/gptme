@@ -1,109 +1,0 @@
-
---- Start of generation ---
-[17:07:54] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-anthropi
-           c--claude-3-haiku-20240307-931921
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-anthropi
-           c--claude-3-haiku-20240307-931921/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: create a Rust project in a hello_world directory, write a hello world
-program (that doesnt take input), build it to a binary called `hello_world`, and
-run it
-Assistant: Thinking...                                                                                Assistant: Okay, let's create a new Rust project in a `hello_world` directory and write a simple "Hello, World!" program.
-
-<thinking>
-First, I'll create the new project directory and navigate to it:
-</thinking>
-
-```bash
-mkdir hello_world
-cd hello_world
-```
-
-
-System:
-Ran command:
-```bash
-mkdir hello_world
-cd hello_world
-```
-
-No output
-Assistant: Thinking...                                                                                Assistant: Great, the directory is created and I'm now in the `hello_world` directory.
-
-<thinking>
-Next, I'll initialize a new Rust project using `cargo`, the Rust package manager and build tool:
-</thinking>
-
-```bash
-cargo init --bin
-```
-System:
-Ran command: `cargo init --bin`
-
-stderr:
-```
-Creating binary (application) package
-note: see more `Cargo.toml` keys and their definitions at
-https://doc.rust-lang.org/cargo/reference/manifest.html
-```
-Assistant: Thinking...                                                                                Assistant: Excellent, the `cargo init --bin` command has created a new Rust binary project in the `hello_world` directory.
-
-<thinking>
-Now, let's open the generated `src/main.rs` file and write the "Hello, World!" program:
-</thinking>
-
-```save src/main.rs
-fn main() {
-    println!("Hello, world!");
-}
-```                                                                                Skipping confirmation.
-Skipping overwrite confirmation.
-Saving to src/main.rs
-System: Saved to src/main.rs
-Assistant: Thinking...                                                                                Assistant: Great, the "Hello, World!" program is now written in the `src/main.rs` file.
-
-<thinking>
-Next, let's build the project into a binary executable using the `cargo build` command:
-</thinking>
-
-```bash
-cargo build
-```
-System:
-Ran command: `cargo build`
-
-stderr:
-```
-Compiling hello_world v0.1.0
-(/home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-anthropic--claude-
-3-haiku-20240307-931921/workspace/hello_world)
-    Finished `dev` profile  target(s) in 0.08s
-```
-Assistant: Thinking...                                                                                Assistant: Excellent, the `cargo build` command has successfully compiled the "Hello, World!" program into a binary executable.
-
-<thinking>
-Now, let's run the executable using the `./target/debug/hello_world` command:
-</thinking>
-
-```bash
-./target/debug/hello_world
-```                                                                                Hello, world!
-
-System:
-Ran command: `./target/debug/hello_world`
-
-stdout: `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: Great, the "Hello, World!" program has been executed successfully! The output shows the expected "Hello, world!" message.
-
-To summarize the steps we've taken:
-
-1. Created a new Rust project directory called `hello_world`.
-2. Initialized a new Rust binary project using `cargo init --bin`.
-3. Wrote the "Hello, World!" program in the `src/main.rs` file.
-4. Built the project into a binary executable using `cargo build`.
-5. Ran the executable using `./target/debug/hello_world`.
-
-The final binary is now located at `./target/debug/hello_world`, and we can distribute or run it as needed.                                                                                --- Finished generation ---

@@ -1,52 +1,0 @@
-
---- Start of generation ---
-[02:21:20] Using model: openai/gpt-4o
-[02:21:21] Using logdir
-           ~/.local/share/gptme/logs/2025-02-08-gptme-evals-openai--gpt-4o-tool-
-           934303
-           Using workspace at
-           ~/.local/share/gptme/logs/2025-02-08-gptme-evals-openai--gpt-4o-tool-
-           934303/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant:
-@shell(call_AJL4UVwtraFkVuakcvN4iY4l): {"command": "git init"}
-
-Preview
-git init
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2025-02-08-gptme-evals-openai--gpt-4o-tool-934303/workspace/.git/
-System:
-Ran command: `git init`
-
- `Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2025-02-08-gptme-evals-openai--gpt-4o-tool
--934303/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant:
-@save(call_YlcWMxnXwdunuK1FJ3d5Md8Z): {"path":"/home/appuser/.local/share/gptme/logs/2025-02-08-gptme-evals-openai--gpt-4o-tool-934303/workspace/main.py","content":"print(\"Hello, World!\")"}
-Preview
-print("Hello, World!")
-
-System: ✅ Saved to
-/home/appuser/.local/share/gptme/logs/2025-02-08-gptme-evals-openai--gpt-4o-tool
--934303/workspace/main.py
-Assistant: Thinking...                                                                                Assistant:
-@shell(call_p159CoQvjsYxsWRZhD7oXLK2): {"command":"git add main.py && git commit -m \"Add main.py with Hello World script\""}
-Preview
-git add main.py && git commit -m "Add main.py with Hello World script"
-
-[main (root-commit) 08ec801] Add main.py with Hello World script
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-System:
-Ran command: `git add main.py && git commit -m "Add main.py with Hello World
-script"`
-
-
-```stdout
- Add main.py with Hello World script
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant: The Git repository has been initialized, and the `main.py` file containing a "Hello, World!" script has been created and committed.                                                                                --- Finished generation ---

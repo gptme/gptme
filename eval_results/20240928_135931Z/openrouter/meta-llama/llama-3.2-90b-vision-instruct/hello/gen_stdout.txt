@@ -1,28 +1,0 @@
-
---- Start of generation ---
-[13:59:25] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--meta-llama--llama-3.2-90b-vision-instruct-910249
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--meta-llama--llama-3.2-90b-vision-instruct-910249/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: Here is a script that prints "Hello, world!":
-```save hello.py
-print("Hello, world!")
-```                                                                                Skipping confirmation.
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: The script has been saved to `hello.py`. Let's verify that it works as expected by running it:
-```bash
-python hello.py
-```
-Hello, world!
-
-System:
-Ran command: `python hello.py`
-
-stdout: `Hello, world!`
-Assistant: Thinking...                                                                                --- Finished generation ---

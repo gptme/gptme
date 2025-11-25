@@ -1,74 +1,0 @@
-
---- Start of generation ---
-[02:28:35] Using model: openrouter/meta-llama/llama-3.1-405b-instruct
-           Using logdir
-           ~/.local/share/gptme/logs/2024-12-18-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-405b-instruct-110168
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-18-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-405b-instruct-110168/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: initialize a git repository, write a main.py file, and commit it
-Assistant: Thinking...                                                                                Assistant: Let's initialize a git repository, write a main.py file, and commit it.
-
-First, we'll initialize a new git repository using the `git init` command:
-```shell
-git init
-```
-                                                                                [02:28:39] Tokens: 2851/42 in/out
-
-Preview
-git init
-
-Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2024-12-18-gptme-evals-openrouter--meta-llama--llama-3.1-405b-instruct-110168/workspace/.git/
-System:
-Ran command: `git init`
-
- `Initialized empty Git repository in
-/home/appuser/.local/share/gptme/logs/2024-12-18-gptme-evals-openrouter--meta-ll
-ama--llama-3.1-405b-instruct-110168/workspace/.git/`
-Assistant: Thinking...                                                                                Assistant: Next, we'll create a new file called main.py with a simple "Hello, World!" program:
-```save main.py
-print("Hello, World!")
-```
-                                                                                [02:28:41] Tokens: 2957/34 in/out (session: 5808/76, turns: 2)
-
-Preview
-print("Hello, World!")
-
-System: Saved to main.py
-Assistant: Thinking...                                                                                Assistant: Now, we'll add the main.py file to the git repository using the `git add` command:
-```shell
-git add main.py
-```                                                                                [02:28:43] Tokens: 2995/30 in/out (session: 8803/106, turns: 3)
-
-Preview
-git add main.py
-
-System:
-Ran command: `git add main.py`
-
-No output
-Assistant: Thinking...                                                                                Assistant: Finally, we'll commit the changes using the `git commit` command:
-```shell
-git commit -m "Initial commit"
-```                                                                                [02:28:46] Tokens: 3038/27 in/out (session: 11841/133, turns: 4)
-
-Preview
-git commit -m "Initial commit"
-
-[main (root-commit) 8342a09] Initial commit
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-System:
-Ran command: `git commit -m "Initial commit"`
-
-
-```stdout
- Initial commit
- 1 file changed, 1 insertion(+)
- create mode 100644 main.py
-```
-Assistant: Thinking...                                                                                Assistant: The main.py file has been committed to the git repository.                                                                                [02:28:47] Tokens: 3117/12 in/out (session: 14958/145, turns: 5)
---- Finished generation ---

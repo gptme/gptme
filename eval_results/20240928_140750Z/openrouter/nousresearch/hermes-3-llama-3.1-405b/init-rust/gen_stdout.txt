@@ -1,81 +1,0 @@
-
---- Start of generation ---
-[14:07:01] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--nousresearch--hermes-3-llama-3.1-405b-356629
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--nousresearch--hermes-3-llama-3.1-405b-356629/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: create a Rust project in a hello_world directory, write a hello world
-program (that doesnt take input), build it to a binary called `hello_world`, and
-run it
-Assistant: Thinking...                                                                                Assistant: Okay, let's break this down step-by-step:
-
-1. Create a new Rust project in a directory called `hello_world`
-2. Write a "Hello, World!" program in Rust that doesn't take any input
-3. Build the Rust project to a binary called `hello_world`
-4. Run the `hello_world` binary
-
-Let's start with step 1 - creating the new Rust project.
-
-```bash
-cargo new hello_world
-```
-
-System:
-Ran command: `cargo new hello_world`
-
-stderr:
-```
-Creating binary (application) `hello_world` package
-note: see more `Cargo.toml` keys and their definitions at
-https://doc.rust-lang.org/cargo/reference/manifest.html
-```
-Assistant: Thinking...                                                                                Assistant: Great, the new Rust project has been created in the `hello_world` directory.
-
-Next, let's write the "Hello, World!" program. We'll replace the contents of `src/main.rs` with the following code:
-
-```save hello_world/src/main.rs
-fn main() {
-    println!("Hello, World!");
-}
-```                                                                                Skipping confirmation.
-Skipping overwrite confirmation.
-Saving to hello_world/src/main.rs
-System: Saved to hello_world/src/main.rs
-Assistant: Thinking...                                                                                Assistant: Now that we have the Rust code written, let's move on to step 3 - building the project to a binary called `hello_world`.
-
-```bash
-cd hello_world
-cargo build --release
-```
-
-System:
-Ran command:
-```bash
-cd hello_world
-cargo build --release
-```
-
-stderr:
-```
-Compiling hello_world v0.1.0
-(/home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrouter--nousre
-search--hermes-3-llama-3.1-405b-356629/workspace/hello_world)
-    Finished `release` profile  target(s) in 0.08s
-```
-Assistant: Thinking...                                                                                Assistant: The Rust project has been successfully built. The compiled binary will be located at `target/release/hello_world`.
-
-Finally, let's run the `hello_world` binary:
-
-```bash
-./target/release/hello_world
-```                                                                                Hello, World!
-
-System:
-Ran command: `./target/release/hello_world`
-
-stdout: `Hello, World!`
-Assistant: Thinking...                                                                                Assistant: Excellent! We have successfully created a Rust project, written a "Hello, World!" program, built it to a binary, and run the binary. The output "Hello, World!" confirms that everything is working as expected.                                                                                --- Finished generation ---

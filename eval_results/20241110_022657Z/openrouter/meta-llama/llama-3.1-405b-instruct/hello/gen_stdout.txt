@@ -1,36 +1,0 @@
-
---- Start of generation ---
-[02:26:35] Using model: openrouter/meta-llama/llama-3.1-405b-instruct
-[02:26:36] Using logdir
-           ~/.local/share/gptme/logs/2024-11-10-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-405b-instruct-359961
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-11-10-gptme-evals-openrouter--meta-lla
-           ma--llama-3.1-405b-instruct-359961/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant:
-
-```save hello.py
-print("Hello, world!")
-```                                                                                Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: The script has been saved to hello.py. You can run it using the python tool.
-
-```shell
-python hello.py
-```
-
-Preview
-python hello.py
-
-Hello, world!
-
-System:
-Ran command: `python hello.py`
-
- `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: The script works as expected. If you want to modify it, you can use the patch tool.
-
-Would you like to modify the script or try something else?                                                                                --- Finished generation ---

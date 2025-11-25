@@ -1,32 +1,0 @@
-
---- Start of generation ---
-[13:52:34] Using logdir
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--google--gemma-2-27b-it-84642
-           Using workspace at
-           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
-           er--google--gemma-2-27b-it-84642/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant:
-
-```python
-print("Hello, world!")
-```
-
-<thinking>
-I will create a file named `hello.py` and write the Python code `print("Hello, world!")` inside it.
-
-</thinking>
-
-```save hello.py
-print("Hello, world!")
-```                                                                                Skipping confirmation.
-Saving to hello.py
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant:
-
-Great! Now you have a Python script called `hello.py` that will print "Hello, world!" when you run it.
-
-Do you want to run it now?                                                                                --- Finished generation ---

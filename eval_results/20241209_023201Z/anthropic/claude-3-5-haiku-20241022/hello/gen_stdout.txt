@@ -1,65 +1,0 @@
-
---- Start of generation ---
-[02:31:44] Using model: anthropic/claude-3-5-haiku-20241022
-[02:31:45] Using logdir
-           ~/.local/share/gptme/logs/2024-12-09-gptme-evals-anthropic--claude-3-
-           5-haiku-20241022-29823
-           Using workspace at
-           ~/.local/share/gptme/logs/2024-12-09-gptme-evals-anthropic--claude-3-
-           5-haiku-20241022-29823/workspace
-Skipped 1 hidden system messages, show with --show-hidden
---- ^^^ past messages ^^^ ---
-User: write a script hello.py which prints "Hello, world!"
-Assistant: Thinking...                                                                                Assistant: I'll use the `save` tool to create the `hello.py` script:
-
-```save hello.py
-print("Hello, world!")
-```
-                                                                                [02:31:46] Tokens: 3001/30 in/out
-           Cost:   $0.00
-
-Preview
-print("Hello, world!")
-
-System: Saved to hello.py
-Assistant: Thinking...                                                                                Assistant: Great! Now, let's verify the contents of the file using the `shell` tool to read it:
-
-```shell
-cat hello.py
-```
-                                                                                [02:31:48] Tokens: 3035/31 in/out (session: 6036/61, turns: 2)
-           Cost:   $0.00          (session: $0.01)
-
-
-
-print("Hello, world!")
-
-System:
-Ran allowlisted command: `cat hello.py`
-
- `print("Hello, world!")`
-Assistant: Thinking...                                                                                Assistant: Now, let's run the Python script to make sure it works correctly:
-
-```shell
-python3 hello.py
-```
-                                                                                [02:31:49] Tokens: 3085/25 in/out (session: 9121/86, turns: 3)
-           Cost:   $0.00          (session: $0.01)
-
-Preview
-python3 hello.py
-
-Hello, world!
-
-System:
-Ran command: `python3 hello.py`
-
- `Hello, world!`
-Assistant: Thinking...                                                                                Assistant: Perfect! The script works exactly as expected. To recap:
-1. We created `hello.py` with a simple print statement
-2. We verified the file contents using `cat`
-3. We ran the script with `python3`, which printed "Hello, world!"
-
-Is there anything else you'd like me to do with this script?                                                                                [02:31:52] Tokens: 3126/69 in/out (session: 12247/155, turns: 4)
-           Cost:   $0.00          (session: $0.01)
---- Finished generation ---
