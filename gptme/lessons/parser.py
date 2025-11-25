@@ -18,7 +18,7 @@ class LessonMetadata:
 
     Supports both:
     - Lessons: keywords, tools, status
-    - Skills (Anthropic format): name, description
+    - Skills (Anthropic format): name, description, hooks
     """
 
     # Anthropic skill format fields
@@ -29,6 +29,10 @@ class LessonMetadata:
     keywords: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     status: str = "active"  # active, automated, deprecated, or archived
+
+    # Hook system fields (Phase 4.2)
+    hooks: dict[str, str] = field(default_factory=dict)
+    """Mapping of hook type to script path (relative to skill directory)"""
 
     # Future extensions:
     # globs: list[str] = field(default_factory=list)
@@ -130,6 +134,7 @@ def parse_lesson(path: Path) -> Lesson:
                     # Extract lesson format fields
                     match_data = frontmatter.get("match", {})
                     status = frontmatter.get("status", "active")
+                    hooks = frontmatter.get("hooks", {})
 
                     metadata = LessonMetadata(
                         name=name,
@@ -137,6 +142,7 @@ def parse_lesson(path: Path) -> Lesson:
                         keywords=match_data.get("keywords", []),
                         tools=match_data.get("tools", []),
                         status=status,
+                        hooks=hooks if isinstance(hooks, dict) else {},
                     )
             except yaml.YAMLError as e:
                 raise ValueError(f"Invalid YAML frontmatter in {path}: {e}") from e

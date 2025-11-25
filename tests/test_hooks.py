@@ -1,298 +1,339 @@
-"""Tests for the hook system."""
+"""Tests for skills hook system (Phase 4.2)."""
+
+import tempfile
+from pathlib import Path
 
 import pytest
 
-from gptme.hooks import (
-    HookType,
-    clear_hooks,
-    disable_hook,
-    enable_hook,
-    get_hooks,
-    register_hook,
-    trigger_hook,
-    unregister_hook,
-)
-from gptme.message import Message
+from gptme.lessons.hooks import HookContext, HookManager, get_hook_manager
+from gptme.lessons.parser import Lesson, LessonMetadata
 
 
-@pytest.fixture(autouse=True)
-def clear_all_hooks():
-    """Clear all hooks before and after each test."""
-    clear_hooks()
-    yield
-    clear_hooks()
+@pytest.fixture
+def temp_skill_dir():
+    """Create a temporary directory for test skills."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield Path(tmpdir)
 
 
-def test_register_hook():
-    """Test hook registration."""
+@pytest.fixture
+def sample_skill(temp_skill_dir):
+    """Create a sample skill with hooks."""
+    skill_dir = temp_skill_dir / "test-skill"
+    skill_dir.mkdir()
 
-    def my_hook(manager):
-        yield Message("system", "Hook called")
+    # Create skill file
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(
+        """---
+name: test-skill
+description: Test skill with hooks
+hooks:
+  pre_execute: hooks/pre_execute.py
+  post_execute: hooks/post_execute.py
+---
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
-
-    hooks = get_hooks(HookType.MESSAGE_PRE_PROCESS)
-    assert len(hooks) == 1
-    assert hooks[0].name == "test_hook"
-
-
-def test_trigger_hook():
-    """Test hook triggering."""
-    messages = []
-
-    def my_hook(manager):
-        messages.append("called")
-        yield Message("system", "Hook result")
-
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
-
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-
-    assert len(messages) == 1
-    assert messages[0] == "called"
-    assert len(results) == 1
-    assert results[0].content == "Hook result"
-
-
-def test_hook_priority():
-    """Test that hooks run in priority order (higher priority first)."""
-    call_order = []
-
-    def hook_low(manager):
-        call_order.append("low")
-        return
-        yield  # Make it a generator
-
-    def hook_high(manager):
-        call_order.append("high")
-        return
-        yield  # Make it a generator
-
-    def hook_medium(manager):
-        call_order.append("medium")
-        return
-        yield  # Make it a generator
-
-    register_hook("low", HookType.MESSAGE_PRE_PROCESS, hook_low, priority=1)
-    register_hook("high", HookType.MESSAGE_PRE_PROCESS, hook_high, priority=10)
-    register_hook("medium", HookType.MESSAGE_PRE_PROCESS, hook_medium, priority=5)
-
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-
-    assert call_order == ["high", "medium", "low"]
-
-
-def test_hook_enable_disable():
-    """Test enabling and disabling hooks."""
-    messages = []
-
-    def my_hook(manager):
-        messages.append("called")
-        if False:
-            yield
-
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
-
-    # Hook should be enabled by default
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-    assert len(messages) == 1
-
-    # Disable hook
-    disable_hook("test_hook")
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-    assert len(messages) == 1  # Still 1, hook didn't run
-
-    # Re-enable hook
-    enable_hook("test_hook")
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-    assert len(messages) == 2  # Hook ran again
-
-
-def test_unregister_hook():
-    """Test unregistering hooks."""
-
-    def my_hook(manager):
-        if False:
-            yield
-
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
-    assert len(get_hooks(HookType.MESSAGE_PRE_PROCESS)) == 1
-
-    unregister_hook("test_hook", HookType.MESSAGE_PRE_PROCESS)
-    assert len(get_hooks(HookType.MESSAGE_PRE_PROCESS)) == 0
-
-
-def test_unregister_from_all_types():
-    """Test unregistering a hook from all types."""
-
-    def my_hook(manager):
-        if False:
-            yield
-
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
-    register_hook("test_hook", HookType.MESSAGE_POST_PROCESS, my_hook)
-
-    assert len(get_hooks(HookType.MESSAGE_PRE_PROCESS)) == 1
-    assert len(get_hooks(HookType.MESSAGE_POST_PROCESS)) == 1
-
-    unregister_hook("test_hook")  # Remove from all types
-
-    assert len(get_hooks(HookType.MESSAGE_PRE_PROCESS)) == 0
-    assert len(get_hooks(HookType.MESSAGE_POST_PROCESS)) == 0
-
-
-def test_hook_with_arguments():
-    """Test hooks receive arguments correctly."""
-    received_args = {}
-
-    def my_hook(log, workspace, tool_use):
-        received_args.update({"log": log, "workspace": workspace, "tool_use": tool_use})
-        if False:
-            yield
-
-    register_hook("test_hook", HookType.TOOL_PRE_EXECUTE, my_hook)
-
-    # Create a mock ToolUse for testing
-    from gptme.tools.base import ToolUse
-
-    tool_use = ToolUse(tool="save", args=[], content=None)
-    list(
-        trigger_hook(
-            HookType.TOOL_PRE_EXECUTE, log=None, workspace=None, tool_use=tool_use
-        )
+# Test Skill
+A test skill for hook system.
+"""
     )
 
-    assert received_args["tool_use"].tool == "save"
-    assert received_args["log"] is None
-    assert received_args["workspace"] is None
+    # Create hooks directory
+    hooks_dir = skill_dir / "hooks"
+    hooks_dir.mkdir()
+
+    # Create pre_execute hook
+    (hooks_dir / "pre_execute.py").write_text(
+        """
+def execute(context):
+    with open('/tmp/hook_pre_execute_called', 'w') as f:
+        f.write(context.skill.title)
+"""
+    )
+
+    # Create post_execute hook
+    (hooks_dir / "post_execute.py").write_text(
+        """
+def execute(context):
+    with open('/tmp/hook_post_execute_called', 'w') as f:
+        f.write(context.skill.title)
+"""
+    )
+
+    # Parse skill
+    from gptme.lessons.parser import parse_lesson
+
+    skill = parse_lesson(skill_file)
+    return skill
 
 
-def test_hook_generator():
-    """Test hooks can yield multiple messages."""
-
-    def my_hook(manager):
-        yield Message("system", "First")
-        yield Message("system", "Second")
-        yield Message("system", "Third")
-
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
-
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-
-    assert len(results) == 3
-    assert results[0].content == "First"
-    assert results[1].content == "Second"
-    assert results[2].content == "Third"
+@pytest.fixture
+def hook_manager():
+    """Create a fresh hook manager for each test."""
+    manager = HookManager()
+    yield manager
+    manager.clear_hooks()
 
 
-def test_hook_error_handling():
-    """Test that hook errors are caught and don't break execution."""
+class TestHookContext:
+    """Tests for HookContext dataclass."""
 
-    def failing_hook(manager):
-        if False:
-            yield
-        raise ValueError("Hook error")
+    def test_hook_context_creation(self, sample_skill):
+        """Test creating HookContext with required fields."""
+        context = HookContext(skill=sample_skill)
+        assert context.skill == sample_skill
+        assert context.message is None
+        assert context.conversation is None
 
-    def working_hook(manager):
-        yield Message("system", "Success")
-
-    register_hook("failing", HookType.MESSAGE_PRE_PROCESS, failing_hook, priority=10)
-    register_hook("working", HookType.MESSAGE_PRE_PROCESS, working_hook, priority=5)
-
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-
-    # Should have 1 message: the success message from working hook
-    # Error messages are not yielded to prevent infinite loops
-    assert len(results) == 1
-    assert results[0].content == "Success"
-
-
-def test_multiple_hooks_same_type():
-    """Test multiple hooks of the same type."""
-    messages = []
-
-    def hook1(manager):
-        messages.append("hook1")
-        if False:
-            yield
-
-    def hook2(manager):
-        messages.append("hook2")
-        if False:
-            yield
-
-    register_hook("hook1", HookType.MESSAGE_PRE_PROCESS, hook1)
-    register_hook("hook2", HookType.MESSAGE_PRE_PROCESS, hook2)
-
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-
-    assert "hook1" in messages
-    assert "hook2" in messages
-    assert len(messages) == 2
+    def test_hook_context_with_optional_fields(self, sample_skill):
+        """Test HookContext with optional fields."""
+        context = HookContext(
+            skill=sample_skill,
+            message="test message",
+            extra={"key": "value"},
+        )
+        assert context.message == "test message"
+        assert context.extra == {"key": "value"}
 
 
-def test_replace_existing_hook():
-    """Test that registering a hook with the same name replaces the old one."""
-    messages = []
+class TestHookManager:
+    """Tests for HookManager class."""
 
-    def old_hook(manager):
-        messages.append("old")
-        if False:
-            yield
+    def test_hook_manager_initialization(self, hook_manager):
+        """Test HookManager initializes with empty hooks."""
+        counts = hook_manager.get_registered_hooks()
+        assert all(count == 0 for count in counts.values())
 
-    def new_hook(manager):
-        messages.append("new")
-        if False:
-            yield
+    def test_register_skill_hooks(self, hook_manager, sample_skill):
+        """Test registering hooks from a skill."""
+        hook_manager.register_skill_hooks(sample_skill)
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, old_hook)
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, new_hook)
+        counts = hook_manager.get_registered_hooks()
+        assert counts["pre_execute"] == 1
+        assert counts["post_execute"] == 1
+        assert counts["on_error"] == 0
 
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    def test_register_invalid_hook_type(self, hook_manager, temp_skill_dir):
+        """Test registering skill with invalid hook type."""
+        skill_file = temp_skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """---
+name: invalid-hook-skill
+hooks:
+  invalid_hook: hooks/invalid.py
+---
+# Invalid Hook Skill
+"""
+        )
 
-    assert messages == ["new"]  # Only new hook should run
+        from gptme.lessons.parser import parse_lesson
+
+        skill = parse_lesson(skill_file)
+        hook_manager.register_skill_hooks(skill)
+
+        # Should warn but not crash
+        counts = hook_manager.get_registered_hooks()
+        assert all(count == 0 for count in counts.values())
+
+    def test_execute_hooks(self, hook_manager, sample_skill):
+        """Test executing registered hooks."""
+        hook_manager.register_skill_hooks(sample_skill)
+
+        context = HookContext(skill=sample_skill)
+
+        # Execute pre_execute hook
+        errors = hook_manager.execute_hooks("pre_execute", context)
+        assert len(errors) == 0
+
+        # Check hook was called
+        pre_file = Path("/tmp/hook_pre_execute_called")
+        assert pre_file.exists()
+        assert pre_file.read_text() == sample_skill.title
+        pre_file.unlink()
+
+        # Execute post_execute hook
+        errors = hook_manager.execute_hooks("post_execute", context)
+        assert len(errors) == 0
+
+        # Check hook was called
+        post_file = Path("/tmp/hook_post_execute_called")
+        assert post_file.exists()
+        assert post_file.read_text() == sample_skill.title
+        post_file.unlink()
+
+    def test_execute_nonexistent_hook(self, hook_manager, sample_skill):
+        """Test executing hook type with no registered hooks."""
+        context = HookContext(skill=sample_skill)
+        errors = hook_manager.execute_hooks("on_error", context)
+        assert len(errors) == 0
+
+    def test_execute_invalid_hook_type(self, hook_manager, sample_skill):
+        """Test executing invalid hook type raises error."""
+        context = HookContext(skill=sample_skill)
+        with pytest.raises(ValueError, match="Invalid hook type"):
+            hook_manager.execute_hooks("invalid_type", context)
+
+    def test_hook_error_handling(self, hook_manager, temp_skill_dir):
+        """Test hooks with errors don't crash the system."""
+        skill_dir = temp_skill_dir / "error-skill"
+        skill_dir.mkdir()
+
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """---
+name: error-skill
+hooks:
+  pre_execute: hooks/error_hook.py
+---
+# Error Skill
+"""
+        )
+
+        hooks_dir = skill_dir / "hooks"
+        hooks_dir.mkdir()
+
+        # Create hook that raises error
+        (hooks_dir / "error_hook.py").write_text(
+            """
+def execute(context):
+    raise RuntimeError("Test error")
+"""
+        )
+
+        from gptme.lessons.parser import parse_lesson
+
+        skill = parse_lesson(skill_file)
+        hook_manager.register_skill_hooks(skill)
+
+        context = HookContext(skill=skill)
+        errors = hook_manager.execute_hooks("pre_execute", context)
+
+        # Error should be caught and returned
+        assert len(errors) == 1
+        assert isinstance(errors[0], RuntimeError)
+
+    def test_hook_missing_execute_function(self, hook_manager, temp_skill_dir):
+        """Test hook without execute() function."""
+        skill_dir = temp_skill_dir / "no-execute-skill"
+        skill_dir.mkdir()
+
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """---
+name: no-execute-skill
+hooks:
+  pre_execute: hooks/no_execute.py
+---
+# No Execute Skill
+"""
+        )
+
+        hooks_dir = skill_dir / "hooks"
+        hooks_dir.mkdir()
+
+        # Create hook without execute function
+        (hooks_dir / "no_execute.py").write_text(
+            """
+# No execute function
+pass
+"""
+        )
+
+        from gptme.lessons.parser import parse_lesson
+
+        skill = parse_lesson(skill_file)
+        hook_manager.register_skill_hooks(skill)
+
+        context = HookContext(skill=skill)
+        errors = hook_manager.execute_hooks("pre_execute", context)
+
+        # Should not error, just log warning
+        assert len(errors) == 0
+
+    def test_clear_hooks(self, hook_manager, sample_skill):
+        """Test clearing registered hooks."""
+        hook_manager.register_skill_hooks(sample_skill)
+
+        counts = hook_manager.get_registered_hooks()
+        assert counts["pre_execute"] == 1
+
+        hook_manager.clear_hooks()
+
+        counts = hook_manager.get_registered_hooks()
+        assert all(count == 0 for count in counts.values())
+
+    def test_clear_specific_hook_type(self, hook_manager, sample_skill):
+        """Test clearing specific hook type."""
+        hook_manager.register_skill_hooks(sample_skill)
+
+        hook_manager.clear_hooks("pre_execute")
+
+        counts = hook_manager.get_registered_hooks()
+        assert counts["pre_execute"] == 0
+        assert counts["post_execute"] == 1  # Still registered
+
+    def test_get_registered_hooks_specific_type(self, hook_manager, sample_skill):
+        """Test getting count for specific hook type."""
+        hook_manager.register_skill_hooks(sample_skill)
+
+        counts = hook_manager.get_registered_hooks("pre_execute")
+        assert counts == {"pre_execute": 1}
+
+    def test_multiple_skills_same_hook(self, hook_manager, temp_skill_dir):
+        """Test multiple skills registering same hook type."""
+        # Create two skills
+        for i in range(2):
+            skill_dir = temp_skill_dir / f"skill-{i}"
+            skill_dir.mkdir()
+
+            skill_file = skill_dir / "SKILL.md"
+            skill_file.write_text(
+                f"""---
+name: skill-{i}
+hooks:
+  pre_execute: hooks/pre_execute.py
+---
+# Skill {i}
+"""
+            )
+
+            hooks_dir = skill_dir / "hooks"
+            hooks_dir.mkdir()
+
+            (hooks_dir / "pre_execute.py").write_text(
+                f"""
+def execute(context):
+    with open('/tmp/hook_skill_{i}_called', 'w') as f:
+        f.write('skill-{i}')
+"""
+            )
+
+        from gptme.lessons.parser import parse_lesson
+
+        # Register both skills
+        for i in range(2):
+            skill = parse_lesson(temp_skill_dir / f"skill-{i}" / "SKILL.md")
+            hook_manager.register_skill_hooks(skill)
+
+        counts = hook_manager.get_registered_hooks()
+        assert counts["pre_execute"] == 2
+
+        # Execute hooks - both should run
+        context = HookContext(
+            skill=parse_lesson(temp_skill_dir / "skill-0" / "SKILL.md")
+        )
+        errors = hook_manager.execute_hooks("pre_execute", context)
+        assert len(errors) == 0
+
+        # Check both hooks were called
+        for i in range(2):
+            hook_file = Path(f"/tmp/hook_skill_{i}_called")
+            assert hook_file.exists()
+            hook_file.unlink()
 
 
-def test_hook_no_return():
-    """Test hooks that don't return anything."""
-    called = []
-
-    def my_hook(manager):
-        called.append(True)
-        # No return value
-        if False:
-            yield
-
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
-
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-
-    assert len(called) == 1
-    assert len(results) == 0  # No messages returned
-
-
-def test_hook_stop_propagation():
-    """Test that hooks can stop propagation of lower-priority hooks."""
-    from gptme.hooks import StopPropagation
-
-    execution_order = []
-
-    def high_priority_hook(manager):
-        execution_order.append("high")
-        yield Message("system", "High priority")
-        yield StopPropagation()  # Stop further hooks
-
-    def low_priority_hook(manager):
-        execution_order.append("low")
-        yield Message("system", "Low priority")
-
-    register_hook("high", HookType.MESSAGE_PRE_PROCESS, high_priority_hook, priority=10)
-    register_hook("low", HookType.MESSAGE_PRE_PROCESS, low_priority_hook, priority=1)
-
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
-
-    # Only high priority hook should have run
-    assert execution_order == ["high"]
-    # Only one message (from high priority hook)
-    assert len(results) == 1
-    assert results[0].content == "High priority"
+def test_global_hook_manager():
+    """Test global hook manager instance."""
+    manager1 = get_hook_manager()
+    manager2 = get_hook_manager()
+    assert manager1 is manager2  # Should be same instance

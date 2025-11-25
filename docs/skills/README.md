@@ -176,20 +176,133 @@ Example:
 
 ## Roadmap
 
-### Current Status (Phase 4.1)
-- ✅ Parser support for skills metadata
-- ✅ Example skill with bundled scripts
-- ✅ Documentation
+### Current Status (Phase 4.2)
+- ✅ Parser support for skills metadata (Phase 4.1)
+- ✅ Example skill with bundled scripts (Phase 4.1)
+- ✅ Skills documentation (Phase 4.1)
+- ✅ Hook system implementation (Phase 4.2)
+- ✅ Hook execution and error handling (Phase 4.2)
+- ✅ Example skill with hooks (Phase 4.2)
 
-### Future Work (Phase 4.2+)
-- [ ] Hook system implementation
-- [ ] Dependency management
-- [ ] Script bundling and loading
+### Future Work (Phase 4.3+)
+- [ ] Dependency validation and checking
+- [ ] Script bundling and automatic loading
 - [ ] Skills CLI commands
 - [ ] Skills discovery and listing
+- [ ] Hook integration points in execution flow
 
 ## Related
 
 - [Lesson System](../lessons)
 - [Issue #686](https://github.com/gptme/gptme/issues/686) - Phase 4: Skills Integration
 - [Claude Skills](https://simonwillison.net/2025/Oct/10/claude-skills/) - Inspiration
+
+## Hook System (Phase 4.2)
+
+Skills can define hooks that execute at specific points in their lifecycle.
+
+### Available Hooks
+
+- **pre_execute**: Runs before the skill's bundled scripts execute
+- **post_execute**: Runs after successful execution
+- **on_error**: Runs when an error occurs during execution
+- **pre_context**: Runs before the skill is added to context
+- **post_context**: Runs after the skill is added to context
+
+### Defining Hooks
+
+Hooks are defined in the skill's YAML frontmatter:
+
+```yaml
+---
+name: my-skill
+description: Example skill with hooks
+hooks:
+  pre_execute: hooks/pre_execute.py
+  post_execute: hooks/post_execute.py
+  on_error: hooks/on_error.py
+---
+```
+
+Hook scripts are Python files relative to the skill directory.
+
+### Hook Script Structure
+
+Each hook script must define an `execute()` function:
+
+```python
+"""Pre-execute hook for my-skill."""
+
+import logging
+from gptme.lessons.hooks import HookContext
+
+logger = logging.getLogger(__name__)
+
+def execute(context: HookContext) -> None:
+    """Pre-execute hook implementation.
+    
+    Args:
+        context: Hook execution context with skill, message, conversation, etc.
+    """
+    logger.info(f"Setting up skill: {context.skill.title}")
+    
+    # Hook implementation here
+    # - Check dependencies
+    # - Initialize resources
+    # - Set up environment
+```
+
+### Hook Context
+
+Hooks receive a `HookContext` object with:
+
+- `skill`: The Lesson object representing the skill
+- `message`: Current message being processed (optional)
+- `conversation`: Current conversation context (optional)
+- `tools`: Available tools (optional)
+- `config`: gptme configuration (optional)
+- `extra`: Additional context data (optional)
+
+### Example Skill with Hooks
+
+See `gptme/lessons/skills/example-hooks/` for a complete example demonstrating all hook types.
+
+### Hook Behavior
+
+**Execution Order**: Hooks execute in registration order (FIFO) when multiple skills register the same hook type.
+
+**Error Handling**: If a hook raises an exception:
+- The error is logged
+- Execution continues with remaining hooks
+- The error does not stop the skill from executing
+
+**Isolation**: Each hook script runs in its own namespace, isolated from other skills' hooks.
+
+### Use Cases
+
+**Pre-execute hooks**:
+- Validate dependencies
+- Set up environment variables
+- Initialize resources
+- Log execution start
+
+**Post-execute hooks**:
+- Clean up resources
+- Save results
+- Update state
+- Log execution completion
+
+**Error hooks**:
+- Handle errors gracefully
+- Clean up partial resources
+- Notify monitoring systems
+- Log detailed error information
+
+**Context hooks**:
+- Modify skill content before inclusion
+- Add dynamic information
+- Filter or enhance instructions
+
+### Design Decisions
+
+For details on hook system design decisions (priority, failure handling, namespaces, etc.), see `docs/skills/hooks-design.md`.
