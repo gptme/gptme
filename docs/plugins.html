@@ -443,6 +443,7 @@
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-structure">Plugin Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skills-vs-plugins">Skills vs Plugins</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-a-plugin">Creating a Plugin</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-plugin-directory-structure">1. Create Plugin Directory Structure</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-a-tool-module">2. Create a Tool Module</a></li>
@@ -489,6 +490,7 @@
   <section id="plugin-system">
 <h1>Plugin System<a class="headerlink" href="#plugin-system" title="Link to this heading">#</a></h1>
 <p>The plugin system allows extending gptme with <a class="reference internal" href="custom_tool.html"><span class="doc">custom tools</span></a>, <a class="reference internal" href="hooks.html"><span class="doc">hooks</span></a>, and <a class="reference internal" href="usage.html#commands"><span class="std std-ref">commands</span></a> without modifying the core codebase.</p>
+<p><strong>When to use plugins</strong>: For runtime integration (hooks, custom tools, commands). For lightweight knowledge bundles, see <a class="reference internal" href="skills/README.html"><span class="doc">skills</span></a> instead.</p>
 <section id="plugin-structure">
 <h2>Plugin Structure<a class="headerlink" href="#plugin-structure" title="Link to this heading">#</a></h2>
 <p>A plugin is a Python package (directory with <code class="docutils literal notranslate"><span class="pre">__init__.py</span></code>) that can contain:</p>
@@ -521,8 +523,59 @@
 </pre></div>
 </div>
 </section>
+<section id="skills-vs-plugins">
+<h2>Skills vs Plugins<a class="headerlink" href="#skills-vs-plugins" title="Link to this heading">#</a></h2>
+<p><strong>Choose the right extensibility mechanism</strong>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Need</p></th>
+<th class="head"><p>Use</p></th>
+<th class="head"><p>Why</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Share knowledge
+and workflows</p></td>
+<td><p>Skills</p></td>
+<td><p>Lightweight bundles
+(Anthropic format)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Runtime hooks
+(lifecycle events)</p></td>
+<td><p>Plugins</p></td>
+<td><p>Deep integration
+with gptme runtime</p></td>
+</tr>
+<tr class="row-even"><td><p>Custom tools
+(new actions)</p></td>
+<td><p>Plugins</p></td>
+<td><p>Extend capabilities
+via Python code</p></td>
+</tr>
+<tr class="row-odd"><td><p>Custom commands
+(/command)</p></td>
+<td><p>Plugins</p></td>
+<td><p>Add CLI commands
+for users</p></td>
+</tr>
+<tr class="row-even"><td><p>Bundled scripts
+(no integration)</p></td>
+<td><p>Skills</p></td>
+<td><p>Simple file bundles
+without hooks</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples</strong>:</p>
+<ul class="simple">
+<li><p><strong>Skill</strong>: Python best practices guide with example scripts</p></li>
+<li><p><strong>Plugin</strong>: Automatic linting that runs hooks on file save</p></li>
+</ul>
+<p>See <a class="reference internal" href="skills/README.html"><span class="doc">skills</span></a> for lightweight knowledge bundles.</p>
+</section>
 <section id="creating-a-plugin">
-<h2>Creating a Plugin<a class="headerlink" href="#creating-a-plugin" title="Link to this heading">#</a></h2>
+<span id="id1"></span><h2>Creating a Plugin<a class="headerlink" href="#creating-a-plugin" title="Link to this heading">#</a></h2>
 <section id="create-plugin-directory-structure">
 <h3>1. Create Plugin Directory Structure<a class="headerlink" href="#create-plugin-directory-structure" title="Link to this heading">#</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.config/gptme/plugins/my_plugin/tools
@@ -682,7 +735,7 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 </section>
 </section>
 <section id="plugin-command-modules">
-<h2>Plugin Command Modules<a class="headerlink" href="#plugin-command-modules" title="Link to this heading">#</a></h2>
+<span id="id2"></span><h2>Plugin Command Modules<a class="headerlink" href="#plugin-command-modules" title="Link to this heading">#</a></h2>
 <p>Plugins can provide custom commands that users can invoke with the <code class="docutils literal notranslate"><span class="pre">/</span></code> prefix, similar to built-in commands like <code class="docutils literal notranslate"><span class="pre">/help</span></code> or <code class="docutils literal notranslate"><span class="pre">/exit</span></code>.</p>
 <section id="option-1-commands-as-a-package">
 <h3>Option 1: commands/ as a Package<a class="headerlink" href="#option-1-commands-as-a-package" title="Link to this heading">#</a></h3>
@@ -928,6 +981,7 @@ gptme
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-structure">Plugin Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skills-vs-plugins">Skills vs Plugins</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-a-plugin">Creating a Plugin</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-plugin-directory-structure">1. Create Plugin Directory Structure</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-a-tool-module">2. Create a Tool Module</a></li>

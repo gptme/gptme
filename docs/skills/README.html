@@ -442,11 +442,11 @@
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson">Skill vs. Lesson</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson-vs-plugin">Skill vs. Lesson vs. Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-format">Skill Format</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-bundled-scripts">3. Create Bundled Scripts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#test-the-skill">4. Test the Skill</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation">Implementation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deep-integration-with-plugins">Deep Integration with Plugins</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-cases">Use Cases</a><ul class="nav section-nav flex-column">
@@ -475,6 +475,9 @@
                   
   <section id="skills-system">
 <h1>Skills System<a class="headerlink" href="#skills-system" title="Link to this heading">#</a></h1>
+<blockquote>
+<div><p><strong>Note</strong>: Skills are <strong>lightweight knowledge bundles</strong> using Anthropic’s format. For deep runtime integration (hooks, custom tools, commands), use <a class="reference internal" href="../plugins.html"><span class="std std-doc">plugins</span></a> instead.</p>
+</div></blockquote>
 <p>The skills system extends gptme’s lesson system to support bundled tools, scripts, and workflows inspired by Claude’s Skills system and Cursor’s rules system.</p>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
@@ -486,31 +489,51 @@
 </ul>
 <p>Skills complement lessons by providing <strong>executable components</strong> alongside guidance.</p>
 </section>
-<section id="skill-vs-lesson">
-<h2>Skill vs. Lesson<a class="headerlink" href="#skill-vs-lesson" title="Link to this heading">#</a></h2>
+<section id="skill-vs-lesson-vs-plugin">
+<h2>Skill vs. Lesson vs. Plugin<a class="headerlink" href="#skill-vs-lesson-vs-plugin" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
 <tr class="row-odd"><th class="head"><p>Feature</p></th>
 <th class="head"><p>Lesson</p></th>
 <th class="head"><p>Skill</p></th>
+<th class="head"><p>Plugin</p></th>
 </tr>
 </thead>
 <tbody>
 <tr class="row-even"><td><p>Purpose</p></td>
 <td><p>Guidance and patterns</p></td>
 <td><p>Executable workflows</p></td>
+<td><p>Deep runtime integration</p></td>
 </tr>
 <tr class="row-odd"><td><p>Content</p></td>
 <td><p>Instructions, examples</p></td>
 <td><p>Instructions + scripts</p></td>
+<td><p>Tools, hooks, commands</p></td>
 </tr>
 <tr class="row-even"><td><p>Scripts</p></td>
 <td><p>None</p></td>
 <td><p>Bundled helper scripts</p></td>
+<td><p>Via custom tools</p></td>
 </tr>
 <tr class="row-odd"><td><p>Dependencies</p></td>
 <td><p>None</p></td>
 <td><p>Explicit package requirements</p></td>
+<td><p>Python package dependencies</p></td>
+</tr>
+<tr class="row-even"><td><p>Hooks</p></td>
+<td><p>No</p></td>
+<td><p>No</p></td>
+<td><p>Yes</p></td>
+</tr>
+<tr class="row-odd"><td><p>Custom Tools</p></td>
+<td><p>No</p></td>
+<td><p>No</p></td>
+<td><p>Yes</p></td>
+</tr>
+<tr class="row-even"><td><p>Format</p></td>
+<td><p>Markdown</p></td>
+<td><p>Anthropic YAML</p></td>
+<td><p>Python package</p></td>
 </tr>
 </tbody>
 </table>
@@ -518,7 +541,8 @@
 <p><strong>When to use</strong>:</p>
 <ul class="simple">
 <li><p><strong>Lesson</strong>: Teaching patterns, best practices, tool usage</p></li>
-<li><p><strong>Skill</strong>: Providing reusable scripts, automated workflows, integrated tooling</p></li>
+<li><p><strong>Skill</strong>: Providing reusable scripts, automated workflows (lightweight)</p></li>
+<li><p><strong>Plugin</strong>: Runtime hooks, custom tools, deep gptme integration (see <a class="reference internal" href="../plugins.html"><span class="std std-doc">plugins</span></a>)</p></li>
 </ul>
 </section>
 <section id="skill-format">
@@ -617,19 +641,29 @@ pandas
 </pre></div>
 </div>
 </section>
-<section id="implementation">
-<h3>Implementation<a class="headerlink" href="#implementation" title="Link to this heading">#</a></h3>
-<p>Hook implementation is planned for future phases:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Future API (conceptual)</span>
-<span class="kn">from</span> <span class="nn">gptme.skills</span> <span class="kn">import</span> <span class="n">register_hook</span>
+<section id="deep-integration-with-plugins">
+<h3>Deep Integration with Plugins<a class="headerlink" href="#deep-integration-with-plugins" title="Link to this heading">#</a></h3>
+<p><strong>For runtime integration (hooks, custom tools, commands), use the <a class="reference internal" href="../plugins.html"><span class="std std-doc">Plugin System</span></a>.</strong></p>
+<p>Skills are lightweight knowledge bundles that remain simple. For deeper integration with gptme’s runtime:</p>
+<ul class="simple">
+<li><p><strong>Hooks</strong>: Register lifecycle callbacks (see <a class="reference internal" href="../hooks.html"><span class="std std-doc">Hooks Documentation</span></a>)</p></li>
+<li><p><strong>Custom Tools</strong>: Add new capabilities (see <a class="reference internal" href="../plugins.html#creating-a-plugin"><span class="std std-ref">Creating a Plugin</span></a>)</p></li>
+<li><p><strong>Commands</strong>: Add CLI commands (see <a class="reference internal" href="../plugins.html#plugin-command-modules"><span class="std std-ref">Plugin Command Modules</span></a>)</p></li>
+</ul>
+<p><strong>Example</strong>: For a skill that needs hooks, create a plugin instead:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In a plugin: my_plugin/hooks/setup.py</span>
+<span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
 
-<span class="nd">@register_hook</span><span class="p">(</span><span class="s2">&quot;pre_execute&quot;</span><span class="p">)</span>
-<span class="k">def</span> <span class="nf">setup_python_env</span><span class="p">(</span><span class="n">skill</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Install dependencies and set up imports.&quot;&quot;&quot;</span>
-    <span class="k">for</span> <span class="n">dep</span> <span class="ow">in</span> <span class="n">skill</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">dependencies</span><span class="p">:</span>
-        <span class="n">ensure_installed</span><span class="p">(</span><span class="n">dep</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_environment</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize environment at session start.&quot;&quot;&quot;</span>
+    <span class="c1"># Your hook logic here</span>
+    <span class="k">yield</span>
+
+<span class="k">def</span> <span class="nf">register</span><span class="p">():</span>
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;my_plugin.setup&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">SESSION_START</span><span class="p">,</span> <span class="n">setup_environment</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>See <a class="reference internal" href="../plugins.html"><span class="std std-doc">Plugin System Documentation</span></a> for complete examples.</p>
 </section>
 </section>
 <section id="use-cases">
@@ -683,23 +717,26 @@ pandas
 <li><p>✅ Parser support for skills metadata</p></li>
 <li><p>✅ Example skill with bundled scripts</p></li>
 <li><p>✅ Documentation</p></li>
+<li><p>✅ Hook system (available in <a class="reference internal" href="../plugins.html"><span class="std std-doc">plugins</span></a>, not skills)</p></li>
 </ul>
 </section>
 <section id="future-work-phase-4-2">
 <h3>Future Work (Phase 4.2+)<a class="headerlink" href="#future-work-phase-4-2" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p>[ ] Hook system implementation</p></li>
-<li><p>[ ] Dependency management</p></li>
-<li><p>[ ] Script bundling and loading</p></li>
+<li><p>[ ] Dependency management for skills</p></li>
+<li><p>[ ] Script bundling and loading for skills</p></li>
 <li><p>[ ] Skills CLI commands</p></li>
 <li><p>[ ] Skills discovery and listing</p></li>
 </ul>
+<p><strong>Note</strong>: For runtime integration (hooks, custom tools, commands), see <a class="reference internal" href="../plugins.html"><span class="std std-doc">Plugin System</span></a>. Skills remain lightweight knowledge bundles.</p>
 </section>
 </section>
 <section id="related">
 <h2>Related<a class="headerlink" href="#related" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="../lessons.html"><span class="doc std std-doc">Lesson System</span></a></p></li>
+<li><p><a class="reference internal" href="../lessons.html"><span class="doc std std-doc">Lesson System</span></a> - Core knowledge system</p></li>
+<li><p><a class="reference internal" href="../plugins.html"><span class="std std-doc">Plugin System</span></a> - For hooks, custom tools, and deep integration</p></li>
+<li><p><a class="reference internal" href="../hooks.html"><span class="std std-doc">Hooks Documentation</span></a> - Lifecycle callbacks (plugins only)</p></li>
 <li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/686">Issue #686</a> - Phase 4: Skills Integration</p></li>
 <li><p><a class="reference external" href="https://simonwillison.net/2025/Oct/10/claude-skills/">Claude Skills</a> - Inspiration</p></li>
 </ul>
@@ -753,11 +790,11 @@ pandas
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson">Skill vs. Lesson</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson-vs-plugin">Skill vs. Lesson vs. Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-format">Skill Format</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-bundled-scripts">3. Create Bundled Scripts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#test-the-skill">4. Test the Skill</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation">Implementation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deep-integration-with-plugins">Deep Integration with Plugins</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-cases">Use Cases</a><ul class="nav section-nav flex-column">
