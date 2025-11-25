@@ -306,10 +306,3 @@ See `gptme/lessons/skills/example-hooks/` for a complete example demonstrating a
 ### Design Decisions
 
 For details on hook system design decisions (priority, failure handling, namespaces, etc.), see the [Hooks Design](hooks-design) document.
-
-## Further Reading
-
-.. toctree::
-   :maxdepth: 1
-
-   hooks-design
