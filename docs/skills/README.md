@@ -1,5 +1,7 @@
 # Skills System
 
+> **Note**: Skills are **lightweight knowledge bundles** using Anthropic's format. For deep runtime integration (hooks, custom tools, commands), use [plugins](../plugins.rst) instead.
+
 The skills system extends gptme's lesson system to support bundled tools, scripts, and workflows inspired by Claude's Skills system and Cursor's rules system.
 
 ## Overview
@@ -11,18 +13,22 @@ The skills system extends gptme's lesson system to support bundled tools, script
 
 Skills complement lessons by providing **executable components** alongside guidance.
 
-## Skill vs. Lesson
+## Skill vs. Lesson vs. Plugin
 
-| Feature | Lesson | Skill |
-|---------|--------|-------|
-| Purpose | Guidance and patterns | Executable workflows |
-| Content | Instructions, examples | Instructions + scripts |
-| Scripts | None | Bundled helper scripts |
-| Dependencies | None | Explicit package requirements |
+| Feature | Lesson | Skill | Plugin |
+|---------|--------|-------|--------|
+| Purpose | Guidance and patterns | Executable workflows | Deep runtime integration |
+| Content | Instructions, examples | Instructions + scripts | Tools, hooks, commands |
+| Scripts | None | Bundled helper scripts | Via custom tools |
+| Dependencies | None | Explicit package requirements | Python package dependencies |
+| Hooks | No | No | Yes |
+| Custom Tools | No | No | Yes |
+| Format | Markdown | Anthropic YAML | Python package |
 
 **When to use**:
 - **Lesson**: Teaching patterns, best practices, tool usage
-- **Skill**: Providing reusable scripts, automated workflows, integrated tooling
+- **Skill**: Providing reusable scripts, automated workflows (lightweight)
+- **Plugin**: Runtime hooks, custom tools, deep gptme integration (see [plugins](../plugins.rst))
 
 ## Skill Format
 
@@ -129,20 +135,32 @@ assert skill.metadata.description
 ```
 
 
-### Implementation
+### Deep Integration with Plugins
 
-Hook implementation is planned for future phases:
+**For runtime integration (hooks, custom tools, commands), use the [Plugin System](../plugins.rst).**
+
+Skills are lightweight knowledge bundles that remain simple. For deeper integration with gptme's runtime:
+
+- **Hooks**: Register lifecycle callbacks (see [Hooks Documentation](../hooks.rst))
+- **Custom Tools**: Add new capabilities (see [Plugin Tools](../plugins.rst#creating-a-plugin))
+- **Commands**: Add CLI commands (see [Plugin Commands](../plugins.rst#plugin-command-modules))
+
+**Example**: For a skill that needs hooks, create a plugin instead:
 
 ```python
-# Future API (conceptual)
-from gptme.skills import register_hook
+# In a plugin: my_plugin/hooks/setup.py
+from gptme.hooks import HookType, register_hook
 
-@register_hook("pre_execute")
-def setup_python_env(skill):
-    """Install dependencies and set up imports."""
-    for dep in skill.metadata.dependencies:
-        ensure_installed(dep)
+def setup_environment(logdir, workspace, initial_msgs):
+    """Initialize environment at session start."""
+    # Your hook logic here
+    yield
+
+def register():
+    register_hook("my_plugin.setup", HookType.SESSION_START, setup_environment)
 ```
+
+See [Plugin System Documentation](../plugins.rst) for complete examples.
 
 ## Use Cases
 
@@ -180,16 +198,20 @@ Example:
 - ✅ Parser support for skills metadata
 - ✅ Example skill with bundled scripts
 - ✅ Documentation
+- ✅ Hook system (available in [plugins](../plugins.rst), not skills)
 
 ### Future Work (Phase 4.2+)
-- [ ] Hook system implementation
-- [ ] Dependency management
-- [ ] Script bundling and loading
+- [ ] Dependency management for skills
+- [ ] Script bundling and loading for skills
 - [ ] Skills CLI commands
 - [ ] Skills discovery and listing
 
+**Note**: For runtime integration (hooks, custom tools, commands), see [Plugin System](../plugins.rst). Skills remain lightweight knowledge bundles.
+
 ## Related
 
-- [Lesson System](../lessons)
+- [Lesson System](../lessons) - Core knowledge system
+- [Plugin System](../plugins.rst) - For hooks, custom tools, and deep integration
+- [Hooks Documentation](../hooks.rst) - Lifecycle callbacks (plugins only)
 - [Issue #686](https://github.com/gptme/gptme/issues/686) - Phase 4: Skills Integration
 - [Claude Skills](https://simonwillison.net/2025/Oct/10/claude-skills/) - Inspiration

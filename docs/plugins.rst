@@ -3,6 +3,8 @@ Plugin System
 
 The plugin system allows extending gptme with :doc:`custom tools <custom_tool>`, :doc:`hooks <hooks>`, and :ref:`commands <commands>` without modifying the core codebase.
 
+**When to use plugins**: For runtime integration (hooks, custom tools, commands). For lightweight knowledge bundles, see :doc:`skills <skills/README>` instead.
+
 Plugin Structure
 ----------------
 
@@ -38,6 +40,37 @@ Add plugin paths to your ``gptme.toml``:
 
    # Optional: only enable specific plugins (empty = all discovered)
    enabled = ["my_plugin", "another_plugin"]
+
+Skills vs Plugins
+-----------------
+
+**Choose the right extensibility mechanism**:
+
++----------------------+------------------+----------------------+
+| Need                 | Use              | Why                  |
++======================+==================+======================+
+| Share knowledge      | Skills           | Lightweight bundles  |
+| and workflows        |                  | (Anthropic format)   |
++----------------------+------------------+----------------------+
+| Runtime hooks        | Plugins          | Deep integration     |
+| (lifecycle events)   |                  | with gptme runtime   |
++----------------------+------------------+----------------------+
+| Custom tools         | Plugins          | Extend capabilities  |
+| (new actions)        |                  | via Python code      |
++----------------------+------------------+----------------------+
+| Custom commands      | Plugins          | Add CLI commands     |
+| (/command)           |                  | for users           |
++----------------------+------------------+----------------------+
+| Bundled scripts      | Skills           | Simple file bundles  |
+| (no integration)     |                  | without hooks       |
++----------------------+------------------+----------------------+
+
+**Examples**:
+
+- **Skill**: Python best practices guide with example scripts
+- **Plugin**: Automatic linting that runs hooks on file save
+
+See :doc:`skills <skills/README>` for lightweight knowledge bundles.
 
 Creating a Plugin
 -----------------
