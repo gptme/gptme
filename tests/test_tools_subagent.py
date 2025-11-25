@@ -15,18 +15,8 @@ def reduce_anthropic_retries(monkeypatch):
     Reducing to max_retries=2 brings total time to ~4 minutes, well under
     the timeout while still allowing some retry resilience.
     """
-    # Monkeypatch the retry handler to reduce retries
-    import gptme.llm.llm_anthropic as anthropic_module
-
-    original_handler = anthropic_module._handle_anthropic_transient_error
-
-    def patched_handler(e, attempt, max_retries, base_delay):
-        # Force max_retries to 2 for tests
-        return original_handler(e, attempt, 2, base_delay)
-
-    monkeypatch.setattr(
-        anthropic_module, "_handle_anthropic_transient_error", patched_handler
-    )
+    # Set environment variable to limit retries during tests
+    monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "2")
 
 
 def test_planner_mode_requires_subtasks():

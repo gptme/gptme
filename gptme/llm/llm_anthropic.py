@@ -152,7 +152,20 @@ def _handle_anthropic_transient_error(e, attempt, max_retries, base_delay):
     - 429 rate limit errors: Should back off and retry
     - Error messages containing 'overload', 'internal', 'timeout': Known transient issues
     """
+    # Allow tests to override max_retries via environment variable
+    # This breaks out of the retry loop early to prevent test timeouts
+    import os
+
     from anthropic import APIStatusError  # fmt: skip
+
+    test_max_retries_str = os.environ.get("GPTME_TEST_MAX_RETRIES")
+    if test_max_retries_str:
+        test_max_retries = int(test_max_retries_str)
+        if attempt >= test_max_retries - 1:
+            logger.warning(
+                f"Test max_retries={test_max_retries} reached (attempt {attempt + 1}), not retrying"
+            )
+            raise e
 
     # Check if this is a transient error we should retry
     should_retry = False
