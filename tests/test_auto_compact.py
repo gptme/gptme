@@ -220,5 +220,9 @@ We need to ensure proper error handling and edge case coverage.
 
 def test_get_compacted_name():
     """Test the _get_compacted_name helper function."""
-    assert _get_compacted_name("gptme_1234") == "gptme_1234_compact"
-    assert _get_compacted_name("session_abc") == "session_abc_compact"
+    # Function returns format: {name}-compacted-{YYYYMMDD-HHMMSS}
+    result = _get_compacted_name("gptme_1234")
+    assert result.startswith("gptme_1234-compacted-")
+    assert len(result) == len("gptme_1234-compacted-20251125-183047")
+    result2 = _get_compacted_name("session_abc")
+    assert result2.startswith("session_abc-compacted-")

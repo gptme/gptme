@@ -100,12 +100,26 @@ def auto_compact_log(
 
     # Check if we're now within limits
     final_tokens = len_tokens(compacted_log, model.model)
-    if final_tokens <= limit:
+
+    # Check if there are long messages that could benefit from Phase 3 compression
+    has_long_messages = any(
+        len_tokens(msg.content, model.model) > 1000
+        for msg in compacted_log
+        if not msg.pinned and msg.role != "system"
+    )
+
+    if final_tokens <= limit and not has_long_messages:
         logger.info(
             f"Auto-compacting successful: {tokens} -> {final_tokens} tokens (saved {tokens_saved})"
         )
         yield from compacted_log
         return
+
+    # Continue to Phase 3 if we have long messages, even if below limit
+    if has_long_messages:
+        logger.info(
+            f"Phase 3 will run: {final_tokens} tokens, but found long messages to compress"
+        )
 
     # Phase 3: Extractive compression for remaining long messages
     logger.info("Applying Phase 3: Extractive compression to long messages")
@@ -115,9 +129,12 @@ def auto_compact_log(
         target_ratio=0.7,  # Retain 70% of content
         min_section_length=1000,  # Only compress messages >1000 tokens
         preserve_code=True,
-        preserve_headings=True,
+        preserve_headings=False,  # Don't preserve headings in Phase 3 - allows better compression
     )
     compressor = ExtractiveSummarizer(config)
+    logger.info(
+        "Phase 3: Initialized compressor with preserve_headings=False for better compression"
+    )
 
     # Apply extractive compression to long messages
     phase3_log = []
@@ -134,8 +151,14 @@ def auto_compact_log(
         # Only compress messages over threshold
         if msg_tokens > config.min_section_length:
             try:
+                logger.info(
+                    f"Phase 3: Attempting compression for {msg.role} message with {msg_tokens} tokens"
+                )
                 result = compressor.compress(
                     content=msg.content, target_ratio=0.7, context=""
+                )
+                logger.info(
+                    f"Phase 3: Compression result - ratio: {result.compression_ratio:.3f}, original: {result.original_length}, compressed: {result.compressed_length}"
                 )
 
                 if result.compression_ratio < 1.0:  # Successfully compressed
