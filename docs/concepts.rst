@@ -144,7 +144,7 @@ Hooks (Lifecycle Integration)
        """Run linter on code before saving."""
        if path.endswith('.py'):
            # Run linting logic
-           return fixed_content
+           return content  # TODO: implement linting logic
        return content
 
    register_hook(HookType.FILE_PRE_SAVE, lint_before_save)
