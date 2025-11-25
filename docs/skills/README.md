@@ -142,8 +142,8 @@ assert skill.metadata.description
 Skills are lightweight knowledge bundles that remain simple. For deeper integration with gptme's runtime:
 
 - **Hooks**: Register lifecycle callbacks (see [Hooks Documentation](../hooks.rst))
-- **Custom Tools**: Add new capabilities (see [Plugin Tools](../plugins.rst#creating-a-plugin))
-- **Commands**: Add CLI commands (see [Plugin Commands](../plugins.rst#plugin-command-modules))
+- **Custom Tools**: Add new capabilities (see {ref}`creating-a-plugin`)
+- **Commands**: Add CLI commands (see {ref}`plugin-command-modules`)
 
 **Example**: For a skill that needs hooks, create a plugin instead:
 
