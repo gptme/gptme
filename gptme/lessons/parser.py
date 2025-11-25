@@ -278,7 +278,6 @@ def parse_lesson(path: Path) -> Lesson:
                 if frontmatter:
                     # Detect format based on file extension and frontmatter structure
                     has_globs = "globs" in frontmatter
-                    has_match = "match" in frontmatter
 
                     if is_mdc or has_globs:
                         # Cursor .mdc format - translate to gptme format

@@ -107,7 +107,7 @@ class LessonIndex:
         """Index all lessons in a directory, including .mdc files."""
         # Find both .md and .mdc files
         lesson_files = list(directory.rglob("*.md")) + list(directory.rglob("*.mdc"))
-        
+
         for lesson_file in lesson_files:
             # Skip special files
             if lesson_file.name.lower() in ("readme.md", "todo.md"):

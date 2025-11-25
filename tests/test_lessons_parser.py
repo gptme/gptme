@@ -431,7 +431,7 @@ class TestTranslateCursorMetadata:
             "globs": ["**/*.py"],
         }
         metadata = _translate_cursor_metadata(frontmatter)
-        
+
         assert metadata.name == "Python Style"
         assert metadata.description == "Enforce PEP8"
         assert "python" in metadata.keywords
@@ -446,7 +446,7 @@ class TestTranslateCursorMetadata:
             "priority": "high",
         }
         metadata = _translate_cursor_metadata(frontmatter)
-        
+
         assert metadata.priority == "high"
         assert "typescript" in metadata.keywords
 
@@ -458,7 +458,7 @@ class TestTranslateCursorMetadata:
             "alwaysApply": True,
         }
         metadata = _translate_cursor_metadata(frontmatter)
-        
+
         assert metadata.always_apply is True
         # Should add high-frequency keywords
         assert "code" in metadata.keywords or "development" in metadata.keywords
@@ -471,7 +471,7 @@ class TestTranslateCursorMetadata:
             "triggers": ["file_change", "build_error"],
         }
         metadata = _translate_cursor_metadata(frontmatter)
-        
+
         assert metadata.triggers == ["file_change", "build_error"]
 
     def test_cursor_metadata_with_version(self):
@@ -482,7 +482,7 @@ class TestTranslateCursorMetadata:
             "version": "1.0.0",
         }
         metadata = _translate_cursor_metadata(frontmatter)
-        
+
         assert metadata.version == "1.0.0"
 
     def test_cursor_metadata_multiple_globs(self):
@@ -493,7 +493,7 @@ class TestTranslateCursorMetadata:
             "globs": ["**/*.py", "**/*.ts", "**/*.js"],
         }
         metadata = _translate_cursor_metadata(frontmatter)
-        
+
         # Should have keywords from all globs
         assert "python" in metadata.keywords
         assert "typescript" in metadata.keywords
@@ -508,7 +508,7 @@ class TestParseMdcLesson:
         with tempfile.TemporaryDirectory() as tmpdir:
             lesson_dir = Path(tmpdir)
             mdc_file = lesson_dir / "python-style.mdc"
-            
+
             content = """---
 name: Python Style
 description: Enforce PEP8 compliance
@@ -527,9 +527,9 @@ Enforce PEP8 style guidelines for all Python code.
 - Use type hints
 """
             mdc_file.write_text(content)
-            
+
             lesson = parse_lesson(mdc_file)
-            
+
             assert lesson.title == "Python Style Guide"
             assert lesson.metadata.name == "Python Style"
             assert lesson.metadata.description == "Enforce PEP8 compliance"
@@ -542,7 +542,7 @@ Enforce PEP8 style guidelines for all Python code.
         with tempfile.TemporaryDirectory() as tmpdir:
             lesson_dir = Path(tmpdir)
             mdc_file = lesson_dir / "global-rule.mdc"
-            
+
             content = """---
 name: Global Standards
 description: Project-wide conventions
@@ -554,9 +554,9 @@ alwaysApply: true
 Apply these conventions everywhere.
 """
             mdc_file.write_text(content)
-            
+
             lesson = parse_lesson(mdc_file)
-            
+
             assert lesson.metadata.always_apply is True
             # Should have high-frequency keywords
             assert len(lesson.metadata.keywords) > 0
@@ -566,7 +566,7 @@ Apply these conventions everywhere.
         with tempfile.TemporaryDirectory() as tmpdir:
             lesson_dir = Path(tmpdir)
             mdc_file = lesson_dir / "on-change.mdc"
-            
+
             content = """---
 name: File Change Handler
 description: Rules for file changes
@@ -579,9 +579,9 @@ globs: ["**/*.ts"]
 Handle file changes appropriately.
 """
             mdc_file.write_text(content)
-            
+
             lesson = parse_lesson(mdc_file)
-            
+
             assert lesson.metadata.triggers == ["file_change", "save"]
             assert "typescript" in lesson.metadata.keywords
 
@@ -590,7 +590,7 @@ Handle file changes appropriately.
         with tempfile.TemporaryDirectory() as tmpdir:
             lesson_dir = Path(tmpdir)
             mdc_file = lesson_dir / "multi-lang.mdc"
-            
+
             content = """---
 name: Multi-Language Standards
 description: Standards for multiple languages
@@ -605,9 +605,9 @@ globs:
 Standards that apply across languages.
 """
             mdc_file.write_text(content)
-            
+
             lesson = parse_lesson(mdc_file)
-            
+
             # Should have keywords from all globs
             keywords = lesson.metadata.keywords
             assert "python" in keywords
@@ -620,7 +620,7 @@ Standards that apply across languages.
         with tempfile.TemporaryDirectory() as tmpdir:
             lesson_dir = Path(tmpdir)
             md_file = lesson_dir / "hybrid.md"
-            
+
             # .md file but with Cursor-style globs field
             content = """---
 name: Hybrid Format
@@ -633,9 +633,9 @@ globs: ["**/*.py"]
 This should be treated as Cursor format.
 """
             md_file.write_text(content)
-            
+
             lesson = parse_lesson(md_file)
-            
+
             # Should be parsed as Cursor format
             assert lesson.metadata.globs == ["**/*.py"]
             assert "python" in lesson.metadata.keywords
@@ -645,7 +645,7 @@ This should be treated as Cursor format.
         with tempfile.TemporaryDirectory() as tmpdir:
             lesson_dir = Path(tmpdir)
             md_file = lesson_dir / "regular.md"
-            
+
             content = """---
 match:
   keywords: [patch, editing]
@@ -657,9 +657,9 @@ status: active
 This is a standard gptme lesson.
 """
             md_file.write_text(content)
-            
+
             lesson = parse_lesson(md_file)
-            
+
             # Should parse as gptme format
             assert lesson.metadata.keywords == ["patch", "editing"]
             assert lesson.metadata.status == "active"
