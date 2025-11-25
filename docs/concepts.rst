@@ -23,7 +23,7 @@ The five core concepts:
 1. **Knowledge Files** - Context and instructions (via :doc:`skills/README`)
 2. **Tools** - Capabilities the AI can use (see :doc:`tools`)
 3. **Hooks** - Lifecycle integration points (see :doc:`hooks`)
-4. **Commands** - User interface shortcuts (see :ref:`commands`)
+4. **Commands** - User interface shortcuts (see :ref:`usage-commands`)
 5. **Plugins** - Packaging mechanism for tools/hooks/commands (see :doc:`plugins`)
 
 Knowledge Files (Context Injection)
