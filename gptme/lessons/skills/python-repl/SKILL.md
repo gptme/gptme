@@ -17,8 +17,9 @@ This skill bundles Python REPL helpers, common imports, and execution patterns f
 
 This skill includes bundled utility functions for common Python tasks:
 - Data inspection (inspect_df, describe_object)
-- Quick plotting (quick_plot, show_image)
+- Quick plotting (quick_plot)
 - Performance profiling (time_function)
+- Common imports setup (setup_common_imports)
 
 ## Usage Patterns
 
@@ -74,5 +75,4 @@ def slow_operation():
 
 ## Related
 
-- Lesson: [python](../../../../docs/lessons/tools/python.md)
 - Tool: ipython

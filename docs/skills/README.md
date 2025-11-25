@@ -8,7 +8,6 @@ The skills system extends gptme's lesson system to support bundled tools, script
 - Instructional content (like lessons)
 - Executable scripts and utilities
 - Dependencies and setup requirements
-- Hook points for automation
 
 Skills complement lessons by providing **executable components** alongside guidance.
 
@@ -20,7 +19,6 @@ Skills complement lessons by providing **executable components** alongside guida
 | Content | Instructions, examples | Instructions + scripts |
 | Scripts | None | Bundled helper scripts |
 | Dependencies | None | Explicit package requirements |
-| Hooks | None | Pre/post execution hooks |
 
 **When to use**:
 - **Lesson**: Teaching patterns, best practices, tool usage
@@ -70,7 +68,6 @@ Identify:
 - What workflow or automation does it provide?
 - What scripts/utilities are needed?
 - What dependencies are required?
-- Where should hooks run?
 
 ### 2. Create Skill Directory
 
@@ -131,23 +128,6 @@ assert skill.metadata.name == "my-skill"
 assert skill.metadata.description
 ```
 
-## Hook System
-
-Skills support hooks for automation:
-
-### Pre-Execute Hook
-Runs before skill execution:
-- Validate environment
-- Install dependencies
-- Set up imports
-- Configure settings
-
-### Post-Execute Hook
-Runs after skill execution:
-- Capture output
-- Format results
-- Log metrics
-- Clean up resources
 
 ### Implementation
 
