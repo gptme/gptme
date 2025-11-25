@@ -1,0 +1,6 @@
+Model,Test,Case,Passed,Code,Duration
+,,Cargo.toml exists,false,"def check_cargo_toml(ctx):
+    return ""hello_world/Cargo.toml"" in ctx.files",9.5367431640625e-07
+,,Binary built,false,"def check_rust_binary_exists(ctx):
+    # check that target/debug/hello exists
+    return ""hello_world/target/debug/hello_world"" in ctx.files",2.384185791015625e-07

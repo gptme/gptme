@@ -1,0 +1,3 @@
+fatal: /app/main.py: '/app/main.py' is outside repository at '/home/appuser/.local/share/gptme/logs/2025-11-14-gptme-evals-openai--gpt-4o-markdown-35314/workspace'
+fatal: /app/main.py: '/app/main.py' is outside repository at '/home/appuser/.local/share/gptme/logs/2025-11-14-gptme-evals-openai--gpt-4o-markdown-35314/workspace'
+/app/.git: Permission denied

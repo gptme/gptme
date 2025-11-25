@@ -1,0 +1,4 @@
+    Creating binary (application) package
+note: see more `Cargo.toml` keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+   Compiling hello_world v0.1.0 (/home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openai--gpt-4o-mini-760017/workspace/hello_world)
+    Finished `release` profile [optimized] target(s) in 0.07s

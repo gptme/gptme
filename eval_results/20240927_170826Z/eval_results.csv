@@ -1,0 +1,8 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash,Gen Stdout File,Gen Stderr File,Run Stdout File,Run Stderr File
+openai/o1-mini,hello,true,17.13,17.12,0.01,0.0,,openai/o1-mini/hello/gen_stdout.txt,openai/o1-mini/hello/gen_stderr.txt,openai/o1-mini/hello/run_stdout.txt,openai/o1-mini/hello/run_stderr.txt
+openai/o1-mini,hello-patch,true,21.13,21.12,0.01,0.0,,openai/o1-mini/hello-patch/gen_stdout.txt,openai/o1-mini/hello-patch/gen_stderr.txt,openai/o1-mini/hello-patch/run_stdout.txt,openai/o1-mini/hello-patch/run_stderr.txt
+openai/o1-mini,hello-ask,true,19.31,19.3,0.01,0.0,,openai/o1-mini/hello-ask/gen_stdout.txt,openai/o1-mini/hello-ask/gen_stderr.txt,openai/o1-mini/hello-ask/run_stdout.txt,openai/o1-mini/hello-ask/run_stderr.txt
+openai/o1-mini,prime100,true,28.1,28.1,0.01,0.0,,openai/o1-mini/prime100/gen_stdout.txt,openai/o1-mini/prime100/gen_stderr.txt,openai/o1-mini/prime100/run_stdout.txt,openai/o1-mini/prime100/run_stderr.txt
+openai/o1-mini,whois-superuserlabs-ceo,true,22.5,22.5,0.0,0.0,,openai/o1-mini/whois-superuserlabs-ceo/gen_stdout.txt,openai/o1-mini/whois-superuserlabs-ceo/gen_stderr.txt,openai/o1-mini/whois-superuserlabs-ceo/run_stdout.txt,openai/o1-mini/whois-superuserlabs-ceo/run_stderr.txt
+openai/o1-mini,init-git,true,15.74,15.73,0.0,0.0,,openai/o1-mini/init-git/gen_stdout.txt,openai/o1-mini/init-git/gen_stderr.txt,openai/o1-mini/init-git/run_stdout.txt,openai/o1-mini/init-git/run_stderr.txt
+openai/o1-mini,init-rust,true,32.36,32.28,0.08,0.0,,openai/o1-mini/init-rust/gen_stdout.txt,openai/o1-mini/init-rust/gen_stderr.txt,openai/o1-mini/init-rust/run_stdout.txt,openai/o1-mini/init-rust/run_stderr.txt

@@ -1,0 +1,2 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash,Gen Stdout File,Gen Stderr File,Run Stdout File,Run Stderr File
+openai/gpt-4-turbo,whois-superuserlabs-ceo,true,10.6,10.59,0.0,0.0,,openai/gpt-4-turbo/whois-superuserlabs-ceo/gen_stdout.txt,openai/gpt-4-turbo/whois-superuserlabs-ceo/gen_stderr.txt,openai/gpt-4-turbo/whois-superuserlabs-ceo/run_stdout.txt,openai/gpt-4-turbo/whois-superuserlabs-ceo/run_stderr.txt

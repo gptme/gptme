@@ -1,0 +1,13 @@
+
+--- Start of generation ---
+[02:23:32] Using model: openrouter/meta-llama/llama-3.1-405b-instruct
+[02:23:33] Using logdir
+           ~/.local/share/gptme/logs/2025-01-15-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-405b-instruct-tool-562752
+           Using workspace at
+           ~/.local/share/gptme/logs/2025-01-15-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-405b-instruct-tool-562752/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script prime.py that computes and prints the 100th prime number
+Assistant: Thinking...

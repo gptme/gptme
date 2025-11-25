@@ -1,0 +1,1 @@
+python: can't open file '/home/appuser/.local/share/gptme/logs/2024-10-15-gptme-evals-anthropic--claude-3-haiku-20240307-933128/workspace/prime.py': [Errno 2] No such file or directory

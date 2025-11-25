@@ -1,0 +1,28 @@
+
+--- Start of generation ---
+[02:26:54] Using model: anthropic/claude-3-5-haiku-20241022
+           Using logdir
+           ~/.local/share/gptme/logs/2025-02-25-gptme-evals-anthropic--claude-3-
+           5-haiku-20241022-xml-902489
+           Using workspace at
+           ~/.local/share/gptme/logs/2025-02-25-gptme-evals-anthropic--claude-3-
+           5-haiku-20241022-xml-902489/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User:
+Patch the code in hello.py to print "Hello, human!"
+
+```hello.py
+print("Hello, world!")
+```
+Assistant: Thinking...                                                                                Assistant: I'll use the patch tool to modify the hello.py file:
+
+```patch hello.py
+<<<<<<< ORIGINAL
+print("Hello, world!")
+=======
+print("Hello, human!")
+>>>>>>> UPDATED
+```
+
+This patch will replace the original "Hello, world!" message with "Hello, human!" while keeping the same print statement structure.                                                                                --- Finished generation ---

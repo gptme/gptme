@@ -1,0 +1,20 @@
+git: 'add.' is not a git command. See 'git --help'.
+
+The most similar command is
+	add
+git: 'add.' is not a git command. See 'git --help'.
+
+The most similar command is
+	add
+git: 'add.' is not a git command. See 'git --help'.
+
+The most similar command is
+	add
+git: 'add.' is not a git command. See 'git --help'.
+
+The most similar command is
+	add
+git: 'add.' is not a git command. See 'git --help'.
+
+The most similar command is
+	add

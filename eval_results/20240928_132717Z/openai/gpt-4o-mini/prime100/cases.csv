@@ -1,0 +1,3 @@
+Model,Test,Case,Passed,Code,Duration
+,,correct output,true,"def check_prime_output(ctx):
+    return ""541"" in ctx.stdout.split()",2.1457672119140625e-06

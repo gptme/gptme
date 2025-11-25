@@ -1,0 +1,4 @@
+fatal: could not read Username for 'https://github.com': No such device or address
+Switched to a new branch 'feature/new-feature'
+Switched to branch 'main'
+fatal: could not read Username for 'https://github.com': No such device or address

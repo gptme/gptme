@@ -1,0 +1,1 @@
+bash: line 4: read: `hello.py': not a valid identifier

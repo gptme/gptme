@@ -1,0 +1,16 @@
+
+--- Start of generation ---
+[02:28:21] Using model: openrouter/meta-llama/llama-3.1-70b-instruct
+[02:28:22] Using logdir
+           ~/.local/share/gptme/logs/2025-03-07-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-70b-instruct-xml-363541
+           Using workspace at
+           ~/.local/share/gptme/logs/2025-03-07-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-70b-instruct-xml-363541/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant:
+```save hello.py
+print("Hello, world!")
+```                                                                                --- Finished generation ---

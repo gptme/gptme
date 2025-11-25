@@ -1,0 +1,3 @@
+Model,Test,Case,Passed,Code,Duration
+,,correct output,true,"def check_output_hello_ask(ctx):
+    return ""Hello, Erik!"" in ctx.stdout",1.1920928955078125e-06

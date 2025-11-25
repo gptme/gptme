@@ -1,0 +1,37 @@
+
+--- Start of generation ---
+[02:30:35] Using model: openrouter/meta-llama/llama-3.1-405b-instruct
+           Using logdir
+           ~/.local/share/gptme/logs/2024-12-03-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-405b-instruct-594455
+           Using workspace at
+           ~/.local/share/gptme/logs/2024-12-03-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-405b-instruct-594455/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: ```save hello.py
+print("Hello, world!")
+```                                                                                [02:30:36] Tokens: 3114/12 in/out
+Saving to hello.py
+System: Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: Let's verify that the script works as expected.
+
+```shell
+python3 hello.py
+```                                                                                [02:30:39] Tokens: 3130/19 in/out (session: 6244/31, turns: 2)
+
+
+
+
+Preview
+python3 hello.py
+
+Hello, world!
+
+System:
+Ran command: `python3 hello.py`
+
+ `Hello, world!`
+Assistant: Thinking...                                                                                Assistant: The script hello.py has been successfully created and verified to work as expected.                                                                                [02:30:42] Tokens: 3165/15 in/out (session: 9409/46, turns: 3)
+--- Finished generation ---

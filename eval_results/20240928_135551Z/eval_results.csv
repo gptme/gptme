@@ -1,0 +1,4 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash,Gen Stdout File,Gen Stderr File,Run Stdout File,Run Stderr File
+openai/o1-preview,whois-superuserlabs-ceo,true,78.13,78.13,0.0,0.0,,openai/o1-preview/whois-superuserlabs-ceo/gen_stdout.txt,openai/o1-preview/whois-superuserlabs-ceo/gen_stderr.txt,openai/o1-preview/whois-superuserlabs-ceo/run_stdout.txt,openai/o1-preview/whois-superuserlabs-ceo/run_stderr.txt
+openai/o1-preview,init-git,true,42.45,42.44,0.0,0.0,,openai/o1-preview/init-git/gen_stdout.txt,openai/o1-preview/init-git/gen_stderr.txt,openai/o1-preview/init-git/run_stdout.txt,openai/o1-preview/init-git/run_stderr.txt
+openai/o1-preview,init-rust,true,34.1,34.02,0.08,0.0,,openai/o1-preview/init-rust/gen_stdout.txt,openai/o1-preview/init-rust/gen_stderr.txt,openai/o1-preview/init-rust/run_stdout.txt,openai/o1-preview/init-rust/run_stderr.txt

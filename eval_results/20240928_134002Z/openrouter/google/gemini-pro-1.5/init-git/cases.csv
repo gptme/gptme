@@ -1,0 +1,9 @@
+Model,Test,Case,Passed,Code,Duration
+,,clean exit,true,"def check_clean_exit(ctx):
+    return ctx.exit_code == 0",9.5367431640625e-07
+,,clean working tree,true,"def check_clean_working_tree(ctx):
+    return ""nothing to commit, working tree clean"" in ctx.stdout",1.1920928955078125e-06
+,,main.py exists,true,"def check_exists_main(ctx):
+    return ""main.py"" in ctx.files",7.152557373046875e-07
+,,we have a commit,true,"def check_commit_exists(ctx):
+    return ""No commits yet"" not in ctx.stdout",4.76837158203125e-06

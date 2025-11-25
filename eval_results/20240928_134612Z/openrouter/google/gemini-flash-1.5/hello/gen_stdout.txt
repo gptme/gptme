@@ -1,0 +1,18 @@
+
+--- Start of generation ---
+[13:46:05] Using logdir
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--google--gemini-flash-1.5-549909
+           Using workspace at
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--google--gemini-flash-1.5-549909/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: ```save hello.py
+print("Hello, world!")
+```                                                                                Skipping confirmation.
+Saving to hello.py
+System: Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: Okay, I've saved the script.  Is there anything else I can help you with?
+                                                                                --- Finished generation ---

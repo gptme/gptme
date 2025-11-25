@@ -1,0 +1,3 @@
+fatal: pathspec 'main.py' did not match any files
+fatal: /app/main.py: '/app/main.py' is outside repository at '/home/appuser/.local/share/gptme/logs/2025-11-02-gptme-evals-openai--gpt-4o-markdown-63667/workspace'
+/app/.git: Permission denied

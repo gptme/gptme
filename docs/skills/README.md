@@ -28,24 +28,13 @@ Skills complement lessons by providing **executable components** alongside guida
 
 ## Skill Format
 
-Skills use the same YAML frontmatter as lessons with additional fields:
+
+Skills use YAML frontmatter following Anthropic's format:
 
 ```yaml
 ---
-type: skill  # Distinguishes from lessons
-status: active
-match:
-  keywords: [python, data]
-  tools: [ipython]
-scripts:
-  - helper_script.py
-  - utilities.py
-dependencies:
-  - numpy
-  - pandas
-hooks:
-  - pre_execute
-  - post_execute
+name: skill-name
+description: Brief description of what the skill does and when to use it
 ---
 
 # Skill Title
@@ -53,17 +42,10 @@ hooks:
 Skill description and usage instructions...
 ```
 
-### Metadata Fields
+**Note**: Dependencies are specified in `requirements.txt`, and bundled scripts are placed in the same directory as `SKILL.md`.
 
-#### Required
-- `type`: Must be "skill" (defaults to "lesson")
-- `status`: active, automated, deprecated, or archived
-- `match`: Trigger keywords and tools
-
-#### Optional
-- `scripts`: List of bundled script files (relative to skill directory)
-- `dependencies`: Required Python packages
-- `hooks`: Execution hooks (pre_execute, post_execute)
+Skill description and usage instructions...
+```
 
 ## Directory Structure
 
@@ -118,7 +100,7 @@ List required packages (detailed in requirements.txt).
 
 **requirements.txt**:
 
-```txt
+```text
 # List of required packages
 numpy
 pandas

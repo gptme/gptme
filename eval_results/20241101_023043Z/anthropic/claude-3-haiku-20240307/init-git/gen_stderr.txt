@@ -1,0 +1,5 @@
+fatal: pathspec 'main.py' did not match any files
+fatal: pathspec 'main.py' did not match any files
+fatal: pathspec 'main.py' did not match any files
+fatal: pathspec 'main.py' did not match any files
+cat: main.py: No such file or directory

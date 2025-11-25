@@ -1,0 +1,5 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash
+groq/moonshotai/kimi-k2-instruct@markdown,hello,true,3.5,3.45,0.05,0.0,v0.28.0-33-gf64918f4-dirty
+groq/moonshotai/kimi-k2-instruct@markdown,hello-patch,true,3.66,3.61,0.05,0.0,v0.28.0-33-gf64918f4-dirty
+groq/moonshotai/kimi-k2-instruct@markdown,hello-ask,true,3.3,3.26,0.05,0.0,v0.28.0-33-gf64918f4-dirty
+groq/moonshotai/kimi-k2-instruct@markdown,prime100,true,6.15,6.13,0.02,0.0,v0.28.0-33-gf64918f4-dirty

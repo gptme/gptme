@@ -1,0 +1,2 @@
+./prime.py: line 1: syntax error near unexpected token `('
+./prime.py: line 1: `def is_prime(n):'

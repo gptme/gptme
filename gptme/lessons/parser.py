@@ -15,7 +15,7 @@ except ImportError:
 @dataclass
 class LessonMetadata:
     """Metadata from lesson frontmatter.
-    
+
     Supports both:
     - Lessons: keywords, tools, status
     - Skills (Anthropic format): name, description
@@ -126,7 +126,7 @@ def parse_lesson(path: Path) -> Lesson:
                     # Extract Anthropic skill format fields
                     name = frontmatter.get("name")
                     description = frontmatter.get("description")
-                    
+
                     # Extract lesson format fields
                     match_data = frontmatter.get("match", {})
                     status = frontmatter.get("status", "active")

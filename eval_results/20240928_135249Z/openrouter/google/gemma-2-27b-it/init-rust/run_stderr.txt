@@ -1,0 +1,1 @@
+error: could not find `Cargo.toml` in `/tmp/gptme-evals-4igs52rk/hello_world` or any parent directory

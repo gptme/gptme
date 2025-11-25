@@ -1,0 +1,2 @@
+fatal: pathspec 'main.py' did not match any files
+fatal: /tmp/gptme-evals-0ui917bd/main.py: '/tmp/gptme-evals-0ui917bd/main.py' is outside repository at '/home/appuser/.local/share/gptme/logs/2025-09-25-gptme-evals-openrouter--meta-llama--llama-3.1-70b-instruct-xml-86608/workspace'

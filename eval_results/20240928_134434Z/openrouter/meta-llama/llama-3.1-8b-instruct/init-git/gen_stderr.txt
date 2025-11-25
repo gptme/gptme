@@ -1,0 +1,15 @@
+fatal: not a git repository (or any of the parent directories): .git
+git: 'add.' is not a git command. See 'git --help'.
+
+The most similar command is
+	add
+fatal: not a git repository (or any of the parent directories): .git
+git: 'add.' is not a git command. See 'git --help'.
+
+The most similar command is
+	add
+git: 'add.' is not a git command. See 'git --help'.
+
+The most similar command is
+	add
+fatal: not a git repository (or any of the parent directories): .git

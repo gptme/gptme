@@ -1,0 +1,19 @@
+
+--- Start of generation ---
+[02:36:17] Using model: openrouter/meta-llama/llama-3.1-405b-instruct
+           Using logdir
+           ~/.local/share/gptme/logs/2025-01-09-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-405b-instruct-tool-694025
+           Using workspace at
+           ~/.local/share/gptme/logs/2025-01-09-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-405b-instruct-tool-694025/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User:
+modify hello.py to ask the user for their name and print 'Hello, <name>!'. don't
+try to execute it
+
+```hello.py
+print("Hello, world!")
+```
+Assistant: Thinking...

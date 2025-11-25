@@ -1,0 +1,6 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash,Gen Stdout File,Gen Stderr File,Run Stdout File,Run Stderr File
+openai/o1-preview,hello,true,28.65,28.64,0.01,0.0,,openai/o1-preview/hello/gen_stdout.txt,openai/o1-preview/hello/gen_stderr.txt,openai/o1-preview/hello/run_stdout.txt,openai/o1-preview/hello/run_stderr.txt
+openai/o1-preview,hello-patch,true,43.51,43.5,0.01,0.0,,openai/o1-preview/hello-patch/gen_stdout.txt,openai/o1-preview/hello-patch/gen_stderr.txt,openai/o1-preview/hello-patch/run_stdout.txt,openai/o1-preview/hello-patch/run_stderr.txt
+openai/o1-preview,hello-ask,true,31.32,31.3,0.01,0.0,,openai/o1-preview/hello-ask/gen_stdout.txt,openai/o1-preview/hello-ask/gen_stderr.txt,openai/o1-preview/hello-ask/run_stdout.txt,openai/o1-preview/hello-ask/run_stderr.txt
+openai/o1-preview,prime100,true,39.86,39.85,0.01,0.0,,openai/o1-preview/prime100/gen_stdout.txt,openai/o1-preview/prime100/gen_stderr.txt,openai/o1-preview/prime100/run_stdout.txt,openai/o1-preview/prime100/run_stderr.txt
+openai/o1-preview,init-git,true,45.89,45.89,0.01,0.0,,openai/o1-preview/init-git/gen_stdout.txt,openai/o1-preview/init-git/gen_stderr.txt,openai/o1-preview/init-git/run_stdout.txt,openai/o1-preview/init-git/run_stderr.txt

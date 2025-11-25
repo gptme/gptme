@@ -1,0 +1,5 @@
+Model,Test,Case,Passed,Code,Duration
+,,correct output,true,"def correct_output_hello_world(ctx):
+    return ctx.stdout == ""Hello, world!\n""",7.152557373046875e-07
+,,correct file,true,"def check_exists_hello(ctx):
+    return ""hello.py"" in ctx.files",3.814697265625e-06

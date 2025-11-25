@@ -1,0 +1,47 @@
+
+--- Start of generation ---
+[02:28:37] Using model: anthropic/claude-3-5-haiku-20241022
+[02:28:38] Using logdir
+           ~/.local/share/gptme/logs/2024-12-14-gptme-evals-anthropic--claude-3-
+           5-haiku-20241022-411177
+           Using workspace at
+           ~/.local/share/gptme/logs/2024-12-14-gptme-evals-anthropic--claude-3-
+           5-haiku-20241022-411177/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: I'll use the `save` tool to create the `hello.py` script:
+
+```save hello.py
+print("Hello, world!")
+```
+                                                                                [02:28:40] Tokens: 2873/30 in/out
+           Cost:   $0.00
+
+Preview
+print("Hello, world!")
+
+System: Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: Great! Now, let's verify the contents of the file and then run it to make sure it works:
+
+```shell
+cat hello.py
+```
+                                                                                [02:28:41] Tokens: 2907/31 in/out (session: 5780/61, turns: 2)
+           Cost:   $0.00          (session: $0.01)
+
+
+
+print("Hello, world!")
+
+System:
+Ran allowlisted command: `cat hello.py`
+
+ `print("Hello, world!")`
+Assistant: Thinking...                                                                                Assistant: Now, let's run the Python script:
+
+```python
+python3 hello.py
+```                                                                                [02:28:43] Tokens: 2957/18 in/out (session: 8737/79, turns: 3)
+           Cost:   $0.00          (session: $0.01)
+--- Finished generation ---

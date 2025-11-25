@@ -1,0 +1,5 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash
+gemini/gemini-2.5-flash@markdown,hello,true,2.86,2.82,0.04,0.0,v0.28.0-34-g2111ffce-dirty
+gemini/gemini-2.5-flash@markdown,hello-patch,true,2.86,2.82,0.04,0.0,v0.28.0-34-g2111ffce-dirty
+gemini/gemini-2.5-flash@markdown,hello-ask,true,2.87,2.85,0.03,0.0,v0.28.0-34-g2111ffce-dirty
+gemini/gemini-2.5-flash@markdown,prime100,true,3.88,3.86,0.02,0.0,v0.28.0-34-g2111ffce-dirty

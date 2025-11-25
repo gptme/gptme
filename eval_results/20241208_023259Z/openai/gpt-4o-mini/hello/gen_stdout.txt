@@ -1,0 +1,27 @@
+
+--- Start of generation ---
+[02:32:14] Using model: openai/gpt-4o-mini
+[02:32:15] Using logdir
+           ~/.local/share/gptme/logs/2024-12-08-gptme-evals-openai--gpt-4o-mini-
+           132146
+           Using workspace at
+           ~/.local/share/gptme/logs/2024-12-08-gptme-evals-openai--gpt-4o-mini-
+           132146/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: Let's create a simple Python script named `hello.py` that prints "Hello, world!". Here is the code:
+
+```save hello.py
+print("Hello, world!")
+```
+                                                                                [02:32:17] Tokens: 3001/37 in/out
+           Cost:   $0.00
+
+Preview
+print("Hello, world!")
+
+System: Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: The script `hello.py` has been created successfully. You can run it to see the output. Would you like me to run it for you?                                                                                [02:32:18] Tokens: 3042/30 in/out (session: 6043/67, turns: 2)
+           Cost:   $0.00          (session: $0.00)
+--- Finished generation ---

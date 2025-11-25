@@ -1,0 +1,46 @@
+
+--- Start of generation ---
+[02:31:04] Using model: anthropic/claude-3-5-sonnet-20241022
+           Using logdir
+           ~/.local/share/gptme/logs/2024-12-10-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-101917
+           Using workspace at
+           ~/.local/share/gptme/logs/2024-12-10-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-101917/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: I'll use the save tool to write a simple hello.py script:
+
+```save hello.py
+print("Hello, world!")
+```
+                                                                                [02:31:06] Tokens: 2880/27 in/out
+           Cost:   $0.01
+
+Preview
+print("Hello, world!")
+
+System: Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: Let's verify it works by running it:
+
+```shell
+python3 hello.py
+```                                                                                [02:31:07] Tokens: 2911/18 in/out (session: 5791/45, turns: 2)
+           Cost:   $0.01          (session: $0.02)
+
+Preview
+python3 hello.py
+
+
+
+
+Hello, world!
+
+System:
+Ran command: `python3 hello.py`
+
+ `Hello, world!`
+Assistant: Thinking...                                                                                Assistant: The script works as expected, printing "Hello, world!" when executed. Is there anything else you'd like me to help you with?                                                                                [02:31:09] Tokens: 2945/28 in/out (session: 8736/73, turns: 3)
+           Cost:   $0.01          (session: $0.03)
+--- Finished generation ---

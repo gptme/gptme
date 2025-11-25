@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/erb/.local/share/gptme/logs/2025-09-22-gptme-evals-openrouter--x-ai--grok-4-fast:free-markdown-92579/workspace/hello.py", line 1, in <module>
+    name = input("Enter your name: ")
+EOFError: EOF when reading a line

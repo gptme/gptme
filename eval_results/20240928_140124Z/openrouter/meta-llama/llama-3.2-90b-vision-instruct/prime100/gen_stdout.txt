@@ -1,0 +1,12 @@
+
+--- Start of generation ---
+[14:01:20] Using logdir
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--meta-llama--llama-3.2-90b-vision-instruct-818453
+           Using workspace at
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--meta-llama--llama-3.2-90b-vision-instruct-818453/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script prime.py that computes and prints the 100th prime number
+Assistant: Thinking...                                                                                --- Finished generation ---

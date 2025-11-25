@@ -1,0 +1,2 @@
+   Compiling hello_world v0.1.0 (/tmp/gptme-evals-tqwbsn4h/hello_world)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s

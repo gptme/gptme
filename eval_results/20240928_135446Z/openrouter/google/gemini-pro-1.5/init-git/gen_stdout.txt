@@ -1,0 +1,13 @@
+
+--- Start of generation ---
+[13:54:23] Using logdir
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--google--gemini-pro-1.5-318736
+           Using workspace at
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--google--gemini-pro-1.5-318736/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: initialize a git repository, write a main.py file, and commit it
+Assistant: Thinking...                                                                                Assistant: <thinking>
+To initialize a git repository, I'll use the `git

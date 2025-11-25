@@ -1,0 +1,13 @@
+    Creating binary (application) `hello_world` package
+note: see more `Cargo.toml` keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+cat: src/main.rs: No such file or directory
+touch: cannot touch 'src/main.rs': No such file or directory
+touch: cannot touch 'src/main.rs': No such file or directory
+error: could not find `Cargo.toml` in `/home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrouter--google--gemma-2-9b-it-265097/workspace/hello_world` or any parent directory
+mkdir: cannot create directory ‘hello_world’: File exists
+mkdir: cannot create directory ‘hello_world’: File exists
+    Creating binary (application) `hello_world` package
+note: see more `Cargo.toml` keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+cat: src/main.rs: No such file or directory
+touch: cannot touch 'src/main.rs': No such file or directory
+touch: cannot touch 'src/main.rs': No such file or directory

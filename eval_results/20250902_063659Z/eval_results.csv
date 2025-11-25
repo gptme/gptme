@@ -1,0 +1,13 @@
+Model,Test,Passed,Total Duration,Generation Time,Run Time,Eval Time,Commit Hash
+openrouter/nousresearch/hermes-4-70b@markdown,hello,false,2.44,2.43,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@markdown,hello-patch,true,2.94,2.93,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@markdown,hello-ask,true,11.67,11.66,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@markdown,prime100,false,30,30,0,0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@tool,hello,true,5.29,5.28,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@tool,hello-patch,true,5.31,5.26,0.05,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@tool,hello-ask,false,13.79,13.78,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@tool,prime100,false,30,30,0,0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@xml,hello,true,2.93,2.92,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@xml,hello-patch,true,2.99,2.98,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@xml,hello-ask,true,5.21,5.2,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty
+openrouter/nousresearch/hermes-4-70b@xml,prime100,false,5.67,5.66,0.01,0.0,v0.28.0-42-gb3cd6e07-dirty

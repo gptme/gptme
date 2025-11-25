@@ -1,0 +1,13 @@
+
+--- Start of generation ---
+[02:19:52] Using model: openrouter/meta-llama/llama-3.1-405b-instruct
+           Using logdir
+           ~/.local/share/gptme/logs/2025-01-18-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-405b-instruct-tool-961529
+           Using workspace at
+           ~/.local/share/gptme/logs/2025-01-18-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-405b-instruct-tool-961529/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: initialize a git repository, write a main.py file, and commit it
+Assistant: Thinking...

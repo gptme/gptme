@@ -1,0 +1,24 @@
+
+--- Start of generation ---
+[13:43:36] Using logdir
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--meta-llama--llama-3.1-8b-instruct-400696
+           Using workspace at
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--meta-llama--llama-3.1-8b-instruct-400696/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: > User: write a hello world script to hello.py
+```save hello.py
+print("Hello, world!")
+```                                                                                Skipping confirmation.
+Saving to hello.py
+System: Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: The script `hello.py` has been saved to the current directory. The contents of the script are:
+
+```python
+print("Hello, world!")
+```
+
+Would you like to make any changes to the script or run it?                                                                                --- Finished generation ---

@@ -1,0 +1,32 @@
+
+--- Start of generation ---
+[02:30:22] Using model: anthropic/claude-3-5-sonnet-20241022
+           Using logdir
+           ~/.local/share/gptme/logs/2024-11-24-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-420373
+           Using workspace at
+           ~/.local/share/gptme/logs/2024-11-24-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-420373/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User:
+Patch the code in hello.py to print "Hello, human!"
+
+```hello.py
+print("Hello, world!")
+```
+Assistant: Thinking...                                                                                Assistant: I'll help patch the code to change the message.
+
+```patch hello.py
+<<<<<<< ORIGINAL
+print("Hello, world!")
+=======
+print("Hello, human!")
+>>>>>>> UPDATED
+```
+Preview
+-print("Hello, world!")
++print("Hello, human!")
+
+System: Patch successfully applied to hello.py
+Assistant: Thinking...                                                                                Assistant: The patch has been successfully applied. The file hello.py now contains the message "Hello, human!" instead of "Hello, world!". Would you like to verify the contents of the file or make any other changes?                                                                                --- Finished generation ---

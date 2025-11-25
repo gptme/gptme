@@ -1,0 +1,15 @@
+
+--- Start of generation ---
+[17:09:47] Using logdir
+           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openrout
+           er--meta-llama--llama-3.1-405b-instruct-454124
+           Using workspace at
+           /home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openrout
+           er--meta-llama--llama-3.1-405b-instruct-454124/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: who is the CEO of Superuser Labs? write the answer to answer.txt
+Assistant: Thinking...                                                                                Assistant: To find out who the CEO of Superuser Labs is, let's browse the website of Superuser Labs.
+```bash
+read_url("https://superuserlabs.org/")
+```

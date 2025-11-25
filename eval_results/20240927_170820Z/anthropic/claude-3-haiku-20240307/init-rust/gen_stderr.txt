@@ -1,0 +1,4 @@
+    Creating binary (application) package
+note: see more `Cargo.toml` keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+   Compiling hello_world v0.1.0 (/home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-anthropic--claude-3-haiku-20240307-931921/workspace/hello_world)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s

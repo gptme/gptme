@@ -1,0 +1,3 @@
+    Creating binary (application) `hello_world` package
+note: see more `Cargo.toml` keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+error: could not find `Cargo.toml` in `/home/appuser/.local/share/gptme/logs/2024-09-27-gptme-evals-openai--o1-mini-177066/workspace` or any parent directory

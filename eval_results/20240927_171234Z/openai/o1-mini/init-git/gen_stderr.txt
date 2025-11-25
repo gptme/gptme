@@ -1,0 +1,11 @@
+fatal: could not read Username for 'https://github.com': No such device or address
+Switched to a new branch 'feature/new-feature'
+ERROR: Could not open requirements file: [Errno 2] No such file or directory: 'requirements.txt'
+
+[notice] A new release of pip is available: 23.0.1 -> 24.2
+[notice] To update, run: pip install --upgrade pip
+error: remote origin already exists.
+fatal: could not read Username for 'https://github.com': No such device or address
+
+[notice] A new release of pip is available: 23.0.1 -> 24.2
+[notice] To update, run: pip install --upgrade pip

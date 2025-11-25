@@ -1,0 +1,36 @@
+
+--- Start of generation ---
+[13:39:49] Using logdir
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--google--gemini-pro-1.5-9394
+           Using workspace at
+           /home/appuser/.local/share/gptme/logs/2024-09-28-gptme-evals-openrout
+           er--google--gemini-pro-1.5-9394/workspace
+Skipped 1 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: <thinking>
+I can use the `save` tool to create a file named `hello.py` and write the code to print "Hello, world!".
+</thinking>
+```save hello.py
+print("Hello, world!")
+```                                                                                Skipping confirmation.
+Saving to hello.py
+System: Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: <thinking>
+The file has been saved successfully.  I can verify this by running the script using the `shell` tool.
+</thinking>
+```bash
+python3 hello.py
+```
+Hello, world!
+
+System:
+Ran command: `python3 hello.py`
+
+stdout: `Hello, world!`
+Assistant: Thinking...                                                                                Assistant: <thinking>
+The script executed successfully and printed the expected output. The task is complete.
+</thinking>
+The script works as expected.
+                                                                                --- Finished generation ---

@@ -1,0 +1,3 @@
+Model,Test,Case,Passed,Code,Duration
+,,correct output,true,"def check_output_erik(ctx):
+    return ""Erik"" in ctx.stdout",9.5367431640625e-07
