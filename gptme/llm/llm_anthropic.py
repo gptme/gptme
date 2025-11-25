@@ -361,7 +361,7 @@ def chat(
     )
 
     # Add schema tool for constrained output
-    schema_tool = _make_schema_tool(output_schema)
+    schema_tool: "anthropic.types.ToolParam" | None = _make_schema_tool(output_schema)
     if schema_tool:
         # Add schema tool to tools
         if tools_dict:
@@ -457,7 +457,7 @@ def stream(
     )
 
     # Add schema tool for constrained output
-    schema_tool = _make_schema_tool(output_schema)
+    schema_tool: "anthropic.types.ToolParam" | None = _make_schema_tool(output_schema)
     if schema_tool:
         # Add schema tool to tools
         if tools_dict:
