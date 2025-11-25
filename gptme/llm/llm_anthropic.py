@@ -303,7 +303,7 @@ class CacheControl(TypedDict):
 
 def _make_schema_tool(
     output_schema: "type[BaseModel] | None",
-) -> dict | None:
+) -> "anthropic.types.ToolParam | None":
     """Convert Pydantic BaseModel to Anthropic tool definition for constrained output."""
     if output_schema is None:
         return None
@@ -313,11 +313,14 @@ def _make_schema_tool(
     schema_name = output_schema.__name__
 
     # Convert to Anthropic tool definition
-    return {
-        "name": f"return_{schema_name.lower()}",
-        "description": f"Return structured output conforming to {schema_name} schema",
-        "input_schema": json_schema,
-    }
+    return cast(
+        "anthropic.types.ToolParam",
+        {
+            "name": f"return_{schema_name.lower()}",
+            "description": f"Return structured output conforming to {schema_name} schema",
+            "input_schema": json_schema,
+        },
+    )
 
 
 @retry_on_overloaded()
