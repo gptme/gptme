@@ -73,7 +73,6 @@ Skills vs Plugins
 See :doc:`skills <skills/README>` for lightweight knowledge bundles.
 
 .. _creating-a-plugin:
-
 Creating a Plugin
 -----------------
 
@@ -247,7 +246,6 @@ Hook Registration
 Every hook module must have a ``register()`` function that calls ``register_hook()`` for each hook it provides. The plugin system automatically calls ``register()`` during initialization.
 
 .. _plugin-command-modules:
-
 Plugin Command Modules
 ----------------------
 
