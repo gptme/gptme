@@ -249,6 +249,10 @@ def record_llm_request(
         f"tokens in:  {input_tokens}"
         + (
             f" + {cache_creation_tokens} cache create ({100*(cache_creation_tokens or 0)/(total_in):.1f}%)"
+            if cache_creation_tokens
+            else ""
+        )
+        + (
             f" + {cache_read_tokens} cache read ({100*(cache_read_tokens or 0)/(total_in):.1f}%)"
             if cache_read_tokens
             else ""
@@ -276,9 +280,9 @@ def record_llm_request(
     # Detect poor cost effectiveness patterns
     if cache_creation_tokens and cache_read_tokens:
         hit_rate = cache_read_tokens / total_in
-        if hit_rate < 0.5:
+        if hit_rate < 0.5 and total_in > 20000:
             logger.warning(
-                f"Costly usage patterns detected: low cache hit rate: {hit_rate:.1%} (uncached: {input_tokens}t, create: {cache_creation_tokens}t, read: {cache_read_tokens}t)"
+                f"Costly usage patterns detected: large request with low cache hit rate: {hit_rate:.1%} (uncached: {input_tokens}t, create: {cache_creation_tokens}t, read: {cache_read_tokens}t)"
             )
 
     if not is_telemetry_enabled():
