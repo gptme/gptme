@@ -55,15 +55,23 @@ class LessonIndex:
         if gptme_lessons_dir.exists():
             dirs.append(gptme_lessons_dir)
 
-        # Check for .cursorrules file and provide guidance
+        # Cursor rules directory (.cursor/)
+        cursor_dir = Path.cwd() / ".cursor"
+        if cursor_dir.exists():
+            dirs.append(cursor_dir)
+            logger.info(
+                "Found .cursor directory with Cursor rules.\n"
+                "gptme can now read and use .mdc rules files directly!\n"
+                "Cursor 'globs' will be translated to gptme 'keywords'."
+            )
+
+        # Check for legacy .cursorrules file and provide guidance
         cursorrules_file = Path.cwd() / ".cursorrules"
         if cursorrules_file.exists():
             logger.info(
                 "Found .cursorrules file in project root.\n"
-                "To use with gptme, convert to lesson format:\n"
-                "  cd gptme-contrib/cursorrules\n"
-                "  python3 cursorrules_parser.py to-lesson /path/to/.cursorrules .gptme/lessons/project-rules.md\n"
-                "See docs/lessons/README.md for more information."
+                "Consider migrating to .cursor/ directory with .mdc files for better organization.\n"
+                "gptme now supports reading Cursor .mdc rules directly!"
             )
 
         # Configured directories from gptme.toml
@@ -96,25 +104,28 @@ class LessonIndex:
             logger.debug("No lessons found")
 
     def _index_directory(self, directory: Path) -> None:
-        """Index all lessons in a directory."""
-        for md_file in directory.rglob("*.md"):
+        """Index all lessons in a directory, including .mdc files."""
+        # Find both .md and .mdc files
+        lesson_files = list(directory.rglob("*.md")) + list(directory.rglob("*.mdc"))
+        
+        for lesson_file in lesson_files:
             # Skip special files
-            if md_file.name.lower() in ("readme.md", "todo.md"):
+            if lesson_file.name.lower() in ("readme.md", "todo.md"):
                 continue
-            if "template" in md_file.name.lower():
+            if "template" in lesson_file.name.lower():
                 continue
 
             try:
-                lesson = parse_lesson(md_file)
+                lesson = parse_lesson(lesson_file)
                 # Filter based on status - only include active lessons
                 if lesson.metadata.status != "active":
                     logger.debug(
-                        f"Skipping {lesson.metadata.status} lesson: {md_file.relative_to(directory)}"
+                        f"Skipping {lesson.metadata.status} lesson: {lesson_file.relative_to(directory)}"
                     )
                     continue
                 self.lessons.append(lesson)
             except Exception as e:
-                logger.warning(f"Failed to parse lesson {md_file}: {e}")
+                logger.warning(f"Failed to parse lesson {lesson_file}: {e}")
 
     def search(self, query: str) -> list[Lesson]:
         """Search lessons by keyword or content.

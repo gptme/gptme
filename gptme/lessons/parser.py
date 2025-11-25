@@ -16,9 +16,10 @@ except ImportError:
 class LessonMetadata:
     """Metadata from lesson frontmatter.
 
-    Supports both:
+    Supports:
     - Lessons: keywords, tools, status
     - Skills (Anthropic format): name, description
+    - Cursor rules (.mdc): globs, priority, triggers, alwaysApply
     """
 
     # Anthropic skill format fields
@@ -33,6 +34,22 @@ class LessonMetadata:
     # Future extensions:
     # globs: list[str] = field(default_factory=list)
     # semantic: list[str] = field(default_factory=list)
+
+    # Cursor .mdc format fields (Issue #686 Phase 5)
+    globs: list[str] = field(default_factory=list)
+    """File path patterns for Cursor rules (e.g., '**/*.py')"""
+
+    priority: str | None = None
+    """Priority level: high, medium, low"""
+
+    triggers: list[str] = field(default_factory=list)
+    """Action triggers for Cursor rules (e.g., file_change)"""
+
+    always_apply: bool = False
+    """Whether rule should always be applied (Cursor format)"""
+
+    version: str | None = None
+    """Version tracking for rules"""
 
 
 @dataclass
@@ -71,6 +88,130 @@ def _extract_description(content: str) -> str:
     return ""
 
 
+def _glob_to_keywords(glob_pattern: str) -> list[str]:
+    """Convert a file glob pattern to likely keywords.
+
+    Args:
+        glob_pattern: File pattern like '**/*.py' or 'src/api/**/*.ts'
+
+    Returns:
+        List of inferred keywords
+
+    Examples:
+        '**/*.py' -> ['python', 'python code']
+        '**/*.ts' -> ['typescript', 'typescript code']
+        'src/api/**/*.js' -> ['javascript', 'api', 'backend']
+    """
+    keywords = []
+
+    # Extension mapping
+    ext_map = {
+        ".py": ["python", "python code"],
+        ".ts": ["typescript", "typescript code"],
+        ".tsx": ["typescript", "react", "frontend"],
+        ".js": ["javascript", "javascript code"],
+        ".jsx": ["javascript", "react", "frontend"],
+        ".java": ["java", "java code"],
+        ".cpp": ["cpp", "c++", "c++ code"],
+        ".c": ["c", "c code"],
+        ".rs": ["rust", "rust code"],
+        ".go": ["go", "golang", "go code"],
+        ".rb": ["ruby", "ruby code"],
+        ".php": ["php", "php code"],
+        ".swift": ["swift", "swift code"],
+        ".kt": ["kotlin", "kotlin code"],
+        ".cs": ["csharp", "c#", "c# code"],
+        ".sql": ["sql", "database"],
+        ".md": ["markdown", "documentation"],
+        ".yaml": ["yaml", "configuration"],
+        ".yml": ["yaml", "configuration"],
+        ".json": ["json", "configuration"],
+        ".toml": ["toml", "configuration"],
+        ".xml": ["xml", "configuration"],
+        ".html": ["html", "frontend", "web"],
+        ".css": ["css", "frontend", "styling"],
+        ".scss": ["scss", "css", "styling"],
+        ".vue": ["vue", "frontend", "javascript"],
+        ".sh": ["shell", "bash", "script"],
+    }
+
+    # Extract file extension
+    import re
+
+    ext_match = re.search(r"\*\.(\w+)", glob_pattern)
+    if ext_match:
+        ext = f".{ext_match.group(1)}"
+        keywords.extend(ext_map.get(ext, [ext_match.group(1)]))
+
+    # Extract directory names for context
+    # e.g., 'src/api/**/*.js' -> add 'api'
+    parts = glob_pattern.split("/")
+    for part in parts:
+        if part and part not in ("*", "**", ".", ".."):
+            # Common directory names that indicate context
+            if part in [
+                "api",
+                "backend",
+                "frontend",
+                "tests",
+                "test",
+                "docs",
+                "documentation",
+                "config",
+                "lib",
+                "src",
+            ]:
+                keywords.append(part)
+
+    return list(dict.fromkeys(keywords))  # Remove duplicates while preserving order
+
+
+def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
+    """Translate Cursor .mdc frontmatter to gptme LessonMetadata.
+
+    Args:
+        frontmatter: Parsed YAML frontmatter from .mdc file
+
+    Returns:
+        Translated LessonMetadata
+    """
+    # Start with basic fields
+    name = frontmatter.get("name")
+    description = frontmatter.get("description")
+
+    # Translate globs to keywords
+    globs = frontmatter.get("globs", [])
+    keywords = []
+    for glob in globs:
+        keywords.extend(_glob_to_keywords(glob))
+
+    # If alwaysApply is true, add high-frequency keywords
+    always_apply = frontmatter.get("alwaysApply", False)
+    if always_apply:
+        # Add generic keywords that are likely to match frequently
+        keywords.extend(["code", "development", "project"])
+
+    # Map priority to status or store separately
+    priority = frontmatter.get("priority")
+    status = "active"  # Default status
+
+    # Extract other Cursor-specific fields
+    triggers = frontmatter.get("triggers", [])
+    version = frontmatter.get("version")
+
+    return LessonMetadata(
+        name=name,
+        description=description,
+        keywords=list(dict.fromkeys(keywords)),  # Remove duplicates
+        status=status,
+        globs=globs,
+        priority=priority,
+        triggers=triggers,
+        always_apply=always_apply,
+        version=version,
+    )
+
+
 def parse_lesson(path: Path) -> Lesson:
     """Parse lesson or skill file with optional YAML frontmatter.
 
@@ -80,7 +221,7 @@ def parse_lesson(path: Path) -> Lesson:
     Returns:
         Parsed lesson with metadata and content
 
-    Supports two formats:
+    Supports three formats:
 
     Lesson format:
         ---
@@ -98,11 +239,23 @@ def parse_lesson(path: Path) -> Lesson:
         ---
         # Skill Title
         Detailed instructions...
+
+    Cursor rules format (.mdc):
+        ---
+        name: Rule Name
+        description: Brief summary
+        globs: ["**/*.py"]
+        priority: high
+        alwaysApply: true
+        ---
+        # Rule Title
+        Detailed instructions...
     """
     if not path.exists():
         raise FileNotFoundError(f"Lesson file not found: {path}")
 
     content = path.read_text(encoding="utf-8")
+    is_mdc = path.suffix == ".mdc"
 
     # Parse frontmatter if present
     metadata = LessonMetadata()
@@ -123,21 +276,30 @@ def parse_lesson(path: Path) -> Lesson:
             try:
                 frontmatter = yaml.safe_load(frontmatter_str)
                 if frontmatter:
-                    # Extract Anthropic skill format fields
-                    name = frontmatter.get("name")
-                    description = frontmatter.get("description")
+                    # Detect format based on file extension and frontmatter structure
+                    has_globs = "globs" in frontmatter
+                    has_match = "match" in frontmatter
 
-                    # Extract lesson format fields
-                    match_data = frontmatter.get("match", {})
-                    status = frontmatter.get("status", "active")
+                    if is_mdc or has_globs:
+                        # Cursor .mdc format - translate to gptme format
+                        metadata = _translate_cursor_metadata(frontmatter)
+                    else:
+                        # Standard gptme lesson or Anthropic skill format
+                        # Extract Anthropic skill format fields
+                        name = frontmatter.get("name")
+                        description = frontmatter.get("description")
 
-                    metadata = LessonMetadata(
-                        name=name,
-                        description=description,
-                        keywords=match_data.get("keywords", []),
-                        tools=match_data.get("tools", []),
-                        status=status,
-                    )
+                        # Extract lesson format fields
+                        match_data = frontmatter.get("match", {})
+                        status = frontmatter.get("status", "active")
+
+                        metadata = LessonMetadata(
+                            name=name,
+                            description=description,
+                            keywords=match_data.get("keywords", []),
+                            tools=match_data.get("tools", []),
+                            status=status,
+                        )
             except yaml.YAMLError as e:
                 raise ValueError(f"Invalid YAML frontmatter in {path}: {e}") from e
 
