@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>&lt;no title&gt; &#8212; gptme</title>
+    <title>Skills System &#8212; gptme</title>
   
   
   
@@ -46,11 +46,13 @@
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/asciinema-player_3.6.3.js"></script>
     <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'automation/example_activity_summary';</script>
-    <link rel="canonical" href="https://gptme.org/docs/automation/example_activity_summary.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'skills/README';</script>
+    <link rel="canonical" href="https://gptme.org/docs/skills/README.html" />
     <link rel="icon" href="../_static/logo.png"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Configuration" href="../config.html" />
+    <link rel="prev" title="Lessons" href="../lessons.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -102,8 +104,6 @@
       
       
       
-        
-      
       <dialog id="pst-primary-sidebar-modal"></dialog>
       <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
         
@@ -149,7 +149,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -160,7 +160,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../tools.html">Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../lessons.html">Lessons</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../skills/README.html">Skills System</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Skills System</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../custom-providers.html">Custom Providers</a></li>
@@ -325,7 +325,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/automation/example_activity_summary.rst" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/skills/README.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -355,7 +355,7 @@
       
       
       
-      <li><a href="../_sources/automation/example_activity_summary.rst" target="_blank"
+      <li><a href="../_sources/skills/README.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -365,7 +365,7 @@
 <span class="btn__icon-container">
   <i class="fas fa-file"></i>
   </span>
-<span class="btn__text-container">.rst</span>
+<span class="btn__text-container">.md</span>
 </a>
 </li>
       
@@ -431,7 +431,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1><no title></h1>
+    <h1>Skills System</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -440,9 +440,29 @@
                 <h2> Contents </h2>
             </div>
             <nav aria-label="Page">
-                <ul class="simple visible nav section-nav flex-column">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson">Skill vs. Lesson</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-format">Skill Format</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-bundled-scripts">3. Create Bundled Scripts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#test-the-skill">4. Test the Skill</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation">Implementation</a></li>
 </ul>
-
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-cases">Use Cases</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#data-analysis-skill">Data Analysis Skill</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing-skill">Testing Skill</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#api-development-skill">API Development Skill</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-with-lessons">Integration with Lessons</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#roadmap">Roadmap</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#current-status-phase-4-1">Current Status (Phase 4.1)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#future-work-phase-4-2">Future Work (Phase 4.2+)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
+</ul>
             </nav>
         </div>
     </div>
@@ -453,56 +473,238 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <p class="rubric">Example: Daily Activity Summary</p>
-<p>Here’s an example of how to use gptme to generate a daily summary based on ActivityWatch data using a shell script:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/bin/bash</span>
+  <section id="skills-system">
+<h1>Skills System<a class="headerlink" href="#skills-system" title="Link to this heading">#</a></h1>
+<p>The skills system extends gptme’s lesson system to support bundled tools, scripts, and workflows inspired by Claude’s Skills system and Cursor’s rules system.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p><strong>Skills</strong> are enhanced lessons that bundle:</p>
+<ul class="simple">
+<li><p>Instructional content (like lessons)</p></li>
+<li><p>Executable scripts and utilities</p></li>
+<li><p>Dependencies and setup requirements</p></li>
+</ul>
+<p>Skills complement lessons by providing <strong>executable components</strong> alongside guidance.</p>
+</section>
+<section id="skill-vs-lesson">
+<h2>Skill vs. Lesson<a class="headerlink" href="#skill-vs-lesson" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Feature</p></th>
+<th class="head"><p>Lesson</p></th>
+<th class="head"><p>Skill</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Purpose</p></td>
+<td><p>Guidance and patterns</p></td>
+<td><p>Executable workflows</p></td>
+</tr>
+<tr class="row-odd"><td><p>Content</p></td>
+<td><p>Instructions, examples</p></td>
+<td><p>Instructions + scripts</p></td>
+</tr>
+<tr class="row-even"><td><p>Scripts</p></td>
+<td><p>None</p></td>
+<td><p>Bundled helper scripts</p></td>
+</tr>
+<tr class="row-odd"><td><p>Dependencies</p></td>
+<td><p>None</p></td>
+<td><p>Explicit package requirements</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>When to use</strong>:</p>
+<ul class="simple">
+<li><p><strong>Lesson</strong>: Teaching patterns, best practices, tool usage</p></li>
+<li><p><strong>Skill</strong>: Providing reusable scripts, automated workflows, integrated tooling</p></li>
+</ul>
+</section>
+<section id="skill-format">
+<h2>Skill Format<a class="headerlink" href="#skill-format" title="Link to this heading">#</a></h2>
+<p>Skills use YAML frontmatter following Anthropic’s format:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nn">---</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">skill-name</span>
+<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Brief description of what the skill does and when to use it</span>
+<span class="nn">---</span>
 
-<span class="c1"># Function to get yesterday&#39;s date in YYYY-MM-DD format</span>
-get_yesterday<span class="o">()</span><span class="w"> </span><span class="o">{</span>
-<span class="w">    </span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;yesterday&quot;</span><span class="w"> </span>+%Y-%m-%d
-<span class="o">}</span>
+<span class="c1"># Skill Title</span>
 
-<span class="c1"># Function to get ActivityWatch report</span>
-get_aw_report<span class="o">()</span><span class="w"> </span><span class="o">{</span>
-<span class="w">    </span><span class="nb">local</span><span class="w"> </span><span class="nv">date</span><span class="o">=</span><span class="nv">$1</span>
-<span class="w">    </span>aw-client<span class="w"> </span>report<span class="w"> </span><span class="k">$(</span>hostname<span class="k">)</span><span class="w"> </span>--start<span class="w"> </span><span class="nv">$date</span><span class="w"> </span>--stop<span class="w"> </span><span class="k">$(</span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$date</span><span class="s2"> + 1 day&quot;</span><span class="w"> </span>+%Y-%m-%d<span class="k">)</span>
-<span class="o">}</span>
-
-<span class="c1"># Generate daily summary</span>
-generate_daily_summary<span class="o">()</span><span class="w"> </span><span class="o">{</span>
-<span class="w">    </span><span class="nb">local</span><span class="w"> </span><span class="nv">yesterday</span><span class="o">=</span><span class="k">$(</span>get_yesterday<span class="k">)</span>
-<span class="w">    </span><span class="nb">local</span><span class="w"> </span><span class="nv">aw_report</span><span class="o">=</span><span class="k">$(</span>get_aw_report<span class="w"> </span><span class="nv">$yesterday</span><span class="k">)</span>
-
-<span class="w">    </span><span class="c1"># Create a temporary file</span>
-<span class="w">    </span><span class="nb">local</span><span class="w"> </span><span class="nv">summary_file</span><span class="o">=</span><span class="k">$(</span>mktemp<span class="k">)</span>
-
-<span class="w">    </span><span class="c1"># Generate summary using gptme</span>
-<span class="w">    </span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s2">&quot;Based on the following ActivityWatch report for </span><span class="nv">$yesterday</span><span class="s2">, provide a concise summary of yesterday&#39;s activities.</span>
-<span class="s2">    Include insights on productivity, time spent on different categories, and any notable patterns.</span>
-<span class="s2">    Suggest areas for improvement if applicable.</span>
-
-<span class="s2">    ActivityWatch Report:</span>
-<span class="s2">    </span><span class="nv">$aw_report</span>
-
-<span class="s2">    Please format the summary in a clear, easy-to-read structure.</span>
-<span class="s2">    Save the summary to this file: </span><span class="nv">$summary_file</span><span class="s2">&quot;</span>
-
-<span class="w">    </span><span class="c1"># Return the path to the summary file</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$summary_file</span><span class="s2">&quot;</span>
-<span class="o">}</span>
-
-<span class="c1"># Run the summary generation and get the file path</span>
-<span class="nv">summary_file</span><span class="o">=</span><span class="k">$(</span>generate_daily_summary<span class="k">)</span>
-
-<span class="c1"># Output the file path (you can use this in other scripts or log it)</span>
-<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Daily summary saved to: </span><span class="nv">$summary_file</span><span class="s2">&quot;</span>
+<span class="l l-Scalar l-Scalar-Plain">Skill description and usage instructions...</span>
 </pre></div>
 </div>
-<p>To automate this process to run every day at 8 AM, you could set up a cron job. Here’s an example cron entry:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="m">0</span><span class="w"> </span><span class="m">8</span><span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span>/path/to/daily_summary_script.sh
+<p><strong>Note</strong>: Dependencies are specified in <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>, and bundled scripts are placed in the same directory as <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code>.</p>
+<p>Skill description and usage instructions…</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>
+## Directory Structure
+
+Skills are organized parallel to lessons:
+
+gptme/
+└── lessons/           # Unified knowledge tree
+    ├── tools/        # Tool-specific lessons
+    ├── patterns/     # General patterns
+    ├── workflows/    # Workflow lessons
+    └── skills/       # Skills (Anthropic format)
+        └── python-repl/
+            ├── SKILL.md
+            ├── python_helpers.py
+            └── requirements.txt
+
+## Creating Skills
+
+### 1. Design the Skill
+
+Identify:
+- What workflow or automation does it provide?
+- What scripts/utilities are needed?
+- What dependencies are required?
+
+### 2. Create Skill Directory
+
+Create a directory under `gptme/lessons/skills/skill-name/` with these files:
+
+**SKILL.md** (Anthropic format):
+```yaml
+---
+name: skill-name
+description: Brief description of what the skill does
+---
+
+# Skill Title
+
+## Overview
+Detailed description and use cases.
+
+## Bundled Scripts
+Describe each included script.
+
+## Usage Patterns
+Show common usage examples.
+
+## Dependencies
+List required packages (detailed in requirements.txt).
 </pre></div>
 </div>
-<p>This automation will provide you with daily insights into your computer usage and productivity patterns from the previous day, leveraging the power of gptme to analyze and summarize the data collected by ActivityWatch.</p>
+<p><strong>requirements.txt</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># List of required packages
+numpy
+pandas
+</pre></div>
+</div>
+<section id="create-bundled-scripts">
+<h3>3. Create Bundled Scripts<a class="headerlink" href="#create-bundled-scripts" title="Link to this heading">#</a></h3>
+<p>Create helper scripts in the same directory as the skill:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python3</span>
+<span class="sd">&quot;&quot;&quot;Helper script for skill.&quot;&quot;&quot;</span>
+
+<span class="k">def</span> <span class="nf">helper_function</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Does something useful.&quot;&quot;&quot;</span>
+    <span class="k">pass</span>
+</pre></div>
+</div>
+</section>
+<section id="test-the-skill">
+<h3>4. Test the Skill<a class="headerlink" href="#test-the-skill" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.lessons.parser</span> <span class="kn">import</span> <span class="n">parse_lesson</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="c1"># Parse skill from unified lessons tree</span>
+<span class="n">skill</span> <span class="o">=</span> <span class="n">parse_lesson</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;gptme/lessons/skills/my-skill/SKILL.md&quot;</span><span class="p">))</span>
+<span class="k">assert</span> <span class="n">skill</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;my-skill&quot;</span>
+<span class="k">assert</span> <span class="n">skill</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">description</span>
+</pre></div>
+</div>
+</section>
+<section id="implementation">
+<h3>Implementation<a class="headerlink" href="#implementation" title="Link to this heading">#</a></h3>
+<p>Hook implementation is planned for future phases:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Future API (conceptual)</span>
+<span class="kn">from</span> <span class="nn">gptme.skills</span> <span class="kn">import</span> <span class="n">register_hook</span>
+
+<span class="nd">@register_hook</span><span class="p">(</span><span class="s2">&quot;pre_execute&quot;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">setup_python_env</span><span class="p">(</span><span class="n">skill</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Install dependencies and set up imports.&quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">dep</span> <span class="ow">in</span> <span class="n">skill</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">dependencies</span><span class="p">:</span>
+        <span class="n">ensure_installed</span><span class="p">(</span><span class="n">dep</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="use-cases">
+<h2>Use Cases<a class="headerlink" href="#use-cases" title="Link to this heading">#</a></h2>
+<section id="data-analysis-skill">
+<h3>Data Analysis Skill<a class="headerlink" href="#data-analysis-skill" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>Bundles pandas, numpy helpers</p></li>
+<li><p>Auto-imports common libraries</p></li>
+<li><p>Provides data inspection utilities</p></li>
+<li><p>Includes plotting helpers</p></li>
+</ul>
+</section>
+<section id="testing-skill">
+<h3>Testing Skill<a class="headerlink" href="#testing-skill" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>Bundles pytest configuration</p></li>
+<li><p>Provides test utilities</p></li>
+<li><p>Auto-discovers tests</p></li>
+<li><p>Formats test reports</p></li>
+</ul>
+</section>
+<section id="api-development-skill">
+<h3>API Development Skill<a class="headerlink" href="#api-development-skill" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>Bundles FastAPI templates</p></li>
+<li><p>Provides auth helpers</p></li>
+<li><p>Includes validation utilities</p></li>
+<li><p>Auto-generates OpenAPI docs</p></li>
+</ul>
+</section>
+</section>
+<section id="integration-with-lessons">
+<h2>Integration with Lessons<a class="headerlink" href="#integration-with-lessons" title="Link to this heading">#</a></h2>
+<p>Skills complement lessons:</p>
+<ul class="simple">
+<li><p><strong>Lesson teaches</strong> the pattern</p></li>
+<li><p><strong>Skill provides</strong> the tooling</p></li>
+</ul>
+<p>Example:</p>
+<ul class="simple">
+<li><p>Lesson: <code class="docutils literal notranslate"><span class="pre">lessons/patterns/testing.md</span></code> - Testing best practices</p></li>
+<li><p>Skill: <code class="docutils literal notranslate"><span class="pre">skills/testing-skill.md</span></code> - Bundled pytest utilities</p></li>
+</ul>
+</section>
+<section id="roadmap">
+<h2>Roadmap<a class="headerlink" href="#roadmap" title="Link to this heading">#</a></h2>
+<section id="current-status-phase-4-1">
+<h3>Current Status (Phase 4.1)<a class="headerlink" href="#current-status-phase-4-1" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>✅ Parser support for skills metadata</p></li>
+<li><p>✅ Example skill with bundled scripts</p></li>
+<li><p>✅ Documentation</p></li>
+</ul>
+</section>
+<section id="future-work-phase-4-2">
+<h3>Future Work (Phase 4.2+)<a class="headerlink" href="#future-work-phase-4-2" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>[ ] Hook system implementation</p></li>
+<li><p>[ ] Dependency management</p></li>
+<li><p>[ ] Script bundling and loading</p></li>
+<li><p>[ ] Skills CLI commands</p></li>
+<li><p>[ ] Skills discovery and listing</p></li>
+</ul>
+</section>
+</section>
+<section id="related">
+<h2>Related<a class="headerlink" href="#related" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="../lessons.html"><span class="doc std std-doc">Lesson System</span></a></p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/686">Issue #686</a> - Phase 4: Skills Integration</p></li>
+<li><p><a class="reference external" href="https://simonwillison.net/2025/Oct/10/claude-skills/">Claude Skills</a> - Inspiration</p></li>
+</ul>
+</section>
+</section>
 
 
                 </article>
@@ -515,6 +717,24 @@ generate_daily_summary<span class="o">()</span><span class="w"> </span><span cla
                 <footer class="prev-next-footer d-print-none">
                   
 <div class="prev-next-area">
+    <a class="left-prev"
+       href="../lessons.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Lessons</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../config.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Configuration</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
 </div>
                 </footer>
               
@@ -531,9 +751,29 @@ generate_daily_summary<span class="o">()</span><span class="w"> </span><span cla
     <i class="fa-solid fa-list"></i> Contents
   </div>
   <nav class="bd-toc-nav page-toc">
-    <ul class="simple visible nav section-nav flex-column">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson">Skill vs. Lesson</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-format">Skill Format</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-bundled-scripts">3. Create Bundled Scripts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#test-the-skill">4. Test the Skill</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation">Implementation</a></li>
 </ul>
-
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-cases">Use Cases</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#data-analysis-skill">Data Analysis Skill</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing-skill">Testing Skill</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#api-development-skill">API Development Skill</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-with-lessons">Integration with Lessons</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#roadmap">Roadmap</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#current-status-phase-4-1">Current Status (Phase 4.1)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#future-work-phase-4-2">Future Work (Phase 4.2+)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
+</ul>
   </nav></div>
 
 </div></div>

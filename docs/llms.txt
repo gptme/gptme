@@ -11,6 +11,7 @@
 - [Projects](https://gptme.org/docs/projects.html)
 - [Tools](https://gptme.org/docs/tools.html)
 - [Lessons](https://gptme.org/docs/lessons.html)
+- [Skills System](https://gptme.org/docs/skills/README.html)
 - [Configuration](https://gptme.org/docs/config.html)
 - [Providers](https://gptme.org/docs/providers.html)
 - [Custom Providers](https://gptme.org/docs/custom-providers.html)
