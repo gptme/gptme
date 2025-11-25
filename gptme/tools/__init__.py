@@ -206,14 +206,25 @@ def execute_msg(
     workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Uses any tools called in a message and returns the response."""
+    from ..lessons.hooks import HookContext, get_hook_manager
+
     assert msg.role == "assistant", "Only assistant messages can be executed"
 
     for tooluse in ToolUse.iter_from_content(msg.content):
         if tooluse.is_runnable:
             with terminal_state_title("🛠️ running {tooluse.tool}"):
+                # Execute pre_execute hooks
+                hook_manager = get_hook_manager()
+                # Note: skill is None here as hooks apply system-wide to tool execution
+                hook_context = HookContext(skill=None, message=msg.content)
+                hook_manager.execute_hooks("pre_execute", hook_context)
+
                 try:
                     for tool_response in tooluse.execute(confirm, log, workspace):
                         yield tool_response.replace(call_id=tooluse.call_id)
+
+                    # Execute post_execute hooks on success
+                    hook_manager.execute_hooks("post_execute", hook_context)
                 except KeyboardInterrupt:
                     clear_interruptible()
                     yield Message(
@@ -222,6 +233,10 @@ def execute_msg(
                         call_id=tooluse.call_id,
                     )
                     break
+                except Exception:
+                    # Execute on_error hooks
+                    hook_manager.execute_hooks("on_error", hook_context)
+                    raise
 
 
 def get_tool_for_langtag(lang: str) -> ToolSpec | None:

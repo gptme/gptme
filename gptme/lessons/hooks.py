@@ -83,18 +83,14 @@ class HookManager:
 
             # Register hook
             self._hooks[hook_type].append((skill, full_hook_path))
-            logger.debug(
-                f"Registered {hook_type} hook for {skill.title}: {hook_path}"
-            )
+            logger.debug(f"Registered {hook_type} hook for {skill.title}: {hook_path}")
 
-    def execute_hooks(
-        self, hook_type: str, context: HookContext
-    ) -> list[Exception]:
+    def execute_hooks(self, hook_type: str, context: HookContext) -> list[Exception]:
         """Execute all hooks of a given type.
 
         Args:
             hook_type: Type of hook to execute
-            context: Context to pass to hooks
+            context: Base context to pass to hooks (skill will be set per hook)
 
         Returns:
             List of exceptions that occurred during execution (empty if all succeeded)
@@ -112,7 +108,16 @@ class HookManager:
 
         for skill, hook_path in hooks:
             try:
-                self._execute_hook(hook_path, context)
+                # Create hook-specific context with the skill that registered it
+                hook_context = HookContext(
+                    skill=skill,
+                    message=context.message,
+                    conversation=context.conversation,
+                    tools=context.tools,
+                    config=context.config,
+                    extra=context.extra,
+                )
+                self._execute_hook(hook_path, hook_context)
             except Exception as e:
                 logger.error(
                     f"Error executing {hook_type} hook for {skill.title}: {e}",

@@ -240,12 +240,12 @@ logger = logging.getLogger(__name__)
 
 def execute(context: HookContext) -> None:
     """Pre-execute hook implementation.
-    
+
     Args:
         context: Hook execution context with skill, message, conversation, etc.
     """
     logger.info(f"Setting up skill: {context.skill.title}")
-    
+
     # Hook implementation here
     # - Check dependencies
     # - Initialize resources

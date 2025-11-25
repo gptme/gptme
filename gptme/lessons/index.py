@@ -3,6 +3,7 @@
 import logging
 from pathlib import Path
 
+from .hooks import get_hook_manager
 from .parser import Lesson, parse_lesson
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,10 @@ class LessonIndex:
                     )
                     continue
                 self.lessons.append(lesson)
+
+                # Register hooks if skill has any
+                if lesson.metadata.hooks:
+                    get_hook_manager().register_skill_hooks(lesson)
             except Exception as e:
                 logger.warning(f"Failed to parse lesson {md_file}: {e}")
 

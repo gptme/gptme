@@ -388,8 +388,14 @@ def prepare_messages(
     - Enhances it with context such as file contents
     - Transforms it to the format expected by LLM providers
     """
-
     from gptme.llm.models import get_default_model  # fmt: skip
+
+    from .lessons.hooks import HookContext, get_hook_manager
+
+    # Execute pre_context hooks
+    hook_manager = get_hook_manager()
+    hook_context = HookContext(skill=None, conversation=msgs)
+    hook_manager.execute_hooks("pre_context", hook_context)
 
     # Enrich with enabled context enhancements (RAG, fresh context)
     msgs = enrich_messages_with_context(msgs, workspace)
@@ -408,6 +414,10 @@ def prepare_messages(
         logger.info(
             f"Limited log from {len(msgs_reduced)} to {len(msgs_limited)} messages"
         )
+
+    # Execute post_context hooks
+    hook_context = HookContext(skill=None, conversation=msgs_limited)
+    hook_manager.execute_hooks("post_context", hook_context)
 
     return msgs_limited
 

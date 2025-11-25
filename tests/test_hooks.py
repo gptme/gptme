@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from gptme.lessons.hooks import HookContext, HookManager, get_hook_manager
-from gptme.lessons.parser import Lesson, LessonMetadata
 
 
 @pytest.fixture
