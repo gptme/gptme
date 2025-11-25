@@ -5,6 +5,7 @@
 - [gptme documentation](https://gptme.org/docs/index.html)
 - [Getting Started](https://gptme.org/docs/getting-started.html)
 - [Usage](https://gptme.org/docs/usage.html)
+- [Core Concepts](https://gptme.org/docs/concepts.html)
 - [Examples](https://gptme.org/docs/examples.html)
 - [Demos](https://gptme.org/docs/demos.html)
 - [Automation](https://gptme.org/docs/automation.html)
