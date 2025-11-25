@@ -241,20 +241,20 @@ def record_llm_request(
     logger.debug(
         f"Recording LLM request: provider={provider}, model={model}, success={success}"
     )
-    total_in = (input_tokens or 0) + (cache_read_tokens or 0)
-    total_out = (output_tokens or 0) + (cache_creation_tokens or 0)
+    total_in = (
+        (input_tokens or 0) + (cache_read_tokens or 0) + (cache_creation_tokens or 0)
+    )
+    total_out = output_tokens or 0
     logger.debug(
         f"tokens in:  {input_tokens}"
         + (
-            f" + {cache_read_tokens} cached ({100*(cache_read_tokens or 0)/(total_in):.1f}%)"
+            f" + {cache_creation_tokens} cache create ({100*(cache_creation_tokens or 0)/(total_in):.1f}%)"
+            f" + {cache_read_tokens} cache read ({100*(cache_read_tokens or 0)/(total_in):.1f}%)"
             if cache_read_tokens
             else ""
         )
     )
-    logger.debug(
-        f"tokens out: {output_tokens}"
-        + (f" + {cache_creation_tokens} cache created" if cache_creation_tokens else "")
-    )
+    logger.debug(f"tokens out: {output_tokens}")
 
     if total_tokens:
         # check that total_tokens matches sum of parts
@@ -272,6 +272,14 @@ def record_llm_request(
         cache_read_tokens=cache_read_tokens,
     )
     logger.debug(f"LLM request cost: ${cost:.6f}")
+
+    # Detect poor cost effectiveness patterns
+    if cache_creation_tokens and cache_read_tokens:
+        hit_rate = cache_read_tokens / total_in
+        if hit_rate < 0.5:
+            logger.warning(
+                f"Costly usage patterns detected: low cache hit rate: {hit_rate:.1%} (uncached: {input_tokens}t, create: {cache_creation_tokens}t, read: {cache_read_tokens}t)"
+            )
 
     if not is_telemetry_enabled():
         return
