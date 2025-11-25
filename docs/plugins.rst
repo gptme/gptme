@@ -59,10 +59,10 @@ Skills vs Plugins
 | (new actions)        |                  | via Python code      |
 +----------------------+------------------+----------------------+
 | Custom commands      | Plugins          | Add CLI commands     |
-| (/command)           |                  | for users           |
+| (/command)           |                  | for users            |
 +----------------------+------------------+----------------------+
 | Bundled scripts      | Skills           | Simple file bundles  |
-| (no integration)     |                  | without hooks       |
+| (no integration)     |                  | without hooks        |
 +----------------------+------------------+----------------------+
 
 **Examples**:
