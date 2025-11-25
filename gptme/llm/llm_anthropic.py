@@ -713,11 +713,14 @@ def _spec2tool(
         name = spec.block_types[0]
 
     # TODO: are input_schema and parameters the same? (both JSON Schema?)
-    return {
-        "name": name,
-        "description": spec.get_instructions("tool"),
-        "input_schema": parameters2dict(spec.parameters),
-    }
+    return cast(
+        "anthropic.types.ToolParam",
+        {
+            "name": name,
+            "description": spec.get_instructions("tool"),
+            "input_schema": parameters2dict(spec.parameters),
+        },
+    )
 
 
 def _prepare_messages_for_api(
