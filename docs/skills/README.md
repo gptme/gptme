@@ -70,15 +70,15 @@ Skill description and usage instructions...
 Skills are organized parallel to lessons:
 
 gptme/
-├── lessons/           # Instructional patterns
-│   ├── tools/
-│   ├── patterns/
-│   └── workflows/
-└── skills/            # Executable workflows
-    ├── examples/
-    │   ├── python-repl-skill.md
-    │   └── python_helpers.py
-    └── custom/
+└── lessons/           # Unified knowledge tree
+    ├── tools/        # Tool-specific lessons
+    ├── patterns/     # General patterns
+    ├── workflows/    # Workflow lessons
+    └── skills/       # Skills (Anthropic format)
+        └── python-repl/
+            ├── SKILL.md
+            ├── python_helpers.py
+            └── requirements.txt
 
 ## Creating Skills
 
@@ -90,43 +90,38 @@ Identify:
 - What dependencies are required?
 - Where should hooks run?
 
-### 2. Create Skill File
+### 2. Create Skill Directory
 
-Create `skill-name.md` in appropriate directory:
+Create a directory under `gptme/lessons/skills/skill-name/` with these files:
 
+**SKILL.md** (Anthropic format):
 ```yaml
 ---
-type: skill
-status: active
-match:
-  keywords: [relevant, keywords]
-  tools: [tool1, tool2]
-scripts:
-  - script1.py
-  - script2.py
-dependencies:
-  - package1
-  - package2
-hooks:
-  - pre_execute
+name: skill-name
+description: Brief description of what the skill does
 ---
 
 # Skill Title
 
 ## Overview
-Brief description of what the skill does.
+Detailed description and use cases.
 
 ## Bundled Scripts
-Describe each script and its purpose.
+Describe each included script.
 
 ## Usage Patterns
 Show common usage examples.
 
-## Hooks
-Explain what each hook does.
-
 ## Dependencies
-List and explain required packages.
+List required packages (detailed in requirements.txt).
+```
+
+**requirements.txt**:
+
+```txt
+# List of required packages
+numpy
+pandas
 ```
 
 ### 3. Create Bundled Scripts
@@ -148,9 +143,10 @@ def helper_function():
 from gptme.lessons.parser import parse_lesson
 from pathlib import Path
 
-skill = parse_lesson(Path("gptme/skills/examples/my-skill.md"))
-assert skill.metadata.type == "skill"
-assert len(skill.metadata.scripts) > 0
+# Parse skill from unified lessons tree
+skill = parse_lesson(Path("gptme/lessons/skills/my-skill/SKILL.md"))
+assert skill.metadata.name == "my-skill"
+assert skill.metadata.description
 ```
 
 ## Hook System

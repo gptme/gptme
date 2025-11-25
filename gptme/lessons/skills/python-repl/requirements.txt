@@ -1,0 +1,3 @@
+ipython
+numpy
+pandas

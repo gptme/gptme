@@ -1,22 +1,11 @@
 ---
-type: skill
-status: active
-match:
-  keywords: [python, repl, interactive]
-  tools: [ipython]
-scripts:
-  - python_helpers.py
-dependencies:
-  - ipython
-  - numpy
-hooks:
-  - pre_execute
-  - post_execute
+name: python-repl
+description: Interactive Python REPL automation with common helpers and best practices
 ---
 
 # Python REPL Skill
 
-Interactive Python REPL automation with common helpers and best practices.
+Enhances Python REPL workflows with bundled utility functions for data analysis, debugging, and performance profiling.
 
 ## Overview
 
@@ -24,9 +13,9 @@ This skill bundles Python REPL helpers, common imports, and execution patterns f
 
 ## Bundled Scripts
 
-### python_helpers.py
+### Helper Functions (python_helpers.py)
 
-Provides utility functions for common Python tasks:
+This skill includes bundled utility functions for common Python tasks:
 - Data inspection (inspect_df, describe_object)
 - Quick plotting (quick_plot, show_image)
 - Performance profiling (time_function)
@@ -51,22 +40,12 @@ inspect_df(df)  # Quick dataframe overview
 describe_object(obj)  # Object introspection
 ```
 
-## Hooks
-
-### Pre-Execute Hook
-- Validates Python environment
-- Ensures required packages are installed
-- Sets up common imports
-
-### Post-Execute Hook
-- Captures output and formats it
-- Logs execution time for performance tracking
-
 ## Dependencies
 
+Required packages are listed in `requirements.txt`:
 - ipython: Interactive Python shell
 - numpy: Numerical computing
-- pandas: Data manipulation (optional, auto-imported if available)
+- pandas: Data manipulation
 
 ## Best Practices
 
@@ -95,5 +74,5 @@ def slow_operation():
 
 ## Related
 
-- Lesson: [python](../../../docs/lessons/tools/python.md)
+- Lesson: [python](../../../../docs/lessons/tools/python.md)
 - Tool: ipython
