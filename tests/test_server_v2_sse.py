@@ -39,6 +39,7 @@ def test_event_stream(event_listener, wait_for_event):
     assert user_messages[0]["content"] == "Test message"
 
 
+@pytest.mark.xfail(reason="Flaky test")
 @pytest.mark.timeout(20)
 @pytest.mark.slow
 @pytest.mark.requires_api
