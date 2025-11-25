@@ -10,6 +10,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..context_compression import CompressionConfig, ExtractiveSummarizer
 from ..hooks import StopPropagation
 from ..message import Message, len_tokens
 from ..util.output_storage import create_tool_result_summary
@@ -106,7 +107,71 @@ def auto_compact_log(
         yield from compacted_log
         return
 
-    # If still over limit, fall back to regular reduction
+    # Phase 3: Extractive compression for remaining long messages
+    logger.info("Applying Phase 3: Extractive compression to long messages")
+
+    # Initialize compressor
+    config = CompressionConfig(
+        target_ratio=0.7,  # Retain 70% of content
+        min_section_length=1000,  # Only compress messages >1000 tokens
+        preserve_code=True,
+        preserve_headings=True,
+    )
+    compressor = ExtractiveSummarizer(config)
+
+    # Apply extractive compression to long messages
+    phase3_log = []
+    phase3_tokens_saved = 0
+
+    for msg in compacted_log:
+        # Skip pinned messages and system messages
+        if msg.pinned or msg.role == "system":
+            phase3_log.append(msg)
+            continue
+
+        msg_tokens = len_tokens(msg.content, model.model)
+
+        # Only compress messages over threshold
+        if msg_tokens > config.min_section_length:
+            try:
+                result = compressor.compress(
+                    content=msg.content, target_ratio=0.7, context=""
+                )
+
+                if result.compression_ratio < 1.0:  # Successfully compressed
+                    compressed_msg = msg.replace(content=result.compressed)
+                    phase3_log.append(compressed_msg)
+
+                    tokens_saved_this_msg = msg_tokens - len_tokens(
+                        result.compressed, model.model
+                    )
+                    phase3_tokens_saved += tokens_saved_this_msg
+                    logger.info(
+                        f"Phase 3: Compressed message {msg.role}: "
+                        f"{msg_tokens} -> {len_tokens(result.compressed, model.model)} tokens "
+                        f"(ratio: {result.compression_ratio:.2f})"
+                    )
+                else:
+                    phase3_log.append(msg)
+            except Exception as e:
+                logger.warning(f"Phase 3: Failed to compress message: {e}")
+                phase3_log.append(msg)
+        else:
+            phase3_log.append(msg)
+
+    # Update log and check if we're now within limits
+    compacted_log = phase3_log
+    final_tokens = len_tokens(compacted_log, model.model)
+
+    if final_tokens <= limit:
+        logger.info(
+            f"Phase 3 successful: {tokens} -> {final_tokens} tokens "
+            f"(Phase 2 saved {tokens_saved}, Phase 3 saved {phase3_tokens_saved})"
+        )
+        yield from compacted_log
+        return
+
+    # If still over limit after all phases, fall back to regular reduction
     logger.info("Auto-compacting not sufficient, falling back to regular reduction")
     from ..util.reduce import reduce_log
 
