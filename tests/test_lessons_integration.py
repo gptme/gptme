@@ -386,4 +386,7 @@ This is a test lesson for .gptme/lessons/ detection.
 
         # Verify helpful message was logged
         assert any("cursorrules" in record.message.lower() for record in caplog.records)
-        assert any("convert" in record.message.lower() for record in caplog.records)
+        assert any(
+            "migrating" in record.message.lower() or "cursor" in record.message.lower()
+            for record in caplog.records
+        )
