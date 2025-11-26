@@ -53,7 +53,7 @@ def execute_workspace(
     found_files = []
     for filename, description in key_files:
         filepath = cwd / filename
-        if filepath.exists():
+        if filepath.is_file():
             found_files.append(f"- {filename}: {description}")
 
     if found_files:
