@@ -26,6 +26,151 @@ _last_autocompact_time = 0.0
 _autocompact_min_interval = 60  # Minimum 60 seconds between autocompact attempts
 
 
+def extract_code_blocks(content: str) -> tuple[str, list[tuple[str, str]]]:
+    """
+    Extract code blocks from content, returning cleaned content and blocks.
+
+    Args:
+        content: Message content with potential code blocks
+
+    Returns:
+        Tuple of (content without code blocks, list of (marker, code block) tuples)
+    """
+    code_blocks: list[tuple[str, str]] = []
+    code_block_pattern = r"```[\s\S]*?```"
+
+    def replacer(match):
+        marker = f"__CODE_BLOCK_{len(code_blocks)}__"
+        code_blocks.append((marker, match.group(0)))
+        return marker
+
+    cleaned = re.sub(code_block_pattern, replacer, content)
+    return cleaned, code_blocks
+
+
+def score_sentence(sentence: str, position: int, total: int) -> float:
+    """
+    Score sentence importance using simple heuristics.
+
+    Higher scores for:
+    - Sentences at beginning/end (positional bias)
+    - Sentences with key terms
+    - Shorter sentences (more information-dense)
+
+    Args:
+        sentence: The sentence to score
+        position: Position in message (0-indexed)
+        total: Total number of sentences
+
+    Returns:
+        Importance score (higher = more important)
+    """
+    score = 0.0
+
+    # Positional bias: first and last sentences more important
+    if position == 0:
+        score += 2.0
+    elif position == total - 1:
+        score += 1.5
+    elif position < 3:
+        score += 1.0
+
+    # Key term presence
+    key_terms = [
+        "error",
+        "fail",
+        "success",
+        "complete",
+        "implement",
+        "fix",
+        "bug",
+        "issue",
+        "result",
+        "output",
+        "TODO",
+        "FIXME",
+        "NOTE",
+        "WARNING",
+    ]
+    lower_sentence = sentence.lower()
+    for term in key_terms:
+        if term.lower() in lower_sentence:
+            score += 0.5
+
+    # Length penalty: prefer shorter, denser sentences
+    # But not too short (less than 10 chars is probably not useful)
+    length = len(sentence)
+    if length < 10:
+        score -= 1.0
+    elif length < 50:
+        score += 0.3
+    elif length > 200:
+        score -= 0.2
+
+    return score
+
+
+def compress_content(content: str, target_ratio: float = 0.7) -> str:
+    """
+    Compress content using extractive summarization.
+
+    Preserves:
+    - Code blocks (always kept)
+    - Important sentences based on scoring
+    - Overall structure
+
+    Args:
+        content: Content to compress
+        target_ratio: Target length as ratio of original (0.7 = 30% reduction)
+
+    Returns:
+        Compressed content
+    """
+    # Extract and preserve code blocks
+    cleaned, code_blocks = extract_code_blocks(content)
+
+    # Split into sentences (simple split on . ! ?)
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    if len(sentences) <= 3:
+        # Too few sentences to compress meaningfully
+        return content
+
+    # Keep sentences that contain code block markers (don't score them)
+    marker_sentences = []
+    scoreable_sentences = []
+    for i, sent in enumerate(sentences):
+        if "__CODE_BLOCK_" in sent:
+            marker_sentences.append((i, sent))
+        else:
+            scoreable_sentences.append((i, sent))
+
+    # Score scoreable sentences
+    scored = [
+        (score_sentence(sent, i, len(sentences)), i, sent)
+        for i, sent in scoreable_sentences
+    ]
+
+    # Sort by score (keep highest scoring)
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Select top sentences to meet target ratio (excluding marker sentences)
+    target_count = max(2, int(len(scoreable_sentences) * target_ratio))
+    selected = scored[:target_count]
+
+    # Combine selected sentences with marker sentences and sort by original position
+    all_selected = [(i, sent) for _, i, sent in selected] + marker_sentences
+    all_selected.sort(key=lambda x: x[0])
+
+    # Reconstruct compressed content
+    compressed = " ".join(sent for _, sent in all_selected)
+
+    # Restore code blocks
+    for marker, code_block in code_blocks:
+        compressed = compressed.replace(marker, code_block)
+
+    return compressed
+
+
 def auto_compact_log(
     log: list[Message],
     limit: int | None = None,
@@ -39,7 +184,7 @@ def auto_compact_log(
     More aggressive than reduce_log - implements strategic removal:
     1. Strips reasoning tags from older messages (age-based)
     2. Removes massive tool results (existing behavior)
-    3. Prioritizes keeping recent context (phase-aware)
+    3. Extractive compression for long assistant messages (Phase 3)
 
     Args:
         log: List of messages to compact
@@ -70,8 +215,20 @@ def auto_compact_log(
     )
     needs_compacting = tokens > limit or close_to_limit
 
+    # Check if any messages need Phase 3 compression
+    needs_phase3_compression = any(
+        (log_length - idx - 1) >= 3  # Don't compress very recent messages
+        and msg.role == "assistant"  # Only compress assistant responses
+        and len_tokens(msg.content, model.model) > 1000  # Only compress long messages
+        for idx, msg in enumerate(log)
+    )
+
     # Only return early if nothing needs processing
-    if not needs_reasoning_strip and not needs_compacting:
+    if (
+        not needs_reasoning_strip
+        and not needs_compacting
+        and not needs_phase3_compression
+    ):
         yield from log
         return
 
@@ -135,6 +292,25 @@ def auto_compact_log(
                 f"Removed massive tool result: {msg_tokens} tokens -> {len_tokens(summary_content, model.model)} tokens"
             )
         else:
+            # Phase 3: Extractive compression for long assistant messages
+            # Compress messages >1000 tokens that aren't very recent
+            if (
+                distance_from_end >= 3  # Don't compress very recent messages
+                and msg.role == "assistant"  # Only compress assistant responses
+                and msg_tokens > 1000  # Only compress long messages
+            ):
+                compressed_content = compress_content(msg.content, target_ratio=0.7)
+                compressed_tokens = len_tokens(compressed_content, model.model)
+
+                if compressed_tokens < msg_tokens:
+                    msg = msg.replace(content=compressed_content)
+                    compression_saved = msg_tokens - compressed_tokens
+                    tokens_saved += compression_saved
+                    logger.info(
+                        f"Compressed message {idx}: {msg_tokens} -> {compressed_tokens} tokens "
+                        f"({compression_saved} saved, {(compression_saved/msg_tokens)*100:.1f}% reduction)"
+                    )
+
             compacted_log.append(msg)
 
     # Check if we're now within limits
@@ -174,7 +350,9 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
         limit = int(0.9 * model.context)
 
     total_tokens = len_tokens(log, model.model)
-    close_to_limit = total_tokens >= int(0.8 * model.context)  # 80% threshold
+    close_to_limit = total_tokens >= int(
+        0.5 * model.context
+    )  # 50% threshold (more proactive)
 
     # Check if there are any massive system messages (tool results)
     has_massive_tool_result = False

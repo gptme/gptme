@@ -351,3 +351,113 @@ def test_auto_compact_reasoning_strip_threshold_zero():
 if __name__ == "__main__":
     # Allow running the test directly
     pytest.main([__file__])
+
+
+def test_extract_code_blocks():
+    """Test code block extraction preserves code."""
+    from gptme.tools.autocompact import extract_code_blocks
+
+    content = """Here is some text.
+```python
+def hello():
+    print("world")
+```
+More text after.
+```bash
+echo "test"
+```
+Final text."""
+
+    cleaned, blocks = extract_code_blocks(content)
+
+    # Should have 2 code blocks
+    assert len(blocks) == 2
+
+    # Cleaned content should have markers
+    assert "__CODE_BLOCK_0__" in cleaned
+    assert "__CODE_BLOCK_1__" in cleaned
+
+    # Original code blocks preserved
+    assert "def hello():" in blocks[0][1]
+    assert 'echo "test"' in blocks[1][1]
+
+
+def test_score_sentence():
+    """Test sentence scoring heuristics."""
+    from gptme.tools.autocompact import score_sentence
+
+    # First sentence should score higher
+    score_first = score_sentence("This is the first sentence.", 0, 5)
+    score_middle = score_sentence("This is a middle sentence.", 2, 5)
+    assert score_first > score_middle
+
+    # Last sentence should score higher than middle
+    score_last = score_sentence("This is the last sentence.", 4, 5)
+    assert score_last > score_middle
+
+    # Key terms increase score
+    score_with_key = score_sentence("This contains an error message.", 2, 5)
+    score_without_key = score_sentence("This is a normal sentence.", 2, 5)
+    assert score_with_key > score_without_key
+
+
+def test_compress_content():
+    """Test content compression preserves code and important content."""
+    from gptme.tools.autocompact import compress_content
+
+    content = """First important sentence. This is filler text that can be removed.
+Another filler sentence. This has an error we should keep.
+```python
+def critical_code():
+    return "must preserve"
+```
+More filler text here. Final important conclusion."""
+
+    compressed = compress_content(content, target_ratio=0.7)
+
+    # Code block must be preserved
+    assert "def critical_code():" in compressed
+    assert 'return "must preserve"' in compressed
+
+    # Important sentences should be kept (first, error, last)
+    assert "First important sentence" in compressed or "error" in compressed
+
+    # Should be shorter than original
+    assert len(compressed) < len(content)
+
+
+def test_auto_compact_phase3_compresses_long_messages():
+    """Test Phase 3 extractive compression for long assistant messages."""
+    from gptme.message import Message
+    from gptme.tools.autocompact import auto_compact_log
+
+    # Create a long assistant message (>1000 tokens worth of content)
+    long_content = "This is a sentence. " * 200  # ~600 words = ~800 tokens
+    long_content += "\n```python\ndef important(): pass\n```\n"
+    long_content += "Final conclusion sentence. " * 50  # More padding
+
+    messages = [
+        Message("user", "Hello"),
+        Message("assistant", "Short response"),
+        Message("user", "Tell me more"),
+        Message("assistant", long_content),  # This should be compressed (distance=3)
+        Message("user", "Thanks"),
+        Message("assistant", "You're welcome"),
+        Message("user", "One more thing"),
+    ]
+
+    compacted = list(auto_compact_log(messages, limit=100000))
+
+    # Should have same number of messages
+    assert len(compacted) == len(messages)
+
+    # The long message should be compressed
+    long_msg_idx = 3
+    original_length = len(messages[long_msg_idx].content)
+    compacted_length = len(compacted[long_msg_idx].content)
+
+    # Should be shorter
+    assert compacted_length < original_length
+
+    # Code block should still be present
+    assert "def important():" in compacted[long_msg_idx].content
