@@ -146,8 +146,8 @@ def compress_content(content: str, target_ratio: float = 0.7) -> str:
 
     # Score scoreable sentences
     scored = [
-        (score_sentence(sent, i, len(sentences)), i, sent)
-        for i, sent in scoreable_sentences
+        (score_sentence(sent, orig_idx, len(sentences)), orig_idx, sent)
+        for orig_idx, sent in scoreable_sentences
     ]
 
     # Sort by score (keep highest scoring)
