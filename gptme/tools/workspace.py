@@ -2,25 +2,18 @@
 Workspace navigation helper - shows workspace structure and key files.
 """
 
-import os
 from pathlib import Path
 
 from ..message import Message
-from . import ToolSpec, ToolUse
+from .base import ConfirmFunc, ToolSpec, ToolUse
 
+instructions = """
+Use this tool to quickly orient yourself in a workspace by viewing its structure, key files, and important directories.
 
-def instructions(tool_format):
-    return f"""
-Use this tool to get an overview of the current workspace structure.
-
-The tool will show:
-- Current working directory
-- Key workspace files (README, ARCHITECTURE, etc.)
-- Important directories and their purposes
-- Quick navigation suggestions
+Helps you understand project organization and locate essential files (README, ARCHITECTURE, TASKS, etc.) and directories (tasks/, journal/, knowledge/, etc.).
 
 Use a code block with the language tag: `workspace`
-""".strip()
+"""
 
 
 def examples(tool_format):
@@ -37,17 +30,17 @@ def examples(tool_format):
 
 
 def execute_workspace(
-    code: str,
-    args: list[str],
-    kwargs: dict[str, str],
-    confirm,
+    code: str | None,
+    args: list[str] | None,
+    kwargs: dict[str, str] | None,
+    confirm: ConfirmFunc,
 ) -> Message:
     """Show workspace structure and key files."""
     cwd = Path.cwd()
-    
+
     # Build output
     output_lines = [f"Workspace: {cwd}", ""]
-    
+
     # Check for key files
     key_files = [
         ("README.md", "Project overview"),
@@ -56,18 +49,18 @@ def execute_workspace(
         ("TASKS.md", "Task management"),
         ("TOOLS.md", "Available tools"),
     ]
-    
+
     found_files = []
     for filename, description in key_files:
         filepath = cwd / filename
         if filepath.exists():
             found_files.append(f"- {filename}: {description}")
-    
+
     if found_files:
         output_lines.append("Key Files:")
         output_lines.extend(found_files)
         output_lines.append("")
-    
+
     # Check for key directories
     key_dirs = [
         ("tasks", "Task definitions"),
@@ -78,7 +71,7 @@ def execute_workspace(
         ("projects", "Project symlinks"),
         ("state", "Work queues"),
     ]
-    
+
     found_dirs = []
     for dirname, description in key_dirs:
         dirpath = cwd / dirname
@@ -90,15 +83,15 @@ def execute_workspace(
                 found_dirs.append(f"- {dirname}/: {description} ({count} items)")
             except PermissionError:
                 found_dirs.append(f"- {dirname}/: {description}")
-    
+
     if found_dirs:
         output_lines.append("Key Directories:")
         output_lines.extend(found_dirs)
         output_lines.append("")
-    
+
     # Add navigation tip
-    output_lines.append("Tip: Use absolute paths for workspace files: /home/bob/alice/...")
-    
+    output_lines.append(f"Tip: Use absolute paths for workspace files: {cwd}/...")
+
     return Message("system", "\n".join(output_lines))
 
 
