@@ -21,10 +21,23 @@ The recommended model is **Claude Sonnet 4.5** (``anthropic/claude-sonnet-4-5`` 
 
 Decent alternatives include:
 
-- GPT-4o (``openai/gpt-4o``)
+- Gemini 3 Pro (``openrouter/google/gemini-3-pro-preview``, ``google/gemini-3-pro-preview``)
+- GPT-5, GPT-4o (``openai/gpt-5``, ``openai/gpt-4o``)
+- Grok 4 (``xai/grok-4``, ``openrouter/x-ai/grok-4``)
+- Qwen3 Coder 480B A35B (``openrouter/qwen/qwen3-coder``)
+- Kimi K2 (``openrouter/moondreamai/kimi-k2-thinking``, ``openrouter/moondreamai/kimi-k2``)
+- MiniMax M2 (``openrouter/minimax/minimax-m2``)
 - Llama 3.1 405B (``openrouter/meta-llama/llama-3.1-405b-instruct``)
 - DeepSeek V3 (``deepseek/deepseek-chat``)
 - DeepSeek R1 (``deepseek/deepseek-reasoner``)
+
+Note that some models may perform better or worse with different ``--tool-format`` options (``markdown``, ``xml``, or ``tool`` for native tool-calling).
+
+Note that many providers on OpenRouter have poor performance and reliability, so be sure to test your chosen model/provider combination before committing to it. This is especially true for open weight models which any provider can host at any quality. You can choose a specific provider by appending with ``:provider``, e.g. ``openrouter/qwen/qwen3-coder:alibaba/opensource``.
+
+Note that pricing for models varies widely when accounting for caching, making some providers much cheaper than others. Anthropic is known and tested to cache well, significantly reducing costs for conversations with many turns.
+
+You can get an overview of actual model usage in the wild from the `OpenRouter app analytics for gptme <https://openrouter.ai/apps?url=https://github.com/gptme/gptme>`_.
 
 Usage
 -----
