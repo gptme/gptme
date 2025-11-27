@@ -162,7 +162,7 @@ class BrowserThread:
             if playwright is not None:
                 try:
                     playwright.stop()
-                except Exception as e:
+                except Exception:
                     logger.exception("Error stopping playwright")
             
             logger.info("Browser stopped")
