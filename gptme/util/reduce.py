@@ -23,7 +23,11 @@ def reduce_log(
     # get the token limit
     model = get_default_model() or get_model("gpt-4")
     if limit is None:
-        limit = 0.9 * model.context
+        # Use more conservative multiplier for Anthropic models due to tokenizer inaccuracy
+        # tiktoken's cl100k_base fallback can undercount tokens for Claude models,
+        # so we trigger reduction earlier to avoid hitting the API limit
+        multiplier = 0.75 if "anthropic" in model.model.lower() else 0.9
+        limit = multiplier * model.context
 
     # if we are below the limit, return the log as-is
     tokens = len_tokens(log, model=model.model)
