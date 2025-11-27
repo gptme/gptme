@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-TIMEOUT = 10  # seconds - reduced for faster restarts
+TIMEOUT = 20  # seconds - accounts for retry attempts with browser restarts
 
 
 def _is_connection_error(error: Exception) -> bool:
@@ -87,10 +87,12 @@ class BrowserThread:
                         browser.close()
                     except Exception:
                         pass  # Already closed
+                    browser = None  # Clear reference after close
                 browser = playwright.chromium.launch()
                 logger.info("Browser launched successfully")
                 return True
             except Exception as e:
+                browser = None  # Ensure browser is None after failed launch
                 logger.error(f"Failed to launch browser: {e}", exc_info=True)
                 if "Executable doesn't exist" in str(e):
                     pw_version = importlib.metadata.version("playwright")
@@ -144,6 +146,13 @@ class BrowserThread:
                                         continue  # Retry command
                                     else:
                                         logger.error("Failed to restart browser")
+                                        # Browser restart failed - create informative error
+                                        restart_error = RuntimeError(
+                                            f"Browser restart failed after connection error in {command_name}: {e}"
+                                        )
+                                        with self.lock:
+                                            self.results[cmd_id] = (None, restart_error)
+                                        break  # Exit retry loop immediately
                             else:
                                 logger.exception(f"Unexpected error in {command_name}")
 
