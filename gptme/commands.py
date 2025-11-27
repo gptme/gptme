@@ -555,12 +555,13 @@ def cmd_plugin(ctx: CommandContext) -> None:
 
 def execute_cmd(msg: Message, log: LogManager, confirm: ConfirmFunc) -> bool:
     """Executes any user-command, returns True if command was executed."""
+    from .util.content import is_message_command  # fmt: skip
+
     assert msg.role == "user"
 
     # if message starts with / treat as command
-    # when command has been run,
     # absolute paths dont trigger false positives by checking for single /
-    if msg.content.startswith("/") and msg.content.split(" ")[0].count("/") == 1:
+    if is_message_command(msg.content):
         for resp in handle_cmd(msg.content, log, confirm):
             log.append(resp)
         return True

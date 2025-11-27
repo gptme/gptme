@@ -1,3 +1,24 @@
+def is_message_command(content: str) -> bool:
+    """
+    Check if message content is a command (starts with / and first word has exactly one slash).
+
+    Examples:
+        /shell, /log, /python - these are commands (returns True)
+        /path/to/file.md - this is a file path (returns False)
+
+    Args:
+        content: Message content to check
+
+    Returns:
+        True if content is a command, False otherwise
+    """
+    if not content or not content.startswith("/"):
+        return False
+
+    first_word = content.split()[0] if content.split() else ""
+    return first_word.count("/") == 1
+
+
 def extract_content_summary(content: str, max_words: int = 100) -> str:
     """
     Extract a summary from message content.

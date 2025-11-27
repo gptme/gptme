@@ -297,12 +297,12 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
     if msg.role != "user":
         return msg
 
-    # circular import
-    from ..commands import get_user_commands  # fmt: skip
+    # Skip path processing for commands (single slash in first word)
+    # Examples: /shell, /log, /python - these are commands
+    # But /path/to/file.md (multiple slashes) is a file path, not a command
+    from .content import is_message_command  # fmt: skip
 
-    # Skip path processing for user commands
-    # (as commands might take paths as arguments, which we don't want to expand as part of the command)
-    if any(msg.content.startswith(command) for command in get_user_commands()):
+    if is_message_command(msg.content):
         return msg
 
     append_msg = ""
