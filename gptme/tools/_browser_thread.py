@@ -59,11 +59,23 @@ class BrowserThread:
         logger.debug("Browser thread started")
 
     def _run(self):
-        try:
-            playwright = sync_playwright().start()
+        playwright = None
+        browser = None
+
+        def launch_browser():
+            """Launch or relaunch the browser"""
+            nonlocal playwright, browser
+            if playwright is None:
+                playwright = sync_playwright().start()
             try:
+                if browser is not None:
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass  # Already closed
                 browser = playwright.chromium.launch()
                 logger.info("Browser launched")
+                return True
             except Exception as e:
                 if "Executable doesn't exist" in str(e):
                     pw_version = importlib.metadata.version("playwright")
@@ -72,7 +84,12 @@ class BrowserThread:
                     )
                 else:
                     self._init_error = e
-                self.ready.set()  # Signal init complete (with error)
+                return False
+
+        try:
+            # Initial browser launch
+            if not launch_browser():
+                self.ready.set()
                 return
 
             self.ready.set()  # Signal successful init
@@ -83,18 +100,34 @@ class BrowserThread:
                     if cmd == "stop":
                         break
 
-                    try:
-                        result = cmd.func(browser, *cmd.args, **cmd.kwargs)
-                        with self.lock:
-                            self.results[cmd_id] = (result, None)
-                    except Exception as e:
-                        if _is_connection_error(e):
-                            logger.debug(f"Browser connection error (will retry): {e}")
-                        else:
-                            logger.exception("Unexpected error in browser thread")
+                    # Try to execute command, with retry on connection error
+                    max_retries = 2
+                    for attempt in range(max_retries):
+                        try:
+                            result = cmd.func(browser, *cmd.args, **cmd.kwargs)
+                            with self.lock:
+                                self.results[cmd_id] = (result, None)
+                            break  # Success, exit retry loop
+                        except Exception as e:
+                            if _is_connection_error(e):
+                                logger.warning(
+                                    f"Browser connection error (attempt {attempt + 1}/{max_retries}): {e}"
+                                )
+                                if attempt < max_retries - 1:
+                                    # Try to recover by restarting browser
+                                    logger.info("Attempting to restart browser...")
+                                    if launch_browser():
+                                        logger.info("Browser restarted successfully")
+                                        continue  # Retry command
+                                    else:
+                                        logger.error("Failed to restart browser")
+                            else:
+                                logger.exception("Unexpected error in browser thread")
 
-                        with self.lock:
-                            self.results[cmd_id] = (None, e)
+                            # Store error and exit retry loop
+                            with self.lock:
+                                self.results[cmd_id] = (None, e)
+                            break
                 except Empty:
                     # Timeout on queue.get, continue waiting
                     continue
@@ -104,8 +137,10 @@ class BrowserThread:
             raise
         finally:
             try:
-                browser.close()
-                playwright.stop()
+                if browser is not None:
+                    browser.close()
+                if playwright is not None:
+                    playwright.stop()
             except Exception as e:
                 if _is_connection_error(e):
                     logger.debug(
