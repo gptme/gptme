@@ -282,6 +282,9 @@ class ShellSession:
     ) -> tuple[int | None, str, str]:
         assert self.process.stdin
 
+        # Diagnostic logging for Issue #408: Log command start
+        logger.debug(f"Shell: Running command: {command[:200]}")
+
         # Redirect stdin to /dev/null to prevent commands from inheriting bash's pipe stdin
         # Use shlex to properly parse commands and respect quotes
         # Only add for commands that don't already redirect stdin
@@ -386,6 +389,22 @@ class ShellSession:
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
                     for line in lines:
                         if "ReturnCode:" in line and self.delimiter in line:
+                            # Diagnostic logging for Issue #408: Log delimiter detection
+                            logger.debug(
+                                f"Shell: Delimiter detected in line: {line.strip()[:200]}"
+                            )
+
+                            # Capture last stdout before delimiter to detect unexpected content
+                            if stdout:
+                                # Get last 3 lines or all if fewer
+                                last_lines = (
+                                    stdout[-3:] if len(stdout) >= 3 else stdout
+                                )
+                                last_stdout = "".join(last_lines).strip()[:300]
+                                logger.debug(
+                                    f"Shell: Last stdout before delimiter: {last_stdout}"
+                                )
+
                             if match := re_returncode.search(line):
                                 return_code = int(match.group(1))
                             # if command is cd and successful, we need to change the directory
