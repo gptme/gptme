@@ -47,6 +47,14 @@ class CustomProvider(str):
     pass
 
 
+def is_custom_provider(provider: str) -> bool:
+    """Check if the provider is a custom provider configured by the user."""
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+    return any(p.name == provider for p in config.user.providers)
+
+
 # Type alias for any provider (built-in or custom)
 Provider = BuiltinProvider | CustomProvider
 
