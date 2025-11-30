@@ -30,6 +30,7 @@ from .models import (
     ModelMeta,
     Provider,
     get_default_model_summary,
+    is_custom_provider,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,12 +127,6 @@ def get_provider_from_model(model: str) -> Provider:
         return CustomProvider(provider_str)
 
     raise ValueError(f"Unknown provider: {provider_str}")
-
-
-def is_custom_provider(provider: str) -> bool:
-    """Check if the provider is a custom provider configured by the user."""
-    config = get_config()
-    return any(p.name == provider for p in config.user.providers)
 
 
 def _get_base_model(model: str) -> str:

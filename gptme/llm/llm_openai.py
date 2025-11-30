@@ -11,8 +11,7 @@ from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools import ToolSpec
-from . import is_custom_provider
-from .models import ModelMeta, Provider
+from .models import ModelMeta, Provider, is_custom_provider
 from .utils import (
     extract_tool_uses_from_assistant_message,
     parameters2dict,
