@@ -26,6 +26,7 @@ from .llm_openai import stream as stream_openai
 from .models import (
     MODELS,
     PROVIDERS_OPENAI,
+    CustomProvider,
     ModelMeta,
     Provider,
     get_default_model_summary,
@@ -35,10 +36,18 @@ logger = logging.getLogger(__name__)
 
 
 def init_llm(provider: Provider):
-    """Initialize LLM client for a given provider if not already initialized."""
+    """Initialize LLM client for a given provider if not already initialized.
+
+    Args:
+        provider: Provider name (built-in or custom)
+    """
     config = get_config()
 
+    # Check if it's a built-in OpenAI-compatible provider
     if provider in PROVIDERS_OPENAI and not get_openai_client(provider):
+        init_openai(provider, config)
+    # Check if it's a custom provider (OpenAI-compatible)
+    elif is_custom_provider(provider) and not get_openai_client(provider):
         init_openai(provider, config)
     elif provider == "anthropic" and not get_anthropic_client():
         init_anthropic(config)
@@ -98,15 +107,31 @@ def reply(
 
 
 def get_provider_from_model(model: str) -> Provider:
-    """Extract provider from fully qualified model name."""
+    """Extract provider from fully qualified model name.
+
+    Returns the provider (built-in BuiltinProvider or CustomProvider).
+    """
     if "/" not in model:
         raise ValueError(
             f"Model name must be fully qualified with provider prefix: {model}"
         )
-    provider = model.split("/")[0]
-    if provider not in MODELS:
-        raise ValueError(f"Unknown provider: {provider}")
-    return cast(Provider, provider)
+    provider_str = model.split("/")[0]
+
+    # Check built-in providers first
+    if provider_str in MODELS:
+        return cast(Provider, provider_str)
+
+    # Check custom providers from config - wrap in CustomProvider
+    if is_custom_provider(provider_str):
+        return CustomProvider(provider_str)
+
+    raise ValueError(f"Unknown provider: {provider_str}")
+
+
+def is_custom_provider(provider: str) -> bool:
+    """Check if the provider is a custom provider configured by the user."""
+    config = get_config()
+    return any(p.name == provider for p in config.user.providers)
 
 
 def _get_base_model(model: str) -> str:
@@ -127,7 +152,8 @@ def _chat_complete(
     provider = get_provider_from_model(model)
 
     # Providers with native constrained decoding support
-    if provider in PROVIDERS_OPENAI:
+    # Custom providers are OpenAI-compatible, so route them through the OpenAI path
+    if provider in PROVIDERS_OPENAI or is_custom_provider(provider):
         return chat_openai(messages, model, tools, output_schema=output_schema)
     elif provider == "anthropic":
         return chat_anthropic(
@@ -189,7 +215,8 @@ def _stream(
     output_schema: type | None = None,
 ) -> Iterator[str]:
     provider = get_provider_from_model(model)
-    if provider in PROVIDERS_OPENAI:
+    # Custom providers are OpenAI-compatible, so route them through the OpenAI path
+    if provider in PROVIDERS_OPENAI or is_custom_provider(provider):
         return stream_openai(messages, model, tools, output_schema=output_schema)
     elif provider == "anthropic":
         return stream_anthropic(

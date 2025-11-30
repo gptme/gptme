@@ -3,6 +3,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from typing import (
+    TYPE_CHECKING,
     Literal,
     TypedDict,
     cast,
@@ -13,10 +14,13 @@ from typing_extensions import NotRequired
 
 from .llm_openai_models import OPENAI_MODELS
 
+if TYPE_CHECKING:
+    pass
+
 logger = logging.getLogger(__name__)
 
-# available providers
-Provider = Literal[
+# Built-in providers (static list)
+BuiltinProvider = Literal[
     "openai",
     "anthropic",
     "azure",
@@ -28,8 +32,25 @@ Provider = Literal[
     "nvidia",
     "local",
 ]
-PROVIDERS: list[Provider] = cast(list[Provider], get_args(Provider))
-PROVIDERS_OPENAI: list[Provider]
+PROVIDERS: list[BuiltinProvider] = cast(
+    list[BuiltinProvider], get_args(BuiltinProvider)
+)
+
+
+class CustomProvider(str):
+    """Represents a custom provider configured by the user.
+
+    Subclasses str so it can be used anywhere a provider string is expected,
+    but is distinguishable from plain strings and built-in Provider literals.
+    """
+
+    pass
+
+
+# Type alias for any provider (built-in or custom)
+Provider = BuiltinProvider | CustomProvider
+
+PROVIDERS_OPENAI: list[BuiltinProvider]
 PROVIDERS_OPENAI = [
     "openai",
     "azure",
@@ -62,6 +83,10 @@ class ModelMeta:
 
     @property
     def full(self) -> str:
+        # For unknown providers (including custom providers), the model field
+        # already contains the full qualified name
+        if self.provider == "unknown":
+            return self.model
         return f"{self.provider}/{self.model}"
 
 
@@ -388,6 +413,17 @@ def log_warn_once(msg: str):
         _logged_warnings.add(msg)
 
 
+def _get_custom_provider_config(provider_name: str):
+    """Get custom provider config by name, returns None if not found."""
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+    for provider in config.user.providers:
+        if provider.name == provider_name:
+            return provider
+    return None
+
+
 def get_model(model: str) -> ModelMeta:
     # if only provider is given, get recommended model
     if model in PROVIDERS:
@@ -395,7 +431,26 @@ def get_model(model: str) -> ModelMeta:
         model = get_recommended_model(provider)
         return get_model(f"{provider}/{model}")
 
-    # Check if model has provider/model format
+    # Check if model is a custom provider name (without model)
+    custom_provider = _get_custom_provider_config(model)
+    if custom_provider:
+        if custom_provider.default_model:
+            return get_model(f"{model}/{custom_provider.default_model}")
+        else:
+            raise ValueError(
+                f"Custom provider '{model}' has no default_model configured"
+            )
+
+    # Check if model starts with a custom provider prefix
+    if "/" in model:
+        provider_prefix = model.split("/")[0]
+        custom_provider = _get_custom_provider_config(provider_prefix)
+        if custom_provider:
+            # Custom provider - store full model path, use "unknown" as provider type
+            # The routing logic in __init__.py handles custom providers via is_custom_provider()
+            return ModelMeta(provider="unknown", model=model, context=128_000)
+
+    # Check if model has provider/model format with built-in provider
     if any(model.startswith(f"{provider}/") for provider in PROVIDERS):
         provider_str, model_name = model.split("/", 1)
 

@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from openai import OpenAI  # fmt: skip
     from openai.types.chat import ChatCompletionToolParam  # fmt: skip
 
-# Dictionary to store clients for each provider
+# Dictionary to store clients for each provider (includes custom providers)
 clients: dict[Provider, "OpenAI"] = {}
 logger = logging.getLogger(__name__)
 

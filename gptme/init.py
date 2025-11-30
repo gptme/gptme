@@ -8,10 +8,11 @@ from rich.logging import RichHandler
 from .commands import init_commands
 from .config import get_config
 from .hooks import init_hooks
-from .llm import guess_provider_from_config, init_llm
+from .llm import guess_provider_from_config, init_llm, is_custom_provider
 from .llm.models import (
     PROVIDERS,
     Provider,
+    get_model,
     get_recommended_model,
     set_default_model,
 )
@@ -68,14 +69,35 @@ def init_model(
     if not model:
         raise ValueError("No API key found, couldn't auto-detect provider")
 
-    if any(model.startswith(f"{provider}/") for provider in PROVIDERS):
-        provider, model = cast(tuple[Provider, str], model.split("/", 1))
+    # Check if model has provider/model format
+    if "/" in model:
+        provider_part = model.split("/")[0]
+        # Check if it's a built-in provider or custom provider
+        if provider_part in PROVIDERS:
+            provider, model_name = cast(tuple[Provider, str], model.split("/", 1))
+        elif is_custom_provider(provider_part):
+            # Custom provider - use full model string, provider is extracted
+            provider = provider_part  # type: ignore[assignment]
+            model_name = "/".join(model.split("/")[1:])  # Rest after provider
+        else:
+            # Unknown provider format, treat as provider only
+            provider, model_name = cast(tuple[Provider, str], (model, None))
     else:
-        provider, model = cast(tuple[Provider, str], (model, None))
+        # No slash - check if it's a custom provider with default model
+        if is_custom_provider(model):
+            # Get the ModelMeta which will resolve the default model
+            model_meta = get_model(model)
+            provider = model  # type: ignore[assignment]
+            model_name = "/".join(
+                model_meta.model.split("/")[1:]
+            )  # Strip provider prefix
+        else:
+            provider, model_name = cast(tuple[Provider, str], (model, None))
 
     # set up API_KEY and API_BASE, needs to be done before loading history to avoid saving API_KEY
-    model = model or get_recommended_model(provider)
-    model_full = f"{provider}/{model}"
+    if model_name is None:
+        model_name = get_recommended_model(provider)  # type: ignore[arg-type]
+    model_full = f"{provider}/{model_name}"
     console.log(f"Using model: {model_full}")
     init_llm(provider)
     set_default_model(model_full)
