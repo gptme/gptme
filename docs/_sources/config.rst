@@ -124,6 +124,7 @@ Besides the configuration files, gptme supports several environment variables to
 .. rubric:: Tool Configuration
 
 - ``GPTME_TTS_VOICE`` - Set the voice to use for TTS
+- ``GPTME_TTS_SPEED`` - Set the speed to use for TTS (default: 1.0)
 - ``GPTME_VOICE_FINISH`` - Wait for TTS speech to finish before exiting (default: false)
 
 .. rubric:: Paths
