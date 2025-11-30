@@ -11,7 +11,6 @@ from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools import ToolSpec
-from . import is_custom_provider
 from .models import ModelMeta, Provider
 from .utils import (
     extract_tool_uses_from_assistant_message,
@@ -23,6 +22,8 @@ if TYPE_CHECKING:
     # noreorder
     from openai import OpenAI  # fmt: skip
     from openai.types.chat import ChatCompletionToolParam  # fmt: skip
+
+    from . import is_custom_provider  # fmt: skip
 
 # Dictionary to store clients for each provider (includes custom providers)
 clients: dict[Provider, "OpenAI"] = {}
