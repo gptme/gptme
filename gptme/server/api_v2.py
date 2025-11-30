@@ -9,6 +9,7 @@ import logging
 import shutil
 from datetime import datetime
 from itertools import islice
+from typing import cast
 
 import flask
 from dateutil.parser import isoparse
@@ -327,9 +328,11 @@ def api_models():
 
     # If proxy is configured (like gptme.ai), show supported providers
     # The proxy now supports both OpenAI and Anthropic models
-    providers_to_check: list[Provider] = (
-        ["openai", "anthropic", "openrouter"] if is_proxy else PROVIDERS
-    )
+    providers_to_check: list[Provider]
+    if is_proxy:
+        providers_to_check = cast(list[Provider], ["openai", "anthropic", "openrouter"])
+    else:
+        providers_to_check = cast(list[Provider], PROVIDERS)
     for provider in providers_to_check:
         models = _get_models_for_provider(provider, dynamic_fetch=True)
         for model in models:

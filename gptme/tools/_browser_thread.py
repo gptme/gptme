@@ -104,7 +104,7 @@ class BrowserThread:
                         break
 
                     # Try to execute command, with retry on connection error
-                    command_name = getattr(cmd.func, '__name__', str(cmd.func))
+                    command_name = getattr(cmd.func, "__name__", str(cmd.func))
                     max_retries = 2
                     for attempt in range(max_retries):
                         try:
@@ -157,14 +157,14 @@ class BrowserThread:
                         )
                     else:
                         logger.exception("Error closing browser")
-            
+
             # Stop playwright with isolated error handling
             if playwright is not None:
                 try:
                     playwright.stop()
                 except Exception:
                     logger.exception("Error stopping playwright")
-            
+
             logger.info("Browser stopped")
 
     def execute(self, func: Callable[..., T], *args, **kwargs) -> T:
