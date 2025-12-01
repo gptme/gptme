@@ -78,8 +78,11 @@ def _capture_pane(pane_id: str) -> str:
 def new_session(command: str) -> Message:
     _max_session_id = 0
     for session in get_sessions():
+        # Only parse sessions matching exact pattern "gptme_N" (not gptme_gw0_*, gptme_test_*, etc.)
         if session.startswith("gptme_"):
-            _max_session_id = max(_max_session_id, int(session.split("_")[1]))
+            parts = session.split("_")
+            if len(parts) == 2 and parts[1].isdigit():
+                _max_session_id = max(_max_session_id, int(parts[1]))
     session_id = f"gptme_{_max_session_id + 1}"
     # cmd = ["tmux", "new-session", "-d", "-s", session_id, command]
     cmd = ["tmux", "new-session", "-d", "-s", session_id, "bash"]
