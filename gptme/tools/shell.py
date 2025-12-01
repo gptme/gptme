@@ -53,6 +53,10 @@ logger = logging.getLogger(__name__)
 
 
 # Background job management for long-running commands (Issue #576)
+# Maximum buffer size to prevent memory issues (1MB per buffer)
+_MAX_BUFFER_SIZE = 1024 * 1024
+
+
 @dataclass
 class BackgroundJob:
     """Tracks a background process with its output."""
@@ -65,6 +69,7 @@ class BackgroundJob:
     stderr_buffer: list[str] = field(default_factory=list)
     _reader_thread: threading.Thread | None = field(default=None, repr=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    _buffer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def start_reader(self) -> None:
         """Start background thread to read output."""
@@ -73,22 +78,21 @@ class BackgroundJob:
 
     def _read_output(self) -> None:
         """Read stdout/stderr in background thread."""
-        import select as sel
-
         stdout_fd = self.process.stdout.fileno() if self.process.stdout else -1
         stderr_fd = self.process.stderr.fileno() if self.process.stderr else -1
         fds = [fd for fd in [stdout_fd, stderr_fd] if fd >= 0]
 
         while not self._stop_event.is_set() and self.process.poll() is None:
             try:
-                readable, _, _ = sel.select(fds, [], [], 0.1)
+                readable, _, _ = select.select(fds, [], [], 0.1)
                 for fd in readable:
                     data = os.read(fd, 4096).decode("utf-8", errors="replace")
                     if data:
-                        if fd == stdout_fd:
-                            self.stdout_buffer.append(data)
-                        else:
-                            self.stderr_buffer.append(data)
+                        with self._buffer_lock:
+                            if fd == stdout_fd:
+                                self._append_to_buffer(self.stdout_buffer, data)
+                            else:
+                                self._append_to_buffer(self.stderr_buffer, data)
             except (OSError, ValueError):
                 break
 
@@ -97,20 +101,32 @@ class BackgroundJob:
             try:
                 remaining = self.process.stdout.read()
                 if remaining:
-                    self.stdout_buffer.append(remaining)
+                    with self._buffer_lock:
+                        self._append_to_buffer(self.stdout_buffer, remaining)
             except (OSError, ValueError):
                 pass
         if self.process.stderr:
             try:
                 remaining = self.process.stderr.read()
                 if remaining:
-                    self.stderr_buffer.append(remaining)
+                    with self._buffer_lock:
+                        self._append_to_buffer(self.stderr_buffer, remaining)
             except (OSError, ValueError):
                 pass
 
+    def _append_to_buffer(self, buffer: list[str], data: str) -> None:
+        """Append data to buffer, enforcing size limit."""
+        buffer.append(data)
+        # Check total size and truncate from front if needed
+        total_size = sum(len(s) for s in buffer)
+        while total_size > _MAX_BUFFER_SIZE and len(buffer) > 1:
+            removed = buffer.pop(0)
+            total_size -= len(removed)
+
     def get_output(self) -> tuple[str, str]:
         """Get accumulated stdout and stderr."""
-        return "".join(self.stdout_buffer), "".join(self.stderr_buffer)
+        with self._buffer_lock:
+            return "".join(self.stdout_buffer), "".join(self.stderr_buffer)
 
     def is_running(self) -> bool:
         """Check if process is still running."""
@@ -129,23 +145,28 @@ class BackgroundJob:
         except subprocess.TimeoutExpired:
             self.process.kill()
             self.process.wait()
+        # Join reader thread to ensure clean shutdown
+        if self._reader_thread and self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=1.0)
 
 
 # Global storage for background jobs
 _background_jobs: dict[int, BackgroundJob] = {}
 _next_job_id: int = 1
+_job_lock: threading.Lock = threading.Lock()
 
 
 def _get_next_job_id() -> int:
-    """Get next available job ID."""
+    """Get next available job ID (thread-safe)."""
     global _next_job_id
-    job_id = _next_job_id
-    _next_job_id += 1
-    return job_id
+    with _job_lock:
+        job_id = _next_job_id
+        _next_job_id += 1
+        return job_id
 
 
 def start_background_job(command: str) -> BackgroundJob:
-    """Start a command as a background job."""
+    """Start a command as a background job (thread-safe)."""
     job_id = _get_next_job_id()
 
     # Start process with separate stdout/stderr pipes
@@ -164,26 +185,46 @@ def start_background_job(command: str) -> BackgroundJob:
         start_time=time.time(),
     )
     job.start_reader()
-    _background_jobs[job_id] = job
+
+    with _job_lock:
+        _background_jobs[job_id] = job
 
     return job
 
 
 def get_background_job(job_id: int) -> BackgroundJob | None:
     """Get a background job by ID."""
-    return _background_jobs.get(job_id)
+    with _job_lock:
+        return _background_jobs.get(job_id)
 
 
 def list_background_jobs() -> list[BackgroundJob]:
-    """List all background jobs."""
-    return list(_background_jobs.values())
+    """List all background jobs, cleaning up finished ones first."""
+    cleanup_finished_jobs()
+    with _job_lock:
+        return list(_background_jobs.values())
 
 
 def cleanup_finished_jobs() -> None:
-    """Remove finished jobs from tracking."""
-    finished = [job_id for job_id, job in _background_jobs.items() if not job.is_running()]
-    for job_id in finished:
-        del _background_jobs[job_id]
+    """Remove finished jobs from tracking (thread-safe)."""
+    with _job_lock:
+        finished = [
+            job_id for job_id, job in _background_jobs.items() if not job.is_running()
+        ]
+        for job_id in finished:
+            del _background_jobs[job_id]
+
+
+def reset_background_jobs() -> None:
+    """Reset job tracking state. For testing purposes only."""
+    global _next_job_id
+    with _job_lock:
+        # Kill any running jobs
+        for job in _background_jobs.values():
+            if job.is_running():
+                job.kill()
+        _background_jobs.clear()
+        _next_job_id = 1
 
 
 allowlist_commands = [
