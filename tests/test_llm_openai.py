@@ -450,6 +450,8 @@ def test_message_conversion_gpt5_with_tool_results():
 
 def test_transform_msgs_for_groq():
     """Test that _transform_msgs_for_special_provider handles mixed content types."""
+    from typing import Any
+
     from gptme.llm.llm_openai import _transform_msgs_for_special_provider
     from gptme.llm.models import ModelMeta
 
@@ -461,7 +463,7 @@ def test_transform_msgs_for_groq():
     )
 
     # Test with list content containing only text parts
-    messages = [
+    messages: list[dict[str, Any]] = [
         {
             "role": "system",
             "content": [
@@ -480,7 +482,7 @@ def test_transform_msgs_for_groq():
     assert result[1]["content"] == "Hello"
 
     # Test with mixed content (text and image) - images should be filtered out
-    messages_with_image = [
+    messages_with_image: list[dict[str, Any]] = [
         {
             "role": "user",
             "content": [
