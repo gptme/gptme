@@ -401,10 +401,37 @@ def get_prompt_session() -> PromptSession:
             """Insert newline on Ctrl+J"""
             event.current_buffer.insert_text("\n")
 
+        @kb.add("escape", "enter")  # Meta-ENTER for newline (Esc followed by Enter)
+        def _(event):
+            """Insert newline on Meta-ENTER (Esc+Enter)."""
+            event.current_buffer.insert_text("\n")
+
         @kb.add("enter")
         def _(event):
-            """Submit on Enter."""
-            event.current_buffer.validate_and_handle()
+            """Submit on Enter, unless in bracket-delimited multiline mode.
+
+            If the input starts with '{' alone on the first line,
+            we're in multiline mode and won't submit until there's
+            a matching '}' alone on the last line.
+            """
+            text = event.current_buffer.text
+            lines = text.split("\n")
+
+            # Check if we're in bracket-delimited multiline mode
+            if lines and lines[0].strip() == "{":
+                # In multiline mode - check for closing bracket
+                if len(lines) > 1 and lines[-1].strip() == "}":
+                    # Found closing bracket - strip delimiters and submit
+                    # Remove first line ({) and last line (})
+                    content = "\n".join(lines[1:-1])
+                    event.current_buffer.text = content
+                    event.current_buffer.validate_and_handle()
+                else:
+                    # No closing bracket yet - insert newline
+                    event.current_buffer.insert_text("\n")
+            else:
+                # Normal mode - submit on enter
+                event.current_buffer.validate_and_handle()
 
         _prompt_session = PromptSession(
             history=history,
