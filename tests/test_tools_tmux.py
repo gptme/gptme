@@ -1,5 +1,6 @@
 """Tests for the tmux tool."""
 
+import os
 import shutil
 import subprocess
 import time
@@ -16,42 +17,81 @@ from gptme.tools.tmux import (
 )
 
 # Skip all tests if tmux is not available
-# Group all tmux tests on same worker to avoid session conflicts
-pytestmark = [
-    pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux not available"),
-    pytest.mark.xdist_group(name="tmux"),
-]
+pytestmark = pytest.mark.skipif(
+    shutil.which("tmux") is None, reason="tmux not available"
+)
+
+
+def _get_worker_id() -> str:
+    """Get a unique ID for this pytest worker to avoid session collisions."""
+    # PYTEST_XDIST_WORKER is set to 'gw0', 'gw1', etc. in parallel runs
+    return os.environ.get("PYTEST_XDIST_WORKER", "main")
+
+
+def _create_test_session(command: str, worker_id: str, session_num: int = 1) -> str:
+    """Create a tmux session with worker-unique name for testing.
+
+    Returns the session ID.
+    """
+    session_id = f"gptme_{worker_id}_{session_num}"
+
+    # Create session with bash
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", session_id, "bash"],
+        check=True,
+        capture_output=True,
+    )
+
+    # Set session size
+    subprocess.run(
+        ["tmux", "resize-window", "-t", session_id, "-x", "120", "-y", "40"],
+        check=True,
+        capture_output=True,
+    )
+
+    # Send the command
+    subprocess.run(
+        ["tmux", "send-keys", "-t", session_id, command, "Enter"],
+        check=True,
+        capture_output=True,
+    )
+
+    return session_id
+
+
+@pytest.fixture
+def worker_id():
+    """Fixture that provides the current pytest worker ID."""
+    return _get_worker_id()
 
 
 @pytest.fixture(autouse=True)
-def cleanup_sessions():
+def cleanup_sessions(worker_id):
     """Clean up any test sessions before and after each test."""
-    # Cleanup before test
-    for session in get_sessions():
-        if session.startswith("gptme_"):
-            subprocess.run(
-                ["tmux", "kill-session", "-t", session],
-                capture_output=True,
-            )
+
+    def cleanup():
+        for session in get_sessions():
+            # Only clean up sessions with our worker prefix to avoid killing other workers' sessions
+            if session.startswith(f"gptme_{worker_id}_"):
+                subprocess.run(
+                    ["tmux", "kill-session", "-t", session],
+                    capture_output=True,
+                )
+
+    cleanup()
     yield
-    # Cleanup after test
-    for session in get_sessions():
-        if session.startswith("gptme_"):
-            subprocess.run(
-                ["tmux", "kill-session", "-t", session],
-                capture_output=True,
-            )
+    cleanup()
 
 
 class TestGetSessions:
     """Tests for get_sessions function."""
 
-    def test_empty_when_no_sessions(self):
+    def test_empty_when_no_sessions(self, worker_id):
         """Should return empty list when no tmux sessions exist."""
-        # After cleanup, gptme sessions should be empty
+        # After cleanup, our worker's sessions should be empty
         sessions = get_sessions()
-        gptme_sessions = [s for s in sessions if s.startswith("gptme_")]
-        assert len(gptme_sessions) == 0
+        worker_sessions = [s for s in sessions if s.startswith(f"gptme_{worker_id}_")]
+        assert len(worker_sessions) == 0
 
 
 class TestNewSession:
@@ -67,8 +107,16 @@ class TestNewSession:
         """Should create sessions with incrementing IDs."""
         msg1 = new_session("echo 'first'")
         msg2 = new_session("echo 'second'")
-        assert "gptme_1" in msg1.content
-        assert "gptme_2" in msg2.content
+        # Note: IDs depend on existing sessions, so just verify both were created
+        assert "gptme_" in msg1.content
+        assert "gptme_" in msg2.content
+        # Verify they got different session IDs
+        import re
+
+        id1 = re.search(r"gptme_(\d+)", msg1.content)
+        id2 = re.search(r"gptme_(\d+)", msg2.content)
+        assert id1 and id2
+        assert id1.group(1) != id2.group(1)
 
 
 class TestListSessions:
@@ -76,9 +124,16 @@ class TestListSessions:
 
     def test_lists_created_sessions(self):
         """Should list sessions that were created."""
-        new_session("echo 'test'")
+        msg = new_session("echo 'test'")
+        # Extract the session ID from the creation message
+        import re
+
+        match = re.search(r"gptme_(\d+)", msg.content)
+        assert match
+        session_id = f"gptme_{match.group(1)}"
+
         msg = list_sessions()
-        assert "gptme_1" in msg.content
+        assert session_id in msg.content
 
 
 class TestKillSession:
@@ -86,38 +141,47 @@ class TestKillSession:
 
     def test_kills_session(self):
         """Should kill an existing session."""
-        new_session("echo 'to kill'")
-        msg = kill_session("gptme_1")
+        msg = new_session("echo 'to kill'")
+        # Extract the session ID from the creation message
+        import re
+
+        match = re.search(r"gptme_(\d+)", msg.content)
+        assert match
+        session_id = f"gptme_{match.group(1)}"
+
+        msg = kill_session(session_id)
         assert "Killed" in msg.content
 
         # Verify session is gone
         sessions = get_sessions()
-        assert "gptme_1" not in sessions
+        assert session_id not in sessions
 
 
 class TestWaitForOutput:
     """Tests for wait_for_output function."""
 
-    def test_waits_for_quick_command(self):
+    def test_waits_for_quick_command(self, worker_id):
         """Should return quickly for a fast command."""
-        new_session("echo 'done'")
+        session_id = _create_test_session("echo 'done'", worker_id, 1)
         time.sleep(2.0)  # Let command complete (extra time for CI)
 
         start = time.time()
-        msg = wait_for_output("gptme_1", timeout=15, stable_time=2)
+        msg = wait_for_output(session_id, timeout=15, stable_time=2)
         elapsed = time.time() - start
 
         assert "stabilized" in msg.content
         assert "done" in msg.content
         assert elapsed < 15  # Should complete before timeout
 
-    def test_timeout_for_ongoing_command(self):
+    def test_timeout_for_ongoing_command(self, worker_id):
         """Should timeout for a command that keeps producing output."""
         # Use a command that produces continuous output
-        new_session("while true; do echo tick; sleep 0.5; done")
+        session_id = _create_test_session(
+            "while true; do echo tick; sleep 0.5; done", worker_id, 1
+        )
 
         start = time.time()
-        msg = wait_for_output("gptme_1", timeout=4, stable_time=2)
+        msg = wait_for_output(session_id, timeout=4, stable_time=2)
         elapsed = time.time() - start
 
         assert "timed out" in msg.content
@@ -125,29 +189,38 @@ class TestWaitForOutput:
 
     def test_auto_prefixes_session_id(self):
         """Should automatically add gptme_ prefix if missing."""
-        new_session("echo 'prefix test'")
+        # This test verifies the prefix behavior of wait_for_output
+        # We use new_session here because we need a gptme_N style session
+        msg = new_session("echo 'prefix test'")
         time.sleep(2.0)  # Extra time for CI
 
-        # Call without prefix
-        msg = wait_for_output("1", timeout=10, stable_time=2)
-        assert "gptme_1" in msg.content
+        # Extract the numeric ID
+        import re
 
-    def test_returns_output_content(self):
+        match = re.search(r"gptme_(\d+)", msg.content)
+        assert match
+        numeric_id = match.group(1)
+
+        # Call without prefix - should auto-add gptme_
+        msg = wait_for_output(numeric_id, timeout=10, stable_time=2)
+        assert f"gptme_{numeric_id}" in msg.content
+
+    def test_returns_output_content(self, worker_id):
         """Should include the pane output in the message."""
-        new_session("echo 'specific output marker'")
+        session_id = _create_test_session("echo 'specific output marker'", worker_id, 1)
         time.sleep(2.0)  # Extra time for CI
 
-        msg = wait_for_output("gptme_1", timeout=15, stable_time=2)
+        msg = wait_for_output(session_id, timeout=15, stable_time=2)
         assert "specific output marker" in msg.content
 
 
 class TestCapturePaneInternal:
     """Tests for _capture_pane internal function."""
 
-    def test_captures_output(self):
+    def test_captures_output(self, worker_id):
         """Should capture pane content including scrollback."""
-        new_session("echo 'capture test'")
+        session_id = _create_test_session("echo 'capture test'", worker_id, 1)
         time.sleep(2.0)  # Extra time for CI
 
-        output = _capture_pane("gptme_1")
+        output = _capture_pane(session_id)
         assert "capture test" in output
