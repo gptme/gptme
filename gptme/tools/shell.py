@@ -398,8 +398,9 @@ class ShellSession:
                     lines = data.splitlines(keepends=True)
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
                     for line in lines:
-                        # Issue #408: Skip output until we see the start marker
-                        if not seen_start_marker:
+                        # Issue #408: Skip stdout until we see the start marker
+                        # Only apply to stdout - stderr should pass through unfiltered
+                        if fd == self.stdout_fd and not seen_start_marker:
                             if start_marker_pattern in line:
                                 seen_start_marker = True
                                 logger.debug(f"Shell: Start marker detected: {start_marker_pattern[:50]}")
