@@ -229,6 +229,7 @@ class ShellSession:
     stdout_fd: int
     stderr_fd: int
     delimiter: str
+    start_marker: str  # Fix for Issue #408: Add start marker to prevent output mixing
 
     def __init__(self) -> None:
         self._init()
@@ -249,6 +250,7 @@ class ShellSession:
         self.stdout_fd = self.process.stdout.fileno()  # type: ignore
         self.stderr_fd = self.process.stderr.fileno()  # type: ignore
         self.delimiter = "END_OF_COMMAND_OUTPUT"
+        self.start_marker = "START_OF_COMMAND_OUTPUT"
 
         # set GIT_PAGER=cat
         self.run("export PAGER=")
@@ -317,7 +319,12 @@ class ShellSession:
         except ValueError as e:
             logger.warning(f"Failed shlex parsing command, using raw command: {e}")
 
-        full_command = f"{command}\n"
+        # Generate unique command ID to prevent output mixing (Issue #408)
+        cmd_id = f"{time.time_ns()}"
+        start_marker_pattern = f"{self.start_marker}_{cmd_id}"
+
+        full_command = f"echo {start_marker_pattern}\n"  # Start marker first
+        full_command += f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
         try:
             self.process.stdin.write(full_command)
@@ -335,6 +342,9 @@ class ShellSession:
 
         self.process.stdin.flush()
 
+        # Issue #408: Track whether we've seen the start marker for this command
+        seen_start_marker = False
+        
         stdout: list[str] = []
         stderr: list[str] = []
         return_code: int | None = None
@@ -388,6 +398,17 @@ class ShellSession:
                     lines = data.splitlines(keepends=True)
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
                     for line in lines:
+                        # Issue #408: Skip output until we see the start marker
+                        if not seen_start_marker:
+                            if start_marker_pattern in line:
+                                seen_start_marker = True
+                                logger.debug(f"Shell: Start marker detected: {start_marker_pattern[:50]}")
+                            else:
+                                # Discard output before start marker (leftover from previous commands)
+                                if line.strip():  # Only log non-empty lines
+                                    logger.debug(f"Shell: Discarding pre-marker output: {line[:80]}")
+                            continue
+                        
                         if "ReturnCode:" in line and self.delimiter in line:
                             # Diagnostic logging for Issue #408: Log delimiter detection
                             logger.debug(
