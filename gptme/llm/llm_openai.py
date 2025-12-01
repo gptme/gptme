@@ -581,7 +581,11 @@ def _transform_msgs_for_special_provider(
         return [
             {
                 **msg,
-                "content": "\n\n".join(part["text"] for part in msg["content"])
+                "content": "\n\n".join(
+                    part["text"]
+                    for part in msg["content"]
+                    if isinstance(part, dict) and part.get("type") == "text"
+                )
                 if isinstance(msg["content"], list)
                 else msg["content"],
             }

@@ -446,3 +446,55 @@ def test_message_conversion_gpt5_with_tool_results():
     assert messages_list[3]["role"] == "tool"  # Tool result preserved!
     assert messages_list[3]["tool_call_id"] == "call_123"
     assert messages_list[3]["content"][0]["text"] == "Saved to file.txt"
+
+
+def test_transform_msgs_for_groq():
+    """Test that _transform_msgs_for_special_provider handles mixed content types."""
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    # Create a mock Groq model
+    groq_model = ModelMeta(
+        provider="groq",
+        model="llama-3.1-8b-instant",
+        context=8192,
+    )
+
+    # Test with list content containing only text parts
+    messages = [
+        {
+            "role": "system",
+            "content": [
+                {"type": "text", "text": "You are a helpful assistant."},
+                {"type": "text", "text": "Be concise."},
+            ],
+        },
+        {
+            "role": "user",
+            "content": "Hello",
+        },
+    ]
+
+    result = list(_transform_msgs_for_groq(messages, groq_model))
+    assert result[0]["content"] == "You are a helpful assistant.\n\nBe concise."
+    assert result[1]["content"] == "Hello"
+
+    # Test with mixed content (text and image) - images should be filtered out
+    messages_with_image = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "What is in this image?"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_groq(messages_with_image, groq_model))
+    assert result[0]["content"] == "What is in this image?"
+
+
+def _transform_msgs_for_groq(messages, model):
+    """Helper to call the transformation function."""
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    return _transform_msgs_for_special_provider(messages, model)
