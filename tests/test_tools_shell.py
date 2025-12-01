@@ -1141,3 +1141,34 @@ def test_is_allowlisted_safe_commands():
     for cmd in safe_commands:
         result = is_allowlisted(cmd)
         assert result, f"Safe allowlisted command should be allowed: {cmd}"
+
+
+def test_git_shortlog_auto_adds_head():
+    """Test that git shortlog without revision automatically gets HEAD added.
+    
+    Addresses: https://github.com/gptme/gptme/issues/362
+    """
+    # Test cases where HEAD should be added
+    shell = ShellSession()
+    
+    # Basic git shortlog
+    cmd = "git shortlog -sn"
+    _, stdout, _ = shell._run(cmd, output=False, timeout=5)
+    # If HEAD was added, we should get output (in a git repo)
+    # The test repo should have at least one commit
+    assert stdout.strip() != "" or "HEAD" in cmd, "git shortlog -sn should produce output when HEAD is auto-added"
+    
+    shell.close()
+
+
+def test_git_shortlog_with_revision_unchanged():
+    """Test that git shortlog with revision is not modified."""
+    shell = ShellSession()
+    
+    # git shortlog with HEAD already specified
+    cmd = "git shortlog -sn HEAD"
+    _, stdout, _ = shell._run(cmd, output=False, timeout=5)
+    # Should work and produce output
+    assert stdout.strip() != "", "git shortlog -sn HEAD should produce output"
+    
+    shell.close()

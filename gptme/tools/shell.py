@@ -282,6 +282,29 @@ class ShellSession:
     ) -> tuple[int | None, str, str]:
         assert self.process.stdin
 
+        # Handle git shortlog special case: it needs a revision range or it reads from stdin
+        # When run without a revision, add HEAD to make it work as expected
+        # See: https://github.com/gptme/gptme/issues/362
+        if command.strip().startswith("git shortlog") and "|" not in command:
+            # Check if command has a revision range (non-option argument after shortlog)
+            parts = command.split()
+            has_revision = False
+            for i, part in enumerate(parts):
+                if i < 2:  # Skip 'git' and 'shortlog'
+                    continue
+                # If part doesn't start with '-', it's likely a revision
+                if not part.startswith("-"):
+                    has_revision = True
+                    break
+            if not has_revision:
+                # Insert HEAD before any output redirection
+                if ">" in command:
+                    idx = command.index(">")
+                    command = command[:idx].rstrip() + " HEAD " + command[idx:]
+                else:
+                    command = command.rstrip() + " HEAD"
+                logger.debug(f"Added HEAD to git shortlog: {command}")
+
         # Diagnostic logging for Issue #408: Log command start
         logger.debug(f"Shell: Running command: {command[:200]}")
 
