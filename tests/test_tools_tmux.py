@@ -16,9 +16,11 @@ from gptme.tools.tmux import (
 )
 
 # Skip all tests if tmux is not available
-pytestmark = pytest.mark.skipif(
-    shutil.which("tmux") is None, reason="tmux not available"
-)
+# Group all tmux tests on same worker to avoid session conflicts
+pytestmark = [
+    pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux not available"),
+    pytest.mark.xdist_group(name="tmux"),
+]
 
 
 @pytest.fixture(autouse=True)
@@ -99,7 +101,7 @@ class TestWaitForOutput:
     def test_waits_for_quick_command(self):
         """Should return quickly for a fast command."""
         new_session("echo 'done'")
-        time.sleep(0.5)  # Let command complete
+        time.sleep(1.0)  # Let command complete (extra time for CI)
 
         start = time.time()
         msg = wait_for_output("gptme_1", timeout=10, stable_time=2)
@@ -124,7 +126,7 @@ class TestWaitForOutput:
     def test_auto_prefixes_session_id(self):
         """Should automatically add gptme_ prefix if missing."""
         new_session("echo 'prefix test'")
-        time.sleep(0.5)
+        time.sleep(1.0)  # Extra time for CI
 
         # Call without prefix
         msg = wait_for_output("1", timeout=5, stable_time=2)
@@ -133,7 +135,7 @@ class TestWaitForOutput:
     def test_returns_output_content(self):
         """Should include the pane output in the message."""
         new_session("echo 'specific output marker'")
-        time.sleep(0.5)
+        time.sleep(1.0)  # Extra time for CI
 
         msg = wait_for_output("gptme_1", timeout=10, stable_time=2)
         assert "specific output marker" in msg.content
@@ -145,7 +147,7 @@ class TestCapturePaneInternal:
     def test_captures_output(self):
         """Should capture pane content."""
         new_session("echo 'capture test'")
-        time.sleep(0.5)
+        time.sleep(1.0)  # Extra time for CI
 
         output = _capture_pane("gptme_1")
         assert "capture test" in output
