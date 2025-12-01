@@ -85,7 +85,8 @@ class Message:
             "timestamp": self.timestamp.isoformat(),
         }
         if self.files:
-            d["files"] = [str(f) for f in self.files]
+            # Resolve to absolute paths to prevent issues when working directory changes
+            d["files"] = [str(f.resolve()) for f in self.files]
         if self.pinned:
             d["pinned"] = True
         if self.hide:

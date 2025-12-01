@@ -106,3 +106,49 @@ def test_format_msgs_preserves_codeblocks():
     outputs = format_msgs([msg], highlight=True)
     assert len(outputs) == 1
     # Code blocks should still work with syntax highlighting
+
+
+def test_message_files_resolve_to_absolute(tmp_path, monkeypatch):
+    """Test that file paths are resolved to absolute paths when serializing.
+
+    This prevents issues when the working directory changes after attaching
+    files to a message. See issue #262.
+    """
+    from pathlib import Path
+    from gptme.message import Message
+    import os
+
+    # Create a test file in tmp_path
+    test_file = tmp_path / "test_image.png"
+    test_file.write_bytes(b"fake image data")
+
+    # Change to tmp_path and create a message with a relative path
+    original_cwd = os.getcwd()
+    try:
+        monkeypatch.chdir(tmp_path)
+        msg = Message("user", "Check this image", files=[Path("test_image.png")])
+
+        # Serialize the message
+        d = msg.to_dict()
+
+        # The file path should be absolute in the serialized dict
+        assert d["files"][0] == str(test_file.resolve())
+        assert Path(d["files"][0]).is_absolute()
+
+        # Change to a different directory
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+        monkeypatch.chdir(other_dir)
+
+        # Deserialize and verify the path still works
+        # (simulating what logmanager._gen_read_jsonl does)
+        loaded_files = [Path(f) for f in d.get("files", [])]
+        loaded_msg = Message(
+            d["role"],
+            d["content"],
+            files=loaded_files,
+        )
+        assert len(loaded_msg.files) == 1
+        assert loaded_msg.files[0].exists()
+    finally:
+        os.chdir(original_cwd)
