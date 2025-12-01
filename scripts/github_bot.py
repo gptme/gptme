@@ -60,16 +60,32 @@ def get_env(name: str, default: str | None = None, required: bool = False) -> st
 
 
 def run_command(
-    cmd: list[str], check: bool = True, capture: bool = False
+    cmd: list[str],
+    check: bool = True,
+    capture: bool = False,
+    cwd: str | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run a shell command with error handling."""
-    print(f"Running: {' '.join(cmd)}")
-    return subprocess.run(
-        cmd,
-        check=check,
-        capture_output=capture,
-        text=True,
-    )
+    """Run a shell command with error handling and logging."""
+    cmd_str = " ".join(cmd)
+    print(f"[CMD] {cmd_str}")
+    try:
+        result = subprocess.run(
+            cmd,
+            check=check,
+            capture_output=capture,
+            text=True,
+            cwd=cwd,
+        )
+        if capture and result.returncode != 0:
+            print(f"[WARN] Command returned non-zero: {result.returncode}")
+            if result.stderr:
+                print(f"[STDERR] {result.stderr[:500]}")
+        return result
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Command failed: {cmd_str}")
+        if e.stderr:
+            print(f"[STDERR] {e.stderr[:500]}")
+        raise
 
 
 def parse_event_from_file(event_path: str) -> GitHubEvent:
@@ -136,10 +152,28 @@ def react_to_comment(
     )
 
 
+# Maximum context sizes to prevent token limit issues
+MAX_CONTEXT_CHARS = 50000  # ~12.5k tokens
+MAX_DIFF_CHARS = 30000  # Diffs can be large, limit separately
+MAX_COMMENT_CHARS = 20000  # Comments can accumulate
+
+
+def truncate_content(content: str, max_chars: int, label: str = "content") -> str:
+    """Truncate content to max_chars with a notice if truncated."""
+    if len(content) <= max_chars:
+        return content
+    truncated = content[:max_chars]
+    # Try to truncate at a newline for cleaner output
+    last_newline = truncated.rfind("\n", max_chars - 500, max_chars)
+    if last_newline > max_chars - 500:
+        truncated = truncated[:last_newline]
+    return f"{truncated}\n\n[... {label} truncated, {len(content) - len(truncated)} chars omitted ...]"
+
+
 def get_context(
     repository: str, issue_number: int, is_pr: bool, token: str
 ) -> dict[str, str]:
-    """Get context from the issue or PR."""
+    """Get context from the issue or PR with size limits to prevent token overflow."""
     context = {}
     ctx_dir = tempfile.mkdtemp()
 
@@ -149,21 +183,23 @@ def get_context(
             ["gh", "pr", "view", str(issue_number), "--repo", repository],
             capture=True,
         )
-        context["pr"] = result.stdout
+        context["pr"] = truncate_content(result.stdout, MAX_CONTEXT_CHARS, "PR details")
 
         # Get PR comments
         result = run_command(
             ["gh", "pr", "view", str(issue_number), "--repo", repository, "-c"],
             capture=True,
         )
-        context["comments"] = result.stdout
+        context["comments"] = truncate_content(
+            result.stdout, MAX_COMMENT_CHARS, "comments"
+        )
 
-        # Get PR diff
+        # Get PR diff (often the largest, limit more aggressively)
         result = run_command(
             ["gh", "pr", "diff", str(issue_number), "--repo", repository],
             capture=True,
         )
-        context["diff"] = result.stdout
+        context["diff"] = truncate_content(result.stdout, MAX_DIFF_CHARS, "diff")
 
         # Get PR checks
         result = run_command(
@@ -171,21 +207,25 @@ def get_context(
             capture=True,
             check=False,
         )
-        context["checks"] = result.stdout
+        context["checks"] = result.stdout  # Checks are usually small
     else:
         # Get issue details
         result = run_command(
             ["gh", "issue", "view", str(issue_number), "--repo", repository],
             capture=True,
         )
-        context["issue"] = result.stdout
+        context["issue"] = truncate_content(
+            result.stdout, MAX_CONTEXT_CHARS, "issue details"
+        )
 
         # Get issue comments
         result = run_command(
             ["gh", "issue", "view", str(issue_number), "--repo", repository, "-c"],
             capture=True,
         )
-        context["comments"] = result.stdout
+        context["comments"] = truncate_content(
+            result.stdout, MAX_COMMENT_CHARS, "comments"
+        )
 
     # Write context files
     for name, content in context.items():
@@ -385,16 +425,46 @@ def commit_and_push(
         )
 
 
+def validate_workspace(workspace: str) -> bool:
+    """Validate that workspace is a git repository."""
+    git_dir = Path(workspace) / ".git"
+    if not git_dir.exists():
+        print(f"[WARN] Workspace {workspace} is not a git repository")
+        print("[HINT] Clone the repository first or specify --workspace")
+        return False
+    return True
+
+
 def main() -> int:
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="GitHub Bot for gptme")
+    parser = argparse.ArgumentParser(
+        description="GitHub Bot for gptme - handles @gptme commands in GitHub issues/PRs",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Local testing with an issue (dry run)
+  GITHUB_TOKEN=xxx GITHUB_REPOSITORY=owner/repo \\
+    ./github_bot.py --issue 123 --comment-body "@gptme What is this?" --dry-run
+
+  # Local testing with a PR
+  GITHUB_TOKEN=xxx GITHUB_REPOSITORY=owner/repo \\
+    ./github_bot.py --pr 456 --comment-body "@gptme Fix the typo" --workspace /path/to/repo
+
+  # In CI (reads from GITHUB_EVENT_PATH automatically)
+  ./github_bot.py
+""",
+    )
     parser.add_argument("--issue", type=int, help="Issue number to process")
     parser.add_argument("--pr", type=int, help="PR number to process")
     parser.add_argument("--comment-body", help="Comment body (for local testing)")
     parser.add_argument("--comment-id", type=int, help="Comment ID (for local testing)")
     parser.add_argument("--author", help="Comment author (for local testing)")
     parser.add_argument("--dry-run", action="store_true", help="Don't make changes")
-    parser.add_argument("--workspace", help="Workspace directory", default=".")
+    parser.add_argument(
+        "--workspace",
+        help="Workspace directory (must be a git clone of the repository)",
+        default=".",
+    )
     args = parser.parse_args()
 
     # Get configuration from environment
@@ -442,8 +512,12 @@ def main() -> int:
     action_type = determine_action_type(command, model)
     print(f"Action type: {action_type}")
 
-    # Set up branch if needed
+    # Validate and set up workspace
     workspace = args.workspace
+    if action_type == "make_changes" and not validate_workspace(workspace):
+        print("[ERROR] Cannot make changes without a valid git workspace")
+        return 1
+
     branch_name = f"gptme/bot-changes-{event.issue_number}"
 
     if event.is_pull_request:
