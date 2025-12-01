@@ -274,3 +274,15 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 	@echo
 	@echo "Run 'make <command>' to execute a command."
+
+build-docker-github-bot: ## Build Docker image for GitHub bot
+	docker build . -t gptme-github-bot:latest -f scripts/Dockerfile.github-bot
+
+test-github-bot: build-docker-github-bot ## Test GitHub bot with dry run
+	@echo "Testing GitHub bot (dry run mode)..."
+	docker run --rm \
+		-e GITHUB_TOKEN="${GITHUB_TOKEN}" \
+		-e GITHUB_REPOSITORY="gptme/gptme" \
+		-e DRY_RUN=1 \
+		gptme-github-bot:latest \
+		--issue 1 --comment-body "@gptme What is gptme?" --dry-run

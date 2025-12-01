@@ -1,0 +1,63 @@
+# Dockerfile for gptme GitHub Bot
+# Provides a standalone container for running the GitHub bot locally or in CI
+#
+# Build:
+#   docker build -t gptme-github-bot -f scripts/Dockerfile.github-bot .
+#
+# Run locally:
+#   docker run --rm \
+#     -e GITHUB_TOKEN="$GITHUB_TOKEN" \
+#     -e GITHUB_REPOSITORY="owner/repo" \
+#     -e OPENAI_API_KEY="$OPENAI_API_KEY" \
+#     -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+#     -v $(pwd):/workspace \
+#     gptme-github-bot \
+#     --issue 123 --comment-body "@gptme What is this project about?"
+#
+# Test with dry run:
+#   docker run --rm \
+#     -e GITHUB_TOKEN="$GITHUB_TOKEN" \
+#     -e GITHUB_REPOSITORY="owner/repo" \
+#     -e DRY_RUN=1 \
+#     gptme-github-bot \
+#     --issue 123 --comment-body "@gptme Explain the README"
+
+FROM python:3.12-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -s /bin/bash botuser
+USER botuser
+WORKDIR /home/botuser
+
+# Install gptme
+RUN pip install --user gptme
+
+# Add user bin to PATH
+ENV PATH="/home/botuser/.local/bin:${PATH}"
+
+# Copy the bot script
+COPY --chown=botuser:botuser scripts/github_bot.py /home/botuser/github_bot.py
+RUN chmod +x /home/botuser/github_bot.py
+
+# Set working directory for workspace mount
+WORKDIR /workspace
+
+# Default entrypoint
+ENTRYPOINT ["python3", "/home/botuser/github_bot.py"]
+
+# Default to help
+CMD ["--help"]
