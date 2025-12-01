@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import time
 from collections.abc import Generator, Iterable
 from functools import wraps
@@ -12,6 +13,7 @@ from typing import (
     cast,
 )
 
+from anthropic import APIConnectionError, APITimeoutError
 from httpx import RemoteProtocolError
 from pydantic import BaseModel  # fmt: skip
 
@@ -38,6 +40,37 @@ logger = logging.getLogger(__name__)
 
 _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
+
+
+def _handle_connection_error(e: Exception, model: str) -> None:
+    """Handle connection errors with user-friendly messages."""
+    from rich import print as rprint  # fmt: skip
+
+    error_msg = str(e)
+    if isinstance(e, APIConnectionError):
+        rprint(
+            "[bold red]Error: Could not connect to the Anthropic API.[/bold red]\n"
+            f"[yellow]Model:[/yellow] {model}\n"
+            "[yellow]Please check your internet connection and try again.[/yellow]"
+        )
+        if "Connection refused" in error_msg or "Name or service not known" in error_msg:
+            rprint(
+                "\n[dim]This may also occur if the API server is down or "
+                "if you're behind a firewall.[/dim]"
+            )
+    elif isinstance(e, APITimeoutError):
+        rprint(
+            "[bold red]Error: Request to Anthropic API timed out.[/bold red]\n"
+            f"[yellow]Model:[/yellow] {model}\n"
+            "[yellow]The server took too long to respond. Please try again later.[/yellow]"
+        )
+    else:
+        rprint(
+            f"[bold red]Error: Network error while communicating with Anthropic API.[/bold red]\n"
+            f"[yellow]Model:[/yellow] {model}\n"
+            f"[dim]{error_msg}[/dim]"
+        )
+    sys.exit(1)
 
 
 def _inject_schema_instruction(messages, schema_name):
@@ -343,23 +376,27 @@ def chat(
     thinking_budget = int(os.environ.get(ENV_REASONING_BUDGET, "16000"))
     max_tokens = model_meta.max_output or 4096
 
-    response = _anthropic.messages.create(
-        model=api_model,
-        messages=messages_dicts,
-        system=system_messages,
-        temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
-        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
-        max_tokens=max_tokens,
-        tools=tools_dict if tools_dict else NOT_GIVEN,
-        thinking=(
-            {"type": "enabled", "budget_tokens": thinking_budget}
-            if use_thinking
-            else NOT_GIVEN
-        ),
-        # We set a timeout for non-streaming requests to prevent Anthropic's
-        # "Streaming is strongly recommended" warning/error.
-        timeout=60,
-    )
+    try:
+        response = _anthropic.messages.create(
+            model=api_model,
+            messages=messages_dicts,
+            system=system_messages,
+            temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
+            top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
+            max_tokens=max_tokens,
+            tools=tools_dict if tools_dict else NOT_GIVEN,
+            thinking=(
+                {"type": "enabled", "budget_tokens": thinking_budget}
+                if use_thinking
+                else NOT_GIVEN
+            ),
+            # We set a timeout for non-streaming requests to prevent Anthropic's
+            # "Streaming is strongly recommended" warning/error.
+            timeout=60,
+        )
+    except (APIConnectionError, APITimeoutError) as e:
+        _handle_connection_error(e, model)
+        raise  # This won't execute since _handle_connection_error calls sys.exit
     content = response.content
     _record_usage(response.usage, model)
 
@@ -423,20 +460,26 @@ def stream(
     thinking_budget = int(os.environ.get(ENV_REASONING_BUDGET, "16000"))
     max_tokens = model_meta.max_output or 4096
 
-    with _anthropic.messages.stream(
-        model=api_model,
-        messages=messages_dicts,
-        system=system_messages,
-        temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
-        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
-        max_tokens=max_tokens,
-        tools=tools_dict if tools_dict else NOT_GIVEN,
-        thinking=(
-            {"type": "enabled", "budget_tokens": thinking_budget}
-            if use_thinking
-            else NOT_GIVEN
-        ),
-    ) as stream:
+    try:
+        stream_ctx = _anthropic.messages.stream(
+            model=api_model,
+            messages=messages_dicts,
+            system=system_messages,
+            temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
+            top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
+            max_tokens=max_tokens,
+            tools=tools_dict if tools_dict else NOT_GIVEN,
+            thinking=(
+                {"type": "enabled", "budget_tokens": thinking_budget}
+                if use_thinking
+                else NOT_GIVEN
+            ),
+        )
+    except (APIConnectionError, APITimeoutError) as e:
+        _handle_connection_error(e, model)
+        raise  # This won't execute since _handle_connection_error calls sys.exit
+
+    with stream_ctx as stream:
         for chunk in stream:
             match chunk.type:
                 case "content_block_start":

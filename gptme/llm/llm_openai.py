@@ -1,10 +1,12 @@
 import json
 import logging
+import sys
 from collections.abc import Generator, Iterable
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast
 
 import requests
+from openai import APIConnectionError, APITimeoutError
 
 from ..config import Config, get_config
 from ..constants import TEMPERATURE, TOP_P
@@ -28,6 +30,37 @@ if TYPE_CHECKING:
 # Dictionary to store clients for each provider (includes custom providers)
 clients: dict[Provider, "OpenAI"] = {}
 logger = logging.getLogger(__name__)
+
+
+def _handle_connection_error(e: Exception, model: str) -> None:
+    """Handle connection errors with user-friendly messages."""
+    from rich import print as rprint  # fmt: skip
+
+    error_msg = str(e)
+    if isinstance(e, APIConnectionError):
+        rprint(
+            "[bold red]Error: Could not connect to the LLM API.[/bold red]\n"
+            f"[yellow]Model:[/yellow] {model}\n"
+            "[yellow]Please check your internet connection and try again.[/yellow]"
+        )
+        if "Connection refused" in error_msg or "Name or service not known" in error_msg:
+            rprint(
+                "\n[dim]This may also occur if the API server is down or "
+                "if you're behind a firewall.[/dim]"
+            )
+    elif isinstance(e, APITimeoutError):
+        rprint(
+            "[bold red]Error: Request to LLM API timed out.[/bold red]\n"
+            f"[yellow]Model:[/yellow] {model}\n"
+            "[yellow]The server took too long to respond. Please try again later.[/yellow]"
+        )
+    else:
+        rprint(
+            f"[bold red]Error: Network error while communicating with LLM API.[/bold red]\n"
+            f"[yellow]Model:[/yellow] {model}\n"
+            f"[dim]{error_msg}[/dim]"
+        )
+    sys.exit(1)
 
 
 def _record_usage(usage, model: str) -> None:
@@ -278,16 +311,20 @@ def chat(
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     response_format = _make_response_format(output_schema)
 
-    response = client.chat.completions.create(
-        model=api_model,
-        messages=messages_dicts,  # type: ignore
-        temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
-        top_p=TOP_P if not is_reasoner else NOT_GIVEN,
-        tools=tools_dict if tools_dict else NOT_GIVEN,
-        response_format=response_format,
-        extra_headers=extra_headers(provider),
-        extra_body=extra_body(provider, model_meta),
-    )
+    try:
+        response = client.chat.completions.create(
+            model=api_model,
+            messages=messages_dicts,  # type: ignore
+            temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
+            top_p=TOP_P if not is_reasoner else NOT_GIVEN,
+            tools=tools_dict if tools_dict else NOT_GIVEN,
+            response_format=response_format,
+            extra_headers=extra_headers(provider),
+            extra_body=extra_body(provider, model_meta),
+        )
+    except (APIConnectionError, APITimeoutError) as e:
+        _handle_connection_error(e, model)
+        raise  # This won't execute since _handle_connection_error calls sys.exit
     _record_usage(response.usage, model)
     choice = response.choices[0]
     result = []
@@ -364,18 +401,24 @@ def stream(
     in_reasoning_block = False
     stop_reason = None
 
-    for chunk_raw in client.chat.completions.create(
-        model=api_model,
-        messages=messages_dicts,  # type: ignore
-        temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
-        top_p=TOP_P if not is_reasoner else NOT_GIVEN,
-        stream=True,
-        tools=tools_dict if tools_dict else NOT_GIVEN,
-        response_format=response_format,
-        extra_headers=extra_headers(provider),
-        extra_body=extra_body(provider, model_meta),
-        stream_options={"include_usage": True},
-    ):
+    try:
+        stream_response = client.chat.completions.create(
+            model=api_model,
+            messages=messages_dicts,  # type: ignore
+            temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
+            top_p=TOP_P if not is_reasoner else NOT_GIVEN,
+            stream=True,
+            tools=tools_dict if tools_dict else NOT_GIVEN,
+            response_format=response_format,
+            extra_headers=extra_headers(provider),
+            extra_body=extra_body(provider, model_meta),
+            stream_options={"include_usage": True},
+        )
+    except (APIConnectionError, APITimeoutError) as e:
+        _handle_connection_error(e, model)
+        raise  # This won't execute since _handle_connection_error calls sys.exit
+
+    for chunk_raw in stream_response:
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
         from openai.types.chat.chat_completion_chunk import (  # fmt: skip
             ChoiceDeltaToolCall,
