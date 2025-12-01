@@ -1,7 +1,7 @@
 """Tests for prompt queueing feature (Issue #569)."""
 
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import gptme.chat
 
