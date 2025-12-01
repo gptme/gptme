@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import select
 import termios
 import threading
 from collections.abc import Generator
@@ -471,10 +472,56 @@ def step(
         clear_interruptible()
 
 
+def _read_buffered_stdin() -> str | None:
+    """Read any buffered input from stdin without blocking.
+    
+    This allows users to "queue" input while the agent is working.
+    Returns None if no buffered input is available.
+    """
+    if not sys.stdin.isatty():
+        return None
+    
+    try:
+        # Check if there's data available on stdin
+        readable, _, _ = select.select([sys.stdin], [], [], 0)
+        if not readable:
+            return None
+        
+        # Read available characters without blocking
+        # We read in a loop until no more data is available
+        buffered = []
+        while True:
+            readable, _, _ = select.select([sys.stdin], [], [], 0)
+            if not readable:
+                break
+            char = sys.stdin.read(1)
+            if not char:
+                break
+            buffered.append(char)
+        
+        if buffered:
+            result = "".join(buffered).strip()
+            if result:
+                logger.debug(f"Read {len(result)} chars of buffered stdin")
+                return result
+    except Exception as e:
+        logger.debug(f"Error reading buffered stdin: {e}")
+    
+    return None
+
+
 def prompt_user(value=None) -> str:  # pragma: no cover
     print_bell()
-    # Flush stdin to clear any buffered input before prompting (only if stdin is a TTY)
+    
+    # Check for buffered input (queued while agent was working)
     if sys.stdin.isatty():
+        buffered = _read_buffered_stdin()
+        if buffered:
+            # User typed ahead while agent was working - use that input
+            console.print(f"[dim]Using queued input: {buffered[:50]}{'...' if len(buffered) > 50 else ''}[/dim]")
+            add_history(buffered)
+            return buffered
+        # No buffered input, flush any partial/incomplete input
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
     response = ""
     with terminal_state_title("⌨️ waiting for input"):
