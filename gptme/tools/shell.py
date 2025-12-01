@@ -434,6 +434,22 @@ class ShellSession:
                                 ex, pwd, _ = self._run("pwd", output=False)
                                 assert ex == 0
                                 os.chdir(pwd.strip())
+                            
+                            # Issue #408: Drain any remaining stderr before returning
+                            # This prevents stderr from leaking to the next command
+                            while True:
+                                drain_rlist, _, _ = select.select(
+                                    [self.stderr_fd], [], [], 0.01
+                                )
+                                if not drain_rlist:
+                                    break
+                                drain_data = os.read(self.stderr_fd, 2**16).decode("utf-8")
+                                if not drain_data:
+                                    break
+                                stderr.append(drain_data)
+                                if output:
+                                    print(drain_data, end="", file=sys.stderr)
+                            
                             return (
                                 return_code,
                                 "".join(stdout).strip(),
