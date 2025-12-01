@@ -26,6 +26,37 @@ If ``uv`` is not installed, you can install it using pip, pipx, or your system p
 
    Windows is not directly supported, but you can run gptme using WSL or Docker.
 
+Optional System Dependencies
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Some gptme features require additional non-Python dependencies. These are optional and only needed for specific tools:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - Dependency
+     - Purpose
+     - Installation
+   * - ``playwright``
+     - Browser automation for the browser tool
+     - ``pipx inject gptme playwright && playwright install``
+   * - ``lynx``
+     - Text-based web browser (alternative to playwright)
+     - ``apt install lynx`` (Debian/Ubuntu) or ``brew install lynx`` (macOS)
+   * - ``tmux``
+     - Terminal multiplexer for long-running commands
+     - ``apt install tmux`` (Debian/Ubuntu) or ``brew install tmux`` (macOS)
+   * - ``gh``
+     - GitHub CLI for the gh tool
+     - See `GitHub CLI installation <https://cli.github.com/>`_
+   * - ``wl-clipboard``
+     - Wayland clipboard support
+     - ``apt install wl-clipboard`` (Debian/Ubuntu)
+   * - ``pdftotext``
+     - PDF text extraction
+     - ``apt install poppler-utils`` (Debian/Ubuntu) or ``brew install poppler`` (macOS)
+
 Usage
 -----
 
