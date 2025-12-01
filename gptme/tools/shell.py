@@ -319,6 +319,19 @@ class ShellSession:
         except ValueError as e:
             logger.warning(f"Failed shlex parsing command, using raw command: {e}")
 
+        # Issue #408: Drain any leftover stderr from previous commands BEFORE sending new command
+        # This ensures we don't mix stderr from previous commands with the current one
+        while True:
+            pre_drain_rlist, _, _ = select.select([self.stderr_fd], [], [], 0.05)
+            if not pre_drain_rlist:
+                break
+            pre_drain_data = os.read(self.stderr_fd, 2**16).decode("utf-8")
+            if not pre_drain_data:
+                break
+            # Discard leftover stderr from previous commands
+            if pre_drain_data.strip():
+                logger.debug(f"Shell: Pre-command stderr drain: {pre_drain_data[:80]}")
+
         # Generate unique command ID to prevent output mixing (Issue #408)
         cmd_id = f"{time.time_ns()}"
         start_marker_pattern = f"{self.start_marker}_{cmd_id}"
@@ -341,19 +354,6 @@ class ShellSession:
                 raise
 
         self.process.stdin.flush()
-
-        # Issue #408: Drain any leftover stderr from previous commands BEFORE reading
-        # This ensures clean separation between commands
-        while True:
-            pre_drain_rlist, _, _ = select.select([self.stderr_fd], [], [], 0.05)
-            if not pre_drain_rlist:
-                break
-            pre_drain_data = os.read(self.stderr_fd, 2**16).decode("utf-8")
-            if not pre_drain_data:
-                break
-            # Discard leftover stderr from previous commands
-            if pre_drain_data.strip():
-                logger.debug(f"Shell: Pre-command stderr drain: {pre_drain_data[:80]}")
 
         # Issue #408: Track whether we've seen the start marker for this command
         seen_start_marker = False
@@ -447,22 +447,28 @@ class ShellSession:
                                 ex, pwd, _ = self._run("pwd", output=False)
                                 assert ex == 0
                                 os.chdir(pwd.strip())
-                            
+
                             # Issue #408: Drain any remaining stderr before returning
                             # This prevents stderr from leaking to the next command
-                            while True:
+                            # Use multiple attempts with longer initial timeout to ensure
+                            # stderr has time to arrive from bash
+                            drain_empty_count = 0
+                            while drain_empty_count < 2:  # Require 2 empty reads to be sure
                                 drain_rlist, _, _ = select.select(
-                                    [self.stderr_fd], [], [], 0.05
+                                    [self.stderr_fd], [], [], 0.1
                                 )
                                 if not drain_rlist:
-                                    break
+                                    drain_empty_count += 1
+                                    continue
                                 drain_data = os.read(self.stderr_fd, 2**16).decode("utf-8")
                                 if not drain_data:
-                                    break
+                                    drain_empty_count += 1
+                                    continue
+                                # Reset counter when we get data
+                                drain_empty_count = 0
                                 stderr.append(drain_data)
                                 if output:
                                     print(drain_data, end="", file=sys.stderr)
-                            
                             return (
                                 return_code,
                                 "".join(stdout).strip(),
