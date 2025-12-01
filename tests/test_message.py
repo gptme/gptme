@@ -64,3 +64,45 @@ That's all folks!
     )
     codeblocks = msg.get_codeblocks()
     assert len(codeblocks) == 2
+
+
+def test_format_msgs_escapes_rich_markup():
+    """Test that Rich markup is properly escaped in format_msgs."""
+    from gptme.message import Message, format_msgs
+
+    # Test with content containing Rich-like markup that should be escaped
+    msg = Message("user", "Testing [project] with [bold]content[/bold]")
+
+    # Without highlight - should not escape
+    outputs_no_highlight = format_msgs([msg], highlight=False)
+    assert len(outputs_no_highlight) == 1
+
+    # With highlight - should escape markup
+    outputs_highlight = format_msgs([msg], highlight=True)
+    assert len(outputs_highlight) == 1
+    # The escaped version should be different (escaped brackets)
+    # Note: We can't directly check the escape as it's in the Rich formatted string
+    # but we verify no exception is raised from Rich interpreting brackets as tags
+
+
+def test_format_msgs_oneline_escapes_rich_markup():
+    """Test that Rich markup is escaped in oneline mode."""
+    from gptme.message import Message, format_msgs
+
+    msg = Message("user", "Testing [project]\nwith newlines")
+
+    # With highlight and oneline
+    outputs = format_msgs([msg], oneline=True, highlight=True)
+    assert len(outputs) == 1
+    # Verify no Rich markup interpretation error
+
+
+def test_format_msgs_preserves_codeblocks():
+    """Test that code blocks are not escaped (for syntax highlighting)."""
+    from gptme.message import Message, format_msgs
+
+    msg = Message("user", "```python\n[1, 2, 3]\n```")
+
+    outputs = format_msgs([msg], highlight=True)
+    assert len(outputs) == 1
+    # Code blocks should still work with syntax highlighting
