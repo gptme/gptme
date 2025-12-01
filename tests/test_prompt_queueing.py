@@ -3,18 +3,19 @@
 import sys
 from unittest.mock import MagicMock, patch
 
-import gptme.chat
-
 
 def test_read_buffered_stdin_no_data():
     """Test that _read_buffered_stdin returns None when no data is available."""
     from gptme.chat import _read_buffered_stdin
     
+    # Get the actual chat module (not the function)
+    chat_module = sys.modules['gptme.chat']
+    
     # Create mock select module
     mock_select_module = MagicMock()
     mock_select_module.select.return_value = ([], [], [])
     
-    with patch.object(gptme.chat, 'select', mock_select_module):
+    with patch.object(chat_module, 'select', mock_select_module):
         with patch('sys.stdin.isatty', return_value=True):
             result = _read_buffered_stdin()
             assert result is None
@@ -23,6 +24,9 @@ def test_read_buffered_stdin_no_data():
 def test_read_buffered_stdin_with_data():
     """Test that _read_buffered_stdin reads buffered input."""
     from gptme.chat import _read_buffered_stdin
+    
+    # Get the actual chat module (not the function)
+    chat_module = sys.modules['gptme.chat']
     
     test_input = "hello world"
     read_index = [0]
@@ -43,7 +47,7 @@ def test_read_buffered_stdin_with_data():
     mock_select_module = MagicMock()
     mock_select_module.select.side_effect = mock_select_func
     
-    with patch.object(gptme.chat, 'select', mock_select_module):
+    with patch.object(chat_module, 'select', mock_select_module):
         with patch('sys.stdin.isatty', return_value=True):
             with patch('sys.stdin.read', side_effect=mock_read):
                 result = _read_buffered_stdin()
@@ -63,6 +67,9 @@ def test_read_buffered_stdin_strips_whitespace():
     """Test that _read_buffered_stdin strips leading/trailing whitespace."""
     from gptme.chat import _read_buffered_stdin
     
+    # Get the actual chat module (not the function)
+    chat_module = sys.modules['gptme.chat']
+    
     test_input = "  queued message  \n"
     read_index = [0]
     
@@ -81,7 +88,7 @@ def test_read_buffered_stdin_strips_whitespace():
     mock_select_module = MagicMock()
     mock_select_module.select.side_effect = mock_select_func
     
-    with patch.object(gptme.chat, 'select', mock_select_module):
+    with patch.object(chat_module, 'select', mock_select_module):
         with patch('sys.stdin.isatty', return_value=True):
             with patch('sys.stdin.read', side_effect=mock_read):
                 result = _read_buffered_stdin()
