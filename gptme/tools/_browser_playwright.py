@@ -180,7 +180,12 @@ def _search_google(browser: Browser, query: str) -> str:
             logger.debug("Accepted Google terms")
             break
 
-    return _list_results_google(page)
+    # Check for CAPTCHA/bot detection before parsing results
+    body_text = page.inner_text("body")
+    if "unusual traffic" in body_text.lower() or "not a robot" in body_text.lower():
+        logger.error("Google CAPTCHA detected")
+        return "Error: Google detected automated access and is showing a CAPTCHA. Try using 'perplexity' as the search engine instead: search(query, 'perplexity')"
+    return _list_results_google(page, body_text)
 
 
 def search_google(query: str) -> str:
@@ -260,13 +265,15 @@ def titleurl_to_list(results: list[SearchResult]) -> str:
     return s.strip()
 
 
-def _list_results_google(page) -> str:
+def _list_results_google(page, body_text: str | None = None) -> str:
     # fetch the results (elements with .g class)
     results = page.query_selector_all(".g")
     if not results:
         logger.error("No search results found")
-        logger.debug(f"{page.inner_text('body')=}")
-        return "Error: something went wrong with the search."
+        if body_text is None:
+            body_text = page.inner_text("body")
+        logger.debug(f"{body_text=}")
+        return "Error: No search results found. Google may be blocking automated access. Try using 'perplexity' as the search engine instead: search(query, 'perplexity')"
 
     # list results
     hits = []
@@ -283,23 +290,27 @@ def _list_results_google(page) -> str:
 
 
 def _list_results_duckduckgo(page) -> str:
-    if "Unfortunately, bots use DuckDuckGo too" in page.inner_text("body"):
+    body_text = page.inner_text("body")
+    if "Unfortunately, bots use DuckDuckGo too" in body_text:
         logger.error("Blocked by DuckDuckGo bot detection")
-        logger.debug(f"{page.inner_text('body')=}")
-        return "Error: blocked by DuckDuckGo bot detection."
+        logger.debug(f"{body_text=}")
+        return "Error: DuckDuckGo detected automated access. Try using 'perplexity' as the search engine instead: search(query, 'perplexity')"
+    if "complete the following challenge" in body_text.lower():
+        logger.error("DuckDuckGo showing CAPTCHA")
+        return "Error: DuckDuckGo is showing a CAPTCHA challenge. Try using 'perplexity' as the search engine instead: search(query, 'perplexity')"
 
     # fetch the results
     sel_results = "div#links"
     results = page.query_selector(sel_results)
     if not results:
         logger.error(f"Unable to find selector `{sel_results}` with results")
-        logger.debug(f"{page.inner_text('body')=}")
-        return "Error: something went wrong with the search."
+        logger.debug(f"{body_text=}")
+        return "Error: DuckDuckGo page structure changed or blocked. Try using 'perplexity' as the search engine instead: search(query, 'perplexity')"
     results = results.query_selector_all(".result")
     if not results:
         logger.error("Unable to find selector `.result` in results")
-        logger.debug(f"{page.inner_text('body')=}")
-        return "Error: something went wrong with the search."
+        logger.debug(f"{body_text=}")
+        return "Error: DuckDuckGo page structure changed. Try using 'perplexity' as the search engine instead: search(query, 'perplexity')"
 
     # list results
     hits = []
