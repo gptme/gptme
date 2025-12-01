@@ -114,9 +114,10 @@ def test_message_files_resolve_to_absolute(tmp_path, monkeypatch):
     This prevents issues when the working directory changes after attaching
     files to a message. See issue #262.
     """
-    from pathlib import Path
-    from gptme.message import Message
     import os
+    from pathlib import Path
+
+    from gptme.message import Message
 
     # Create a test file in tmp_path
     test_file = tmp_path / "test_image.png"
