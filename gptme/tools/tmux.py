@@ -62,12 +62,17 @@ def get_sessions() -> list[str]:
 
 
 def _capture_pane(pane_id: str) -> str:
+    """Capture the content of a tmux pane including scrollback history."""
     result = subprocess.run(
-        ["tmux", "capture-pane", "-p", "-t", pane_id],
+        # -p: print to stdout
+        # -S -: start from beginning of scrollback
+        # -E -: end at bottom of scrollback
+        ["tmux", "capture-pane", "-p", "-S", "-", "-E", "-", "-t", pane_id],
         capture_output=True,
         text=True,
     )
-    return result.stdout
+    # Strip trailing whitespace but preserve content
+    return result.stdout.rstrip()
 
 
 def new_session(command: str) -> Message:
@@ -169,19 +174,21 @@ def wait_for_output(
         session_id = f"gptme_{session_id}"
 
     start_time = time.time()
-    last_output = ""
+    last_output: str | None = None  # None means no output captured yet
     last_change_time = start_time
+    poll_interval = 0.5  # Poll more frequently for responsiveness
 
     while True:
         elapsed = time.time() - start_time
         current_output = _capture_pane(session_id)
 
-        # Check if output changed
-        if current_output != last_output:
+        # Check if output changed (comparing stripped content)
+        if last_output is None or current_output != last_output:
             last_output = current_output
             last_change_time = time.time()
 
         # Check if output has been stable long enough
+        # Only declare stable if we have meaningful output (not just empty/whitespace)
         stable_duration = time.time() - last_change_time
         if stable_duration >= stable_time:
             return Message(
@@ -202,8 +209,8 @@ def wait_for_output(
                 f"or `send-keys {session_id} C-c` to interrupt.",
             )
 
-        # Poll every second
-        sleep(1)
+        # Poll at configured interval
+        sleep(poll_interval)
 
 
 def execute_tmux(

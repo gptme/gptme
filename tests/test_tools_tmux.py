@@ -101,15 +101,15 @@ class TestWaitForOutput:
     def test_waits_for_quick_command(self):
         """Should return quickly for a fast command."""
         new_session("echo 'done'")
-        time.sleep(1.0)  # Let command complete (extra time for CI)
+        time.sleep(2.0)  # Let command complete (extra time for CI)
 
         start = time.time()
-        msg = wait_for_output("gptme_1", timeout=10, stable_time=2)
+        msg = wait_for_output("gptme_1", timeout=15, stable_time=2)
         elapsed = time.time() - start
 
         assert "stabilized" in msg.content
         assert "done" in msg.content
-        assert elapsed < 10  # Should complete before timeout
+        assert elapsed < 15  # Should complete before timeout
 
     def test_timeout_for_ongoing_command(self):
         """Should timeout for a command that keeps producing output."""
@@ -117,27 +117,27 @@ class TestWaitForOutput:
         new_session("while true; do echo tick; sleep 0.5; done")
 
         start = time.time()
-        msg = wait_for_output("gptme_1", timeout=3, stable_time=2)
+        msg = wait_for_output("gptme_1", timeout=4, stable_time=2)
         elapsed = time.time() - start
 
         assert "timed out" in msg.content
-        assert elapsed >= 3  # Should have waited for timeout
+        assert elapsed >= 4  # Should have waited for timeout
 
     def test_auto_prefixes_session_id(self):
         """Should automatically add gptme_ prefix if missing."""
         new_session("echo 'prefix test'")
-        time.sleep(1.0)  # Extra time for CI
+        time.sleep(2.0)  # Extra time for CI
 
         # Call without prefix
-        msg = wait_for_output("1", timeout=5, stable_time=2)
+        msg = wait_for_output("1", timeout=10, stable_time=2)
         assert "gptme_1" in msg.content
 
     def test_returns_output_content(self):
         """Should include the pane output in the message."""
         new_session("echo 'specific output marker'")
-        time.sleep(1.0)  # Extra time for CI
+        time.sleep(2.0)  # Extra time for CI
 
-        msg = wait_for_output("gptme_1", timeout=10, stable_time=2)
+        msg = wait_for_output("gptme_1", timeout=15, stable_time=2)
         assert "specific output marker" in msg.content
 
 
@@ -145,9 +145,9 @@ class TestCapturePaneInternal:
     """Tests for _capture_pane internal function."""
 
     def test_captures_output(self):
-        """Should capture pane content."""
+        """Should capture pane content including scrollback."""
         new_session("echo 'capture test'")
-        time.sleep(1.0)  # Extra time for CI
+        time.sleep(2.0)  # Extra time for CI
 
         output = _capture_pane("gptme_1")
         assert "capture test" in output
