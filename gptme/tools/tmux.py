@@ -34,11 +34,10 @@ def _run_tmux_command(cmd: list[str]) -> subprocess.CompletedProcess:
     """Run a tmux command with consistent logging and error handling."""
     print(" ".join(cmd))
     result = subprocess.run(
-        " ".join(cmd),
+        cmd,
         check=True,
         capture_output=True,
         text=True,
-        shell=True,
     )
     assert result.returncode == 0
     print(result.stdout, result.stderr)
