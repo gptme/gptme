@@ -26,6 +26,11 @@ If ``uv`` is not installed, you can install it using pip, pipx, or your system p
 
    Windows is not directly supported, but you can run gptme using WSL or Docker.
 
+.. tip::
+
+   Some gptme tools require additional system dependencies (playwright, tmux, gh, etc.).
+   See :doc:`system-dependencies` for details.
+
 Usage
 -----
 

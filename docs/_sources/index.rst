@@ -26,6 +26,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    :caption: User Guide
 
    getting-started
+   system-dependencies
    usage
    concepts
    examples
