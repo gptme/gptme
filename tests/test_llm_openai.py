@@ -494,3 +494,62 @@ def test_transform_msgs_for_groq():
 
     result = list(_transform_msgs_for_special_provider(messages_with_image, groq_model))
     assert result[0]["content"] == "What is in this image?"
+
+
+def test_transform_msgs_for_groq_no_content():
+    """Test that messages without content key are passed through unchanged."""
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    groq_model = ModelMeta(
+        provider="groq",
+        model="llama-3.1-8b-instant",
+        context=8192,
+    )
+
+    # Tool call message without content key
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "get_weather", "arguments": "{}"},
+                }
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages, groq_model))
+    assert "content" not in result[0]
+    assert result[0]["tool_calls"] == messages[0]["tool_calls"]
+
+
+def test_transform_msgs_for_groq_images_only():
+    """Test that messages with only non-text content use placeholder."""
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    groq_model = ModelMeta(
+        provider="groq",
+        model="llama-3.1-8b-instant",
+        context=8192,
+    )
+
+    # Message with only image content
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages, groq_model))
+    assert result[0]["content"] == "[non-text content]"

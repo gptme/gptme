@@ -578,19 +578,26 @@ def _transform_msgs_for_special_provider(
 ):
     # groq and deepseek needs message.content to be a string
     if model.provider == "groq" or model.provider == "deepseek":
-        return [
-            {
-                **msg,
-                "content": "\n\n".join(
+        result = []
+        for msg in messages_dicts:
+            content = msg.get("content")
+            # Skip messages without content (e.g., tool call messages)
+            if content is None:
+                result.append(msg)
+                continue
+            # Handle list content (multi-modal messages)
+            if isinstance(content, list):
+                text_parts = [
                     part["text"]
-                    for part in msg["content"]
+                    for part in content
                     if isinstance(part, dict) and part.get("type") == "text"
-                )
-                if isinstance(msg["content"], list)
-                else msg["content"],
-            }
-            for msg in messages_dicts
-        ]
+                ]
+                # Use placeholder if all parts are non-text (e.g., images only)
+                transformed = "\n\n".join(text_parts) if text_parts else "[non-text content]"
+                result.append({**msg, "content": transformed})
+            else:
+                result.append(msg)
+        return result
 
     return messages_dicts
 
