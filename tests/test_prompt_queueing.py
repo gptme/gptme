@@ -1,10 +1,7 @@
 """Tests for prompt queueing feature (Issue #569)."""
 
-import io
 import sys
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import patch
 
 
 def test_read_buffered_stdin_no_data():

@@ -1,7 +1,7 @@
 import logging
 import os
-import sys
 import select
+import sys
 import termios
 import threading
 from collections.abc import Generator
