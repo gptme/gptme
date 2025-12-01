@@ -28,20 +28,25 @@ from .base import ToolSpec
 if TYPE_CHECKING:
     from ..logmanager import LogManager
 
-# Try to import ACE integration for hybrid lesson matching
-try:
-    from ace.embedder import LessonEmbedder  # type: ignore[import-not-found]
-    from ace.gptme_integration import (  # type: ignore[import-not-found]
-        GptmeHybridMatcher,
-    )
-
-    ACE_AVAILABLE = True
-except ImportError:
-    ACE_AVAILABLE = False
-    GptmeHybridMatcher = None  # type: ignore
-    LessonEmbedder = None  # type: ignore
-
 logger = logging.getLogger(__name__)
+
+
+def _get_ace_components() -> tuple[type | None, type | None]:
+    """Lazily import ACE components when needed.
+
+    Returns:
+        Tuple of (LessonEmbedder class, GptmeHybridMatcher class), or (None, None) if unavailable.
+    """
+    try:
+        from ace.embedder import LessonEmbedder  # type: ignore[import-not-found]
+        from ace.gptme_integration import (  # type: ignore[import-not-found]
+            GptmeHybridMatcher,
+        )
+
+        return LessonEmbedder, GptmeHybridMatcher
+    except ImportError:
+        logger.debug("ACE not available - sentence-transformers not installed")
+        return None, None
 
 # Context-local storage for lesson index
 _lesson_index_var: ContextVar[LessonIndex | None] = ContextVar(
@@ -203,39 +208,50 @@ def auto_include_lessons_hook(
     try:
         index = _get_lesson_index()
 
+        # Track whether we're using hybrid matching (for session_id support)
+        using_hybrid = False
+
         # Choose matcher based on configuration
-        if use_hybrid and ACE_AVAILABLE:
-            logger.info("Using ACE hybrid lesson matching")
-            # Initialize embedder with lesson directories from LessonIndex
-            from pathlib import Path
+        if use_hybrid:
+            # Only import ACE when explicitly requested
+            LessonEmbedder, GptmeHybridMatcher = _get_ace_components()
 
-            lesson_dirs = index.lesson_dirs
+            if LessonEmbedder is not None and GptmeHybridMatcher is not None:
+                logger.info("Using ACE hybrid lesson matching")
+                # Initialize embedder with lesson directories from LessonIndex
+                from pathlib import Path
 
-            # Use first lesson directory for embedder (typically workspace lessons)
-            # Embeddings stored in .gptme/embeddings/lessons/
-            embeddings_dir = Path.cwd() / ".gptme" / "embeddings" / "lessons"
+                lesson_dirs = index.lesson_dirs
 
-            try:
-                embedder = LessonEmbedder(
-                    lessons_dir=lesson_dirs[0]
-                    if lesson_dirs
-                    else Path.cwd() / "lessons",
-                    embeddings_dir=embeddings_dir,
-                )
-                logger.info(
-                    f"Initialized ACE embedder with lessons_dir={lesson_dirs[0] if lesson_dirs else 'lessons'}"
-                )
-                matcher = GptmeHybridMatcher(embedder=embedder)
-            except Exception as e:
+                # Use first lesson directory for embedder (typically workspace lessons)
+                # Embeddings stored in .gptme/embeddings/lessons/
+                embeddings_dir = Path.cwd() / ".gptme" / "embeddings" / "lessons"
+
+                try:
+                    embedder = LessonEmbedder(
+                        lessons_dir=lesson_dirs[0]
+                        if lesson_dirs
+                        else Path.cwd() / "lessons",
+                        embeddings_dir=embeddings_dir,
+                    )
+                    logger.info(
+                        f"Initialized ACE embedder with lessons_dir={lesson_dirs[0] if lesson_dirs else 'lessons'}"
+                    )
+                    matcher = GptmeHybridMatcher(embedder=embedder)
+                    using_hybrid = True
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to initialize embedder: {e}. Falling back to keyword matching."
+                    )
+                    # Fall back to keyword-only (not hybrid with None embedder)
+                    matcher = LessonMatcher()
+            else:
                 logger.warning(
-                    f"Failed to initialize embedder: {e}. Falling back to keyword matching."
+                    "Hybrid matching requested but ACE not available "
+                    "(install sentence-transformers), falling back to keyword-only"
                 )
-                matcher = GptmeHybridMatcher(embedder=None)
+                matcher = LessonMatcher()
         else:
-            if use_hybrid and not ACE_AVAILABLE:
-                logger.warning(
-                    "Hybrid matching requested but ACE not available, falling back to keyword-only"
-                )
             logger.debug("Using keyword-only lesson matcher")
             matcher = LessonMatcher()
 
@@ -244,7 +260,7 @@ def auto_include_lessons_hook(
 
         # Call matcher with appropriate parameters
         # Only GptmeHybridMatcher supports session_id parameter
-        if ACE_AVAILABLE and isinstance(matcher, GptmeHybridMatcher):
+        if using_hybrid:
             match_results = matcher.match(index.lessons, context, session_id=session_id)
         else:
             match_results = matcher.match(index.lessons, context)
