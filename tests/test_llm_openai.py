@@ -494,3 +494,31 @@ def test_transform_msgs_for_groq():
 
     result = list(_transform_msgs_for_special_provider(messages_with_image, groq_model))
     assert result[0]["content"] == "What is in this image?"
+
+    # Test with message that has no content key (e.g., some tool-related messages)
+    messages_no_content: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "call_123", "function": {"name": "test", "arguments": "{}"}}
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages_no_content, groq_model))
+    # Should pass through unchanged
+    assert "content" not in result[0]
+    assert result[0]["tool_calls"] == messages_no_content[0]["tool_calls"]
+
+    # Test with only non-text content (e.g., only images) - should use placeholder
+    messages_only_image: list[dict[str, Any]] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages_only_image, groq_model))
+    assert result[0]["content"] == "[non-text content]"
