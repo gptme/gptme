@@ -10,6 +10,7 @@ from typing import Literal
 
 import tomlkit
 from dateutil.parser import isoparse
+from rich.markup import escape as escape_markup
 from rich.syntax import Syntax
 from tomlkit._utils import escape_string
 from typing_extensions import Self
@@ -224,16 +225,20 @@ def format_msgs(
         max_len = shutil.get_terminal_size().columns - len(userprefix)
         output = ""
         if oneline:
-            output += textwrap.shorten(
-                msg.content.replace("\n", "\\n"), width=max_len, placeholder="..."
-            )
+            content = msg.content.replace("\n", "\\n")
+            if highlight:
+                content = escape_markup(content)
+            output += textwrap.shorten(content, width=max_len, placeholder="...")
             if len(output) < 20:
-                output = msg.content.replace("\n", "\\n")[:max_len] + "..."
+                output = content[:max_len] + "..."
         else:
             multiline = len(msg.content.split("\n")) > 1
             output += "\n" + indent * " " if multiline else ""
             for i, block in enumerate(msg.content.split("```")):
                 if i % 2 == 0:
+                    # Escape Rich markup in non-code-block content
+                    if highlight:
+                        block = escape_markup(block)
                     output += textwrap.indent(block, prefix=indent * " ")
                     continue
                 elif highlight:
