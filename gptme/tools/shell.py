@@ -20,8 +20,10 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Generator
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import bashlex
@@ -48,6 +50,140 @@ def strip_ansi_codes(text: str) -> str:
 
 
 logger = logging.getLogger(__name__)
+
+
+# Background job management for long-running commands (Issue #576)
+@dataclass
+class BackgroundJob:
+    """Tracks a background process with its output."""
+
+    id: int
+    command: str
+    process: subprocess.Popen
+    start_time: float
+    stdout_buffer: list[str] = field(default_factory=list)
+    stderr_buffer: list[str] = field(default_factory=list)
+    _reader_thread: threading.Thread | None = field(default=None, repr=False)
+    _stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
+
+    def start_reader(self) -> None:
+        """Start background thread to read output."""
+        self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
+        self._reader_thread.start()
+
+    def _read_output(self) -> None:
+        """Read stdout/stderr in background thread."""
+        import select as sel
+
+        stdout_fd = self.process.stdout.fileno() if self.process.stdout else -1
+        stderr_fd = self.process.stderr.fileno() if self.process.stderr else -1
+        fds = [fd for fd in [stdout_fd, stderr_fd] if fd >= 0]
+
+        while not self._stop_event.is_set() and self.process.poll() is None:
+            try:
+                readable, _, _ = sel.select(fds, [], [], 0.1)
+                for fd in readable:
+                    data = os.read(fd, 4096).decode("utf-8", errors="replace")
+                    if data:
+                        if fd == stdout_fd:
+                            self.stdout_buffer.append(data)
+                        else:
+                            self.stderr_buffer.append(data)
+            except (OSError, ValueError):
+                break
+
+        # Final read after process exits
+        if self.process.stdout:
+            try:
+                remaining = self.process.stdout.read()
+                if remaining:
+                    self.stdout_buffer.append(remaining)
+            except (OSError, ValueError):
+                pass
+        if self.process.stderr:
+            try:
+                remaining = self.process.stderr.read()
+                if remaining:
+                    self.stderr_buffer.append(remaining)
+            except (OSError, ValueError):
+                pass
+
+    def get_output(self) -> tuple[str, str]:
+        """Get accumulated stdout and stderr."""
+        return "".join(self.stdout_buffer), "".join(self.stderr_buffer)
+
+    def is_running(self) -> bool:
+        """Check if process is still running."""
+        return self.process.poll() is None
+
+    def elapsed_time(self) -> float:
+        """Get elapsed time in seconds."""
+        return time.time() - self.start_time
+
+    def kill(self) -> None:
+        """Terminate the background job."""
+        self._stop_event.set()
+        try:
+            self.process.terminate()
+            self.process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait()
+
+
+# Global storage for background jobs
+_background_jobs: dict[int, BackgroundJob] = {}
+_next_job_id: int = 1
+
+
+def _get_next_job_id() -> int:
+    """Get next available job ID."""
+    global _next_job_id
+    job_id = _next_job_id
+    _next_job_id += 1
+    return job_id
+
+
+def start_background_job(command: str) -> BackgroundJob:
+    """Start a command as a background job."""
+    job_id = _get_next_job_id()
+
+    # Start process with separate stdout/stderr pipes
+    process = subprocess.Popen(
+        ["bash", "-c", command],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    job = BackgroundJob(
+        id=job_id,
+        command=command,
+        process=process,
+        start_time=time.time(),
+    )
+    job.start_reader()
+    _background_jobs[job_id] = job
+
+    return job
+
+
+def get_background_job(job_id: int) -> BackgroundJob | None:
+    """Get a background job by ID."""
+    return _background_jobs.get(job_id)
+
+
+def list_background_jobs() -> list[BackgroundJob]:
+    """List all background jobs."""
+    return list(_background_jobs.values())
+
+
+def cleanup_finished_jobs() -> None:
+    """Remove finished jobs from tracking."""
+    finished = [job_id for job_id, job in _background_jobs.items() if not job.is_running()]
+    for job_id in finished:
+        del _background_jobs[job_id]
 
 
 allowlist_commands = [
@@ -161,6 +297,16 @@ The shell tool will respond with the output of the execution.
 
 These programs are available, among others:
 {shell_programs_str}
+
+## Background Jobs
+
+For long-running commands (dev servers, builds, etc.), use background jobs:
+- `bg <command>` - Start command in background, returns job ID
+- `jobs` - List all background jobs with status
+- `output <id>` - Show accumulated output from a job
+- `kill <id>` - Terminate a background job
+
+This prevents blocking on commands like `npm run dev` that run indefinitely.
 """.strip()
 
 instructions_format: dict[str, str] = {}
@@ -221,6 +367,38 @@ Scaffolding project in ./fancy-project...
 > User: add a comment with backticks and special characters
 > Assistant: When passing complex content with special characters, use single quotes to prevent shell interpretation:
 {ToolUse("shell", [], "echo 'Content with `backticks` and $variables that should not be interpreted' > example.txt").to_output(tool_format)}
+
+#### Background jobs for long-running commands
+
+> User: start a dev server
+> Assistant: I'll start the dev server as a background job so it doesn't block:
+{ToolUse("shell", [], "bg npm run dev").to_output(tool_format)}
+> System: Started background job **#1**: `npm run dev`
+>
+> Use these commands to manage it:
+> - `jobs` - List all background jobs
+> - `output 1` - Show output from job #1
+> - `kill 1` - Terminate job #1
+
+> User: check the server output
+> Assistant: Let me check the output from the background job:
+{ToolUse("shell", [], "output 1").to_output(tool_format)}
+> System: **Job #1** - Running (45.2s)
+> Command: `npm run dev`
+>
+> ```stdout
+> > project@1.0.0 dev
+> > vite
+>
+> VITE v5.0.0  ready in 300 ms
+>
+> ➜  Local:   http://localhost:5173/
+> ```
+
+> User: stop the server
+> Assistant: I'll terminate the background job:
+{ToolUse("shell", [], "kill 1").to_output(tool_format)}
+> System: Terminated job #1: `npm run dev`
 """.strip()
 
 
@@ -762,6 +940,104 @@ def _format_shell_output(
     return msg
 
 
+# Background command handlers
+def execute_bg_command(command: str) -> Generator[Message, None, None]:
+    """Start a command as a background job."""
+    if not command.strip():
+        yield Message("system", "Usage: `bg <command>`\n\nExample: `bg npm run dev`")
+        return
+
+    job = start_background_job(command)
+    yield Message(
+        "system",
+        f"Started background job **#{job.id}**: `{command}`\n\n"
+        f"Use these commands to manage it:\n"
+        f"- `jobs` - List all background jobs\n"
+        f"- `output {job.id}` - Show output from job #{job.id}\n"
+        f"- `kill {job.id}` - Terminate job #{job.id}",
+    )
+
+
+def execute_jobs_command() -> Generator[Message, None, None]:
+    """List all background jobs."""
+    jobs = list_background_jobs()
+    if not jobs:
+        yield Message("system", "No background jobs running.")
+        return
+
+    lines = ["**Background Jobs:**\n"]
+    for job in jobs:
+        status = "🟢 Running" if job.is_running() else "⚫ Finished"
+        elapsed = job.elapsed_time()
+        if elapsed < 60:
+            time_str = f"{elapsed:.1f}s"
+        else:
+            time_str = f"{elapsed / 60:.1f}m"
+        lines.append(f"- **#{job.id}** [{status}] ({time_str}): `{job.command[:50]}{'...' if len(job.command) > 50 else ''}`")
+
+    yield Message("system", "\n".join(lines))
+
+
+def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
+    """Show output from a background job."""
+    try:
+        job_id = int(job_id_str)
+    except ValueError:
+        yield Message("system", f"Invalid job ID: `{job_id_str}`. Use `jobs` to list active jobs.")
+        return
+
+    job = get_background_job(job_id)
+    if not job:
+        yield Message("system", f"No job with ID #{job_id}. Use `jobs` to list active jobs.")
+        return
+
+    stdout, stderr = job.get_output()
+    status = "Running" if job.is_running() else f"Finished (exit code: {job.process.returncode})"
+    elapsed = job.elapsed_time()
+
+    msg = f"**Job #{job_id}** - {status} ({elapsed:.1f}s)\n"
+    msg += f"Command: `{job.command}`\n\n"
+
+    if stdout:
+        # Truncate if too long
+        if len(stdout) > 8000:
+            stdout = stdout[-8000:]
+            msg += "```stdout\n...(truncated)...\n" + stdout + "\n```\n\n"
+        else:
+            msg += f"```stdout\n{stdout}\n```\n\n"
+    if stderr:
+        if len(stderr) > 2000:
+            stderr = stderr[-2000:]
+            msg += "```stderr\n...(truncated)...\n" + stderr + "\n```\n\n"
+        else:
+            msg += f"```stderr\n{stderr}\n```\n\n"
+    if not stdout and not stderr:
+        msg += "No output yet.\n"
+
+    yield Message("system", msg)
+
+
+def execute_kill_command(job_id_str: str) -> Generator[Message, None, None]:
+    """Terminate a background job."""
+    try:
+        job_id = int(job_id_str)
+    except ValueError:
+        yield Message("system", f"Invalid job ID: `{job_id_str}`. Use `jobs` to list active jobs.")
+        return
+
+    job = get_background_job(job_id)
+    if not job:
+        yield Message("system", f"No job with ID #{job_id}. Use `jobs` to list active jobs.")
+        return
+
+    if not job.is_running():
+        yield Message("system", f"Job #{job_id} is already finished (exit code: {job.process.returncode}).")
+        return
+
+    job.kill()
+    yield Message("system", f"Terminated job #{job_id}: `{job.command}`")
+
+
 def execute_shell_impl(
     cmd: str, logdir: Path | None, confirm: ConfirmFunc, timeout: float | None = None
 ) -> Generator[Message, None, None]:
@@ -941,6 +1217,36 @@ def execute_shell(
 ) -> Generator[Message, None, None]:
     """Executes a shell command and returns the output."""
     cmd = get_shell_command(code, args, kwargs)
+
+    # Handle background job commands (Issue #576)
+    cmd_lower = cmd.strip().lower()
+    cmd_parts = cmd.strip().split(maxsplit=1)
+
+    if cmd_lower.startswith("bg "):
+        # Start background job: bg <command>
+        bg_cmd = cmd[3:].strip()
+        yield from execute_bg_command(bg_cmd)
+        return
+
+    if cmd_lower == "jobs":
+        # List background jobs
+        yield from execute_jobs_command()
+        return
+
+    if cmd_lower.startswith("output "):
+        # Show output from job: output <id>
+        job_id_str = cmd_parts[1] if len(cmd_parts) > 1 else ""
+        yield from execute_output_command(job_id_str)
+        return
+
+    if cmd_lower.startswith("kill ") and len(cmd_parts) == 2:
+        # Check if this looks like a job kill (just a number)
+        # vs a regular kill command (e.g., kill -9 1234)
+        potential_job_id = cmd_parts[1]
+        if potential_job_id.isdigit() and get_background_job(int(potential_job_id)):
+            yield from execute_kill_command(potential_job_id)
+            return
+        # Fall through to regular shell execution for other kill commands
 
     # Check for timeout from environment variable
     # Default to 20 minutes (1200s) if not set
