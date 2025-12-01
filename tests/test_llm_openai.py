@@ -475,7 +475,7 @@ def test_transform_msgs_for_groq():
         },
     ]
 
-    result = list(_transform_msgs_for_groq(messages, groq_model))
+    result = list(_transform_msgs_for_special_provider(messages, groq_model))
     assert result[0]["content"] == "You are a helpful assistant.\n\nBe concise."
     assert result[1]["content"] == "Hello"
 
@@ -490,11 +490,5 @@ def test_transform_msgs_for_groq():
         },
     ]
 
-    result = list(_transform_msgs_for_groq(messages_with_image, groq_model))
+    result = list(_transform_msgs_for_special_provider(messages_with_image, groq_model))
     assert result[0]["content"] == "What is in this image?"
-
-
-def _transform_msgs_for_groq(messages, model):
-    """Helper to call the transformation function."""
-    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
-    return _transform_msgs_for_special_provider(messages, model)
