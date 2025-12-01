@@ -716,9 +716,6 @@ print("incomplete")
     assert 'print("incomplete")' in blocks[0].content
 
 
-@pytest.mark.xfail(
-    reason="Parser returns 0 blocks when nested blocks have same language tag"
-)
 def test_nested_with_same_language_tag():
     """
     Nested blocks with the same language tag as outer block.

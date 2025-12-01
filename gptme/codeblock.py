@@ -233,8 +233,21 @@ def _extract_codeblocks(
                                 # This closes a nested block, add to content
                                 content_lines.append(line)
                     else:
-                        # This starts a nested block (has language or content after ```)
-                        nesting_depth += 1
+                        # Line has content after ``` - check if it looks like a valid language tag
+                        # to determine if it opens a nested block or is just content
+                        potential_lang = line[3:].strip()
+                        # Valid language tags start with alphanumeric, underscore, slash, or dot
+                        # They should NOT start with quotes or other special characters
+                        # Examples of valid: python, js, save path/to/file.py, .env
+                        # Examples of invalid: ''', "", ===
+                        is_valid_lang = bool(potential_lang) and (
+                            potential_lang[0].isalnum()
+                            or potential_lang[0] in "_/.~"
+                        )
+                        if is_valid_lang:
+                            # This starts a nested block (has valid language tag)
+                            nesting_depth += 1
+                        # Either way, add to content (nested blocks appear as content)
                         content_lines.append(line)
                 else:
                     content_lines.append(line)
