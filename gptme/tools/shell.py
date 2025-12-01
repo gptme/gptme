@@ -342,6 +342,19 @@ class ShellSession:
 
         self.process.stdin.flush()
 
+        # Issue #408: Drain any leftover stderr from previous commands BEFORE reading
+        # This ensures clean separation between commands
+        while True:
+            pre_drain_rlist, _, _ = select.select([self.stderr_fd], [], [], 0.05)
+            if not pre_drain_rlist:
+                break
+            pre_drain_data = os.read(self.stderr_fd, 2**16).decode("utf-8")
+            if not pre_drain_data:
+                break
+            # Discard leftover stderr from previous commands
+            if pre_drain_data.strip():
+                logger.debug(f"Shell: Pre-command stderr drain: {pre_drain_data[:80]}")
+
         # Issue #408: Track whether we've seen the start marker for this command
         seen_start_marker = False
         
@@ -439,7 +452,7 @@ class ShellSession:
                             # This prevents stderr from leaking to the next command
                             while True:
                                 drain_rlist, _, _ = select.select(
-                                    [self.stderr_fd], [], [], 0.01
+                                    [self.stderr_fd], [], [], 0.05
                                 )
                                 if not drain_rlist:
                                     break
