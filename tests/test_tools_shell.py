@@ -1147,9 +1147,9 @@ def test_is_allowlisted_safe_commands():
 def test_background_job_start():
     """Test starting a background job."""
     from gptme.tools.shell import (
-        start_background_job,
-        get_background_job,
         _background_jobs,
+        get_background_job,
+        start_background_job,
     )
 
     # Clear any existing jobs
@@ -1182,8 +1182,8 @@ def test_background_job_start():
 def test_background_job_kill():
     """Test killing a background job."""
     from gptme.tools.shell import (
-        start_background_job,
         _background_jobs,
+        start_background_job,
     )
 
     _background_jobs.clear()
@@ -1205,8 +1205,8 @@ def test_background_job_kill():
 def test_background_job_output():
     """Test retrieving output from a background job."""
     from gptme.tools.shell import (
-        start_background_job,
         _background_jobs,
+        start_background_job,
     )
 
     _background_jobs.clear()
@@ -1227,9 +1227,9 @@ def test_background_job_output():
 def test_list_background_jobs():
     """Test listing background jobs."""
     from gptme.tools.shell import (
-        start_background_job,
-        list_background_jobs,
         _background_jobs,
+        list_background_jobs,
+        start_background_job,
     )
 
     _background_jobs.clear()
@@ -1252,7 +1252,7 @@ def test_list_background_jobs():
 
 def test_execute_bg_command():
     """Test the bg command handler."""
-    from gptme.tools.shell import execute_bg_command, _background_jobs
+    from gptme.tools.shell import _background_jobs, execute_bg_command
 
     _background_jobs.clear()
 
@@ -1270,9 +1270,9 @@ def test_execute_bg_command():
 def test_execute_jobs_command():
     """Test the jobs command handler."""
     from gptme.tools.shell import (
+        _background_jobs,
         execute_jobs_command,
         start_background_job,
-        _background_jobs,
     )
 
     _background_jobs.clear()
