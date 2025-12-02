@@ -57,8 +57,9 @@ runs:
         GITHUB_EVENT_PATH: ${{ github.event_path }}
       run: |
         # Download github_bot.py from gptme repo (enables use as reusable action)
-        SCRIPT_URL="https://raw.githubusercontent.com/gptme/gptme/master/scripts/github_bot.py"
-        curl -sL "$SCRIPT_URL" > /tmp/github_bot.py
+        # Pin to specific commit for supply chain security (ba3c0233)
+        SCRIPT_URL="https://raw.githubusercontent.com/gptme/gptme/ba3c0233f5f047ef210c732fb59d0c52b9bdd9e5/scripts/github_bot.py"
+        curl -fsL "$SCRIPT_URL" > /tmp/github_bot.py
         python /tmp/github_bot.py
 
     - name: Report error
