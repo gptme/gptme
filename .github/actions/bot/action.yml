@@ -56,7 +56,10 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_EVENT_PATH: ${{ github.event_path }}
       run: |
-        python scripts/github_bot.py
+        # Download github_bot.py from gptme repo (enables use as reusable action)
+        SCRIPT_URL="https://raw.githubusercontent.com/gptme/gptme/master/scripts/github_bot.py"
+        curl -sL "$SCRIPT_URL" > /tmp/github_bot.py
+        python /tmp/github_bot.py
 
     - name: Report error
       if: failure()
