@@ -1,10 +1,7 @@
 """Tests for the interactive generation module."""
 
 import sys
-from io import StringIO
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from gptme.util.interactive_gen import (
     InputAction,

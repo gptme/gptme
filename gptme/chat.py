@@ -33,8 +33,6 @@ from .util.cost import log_costs
 from .util.interactive_gen import (
     get_interrupt_content,
     get_queued_input,
-    has_interrupt_content,
-    has_queued_input,
 )
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
