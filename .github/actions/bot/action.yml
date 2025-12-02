@@ -1,5 +1,5 @@
 name: 'gptme-bot'
-description: 'A composite action for the gptme-bot workflow'
+description: 'A composite action for the gptme-bot workflow using the github_bot.py script'
 inputs:
   openai_api_key:
     description: 'OpenAI API Key'
@@ -10,6 +10,7 @@ inputs:
   model:
     description: 'Model to use'
     required: false
+    default: 'anthropic/claude-sonnet-4-20250514'
   github_token:
     description: 'GitHub Token'
     required: true
@@ -24,84 +25,17 @@ runs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Get PR details
-      id: pr_details
-      if: ${{ github.event.issue.pull_request }}
-      shell: bash
-      run: |
-        PR_NUMBER=${{ github.event.issue.number }}
-        PR_DATA=$(curl -s -H "Authorization: token ${{ inputs.github_token }}" \
-                   "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER")
-        echo "head_ref=$(echo "$PR_DATA" | jq -r .head.ref)" >> $GITHUB_OUTPUT
-        echo "base_ref=$(echo "$PR_DATA" | jq -r .base.ref)" >> $GITHUB_OUTPUT
-
-    - name: Detect gptme command
-      id: detect_command
-      shell: bash
-      env:
-        COMMENT_BODY: ${{ github.event.comment.body }}
-      run: |
-        # Check if the comment starts with "@gptme"
-        if [[ "$COMMENT_BODY" == "@gptme "* ]]; then
-          # Extract the command
-          GPTME_COMMAND=${COMMENT_BODY#"@gptme "}
-          {
-            echo "gptme_command<<EOFMAGIC"
-            echo $GPTME_COMMAND
-            echo "EOFMAGIC"
-          } >> $GITHUB_OUTPUT
-        fi
-
-    - name: Check allowlist
-      if: steps.detect_command.outputs.gptme_command
-      shell: bash
-      run: |
-        IFS=',' read -ra ALLOWLIST <<< "${{ inputs.allowlist }}"
-        if [[ ! " ${ALLOWLIST[@]} " =~ " ${{ github.event.comment.user.login }} " ]]; then
-          echo "Error: Author ${{ github.event.comment.user.login }} is not on the allowlist."
-          exit 1
-        fi
-
-    - name: React to comment
-      if: steps.detect_command.outputs.gptme_command
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-      run: |
-        gh api /repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions -X POST -f content='+1'
-
-    - name: Log in to GitHub Container Registry
-      if: steps.detect_command.outputs.gptme_command
-      uses: docker/login-action@v3
+    - name: Set up Python
+      uses: actions/setup-python@v5
       with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ inputs.github_token }}
+        python-version: '3.12'
 
-    - name: Pull Docker image
-      if: steps.detect_command.outputs.gptme_command
+    - name: Install gptme
       shell: bash
-      run: docker pull ghcr.io/erikbjare/gptme:latest
-
-    - name: Checkout PR branch if comment is on a PR
-      id: checkout_branch
-      if: steps.detect_command.outputs.gptme_command
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
-        IS_PR=${{ github.event.issue.pull_request != null }}
-        BRANCH_NAME=${{ steps.pr_details.outputs.head_ref || format('gptme/bot-changes-{0}', github.run_id) }}
+        pip install gptme[server]
 
-        if [[ "$IS_PR" == "true" ]]; then
-          git fetch origin $BRANCH_NAME
-          git checkout $BRANCH_NAME
-        else
-          git checkout -b $BRANCH_NAME
-        fi
-        echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
-
-    - name: Write gptme config.toml
+    - name: Write gptme config
       shell: bash
       run: |
         mkdir -p ~/.config/gptme
@@ -109,170 +43,20 @@ runs:
         [prompt]
         about_user = "The user is talking to the gptme bot through GitHub comments. They have initiated conversation by pinging it with @gptme, triggering a GitHub Action in which gptme now runs."
         response_preference = "Don't explain basic concepts"
-
-        [env]
-        MODEL = "${{ inputs.model }}"
-        OPENAI_API_KEY = "${{ inputs.openai_api_key }}"
-        ANTHROPIC_API_KEY = "${{ inputs.anthropic_api_key }}"
         EOF
 
-
-    - name: Determine action type
-      id: determine_action
-      if: steps.detect_command.outputs.gptme_command
-      shell: bash
-      env:
-        GPTME_COMMAND: ${{ steps.detect_command.outputs.gptme_command }}
-      run: |
-        FULL_OUTPUT=$(docker run --rm \
-          -v ~/.config/gptme:/home/appuser/.config/gptme \
-          ghcr.io/erikbjare/gptme:latest \
-          --non-interactive \
-          "Determine if this command requires changes to be made or just a response. Respond with either 'make_changes' or 'respond'. Command: $GPTME_COMMAND")
-
-        # Extract the last line, which should be the actual response
-        ACTION_TYPE=$(echo "$FULL_OUTPUT" | grep -oE '(make_changes|respond)' | tail -n 1)
-
-        echo "action_type=$ACTION_TYPE" >> $GITHUB_OUTPUT
-
-        # Validate the action type
-        if [[ "$ACTION_TYPE" != "make_changes" && "$ACTION_TYPE" != "respond" ]]; then
-          echo "Error: Invalid action type '$ACTION_TYPE'. Expected 'make_changes' or 'respond'."
-          echo "Full output was:"
-          echo "$FULL_OUTPUT"
-          exit 1
-        fi
-
-    - name: Get context
-      id: context
-      if: steps.detect_command.outputs.gptme_command
+    - name: Run GitHub Bot
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        MODEL: ${{ inputs.model }}
+        ALLOWLIST: ${{ inputs.allowlist }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_EVENT_PATH: ${{ github.event_path }}
       run: |
-        # download shorten_details script
-        SCRIPTDIR=$(mktemp -d)
-        curl -s https://raw.githubusercontent.com/gptme/gptme/master/scripts/shorten_details.py > $SCRIPTDIR/shorten_details.py
-        chmod +x $SCRIPTDIR/shorten_details.py
-
-        NUM=${{ github.event.issue.number }}
-        CTXDIR=$(mktemp -d)
-
-        # if issue
-        if [[ ${{ github.event.issue.pull_request == null }} == "true" ]]; then
-          gh issue view $NUM | $SCRIPTDIR/shorten_details.py 1000 > $CTXDIR/gh-issue.md
-          gh issue view $NUM -c | $SCRIPTDIR/shorten_details.py 1000 > $CTXDIR/gh-comments.md
-        # if PR
-        else
-          gh pr view $NUM | $SCRIPTDIR/shorten_details.py 1000 > $CTXDIR/gh-pr.md
-          gh pr view $NUM -c | $SCRIPTDIR/shorten_details.py 1000 > $CTXDIR/gh-comments.md
-          gh pr diff $NUM > $CTXDIR/gh-diff.md
-          gh pr checks $NUM > $CTXDIR/gh-checks.md
-        fi
-
-        # make sure anyone (even docker) can read/write the context dir
-        chmod -R o=rwx $CTXDIR
-
-        # output context dir
-        echo "dir=$CTXDIR" >> $GITHUB_OUTPUT
-
-    - name: Run gptme
-      if: steps.detect_command.outputs.gptme_command
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-        GPTME_COMMAND: ${{ steps.detect_command.outputs.gptme_command }}
-      run: |
-        echo "Running in $GITHUB_WORKSPACE"
-        CTXDIR=${{ steps.context.outputs.dir }}
-
-        # make sure anyone (even docker) can read/write the workspace
-        chmod -R o=rwx .
-
-        # run gptme with the extracted command and save logs
-        # TODO: actually move the <system> tag into a system message
-        timeout 120 docker run --rm \
-          -v ~/.config/gptme:/home/appuser/.config/gptme \
-          -v $GITHUB_WORKSPACE:/workspace \
-          -v $CTXDIR:$CTXDIR \
-          -w /workspace \
-          ghcr.io/erikbjare/gptme:latest \
-          --non-interactive \
-          "$GPTME_COMMAND" \
-          "<system>" \
-          "The project has been cloned to the current directory and can be explored with git, cat, etc." \
-          "Here is the context:" $CTXDIR/* \
-          "</system>" \
-          "-" "Write the response to 'response.md', it will be posted as a comment." \
-          || (echo "TIMEOUT" && exit 1)
-
-        # comment with the response
-        if [[ -f response.md ]]; then
-          gh issue comment ${{ github.event.issue.number }} -R ${{ github.repository }} --body-file=response.md
-        else
-          echo "No response was generated."
-        fi
-
-        # stage changes
-        git add -A
-
-    - name: Commit, push, comment
-      if: steps.detect_command.outputs.gptme_command && steps.determine_action.outputs.action_type == 'make_changes'
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-      run: |
-        # generate commit message
-        docker run --rm \
-          -v ~/.config/gptme:/home/appuser/.config/gptme \
-          -v $GITHUB_WORKSPACE:/workspace \
-          -w /workspace \
-          ghcr.io/erikbjare/gptme:latest \
-          --non-interactive \
-          "Run 'git diff --staged' to inspect what has changed." \
-          "-" "Write a commit message for it to 'message.txt'. Use the 'conventional commits' style."
-
-        # Read and format log
-        ./scripts/format_log.sh ~/.local/share/gptme/logs/*/conversation.jsonl > log.txt
-
-        RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        COMMENT_URL="https://github.com/${{ github.repository }}/issues/${{ github.event.issue.number }}#issuecomment-${{ github.event.comment.id }}"
-
-        # commit message & description
-        COMMIT_MSG="$(cat message.txt || echo 'no commit message')"
-        COMMIT_DESC="\`gptme '${{ steps.detect_command.outputs.gptme_command }}'\`
-
-        Triggered by: $COMMENT_URL
-        Run: $RUN_URL"
-
-        # commit message with description
-        COMMIT_MSG_FULL="$COMMIT_MSG
-
-        $COMMIT_DESC"
-
-        # commit message with description and log
-        COMMIT_MSG_FULL_WITH_LOG="$COMMIT_MSG_FULL
-
-        <details>
-        <summary>Log</summary>
-        <pre>$(cat log.txt || echo 'could not get log')</pre>
-        </details>"
-
-        git config user.name "gptme-bot"
-        git config user.email "gptme-bot@superuserlabs.org"
-
-        git commit -m "$COMMIT_MSG_FULL"
-
-        git push -u origin ${{ steps.checkout_branch.outputs.branch_name }}
-
-        if [[ ${{ github.event.issue.pull_request != null }} == "true" ]]; then
-          echo "Changes have been pushed to this pull request." | gh pr comment ${{ github.event.issue.number }} -R ${{ github.repository }} --body-file=-
-        else
-          # Some say this helps! https://github.com/cli/cli/issues/2691#issuecomment-1289521962
-          sleep 1
-          PR_URL=$(gh pr create --title "$COMMIT_MSG" --body "$COMMIT_MSG_FULL_WITH_LOG" --repo ${{ github.repository }} | grep -o 'https://github.com[^ ]*')
-          echo "A pull request has been created for this issue: $PR_URL" | gh issue comment ${{ github.event.issue.number }} -R ${{ github.repository }} --body-file=-
-        fi
+        python scripts/github_bot.py
 
     - name: Report error
       if: failure()
@@ -282,11 +66,4 @@ runs:
       run: |
         RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         MESSAGE="I'm sorry, I could not fulfill your request. Please check the [log of this run]($RUN_URL) for more information."
-        if [[ -f log.txt ]]; then
-          MESSAGE+="
-        <details>
-        <summary>Conversation log</summary>
-        <pre>$(cat log.txt)</pre>
-        </details>"
-        fi
         echo "$MESSAGE" | gh issue comment ${{ github.event.issue.number }} -R ${{ github.repository }} --body-file=-
