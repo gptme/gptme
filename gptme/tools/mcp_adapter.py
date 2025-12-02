@@ -5,7 +5,7 @@ from logging import getLogger
 
 from gptme.config import Config, MCPServerConfig, get_config, set_config
 
-from ..mcp.client import MCPClient
+from ..mcp.client import MCPClient, MCPInterruptedError
 from ..mcp.registry import MCPRegistry, format_server_details, format_server_list
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
@@ -247,6 +247,11 @@ def create_mcp_execute_function(
             # Execute the tool with retry on connection failures
             result = _call_mcp_tool_with_retry(server_name, tool_name, kwargs, config)
             yield Message("system", result)
+        except MCPInterruptedError:
+            # User interrupted the operation - don't log as error, just inform
+            yield Message(
+                "system", "MCP operation interrupted. The server is still running."
+            )
         except Exception as e:
             logger.error(f"Error executing MCP tool {tool_name}: {e}")
 

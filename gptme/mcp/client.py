@@ -13,6 +13,16 @@ from gptme.config import Config, get_config
 logger = logging.getLogger(__name__)
 
 
+class MCPInterruptedError(Exception):
+    """Raised when an MCP operation is interrupted by the user.
+
+    This is a regular Exception (not BaseException) so it doesn't trigger
+    aggressive cleanup that would terminate the MCP server process.
+    """
+
+    pass
+
+
 def _is_connection_error(error: Exception) -> bool:
     """Check if error indicates MCP connection failure"""
     error_msg = str(error).lower()
@@ -47,12 +57,33 @@ class MCPClient:
         self.stack: AsyncExitStack | None = None
 
     def _run_async(self, coro):
-        """Run a coroutine in the event loop."""
+        """Run a coroutine in the event loop.
+
+        Handles KeyboardInterrupt gracefully to avoid killing the MCP server
+        when the user interrupts a conversation.
+        """
         try:
             logger.debug(f"_run_async start - Loop ID: {id(self.loop)}")
             result = self.loop.run_until_complete(coro)
             logger.debug(f"_run_async end - Loop ID: {id(self.loop)}")
             return result
+        except KeyboardInterrupt:
+            # Cancel the pending task gracefully instead of letting the interrupt
+            # propagate and potentially kill the MCP server process
+            logger.info("MCP operation interrupted by user")
+            # Cancel any pending tasks in the event loop
+            for task in asyncio.all_tasks(self.loop):
+                if not task.done():
+                    task.cancel()
+            # Give tasks a chance to clean up
+            try:
+                self.loop.run_until_complete(asyncio.sleep(0.1))
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                pass
+            # Raise a regular exception instead of re-raising KeyboardInterrupt
+            # This prevents the interrupt from propagating to the stdio_client
+            # context manager and killing the server process
+            raise MCPInterruptedError("MCP operation interrupted by user") from None
         except Exception as e:
             if _is_connection_error(e):
                 logger.info(f"MCP connection error (will retry): {e}")
