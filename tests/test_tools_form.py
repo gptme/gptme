@@ -100,7 +100,9 @@ def test_parse_field_select_with_spaces():
 def test_parse_field_boolean_case_insensitive():
     """Test that yes/no detection is case insensitive."""
     field1 = parse_field("ok: Continue? [Yes, No]")
+    assert field1 is not None
     assert field1["type"] == "boolean"
     
     field2 = parse_field("ok: Continue? [YES, NO]")
+    assert field2 is not None
     assert field2["type"] == "boolean"
