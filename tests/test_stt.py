@@ -1,6 +1,5 @@
 """Tests for the STT (Speech-to-Text) tool."""
 
-import io
 import pytest
 
 
@@ -8,8 +7,8 @@ def test_stt_module_imports():
     """Test that the STT module can be imported."""
     from gptme.tools.stt import (
         _is_stt_available,
-        transcribe_audio,
         record_and_transcribe,
+        transcribe_audio,
     )
 
     # Functions should exist
@@ -30,10 +29,9 @@ def test_stt_tool_spec():
 
 def test_transcribe_audio_no_client():
     """Test transcription fails gracefully without OpenAI client."""
-    from gptme.tools.stt import transcribe_audio
-
-    # Without OPENAI_API_KEY, should return None gracefully
     import os
+
+    from gptme.tools.stt import transcribe_audio
 
     original_key = os.environ.get("OPENAI_API_KEY")
     try:
@@ -54,8 +52,6 @@ def test_transcribe_audio_no_client():
 )
 def test_record_and_transcribe():
     """Test the full record and transcribe flow (requires audio hardware)."""
-    from gptme.tools.stt import record_and_transcribe
-
     # This test would require actual audio hardware and user interaction
     # Skip in CI environments
     pass
