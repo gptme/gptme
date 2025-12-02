@@ -219,8 +219,8 @@ class LogManager:
                 continue
             # Store by hash and record the mapping
             file_hash, stored_name = store_file(self.logdir, filepath)
-            # Use filename as key (not full path) for portability
-            file_hashes[filepath.name] = file_hash
+            # Use full path as key to avoid collisions with same-named files
+            file_hashes[str(filepath)] = file_hash
         
         # Return message with updated hashes (Message is frozen, so replace)
         return replace(msg, file_hashes=file_hashes)

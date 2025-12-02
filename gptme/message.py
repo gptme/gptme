@@ -46,7 +46,7 @@ class Message:
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
     files: list[Path] = field(default_factory=list)
-    file_hashes: dict[str, str] = field(default_factory=dict)  # {filename: hash}
+    file_hashes: dict[str, str] = field(default_factory=dict)  # {filepath: hash}
     call_id: str | None = None
 
     pinned: bool = False

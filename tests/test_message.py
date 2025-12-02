@@ -159,11 +159,12 @@ def test_toml_file_hashes():
     """Test that file_hashes survive TOML round-trip."""
     from pathlib import Path
 
+    # Use full path as key (not just basename) to avoid collisions
     msg = Message(
         "user",
         "Check this file",
         files=[Path("/tmp/test.py")],
-        file_hashes={"test.py": "abc123def456"},
+        file_hashes={"/tmp/test.py": "abc123def456"},
     )
 
     # Round-trip through TOML
@@ -172,4 +173,30 @@ def test_toml_file_hashes():
 
     # Verify file_hashes survived
     assert loaded.file_hashes == msg.file_hashes
-    assert loaded.file_hashes.get("test.py") == "abc123def456"
+    assert loaded.file_hashes.get("/tmp/test.py") == "abc123def456"
+
+
+def test_file_hashes_no_collision_same_basename():
+    """Test that files with same basename but different paths don't collide."""
+    from pathlib import Path
+
+    # Two files with the same basename but different paths
+    msg = Message(
+        "user",
+        "Check these files",
+        files=[Path("/src/utils/test.py"), Path("/tests/test.py")],
+        file_hashes={
+            "/src/utils/test.py": "hash_for_src_utils",
+            "/tests/test.py": "hash_for_tests",
+        },
+    )
+
+    # Both files should have distinct hashes
+    assert len(msg.file_hashes) == 2
+    assert msg.file_hashes.get("/src/utils/test.py") == "hash_for_src_utils"
+    assert msg.file_hashes.get("/tests/test.py") == "hash_for_tests"
+
+    # Round-trip through TOML should preserve both
+    toml_str = msg.to_toml()
+    loaded = Message.from_toml(toml_str)
+    assert loaded.file_hashes == msg.file_hashes
