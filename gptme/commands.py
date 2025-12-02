@@ -51,6 +51,7 @@ Actions = Literal[
     "export",
     "commit",
     "setup",
+    "voice",
     "help",
     "exit",
 ]
@@ -70,6 +71,7 @@ action_descriptions: dict[Actions, str] = {
     "export": "Export conversation as HTML",
     "commit": "Ask assistant to git commit",
     "setup": "Setup gptme with completions and configuration",
+    "voice": "Record and transcribe speech input",
     "help": "Show this help message",
     "exit": "Exit the program",
 }
@@ -404,6 +406,25 @@ def cmd_setup(ctx: CommandContext) -> None:
     ctx.manager.undo(1, quiet=True)
     ctx.manager.write()
     setup()
+
+
+@command("voice")
+def cmd_voice(ctx: CommandContext) -> Generator[Message, None, None]:
+    """Record and transcribe speech input using STT."""
+    from .tools.stt import record_and_transcribe
+
+    ctx.manager.undo(1, quiet=True)
+    ctx.manager.write()
+
+    # Get optional language from args
+    language = ctx.args[0] if ctx.args else None
+
+    # Record and transcribe
+    text = record_and_transcribe(language=language)
+
+    if text:
+        # Return the transcribed text as a user message
+        yield Message("user", text)
 
 
 @command("help")
