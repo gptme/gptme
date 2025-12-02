@@ -294,8 +294,7 @@ default_config = UserConfig(
 def load_user_config(path: str | None = None) -> UserConfig:
     """Load the user configuration from the config file."""
     config = _load_config_doc(path).unwrap()
-    assert "prompt" in config, "prompt key missing in config"
-    assert "env" in config, "env key missing in config"
+    # Note: prompt and env are optional - defaults are used if missing
 
     prompt = UserPromptConfig(**config.pop("prompt", {}))
     env = config.pop("env", {})
