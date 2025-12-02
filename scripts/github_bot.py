@@ -11,7 +11,7 @@ Environment Variables:
     GITHUB_EVENT_PATH: Path to GitHub event JSON (optional, for CI)
     OPENAI_API_KEY: OpenAI API key (optional)
     ANTHROPIC_API_KEY: Anthropic API key (optional)
-    MODEL: Model to use (default: anthropic/claude-3-5-sonnet-20240620)
+    MODEL: Model to use (default: anthropic/claude-sonnet-4-20250514)
     ALLOWLIST: Comma-separated list of allowed usernames (default: ErikBjare)
     DRY_RUN: If set, don't make changes (for testing)
 
@@ -469,7 +469,7 @@ Examples:
 
     # Get configuration from environment
     token = get_env("GITHUB_TOKEN", required=True)
-    model = get_env("MODEL", "anthropic/claude-3-5-sonnet-20240620")
+    model = get_env("MODEL", "anthropic/claude-sonnet-4-20250514")
     allowlist = get_env("ALLOWLIST", "ErikBjare")
     dry_run = args.dry_run or bool(os.environ.get("DRY_RUN"))
 
