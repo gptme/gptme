@@ -1,7 +1,5 @@
 """Tests for the form tool."""
 
-import pytest
-
 from gptme.tools import init_tools
 from gptme.tools.form import parse_field, parse_form_content
 
@@ -82,10 +80,6 @@ def test_parse_form_content():
 def test_form_tool_registered():
     """Test that the form tool is properly registered."""
     init_tools([])
-    from gptme.tools import get_tools
-    
-    tools = get_tools()
-    tool_names = [t.name for t in tools]
     # Form tool is disabled by default, so it won't be in the loaded tools
     # but it should be in available tools
     from gptme.tools import get_available_tools

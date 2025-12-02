@@ -183,7 +183,7 @@ def execute_form(
                             value = int(value_str)
                         break
                     except ValueError:
-                        print(f"Please enter a valid number")
+                        print("Please enter a valid number")
             else:  # text
                 value = questionary.text(prompt).ask()
 
