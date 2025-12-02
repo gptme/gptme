@@ -46,6 +46,7 @@ class Message:
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
     files: list[Path] = field(default_factory=list)
+    file_hashes: dict[str, str] = field(default_factory=dict)  # {filename: hash}
     call_id: str | None = None
 
     pinned: bool = False
@@ -87,6 +88,8 @@ class Message:
         if self.files:
             # Resolve to absolute paths to prevent issues when working directory changes
             d["files"] = [str(f.resolve()) for f in self.files]
+        if self.file_hashes:
+            d["file_hashes"] = self.file_hashes
         if self.pinned:
             d["pinned"] = True
         if self.hide:

@@ -108,27 +108,52 @@ def textfile_as_codeblock(path: Path) -> str | None:
 def embed_attached_file_content(
     msg: Message, workspace: Path | None = None, check_modified=False
 ) -> Message:
-    """Embed attached file contents inline in a message."""
+    """Embed attached file contents inline in a message.
+    
+    If the message has file_hashes, attempts to read from content-addressed
+    storage first (preserving the file version at message creation time).
+    Falls back to the original file path if stored content is not available.
+    """
+    from ..logmanager import LogManager
+    from .file_storage import read_stored_content
+    
     files = [file_to_display_path(f, workspace).expanduser() for f in msg.files]
     files_text = {}
+    
+    # Get logdir for content-addressed storage lookup
+    manager = LogManager.get_current_log()
+    logdir = manager.logdir if manager else None
+    
     for f in files:
-        try:
-            stat = f.stat()
-        except FileNotFoundError:
-            stat = None
-        if not check_modified or (
-            stat and stat.st_mtime <= datetime.timestamp(msg.timestamp)
-        ):
-            content = textfile_as_codeblock(f)
-            if not content:
-                # Non-text file, skip
-                continue
-            files_text[f] = content
+        # Try to read from content-addressed storage first (if available)
+        stored_content = None
+        if logdir and msg.file_hashes:
+            file_hash = msg.file_hashes.get(f.name)
+            if file_hash:
+                stored_content = read_stored_content(logdir, file_hash, f.suffix)
+        
+        if stored_content is not None:
+            # Use stored content (preserves original version)
+            files_text[f] = md_codeblock(f, stored_content)
         else:
-            if not stat:
-                files_text[f] = md_codeblock(f, "<file not found, may have been moved>")
+            # Fall back to reading from original path
+            try:
+                stat = f.stat()
+            except FileNotFoundError:
+                stat = None
+            if not check_modified or (
+                stat and stat.st_mtime <= datetime.timestamp(msg.timestamp)
+            ):
+                content = textfile_as_codeblock(f)
+                if not content:
+                    # Non-text file, skip
+                    continue
+                files_text[f] = content
             else:
-                files_text[f] = md_codeblock(f, "<file was modified after message>")
+                if not stat:
+                    files_text[f] = md_codeblock(f, "<file not found, may have been moved>")
+                else:
+                    files_text[f] = md_codeblock(f, "<file was modified after message>")
     return replace(
         msg,
         content=msg.content + "\n\n".join(files_text.values()),

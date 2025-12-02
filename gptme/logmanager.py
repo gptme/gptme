@@ -199,10 +199,31 @@ class LogManager:
 
     def append(self, msg: Message) -> None:
         """Appends a message to the log, writes the log, prints the message."""
+        # Store files by content hash and update message with hashes
+        msg = self._store_message_files(msg)
         self.log = self.log.append(msg)
         self.write()
         if not msg.quiet:
             print_msg(msg, oneline=False)
+
+    def _store_message_files(self, msg: Message) -> Message:
+        """Store attached files by content hash and return updated message."""
+        if not msg.files:
+            return msg
+        
+        from .util.file_storage import store_file
+        
+        file_hashes = dict(msg.file_hashes)  # Start with existing hashes
+        for filepath in msg.files:
+            if not filepath.exists():
+                continue
+            # Store by hash and record the mapping
+            file_hash, stored_name = store_file(self.logdir, filepath)
+            # Use filename as key (not full path) for portability
+            file_hashes[filepath.name] = file_hash
+        
+        # Return message with updated hashes (Message is frozen, so replace)
+        return replace(msg, file_hashes=file_hashes)
 
     def write(self, branches=True, sync=False) -> None:
         """
@@ -546,6 +567,7 @@ def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
         for line in file.readlines():
             json_data = json.loads(line)
             files = [Path(f) for f in json_data.pop("files", [])]
+            file_hashes = json_data.pop("file_hashes", {})
             if "timestamp" in json_data:
                 json_data["timestamp"] = isoparse(json_data["timestamp"])
-            yield Message(**json_data, files=files)
+            yield Message(**json_data, files=files, file_hashes=file_hashes)
