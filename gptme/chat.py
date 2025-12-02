@@ -472,6 +472,15 @@ def step(
 
 
 def prompt_user(value=None) -> str:  # pragma: no cover
+    from gptme.prompt_queue import get_queued_prompt
+    
+    # Check for queued prompt from during generation
+    queued = get_queued_prompt()
+    if queued:
+        console.print(f"[dim]Using queued input: {queued[:50]}{'...' if len(queued) > 50 else ''}[/dim]")
+        add_history(queued)
+        return queued
+    
     print_bell()
     # Flush stdin to clear any buffered input before prompting (only if stdin is a TTY)
     if sys.stdin.isatty():

@@ -237,6 +237,16 @@ def _reply_stream(
     agent_name: str | None = None,
     output_schema: type | None = None,
 ) -> Message:
+    from gptme.prompt_queue import (
+        QueueAction,
+        check_for_input,
+        start_input_monitoring,
+        stop_input_monitoring,
+    )
+    
+    # Start monitoring for user input during generation
+    start_input_monitoring()
+    
     rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
 
     def print_clear(length: int = 0):
@@ -297,6 +307,13 @@ def _reply_stream(
             # Trigger the tool detection only if the line is finished.
             # Helps to detect nested start code blocks.
             if break_on_tooluse and char == "\n":
+                # Check for user input during generation
+                queued = check_for_input()
+                if queued and queued.action == QueueAction.RUN_NOW:
+                    logger.debug("User requested immediate interrupt")
+                    stop_input_monitoring()
+                    return Message("assistant", output + "\n\n... [User interrupted]")
+                
                 # TODO: make this more robust/general, maybe with a callback that runs on each char/chunk
                 # pause inference on finished code-block, letting user run the command before continuing
                 # Use streaming=True to require blank line after code blocks during streaming
@@ -310,8 +327,10 @@ def _reply_stream(
                     break
 
     except KeyboardInterrupt:
+        stop_input_monitoring()
         return Message("assistant", output + "... ^C Interrupted")
     finally:
+        stop_input_monitoring()
         print_clear()
         if first_token_time:
             end_time = time.time()
