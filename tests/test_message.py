@@ -153,3 +153,23 @@ def test_message_files_resolve_to_absolute(tmp_path, monkeypatch):
         assert loaded_msg.files[0].exists()
     finally:
         os.chdir(original_cwd)
+
+
+def test_toml_file_hashes():
+    """Test that file_hashes survive TOML round-trip."""
+    from pathlib import Path
+
+    msg = Message(
+        "user",
+        "Check this file",
+        files=[Path("/tmp/test.py")],
+        file_hashes={"test.py": "abc123def456"},
+    )
+
+    # Round-trip through TOML
+    toml_str = msg.to_toml()
+    loaded = Message.from_toml(toml_str)
+
+    # Verify file_hashes survived
+    assert loaded.file_hashes == msg.file_hashes
+    assert loaded.file_hashes.get("test.py") == "abc123def456"

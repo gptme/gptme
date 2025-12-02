@@ -179,6 +179,7 @@ call_id = "{self.call_id}"
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
             files=[Path(f) for f in msg.get("files", [])],
+            file_hashes=msg.get("file_hashes", {}),
             timestamp=isoparse(msg["timestamp"]),
             call_id=msg.get("call_id", None),
         )
