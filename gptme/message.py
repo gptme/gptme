@@ -143,7 +143,13 @@ class Message:
             flags.append("hide")
         flags_toml = "\n".join(f"{flag} = true" for flag in flags)
         files_toml = f"files = {[str(f) for f in self.files]}" if self.files else ""
-        extra = (flags_toml + "\n" + files_toml).strip()
+        # Serialize file_hashes as TOML inline table
+        if self.file_hashes:
+            items = ", ".join(f'"{k}" = "{v}"' for k, v in self.file_hashes.items())
+            file_hashes_toml = f"file_hashes = {{ {items} }}"
+        else:
+            file_hashes_toml = ""
+        extra = (flags_toml + "\n" + files_toml + "\n" + file_hashes_toml).strip()
 
         # doublequotes need to be escaped
         # content = self.content.replace('"', '\\"')
