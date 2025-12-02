@@ -106,7 +106,7 @@ def show_input_dialog(input_text: str) -> tuple[InputAction, str]:
             return InputAction.CANCEL, input_text
 
 
-def check_and_handle_input() -> tuple[InputAction, str | None] | None:
+def check_and_handle_input() -> tuple[InputAction, str] | None:
     """
     Check for user input during generation and handle it.
 
