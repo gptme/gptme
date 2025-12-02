@@ -1,6 +1,5 @@
 """Tests for shell quiet mode (Issue #44)."""
 
-import pytest
 from gptme.tools.shell import _format_shell_output
 
 
