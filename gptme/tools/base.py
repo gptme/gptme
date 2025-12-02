@@ -694,8 +694,10 @@ class ToolUse:
                     args = [self.content]
 
                 json_parameters: dict[str, str] = {}
+                # Only assign values for parameters that have corresponding args
                 for index, param in enumerate(tool.parameters):
-                    json_parameters[param.name] = args[index]
+                    if index < len(args):
+                        json_parameters[param.name] = args[index]
 
                 return json_parameters
         return {}

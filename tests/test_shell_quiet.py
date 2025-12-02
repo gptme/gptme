@@ -9,17 +9,18 @@ class TestShellQuietMode:
     def test_quiet_suppresses_stdout(self):
         """Test that quiet mode suppresses stdout output."""
         output = _format_shell_output(
-            cmd="echo hello",
-            stdout="hello\n",
+            cmd="echo test_output_value",
+            stdout="test_output_value\n",
             stderr="",
             returncode=0,
             interrupted=False,
             allowlisted=True,
             quiet=True,
         )
-        assert "hello" not in output  # stdout should be suppressed
+        # The output line (stdout) should not appear separately as ```stdout block
+        assert "```stdout" not in output  # stdout block should be suppressed
         assert "quiet mode" in output.lower()
-        assert "echo hello" in output  # command should still be shown
+        assert "echo test_output_value" in output  # command should still be shown
 
     def test_quiet_shows_return_code_on_error(self):
         """Test that quiet mode still shows return code on errors."""
