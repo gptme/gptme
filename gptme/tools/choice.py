@@ -101,9 +101,12 @@ def execute_choice(
     try:
         import questionary
     except ImportError:
+        from ..util.install import get_package_install_command
+
+        install_cmd = get_package_install_command("questionary")
         yield Message(
             "system",
-            "questionary library not available. Please install it with: pip install questionary",
+            f"questionary library not available. Please install it with: {install_cmd}",
         )
         return
 
