@@ -17,7 +17,9 @@ import requests
 from gptme.config import get_config
 from gptme.init import init  # noqa
 from gptme.tools import clear_tools
+from gptme.tools import shell as shell_module
 from gptme.tools.rag import _has_gptme_rag
+from gptme.tools.subagent import _subagents
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,39 @@ def auth_headers():
 def clear_tools_before():
     # Clear all tools and cache to prevent test conflicts
     clear_tools()
+
+
+@pytest.fixture(autouse=True)
+def cleanup_shell_after():
+    """Clean up ShellSession after each test to prevent orphaned processes.
+
+    This is critical for CI where orphaned bash processes can cause
+    the test runner to hang during cleanup (Issue #910).
+    """
+    yield
+    # Close shell if it exists
+    if shell_module._shell is not None:
+        try:
+            shell_module._shell.close()
+        except Exception as e:
+            logger.warning(f"Error closing shell during test cleanup: {e}")
+        shell_module._shell = None
+
+
+@pytest.fixture(autouse=True)
+def cleanup_subagents_after():
+    """Clean up subagent threads after each test.
+
+    Subagent threads are daemon threads that should die with the parent,
+    but explicitly clearing them prevents potential issues.
+    """
+    yield
+    # Wait briefly for any running subagent threads to complete
+    for subagent in _subagents:
+        if subagent.thread.is_alive():
+            subagent.thread.join(timeout=1.0)
+    # Clear the subagents list
+    _subagents.clear()
 
 
 @pytest.fixture
