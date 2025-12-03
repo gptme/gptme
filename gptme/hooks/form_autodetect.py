@@ -139,7 +139,7 @@ def _parse_options_with_llm(content: str) -> dict | None:
         return None
 
 
-def _create_form_message(parsed: dict) -> Message | None:
+def _create_form_message(parsed: dict | None) -> Message | None:
     """Create a form tool message from parsed options."""
     if not parsed or not parsed.get("options"):
         return None
