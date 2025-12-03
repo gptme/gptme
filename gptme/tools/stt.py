@@ -113,7 +113,7 @@ def transcribe_audio(audio_data: bytes, language: str | None = None) -> str | No
 def record_and_transcribe(language: str | None = None) -> str | None:
     """Record audio and transcribe it.
 
-    This is a blocking function that records until the user presses Enter.
+    Records in a background thread until user presses Enter or Ctrl+C.
 
     Args:
         language: Optional language hint for transcription.
@@ -126,9 +126,7 @@ def record_and_transcribe(language: str | None = None) -> str | None:
         console.print("Install with: pip install sounddevice scipy numpy")
         return None
 
-    import select
-    import signal
-    import sys
+    import threading
 
     import numpy as np
     import sounddevice as sd
@@ -137,84 +135,77 @@ def record_and_transcribe(language: str | None = None) -> str | None:
     console.print("[cyan]🎤 Press Enter to start recording...[/cyan]")
     input()
 
-    # Recording state
+    # Recording state (shared with background thread)
     audio_chunks: list[Any] = []
+    stop_event = threading.Event()
+    recording_error: Exception | None = None
+
+    def recording_thread_fn():
+        """Background thread that records audio until stop_event is set."""
+        nonlocal recording_error
+        try:
+            def callback(indata, frames, time_info, status):
+                if status:
+                    log.warning(f"Recording status: {status}")
+                if not stop_event.is_set():
+                    audio_chunks.append(indata.copy())
+
+            with sd.InputStream(
+                samplerate=_sample_rate,
+                channels=1,
+                dtype="float32",
+                callback=callback,
+            ):
+                # Keep stream open until stop_event is set
+                while not stop_event.is_set():
+                    stop_event.wait(0.1)
+        except Exception as e:
+            recording_error = e
+            log.error(f"Recording thread error: {e}")
+
+    # Start recording in background thread (daemon=True allows clean exit)
+    recording_thread = threading.Thread(target=recording_thread_fn, daemon=True)
+    recording_thread.start()
+
+    console.print("[green]🎤 Recording... Press Enter to stop[/green]")
+
+    # Main thread waits for Enter or Ctrl+C
     cancelled = False
-    stream: sd.InputStream | None = None
-
-    def callback(indata, frames, time_info, status):
-        if status:
-            log.warning(f"Recording status: {status}")
-        audio_chunks.append(indata.copy())
-
-    # Signal handler for immediate response to Ctrl+C
-    original_sigint = signal.getsignal(signal.SIGINT)
-
-    def sigint_handler(signum, frame):
-        nonlocal cancelled, stream
-        cancelled = True
-        if stream is not None:
-            stream.abort()  # Immediately stop the stream
-
-    signal.signal(signal.SIGINT, sigint_handler)
-
     try:
-        stream = sd.InputStream(
-            samplerate=_sample_rate,
-            channels=1,
-            dtype="float32",
-            callback=callback,
-        )
-        stream.start()
+        input()  # Blocking wait for Enter key
+    except KeyboardInterrupt:
+        cancelled = True
+        console.print("\n[yellow]Recording cancelled[/yellow]")
 
-        console.print("[green]🎤 Recording... Press Enter to stop[/green]")
+    # Signal recording thread to stop and wait for it
+    stop_event.set()
+    recording_thread.join(timeout=2.0)
 
-        # Non-blocking input check using select (Unix-like systems)
-        # This avoids threading issues and responds immediately to Enter
-        while not cancelled:
-            # Check if stdin has data ready (with 0.1s timeout)
-            readable, _, _ = select.select([sys.stdin], [], [], 0.1)
-            if readable:
-                sys.stdin.readline()  # Consume the Enter key
-                break
-
-        stream.stop()
-
-        if cancelled:
-            console.print("\n[yellow]Recording cancelled[/yellow]")
-            return None
-
-        if not audio_chunks:
-            console.print("[yellow]No audio recorded[/yellow]")
-            return None
-
-        # Process audio
-        audio = np.concatenate(audio_chunks)
-        audio_int16 = (audio * 32767).astype(np.int16)
-
-        # Save to WAV bytes
-        buffer = io.BytesIO()
-        wavfile.write(buffer, _sample_rate, audio_int16)
-        buffer.seek(0)
-        audio_data = buffer.read()
-
-        duration = len(audio) / _sample_rate
-        console.print(f"[cyan]✓ Recorded {duration:.1f}s, transcribing...[/cyan]")
-
-        # Transcribe
-        return transcribe_audio(audio_data, language)
-
-    except Exception as e:
-        if stream is not None:
-            stream.abort()
-        log.error(f"Recording failed: {e}")
-        console.print(f"[red]Recording failed: {e}[/red]")
+    if cancelled:
         return None
-    finally:
-        # Restore original signal handler
-        signal.signal(signal.SIGINT, original_sigint)
-        if stream is not None:
-            stream.close()
+
+    if recording_error:
+        console.print(f"[red]Recording failed: {recording_error}[/red]")
+        return None
+
+    if not audio_chunks:
+        console.print("[yellow]No audio recorded[/yellow]")
+        return None
+
+    # Process audio
+    audio = np.concatenate(audio_chunks)
+    audio_int16 = (audio * 32767).astype(np.int16)
+
+    # Save to WAV bytes
+    buffer = io.BytesIO()
+    wavfile.write(buffer, _sample_rate, audio_int16)
+    buffer.seek(0)
+    audio_data = buffer.read()
+
+    duration = len(audio) / _sample_rate
+    console.print(f"[cyan]✓ Recorded {duration:.1f}s, transcribing...[/cyan]")
+
+    return transcribe_audio(audio_data, language)
 
 
 # Tool specification
