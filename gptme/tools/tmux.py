@@ -11,10 +11,12 @@ import shutil
 import subprocess
 import time
 from collections.abc import Generator
+from pathlib import Path
 from time import sleep
 
 from ..message import Message
 from ..util.ask_execute import print_preview
+from ..util.output_storage import save_large_output
 from .base import (
     ConfirmFunc,
     Parameter,
@@ -23,6 +25,66 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Default truncation settings for pane output
+# These can be adjusted via function parameters if needed
+DEFAULT_PRE_LINES = 50  # Lines to show at start
+DEFAULT_POST_LINES = 150  # Lines to show at end (more recent output is usually more relevant)
+MAX_OUTPUT_LINES = 200  # Total max lines before truncation kicks in
+
+
+def _truncate_output(
+    content: str,
+    pre_lines: int = DEFAULT_PRE_LINES,
+    post_lines: int = DEFAULT_POST_LINES,
+    logdir: Path | None = None,
+    context: str | None = None,
+) -> str:
+    """Truncate long output to prevent context overflow.
+
+    If content exceeds pre_lines + post_lines, truncates the middle and
+    optionally saves the full output to a file.
+
+    Args:
+        content: The full output content
+        pre_lines: Number of lines to keep at the start
+        post_lines: Number of lines to keep at the end
+        logdir: Directory to save full output (if provided and truncation occurs)
+        context: Context string for saved file (e.g., "inspect-pane gptme_1")
+
+    Returns:
+        Truncated content with message about truncation, or original if short enough
+    """
+    lines = content.split("\n")
+    total_lines = len(lines)
+
+    # No truncation needed if output is short enough
+    if total_lines <= pre_lines + post_lines:
+        return content
+
+    # Calculate truncated line count
+    truncated_count = total_lines - pre_lines - post_lines
+
+    # Save full output to file if logdir provided
+    saved_path = None
+    if logdir:
+        _, saved_path = save_large_output(
+            content=content,
+            logdir=logdir,
+            output_type="tmux",
+            command_info=context,
+        )
+
+    # Build truncation message
+    truncation_msg = f"... ({truncated_count} lines truncated"
+    if saved_path:
+        truncation_msg += f", full output saved to {saved_path}"
+    truncation_msg += ") ..."
+
+    # Combine pre + truncation message + post
+    truncated_lines = lines[:pre_lines] + [truncation_msg] + lines[-post_lines:]
+    return "\n".join(truncated_lines)
+
 
 # Examples of identifiers:
 #   session: gptme_0
@@ -98,9 +160,14 @@ def new_session(command: str) -> Message:
     # sleep 1s and capture output
     sleep(1)
     output = _capture_pane(f"{session_id}")
+    # Truncate output if too long
+    truncated_output = _truncate_output(
+        output,
+        context=f"new-session {command[:50]}",
+    )
     return Message(
         "system",
-        f"""Running `{command.strip("'")}` in session {session_id}.\n```output\n{output}\n```""",
+        f"""Running `{command.strip("'")}` in session {session_id}.\n```output\n{truncated_output}\n```""",
     )
 
 
@@ -119,17 +186,39 @@ def send_keys(pane_id: str, keys: str) -> Message:
         )
     sleep(1)
     output = _capture_pane(pane_id)
+    # Truncate output if too long
+    truncated_output = _truncate_output(
+        output,
+        context=f"send-keys {pane_id}",
+    )
     return Message(
-        "system", f"Sent '{keys}' to pane `{pane_id}`\n```output\n{output}\n```"
+        "system", f"Sent '{keys}' to pane `{pane_id}`\n```output\n{truncated_output}\n```"
     )
 
 
-def inspect_pane(pane_id: str) -> Message:
+def inspect_pane(pane_id: str, logdir: Path | None = None) -> Message:
+    """Inspect the content of a tmux pane.
+
+    Args:
+        pane_id: The tmux pane ID to inspect
+        logdir: Optional directory to save full output if truncated
+
+    Returns:
+        Message with pane content (truncated if too long)
+    """
     content = _capture_pane(pane_id)
+
+    # Truncate if content is too long to prevent context overflow
+    truncated = _truncate_output(
+        content,
+        logdir=logdir,
+        context=f"inspect-pane {pane_id}",
+    )
+
     return Message(
         "system",
         f"""Pane content:
-{ToolUse("output", [], content).to_output()}""",
+{ToolUse("output", [], truncated).to_output()}""",
     )
 
 
@@ -194,20 +283,30 @@ def wait_for_output(
         # Only declare stable if we have meaningful output (not just empty/whitespace)
         stable_duration = time.time() - last_change_time
         if stable_duration >= stable_time:
+            # Truncate output if too long
+            truncated_output = _truncate_output(
+                current_output,
+                context=f"wait {session_id}",
+            )
             return Message(
                 "system",
                 f"Session `{session_id}` output stabilized after {elapsed:.1f}s "
                 f"(stable for {stable_duration:.1f}s).\n"
-                f"```output\n{current_output}\n```",
+                f"```output\n{truncated_output}\n```",
             )
 
         # Check timeout
         if elapsed >= timeout:
+            # Truncate output if too long
+            truncated_output = _truncate_output(
+                current_output,
+                context=f"wait {session_id} (timeout)",
+            )
             return Message(
                 "system",
                 f"Session `{session_id}` timed out after {timeout}s "
                 f"(output still changing).\n"
-                f"```output\n{current_output}\n```\n"
+                f"```output\n{truncated_output}\n```\n"
                 f"Session still active. Use `kill-session {session_id}` to terminate "
                 f"or `send-keys {session_id} C-c` to interrupt.",
             )
