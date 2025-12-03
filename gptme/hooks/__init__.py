@@ -629,6 +629,9 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
         "active_context": lambda: __import__(
             "gptme.hooks.active_context", fromlist=["register"]
         ).register(),
+        "form_autodetect": lambda: __import__(
+            "gptme.hooks.form_autodetect", fromlist=["register"]
+        ).register(),
         "test": lambda: __import__(
             "gptme.hooks.test", fromlist=["register_test_hooks"]
         ).register_test_hooks(),
