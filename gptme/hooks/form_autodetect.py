@@ -9,7 +9,7 @@ Approach (per Erik's guidance in Issue #591):
 2. Fast LLM (haiku/mini) parses into form fields if heuristics trigger
 3. Auto-presents questionary form to user
 
-Config: Set `tools.form.auto_detect = true` in gptme.toml to enable.
+Config: Set `FORM_AUTO_DETECT=true` environment variable to enable.
 """
 
 import logging
@@ -26,15 +26,15 @@ logger = logging.getLogger(__name__)
 # Patterns that suggest options are being presented
 OPTION_PATTERNS = [
     # Numbered lists: "1.", "2.", "3." or "1)", "2)", "3)"
-    r"^\s*(?:\d+[.)]\s+.+\n){2,}",
+    r"^\s*(?:\d+[.)]\s+.+\n?){2,}",
     # Lettered lists: "a.", "b.", "c." or "a)", "b)", "c)"
-    r"^\s*(?:[a-zA-Z][.)]\s+.+\n){2,}",
+    r"^\s*(?:[a-zA-Z][.)]\s+.+\n?){2,}",
     # Bullet points with similar structure
-    r"^\s*(?:[-*•]\s+.+\n){2,}",
+    r"^\s*(?:[-*•]\s+.+\n?){2,}",
     # "Please choose/select" patterns
     r"(?:please\s+)?(?:choose|select|pick)\s+(?:one|an?\s+option)",
     # Question with options pattern
-    r"\?\s*\n\s*(?:[-*•\d]+[.)]\s+.+\n){2,}",
+    r"\?\s*\n\s*(?:[-*•\d]+[.)]\s+.+\n?){2,}",
     # "Which would you prefer" patterns
     r"which\s+(?:would\s+you\s+prefer|do\s+you\s+want|option)",
     # Explicit options header
@@ -183,8 +183,7 @@ def form_autodetect_hook(
     # Check if auto-detection is enabled via environment variable
     # Set FORM_AUTO_DETECT=true to enable
     config = get_config()
-    auto_detect_env = config.get_env("FORM_AUTO_DETECT") or ""
-    auto_detect = auto_detect_env.lower() in ("true", "1", "yes")
+    auto_detect = config.get_env_bool("FORM_AUTO_DETECT") or False
     if not auto_detect:
         return
 
