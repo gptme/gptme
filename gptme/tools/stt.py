@@ -113,7 +113,7 @@ def transcribe_audio(audio_data: bytes, language: str | None = None) -> str | No
 def record_and_transcribe(language: str | None = None) -> str | None:
     """Record audio and transcribe it.
 
-    Records in a background thread until user presses Enter or Ctrl+C.
+    Uses the sound module for recording. Press Enter to stop recording.
 
     Args:
         language: Optional language hint for transcription.
@@ -121,126 +121,52 @@ def record_and_transcribe(language: str | None = None) -> str | None:
     Returns:
         Transcribed text, or None if recording/transcription failed.
     """
-    if not _is_stt_available():
+    from ..util.sound import (
+        get_default_input_device,
+        get_input_devices,
+        is_recording_available,
+        record_audio_interactive,
+    )
+
+    if not is_recording_available():
         console.print("[red]STT not available: sounddevice not installed[/red]")
         console.print("Install with: pip install sounddevice scipy numpy")
         return None
 
-    import threading
-
-    import numpy as np
-    import sounddevice as sd
-    from scipy.io import wavfile
-
-    # Find and display input device info
-    try:
-        devices = sd.query_devices()
-        default_input = sd.default.device[0]  # Index 0 is input, 1 is output
-
-        if default_input is None or default_input < 0:
-            console.print("[red]No default input device found[/red]")
-            console.print("Available devices:")
-            for i, d in enumerate(devices):
-                if d["max_input_channels"] > 0:
-                    console.print(f"  [{i}] {d['name']} (inputs: {d['max_input_channels']})")
-            return None
-
-        input_device = devices[default_input]
-        device_name = input_device["name"]
-        console.print(f"[cyan]🎤 Using input device: {device_name}[/cyan]")
-        console.print("[cyan]Press Enter to start recording...[/cyan]")
-    except Exception as e:
-        console.print(f"[red]Failed to query audio devices: {e}[/red]")
+    # Show device info
+    device = get_default_input_device()
+    if device is None:
+        console.print("[red]No default input device found[/red]")
+        console.print("Available input devices:")
+        for d in get_input_devices():
+            console.print(f"  [{d['index']}] {d['name']} (inputs: {d['channels']})")
         return None
 
-    input()
+    console.print(f"[cyan]🎤 Using input device: {device['name']}[/cyan]")
+    console.print("[cyan]Press Enter to start recording...[/cyan]")
 
-    # Recording state (shared with background thread)
-    audio_chunks: list[Any] = []
-    stop_event = threading.Event()
-    recording_error: Exception | None = None
-    callback_count = [0]  # Use list to allow mutation in nested function
-    status_warnings: list[str] = []
-
-    def recording_thread_fn():
-        """Background thread that records audio until stop_event is set."""
-        nonlocal recording_error
-        try:
-            def callback(indata, frames, time_info, status):
-                callback_count[0] += 1
-                if status:
-                    status_warnings.append(str(status))
-                    log.warning(f"Recording status: {status}")
-                if not stop_event.is_set():
-                    audio_chunks.append(indata.copy())
-
-            with sd.InputStream(
-                samplerate=_sample_rate,
-                channels=1,
-                dtype="float32",
-                callback=callback,
-                device=default_input,  # Explicit device selection
-            ):
-                # Keep stream open until stop_event is set
-                while not stop_event.is_set():
-                    stop_event.wait(0.1)
-        except Exception as e:
-            recording_error = e
-            log.error(f"Recording thread error: {e}")
-
-    # Start recording in background thread (daemon=True allows clean exit)
-    recording_thread = threading.Thread(target=recording_thread_fn, daemon=True)
-    recording_thread.start()
+    try:
+        input()
+    except (KeyboardInterrupt, EOFError):
+        console.print("[yellow]Recording cancelled[/yellow]")
+        return None
 
     console.print("[green]🎤 Recording... Press Enter to stop[/green]")
 
-    # Main thread waits for Enter or Ctrl+C
-    cancelled = False
-    try:
-        input()  # Blocking wait for Enter key
-    except KeyboardInterrupt:
-        cancelled = True
-        console.print("\n[yellow]Recording cancelled[/yellow]")
+    # Record audio using sound module
+    audio_data = record_audio_interactive(
+        sample_rate=_sample_rate,
+        channels=1,
+        device=device["index"],
+    )
 
-    # Signal recording thread to stop and wait for it
-    stop_event.set()
-    recording_thread.join(timeout=2.0)
-
-    if cancelled:
+    if audio_data is None:
+        console.print("[yellow]No audio recorded or recording cancelled[/yellow]")
         return None
 
-    if recording_error:
-        console.print(f"[red]Recording failed: {recording_error}[/red]")
-        return None
-
-    # Show diagnostic info
-    if callback_count[0] == 0:
-        console.print("[red]Recording callback was never called![/red]")
-        console.print(f"[red]Device '{device_name}' may not be working properly.[/red]")
-        console.print("Try selecting a different input device or check system audio settings.")
-        return None
-
-    if status_warnings:
-        console.print(f"[yellow]Audio warnings: {', '.join(set(status_warnings))}[/yellow]")
-
-    log.debug(f"Recording complete: {callback_count[0]} callbacks, {len(audio_chunks)} chunks")
-
-    if not audio_chunks:
-        console.print(f"[yellow]No audio recorded (callback called {callback_count[0]} times)[/yellow]")
-        console.print("The input device may have issues or audio level is too low.")
-        return None
-
-    # Process audio
-    audio = np.concatenate(audio_chunks)
-    audio_int16 = (audio * 32767).astype(np.int16)
-
-    # Save to WAV bytes
-    buffer = io.BytesIO()
-    wavfile.write(buffer, _sample_rate, audio_int16)
-    buffer.seek(0)
-    audio_data = buffer.read()
-
-    duration = len(audio) / _sample_rate
+    # Estimate duration from WAV data (header is 44 bytes, 16-bit mono)
+    audio_bytes = len(audio_data) - 44
+    duration = audio_bytes / (2 * _sample_rate)
     console.print(f"[cyan]✓ Recorded {duration:.1f}s, transcribing...[/cyan]")
 
     return transcribe_audio(audio_data, language)
