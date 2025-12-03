@@ -248,6 +248,7 @@ def wait_for_output(
     session_id: str,
     timeout: int = 60,
     stable_time: int = 3,
+    logdir: Path | None = None,
 ) -> Message:
     """Wait for command output to stabilize in a tmux session.
 
@@ -287,6 +288,7 @@ def wait_for_output(
             truncated_output = _truncate_output(
                 current_output,
                 context=f"wait {session_id}",
+                logdir=logdir,
             )
             return Message(
                 "system",
@@ -301,6 +303,7 @@ def wait_for_output(
             truncated_output = _truncate_output(
                 current_output,
                 context=f"wait {session_id} (timeout)",
+                logdir=logdir,
             )
             return Message(
                 "system",
@@ -391,7 +394,12 @@ def execute_tmux(
             pane_id, keys = _args.split(maxsplit=1)
             yield send_keys(pane_id, keys)
         elif command == "inspect-pane":
-            yield inspect_pane(_args)
+            # Use default cache directory for saving full output when truncated
+            from platformdirs import user_cache_dir
+
+            cache_dir = Path(user_cache_dir("gptme")) / "tmux-output"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            yield inspect_pane(_args, logdir=cache_dir)
         elif command == "kill-session":
             yield kill_session(_args)
         elif command == "wait":
@@ -401,7 +409,14 @@ def execute_tmux(
             wait_session_id = wait_parts[0]
             wait_timeout = int(wait_parts[1]) if len(wait_parts) > 1 else 60
             wait_stable = int(wait_parts[2]) if len(wait_parts) > 2 else 3
-            yield wait_for_output(wait_session_id, wait_timeout, wait_stable)
+            # Use default cache directory for saving full output when truncated
+            from platformdirs import user_cache_dir
+
+            cache_dir = Path(user_cache_dir("gptme")) / "tmux-output"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            yield wait_for_output(
+                wait_session_id, wait_timeout, wait_stable, logdir=cache_dir
+            )
         else:
             yield Message("system", f"Error: Unknown command: {command}")
 
