@@ -1,10 +1,9 @@
 """Tests for form auto-detection hook."""
 
-import pytest
 from gptme.hooks.form_autodetect import (
-    _detect_options_heuristic,
-    _create_form_message,
     COMPILED_PATTERNS,
+    _create_form_message,
+    _detect_options_heuristic,
 )
 
 
