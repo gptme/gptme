@@ -13,6 +13,52 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 jobs:
+  # Job for external contributors and core functionality tests (no API keys needed)
+  test-no-api:
+    name: Test without API keys
+    runs-on: ubuntu-latest
+    env:
+      RELEASE: false
+      # Explicitly unset API keys to test without them
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      DEEPSEEK_API_KEY: ''
+      OPENROUTER_API_KEY: ''
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: 'recursive'
+    - name: Install apt dependencies
+      run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb
+
+    - name: Set up Xvfb
+      run: |
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
+    - name: Install poetry
+      run: pipx install poetry
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+        cache: 'poetry'
+
+    - name: Install dependencies
+      run: |
+        make build
+        poetry install -E all
+
+    - name: Install playwright
+      run: poetry run playwright install chromium
+
+    - name: Run tests (without API keys)
+      env:
+        TERM: xterm
+        MODEL: local/test
+      run: make test
+
   test:
     name: Test with `${{ matrix.extras }}` and ${{ matrix.model }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
