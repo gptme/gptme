@@ -20,7 +20,6 @@ Uses OpenAI Whisper API for transcription by default.
 - ``GPTME_STT_LANGUAGE``: Language hint for transcription (default: auto-detect).
 """
 
-import io
 import logging
 import os
 import tempfile

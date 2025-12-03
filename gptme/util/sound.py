@@ -425,6 +425,7 @@ def record_audio(
         return None
 
     import io
+
     import numpy as np
     import sounddevice as sd
     from scipy.io import wavfile
@@ -517,6 +518,7 @@ def record_audio_interactive(
 
     import io
     import threading
+
     import numpy as np
     import sounddevice as sd
     from scipy.io import wavfile
