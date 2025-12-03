@@ -581,9 +581,14 @@ def _transform_msgs_for_special_provider(
         result = []
         for msg in messages_dicts:
             content = msg.get("content")
-            # Skip messages without content (e.g., tool call messages)
+            # Handle messages without content (e.g., tool call messages)
             if content is None:
-                result.append(msg)
+                # DeepSeek requires reasoning_content for assistant messages with tool_calls
+                # Since we don't store reasoning_content in Message objects, add empty reasoning_content field
+                if model.provider == "deepseek" and msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    result.append({**msg, "reasoning_content": ""})
+                else:
+                    result.append(msg)
                 continue
             # Handle list content (multi-modal messages)
             if isinstance(content, list):

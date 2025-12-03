@@ -553,3 +553,68 @@ def test_transform_msgs_for_groq_images_only():
 
     result = list(_transform_msgs_for_special_provider(messages, groq_model))
     assert result[0]["content"] == "[non-text content]"
+
+
+
+def test_transform_msgs_for_deepseek_tool_calls():
+    """Test that DeepSeek assistant messages with tool_calls get empty content field."""
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    deepseek_model = ModelMeta(
+        provider="deepseek",
+        model="deepseek-reasoner",
+        context=8192,
+    )
+
+    # Assistant message with tool_calls but no content (typical for deepseek-reasoner)
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "get_weather", "arguments": '{"location": "NYC"}'},
+                }
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages, deepseek_model))
+    
+    # DeepSeek requires reasoning_content for assistant messages with tool_calls
+    # Since we don't store reasoning_content, we add an empty reasoning_content field
+    assert "reasoning_content" in result[0]
+    assert result[0]["reasoning_content"] == ""
+    assert result[0]["tool_calls"] == messages[0]["tool_calls"]
+
+
+def test_transform_msgs_for_deepseek_tool_results():
+    """Test that DeepSeek tool result messages are not affected."""
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    deepseek_model = ModelMeta(
+        provider="deepseek",
+        model="deepseek-reasoner",
+        context=8192,
+    )
+
+    # Tool result message without content
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "tool",
+            "tool_call_id": "call_123",
+            "content": "Weather is sunny",
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages, deepseek_model))
+    
+    # Tool messages should pass through unchanged
+    assert result[0] == messages[0]
