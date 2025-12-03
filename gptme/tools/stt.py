@@ -132,20 +132,44 @@ def record_and_transcribe(language: str | None = None) -> str | None:
     import sounddevice as sd
     from scipy.io import wavfile
 
-    console.print("[cyan]🎤 Press Enter to start recording...[/cyan]")
+    # Find and display input device info
+    try:
+        devices = sd.query_devices()
+        default_input = sd.default.device[0]  # Index 0 is input, 1 is output
+
+        if default_input is None or default_input < 0:
+            console.print("[red]No default input device found[/red]")
+            console.print("Available devices:")
+            for i, d in enumerate(devices):
+                if d["max_input_channels"] > 0:
+                    console.print(f"  [{i}] {d['name']} (inputs: {d['max_input_channels']})")
+            return None
+
+        input_device = devices[default_input]
+        device_name = input_device["name"]
+        console.print(f"[cyan]🎤 Using input device: {device_name}[/cyan]")
+        console.print("[cyan]Press Enter to start recording...[/cyan]")
+    except Exception as e:
+        console.print(f"[red]Failed to query audio devices: {e}[/red]")
+        return None
+
     input()
 
     # Recording state (shared with background thread)
     audio_chunks: list[Any] = []
     stop_event = threading.Event()
     recording_error: Exception | None = None
+    callback_count = [0]  # Use list to allow mutation in nested function
+    status_warnings: list[str] = []
 
     def recording_thread_fn():
         """Background thread that records audio until stop_event is set."""
         nonlocal recording_error
         try:
             def callback(indata, frames, time_info, status):
+                callback_count[0] += 1
                 if status:
+                    status_warnings.append(str(status))
                     log.warning(f"Recording status: {status}")
                 if not stop_event.is_set():
                     audio_chunks.append(indata.copy())
@@ -155,6 +179,7 @@ def record_and_transcribe(language: str | None = None) -> str | None:
                 channels=1,
                 dtype="float32",
                 callback=callback,
+                device=default_input,  # Explicit device selection
             ):
                 # Keep stream open until stop_event is set
                 while not stop_event.is_set():
@@ -188,8 +213,21 @@ def record_and_transcribe(language: str | None = None) -> str | None:
         console.print(f"[red]Recording failed: {recording_error}[/red]")
         return None
 
+    # Show diagnostic info
+    if callback_count[0] == 0:
+        console.print("[red]Recording callback was never called![/red]")
+        console.print(f"[red]Device '{device_name}' may not be working properly.[/red]")
+        console.print("Try selecting a different input device or check system audio settings.")
+        return None
+
+    if status_warnings:
+        console.print(f"[yellow]Audio warnings: {', '.join(set(status_warnings))}[/yellow]")
+
+    log.debug(f"Recording complete: {callback_count[0]} callbacks, {len(audio_chunks)} chunks")
+
     if not audio_chunks:
-        console.print("[yellow]No audio recorded[/yellow]")
+        console.print(f"[yellow]No audio recorded (callback called {callback_count[0]} times)[/yellow]")
+        console.print("The input device may have issues or audio level is too low.")
         return None
 
     # Process audio
