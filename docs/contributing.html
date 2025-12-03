@@ -454,6 +454,14 @@
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-labels">Issue Labels</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#difficulty">Difficulty</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#status">Status</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#priority">Priority</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#work-type">Work Type</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#finding-issues-to-work-on">Finding Issues to Work On</a></li>
+</ul>
+</li>
 </ul>
             </nav>
         </div>
@@ -643,6 +651,62 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <h2>Release<a class="headerlink" href="#release" title="Link to this heading">#</a></h2>
 <p>To make a release, simply run <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">release</span></code> and follow the instructions.</p>
 </section>
+<section id="issue-labels">
+<h2>Issue Labels<a class="headerlink" href="#issue-labels" title="Link to this heading">#</a></h2>
+<p>We use a multi-dimensional labeling system to help contributors (both human and autonomous) find appropriate issues to work on.</p>
+<section id="difficulty">
+<h3>Difficulty<a class="headerlink" href="#difficulty" title="Link to this heading">#</a></h3>
+<p>Indicates estimated effort required:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">easy</span></code> - Simple, well-scoped tasks (&lt;4 hours)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">medium</span></code> - Moderate complexity (4-8 hours)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">hard</span></code> - Complex or architectural changes (&gt;8 hours)</p></li>
+</ul>
+</section>
+<section id="status">
+<h3>Status<a class="headerlink" href="#status" title="Link to this heading">#</a></h3>
+<p>Shows the current state of an issue:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">ready</span></code> - Fully specified, ready to start</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">needs-design</span></code> - Requires design decisions first</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">blocked</span></code> - Has dependencies or blockers</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">in-progress</span></code> - Someone is actively working</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">has-pr</span></code> - A pull request exists</p></li>
+</ul>
+</section>
+<section id="priority">
+<h3>Priority<a class="headerlink" href="#priority" title="Link to this heading">#</a></h3>
+<p>Indicates urgency and impact:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">priority:</span> <span class="pre">critical</span></code> - Blocks users or development</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">priority:</span> <span class="pre">high</span></code> - Important for upcoming release</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">priority:</span> <span class="pre">medium</span></code> - Valuable but not urgent</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">priority:</span> <span class="pre">low</span></code> - Nice to have</p></li>
+</ul>
+</section>
+<section id="work-type">
+<h3>Work Type<a class="headerlink" href="#work-type" title="Link to this heading">#</a></h3>
+<p>Special markers for contributor matching:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">autonomous-friendly</span></code> - Suitable for AI agent work</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">needs-human-judgment</span></code> - Requires human decision-making</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">good</span> <span class="pre">first</span> <span class="pre">issue</span></code> - Good for new contributors</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">help</span> <span class="pre">wanted</span></code> - Community contributions welcome</p></li>
+</ul>
+</section>
+<section id="finding-issues-to-work-on">
+<h3>Finding Issues to Work On<a class="headerlink" href="#finding-issues-to-work-on" title="Link to this heading">#</a></h3>
+<dl class="simple">
+<dt>For quick wins:</dt><dd><p>Filter: <code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">easy</span></code> + <code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">ready</span></code></p>
+</dd>
+<dt>For substantial contributions:</dt><dd><p>Filter: <code class="docutils literal notranslate"><span class="pre">difficulty:</span> <span class="pre">medium</span></code> + <code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">ready</span></code> + <code class="docutils literal notranslate"><span class="pre">autonomous-friendly</span></code></p>
+</dd>
+<dt>For new contributors:</dt><dd><p>Filter: <code class="docutils literal notranslate"><span class="pre">good</span> <span class="pre">first</span> <span class="pre">issue</span></code> + <code class="docutils literal notranslate"><span class="pre">status:</span> <span class="pre">ready</span></code></p>
+</dd>
+</dl>
+<p>Before starting work on an issue, please comment to indicate you’re working on it to avoid duplicate effort.</p>
+</section>
+</section>
 </section>
 
 
@@ -702,6 +766,14 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-labels">Issue Labels</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#difficulty">Difficulty</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#status">Status</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#priority">Priority</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#work-type">Work Type</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#finding-issues-to-work-on">Finding Issues to Work On</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 
