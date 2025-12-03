@@ -126,8 +126,9 @@ def record_and_transcribe(language: str | None = None) -> str | None:
         console.print("Install with: pip install sounddevice scipy numpy")
         return None
 
+    import select
+    import signal
     import sys
-    import threading
 
     import numpy as np
     import sounddevice as sd
@@ -138,39 +139,50 @@ def record_and_transcribe(language: str | None = None) -> str | None:
 
     # Recording state
     audio_chunks: list[Any] = []
-    stop_event = threading.Event()
+    cancelled = False
+    stream: sd.InputStream | None = None
 
     def callback(indata, frames, time_info, status):
         if status:
             log.warning(f"Recording status: {status}")
-        if not stop_event.is_set():
-            audio_chunks.append(indata.copy())
+        audio_chunks.append(indata.copy())
 
-    def input_thread_fn():
-        """Thread to wait for Enter key - runs separately from audio stream."""
-        try:
-            sys.stdin.readline()
-        except EOFError:
-            pass
-        finally:
-            stop_event.set()
+    # Signal handler for immediate response to Ctrl+C
+    original_sigint = signal.getsignal(signal.SIGINT)
+
+    def sigint_handler(signum, frame):
+        nonlocal cancelled, stream
+        cancelled = True
+        if stream is not None:
+            stream.abort()  # Immediately stop the stream
+
+    signal.signal(signal.SIGINT, sigint_handler)
 
     try:
-        # Start the input-waiting thread BEFORE the audio stream
-        # This avoids terminal mode conflicts with sounddevice
-        input_thread = threading.Thread(target=input_thread_fn, daemon=True)
-        input_thread.start()
-
-        with sd.InputStream(
+        stream = sd.InputStream(
             samplerate=_sample_rate,
             channels=1,
             dtype="float32",
             callback=callback,
-        ):
-            console.print("[green]🎤 Recording... Press Enter to stop[/green]")
-            # Wait for stop event instead of blocking on input()
-            while not stop_event.is_set():
-                stop_event.wait(timeout=0.1)
+        )
+        stream.start()
+
+        console.print("[green]🎤 Recording... Press Enter to stop[/green]")
+
+        # Non-blocking input check using select (Unix-like systems)
+        # This avoids threading issues and responds immediately to Enter
+        while not cancelled:
+            # Check if stdin has data ready (with 0.1s timeout)
+            readable, _, _ = select.select([sys.stdin], [], [], 0.1)
+            if readable:
+                sys.stdin.readline()  # Consume the Enter key
+                break
+
+        stream.stop()
+
+        if cancelled:
+            console.print("\n[yellow]Recording cancelled[/yellow]")
+            return None
 
         if not audio_chunks:
             console.print("[yellow]No audio recorded[/yellow]")
@@ -192,14 +204,17 @@ def record_and_transcribe(language: str | None = None) -> str | None:
         # Transcribe
         return transcribe_audio(audio_data, language)
 
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Recording cancelled[/yellow]")
-        stop_event.set()
-        return None
     except Exception as e:
+        if stream is not None:
+            stream.abort()
         log.error(f"Recording failed: {e}")
         console.print(f"[red]Recording failed: {e}[/red]")
         return None
+    finally:
+        # Restore original signal handler
+        signal.signal(signal.SIGINT, original_sigint)
+        if stream is not None:
+            stream.close()
 
 
 # Tool specification
