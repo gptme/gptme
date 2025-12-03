@@ -335,3 +335,264 @@ def print_bell():
             log.info("Audio not available, skipping ding sound playback")
         else:
             log.debug("GPTME_DING not set, skipping ding sound playback")
+
+
+# Audio recording support
+def is_recording_available() -> bool:
+    """Check if audio recording is available via sounddevice."""
+    return is_sounddevice_available()
+
+
+def get_input_devices() -> list[dict[str, Any]]:
+    """Get list of available input devices.
+
+    Returns:
+        List of device info dicts with 'index', 'name', 'channels' keys.
+    """
+    if not is_sounddevice_available():
+        return []
+
+    import sounddevice as sd
+
+    devices = []
+    try:
+        for i, d in enumerate(sd.query_devices()):
+            if d["max_input_channels"] > 0:
+                devices.append({
+                    "index": i,
+                    "name": d["name"],
+                    "channels": d["max_input_channels"],
+                    "sample_rate": int(d["default_samplerate"]),
+                })
+    except Exception as e:
+        log.error(f"Failed to query input devices: {e}")
+
+    return devices
+
+
+def get_default_input_device() -> dict[str, Any] | None:
+    """Get the default input device info.
+
+    Returns:
+        Device info dict or None if no input device available.
+    """
+    if not is_sounddevice_available():
+        return None
+
+    import sounddevice as sd
+
+    try:
+        default_input = sd.default.device[0]
+        if default_input is None or default_input < 0:
+            return None
+
+        devices = sd.query_devices()
+        device = devices[default_input]
+        return {
+            "index": default_input,
+            "name": device["name"],
+            "channels": device["max_input_channels"],
+            "sample_rate": int(device["default_samplerate"]),
+        }
+    except Exception as e:
+        log.error(f"Failed to get default input device: {e}")
+        return None
+
+
+def record_audio(
+    sample_rate: int = 16000,
+    channels: int = 1,
+    device: int | None = None,
+    max_duration: float | None = None,
+) -> bytes | None:
+    """Record audio from the microphone until interrupted.
+
+    Records audio in a blocking manner. The recording can be stopped by:
+    - KeyboardInterrupt (Ctrl+C)
+    - Reaching max_duration if specified
+
+    Args:
+        sample_rate: Sample rate for recording (default 16000 for speech).
+        channels: Number of channels (default 1 for mono).
+        device: Optional device index. Uses default if None.
+        max_duration: Optional maximum recording duration in seconds.
+
+    Returns:
+        WAV file bytes, or None if recording failed/cancelled.
+    """
+    if not is_sounddevice_available():
+        log.error("Recording not available: sounddevice not installed")
+        return None
+
+    import io
+    import numpy as np
+    import sounddevice as sd
+    from scipy.io import wavfile
+
+    # Use default device if not specified
+    if device is None:
+        default_device = get_default_input_device()
+        if default_device is None:
+            log.error("No default input device found")
+            return None
+        device = default_device["index"]
+
+    # Collect audio data
+    audio_chunks: list[Any] = []
+    chunk_count = 0
+
+    def callback(indata, frames, time_info, status):
+        nonlocal chunk_count
+        if status:
+            log.warning(f"Recording status: {status}")
+        audio_chunks.append(indata.copy())
+        chunk_count += 1
+
+    try:
+        with sd.InputStream(
+            samplerate=sample_rate,
+            channels=channels,
+            dtype="float32",
+            callback=callback,
+            device=device,
+        ):
+            # Record until interrupted or max_duration reached
+            if max_duration:
+                time.sleep(max_duration)
+            else:
+                # Block until KeyboardInterrupt
+                while True:
+                    time.sleep(0.1)
+
+    except KeyboardInterrupt:
+        log.debug("Recording interrupted by user")
+    except Exception as e:
+        log.error(f"Recording failed: {e}")
+        return None
+
+    if not audio_chunks:
+        log.warning(f"No audio recorded (callback count: {chunk_count})")
+        return None
+
+    log.debug(f"Recording complete: {chunk_count} callbacks, {len(audio_chunks)} chunks")
+
+    # Concatenate and convert to WAV bytes
+    try:
+        audio = np.concatenate(audio_chunks)
+        audio_int16 = (audio * 32767).astype(np.int16)
+
+        buffer = io.BytesIO()
+        wavfile.write(buffer, sample_rate, audio_int16)
+        buffer.seek(0)
+        return buffer.read()
+
+    except Exception as e:
+        log.error(f"Failed to process audio: {e}")
+        return None
+
+
+def record_audio_interactive(
+    sample_rate: int = 16000,
+    channels: int = 1,
+    device: int | None = None,
+) -> bytes | None:
+    """Record audio interactively with Enter to start/stop.
+
+    This function provides an interactive recording experience:
+    1. Displays the input device being used
+    2. Waits for Enter to start recording
+    3. Records until Enter is pressed again or Ctrl+C
+
+    Args:
+        sample_rate: Sample rate for recording (default 16000 for speech).
+        channels: Number of channels (default 1 for mono).
+        device: Optional device index. Uses default if None.
+
+    Returns:
+        WAV file bytes, or None if recording failed/cancelled.
+    """
+    if not is_sounddevice_available():
+        log.error("Recording not available: sounddevice not installed")
+        return None
+
+    import io
+    import threading
+    import numpy as np
+    import sounddevice as sd
+    from scipy.io import wavfile
+
+    # Get device info
+    if device is None:
+        device_info = get_default_input_device()
+        if device_info is None:
+            log.error("No default input device found")
+            return None
+        device = device_info["index"]
+        device_name = device_info["name"]
+    else:
+        try:
+            devices = sd.query_devices()
+            device_name = devices[device]["name"]
+        except Exception:
+            device_name = f"device {device}"
+
+    log.info(f"Using input device: {device_name}")
+
+    # Collect audio data
+    audio_chunks: list[Any] = []
+    stop_flag = threading.Event()
+    recording_started = threading.Event()
+
+    def callback(indata, frames, time_info, status):
+        if status:
+            log.warning(f"Recording status: {status}")
+        if recording_started.is_set() and not stop_flag.is_set():
+            audio_chunks.append(indata.copy())
+
+    try:
+        with sd.InputStream(
+            samplerate=sample_rate,
+            channels=channels,
+            dtype="float32",
+            callback=callback,
+            device=device,
+        ):
+            # Signal that we're ready
+            recording_started.set()
+            log.info("Recording started - press Enter to stop")
+
+            # Wait for Enter or interrupt
+            try:
+                input()
+            except EOFError:
+                pass
+
+            stop_flag.set()
+
+    except KeyboardInterrupt:
+        log.debug("Recording cancelled by user")
+        return None
+    except Exception as e:
+        log.error(f"Recording failed: {e}")
+        return None
+
+    if not audio_chunks:
+        log.warning("No audio recorded")
+        return None
+
+    duration = len(audio_chunks) * 1024 / sample_rate  # Approximate
+    log.debug(f"Recorded approximately {duration:.1f}s of audio")
+
+    # Concatenate and convert to WAV bytes
+    try:
+        audio = np.concatenate(audio_chunks)
+        audio_int16 = (audio * 32767).astype(np.int16)
+
+        buffer = io.BytesIO()
+        wavfile.write(buffer, sample_rate, audio_int16)
+        buffer.seek(0)
+        return buffer.read()
+
+    except Exception as e:
+        log.error(f"Failed to process audio: {e}")
+        return None
