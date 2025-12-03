@@ -282,6 +282,8 @@ def test_timeout_default(monkeypatch):
     import gptme.llm.llm_openai as llm_openai
     from gptme.config import get_config
 
+    # Set dummy API key for validation (client is mocked anyway)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     # Clear any existing LLM_API_TIMEOUT config
     monkeypatch.delenv("LLM_API_TIMEOUT", raising=False)
 
@@ -311,6 +313,8 @@ def test_timeout_custom(monkeypatch):
     import gptme.llm.llm_openai as llm_openai
     from gptme.config import get_config
 
+    # Set dummy API key for validation (client is mocked anyway)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     # Set custom timeout
     monkeypatch.setenv("LLM_API_TIMEOUT", "1800")
 
