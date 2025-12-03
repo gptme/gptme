@@ -20,12 +20,19 @@ Uses OpenAI Whisper API for transcription by default.
 - ``GPTME_STT_LANGUAGE``: Language hint for transcription (default: auto-detect).
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from ..commands import CommandContext
+
+from ..message import Message
 from ..util import console
 from .base import ToolSpec
 
@@ -171,6 +178,22 @@ def record_and_transcribe(language: str | None = None) -> str | None:
     return transcribe_audio(audio_data, language)
 
 
+def _cmd_voice(ctx: CommandContext) -> Generator[Message, None, None]:
+    """Record and transcribe speech input using STT."""
+    ctx.manager.undo(1, quiet=True)
+    ctx.manager.write()
+
+    # Get optional language from args
+    language = ctx.args[0] if ctx.args else None
+
+    # Record and transcribe
+    text = record_and_transcribe(language=language)
+
+    if text:
+        # Return the transcribed text as a user message
+        yield Message("user", text)
+
+
 # Tool specification
 tool = ToolSpec(
     name="stt",
@@ -179,5 +202,6 @@ tool = ToolSpec(
     available=_is_stt_available(),
     block_types=[],  # No code blocks, uses command interface
     functions=[record_and_transcribe, transcribe_audio],
+    commands={"voice": _cmd_voice},
 )
 __doc__ = tool.get_doc(__doc__)
