@@ -47,8 +47,9 @@ COMPILED_PATTERNS = [re.compile(p, re.IGNORECASE | re.MULTILINE) for p in OPTION
 # LLM prompt for parsing options
 PARSE_PROMPT = """Extract the options from this assistant message and format them for a selection form.
 
-Message:
+<message>
 {message}
+</message>
 
 If this message presents clear options for the user to choose from, output ONLY a JSON object with:
 - "detected": true
