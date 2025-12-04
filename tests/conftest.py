@@ -152,6 +152,49 @@ def init_():
 
 
 @pytest.fixture
+def cleanup_tmux_sessions():
+    """Clean up gptme_* tmux sessions before and after a test.
+
+    This prevents cross-test contamination when tests run the gptme CLI
+    which creates gptme_N sessions internally.
+    """
+    import subprocess
+
+    def _cleanup():
+        """Kill all gptme_* sessions except worker-specific ones."""
+        try:
+            result = subprocess.run(
+                ["tmux", "list-sessions", "-F", "#{session_name}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                for session in result.stdout.strip().split("\n"):
+                    session = session.strip()
+                    if not session:
+                        continue
+                    # Kill simple gptme_N sessions (N = digits only)
+                    # but NOT worker-specific ones like gptme_gw0_test_*
+                    if session.startswith("gptme_"):
+                        parts = session.split("_")
+                        if len(parts) == 2 and parts[1].isdigit():
+                            subprocess.run(
+                                ["tmux", "kill-session", "-t", session],
+                                capture_output=True,
+                                timeout=5,
+                            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass  # tmux not available or timed out
+
+    # Cleanup before test
+    _cleanup()
+    yield
+    # Cleanup after test
+    _cleanup()
+
+
+@pytest.fixture
 def server_thread():
     """Start a server in a thread for testing."""
     # Skip if flask not installed

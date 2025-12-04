@@ -344,7 +344,8 @@ def test_chain(args: list[str], runner: CliRunner):
 # TODO: move elsewhere
 @pytest.mark.slow
 @pytest.mark.requires_api
-def test_tmux(args: list[str], runner: CliRunner):
+@pytest.mark.xdist_group("tmux")
+def test_tmux(args: list[str], runner: CliRunner, cleanup_tmux_sessions):
     """
     $ gptme '/impersonate lets find out the current load
     ```tmux
