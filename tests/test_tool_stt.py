@@ -1,11 +1,6 @@
 """Tests for the STT (speech-to-text) tool."""
 
-import io
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 
 class TestSTTAvailability:
@@ -13,7 +8,9 @@ class TestSTTAvailability:
 
     def test_is_stt_available_with_imports(self):
         """Test that _is_stt_available returns True when sounddevice is available."""
-        with patch.dict("sys.modules", {"numpy": MagicMock(), "sounddevice": MagicMock()}):
+        with patch.dict(
+            "sys.modules", {"numpy": MagicMock(), "sounddevice": MagicMock()}
+        ):
             # Need to reload the module to pick up the patched imports
             from gptme.tools import stt
 
@@ -45,11 +42,10 @@ class TestOpenAIClient:
         mock_client = MagicMock()
         with patch("gptme.tools.stt.OpenAI", return_value=mock_client, create=True):
             # Patch the import inside the function
-            with patch.dict("sys.modules", {"openai": MagicMock(OpenAI=lambda: mock_client)}):
-                from gptme.tools.stt import _get_openai_client
-
+            with patch.dict(
+                "sys.modules", {"openai": MagicMock(OpenAI=lambda: mock_client)}
+            ):
                 # Create a fresh import that uses our mock
-                import importlib
                 import gptme.tools.stt as stt_module
 
                 # Mock the OpenAI import inside the function
@@ -67,7 +63,6 @@ class TestOpenAIClient:
 
     def test_get_openai_client_import_error(self):
         """Test OpenAI client creation when openai package is not installed."""
-        from gptme.tools.stt import _get_openai_client
 
         with patch.dict("sys.modules", {"openai": None}):
             # Force ImportError by removing the module
@@ -100,21 +95,54 @@ class TestTranscribeAudio:
         from gptme.tools import stt
 
         # Create mock WAV data (minimal valid WAV header + silence)
-        wav_header = bytes([
-            0x52, 0x49, 0x46, 0x46,  # "RIFF"
-            0x24, 0x00, 0x00, 0x00,  # File size - 8
-            0x57, 0x41, 0x56, 0x45,  # "WAVE"
-            0x66, 0x6D, 0x74, 0x20,  # "fmt "
-            0x10, 0x00, 0x00, 0x00,  # Subchunk1 size (16)
-            0x01, 0x00,              # Audio format (1 = PCM)
-            0x01, 0x00,              # Num channels (1)
-            0x80, 0x3E, 0x00, 0x00,  # Sample rate (16000)
-            0x00, 0x7D, 0x00, 0x00,  # Byte rate
-            0x02, 0x00,              # Block align
-            0x10, 0x00,              # Bits per sample (16)
-            0x64, 0x61, 0x74, 0x61,  # "data"
-            0x00, 0x00, 0x00, 0x00,  # Data size
-        ])
+        wav_header = bytes(
+            [
+                0x52,
+                0x49,
+                0x46,
+                0x46,  # "RIFF"
+                0x24,
+                0x00,
+                0x00,
+                0x00,  # File size - 8
+                0x57,
+                0x41,
+                0x56,
+                0x45,  # "WAVE"
+                0x66,
+                0x6D,
+                0x74,
+                0x20,  # "fmt "
+                0x10,
+                0x00,
+                0x00,
+                0x00,  # Subchunk1 size (16)
+                0x01,
+                0x00,  # Audio format (1 = PCM)
+                0x01,
+                0x00,  # Num channels (1)
+                0x80,
+                0x3E,
+                0x00,
+                0x00,  # Sample rate (16000)
+                0x00,
+                0x7D,
+                0x00,
+                0x00,  # Byte rate
+                0x02,
+                0x00,  # Block align
+                0x10,
+                0x00,  # Bits per sample (16)
+                0x64,
+                0x61,
+                0x74,
+                0x61,  # "data"
+                0x00,
+                0x00,
+                0x00,
+                0x00,  # Data size
+            ]
+        )
 
         mock_client = MagicMock()
         mock_transcription = MagicMock()
@@ -138,19 +166,54 @@ class TestTranscribeAudio:
         """Test transcription with language hint."""
         from gptme.tools import stt
 
-        wav_header = bytes([
-            0x52, 0x49, 0x46, 0x46,
-            0x24, 0x00, 0x00, 0x00,
-            0x57, 0x41, 0x56, 0x45,
-            0x66, 0x6D, 0x74, 0x20,
-            0x10, 0x00, 0x00, 0x00,
-            0x01, 0x00, 0x01, 0x00,
-            0x80, 0x3E, 0x00, 0x00,
-            0x00, 0x7D, 0x00, 0x00,
-            0x02, 0x00, 0x10, 0x00,
-            0x64, 0x61, 0x74, 0x61,
-            0x00, 0x00, 0x00, 0x00,
-        ])
+        wav_header = bytes(
+            [
+                0x52,
+                0x49,
+                0x46,
+                0x46,
+                0x24,
+                0x00,
+                0x00,
+                0x00,
+                0x57,
+                0x41,
+                0x56,
+                0x45,
+                0x66,
+                0x6D,
+                0x74,
+                0x20,
+                0x10,
+                0x00,
+                0x00,
+                0x00,
+                0x01,
+                0x00,
+                0x01,
+                0x00,
+                0x80,
+                0x3E,
+                0x00,
+                0x00,
+                0x00,
+                0x7D,
+                0x00,
+                0x00,
+                0x02,
+                0x00,
+                0x10,
+                0x00,
+                0x64,
+                0x61,
+                0x74,
+                0x61,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            ]
+        )
 
         mock_client = MagicMock()
         mock_transcription = MagicMock()
@@ -232,7 +295,9 @@ class TestVoiceCommand:
         mock_ctx.manager.undo = MagicMock()
         mock_ctx.manager.write = MagicMock()
 
-        with patch("gptme.tools.stt.record_and_transcribe", return_value="Hello from voice"):
+        with patch(
+            "gptme.tools.stt.record_and_transcribe", return_value="Hello from voice"
+        ):
             messages = list(_cmd_voice(mock_ctx))
             assert len(messages) == 1
             assert messages[0].role == "user"
