@@ -50,8 +50,6 @@ class NotGivenAttributeFilter(logging.Filter):
     libraries capture API parameters including those set to NOT_GIVEN sentinel values.
     OTEL's attribute validation warns about these since NotGiven is not a valid
     attribute type. The data is still exported correctly, so we suppress the warning.
-
-    See: https://github.com/gptme/gptme/issues/XXX for upstream tracking.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
