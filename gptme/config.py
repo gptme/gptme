@@ -183,14 +183,20 @@ class ProjectConfig:
     def from_dict(cls, config_data: dict, workspace: Path | None = None) -> Self:
         """Create a ProjectConfig instance from a dictionary. Warns about unknown keys."""
         # Support new "prompt" section or old-style base_prompt + files + context_cmd
+        # Support new "prompt" section or old-style base_prompt + files + context_cmd
         prompt_data = config_data.pop("prompt", None)
-        if not isinstance(prompt_data, dict):
-            prompt_data = config_data
-
-        prompt = prompt_data.pop("prompt", None)
-        base_prompt = prompt_data.pop("base_prompt", None)
-        files = prompt_data.pop("files", None)
-        context_cmd = prompt_data.pop("context_cmd", None)
+        if isinstance(prompt_data, dict):
+            # New format: [prompt] section with nested values
+            prompt = prompt_data.pop("prompt", None)
+            base_prompt = prompt_data.pop("base_prompt", None)
+            files = prompt_data.pop("files", None)
+            context_cmd = prompt_data.pop("context_cmd", None)
+        else:
+            # Old format: flat structure, prompt_data contains the prompt string
+            prompt = prompt_data
+            base_prompt = config_data.pop("base_prompt", None)
+            files = config_data.pop("files", None)
+            context_cmd = config_data.pop("context_cmd", None)
 
         rag = RagConfig(**config_data.pop("rag", {}))
         agent = (
