@@ -43,6 +43,34 @@ class TelemetryConnectionErrorFilter(logging.Filter):
         return True
 
 
+class NotGivenAttributeFilter(logging.Filter):
+    """Filter to suppress warnings about NotGiven type in telemetry attributes.
+
+    The opentelemetry-instrumentation-anthropic and opentelemetry-instrumentation-openai
+    libraries capture API parameters including those set to NOT_GIVEN sentinel values.
+    OTEL's attribute validation warns about these since NotGiven is not a valid
+    attribute type. The data is still exported correctly, so we suppress the warning.
+
+    See: https://github.com/gptme/gptme/issues/XXX for upstream tracking.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Suppress NotGiven attribute type warnings.
+
+        Returns False to drop the record, True to allow it through.
+        """
+        # Check if this is a NotGiven type warning
+        if (
+            record.name.startswith("opentelemetry.")
+            and record.levelno == logging.WARNING
+            and "NotGiven" in record.getMessage()
+            and "Invalid type" in record.getMessage()
+        ):
+            # Suppress this specific warning - it's noise from sentinel values
+            return False
+        return True
+
+
 # Global variables to track telemetry state
 _telemetry_enabled = False
 _tracer = None
@@ -317,16 +345,23 @@ def init_telemetry(
 
         _telemetry_enabled = True
 
-        # Apply connection error filter to OpenTelemetry loggers
-        # This truncates verbose connection error stack traces to single lines
-        telemetry_filter = TelemetryConnectionErrorFilter()
+        # Apply filters to OpenTelemetry loggers
+        connection_filter = TelemetryConnectionErrorFilter()
+        notgiven_filter = NotGivenAttributeFilter()
+
+        # Connection error filter truncates verbose stack traces to single lines
         for otel_logger_name in [
             "opentelemetry.exporter.otlp.proto.http",
             "opentelemetry.sdk._shared_internal",
             "opentelemetry.sdk.metrics._internal.export",
         ]:
             otel_logger = logging.getLogger(otel_logger_name)
-            otel_logger.addFilter(telemetry_filter)
+            otel_logger.addFilter(connection_filter)
+
+        # NotGiven filter suppresses warnings about sentinel values in attributes
+        # This affects the attribute validation logger
+        otel_attributes_logger = logging.getLogger("opentelemetry.attributes")
+        otel_attributes_logger.addFilter(notgiven_filter)
 
         # Import console for user-visible messages
         from . import console  # fmt: skip
