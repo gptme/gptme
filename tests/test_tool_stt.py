@@ -277,6 +277,7 @@ class TestToolSpec:
         """Test that the tool functions are registered."""
         from gptme.tools.stt import tool
 
+        assert tool.functions is not None, "tool.functions should not be None"
         function_names = [f.__name__ for f in tool.functions]
         assert "record_and_transcribe" in function_names
         assert "transcribe_audio" in function_names
