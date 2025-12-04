@@ -56,6 +56,7 @@ browser: Literal["playwright", "lynx"] | None = (
 
 # Check for Perplexity availability
 try:
+    from ._browser_perplexity import USER_PROMPT  # fmt: skip
     from ._browser_perplexity import has_perplexity_key, search_perplexity  # fmt: skip
 
     has_perplexity = has_perplexity_key()
@@ -135,6 +136,9 @@ Assistant: Now let me check the browser console logs:
 {ToolUse("ipython", [], "read_logs()").to_output(tool_format)}
 System:
 {ToolUse("result", [], "No logs or errors captured.").to_output()}
+
+### Custom Perplexity prompt
+{USER_PROMPT}
 """.strip()
 
 
