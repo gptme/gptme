@@ -15,6 +15,12 @@ from ..message import Message, format_msgs, len_tokens
 from ..telemetry import trace_function
 from ..tools import ToolSpec, ToolUse
 from ..util import console
+from ..util.interactive_gen import (
+    InputAction,
+    check_and_handle_input,
+    queue_input,
+    set_interrupt_content,
+)
 from .llm_anthropic import chat as chat_anthropic
 from .llm_anthropic import get_client as get_anthropic_client
 from .llm_anthropic import init as init_anthropic
@@ -293,6 +299,22 @@ def _reply_stream(
 
             # need to flush stdout to get the print to show up
             sys.stdout.flush()
+
+            # Check for user input during generation (after each newline)
+            if char == "\n":
+                result = check_and_handle_input()
+                if result:
+                    action, input_text = result
+                    if action == InputAction.INTERRUPT:
+                        # User wants to interrupt - store input and return partial output
+                        set_interrupt_content(input_text)
+                        return Message(
+                            "assistant",
+                            output + "\n\n[interrupted by user]",
+                        )
+                    elif action == InputAction.QUEUE:
+                        # Queue the input for after generation completes
+                        queue_input(input_text)
 
             # Trigger the tool detection only if the line is finished.
             # Helps to detect nested start code blocks.

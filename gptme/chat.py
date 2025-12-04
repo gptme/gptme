@@ -1,5 +1,6 @@
 import logging
 import os
+import select
 import sys
 import termios
 import threading
@@ -29,6 +30,10 @@ from .util.ask_execute import ask_execute
 from .util.auto_naming import auto_generate_display_name
 from .util.context import include_paths
 from .util.cost import log_costs
+from .util.interactive_gen import (
+    get_interrupt_content,
+    get_queued_input,
+)
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
 from .util.sound import print_bell
@@ -471,10 +476,70 @@ def step(
         clear_interruptible()
 
 
+def _read_buffered_stdin() -> str | None:
+    """Read any buffered input from stdin without blocking.
+    
+    This allows users to "queue" input while the agent is working.
+    Returns None if no buffered input is available.
+    """
+    if not sys.stdin.isatty():
+        return None
+    
+    try:
+        # Check if there's data available on stdin
+        readable, _, _ = select.select([sys.stdin], [], [], 0)
+        if not readable:
+            return None
+        
+        # Read available characters without blocking
+        # We read in a loop until no more data is available
+        buffered = []
+        while True:
+            readable, _, _ = select.select([sys.stdin], [], [], 0)
+            if not readable:
+                break
+            char = sys.stdin.read(1)
+            if not char:
+                break
+            buffered.append(char)
+        
+        if buffered:
+            result = "".join(buffered).strip()
+            if result:
+                logger.debug(f"Read {len(result)} chars of buffered stdin")
+                return result
+    except Exception as e:
+        logger.debug(f"Error reading buffered stdin: {e}")
+    
+    return None
+
+
 def prompt_user(value=None) -> str:  # pragma: no cover
     print_bell()
-    # Flush stdin to clear any buffered input before prompting (only if stdin is a TTY)
+
+    # First check for interrupt content (user interrupted generation with input)
+    interrupt_input = get_interrupt_content()
+    if interrupt_input:
+        console.print(f"[dim]Using interrupt input: {interrupt_input[:50]}{'...' if len(interrupt_input) > 50 else ''}[/dim]")
+        add_history(interrupt_input)
+        return interrupt_input
+
+    # Then check for queued input (user queued input during generation)
+    queued = get_queued_input()
+    if queued:
+        console.print(f"[dim]Using queued input: {queued[:50]}{'...' if len(queued) > 50 else ''}[/dim]")
+        add_history(queued)
+        return queued
+
+    # Check for buffered input (typed ahead while agent was working - legacy)
     if sys.stdin.isatty():
+        buffered = _read_buffered_stdin()
+        if buffered:
+            # User typed ahead while agent was working - use that input
+            console.print(f"[dim]Using buffered input: {buffered[:50]}{'...' if len(buffered) > 50 else ''}[/dim]")
+            add_history(buffered)
+            return buffered
+        # No buffered input, flush any partial/incomplete input
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
     response = ""
     with terminal_state_title("⌨️ waiting for input"):
