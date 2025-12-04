@@ -152,8 +152,16 @@ First install the required dependencies using `pipx <https://pipx.pypa.io/>`_ (r
 
 .. code-block:: bash
 
-    # Install required dependencies
-    pipx install gptme   # or `pipx install -e ./gptme` to install from local source
+    # Install pipx and other system dependencies
+    sudo apt install pipx tree  # or `brew install pipx tree` on macOS
+
+    # Install optional dependencies
+    sudo apt install shellcheck  # or `brew install shellcheck` on macOS
+
+    # Install required Python dependencies
+    pipx install gptme
+    # or `pipx install -e ./gptme` to install from local source
+    # or `pipx install "git+https://github.com/gptme/gptme.git@master#egg=gptme[browser,server,telemetry]"`_ for latest from GitHub with extras
     pipx install uv
     pipx install pre-commit
 

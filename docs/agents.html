@@ -616,8 +616,16 @@ window.addEventListener("load", () => mermaid.run());
 </div>
 <p><strong>Installing dependencies:</strong></p>
 <p>First install the required dependencies using <a class="reference external" href="https://pipx.pypa.io/">pipx</a> (recommended) to ensure isolation and easy management:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install required dependencies</span>
-pipx<span class="w"> </span>install<span class="w"> </span>gptme<span class="w">   </span><span class="c1"># or `pipx install -e ./gptme` to install from local source</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install pipx and other system dependencies</span>
+sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>pipx<span class="w"> </span>tree<span class="w">  </span><span class="c1"># or `brew install pipx tree` on macOS</span>
+
+<span class="c1"># Install optional dependencies</span>
+sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>shellcheck<span class="w">  </span><span class="c1"># or `brew install shellcheck` on macOS</span>
+
+<span class="c1"># Install required Python dependencies</span>
+pipx<span class="w"> </span>install<span class="w"> </span>gptme
+<span class="c1"># or `pipx install -e ./gptme` to install from local source</span>
+<span class="c1"># or `pipx install &quot;git+https://github.com/gptme/gptme.git@master#egg=gptme[browser,server,telemetry]&quot;`_ for latest from GitHub with extras</span>
 pipx<span class="w"> </span>install<span class="w"> </span>uv
 pipx<span class="w"> </span>install<span class="w"> </span>pre-commit
 </pre></div>
