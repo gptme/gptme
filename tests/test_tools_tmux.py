@@ -17,12 +17,9 @@ from gptme.tools.tmux import (
 )
 
 # Skip all tests if tmux is not available
-# Use xdist_group to ensure all tmux tests run on the same worker (serially)
-# This prevents race conditions when tests create gptme_N sessions
-pytestmark = [
-    pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux not available"),
-    pytest.mark.xdist_group("tmux"),
-]
+pytestmark = pytest.mark.skipif(
+    shutil.which("tmux") is None, reason="tmux not available"
+)
 
 
 def _get_worker_id() -> str:
