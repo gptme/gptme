@@ -170,23 +170,16 @@ class TestListSessions:
         assert session_id in msg.content
 
 
-@pytest.mark.xdist_group("tmux_new_session")
 class TestKillSession:
     """Tests for kill_session function.
     
-    These tests use new_session() directly which creates gptme_N sessions.
-    They are grouped to run serially to avoid race conditions.
+    Uses worker-isolated sessions to avoid race conditions in parallel tests.
     """
 
-    def test_kills_session(self, cleanup_new_session_sessions):
+    def test_kills_session(self, worker_id):
         """Should kill an existing session."""
-        msg = new_session("echo 'to kill'")
-        # Extract the session ID from the creation message
-        import re
-
-        match = re.search(r"gptme_(\d+)", msg.content)
-        assert match
-        session_id = f"gptme_{match.group(1)}"
+        # Use worker-isolated session to avoid race conditions
+        session_id = _create_test_session("echo 'to kill'", worker_id, 1)
 
         msg = kill_session(session_id)
         assert "Killed" in msg.content
