@@ -131,15 +131,14 @@ class TestNewSession:
 class TestListSessions:
     """Tests for list_sessions function."""
 
-    def test_lists_created_sessions(self):
-        """Should list sessions that were created."""
-        msg = new_session("echo 'test'")
-        # Extract the session ID from the creation message
-        import re
+    def test_lists_created_sessions(self, worker_id):
+        """Should list sessions that were created.
 
-        match = re.search(r"gptme_(\d+)", msg.content)
-        assert match
-        session_id = f"gptme_{match.group(1)}"
+        Uses worker-isolated session to avoid race conditions in parallel tests.
+        """
+        # Create a worker-isolated session to avoid race conditions
+        # where other workers' cleanup might remove our session
+        session_id = _create_test_session("echo 'test'", worker_id)
 
         msg = list_sessions()
         assert session_id in msg.content
