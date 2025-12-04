@@ -162,6 +162,12 @@ def cleanup_tmux_sessions():
 
     def _cleanup():
         """Kill all gptme_* sessions except worker-specific ones."""
+        import re
+
+        # Match simple gptme_N sessions (N = digits only)
+        # but NOT worker-specific ones like gptme_gw0_test_*
+        simple_session_pattern = re.compile(r"^gptme_\d+$")
+
         try:
             result = subprocess.run(
                 ["tmux", "list-sessions", "-F", "#{session_name}"],
@@ -174,16 +180,12 @@ def cleanup_tmux_sessions():
                     session = session.strip()
                     if not session:
                         continue
-                    # Kill simple gptme_N sessions (N = digits only)
-                    # but NOT worker-specific ones like gptme_gw0_test_*
-                    if session.startswith("gptme_"):
-                        parts = session.split("_")
-                        if len(parts) == 2 and parts[1].isdigit():
-                            subprocess.run(
-                                ["tmux", "kill-session", "-t", session],
-                                capture_output=True,
-                                timeout=5,
-                            )
+                    if simple_session_pattern.match(session):
+                        subprocess.run(
+                            ["tmux", "kill-session", "-t", session],
+                            capture_output=True,
+                            timeout=5,
+                        )
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass  # tmux not available or timed out
 
