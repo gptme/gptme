@@ -582,7 +582,7 @@ def record_audio_interactive(
         log.warning("No audio recorded")
         return None
 
-    duration = len(audio_chunks) * 1024 / sample_rate  # Approximate
+    duration = sum(chunk.shape[0] for chunk in audio_chunks) / sample_rate
     log.debug(f"Recorded approximately {duration:.1f}s of audio")
 
     # Concatenate and convert to WAV bytes
