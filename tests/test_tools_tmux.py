@@ -71,12 +71,21 @@ def cleanup_sessions(worker_id):
 
     def cleanup():
         for session in get_sessions():
-            # Only clean up sessions with our worker prefix to avoid killing other workers' sessions
+            # Clean up sessions with our worker prefix (for parallel test isolation)
             if session.startswith(f"gptme_{worker_id}_"):
                 subprocess.run(
                     ["tmux", "kill-session", "-t", session],
                     capture_output=True,
                 )
+            # Also clean up simple gptme_N sessions created by new_session()
+            # These match pattern "gptme_N" where N is just digits (not gptme_gw0_*, etc.)
+            elif session.startswith("gptme_"):
+                parts = session.split("_")
+                if len(parts) == 2 and parts[1].isdigit():
+                    subprocess.run(
+                        ["tmux", "kill-session", "-t", session],
+                        capture_output=True,
+                    )
 
     cleanup()
     yield
