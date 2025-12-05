@@ -167,6 +167,9 @@ def _get_next_job_id() -> int:
 
 def start_background_job(command: str) -> BackgroundJob:
     """Start a command as a background job (thread-safe)."""
+    # Proactively clean up finished jobs to prevent memory accumulation
+    cleanup_finished_jobs()
+
     job_id = _get_next_job_id()
 
     # Start process with separate stdout/stderr pipes

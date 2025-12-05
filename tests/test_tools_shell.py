@@ -1236,13 +1236,14 @@ def test_list_background_jobs():
 
     reset_background_jobs()
 
-    # Start multiple jobs
-    start_background_job("echo 'job1'")
-    start_background_job("echo 'job2'")
+    # Start multiple jobs with sleep to ensure they're still running when we list
+    start_background_job("sleep 0.5 && echo 'job1'")
+    start_background_job("sleep 0.5 && echo 'job2'")
 
     jobs = list_background_jobs()
-    # Note: may be fewer than 2 if jobs finished and got cleaned up
-    assert len(jobs) >= 0
+    # Jobs should still be running (sleeping), so we should have exactly 2
+    assert len(jobs) == 2
+    assert all(job.is_running() for job in jobs)
 
     # Cleanup
     reset_background_jobs()
