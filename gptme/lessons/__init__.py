@@ -16,7 +16,7 @@ Example lesson format:
 
 from .auto_include import auto_include_lessons
 from .commands import register_lesson_commands
-from .index import LessonIndex
+from .index import LessonIndex, clear_cache, get_cache_stats
 from .matcher import LessonMatcher, MatchContext, MatchResult
 from .matcher_enhanced import EnhancedLessonMatcher
 from .parser import Lesson, LessonMetadata, parse_lesson
@@ -35,6 +35,8 @@ __all__ = [
     # Functions
     "parse_lesson",
     "auto_include_lessons",
+    "clear_cache",
+    "get_cache_stats",
     # Classes
     "LessonIndex",
     "LessonMatcher",

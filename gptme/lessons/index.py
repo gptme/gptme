@@ -7,6 +7,76 @@ from .parser import Lesson, parse_lesson
 
 logger = logging.getLogger(__name__)
 
+# Module-level cache for parsed lessons
+# Key: lesson file path, Value: (mtime, parsed_lesson)
+_LESSON_CACHE: dict[Path, tuple[float, Lesson]] = {}
+
+
+def _get_cached_lesson(path: Path) -> Lesson | None:
+    """Get cached lesson if still valid.
+
+    Args:
+        path: Path to lesson file
+
+    Returns:
+        Cached lesson if valid, None otherwise
+    """
+    if path not in _LESSON_CACHE:
+        return None
+
+    cached_mtime, cached_lesson = _LESSON_CACHE[path]
+
+    try:
+        current_mtime = path.stat().st_mtime
+        if current_mtime == cached_mtime:
+            logger.debug(f"Cache hit: {path.name}")
+            return cached_lesson
+        else:
+            logger.debug(f"Cache invalidated (mtime changed): {path.name}")
+    except FileNotFoundError:
+        # File was deleted, remove from cache
+        logger.debug(f"Cache invalidated (file deleted): {path.name}")
+        del _LESSON_CACHE[path]
+
+    return None
+
+
+def _cache_lesson(path: Path, lesson: Lesson) -> None:
+    """Cache a parsed lesson.
+
+    Args:
+        path: Path to lesson file
+        lesson: Parsed lesson
+    """
+    try:
+        mtime = path.stat().st_mtime
+        _LESSON_CACHE[path] = (mtime, lesson)
+        logger.debug(f"Cached lesson: {path.name}")
+    except FileNotFoundError:
+        logger.warning(f"Cannot cache lesson, file not found: {path}")
+
+
+def clear_cache() -> None:
+    """Clear the lesson cache.
+
+    Useful for testing or when lessons are known to have changed.
+    """
+    global _LESSON_CACHE
+    cache_size = len(_LESSON_CACHE)
+    _LESSON_CACHE.clear()
+    logger.info(f"Cleared lesson cache ({cache_size} entries)")
+
+
+def get_cache_stats() -> dict[str, int]:
+    """Get cache statistics.
+
+    Returns:
+        Dictionary with cache statistics
+    """
+    return {
+        "cached_lessons": len(_LESSON_CACHE),
+    }
+
 
 class LessonIndex:
     """Index of available lessons with search capabilities."""
@@ -88,23 +158,56 @@ class LessonIndex:
         return dirs
 
     def _index_lessons(self) -> None:
-        """Discover and parse all lessons."""
+        """Discover and parse all lessons (with caching and deduplication).
+
+        Deduplication: Lessons are deduplicated by filename. When the same
+        filename exists in multiple directories, the version from the earlier
+        directory (higher precedence) is used.
+
+        Directory order determines precedence:
+        1. User config (~/.config/gptme/lessons)
+        2. Workspace (./lessons)
+        3. Configured dirs (from gptme.toml)
+        """
         self.lessons = []
+        cache_hits = 0
+        cache_misses = 0
+        skipped_duplicates = 0
+        # Track seen lesson filenames for deduplication
+        seen_names: set[str] = set()
 
         for lesson_dir in self.lesson_dirs:
             if not lesson_dir.exists():
                 logger.debug(f"Lesson directory not found: {lesson_dir}")
                 continue
 
-            self._index_directory(lesson_dir)
+            hits, misses, skipped = self._index_directory(lesson_dir, seen_names)
+            cache_hits += hits
+            cache_misses += misses
+            skipped_duplicates += skipped
 
-        if self.lessons:
-            logger.info(f"Indexed {len(self.lessons)} lessons")
-        else:
-            logger.debug("No lessons found")
+        log_parts = [f"Indexed {len(self.lessons)} lessons"]
+        log_parts.append(f"(cache: {cache_hits} hits, {cache_misses} misses)")
+        if skipped_duplicates > 0:
+            log_parts.append(f"(skipped {skipped_duplicates} duplicates)")
+        logger.info(" ".join(log_parts))
 
-    def _index_directory(self, directory: Path) -> None:
-        """Index all lessons in a directory, including .mdc files."""
+    def _index_directory(
+        self, directory: Path, seen_names: set[str]
+    ) -> tuple[int, int, int]:
+        """Index all lessons in a directory (with caching and deduplication).
+
+        Args:
+            directory: Directory to scan for lessons
+            seen_names: Set of lesson filenames already indexed (for deduplication)
+
+        Returns:
+            Tuple of (cache_hits, cache_misses, skipped_duplicates)
+        """
+        cache_hits = 0
+        cache_misses = 0
+        skipped_duplicates = 0
+
         # Find both .md and .mdc files
         lesson_files = list(directory.rglob("*.md")) + list(directory.rglob("*.mdc"))
 
@@ -115,17 +218,41 @@ class LessonIndex:
             if "template" in lesson_file.name.lower():
                 continue
 
+            # Deduplication: Skip if lesson with same filename already indexed
+            lesson_name = lesson_file.name
+            if lesson_name in seen_names:
+                logger.debug(
+                    f"Skipping duplicate lesson: {lesson_file.relative_to(directory)} "
+                    f"(already indexed from earlier directory)"
+                )
+                skipped_duplicates += 1
+                continue
+
             try:
-                lesson = parse_lesson(lesson_file)
+                # Try to use cached lesson first
+                lesson = _get_cached_lesson(lesson_file)
+
+                if lesson is None:
+                    # Cache miss or invalid, parse and cache
+                    lesson = parse_lesson(lesson_file)
+                    _cache_lesson(lesson_file, lesson)
+                    cache_misses += 1
+                else:
+                    cache_hits += 1
+
                 # Filter based on status - only include active lessons
                 if lesson.metadata.status != "active":
                     logger.debug(
                         f"Skipping {lesson.metadata.status} lesson: {lesson_file.relative_to(directory)}"
                     )
                     continue
+
                 self.lessons.append(lesson)
+                seen_names.add(lesson_name)  # Mark as seen for deduplication
             except Exception as e:
                 logger.warning(f"Failed to parse lesson {lesson_file}: {e}")
+
+        return cache_hits, cache_misses, skipped_duplicates
 
     def search(self, query: str) -> list[Lesson]:
         """Search lessons by keyword or content.
