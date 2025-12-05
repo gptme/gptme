@@ -9,7 +9,6 @@ pytest.importorskip(
 )
 
 
-@pytest.mark.xfail(reason="Flaky test")
 @pytest.mark.timeout(20)
 def test_event_stream(event_listener, wait_for_event):
     """Test the event stream endpoint."""
