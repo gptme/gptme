@@ -8,6 +8,8 @@ from pathlib import Path
 
 import tomlkit
 
+from ..llm.llm_openrouter import OPENROUTER_APP_HEADERS
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,12 +65,14 @@ def search_perplexity(query: str) -> str:
             return "Error: No API key found. Set PERPLEXITY_API_KEY or OPENROUTER_API_KEY environment variable or add it to ~/.config/gptme/config.toml"
 
         # Create client and search
+        headers: dict[str, str] = {}
         if use_openrouter:
             client = OpenAI(
                 api_key=api_key,
                 base_url="https://openrouter.ai/api/v1",
             )
             model = "perplexity/sonar-pro"
+            headers |= OPENROUTER_APP_HEADERS
         else:
             client = OpenAI(
                 api_key=api_key,
@@ -78,6 +82,7 @@ def search_perplexity(query: str) -> str:
 
         response = client.chat.completions.create(
             model=model,
+            extra_headers=headers,
             messages=[
                 {
                     "role": "system",

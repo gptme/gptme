@@ -29,6 +29,12 @@ if TYPE_CHECKING:
 clients: dict[Provider, "OpenAI"] = {}
 logger = logging.getLogger(__name__)
 
+# Shows in rankings on openrouter.ai
+OPENROUTER_APP_HEADERS = {
+    "HTTP-Referer": "https://github.com/gptme/gptme",
+    "X-Title": "gptme",
+}
+
 
 def _record_usage(usage, model: str) -> None:
     """Record usage metrics as telemetry."""
@@ -315,10 +321,7 @@ def extra_headers(provider: Provider) -> dict[str, str]:
     headers: dict[str, str] = {}
     if provider == "openrouter":
         # Shows in rankings on openrouter.ai
-        headers |= {
-            "HTTP-Referer": "https://github.com/gptme/gptme",
-            "X-Title": "gptme",
-        }
+        headers |= OPENROUTER_APP_HEADERS
     return headers
 
 
@@ -585,7 +588,11 @@ def _transform_msgs_for_special_provider(
             if content is None:
                 # DeepSeek requires reasoning_content for assistant messages with tool_calls
                 # Since we don't store reasoning_content in Message objects, add empty reasoning_content field
-                if model.provider == "deepseek" and msg.get("role") == "assistant" and msg.get("tool_calls"):
+                if (
+                    model.provider == "deepseek"
+                    and msg.get("role") == "assistant"
+                    and msg.get("tool_calls")
+                ):
                     result.append({**msg, "reasoning_content": ""})
                 else:
                     result.append(msg)
@@ -598,7 +605,9 @@ def _transform_msgs_for_special_provider(
                     if isinstance(part, dict) and part.get("type") == "text"
                 ]
                 # Use placeholder if all parts are non-text (e.g., images only)
-                transformed = "\n\n".join(text_parts) if text_parts else "[non-text content]"
+                transformed = (
+                    "\n\n".join(text_parts) if text_parts else "[non-text content]"
+                )
                 result.append({**msg, "content": transformed})
             else:
                 result.append(msg)
