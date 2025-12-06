@@ -8,7 +8,7 @@ from pathlib import Path
 
 import tomlkit
 
-from ..llm.llm_openrouter import OPENROUTER_APP_HEADERS
+from ..llm.llm_openai import OPENROUTER_APP_HEADERS
 
 logger = logging.getLogger(__name__)
 
