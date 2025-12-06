@@ -1141,3 +1141,150 @@ def test_is_allowlisted_safe_commands():
     for cmd in safe_commands:
         result = is_allowlisted(cmd)
         assert result, f"Safe allowlisted command should be allowed: {cmd}"
+
+
+# Tests for background job feature (Issue #576)
+def test_background_job_start():
+    """Test starting a background job."""
+    from gptme.tools.shell import (
+        get_background_job,
+        reset_background_jobs,
+        start_background_job,
+    )
+
+    # Reset state for clean test
+    reset_background_jobs()
+
+    # Start a simple background job
+    job = start_background_job("sleep 0.1 && echo 'done'")
+
+    assert job.id == 1
+    assert job.command == "sleep 0.1 && echo 'done'"
+    assert job.is_running()
+
+    # Should be retrievable
+    assert get_background_job(1) == job
+    assert get_background_job(999) is None
+
+    # Wait for it to complete
+    import time
+
+    time.sleep(0.3)
+
+    # Should have output
+    stdout, stderr = job.get_output()
+    assert "done" in stdout
+    assert not job.is_running()
+
+    # Cleanup
+    reset_background_jobs()
+
+
+def test_background_job_kill():
+    """Test killing a background job."""
+    from gptme.tools.shell import (
+        reset_background_jobs,
+        start_background_job,
+    )
+
+    reset_background_jobs()
+
+    # Start a long-running job
+    job = start_background_job("sleep 60")
+
+    assert job.is_running()
+
+    # Kill it
+    job.kill()
+
+    assert not job.is_running()
+    assert job.process.returncode is not None
+
+    reset_background_jobs()
+
+
+def test_background_job_output():
+    """Test retrieving output from a background job."""
+    from gptme.tools.shell import (
+        reset_background_jobs,
+        start_background_job,
+    )
+
+    reset_background_jobs()
+
+    # Start job that produces output
+    job = start_background_job("echo 'line1'; sleep 0.1; echo 'line2'")
+
+    import time
+
+    time.sleep(0.3)
+
+    stdout, stderr = job.get_output()
+    assert "line1" in stdout
+    assert "line2" in stdout
+
+    reset_background_jobs()
+
+
+def test_list_background_jobs():
+    """Test listing background jobs."""
+    from gptme.tools.shell import (
+        list_background_jobs,
+        reset_background_jobs,
+        start_background_job,
+    )
+
+    reset_background_jobs()
+
+    # Start multiple jobs with sleep to ensure they're still running when we list
+    start_background_job("sleep 0.5 && echo 'job1'")
+    start_background_job("sleep 0.5 && echo 'job2'")
+
+    jobs = list_background_jobs()
+    # Jobs should still be running (sleeping), so we should have exactly 2
+    assert len(jobs) == 2
+    assert all(job.is_running() for job in jobs)
+
+    # Cleanup
+    reset_background_jobs()
+
+
+def test_execute_bg_command():
+    """Test the bg command handler."""
+    from gptme.tools.shell import execute_bg_command, reset_background_jobs
+
+    reset_background_jobs()
+
+    # Execute bg command
+    messages = list(execute_bg_command("echo 'test'"))
+
+    assert len(messages) == 1
+    assert "Started background job" in messages[0].content
+    assert "#" in messages[0].content  # Check job ID format exists
+
+    # Cleanup
+    reset_background_jobs()
+
+
+def test_execute_jobs_command():
+    """Test the jobs command handler."""
+    from gptme.tools.shell import (
+        execute_jobs_command,
+        reset_background_jobs,
+        start_background_job,
+    )
+
+    reset_background_jobs()
+
+    # No jobs
+    messages = list(execute_jobs_command())
+    assert "No background jobs" in messages[0].content
+
+    # With a job
+    job = start_background_job("sleep 0.1")
+    messages = list(execute_jobs_command())
+    assert f"#{job.id}" in messages[0].content  # Use actual job ID
+    assert "Running" in messages[0].content
+
+    job.kill()
+    reset_background_jobs()

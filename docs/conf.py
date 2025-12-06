@@ -144,6 +144,7 @@ nitpick_ignore = [
     ("py:class", "ConfirmFunc"),
     ("py:class", "Path"),
     ("py:class", "gptme.tools.subagent.SubtaskDef"),
+    ("py:class", "gptme.tools.shell.BackgroundJob"),
 ]
 
 # -- Options for HTML output -------------------------------------------------
