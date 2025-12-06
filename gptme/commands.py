@@ -9,7 +9,7 @@ from time import sleep
 from typing import Literal
 
 from . import llm
-from .config import ChatConfig
+from .config import ChatConfig, get_config
 from .constants import INTERRUPT_CONTENT
 from .llm.models import get_default_model, list_models, set_default_model
 from .logmanager import LogManager, prepare_messages
@@ -19,6 +19,13 @@ from .message import (
     msgs_to_toml,
     print_msg,
     toml_to_msgs,
+)
+from .plugins import (
+    Plugin,
+    detect_install_environment,
+    discover_plugins,
+    get_install_instructions,
+    register_plugin_commands,
 )
 from .setup import setup
 from .tools import (
@@ -417,15 +424,6 @@ def cmd_help(ctx: CommandContext) -> None:
 @command("plugin")
 def cmd_plugin(ctx: CommandContext) -> None:
     """Manage plugins - list, show info, check installation status."""
-    from pathlib import Path
-
-    from .config import get_config
-    from .plugins import (
-        Plugin,
-        detect_install_environment,
-        discover_plugins,
-        get_install_instructions,
-    )
 
     ctx.manager.undo(1, quiet=True)
 
@@ -682,10 +680,6 @@ def get_user_commands() -> list[str]:
 
 def init_commands() -> None:
     """Initialize plugin commands."""
-    from pathlib import Path
-
-    from .config import get_config
-    from .plugins import register_plugin_commands
 
     config = get_config()
     if config.project and config.project.plugins and config.project.plugins.paths:
