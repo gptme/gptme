@@ -576,13 +576,36 @@ def _check_dependency(name: str, check_type: str) -> bool:
 
 def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
     """Prompt user for API key and validate it."""
+    from .llm.validate import PROVIDER_DOCS, validate_api_key
+
     console.print("Paste your API key [dim](We will auto-detect the provider)[/dim]")
     api_key = Prompt.ask("API key", password=True).strip()
-    if (found_model_tuple := get_model_from_api_key(api_key)) is not None:
-        return found_model_tuple
-    else:
+
+    # First check format
+    if (found_model_tuple := get_model_from_api_key(api_key)) is None:
         console.print("[red]Invalid API key format. Please try again.[/red]")
+        console.print(
+            "[dim]Supported formats: OpenAI (sk-...), Anthropic (sk-ant-...), "
+            "OpenRouter (sk-or-...)[/dim]"
+        )
         return _prompt_api_key()
+
+    api_key, provider, env_var = found_model_tuple
+
+    # Validate key by making a test request
+    console.print(f"[dim]Validating {provider} API key...[/dim]")
+    is_valid, error_msg = validate_api_key(api_key, provider)
+
+    if not is_valid:
+        console.print(f"[red]❌ API key validation failed: {error_msg}[/red]")
+        doc_url = PROVIDER_DOCS.get(provider, "")
+        if doc_url:
+            console.print(f"[dim]Get a valid key at: {doc_url}[/dim]")
+        console.print()
+        return _prompt_api_key()
+
+    console.print(f"[green]✓ {provider} API key validated successfully![/green]")
+    return api_key, provider, env_var
 
 
 def ask_for_api_key():  # pragma: no cover
