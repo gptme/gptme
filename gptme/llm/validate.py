@@ -116,7 +116,10 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
         return False, "Invalid API key. Please check your key and try again."
     elif response.status_code == 400:
         # Bad request means key is valid but request format was wrong (expected)
-        error_data = response.json()
+        try:
+            error_data = response.json()
+        except Exception:
+            return False, "Invalid API key. Please check your key and try again."
         if "authentication" in error_data.get("error", {}).get("message", "").lower():
             return False, "Invalid API key. Please check your key and try again."
         return True, ""  # Key is valid, request format was just wrong
@@ -159,7 +162,10 @@ def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
     if response.status_code == 200:
         return True, ""
     elif response.status_code == 400:
-        error = response.json().get("error", {})
+        try:
+            error = response.json().get("error", {})
+        except Exception:
+            error = {}
         if error.get("status") == "INVALID_ARGUMENT":
             return False, "Invalid API key. Please check your key and try again."
         return False, error.get("message", "Unknown error")
