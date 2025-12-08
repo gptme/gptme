@@ -50,12 +50,14 @@ class Codeblock:
         return "." in self.lang or "/" in self.lang
 
     @classmethod
-    @trace_function(
-        name="codeblock.iter_from_markdown", attributes={"component": "parser"}
-    )
     def iter_from_markdown(
         cls, markdown: str, streaming: bool = False
     ) -> list["Codeblock"]:
+        """Extract codeblocks from markdown.
+
+        Note: Tracing removed from this function as it's called hundreds of times
+        per conversation, creating ~97% of all trace spans (see Issue #199).
+        """
         return list(_extract_codeblocks(markdown, streaming=streaming))
 
 
@@ -66,12 +68,14 @@ re_triple_tick_start = re.compile(r"^```.*\n")
 re_triple_tick_end = re.compile(r"^```$")
 
 
-@trace_function(name="codeblock.extract_codeblocks", attributes={"component": "parser"})
 def _extract_codeblocks(
     markdown: str, streaming: bool = False
 ) -> Generator[Codeblock, None, None]:
     """
     Extracts code blocks from a markdown string using context-aware pattern matching.
+
+    Note: Tracing removed from this function as it's called hundreds of times
+    per conversation, creating ~97% of all trace spans (see Issue #199).
 
     Args:
         markdown: The markdown string to extract code blocks from
