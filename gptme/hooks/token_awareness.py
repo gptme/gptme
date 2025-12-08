@@ -86,7 +86,7 @@ def add_token_budget(
 
 
 def add_token_usage_warning(
-    log: Log, workspace: Path | None, tool_use: Any
+    log: Log | None, workspace: Path | None, tool_use: Any
 ) -> Generator[Message | StopPropagation, None, None]:
     """Add token usage warning after tool execution.
 
@@ -94,7 +94,7 @@ def add_token_usage_warning(
     Only shows warnings at meaningful thresholds to avoid noise.
 
     Args:
-        log: The conversation log
+        log: The conversation log (may be None in some contexts)
         workspace: Workspace directory path
         tool_use: The tool being executed (unused)
 
@@ -102,6 +102,11 @@ def add_token_usage_warning(
         System message with token usage warning (only at thresholds)
     """
     try:
+        # Early return if log is not available
+        if log is None:
+            logger.debug("No log available, skipping token usage warning")
+            return
+
         from ..llm.models import get_default_model
 
         model = get_default_model()
