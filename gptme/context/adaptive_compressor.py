@@ -3,8 +3,15 @@
 This module provides adaptive compression that adjusts compression ratios
 based on task complexity. It integrates the task analyzer to classify tasks
 and select appropriate compression strategies.
+
+The compression uses extractive summarization that:
+- Preserves code blocks (always kept)
+- Scores sentences by importance (positional, key terms, length)
+- Selects top sentences to meet target ratio
 """
 
+import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +22,8 @@ from .task_analyzer import (
     extract_features,
     select_compression_ratio,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,12 +53,220 @@ class CompressionResult:
         return (original_len - compressed_len) // 4
 
 
+def extract_code_blocks(content: str) -> tuple[str, list[tuple[str, str]]]:
+    """
+    Extract code blocks from content, returning cleaned content and blocks.
+
+    Args:
+        content: Message content with potential code blocks
+
+    Returns:
+        Tuple of (content without code blocks, list of (marker, code block) tuples)
+    """
+    code_blocks: list[tuple[str, str]] = []
+    code_block_pattern = r"```[\s\S]*?```"
+
+    def replacer(match: re.Match[str]) -> str:
+        marker = f"__CODE_BLOCK_{len(code_blocks)}__"
+        code_blocks.append((marker, match.group(0)))
+        return marker
+
+    cleaned = re.sub(code_block_pattern, replacer, content)
+    return cleaned, code_blocks
+
+
+def score_sentence(
+    sentence: str,
+    position: int,
+    total: int,
+    task_type: str = "mixed",
+) -> float:
+    """
+    Score sentence importance using task-aware heuristics.
+
+    Higher scores for:
+    - Sentences at beginning/end (positional bias)
+    - Sentences with key terms
+    - Shorter sentences (more information-dense)
+    - Task-relevant keywords
+
+    Args:
+        sentence: The sentence to score
+        position: Position in message (0-indexed)
+        total: Total number of sentences
+        task_type: Task classification for context-aware scoring
+
+    Returns:
+        Importance score (higher = more important)
+    """
+    score = 0.0
+
+    # Positional bias: first and last sentences more important
+    if position == 0:
+        score += 2.0
+    elif position == total - 1:
+        score += 1.5
+    elif position < 3:
+        score += 1.0
+
+    lower_sentence = sentence.lower()
+
+    # Universal key terms
+    key_terms = [
+        "error",
+        "fail",
+        "success",
+        "complete",
+        "implement",
+        "fix",
+        "bug",
+        "issue",
+        "result",
+        "output",
+        "TODO",
+        "FIXME",
+        "NOTE",
+        "WARNING",
+        "important",
+        "critical",
+        "must",
+        "should",
+    ]
+    for term in key_terms:
+        if term.lower() in lower_sentence:
+            score += 0.5
+
+    # Task-specific term boosting
+    task_terms: dict[str, list[str]] = {
+        "diagnostic": ["error", "exception", "traceback", "stack", "debug", "log"],
+        "fix": ["fix", "bug", "patch", "correct", "resolve", "repair"],
+        "implementation": [
+            "design",
+            "architecture",
+            "interface",
+            "pattern",
+            "structure",
+            "component",
+        ],
+        "exploration": ["explore", "investigate", "research", "understand", "analyze"],
+    }
+    if task_type in task_terms:
+        for term in task_terms[task_type]:
+            if term in lower_sentence:
+                score += 0.3
+
+    # Length penalty: prefer shorter, denser sentences
+    # But not too short (less than 10 chars is probably not useful)
+    length = len(sentence)
+    if length < 10:
+        score -= 1.0
+    elif length < 50:
+        score += 0.3
+    elif length > 200:
+        score -= 0.2
+
+    return score
+
+
+def extractive_compress(
+    content: str,
+    target_ratio: float = 0.7,
+    task_type: str = "mixed",
+) -> str:
+    """
+    Compress content using extractive summarization.
+
+    Preserves:
+    - Code blocks (always kept)
+    - Important sentences based on scoring
+    - Overall structure
+
+    Args:
+        content: Content to compress
+        target_ratio: Target length as ratio of original (0.7 = 30% reduction)
+        task_type: Task classification for context-aware compression
+
+    Returns:
+        Compressed content
+    """
+    # Extract and preserve code blocks
+    cleaned, code_blocks = extract_code_blocks(content)
+
+    # Split into sentences (simple split on . ! ?)
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    if len(sentences) <= 3:
+        # Too few sentences to compress meaningfully
+        return content
+
+    # Keep sentences that contain code block markers (don't score them)
+    marker_sentences: list[tuple[int, str]] = []
+    scoreable_sentences: list[tuple[int, str]] = []
+    for i, sent in enumerate(sentences):
+        if "__CODE_BLOCK_" in sent:
+            marker_sentences.append((i, sent))
+        else:
+            scoreable_sentences.append((i, sent))
+
+    # Score scoreable sentences
+    scored = [
+        (score_sentence(sent, i, len(sentences), task_type), i, sent)
+        for i, sent in scoreable_sentences
+    ]
+
+    # Sort by score descending
+    scored.sort(reverse=True)
+
+    # Calculate how many sentences to keep
+    original_scoreable_len = sum(len(sent) for _, sent in scoreable_sentences)
+    code_block_len = sum(len(block) for _, block in code_blocks)
+    marker_len = sum(len(sent) for _, sent in marker_sentences)
+
+    # Target length minus code blocks and markers (those are always kept)
+    available_len = (
+        int((original_scoreable_len + code_block_len + marker_len) * target_ratio)
+        - code_block_len
+        - marker_len
+    )
+    available_len = max(available_len, 0)
+
+    # Select top sentences up to target length
+    selected_indices: set[int] = set()
+    current_len = 0
+    for _score, idx, sent in scored:
+        if current_len + len(sent) > available_len:
+            break
+        selected_indices.add(idx)
+        current_len += len(sent)
+
+    # Reconstruct in original order
+    # Combine marker sentences and selected scoreable sentences
+    all_kept = [(idx, sent) for idx, sent in marker_sentences]
+    all_kept.extend(
+        [(idx, sent) for idx, sent in scoreable_sentences if idx in selected_indices]
+    )
+    all_kept.sort(key=lambda x: x[0])  # Sort by original position
+
+    # Join sentences
+    compressed = " ".join(sent for _, sent in all_kept)
+
+    # Restore code blocks
+    for marker, block in code_blocks:
+        compressed = compressed.replace(marker, block)
+
+    return compressed
+
+
 class AdaptiveCompressor:
     """Adaptive context compressor using task analysis.
 
     This compressor analyzes task complexity to select appropriate
     compression ratios, providing aggressive compression for simple
     tasks and conservative compression for complex architectural work.
+
+    Uses extractive summarization that:
+    - Preserves all code blocks
+    - Scores sentences by importance
+    - Adapts scoring to task type
 
     Example:
         >>> compressor = AdaptiveCompressor()
@@ -111,8 +328,7 @@ class AdaptiveCompressor:
         # Select compression ratio
         ratio = select_compression_ratio(classification, features)
 
-        # Perform compression (simplified - actual implementation would use
-        # extractive summarization or other compression techniques)
+        # Perform extractive compression
         compressed = self._compress_content(
             context_files or [],
             ratio,
@@ -142,13 +358,13 @@ class AdaptiveCompressor:
         ratio: float,
         classification: TaskClassification,
     ) -> str:
-        """Compress content using selected ratio.
+        """Compress content using extractive summarization.
 
-        This is a simplified implementation. A production version would:
-        - Use extractive summarization
-        - Apply sentence-level selection
-        - Preserve code blocks and structure
-        - Handle different content types appropriately
+        Uses sentence-level importance scoring with task-aware heuristics:
+        - Code blocks are always preserved
+        - Sentences scored by position, key terms, and length
+        - Task type influences which terms are prioritized
+        - Top sentences selected to meet target ratio
 
         Args:
             content_pieces: List of content strings to compress
@@ -158,24 +374,19 @@ class AdaptiveCompressor:
         Returns:
             Compressed content string
         """
-        # Simplified: Just truncate to approximate ratio
-        # Real implementation would use smart selection
         combined = "\n\n".join(content_pieces)
-        target_length = int(len(combined) * ratio)
 
-        # Preserve beginning (most important context)
-        if classification.primary_type in ["diagnostic", "fix"]:
-            # For focused tasks, keep beginning
-            compressed = combined[:target_length]
-        elif classification.primary_type == "implementation":
-            # For architecture tasks, keep more complete sections
-            # Split into sections and keep proportionally
-            sections = combined.split("\n\n")
-            target_sections = max(1, int(len(sections) * ratio))
-            compressed = "\n\n".join(sections[:target_sections])
-        else:
-            # Mixed/exploration: balanced approach
-            compressed = combined[:target_length]
+        # Skip compression if content is too short (need enough for meaningful extraction)
+        if len(combined) < 100:
+            return combined
+
+        # Apply extractive compression with task type awareness
+        task_type = classification.primary_type
+        compressed = extractive_compress(combined, ratio, task_type)
+
+        # Ensure we didn't accidentally expand
+        if len(compressed) > len(combined):
+            return combined
 
         return compressed
 
@@ -203,6 +414,12 @@ class AdaptiveCompressor:
         if features.import_depth > 2:
             lines.append(f"- Complex dependencies (depth: {features.import_depth})")
 
+        lines.append("")
+        lines.append("Compression Method: Extractive summarization")
+        lines.append("- Code blocks preserved")
+        lines.append("- Sentences scored by importance")
+        lines.append(f"- Task-aware term boosting ({classification.primary_type})")
+
         lines.extend(["", classification.rationale])
 
         return "\n".join(lines)
@@ -214,9 +431,6 @@ class AdaptiveCompressor:
         rationale: str,
     ) -> None:
         """Log compression decision for debugging."""
-        import logging
-
-        logger = logging.getLogger(__name__)
         logger.info(
             f"Adaptive compression: type={classification.primary_type}, "
             f"ratio={ratio:.2f}, confidence={classification.confidence:.2f}"
