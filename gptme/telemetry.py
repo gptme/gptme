@@ -277,6 +277,23 @@ def record_llm_request(
     )
     logger.debug(f"LLM request cost: ${cost:.6f}")
 
+    # Record to CostTracker for session-level aggregation
+    from time import time
+
+    from .util.cost_tracker import CostEntry, CostTracker
+
+    CostTracker.record(
+        CostEntry(
+            timestamp=time(),
+            model=model,
+            input_tokens=input_tokens or 0,
+            output_tokens=output_tokens or 0,
+            cache_read_tokens=cache_read_tokens or 0,
+            cache_creation_tokens=cache_creation_tokens or 0,
+            cost=cost,
+        )
+    )
+
     # Detect poor cost effectiveness patterns
     if cache_creation_tokens and cache_read_tokens:
         hit_rate = cache_read_tokens / total_in
