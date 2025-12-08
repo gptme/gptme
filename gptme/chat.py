@@ -1,8 +1,10 @@
 import logging
 import os
+import queue
 import sys
 import termios
 import threading
+import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -39,6 +41,40 @@ logger = logging.getLogger(__name__)
 # Global flag to track if we were recently interrupted
 _recently_interrupted = False
 
+# Global prompt queue for interactive mode
+_prompt_queue: queue.Queue[str] = queue.Queue()
+_input_thread: threading.Thread | None = None
+_stop_input = threading.Event()
+
+
+def _background_input_loop():
+    """Background thread to capture user input while agent is working."""
+    while not _stop_input.is_set():
+        try:
+            # Check if there are queued prompts and show indicator
+            queued_count = _prompt_queue.qsize()
+            if queued_count > 0:
+                console.log(
+                    f"[📝 {queued_count} prompt{'s' if queued_count > 1 else ''} queued - Enter more or '/queue clear' to manage]"
+                )
+
+            # Get user input with queue indicator
+            if queued_count > 0:
+                prompt_text = f"[{queued_count} queued] Enter prompt: "
+            else:
+                prompt_text = "Enter prompt: "
+
+            user_input = get_input(prompt_text)
+            if user_input:
+                _prompt_queue.put(user_input)
+                console.log(f"[✓ Prompt queued - {queued_count + 1} total]")
+                logger.debug(f"Queued prompt: {user_input[:50]}...")
+        except (EOFError, KeyboardInterrupt):
+            continue
+        except Exception as e:
+            logger.error(f"Error in background input: {e}")
+            time.sleep(0.5)
+
 
 @trace_function(name="chat.main", attributes={"component": "chat"})
 def chat(
@@ -64,8 +100,14 @@ def chat(
 
     Callable from other modules.
     """
-    global _recently_interrupted
+    global _recently_interrupted, _input_thread, _stop_input
     _recently_interrupted = False
+
+    # Start background input thread for interactive mode
+    if interactive:
+        _stop_input.clear()
+        _input_thread = threading.Thread(target=_background_input_loop, daemon=True)
+        _input_thread.start()
 
     # Set initial terminal title with conversation name
     conv_name = logdir.name
@@ -121,8 +163,12 @@ def chat(
             return True
         return ask_execute(msg)
 
-    # Convert prompt_msgs to a queue for unified handling
-    prompt_queue = list(prompt_msgs)
+    # Add initial prompts to global queue
+    for msg in prompt_msgs:
+        _prompt_queue.put(msg.content)
+
+    # Use empty list for traditional queue (we'll use global queue)
+    prompt_queue: list[Message] = []
 
     # Import SessionCompleteException for clean exit handling
 
@@ -142,13 +188,18 @@ def chat(
     except SessionCompleteException as e:
         console.log(f"Autonomous mode: {e}. Exiting.")
 
-        # Trigger session end hooks
-        if session_end_msgs := trigger_hook(
-            HookType.SESSION_END, logdir=logdir, manager=manager
-        ):
-            for msg in session_end_msgs:
-                manager.append(msg)
-        return
+        # Stop background input thread
+    if interactive and _input_thread:
+        _stop_input.set()
+        _input_thread.join(timeout=1.0)
+
+    # Trigger session end hooks
+    if session_end_msgs := trigger_hook(
+        HookType.SESSION_END, logdir=logdir, manager=manager
+    ):
+        for msg in session_end_msgs:
+            manager.append(msg)
+    return
 
 
 def _run_chat_loop(
@@ -167,10 +218,11 @@ def _run_chat_loop(
     while True:
         msg: Message | None = None
         try:
-            # Process next message (either from prompt queue or user input)
-            if prompt_queue:
-                msg = prompt_queue.pop(0)
-                assert msg is not None, "prompt_queue contained None"
+            # Process next message (either from global queue or user input)
+            if not _prompt_queue.empty():
+                # Get queued prompt
+                prompt_content = _prompt_queue.get_nowait()
+                msg = Message("user", prompt_content, quiet=True)
                 msg = include_paths(msg, manager.workspace)
                 manager.append(msg)
 
