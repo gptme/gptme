@@ -86,13 +86,16 @@ class AdaptiveCompressor:
 
         Args:
             prompt: Task prompt/description
-            context_files: List of file paths relevant to task
+            context_files: List of context items (file paths or content strings).
+                The count affects task classification; content is used for compression.
             current_context: Current conversation context
 
         Returns:
             CompressionResult with compressed content and metadata
         """
         # Extract task features
+        # Note: workspace_paths is used for metrics (file count, directory spread)
+        # even when context_files contains content strings rather than actual paths
         workspace_paths = (
             [self.workspace_root / f for f in context_files] if context_files else None
         )
