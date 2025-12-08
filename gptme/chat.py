@@ -187,19 +187,18 @@ def chat(
         )
     except SessionCompleteException as e:
         console.log(f"Autonomous mode: {e}. Exiting.")
-
+    finally:
         # Stop background input thread
-    if interactive and _input_thread:
-        _stop_input.set()
-        _input_thread.join(timeout=1.0)
+        if interactive and _input_thread:
+            _stop_input.set()
+            _input_thread.join(timeout=1.0)
 
-    # Trigger session end hooks
-    if session_end_msgs := trigger_hook(
-        HookType.SESSION_END, logdir=logdir, manager=manager
-    ):
-        for msg in session_end_msgs:
-            manager.append(msg)
-    return
+        # Trigger session end hooks
+        if session_end_msgs := trigger_hook(
+            HookType.SESSION_END, logdir=logdir, manager=manager
+        ):
+            for msg in session_end_msgs:
+                manager.append(msg)
 
 
 def _run_chat_loop(
