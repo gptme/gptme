@@ -151,7 +151,7 @@ cd your-repo
 GITHUB_TOKEN=your_token \
 GITHUB_REPOSITORY=your-org/your-repo \
 ANTHROPIC_API_KEY=your_key \
-python /path/to/github_bot.py \
+python scripts/github_bot.py \
   --issue 123 \
   --comment-body "@gptme What is this project?" \
   --dry-run
@@ -160,7 +160,7 @@ python /path/to/github_bot.py \
 GITHUB_TOKEN=your_token \
 GITHUB_REPOSITORY=your-org/your-repo \
 ANTHROPIC_API_KEY=your_key \
-python /path/to/github_bot.py \
+python scripts/github_bot.py \
   --pr 456 \
   --comment-body "@gptme Fix the typo" \
   --workspace . \
