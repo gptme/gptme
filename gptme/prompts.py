@@ -471,6 +471,9 @@ def prompt_workspace(
 
 
 def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
+    from .util import console
+
+    console.log(f"Using project context command: {cmd}")
     try:
         start = time.time()
         result = subprocess.run(
@@ -494,7 +497,15 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
                 )
             return md_codeblock(cmd, result.stdout)
         else:
-            logger.error(f"Failed to run context command '{cmd}': {result.stderr}")
+            logger.warning(
+                f"Context command '{cmd}' exited with code {result.returncode}"
+            )
+            # Include both stdout (partial results) and stderr (error details)
+            # so LLM can see what worked and what failed for self-recovery
+            output = result.stdout
+            if result.stderr.strip():
+                output += f"\n\n## Context Generation Error (exit {result.returncode})\n\n{result.stderr.strip()}"
+            return md_codeblock(cmd, output)
     except Exception as e:
         logger.error(f"Error running context command: {e}")
     return None
