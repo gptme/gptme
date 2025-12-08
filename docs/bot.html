@@ -443,7 +443,28 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick Start</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">How It Works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-with-custom-model">Example with Custom Model</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#good-prompts">Good Prompts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prompts-to-avoid">Prompts to Avoid</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security-considerations">Security Considerations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#bot-doesn-t-respond">Bot doesn’t respond</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#bot-creates-wrong-changes">Bot creates wrong changes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication-errors">Authentication errors</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-testing">Local Testing</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples-in-the-wild">Examples in the Wild</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
 </ul>
             </nav>
         </div>
@@ -457,12 +478,10 @@
                   
   <section id="github-bot">
 <h1>GitHub Bot<a class="headerlink" href="#github-bot" title="Link to this heading">#</a></h1>
-<p>One way to run gptme is as a GitHub bot.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">gptme-bot</span></code> composite action is a GitHub Action that runs <code class="docutils literal notranslate"><span class="pre">gptme</span></code> in response to comments on GitHub issues or pull requests using the format <code class="docutils literal notranslate"><span class="pre">&#64;gptme</span> <span class="pre">&lt;prompt&gt;</span></code>. It is designed to be used for tasks that gptme can perform with a one-shot prompt, such as answering questions, running commands and committing their results, creating files or making simple changes/additions (like write tests), and (potentially) automating code reviews.</p>
-<section id="usage">
-<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
-<p>To use the <code class="docutils literal notranslate"><span class="pre">gptme-bot</span></code> composite action in your repo, you need to create a GitHub Actions workflow file that triggers the action in response to comments on issues or pull requests.</p>
-<p>Here is an example workflow file that triggers the action in response to issue comments:</p>
+<p>The gptme GitHub bot lets you run gptme directly from GitHub issues and pull requests. Just comment <code class="docutils literal notranslate"><span class="pre">&#64;gptme</span> <span class="pre">&lt;your</span> <span class="pre">prompt&gt;</span></code> and the bot will respond or make changes.</p>
+<section id="quick-start">
+<h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading">#</a></h2>
+<p>Add this workflow to your repository at <code class="docutils literal notranslate"><span class="pre">.github/workflows/gptme-bot.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gptme-bot</span>
 
 <span class="nt">on</span><span class="p">:</span>
@@ -475,21 +494,216 @@
 <span class="w">  </span><span class="nt">run-bot</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
 <span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Checkout</span>
-<span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v4</span>
-
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run gptme-bot action</span>
-<span class="w">        </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gptme/gptme/.github/actions/bot@master</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v4</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gptme/gptme/.github/actions/bot@master</span>
 <span class="w">        </span><span class="nt">with</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">openai_api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.OPENAI_API_KEY }}</span>
+<span class="w">          </span><span class="nt">anthropic_api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.ANTHROPIC_API_KEY }}</span>
 <span class="w">          </span><span class="nt">github_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.GITHUB_TOKEN }}</span>
-<span class="w">          </span><span class="nt">allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;erikbjare&quot;</span>
+<span class="w">          </span><span class="nt">allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-username&quot;</span>
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">gptme-bot</span></code> action will then run the <code class="docutils literal notranslate"><span class="pre">gptme</span></code> command-line tool with the command specified in the comment, and perform actions based on the output of the tool.</p>
-<p>If a question was asked, it will simply reply.</p>
-<p>If a request was made it will check out the appropriate branch, install dependencies, run <code class="docutils literal notranslate"><span class="pre">gptme</span></code>, then commit and push any changes made. If the issue is a pull request, the bot will push changes directly to the pull request branch. If the issue is not a pull request, the bot will create a new pull request with the changes.</p>
-<p>The feature was initially introduced in <a class="reference external" href="https://github.com/gptme/gptme/issues/16">#16</a>.</p>
+<p>Then comment <code class="docutils literal notranslate"><span class="pre">&#64;gptme</span> <span class="pre">&lt;prompt&gt;</span></code> on any issue or PR!</p>
+</section>
+<section id="how-it-works">
+<h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading">#</a></h2>
+<p>The bot operates in two modes:</p>
+<p><strong>Questions</strong> - If you ask a question, the bot replies directly:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>@gptme What does this function do?
+@gptme Explain the architecture of this project
+@gptme How should I approach fixing issue #123?
+</pre></div>
+</div>
+<p><strong>Changes</strong> - If you request changes, the bot:</p>
+<ol class="arabic simple">
+<li><p>Checks out the appropriate branch (PR branch or creates new branch)</p></li>
+<li><p>Runs gptme with your prompt</p></li>
+<li><p>Commits any changes made</p></li>
+<li><p>Pushes and creates a PR (if on an issue) or pushes to PR branch (if on a PR)</p></li>
+</ol>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>@gptme Add tests for the utils module
+@gptme Fix the typo in README.md
+@gptme Implement the feature described in this issue
+</pre></div>
+</div>
+<p>The bot uses an LLM to determine which mode based on your prompt.</p>
+</section>
+<section id="configuration-options">
+<h2>Configuration Options<a class="headerlink" href="#configuration-options" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Input</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Required</p></th>
+<th class="head"><p>Default</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">openai_api_key</span></code></p></td>
+<td><p>OpenAI API key</p></td>
+<td><p>No*</p></td>
+<td><p>-</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">anthropic_api_key</span></code></p></td>
+<td><p>Anthropic API key</p></td>
+<td><p>No*</p></td>
+<td><p>-</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
+<td><p>Model to use</p></td>
+<td><p>No</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-20250514</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">github_token</span></code></p></td>
+<td><p>GitHub token for API access</p></td>
+<td><p>Yes</p></td>
+<td><p>-</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">allowlist</span></code></p></td>
+<td><p>Comma-separated usernames allowed to trigger</p></td>
+<td><p>Yes</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ErikBjare</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>*At least one API key is required.</p>
+<section id="example-with-custom-model">
+<h3>Example with Custom Model<a class="headerlink" href="#example-with-custom-model" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gptme/gptme/.github/actions/bot@master</span>
+<span class="w">  </span><span class="nt">with</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">openai_api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.OPENAI_API_KEY }}</span>
+<span class="w">    </span><span class="nt">github_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.GITHUB_TOKEN }}</span>
+<span class="w">    </span><span class="nt">allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user1,user2,user3&quot;</span>
+<span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;openai/gpt-4o&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
+<section id="good-prompts">
+<h3>Good Prompts<a class="headerlink" href="#good-prompts" title="Link to this heading">#</a></h3>
+<p><strong>For questions:</strong></p>
+<ul class="simple">
+<li><p>Be specific about what you want explained</p></li>
+<li><p>Reference files or functions by name</p></li>
+<li><p>Ask about design decisions or alternatives</p></li>
+</ul>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>@gptme What does the `compress_context` function in context.py do?
+@gptme Why does this project use SQLite instead of PostgreSQL?
+</pre></div>
+</div>
+<p><strong>For changes:</strong></p>
+<ul class="simple">
+<li><p>Be clear about what you want changed</p></li>
+<li><p>Reference specific files or locations when possible</p></li>
+<li><p>Break complex changes into smaller prompts</p></li>
+</ul>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>@gptme Add a docstring to the compress_context function
+@gptme Add type hints to all functions in utils.py
+@gptme Create a test file for the new feature in this PR
+</pre></div>
+</div>
+</section>
+<section id="prompts-to-avoid">
+<h3>Prompts to Avoid<a class="headerlink" href="#prompts-to-avoid" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>Very complex multi-step changes (break them up)</p></li>
+<li><p>Vague requests (“make this better”)</p></li>
+<li><p>Large refactors spanning many files</p></li>
+</ul>
+</section>
+</section>
+<section id="security-considerations">
+<h2>Security Considerations<a class="headerlink" href="#security-considerations" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Allowlist</strong> - Only users on the allowlist can trigger the bot</p></li>
+<li><p><strong>Permissions</strong> - The bot has <code class="docutils literal notranslate"><span class="pre">write-all</span></code> permissions, so protect your allowlist</p></li>
+<li><p><strong>API Keys</strong> - Store API keys as repository secrets, never in code</p></li>
+<li><p><strong>Review Changes</strong> - Always review bot-created PRs before merging</p></li>
+</ol>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
+<section id="bot-doesn-t-respond">
+<h3>Bot doesn’t respond<a class="headerlink" href="#bot-doesn-t-respond" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>Check that the user is on the allowlist</p></li>
+<li><p>Verify the workflow is enabled (Actions tab)</p></li>
+<li><p>Check the workflow run logs for errors</p></li>
+<li><p>Ensure API keys are configured as secrets</p></li>
+</ol>
+</section>
+<section id="bot-creates-wrong-changes">
+<h3>Bot creates wrong changes<a class="headerlink" href="#bot-creates-wrong-changes" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>Be more specific in your prompt</p></li>
+<li><p>Reference specific files and line numbers</p></li>
+<li><p>Break complex requests into smaller steps</p></li>
+</ol>
+</section>
+<section id="authentication-errors">
+<h3>Authentication errors<a class="headerlink" href="#authentication-errors" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>Verify <code class="docutils literal notranslate"><span class="pre">GITHUB_TOKEN</span></code> has necessary permissions</p></li>
+<li><p>Check that API keys are valid and not expired</p></li>
+<li><p>Ensure secrets are accessible to the workflow</p></li>
+</ol>
+</section>
+</section>
+<section id="local-testing">
+<h2>Local Testing<a class="headerlink" href="#local-testing" title="Link to this heading">#</a></h2>
+<p>You can test the bot locally before deploying:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the repository</span>
+git<span class="w"> </span>clone<span class="w"> </span>https://github.com/your-org/your-repo
+<span class="nb">cd</span><span class="w"> </span>your-repo
+
+<span class="c1"># Test with a question</span>
+<span class="nv">GITHUB_TOKEN</span><span class="o">=</span>your_token<span class="w"> </span><span class="se">\</span>
+<span class="nv">GITHUB_REPOSITORY</span><span class="o">=</span>your-org/your-repo<span class="w"> </span><span class="se">\</span>
+<span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>your_key<span class="w"> </span><span class="se">\</span>
+python<span class="w"> </span>scripts/github_bot.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--issue<span class="w"> </span><span class="m">123</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--comment-body<span class="w"> </span><span class="s2">&quot;@gptme What is this project?&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--dry-run
+
+<span class="c1"># Test with changes</span>
+<span class="nv">GITHUB_TOKEN</span><span class="o">=</span>your_token<span class="w"> </span><span class="se">\</span>
+<span class="nv">GITHUB_REPOSITORY</span><span class="o">=</span>your-org/your-repo<span class="w"> </span><span class="se">\</span>
+<span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>your_key<span class="w"> </span><span class="se">\</span>
+python<span class="w"> </span>scripts/github_bot.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--pr<span class="w"> </span><span class="m">456</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--comment-body<span class="w"> </span><span class="s2">&quot;@gptme Fix the typo&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--workspace<span class="w"> </span>.<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--dry-run
+</pre></div>
+</div>
+</section>
+<section id="limitations">
+<h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>One-shot execution</strong> - The bot runs once per comment, no multi-turn conversation</p></li>
+<li><p><strong>Timeout</strong> - Commands time out after 2 minutes</p></li>
+<li><p><strong>Context</strong> - The bot has access to the issue/PR context but limited file context</p></li>
+<li><p><strong>Complexity</strong> - Works best for simple, well-defined tasks</p></li>
+</ul>
+</section>
+<section id="examples-in-the-wild">
+<h2>Examples in the Wild<a class="headerlink" href="#examples-in-the-wild" title="Link to this heading">#</a></h2>
+<p>The gptme project itself uses this bot. See examples:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/16">Original implementation issue #16</a></p></li>
+<li><p>Search for “gptme-bot” in closed PRs to see bot-created changes</p></li>
+</ul>
+</section>
+<section id="related">
+<h2>Related<a class="headerlink" href="#related" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="automation.html"><span class="std std-doc">Automation</span></a> - Other ways to automate gptme</p></li>
+<li><p><a class="reference internal" href="server.html"><span class="std std-doc">Server</span></a> - Running gptme as a service</p></li>
+<li><p><a class="reference internal" href="cli.html"><span class="std std-doc">CLI Reference</span></a> - Command-line options</p></li>
+</ul>
 </section>
 </section>
 
@@ -539,7 +753,28 @@
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick Start</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">How It Works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-with-custom-model">Example with Custom Model</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#good-prompts">Good Prompts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prompts-to-avoid">Prompts to Avoid</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security-considerations">Security Considerations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#bot-doesn-t-respond">Bot doesn’t respond</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#bot-creates-wrong-changes">Bot creates wrong changes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication-errors">Authentication errors</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-testing">Local Testing</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples-in-the-wild">Examples in the Wild</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
 </ul>
   </nav></div>
 
