@@ -212,6 +212,35 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
     )
 
 
+def _fix_unquoted_globs(frontmatter_str: str) -> str:
+    """Fix unquoted glob patterns that would be interpreted as YAML aliases.
+
+    Cursor .mdc files often have globs like `globs: *,**/*` which YAML
+    interprets as an alias reference (starting with *). This function
+    quotes such values.
+
+    Args:
+        frontmatter_str: Raw YAML frontmatter string
+
+    Returns:
+        Fixed frontmatter string with problematic values quoted
+    """
+    lines = frontmatter_str.split("\n")
+    fixed_lines = []
+
+    for line in lines:
+        # Match lines like "globs: *,**/*" or "globs: **/*.py"
+        # where the value starts with * but isn't already quoted
+        match = re.match(r"^(\s*globs:\s*)(\*[^\"']+)$", line)
+        if match:
+            prefix, value = match.groups()
+            # Quote the value
+            line = f'{prefix}"{value}"'
+        fixed_lines.append(line)
+
+    return "\n".join(fixed_lines)
+
+
 def parse_lesson(path: Path) -> Lesson:
     """Parse lesson or skill file with optional YAML frontmatter.
 
@@ -274,6 +303,9 @@ def parse_lesson(path: Path) -> Lesson:
             body = parts[2].strip()
 
             try:
+                # Pre-process frontmatter to handle unquoted glob patterns
+                # that look like YAML aliases (e.g., "globs: *,**/*")
+                frontmatter_str = _fix_unquoted_globs(frontmatter_str)
                 frontmatter = yaml.safe_load(frontmatter_str)
                 if frontmatter:
                     # Detect format based on file extension and frontmatter structure
