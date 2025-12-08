@@ -595,7 +595,7 @@ This is gptme
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7eff66264180&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f25f6c30180&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1346,6 +1346,16 @@ These programs are available, among others:
 <span class="k">-</span><span class="w"> </span>hyperfine
 <span class="k">-</span><span class="w"> </span>pandoc
 
+<span class="gu">## Background Jobs</span>
+
+For long-running commands (dev servers, builds, etc.), use background jobs:
+<span class="k">-</span><span class="w"> </span><span class="sb">`bg &lt;command&gt;`</span> - Start command in background, returns job ID
+<span class="k">-</span><span class="w"> </span><span class="sb">`jobs`</span> - List all background jobs with status
+<span class="k">-</span><span class="w"> </span><span class="sb">`output &lt;id&gt;`</span> - Show accumulated output from a job
+<span class="k">-</span><span class="w"> </span><span class="sb">`kill &lt;id&gt;`</span> - Terminate a background job
+
+This prevents blocking on commands like <span class="sb">`npm run dev`</span> that run indefinitely.
+
 <span class="gu">### Examples</span>
 
 <span class="k">&gt; </span><span class="ge">User: list the current directory</span>
@@ -1413,6 +1423,44 @@ npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"
 <span class="sb">```shell</span>
 <span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;Content with `backticks` and $variables that should not be interpreted&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>example.txt
 <span class="sb">```</span>
+
+<span class="gu">#### Background jobs for long-running commands</span>
+
+<span class="k">&gt; </span><span class="ge">User: start a dev server</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll start the dev server as a background job so it doesn&#39;t block:</span>
+<span class="sb">```shell</span>
+<span class="nb">bg</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>dev
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Started background job **#1**: `npm run dev`</span>
+<span class="k">&gt;</span>
+<span class="ge">&gt; Use these commands to manage it:</span>
+<span class="k">&gt; </span><span class="ge">- `jobs` - List all background jobs</span>
+<span class="k">&gt; </span><span class="ge">- `output 1` - Show output from job #1</span>
+<span class="k">&gt; </span><span class="ge">- `kill 1` - Terminate job #1</span>
+
+<span class="k">&gt; </span><span class="ge">User: check the server output</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me check the output from the background job:</span>
+<span class="sb">```shell</span>
+output<span class="w"> </span><span class="m">1</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: **Job #1** - Running (45.2s)</span>
+<span class="k">&gt; </span><span class="ge">Command: `npm run dev`</span>
+<span class="k">&gt;</span>
+<span class="ge">&gt; ```stdout</span>
+<span class="k">&gt; </span><span class="ge">&gt; project@1.0.0 dev</span>
+<span class="k">&gt; </span><span class="ge">&gt; vite</span>
+<span class="k">&gt;</span>
+<span class="ge">&gt; VITE v5.0.0  ready in 300 ms</span>
+<span class="k">&gt;</span>
+<span class="ge">&gt; ➜  Local:   http://localhost:5173/</span>
+<span class="k">&gt; </span><span class="ge">```</span>
+
+<span class="k">&gt; </span><span class="ge">User: stop the server</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll terminate the background job:</span>
+<span class="sb">```shell</span>
+<span class="nb">kill</span><span class="w"> </span><span class="m">1</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Terminated job #1: `npm run dev`</span>
 
 <span class="gu">## subagent</span>
 
@@ -1794,7 +1842,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 8745</p>
+<p>Tokens: 9131</p>
 </dd></dl>
 
 <dl class="py function">
