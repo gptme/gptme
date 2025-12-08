@@ -36,7 +36,7 @@ Then comment `@gptme <prompt>` on any issue or PR!
 The bot operates in two modes:
 
 **Questions** - If you ask a question, the bot replies directly:
-```txt
+```text
 @gptme What does this function do?
 @gptme Explain the architecture of this project
 @gptme How should I approach fixing issue #123?
@@ -48,7 +48,7 @@ The bot operates in two modes:
 3. Commits any changes made
 4. Pushes and creates a PR (if on an issue) or pushes to PR branch (if on a PR)
 
-```txt
+```text
 @gptme Add tests for the utils module
 @gptme Fix the typo in README.md
 @gptme Implement the feature described in this issue
@@ -88,7 +88,7 @@ The bot uses an LLM to determine which mode based on your prompt.
 - Reference files or functions by name
 - Ask about design decisions or alternatives
 
-```txt
+```text
 @gptme What does the `compress_context` function in context.py do?
 @gptme Why does this project use SQLite instead of PostgreSQL?
 ```
@@ -98,7 +98,7 @@ The bot uses an LLM to determine which mode based on your prompt.
 - Reference specific files or locations when possible
 - Break complex changes into smaller prompts
 
-```txt
+```text
 @gptme Add a docstring to the compress_context function
 @gptme Add type hints to all functions in utils.py
 @gptme Create a test file for the new feature in this PR
@@ -182,6 +182,6 @@ The gptme project itself uses this bot. See examples:
 
 ## Related
 
-- [Automation](automation.md) - Other ways to automate gptme
-- [Server](server.md) - Running gptme as a service
-- [CLI Reference](cli.md) - Command-line options
+- [Automation](automation.rst) - Other ways to automate gptme
+- [Server](server.rst) - Running gptme as a service
+- [CLI Reference](cli.rst) - Command-line options
