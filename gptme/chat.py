@@ -221,7 +221,9 @@ def _run_chat_loop(
             if not _prompt_queue.empty():
                 # Get queued prompt
                 prompt_content = _prompt_queue.get_nowait()
-                msg = Message("user", prompt_content, quiet=True)
+                msg = Message(
+                    "user", prompt_content
+                )  # Don't suppress echo - tests expect to see input
                 msg = include_paths(msg, manager.workspace)
                 manager.append(msg)
 
