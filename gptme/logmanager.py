@@ -210,9 +210,9 @@ class LogManager:
         """Store attached files by content hash and return updated message."""
         if not msg.files:
             return msg
-        
+
         from .util.file_storage import store_file
-        
+
         file_hashes = dict(msg.file_hashes)  # Start with existing hashes
         for filepath in msg.files:
             if not filepath.exists():
@@ -221,7 +221,7 @@ class LogManager:
             file_hash, stored_name = store_file(self.logdir, filepath)
             # Use full path as key to avoid collisions with same-named files
             file_hashes[str(filepath)] = file_hash
-        
+
         # Return message with updated hashes (Message is frozen, so replace)
         return replace(msg, file_hashes=file_hashes)
 

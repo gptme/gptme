@@ -491,7 +491,10 @@ def test_transform_msgs_for_groq():
             "role": "user",
             "content": [
                 {"type": "text", "text": "What is in this image?"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,abc"},
+                },
             ],
         },
     ]
@@ -550,14 +553,16 @@ def test_transform_msgs_for_groq_images_only():
         {
             "role": "user",
             "content": [
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,abc"},
+                },
             ],
         },
     ]
 
     result = list(_transform_msgs_for_special_provider(messages, groq_model))
     assert result[0]["content"] == "[non-text content]"
-
 
 
 def test_transform_msgs_for_deepseek_tool_calls():
@@ -581,14 +586,17 @@ def test_transform_msgs_for_deepseek_tool_calls():
                 {
                     "id": "call_123",
                     "type": "function",
-                    "function": {"name": "get_weather", "arguments": '{"location": "NYC"}'},
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": '{"location": "NYC"}',
+                    },
                 }
             ],
         },
     ]
 
     result = list(_transform_msgs_for_special_provider(messages, deepseek_model))
-    
+
     # DeepSeek requires reasoning_content for assistant messages with tool_calls
     # Since we don't store reasoning_content, we add an empty reasoning_content field
     assert "reasoning_content" in result[0]
@@ -619,6 +627,6 @@ def test_transform_msgs_for_deepseek_tool_results():
     ]
 
     result = list(_transform_msgs_for_special_provider(messages, deepseek_model))
-    
+
     # Tool messages should pass through unchanged
     assert result[0] == messages[0]

@@ -35,7 +35,9 @@ def test_chat_history_context():
                 # Create some sample messages
                 messages = [
                     Message("user", f"Hello, can you help me with project {i}?"),
-                    Message("assistant", f"Sure! I'd be happy to help with project {i}."),
+                    Message(
+                        "assistant", f"Sure! I'd be happy to help with project {i}."
+                    ),
                     Message(
                         "user", f"Let's work on implementing feature X for project {i}"
                     ),
@@ -58,7 +60,9 @@ def test_chat_history_context():
                 print(f"Content length: {len(msg.content)}")
                 print(
                     "Content preview:",
-                    msg.content[:200] + "..." if len(msg.content) > 200 else msg.content,
+                    msg.content[:200] + "..."
+                    if len(msg.content) > 200
+                    else msg.content,
                 )
                 print("-" * 50)
 

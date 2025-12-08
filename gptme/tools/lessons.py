@@ -48,6 +48,7 @@ def _get_ace_components() -> tuple[type | None, type | None]:
         logger.debug("ACE not available - sentence-transformers not installed")
         return None, None
 
+
 # Context-local storage for lesson index
 _lesson_index_var: ContextVar[LessonIndex | None] = ContextVar(
     "lesson_index", default=None

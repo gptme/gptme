@@ -29,7 +29,9 @@ logger = logging.getLogger(__name__)
 # Default truncation settings for pane output
 # These can be adjusted via function parameters if needed
 DEFAULT_PRE_LINES = 50  # Lines to show at start
-DEFAULT_POST_LINES = 150  # Lines to show at end (more recent output is usually more relevant)
+DEFAULT_POST_LINES = (
+    150  # Lines to show at end (more recent output is usually more relevant)
+)
 MAX_OUTPUT_LINES = 200  # Total max lines before truncation kicks in
 
 
@@ -192,7 +194,8 @@ def send_keys(pane_id: str, keys: str) -> Message:
         context=f"send-keys {pane_id}",
     )
     return Message(
-        "system", f"Sent '{keys}' to pane `{pane_id}`\n```output\n{truncated_output}\n```"
+        "system",
+        f"Sent '{keys}' to pane `{pane_id}`\n```output\n{truncated_output}\n```",
     )
 
 

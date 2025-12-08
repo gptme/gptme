@@ -21,7 +21,7 @@ The recommended model is **Claude Sonnet 4.5** (``anthropic/claude-sonnet-4-5`` 
 
 Decent alternatives include:
 
-- Gemini 3 Pro (``openrouter/google/gemini-3-pro-preview``, ``google/gemini-3-pro-preview``)
+- Gemini 3 Pro (``openrouter/google/gemini-3-pro-preview``, ``gemini/gemini-3-pro-preview``)
 - GPT-5, GPT-4o (``openai/gpt-5``, ``openai/gpt-4o``)
 - Grok 4 (``xai/grok-4``, ``openrouter/x-ai/grok-4``)
 - Qwen3 Coder 480B A35B (``openrouter/qwen/qwen3-coder``)

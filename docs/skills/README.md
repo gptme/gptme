@@ -1,6 +1,6 @@
 # Skills System
 
-> **Note**: Skills are **lightweight knowledge bundles** using Anthropic's format. For deep runtime integration (hooks, custom tools, commands), use [plugins](../plugins.rst) instead.
+> **Note**: Skills are **lightweight knowledge bundles** using Anthropic's folder-style format. The core of it builds on gptme's native [lessons](../lessons.rst) system. For deep runtime integration (hooks, custom tools, commands), use [plugins](../plugins.rst) instead.
 
 The skills system extends gptme's lesson system to support bundled tools, scripts, and workflows inspired by Claude's Skills system and Cursor's rules system.
 

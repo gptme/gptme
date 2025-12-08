@@ -109,25 +109,25 @@ def embed_attached_file_content(
     msg: Message, workspace: Path | None = None, check_modified=False
 ) -> Message:
     """Embed attached file contents inline in a message.
-    
+
     If the message has file_hashes, attempts to read from content-addressed
     storage first (preserving the file version at message creation time).
     Falls back to the original file path if stored content is not available.
     """
     from ..logmanager import LogManager
     from .file_storage import read_stored_content
-    
+
     # Keep original paths for hash lookup, transform for display
     files_with_originals = [
         (orig_f, file_to_display_path(orig_f, workspace).expanduser())
         for orig_f in msg.files
     ]
     files_text = {}
-    
+
     # Get logdir for content-addressed storage lookup
     manager = LogManager.get_current_log()
     logdir = manager.logdir if manager else None
-    
+
     for orig_f, f in files_with_originals:
         # Try to read from content-addressed storage first (if available)
         stored_content = None
@@ -136,7 +136,7 @@ def embed_attached_file_content(
             file_hash = msg.file_hashes.get(str(orig_f))
             if file_hash:
                 stored_content = read_stored_content(logdir, file_hash, f.suffix)
-        
+
         if stored_content is not None:
             # Use stored content (preserves original version)
             files_text[f] = md_codeblock(f, stored_content)
@@ -156,7 +156,9 @@ def embed_attached_file_content(
                 files_text[f] = content
             else:
                 if not stat:
-                    files_text[f] = md_codeblock(f, "<file not found, may have been moved>")
+                    files_text[f] = md_codeblock(
+                        f, "<file not found, may have been moved>"
+                    )
                 else:
                     files_text[f] = md_codeblock(f, "<file was modified after message>")
     # Get list of display paths for the return value

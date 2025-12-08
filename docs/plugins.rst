@@ -3,7 +3,7 @@ Plugin System
 
 The plugin system allows extending gptme with :doc:`custom tools <custom_tool>`, :doc:`hooks <hooks>`, and :ref:`commands <commands>` without modifying the core codebase.
 
-**When to use plugins**: For runtime integration (hooks, custom tools, commands). For lightweight knowledge bundles, see :doc:`skills <skills/README>` instead.
+**When to use plugins**: For runtime integration (hooks, custom tools, commands). For lightweight knowledge bundles, see :doc:`lessons` or :doc:`skills <skills/README>` instead.
 
 Plugin Structure
 ----------------

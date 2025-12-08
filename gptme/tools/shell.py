@@ -579,7 +579,7 @@ class ShellSession:
 
         # Issue #408: Track whether we've seen the start marker for this command
         seen_start_marker = False
-        
+
         stdout: list[str] = []
         stderr: list[str] = []
         return_code: int | None = None
@@ -638,13 +638,17 @@ class ShellSession:
                         if fd == self.stdout_fd and not seen_start_marker:
                             if start_marker_pattern in line:
                                 seen_start_marker = True
-                                logger.debug(f"Shell: Start marker detected: {start_marker_pattern[:50]}")
+                                logger.debug(
+                                    f"Shell: Start marker detected: {start_marker_pattern[:50]}"
+                                )
                             else:
                                 # Discard output before start marker (leftover from previous commands)
                                 if line.strip():  # Only log non-empty lines
-                                    logger.debug(f"Shell: Discarding pre-marker output: {line[:80]}")
+                                    logger.debug(
+                                        f"Shell: Discarding pre-marker output: {line[:80]}"
+                                    )
                             continue
-                        
+
                         if "ReturnCode:" in line and self.delimiter in line:
                             # Diagnostic logging for Issue #408: Log delimiter detection
                             logger.debug(
@@ -654,9 +658,7 @@ class ShellSession:
                             # Capture last stdout before delimiter to detect unexpected content
                             if stdout:
                                 # Get last 3 lines or all if fewer
-                                last_lines = (
-                                    stdout[-3:] if len(stdout) >= 3 else stdout
-                                )
+                                last_lines = stdout[-3:] if len(stdout) >= 3 else stdout
                                 last_stdout = "".join(last_lines).strip()[:300]
                                 logger.debug(
                                     f"Shell: Last stdout before delimiter: {last_stdout}"
@@ -675,14 +677,18 @@ class ShellSession:
                             # Use multiple attempts with longer initial timeout to ensure
                             # stderr has time to arrive from bash
                             drain_empty_count = 0
-                            while drain_empty_count < 2:  # Require 2 empty reads to be sure
+                            while (
+                                drain_empty_count < 2
+                            ):  # Require 2 empty reads to be sure
                                 drain_rlist, _, _ = select.select(
                                     [self.stderr_fd], [], [], 0.1
                                 )
                                 if not drain_rlist:
                                     drain_empty_count += 1
                                     continue
-                                drain_data = os.read(self.stderr_fd, 2**16).decode("utf-8")
+                                drain_data = os.read(self.stderr_fd, 2**16).decode(
+                                    "utf-8"
+                                )
                                 if not drain_data:
                                     drain_empty_count += 1
                                     continue
@@ -1074,7 +1080,9 @@ def execute_jobs_command() -> Generator[Message, None, None]:
             time_str = f"{elapsed:.1f}s"
         else:
             time_str = f"{elapsed / 60:.1f}m"
-        lines.append(f"- **#{job.id}** [{status}] ({time_str}): `{job.command[:50]}{'...' if len(job.command) > 50 else ''}`")
+        lines.append(
+            f"- **#{job.id}** [{status}] ({time_str}): `{job.command[:50]}{'...' if len(job.command) > 50 else ''}`"
+        )
 
     yield Message("system", "\n".join(lines))
 
@@ -1084,16 +1092,24 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
     try:
         job_id = int(job_id_str)
     except ValueError:
-        yield Message("system", f"Invalid job ID: `{job_id_str}`. Use `jobs` to list active jobs.")
+        yield Message(
+            "system", f"Invalid job ID: `{job_id_str}`. Use `jobs` to list active jobs."
+        )
         return
 
     job = get_background_job(job_id)
     if not job:
-        yield Message("system", f"No job with ID #{job_id}. Use `jobs` to list active jobs.")
+        yield Message(
+            "system", f"No job with ID #{job_id}. Use `jobs` to list active jobs."
+        )
         return
 
     stdout, stderr = job.get_output()
-    status = "Running" if job.is_running() else f"Finished (exit code: {job.process.returncode})"
+    status = (
+        "Running"
+        if job.is_running()
+        else f"Finished (exit code: {job.process.returncode})"
+    )
     elapsed = job.elapsed_time()
 
     msg = f"**Job #{job_id}** - {status} ({elapsed:.1f}s)\n"
@@ -1123,16 +1139,23 @@ def execute_kill_command(job_id_str: str) -> Generator[Message, None, None]:
     try:
         job_id = int(job_id_str)
     except ValueError:
-        yield Message("system", f"Invalid job ID: `{job_id_str}`. Use `jobs` to list active jobs.")
+        yield Message(
+            "system", f"Invalid job ID: `{job_id_str}`. Use `jobs` to list active jobs."
+        )
         return
 
     job = get_background_job(job_id)
     if not job:
-        yield Message("system", f"No job with ID #{job_id}. Use `jobs` to list active jobs.")
+        yield Message(
+            "system", f"No job with ID #{job_id}. Use `jobs` to list active jobs."
+        )
         return
 
     if not job.is_running():
-        yield Message("system", f"Job #{job_id} is already finished (exit code: {job.process.returncode}).")
+        yield Message(
+            "system",
+            f"Job #{job_id} is already finished (exit code: {job.process.returncode}).",
+        )
         return
 
     job.kill()

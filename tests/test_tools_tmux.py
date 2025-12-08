@@ -68,7 +68,7 @@ def worker_id():
 @pytest.fixture(autouse=True)
 def cleanup_sessions(worker_id):
     """Clean up worker-specific test sessions before and after each test.
-    
+
     Only cleans up sessions with worker prefix (gptme_{worker_id}_*) to avoid
     race conditions in parallel test runs. Tests that use new_session() directly
     should use the cleanup_new_session_sessions fixture instead.
@@ -91,7 +91,7 @@ def cleanup_sessions(worker_id):
 @pytest.fixture
 def cleanup_new_session_sessions():
     """Clean up gptme_N sessions for tests that use new_session() directly.
-    
+
     This fixture is NOT autouse - only apply to specific tests that need it.
     Tests using this should also use @pytest.mark.xdist_group("tmux_new_session")
     to ensure they run serially and avoid race conditions with other workers.
@@ -127,7 +127,7 @@ class TestGetSessions:
 @pytest.mark.xdist_group("tmux_new_session")
 class TestNewSession:
     """Tests for new_session function.
-    
+
     These tests use new_session() directly which creates gptme_N sessions.
     They are grouped to run serially to avoid race conditions.
     """
@@ -172,7 +172,7 @@ class TestListSessions:
 
 class TestKillSession:
     """Tests for kill_session function.
-    
+
     Uses worker-isolated sessions to avoid race conditions in parallel tests.
     """
 
@@ -222,7 +222,7 @@ class TestWaitForOutput:
     @pytest.mark.xdist_group("tmux_new_session")
     def test_auto_prefixes_session_id(self, cleanup_new_session_sessions):
         """Should automatically add gptme_ prefix if missing.
-        
+
         Uses new_session() directly, so grouped with other new_session tests.
         """
         # This test verifies the prefix behavior of wait_for_output

@@ -241,8 +241,7 @@ def _extract_codeblocks(
                         # Examples of valid: python, js, save path/to/file.py, .env
                         # Examples of invalid: ''', "", ===
                         is_valid_lang = bool(potential_lang) and (
-                            potential_lang[0].isalnum()
-                            or potential_lang[0] in "_/.~"
+                            potential_lang[0].isalnum() or potential_lang[0] in "_/.~"
                         )
                         if is_valid_lang:
                             # This starts a nested block (has valid language tag)

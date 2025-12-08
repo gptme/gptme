@@ -61,7 +61,7 @@ def test_parse_form_content():
     confirm: Ready to proceed? [yes, no]
     """
     fields = parse_form_content(content)
-    
+
     assert len(fields) == 6
     assert fields[0]["name"] == "name"
     assert fields[0]["type"] == "text"
@@ -83,7 +83,7 @@ def test_form_tool_registered():
     # Form tool is disabled by default, so it won't be in the loaded tools
     # but it should be in available tools
     from gptme.tools import get_available_tools
-    
+
     available = get_available_tools()
     available_names = [t.name for t in available]
     assert "form" in available_names
@@ -102,7 +102,7 @@ def test_parse_field_boolean_case_insensitive():
     field1 = parse_field("ok: Continue? [Yes, No]")
     assert field1 is not None
     assert field1["type"] == "boolean"
-    
+
     field2 = parse_field("ok: Continue? [YES, NO]")
     assert field2 is not None
     assert field2["type"] == "boolean"

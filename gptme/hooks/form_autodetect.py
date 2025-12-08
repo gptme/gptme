@@ -42,7 +42,9 @@ OPTION_PATTERNS = [
 ]
 
 # Compiled patterns for efficiency
-COMPILED_PATTERNS = [re.compile(p, re.IGNORECASE | re.MULTILINE) for p in OPTION_PATTERNS]
+COMPILED_PATTERNS = [
+    re.compile(p, re.IGNORECASE | re.MULTILINE) for p in OPTION_PATTERNS
+]
 
 # LLM prompt for parsing options
 PARSE_PROMPT = """Extract the options from this assistant message and format them for a selection form.
@@ -93,7 +95,7 @@ def _parse_options_with_llm(content: str) -> dict | None:
     # Prefer haiku/mini for speed and cost
     fast_models = [
         "anthropic/claude-haiku-4-5",  # ~0.25s response
-        "openai/gpt-4o-mini",           # ~0.3s response
+        "openai/gpt-4o-mini",  # ~0.3s response
         "anthropic/claude-3-haiku-20240307",  # fallback
     ]
 
@@ -101,6 +103,7 @@ def _parse_options_with_llm(content: str) -> dict | None:
     model: str | None = None
     try:
         from ..llm.models import get_default_model
+
         default_meta = get_default_model()
         if default_meta:
             default = default_meta.model
@@ -116,19 +119,22 @@ def _parse_options_with_llm(content: str) -> dict | None:
 
     try:
         messages = [
-            Message("user", PARSE_PROMPT.format(message=content[:2000]))  # Limit context
+            Message(
+                "user", PARSE_PROMPT.format(message=content[:2000])
+            )  # Limit context
         ]
         response = _chat_complete(messages, model=model, tools=None)
 
         # Parse JSON from response
         import json
+
         # Extract JSON from response (handle markdown code blocks)
-        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL)
         if json_match:
             response = json_match.group(1)
         else:
             # Try to find raw JSON
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            json_match = re.search(r"\{.*\}", response, re.DOTALL)
             if json_match:
                 response = json_match.group(0)
 
@@ -175,6 +181,7 @@ def form_autodetect_hook(
     # Check if form tool is loaded (must be explicitly enabled)
     try:
         from ..tools import has_tool
+
         if not has_tool("form"):
             return
     except ImportError:
