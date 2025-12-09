@@ -37,6 +37,7 @@ class ProcessSuccess(TypedDict):
     duration: float
     log_dir: Path
     workspace_dir: Path
+    cost: dict | None
 
 
 class ProcessError(TypedDict):
@@ -408,7 +409,7 @@ def act_process(
         "duration": duration,
         "log_dir": agent.log_dir,
         "workspace_dir": agent.workspace_dir,
-        "cost": cost_dict,  # type: ignore[typeddict-unknown-key]
+        "cost": cost_dict,
     }
     sync_dict["result"] = result_success
     subprocess_logger.info("Success")
