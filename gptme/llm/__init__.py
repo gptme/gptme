@@ -2,7 +2,7 @@ import logging
 import shutil
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import cast
@@ -11,7 +11,7 @@ from rich import print as rprint
 
 from ..config import Config, get_config
 from ..constants import prompt_assistant
-from ..message import Message, format_msgs, len_tokens
+from ..message import Message, MessageMetadata, format_msgs, len_tokens
 from ..telemetry import trace_function
 from ..tools import ToolSpec, ToolUse
 from ..util import console
@@ -99,12 +99,12 @@ def reply(
         )
     else:
         rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
-        response = _chat_complete(
+        response, metadata = _chat_complete(
             generation_msgs, model, tools, output_schema=output_schema
         )
         rprint(" " * shutil.get_terminal_size().columns, end="\r")
         rprint(f"{prompt_assistant(agent_name)}: {response}")
-        return Message("assistant", response)
+        return Message("assistant", response, metadata=metadata)
 
 
 def get_provider_from_model(model: str) -> Provider:
@@ -141,7 +141,7 @@ def _chat_complete(
     tools: list[ToolSpec] | None,
     output_schema: type | None = None,
     max_retries: int = 3,
-) -> str:
+) -> tuple[str, MessageMetadata | None]:
     from pydantic import BaseModel, ValidationError
 
     provider = get_provider_from_model(model)
@@ -156,14 +156,17 @@ def _chat_complete(
         )
 
     # Validation-only fallback for unsupported providers
+    metadata: MessageMetadata | None = None
     if output_schema is not None:
         logger = logging.getLogger(__name__)
         for attempt in range(max_retries):
             # Generate without constraints
             if provider in PROVIDERS_OPENAI:
-                response = chat_openai(messages, model, tools)
+                response, metadata = chat_openai(messages, model, tools)
             elif provider == "anthropic":
-                response = chat_anthropic(messages, _get_base_model(model), tools)
+                response, metadata = chat_anthropic(
+                    messages, _get_base_model(model), tools
+                )
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
 
@@ -173,7 +176,7 @@ def _chat_complete(
                     output_schema, BaseModel
                 ):
                     output_schema.model_validate_json(response)
-                return response  # Validation succeeded
+                return response, metadata  # Validation succeeded
             except ValidationError as e:
                 if attempt < max_retries - 1:
                     # Add validation error to context for retry
@@ -191,7 +194,7 @@ def _chat_complete(
                     logger.warning(
                         f"Failed to validate response after {max_retries} attempts: {e}"
                     )
-                    return response
+                    return response, metadata
 
     # No schema requested, generate normally
     if provider in PROVIDERS_OPENAI:
@@ -202,21 +205,44 @@ def _chat_complete(
         raise ValueError(f"Unsupported provider: {provider}")
 
 
+class _StreamWithMetadata:
+    """Wrapper that captures a generator's return value (metadata)."""
+
+    def __init__(self, gen: Generator[str, None, MessageMetadata | None], model: str):
+        self.gen = gen
+        self.model = model
+        self.metadata: MessageMetadata | None = None
+
+    def __iter__(self) -> Iterator[str]:
+        try:
+            while True:
+                yield next(self.gen)
+        except StopIteration as e:
+            self.metadata = e.value
+            # Ensure model is set in metadata even if provider didn't include it
+            if self.metadata is None:
+                self.metadata = {"model": self.model}
+            elif "model" not in self.metadata:
+                self.metadata["model"] = self.model
+
+
 @trace_function(name="llm.stream", attributes={"component": "llm"})
 def _stream(
     messages: list[Message],
     model: str,
     tools: list[ToolSpec] | None,
     output_schema: type | None = None,
-) -> Iterator[str]:
+) -> _StreamWithMetadata:
     provider = get_provider_from_model(model)
     # Custom providers are OpenAI-compatible, so route them through the OpenAI path
     if provider in PROVIDERS_OPENAI or is_custom_provider(provider):
-        return stream_openai(messages, model, tools, output_schema=output_schema)
+        gen = stream_openai(messages, model, tools, output_schema=output_schema)
+        return _StreamWithMetadata(gen, model)
     elif provider == "anthropic":
-        return stream_anthropic(
+        gen = stream_anthropic(
             messages, _get_base_model(model), tools, output_schema=output_schema
         )
+        return _StreamWithMetadata(gen, model)
     else:
         # Note: Validation-only fallback for streaming is complex
         # For now, unsupported providers don't support output_schema in streaming mode
@@ -247,12 +273,12 @@ def _reply_stream(
     start_time = time.time()
     first_token_time = None
     are_thinking = False
+
+    # Create stream wrapper to capture metadata
+    stream = _stream(messages, model, tools, output_schema=output_schema)
+
     try:
-        for char in (
-            char
-            for chunk in _stream(messages, model, tools, output_schema=output_schema)
-            for char in chunk
-        ):
+        for char in (char for chunk in stream for char in chunk):
             if not output:  # first character
                 first_token_time = time.time()
                 print_clear()
@@ -310,7 +336,9 @@ def _reply_stream(
                     break
 
     except KeyboardInterrupt:
-        return Message("assistant", output + "... ^C Interrupted")
+        return Message(
+            "assistant", output + "... ^C Interrupted", metadata=stream.metadata
+        )
     finally:
         print_clear()
         if first_token_time:
@@ -322,7 +350,7 @@ def _reply_stream(
                 f"tok/s: {len_tokens(output, model)/(end_time - first_token_time):.1f})"
             )
 
-    return Message("assistant", output)
+    return Message("assistant", output, metadata=stream.metadata)
 
 
 @trace_function(name="llm.summarize", attributes={"component": "llm"})
@@ -349,7 +377,7 @@ def _summarize_str(content: str) -> str:
             f"Cannot summarize more than {model.context} tokens, got {len_tokens(messages, model.model)}"
         )
 
-    summary = _chat_complete(messages, model.full, None)
+    summary, _metadata = _chat_complete(messages, model.full, None)
     assert summary
     logger.debug(
         f"Summarized long output ({len_tokens(content, model.model)} -> {len_tokens(summary, model.model)} tokens): "

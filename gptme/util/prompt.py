@@ -363,7 +363,7 @@ def llm_suggest(text: str) -> list[str]:
 
     enabled = get_config().get_env_bool("GPTME_SUGGEST_LLM")
     if enabled:
-        content = _chat_complete(
+        content, _metadata = _chat_complete(
             messages=[
                 Message(
                     "system",

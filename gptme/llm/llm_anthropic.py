@@ -16,7 +16,7 @@ from httpx import RemoteProtocolError
 from pydantic import BaseModel  # fmt: skip
 
 from ..constants import TEMPERATURE, TOP_P
-from ..message import Message, msgs2dicts
+from ..message import Message, MessageMetadata, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec
 from .models import ModelMeta, get_model
@@ -95,8 +95,8 @@ def _extract_schema_result(content_blocks):
 def _record_usage(
     usage: Union["anthropic.types.Usage", "anthropic.types.MessageDeltaUsage"],
     model: str,
-) -> None:
-    """Record usage metrics as telemetry."""
+) -> MessageMetadata | None:
+    """Record usage metrics as telemetry and return MessageMetadata."""
     if not usage:
         return None
 
@@ -124,6 +124,18 @@ def _record_usage(
         cache_read_tokens=cache_read_tokens,
         total_tokens=total_tokens if total_tokens > 0 else None,
     )
+
+    # Return MessageMetadata for attachment to Message
+    metadata: MessageMetadata = {"model": model}
+    if input_tokens is not None:
+        metadata["input_tokens"] = input_tokens
+    if output_tokens is not None:
+        metadata["output_tokens"] = output_tokens
+    if cache_read_tokens is not None:
+        metadata["cache_read_tokens"] = cache_read_tokens
+    if cache_creation_tokens is not None:
+        metadata["cache_creation_tokens"] = cache_creation_tokens
+    return metadata
 
 
 def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) -> bool:
@@ -305,7 +317,7 @@ def chat(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema: type[BaseModel] | None = None,
-) -> str:
+) -> tuple[str, MessageMetadata | None]:
     from anthropic import NOT_GIVEN  # fmt: skip
 
     assert _anthropic, "LLM not initialized"
@@ -361,7 +373,7 @@ def chat(
         timeout=60,
     )
     content = response.content
-    _record_usage(response.usage, model)
+    metadata = _record_usage(response.usage, model)
 
     parsed_block = []
     for block in content:
@@ -374,7 +386,7 @@ def chat(
         else:
             logger.warning("Unknown block: %s", str(block))
 
-    return "\n".join(parsed_block)
+    return "\n".join(parsed_block), metadata
 
 
 @retry_generator_on_overloaded()
@@ -383,9 +395,12 @@ def stream(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema: type[BaseModel] | None = None,
-) -> Generator[str, None, None]:
+) -> Generator[str, None, MessageMetadata | None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
+
+    # Variable to capture metadata from usage recording
+    captured_metadata: MessageMetadata | None = None
 
     assert _anthropic, "LLM not initialized"
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
@@ -493,12 +508,16 @@ def stream(
                 case "message_delta":
                     chunk = cast(anthropic.types.MessageDeltaEvent, chunk)
                     # Record usage from message_delta which contains the final/cumulative usage
-                    _record_usage(chunk.usage, model)
+                    # and capture metadata for message attachment
+                    captured_metadata = _record_usage(chunk.usage, model)
                 case "message_stop":
                     pass
                 case _:
                     # print(f"Unknown chunk type: {chunk.type}")
                     pass
+
+    # Return the captured metadata (accessible via StopIteration.value)
+    return captured_metadata
 
 
 def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:

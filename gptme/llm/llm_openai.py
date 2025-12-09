@@ -8,7 +8,7 @@ import requests
 
 from ..config import Config, get_config
 from ..constants import TEMPERATURE, TOP_P
-from ..message import Message, msgs2dicts
+from ..message import Message, MessageMetadata, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools import ToolSpec
 from .models import ModelMeta, Provider, is_custom_provider
@@ -36,10 +36,10 @@ OPENROUTER_APP_HEADERS = {
 }
 
 
-def _record_usage(usage, model: str) -> None:
-    """Record usage metrics as telemetry."""
+def _record_usage(usage, model: str) -> MessageMetadata | None:
+    """Record usage metrics as telemetry and return MessageMetadata."""
     if not usage:
-        return
+        return None
 
     # Extract token counts (OpenAI uses different field names than Anthropic)
     prompt_tokens = getattr(usage, "prompt_tokens", None)
@@ -66,6 +66,16 @@ def _record_usage(usage, model: str) -> None:
         cache_read_tokens=cache_read_tokens,
         total_tokens=total_tokens,
     )
+
+    # Return MessageMetadata for attachment to Message
+    metadata: MessageMetadata = {"model": model}
+    if input_tokens is not None:
+        metadata["input_tokens"] = input_tokens
+    if output_tokens is not None:
+        metadata["output_tokens"] = output_tokens
+    if cache_read_tokens is not None:
+        metadata["cache_read_tokens"] = cache_read_tokens
+    return metadata
 
 
 # TODO: improve provider routing for openrouter: https://openrouter.ai/docs/provider-routing
@@ -260,7 +270,7 @@ def chat(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema=None,
-) -> str:
+) -> tuple[str, MessageMetadata | None]:
     # This will generate code and such, so we need appropriate temperature and top_p params
     # top_p controls diversity, temperature controls randomness
 
@@ -294,7 +304,7 @@ def chat(
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),
     )
-    _record_usage(response.usage, model)
+    metadata = _record_usage(response.usage, model)
     choice = response.choices[0]
     result = []
     if choice.finish_reason == "tool_calls":
@@ -313,7 +323,7 @@ def chat(
             result.append(choice.message.content)
 
     assert result
-    return "\n".join(result)
+    return "\n".join(result), metadata
 
 
 def extra_headers(provider: Provider) -> dict[str, str]:
@@ -345,9 +355,12 @@ def stream(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema=None,
-) -> Generator[str, None, None]:
+) -> Generator[str, None, MessageMetadata | None]:
     from . import _get_base_model, get_provider_from_model  # fmt: skip
     from .models import get_model  # fmt: skip
+
+    # Variable to capture metadata from usage recording
+    captured_metadata: MessageMetadata | None = None
 
     provider = get_provider_from_model(model)
     client = get_client(provider)
@@ -389,8 +402,9 @@ def stream(
         chunk = cast(ChatCompletionChunk, chunk_raw)
 
         # Record usage if available (typically in final chunk)
+        # and capture metadata for message attachment
         if hasattr(chunk, "usage") and chunk.usage:
-            _record_usage(chunk.usage, model)
+            captured_metadata = _record_usage(chunk.usage, model)
 
         if not chunk.choices:
             continue
@@ -440,6 +454,9 @@ def stream(
         yield "\n</think>\n"
 
     logger.debug(f"Stop reason: {stop_reason}")
+
+    # Return the captured metadata (accessible via StopIteration.value)
+    return captured_metadata
 
 
 def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:

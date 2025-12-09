@@ -150,7 +150,7 @@ Conversation:
 Title:"""
 
         # Use summary model directly (no fallback)
-        response = _chat_complete(
+        response, _metadata = _chat_complete(
             [
                 Message("system", "Generate concise conversation titles."),
                 Message("user", prompt),
