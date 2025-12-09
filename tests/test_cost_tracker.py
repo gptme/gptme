@@ -87,21 +87,30 @@ class TestSessionCosts:
         assert session.request_count == 2
 
     def test_cache_hit_rate(self):
-        """Test cache hit rate calculation."""
+        """Test cache hit rate calculation.
+
+        Cache hit rate = cache_read / (input + cache_read + cache_creation)
+
+        The denominator includes input_tokens because some content is intentionally
+        not cached (like single-turn context from hooks that won't be sent again).
+        This gives a more accurate picture of overall cache efficiency.
+        """
         session = SessionCosts(session_id="test-session")
         session.entries.append(
             CostEntry(
                 timestamp=1.0,
                 model="claude-sonnet-4-5",
-                input_tokens=200,
+                input_tokens=200,  # Tokens not requested for caching (e.g., hook context)
                 output_tokens=100,
                 cache_read_tokens=800,  # Cache hits
                 cache_creation_tokens=200,  # Cache misses (written to cache)
                 cost=0.005,
             )
         )
-        # Cache hit rate = cache_read / (cache_read + cache_creation) = 800 / 1000 = 0.8
-        assert session.cache_hit_rate == 0.8
+        # Cache hit rate = cache_read / (input + cache_read + cache_creation)
+        # = 800 / (200 + 800 + 200) = 800 / 1200 = 2/3 ≈ 0.6667
+        expected = 800 / (200 + 800 + 200)
+        assert abs(session.cache_hit_rate - expected) < 0.0001
 
 
 class TestCostTracker:
