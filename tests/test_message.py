@@ -208,14 +208,14 @@ def test_message_metadata():
 
     from gptme.message import Message, MessageMetadata
 
-    # Create message with metadata using nested tokens structure
-    # Structure per Erik's review: https://github.com/gptme/gptme/pull/943/files#r2603233028
+    # Create message with metadata using flat token format
+    # Per Erik's review: https://github.com/gptme/gptme/pull/943#issuecomment-3633137716
     meta: MessageMetadata = {
         "model": "claude-sonnet",
-        "tokens": {
-            "input": {"base": 100, "cache_read": 80},
-            "output": 50,
-        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "cache_read_tokens": 80,
+        "cache_creation_tokens": 10,
         "cost": 0.005,
     }
     msg = Message(role="assistant", content="Hello world", metadata=meta)
@@ -223,12 +223,10 @@ def test_message_metadata():
     # Verify metadata stored correctly
     assert msg.metadata is not None
     assert msg.metadata["model"] == "claude-sonnet"
-    tokens = msg.metadata["tokens"]
-    input_tokens = tokens["input"]
-    assert isinstance(input_tokens, dict)  # Type narrowing for mypy
-    assert input_tokens["base"] == 100
-    assert input_tokens["cache_read"] == 80
-    assert tokens["output"] == 50
+    assert msg.metadata["input_tokens"] == 100
+    assert msg.metadata["output_tokens"] == 50
+    assert msg.metadata["cache_read_tokens"] == 80
+    assert msg.metadata["cache_creation_tokens"] == 10
     assert msg.metadata["cost"] == 0.005
 
     # Test JSON/JSONL roundtrip

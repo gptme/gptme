@@ -26,52 +26,30 @@ from .util.tokens import len_tokens
 logger = logging.getLogger(__name__)
 
 
-class TokensInput(TypedDict, total=False):
-    """
-    Input token breakdown.
-
-    Can specify just base tokens, or include cache breakdown.
-    """
-
-    base: int  # Base input tokens (non-cached)
-    cache_read: int  # Tokens read from cache
-    cache_write: int  # Tokens written to cache (cache_creation)
-
-
-class Tokens(TypedDict, total=False):
-    """
-    Token usage information with optional input breakdown.
-
-    input can be either:
-    - int: Simple total input token count
-    - TokensInput: Detailed breakdown with base/cache_read/cache_write
-    """
-
-    input: TokensInput | int
-    output: int
-
-
 class MessageMetadata(TypedDict, total=False):
     """
     Metadata stored with each message.
 
-    All fields are optional for compact storage - only non-zero values are serialized.
+    All fields are optional for compact storage - only non-None values are serialized.
 
     Token/cost fields are populated for assistant messages when telemetry is enabled.
 
-    Structure:
+    Uses flat token format (matches cost_tracker and common industry conventions):
         {
             "model": "claude-sonnet",
-            "tokens": {
-                "input": {"base": 100, "cache_read": 80},
-                "output": 50
-            },
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_read_tokens": 80,
+            "cache_creation_tokens": 10,
             "cost": 0.005
         }
     """
 
     model: str
-    tokens: Tokens
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
     cost: float  # Cost in USD
 
 
@@ -81,15 +59,12 @@ def _format_toml_value(value: object) -> str:
         return f'"{value}"'
     elif isinstance(value, float):
         return f"{value:.6f}"
-    elif isinstance(value, dict):
-        items = ", ".join(f'"{k}" = {_format_toml_value(v)}' for k, v in value.items())
-        return f"{{ {items} }}"
     else:
         return str(value)
 
 
 def _format_metadata_toml(metadata: MessageMetadata) -> str:
-    """Format metadata as TOML inline table, handling nested tokens structure."""
+    """Format metadata as TOML inline table."""
     meta_items = []
     for k, v in metadata.items():
         meta_items.append(f'"{k}" = {_format_toml_value(v)}')
