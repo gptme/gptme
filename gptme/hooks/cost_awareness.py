@@ -24,7 +24,22 @@ logger = logging.getLogger(__name__)
 
 # Default cost warning thresholds (in USD)
 # Warns when total session cost crosses these values
-COST_WARNING_THRESHOLDS = [0.10, 0.50, 1.00, 5.00, 10.00]
+# Includes $10 increments after the first $10 for extended sessions
+COST_WARNING_THRESHOLDS = [
+    0.10,
+    0.50,
+    1.00,
+    5.00,  # Early warnings
+    10.00,
+    20.00,
+    30.00,
+    40.00,
+    50.00,  # $10 increments
+    100.00,
+    200.00,
+    500.00,
+    1000.00,  # Large session warnings
+]
 
 
 def session_start_cost_tracking(

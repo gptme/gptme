@@ -61,14 +61,25 @@ class SessionCosts:
 
     @property
     def cache_hit_rate(self) -> float:
-        """Cache hit rate as fraction of total input tokens.
+        """Cache hit rate as fraction of cacheable input tokens.
 
-        Returns 0.0 if no tokens have been processed.
+        Calculation: cache_read_tokens / (cache_read_tokens + cache_creation_tokens)
+
+        This measures the cache efficiency for tokens that interact with the cache:
+        - cache_read_tokens: tokens served from cache (hits)
+        - cache_creation_tokens: tokens written to cache (misses, first-time processing)
+
+        Note: input_tokens may include both cached and non-cached tokens depending
+        on the LLM provider. This calculation focuses on cache-specific metrics.
+
+        Returns 0.0 if no cache-related tokens have been processed.
         """
-        total_in = self.total_input_tokens + self.total_cache_read_tokens
-        if total_in == 0:
+        total_cacheable = (
+            self.total_cache_read_tokens + self.total_cache_creation_tokens
+        )
+        if total_cacheable == 0:
             return 0.0
-        return self.total_cache_read_tokens / total_in
+        return self.total_cache_read_tokens / total_cacheable
 
     @property
     def request_count(self) -> int:
