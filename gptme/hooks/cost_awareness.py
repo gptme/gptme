@@ -34,8 +34,12 @@ COST_WARNING_THRESHOLDS = [
     20.00,
     30.00,
     40.00,
-    50.00,  # $10 increments
-    100.00,
+    50.00,
+    60.00,
+    70.00,
+    80.00,
+    90.00,
+    100.00,  # $10 increments up to $100
     200.00,
     500.00,
     1000.00,  # Large session warnings
