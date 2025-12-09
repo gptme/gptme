@@ -93,14 +93,14 @@ class TestSessionCosts:
             CostEntry(
                 timestamp=1.0,
                 model="claude-sonnet-4-5",
-                input_tokens=200,  # Uncached
+                input_tokens=200,
                 output_tokens=100,
-                cache_read_tokens=800,  # Cached
-                cache_creation_tokens=0,
+                cache_read_tokens=800,  # Cache hits
+                cache_creation_tokens=200,  # Cache misses (written to cache)
                 cost=0.005,
             )
         )
-        # Cache hit rate = cache_read / (input + cache_read) = 800 / 1000 = 0.8
+        # Cache hit rate = cache_read / (cache_read + cache_creation) = 800 / 1000 = 0.8
         assert session.cache_hit_rate == 0.8
 
 
