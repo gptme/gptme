@@ -123,7 +123,7 @@ def _parse_options_with_llm(content: str) -> dict | None:
                 "user", PARSE_PROMPT.format(message=content[:2000])
             )  # Limit context
         ]
-        response = _chat_complete(messages, model=model, tools=None)
+        response, _metadata = _chat_complete(messages, model=model, tools=None)
 
         # Parse JSON from response
         import json

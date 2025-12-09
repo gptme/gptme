@@ -130,7 +130,7 @@ def execute_morph(
 
     # Call Morph via OpenRouter
     try:
-        response = _chat_complete(
+        response, _metadata = _chat_complete(
             messages, "openrouter/morph/morph-v3-fast", tools=None
         )
     except Exception as e:

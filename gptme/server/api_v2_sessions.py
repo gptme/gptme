@@ -11,7 +11,7 @@ import os
 import threading
 import uuid
 from collections import defaultdict
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -337,11 +337,15 @@ def step(
         # Stream tokens from the model
         output = ""
         tooluses = []
-        for token in (
-            char
-            for chunk in (_stream if stream else _chat_complete)(msgs, model, tools)
-            for char in chunk
-        ):
+        # Handle streaming vs non-streaming differently
+        chunks: Iterable[str]
+        if stream:
+            chunks = _stream(msgs, model, tools)
+        else:
+            response, _metadata = _chat_complete(msgs, model, tools)
+            chunks = [response]  # Wrap in list to iterate
+
+        for token in (char for chunk in chunks for char in chunk):
             # check if interrupted
             if not session.generating:
                 output += " [INTERRUPTED]"
