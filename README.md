@@ -61,6 +61,9 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 
 ## 📚 Table of Contents
 
+[![Run in Smithery](https://smithery.ai/badge/skills/gptme)](https://smithery.ai/skills?ns=gptme&utm_source=github&utm_medium=badge)
+
+
 - 🎥 [Demos](#-demos)
 - 🌟 [Features](#-features)
 - 🚀 [Getting Started](#-getting-started)
