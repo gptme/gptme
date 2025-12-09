@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from ..tools import ToolFormat
 from .agents import Agent, GPTMe
+from .cost import get_eval_costs
 from .execenv import DockerExecutionEnv, SimpleExecutionEnv
 from .types import (
     CaseResult,
@@ -229,6 +230,23 @@ def execute(
             gen_stderr = result.get("stderr", "")
             log_dir = result.get("log_dir") or agent.log_dir
             workspace_dir = result.get("workspace_dir") or agent.workspace_dir
+
+            # Extract cost from subprocess result
+            cost_dict = result.get("cost")
+            cost = None
+            if cost_dict:
+                from .cost import CostSummary
+
+                cost = CostSummary(
+                    session_id=cost_dict["session_id"],
+                    total_cost=cost_dict["total_cost"],
+                    total_input_tokens=cost_dict["total_input_tokens"],
+                    total_output_tokens=cost_dict["total_output_tokens"],
+                    cache_read_tokens=cost_dict["cache_read_tokens"],
+                    cache_creation_tokens=cost_dict["cache_creation_tokens"],
+                    cache_hit_rate=cost_dict["cache_hit_rate"],
+                    request_count=cost_dict["request_count"],
+                )
         else:
             logger.error("No result in shared dictionary")
             return EvalResult(
@@ -294,6 +312,7 @@ def execute(
             run_stderr=stderr_run,
             log_dir=log_dir,
             workspace_dir=workspace_dir,
+            cost=cost,
         )
 
 
@@ -384,6 +403,23 @@ def act_process(
         return
 
     duration = time.time() - start
+
+    # Capture cost summary from this subprocess
+
+    cost_summary = get_eval_costs()
+    cost_dict = None
+    if cost_summary:
+        cost_dict = {
+            "session_id": cost_summary.session_id,
+            "total_cost": cost_summary.total_cost,
+            "total_input_tokens": cost_summary.total_input_tokens,
+            "total_output_tokens": cost_summary.total_output_tokens,
+            "cache_read_tokens": cost_summary.cache_read_tokens,
+            "cache_creation_tokens": cost_summary.cache_creation_tokens,
+            "cache_hit_rate": cost_summary.cache_hit_rate,
+            "request_count": cost_summary.request_count,
+        }
+
     result_success: ProcessSuccess = {
         "status": "success",
         "files": files,
@@ -392,6 +428,7 @@ def act_process(
         "duration": duration,
         "log_dir": agent.log_dir,
         "workspace_dir": agent.workspace_dir,
+        "cost": cost_dict,  # type: ignore[typeddict-unknown-key]
     }
     sync_dict["result"] = result_success
     subprocess_logger.info("Success")

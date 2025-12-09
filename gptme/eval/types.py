@@ -1,9 +1,12 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from typing_extensions import NotRequired
+
+if TYPE_CHECKING:
+    from .cost import CostSummary
 
 Files = dict[str, str | bytes]
 Status = Literal["success", "error", "timeout"]
@@ -48,6 +51,7 @@ class EvalResult:
     run_stderr: str
     log_dir: Path
     workspace_dir: Path
+    cost: "CostSummary | None" = field(default=None)
 
 
 class EvalSpec(TypedDict):
