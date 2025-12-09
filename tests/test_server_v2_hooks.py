@@ -154,8 +154,9 @@ def test_message_post_process_hook(client: FlaskClient, monkeypatch):
     assert response.status_code == 200
 
     # Mock _chat_complete (since stream=False)
+    # Returns (response, metadata) tuple - the new format
     def mock_chat_complete(messages, model, tools=None):
-        return [["Hello! How can I help you?"]]
+        return ("Hello! How can I help you?", None)
 
     with unittest.mock.patch(
         "gptme.server.api_v2_sessions._chat_complete", mock_chat_complete
