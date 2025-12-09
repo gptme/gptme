@@ -200,3 +200,75 @@ def test_file_hashes_no_collision_same_basename():
     toml_str = msg.to_toml()
     loaded = Message.from_toml(toml_str)
     assert loaded.file_hashes == msg.file_hashes
+
+
+def test_message_metadata():
+    """Test that metadata survives JSONL and TOML round-trips."""
+    import json
+
+    from gptme.message import Message, MessageMetadata
+
+    # Create message with metadata
+    meta: MessageMetadata = {
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "cost": 0.005,
+        "model": "claude-sonnet",
+        "cache_read_tokens": 80,
+    }
+    msg = Message(role="assistant", content="Hello world", metadata=meta)
+
+    # Verify metadata stored correctly
+    assert msg.metadata is not None
+    assert msg.metadata["input_tokens"] == 100
+    assert msg.metadata["output_tokens"] == 50
+    assert msg.metadata["cost"] == 0.005
+    assert msg.metadata["model"] == "claude-sonnet"
+    assert msg.metadata["cache_read_tokens"] == 80
+
+    # Test JSON/JSONL roundtrip
+    d = msg.to_dict()
+    assert "metadata" in d
+    json_str = json.dumps(d)
+    json_data = json.loads(json_str)
+    from dateutil.parser import isoparse
+
+    json_data["timestamp"] = isoparse(json_data["timestamp"])
+    msg2 = Message(**json_data)
+    assert msg2.metadata == meta
+
+    # Test TOML roundtrip
+    toml_str = msg.to_toml()
+    msg3 = Message.from_toml(toml_str)
+    assert msg3.metadata == meta
+
+
+def test_message_metadata_none():
+    """Test that messages without metadata work correctly."""
+    import json
+
+    from gptme.message import Message
+
+    # Create message without metadata
+    msg = Message(role="user", content="Hello")
+
+    # Verify no metadata
+    assert msg.metadata is None
+
+    # to_dict should NOT include metadata key for compact storage
+    d = msg.to_dict()
+    assert "metadata" not in d
+
+    # JSONL roundtrip
+    json_str = json.dumps(d)
+    json_data = json.loads(json_str)
+    from dateutil.parser import isoparse
+
+    json_data["timestamp"] = isoparse(json_data["timestamp"])
+    msg2 = Message(**json_data)
+    assert msg2.metadata is None
+
+    # TOML roundtrip
+    toml_str = msg.to_toml()
+    msg3 = Message.from_toml(toml_str)
+    assert msg3.metadata is None
