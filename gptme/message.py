@@ -26,6 +26,31 @@ from .util.tokens import len_tokens
 logger = logging.getLogger(__name__)
 
 
+class TokensInput(TypedDict, total=False):
+    """
+    Input token breakdown.
+
+    Can specify just base tokens, or include cache breakdown.
+    """
+
+    base: int  # Base input tokens (non-cached)
+    cache_read: int  # Tokens read from cache
+    cache_write: int  # Tokens written to cache (cache_creation)
+
+
+class Tokens(TypedDict, total=False):
+    """
+    Token usage information with optional input breakdown.
+
+    input can be either:
+    - int: Simple total input token count
+    - TokensInput: Detailed breakdown with base/cache_read/cache_write
+    """
+
+    input: TokensInput | int
+    output: int
+
+
 class MessageMetadata(TypedDict, total=False):
     """
     Metadata stored with each message.
@@ -33,19 +58,42 @@ class MessageMetadata(TypedDict, total=False):
     All fields are optional for compact storage - only non-zero values are serialized.
 
     Token/cost fields are populated for assistant messages when telemetry is enabled.
+
+    Structure:
+        {
+            "model": "claude-sonnet",
+            "tokens": {
+                "input": {"base": 100, "cache_read": 80},
+                "output": 50
+            },
+            "cost": 0.005
+        }
     """
 
-    # Token usage (from LLM response)
-    input_tokens: int
-    output_tokens: int
-    cache_read_tokens: int
-    cache_creation_tokens: int
-
-    # Cost in USD
-    cost: float
-
-    # Model used for this response
     model: str
+    tokens: Tokens
+    cost: float  # Cost in USD
+
+
+def _format_toml_value(value: object) -> str:
+    """Format a value for TOML inline table."""
+    if isinstance(value, str):
+        return f'"{value}"'
+    elif isinstance(value, float):
+        return f"{value:.6f}"
+    elif isinstance(value, dict):
+        items = ", ".join(f'"{k}" = {_format_toml_value(v)}' for k, v in value.items())
+        return f"{{ {items} }}"
+    else:
+        return str(value)
+
+
+def _format_metadata_toml(metadata: MessageMetadata) -> str:
+    """Format metadata as TOML inline table, handling nested tokens structure."""
+    meta_items = []
+    for k, v in metadata.items():
+        meta_items.append(f'"{k}" = {_format_toml_value(v)}')
+    return f"metadata = {{ {', '.join(meta_items)} }}"
 
 
 @dataclass(frozen=True, eq=False)
@@ -180,16 +228,7 @@ class Message:
             file_hashes_toml = ""
         # Serialize metadata as TOML inline table if present
         if self.metadata:
-            # Format values appropriately for TOML
-            meta_items = []
-            for k, v in self.metadata.items():
-                if isinstance(v, str):
-                    meta_items.append(f'"{k}" = "{v}"')
-                elif isinstance(v, float):
-                    meta_items.append(f'"{k}" = {v:.6f}')
-                else:
-                    meta_items.append(f'"{k}" = {v}')
-            metadata_toml = f"metadata = {{ {', '.join(meta_items)} }}"
+            metadata_toml = _format_metadata_toml(self.metadata)
         else:
             metadata_toml = ""
         extra = (
