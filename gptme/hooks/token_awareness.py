@@ -101,6 +101,11 @@ def add_token_usage_warning(
     Yields:
         System message with token usage warning (only at thresholds)
     """
+    # Guard against None log (can happen in edge cases like tests)
+    if log is None:
+        logger.debug("No log provided, skipping token usage warning")
+        return
+
     try:
         from ..llm.models import get_default_model
 
