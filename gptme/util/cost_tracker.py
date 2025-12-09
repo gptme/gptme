@@ -28,6 +28,50 @@ class CostEntry:
 
 
 @dataclass
+class CostSummary:
+    """Typed cost summary for eval results and quick status checks.
+
+    Provides structured access to aggregated cost metrics.
+    """
+
+    session_id: str
+    total_cost: float
+    total_input_tokens: int
+    total_output_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
+    cache_hit_rate: float
+    request_count: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CostSummary":
+        """Create CostSummary from dictionary."""
+        return cls(
+            session_id=data.get("session_id", ""),
+            total_cost=data.get("total_cost", 0.0),
+            total_input_tokens=data.get("total_input_tokens", 0),
+            total_output_tokens=data.get("total_output_tokens", 0),
+            cache_read_tokens=data.get("cache_read_tokens", 0),
+            cache_creation_tokens=data.get("cache_creation_tokens", 0),
+            cache_hit_rate=data.get("cache_hit_rate", 0.0),
+            request_count=data.get("request_count", 0),
+        )
+
+    def to_dict(self) -> dict:
+        """Convert CostSummary to dictionary for serialization."""
+        return {
+            "session_id": self.session_id,
+            "total_cost": self.total_cost,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
+            "cache_hit_rate": self.cache_hit_rate,
+            "request_count": self.request_count,
+        }
+
+
+@dataclass
 class SessionCosts:
     """Aggregated costs for a session."""
 
@@ -147,26 +191,26 @@ class CostTracker:
         return cls._session_costs_var.get()
 
     @classmethod
-    def get_summary(cls) -> dict:
+    def get_summary(cls) -> CostSummary | None:
         """Get cost summary for current session.
 
         Returns:
-            Dictionary with aggregated cost metrics, empty dict if no session.
+            CostSummary with aggregated cost metrics, None if no session.
             Used by cost_awareness hook and for quick status checks.
         """
         costs = cls._session_costs_var.get()
         if not costs:
-            return {}
-        return {
-            "session_id": costs.session_id,
-            "total_cost": costs.total_cost,
-            "total_input_tokens": costs.total_input_tokens,
-            "total_output_tokens": costs.total_output_tokens,
-            "cache_read_tokens": costs.total_cache_read_tokens,
-            "cache_creation_tokens": costs.total_cache_creation_tokens,
-            "cache_hit_rate": costs.cache_hit_rate,
-            "request_count": costs.request_count,
-        }
+            return None
+        return CostSummary(
+            session_id=costs.session_id,
+            total_cost=costs.total_cost,
+            total_input_tokens=costs.total_input_tokens,
+            total_output_tokens=costs.total_output_tokens,
+            cache_read_tokens=costs.total_cache_read_tokens,
+            cache_creation_tokens=costs.total_cache_creation_tokens,
+            cache_hit_rate=costs.cache_hit_rate,
+            request_count=costs.request_count,
+        )
 
     @classmethod
     def reset(cls) -> None:

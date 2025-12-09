@@ -237,16 +237,7 @@ def execute(
             if cost_dict:
                 from .cost import CostSummary
 
-                cost = CostSummary(
-                    session_id=cost_dict["session_id"],
-                    total_cost=cost_dict["total_cost"],
-                    total_input_tokens=cost_dict["total_input_tokens"],
-                    total_output_tokens=cost_dict["total_output_tokens"],
-                    cache_read_tokens=cost_dict["cache_read_tokens"],
-                    cache_creation_tokens=cost_dict["cache_creation_tokens"],
-                    cache_hit_rate=cost_dict["cache_hit_rate"],
-                    request_count=cost_dict["request_count"],
-                )
+                cost = CostSummary.from_dict(cost_dict)
         else:
             logger.error("No result in shared dictionary")
             return EvalResult(
@@ -407,18 +398,7 @@ def act_process(
     # Capture cost summary from this subprocess
 
     cost_summary = get_eval_costs()
-    cost_dict = None
-    if cost_summary:
-        cost_dict = {
-            "session_id": cost_summary.session_id,
-            "total_cost": cost_summary.total_cost,
-            "total_input_tokens": cost_summary.total_input_tokens,
-            "total_output_tokens": cost_summary.total_output_tokens,
-            "cache_read_tokens": cost_summary.cache_read_tokens,
-            "cache_creation_tokens": cost_summary.cache_creation_tokens,
-            "cache_hit_rate": cost_summary.cache_hit_rate,
-            "request_count": cost_summary.request_count,
-        }
+    cost_dict = cost_summary.to_dict() if cost_summary else None
 
     result_success: ProcessSuccess = {
         "status": "success",

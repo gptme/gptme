@@ -17,26 +17,10 @@ Usage in evals:
             print(f"  {entry.model}: ${entry.cost:.4f}")
 """
 
-from dataclasses import dataclass
+from ..util.cost_tracker import CostSummary, CostTracker, SessionCosts
 
-from ..util.cost_tracker import CostTracker, SessionCosts
-
-
-@dataclass
-class CostSummary:
-    """Typed cost summary for eval results.
-
-    Replaces untyped dict return, providing clear structure for eval integration.
-    """
-
-    session_id: str
-    total_cost: float
-    total_input_tokens: int
-    total_output_tokens: int
-    cache_read_tokens: int
-    cache_creation_tokens: int
-    cache_hit_rate: float
-    request_count: int
+# Re-export CostSummary for backward compatibility
+__all__ = ["CostSummary", "get_eval_costs", "get_session_costs"]
 
 
 def get_eval_costs() -> CostSummary | None:
@@ -45,19 +29,7 @@ def get_eval_costs() -> CostSummary | None:
     Returns:
         CostSummary with cost metrics, or None if no session is active.
     """
-    summary = CostTracker.get_summary()
-    if not summary:
-        return None
-    return CostSummary(
-        session_id=summary.get("session_id", ""),
-        total_cost=summary.get("total_cost", 0.0),
-        total_input_tokens=summary.get("total_input_tokens", 0),
-        total_output_tokens=summary.get("total_output_tokens", 0),
-        cache_read_tokens=summary.get("cache_read_tokens", 0),
-        cache_creation_tokens=summary.get("cache_creation_tokens", 0),
-        cache_hit_rate=summary.get("cache_hit_rate", 0.0),
-        request_count=summary.get("request_count", 0),
-    )
+    return CostTracker.get_summary()
 
 
 def get_session_costs() -> SessionCosts | None:

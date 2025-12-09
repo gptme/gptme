@@ -138,7 +138,7 @@ class TestCostTracker:
             )
         )
         assert CostTracker.get_session_costs() is None
-        assert CostTracker.get_summary() == {}
+        assert CostTracker.get_summary() is None
 
     def test_start_session(self):
         """Test starting a session."""
@@ -163,9 +163,10 @@ class TestCostTracker:
             )
         )
         summary = CostTracker.get_summary()
-        assert summary["total_cost"] == 0.015
-        assert summary["total_input_tokens"] == 1000
-        assert summary["request_count"] == 1
+        assert summary is not None
+        assert summary.total_cost == 0.015
+        assert summary.total_input_tokens == 1000
+        assert summary.request_count == 1
 
     def test_get_summary_format(self):
         """Test summary dict has expected keys."""
@@ -182,11 +183,17 @@ class TestCostTracker:
             )
         )
         summary = CostTracker.get_summary()
-        assert "session_id" in summary
-        assert "total_cost" in summary
-        assert "total_input_tokens" in summary
-        assert "total_output_tokens" in summary
-        assert "cache_read_tokens" in summary
-        assert "cache_creation_tokens" in summary
-        assert "cache_hit_rate" in summary
-        assert "request_count" in summary
+        assert summary is not None
+        # Check that CostSummary has expected attributes
+        assert hasattr(summary, "session_id")
+        assert hasattr(summary, "total_cost")
+        assert hasattr(summary, "total_input_tokens")
+        assert hasattr(summary, "total_output_tokens")
+        assert hasattr(summary, "cache_read_tokens")
+        assert hasattr(summary, "cache_creation_tokens")
+        assert hasattr(summary, "cache_hit_rate")
+        assert hasattr(summary, "request_count")
+        # Verify it's a CostSummary instance
+        from gptme.util.cost_tracker import CostSummary
+
+        assert isinstance(summary, CostSummary)
