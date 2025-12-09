@@ -269,14 +269,15 @@ def _calculate_llm_cost(
     caching_cost = 0.0
     if provider == "anthropic":
         # anthropic charges 1.25x for cache writes + 0.1x for cache reads
-        price_cache_read = 0.1 * price_out
+        # cache reads use input pricing (cached input tokens being read)
+        price_cache_read = 0.1 * price_in
         price_cache_write = 1.25 * price_in
         cost_cache_read = price_cache_read * (cache_read_tokens or 0)
         cost_cache_write = price_cache_write * (cache_creation_tokens or 0)
         caching_cost = cost_cache_read + cost_cache_write
     elif provider == "openai":
-        # openai charges 0.5x for cache reads
-        price_cache_read = 0.5 * price_out
+        # openai charges 0.5x for cache reads (based on input pricing)
+        price_cache_read = 0.5 * price_in
         caching_cost = price_cache_read * (cache_read_tokens or 0)
 
     return cost + caching_cost
