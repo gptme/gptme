@@ -15,7 +15,10 @@ from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import Message
-from .telemetry import trace_function
+from .telemetry import (
+    set_conversation_context,
+    trace_function,
+)
 from .tools import (
     ConfirmFunc,
     ToolFormat,
@@ -70,6 +73,10 @@ def chat(
     # Set initial terminal title with conversation name
     conv_name = logdir.name
     set_current_conv_name(conv_name)
+
+    # Set conversation context for telemetry
+    # This propagates to all spans in this conversation
+    set_conversation_context(conversation_id=conv_name)
 
     # tool_format should already be resolved by this point
     assert (

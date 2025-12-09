@@ -17,10 +17,34 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 from .llm.models import get_model
-from .util._telemetry import get_telemetry_objects
+from .util._telemetry import (
+    clear_conversation_context,
+    enrich_span_with_context,
+    enrich_span_with_llm_metrics,
+    get_conversation_context,
+    get_telemetry_objects,
+    set_conversation_context,
+)
 from .util._telemetry import init_telemetry as _init
 from .util._telemetry import is_telemetry_enabled as _is_enabled
 from .util._telemetry import shutdown_telemetry as _shutdown
+
+# Re-export conversation context functions for use by other modules
+__all__ = [
+    "set_conversation_context",
+    "get_conversation_context",
+    "clear_conversation_context",
+    "is_telemetry_enabled",
+    "init_telemetry",
+    "shutdown_telemetry",
+    "trace_function",
+    "record_tokens",
+    "record_request_duration",
+    "record_tool_call",
+    "record_conversation_change",
+    "record_llm_request",
+    "measure_tokens_per_second",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +121,9 @@ def trace_function(
             span_name = name or f"{func.__module__}.{func.__name__}"
 
             with tracer.start_as_current_span(span_name) as span:
+                # Add conversation context to all spans
+                enrich_span_with_context(span)
+
                 if attributes:
                     for key, value in attributes.items():
                         span.set_attribute(key, value)
@@ -154,13 +181,41 @@ def record_tool_call(
     error_message: str | None = None,
     tool_format: str | None = None,
 ) -> None:
-    """Record tool call metrics."""
+    """Record tool call metrics with span for Jaeger analysis."""
     if not is_telemetry_enabled():
         return
 
     telemetry_objects = get_telemetry_objects()
     tool_counter = telemetry_objects["tool_counter"]
     tool_duration_histogram = telemetry_objects["tool_duration_histogram"]
+    tracer = telemetry_objects["tracer"]
+
+    # Create a span for this tool call
+    if tracer is not None:
+        with tracer.start_as_current_span(f"tool.{tool_name}") as span:
+            enrich_span_with_context(span)
+            span.set_attribute("tool.name", tool_name)
+            span.set_attribute("tool.success", success)
+            if tool_format:
+                span.set_attribute("tool.format", tool_format)
+            if duration is not None:
+                span.set_attribute("tool.duration_seconds", duration)
+            if error_type:
+                span.set_attribute("tool.error.type", error_type)
+            if error_message:
+                span.set_attribute("tool.error.message", error_message[:200])
+
+            # Add span events
+            if success:
+                span.add_event("tool_completed", attributes={"tool": tool_name})
+            else:
+                span.add_event(
+                    "tool_failed",
+                    attributes={
+                        "tool": tool_name,
+                        "error_type": error_type or "unknown",
+                    },
+                )
 
     if tool_counter is None:
         return
@@ -237,7 +292,11 @@ def record_llm_request(
     cache_read_tokens: int | None = None,
     total_tokens: int | None = None,
 ) -> None:
-    """Record LLM API request metrics with optional token usage."""
+    """Record LLM API request metrics with optional token usage.
+
+    Creates a span with cost and cache metrics for Jaeger analysis,
+    and records metrics for Prometheus/Grafana dashboards.
+    """
     logger.debug(
         f"Recording LLM request: provider={provider}, model={model}, success={success}"
     )
@@ -290,6 +349,39 @@ def record_llm_request(
 
     telemetry_objects = get_telemetry_objects()
     llm_request_counter = telemetry_objects["llm_request_counter"]
+    tracer = telemetry_objects["tracer"]
+
+    # Create a span for this LLM request for Jaeger analysis
+    if tracer is not None:
+        with tracer.start_as_current_span("llm_request") as span:
+            # Add conversation context
+            enrich_span_with_context(span)
+
+            # Add basic attributes
+            span.set_attribute("llm.provider", provider)
+            span.set_attribute("llm.model", model)
+            span.set_attribute("llm.success", success)
+
+            # Add rich metrics for Jaeger analysis
+            enrich_span_with_llm_metrics(
+                span,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_creation_tokens=cache_creation_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cost=cost,
+            )
+
+            # Add span event for request completion
+            span.add_event(
+                "llm_request_complete",
+                attributes={
+                    "provider": provider,
+                    "model": model,
+                    "success": str(success),
+                    "cost_usd": f"{cost:.6f}" if cost else "0",
+                },
+            )
 
     if llm_request_counter is None:
         return

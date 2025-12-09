@@ -9,8 +9,18 @@ unless explicitly needed.
 import logging
 import os
 import socket
+from contextvars import ContextVar
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from opentelemetry.trace import Span
 
 logger = logging.getLogger(__name__)
+
+# Context variables for conversation tracking
+# These propagate across async/threaded operations
+_conversation_id: ContextVar[str | None] = ContextVar("conversation_id", default=None)
+_session_id: ContextVar[str | None] = ContextVar("session_id", default=None)
 
 
 class TelemetryConnectionErrorFilter(logging.Filter):
@@ -97,6 +107,9 @@ try:
     from opentelemetry.instrumentation.flask import FlaskInstrumentor  # fmt: skip
     from opentelemetry.instrumentation.openai import OpenAIInstrumentor  # fmt: skip
     from opentelemetry.instrumentation.requests import RequestsInstrumentor  # fmt: skip
+    from opentelemetry.instrumentation.threading import (
+        ThreadingInstrumentor,  # fmt: skip
+    )
     from opentelemetry.sdk.metrics import MeterProvider  # fmt: skip
     from opentelemetry.sdk.metrics.export import (
         PeriodicExportingMetricReader,  # fmt: skip
@@ -132,6 +145,94 @@ def get_telemetry_objects():
         "active_conversations_gauge": _active_conversations_gauge,
         "llm_request_counter": _llm_request_counter,
     }
+
+
+def set_conversation_context(
+    conversation_id: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    """Set the current conversation context for tracing.
+
+    This context propagates to all spans created in the current thread/async context,
+    enabling filtering by conversation in Jaeger.
+
+    Args:
+        conversation_id: Unique identifier for the conversation (e.g., log name)
+        session_id: Unique identifier for the session (e.g., UUID)
+    """
+    if conversation_id is not None:
+        _conversation_id.set(conversation_id)
+    if session_id is not None:
+        _session_id.set(session_id)
+
+
+def get_conversation_context() -> tuple[str | None, str | None]:
+    """Get the current conversation context.
+
+    Returns:
+        Tuple of (conversation_id, session_id)
+    """
+    return _conversation_id.get(), _session_id.get()
+
+
+def clear_conversation_context() -> None:
+    """Clear the conversation context."""
+    _conversation_id.set(None)
+    _session_id.set(None)
+
+
+def enrich_span_with_context(span: "Span") -> None:
+    """Add conversation context to a span.
+
+    Args:
+        span: The OpenTelemetry span to enrich
+    """
+    conversation_id, session_id = get_conversation_context()
+    if conversation_id:
+        span.set_attribute("conversation.id", conversation_id)
+    if session_id:
+        span.set_attribute("session.id", session_id)
+
+
+def enrich_span_with_llm_metrics(
+    span: "Span",
+    *,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    cache_creation_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
+    cost: float | None = None,
+) -> None:
+    """Add LLM metrics to a span for analysis in Jaeger.
+
+    Args:
+        span: The OpenTelemetry span to enrich
+        input_tokens: Number of input tokens (excluding cache)
+        output_tokens: Number of output tokens
+        cache_creation_tokens: Tokens written to cache
+        cache_read_tokens: Tokens read from cache
+        cost: Calculated cost in USD
+    """
+    if input_tokens is not None:
+        span.set_attribute("llm.tokens.input", input_tokens)
+    if output_tokens is not None:
+        span.set_attribute("llm.tokens.output", output_tokens)
+    if cache_creation_tokens is not None:
+        span.set_attribute("llm.cache.creation_tokens", cache_creation_tokens)
+    if cache_read_tokens is not None:
+        span.set_attribute("llm.cache.read_tokens", cache_read_tokens)
+
+    # Calculate and add cache hit rate
+    if cache_read_tokens is not None and cache_creation_tokens is not None:
+        total_cacheable = (
+            (input_tokens or 0) + cache_read_tokens + cache_creation_tokens
+        )
+        if total_cacheable > 0:
+            hit_rate = cache_read_tokens / total_cacheable
+            span.set_attribute("llm.cache.hit_rate", hit_rate)
+
+    if cost is not None:
+        span.set_attribute("llm.cost.usd", cost)
 
 
 def init_telemetry(
@@ -340,6 +441,10 @@ def init_telemetry(
 
         if enable_anthropic_instrumentation:
             AnthropicInstrumentor().instrument()
+
+        # Always enable threading instrumentation for context propagation
+        # This is critical for server mode where threads handle requests
+        ThreadingInstrumentor().instrument()
 
         _telemetry_enabled = True
 
