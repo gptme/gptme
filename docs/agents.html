@@ -615,19 +615,31 @@ window.addEventListener("load", () => mermaid.run());
 <p>We are working on a graphical way to create and interact with agents using the <a class="reference internal" href="server.html#server-gptme-webui"><span class="std std-ref">gptme web interface</span></a>. Try it out and let us know what you think! Soon coming as a managed service.</p>
 </div>
 <p><strong>Installing dependencies:</strong></p>
-<p>First install the required dependencies using <a class="reference external" href="https://pipx.pypa.io/">pipx</a> (recommended) to ensure isolation and easy management:</p>
+<p>First install the required dependencies and then gptme itself using <a class="reference external" href="https://pipx.pypa.io/">pipx</a> (recommended) to ensure isolation and easy management:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install pipx and other system dependencies</span>
-sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>pipx<span class="w"> </span>tree<span class="w">  </span><span class="c1"># or `brew install pipx tree` on macOS</span>
+sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>pipx<span class="w"> </span>tree
+<span class="c1"># or `brew install pipx tree`</span>
 
-<span class="c1"># Install optional dependencies</span>
-sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>shellcheck<span class="w">  </span><span class="c1"># or `brew install shellcheck` on macOS</span>
+<span class="c1"># Install common dev dependencies (recommended)</span>
+sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>git<span class="w"> </span>curl<span class="w"> </span>make<span class="w"> </span>build-essential<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>python3<span class="w"> </span>python3-dev<span class="w"> </span>python-is-python3
 
-<span class="c1"># Install required Python dependencies</span>
+<span class="c1"># Install gptme itself</span>
 pipx<span class="w"> </span>install<span class="w"> </span>gptme
 <span class="c1"># or `pipx install -e ./gptme` to install from local source</span>
-<span class="c1"># or `pipx install &quot;git+https://github.com/gptme/gptme.git@master#egg=gptme[browser,server,telemetry]&quot;`_ for latest from GitHub with extras</span>
+<span class="c1"># or `pipx install &quot;git+https://github.com/gptme/gptme.git@master#egg=gptme[browser,server,telemetry]&quot;`_ for latest master with extras</span>
+
+<span class="c1"># Requirements for agent</span>
 pipx<span class="w"> </span>install<span class="w"> </span>uv
 pipx<span class="w"> </span>install<span class="w"> </span>pre-commit
+
+<span class="c1"># Install optional dependencies</span>
+sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>lynx<span class="w"> </span>shellcheck<span class="w"> </span>jq<span class="w"> </span>pandoc<span class="w"> </span>ripgrep
+<span class="c1"># or `brew install lynx shellcheck jq pandoc ripgrep`</span>
+
+<span class="c1"># Recommended:</span>
+<span class="c1"># Install latest `gh` GitHub CLI from GitHub source (not old package manager version)</span>
+<span class="c1"># See https://cli.github.com/</span>
 </pre></div>
 </div>
 <p><strong>Creating an Agent:</strong></p>
