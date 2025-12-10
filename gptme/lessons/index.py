@@ -155,6 +155,23 @@ class LessonIndex:
                 if lesson_dir.exists():
                     dirs.append(lesson_dir)
 
+        # Plugin lesson directories (auto-discovered from [plugins].paths)
+        if config.project and config.project.plugins.paths:
+            from ..plugins import discover_plugins
+
+            plugin_paths = [
+                Path(p).expanduser().resolve() for p in config.project.plugins.paths
+            ]
+            plugins = discover_plugins(plugin_paths)
+            for plugin in plugins:
+                # Check for lessons/ directory in plugin
+                plugin_lessons_dir = plugin.path / "lessons"
+                if plugin_lessons_dir.exists():
+                    dirs.append(plugin_lessons_dir)
+                    logger.debug(
+                        f"Found plugin lessons: {plugin.name} -> {plugin_lessons_dir}"
+                    )
+
         return dirs
 
     def _index_lessons(self) -> None:
