@@ -631,7 +631,7 @@ class ShellSession:
                     # We use a higher value, because there is a bug which leads to spaces at the boundary
                     # 2**12 = 4096
                     # 2**16 = 65536
-                    data = os.read(fd, 2**16).decode("utf-8")
+                    data = os.read(fd, 2**16).decode("utf-8", errors="replace")
                     lines = data.splitlines(keepends=True)
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
                     for line in lines:
@@ -689,7 +689,7 @@ class ShellSession:
                                     drain_empty_count += 1
                                     continue
                                 drain_data = os.read(self.stderr_fd, 2**16).decode(
-                                    "utf-8"
+                                    "utf-8", errors="replace"
                                 )
                                 if not drain_data:
                                     drain_empty_count += 1
