@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 _recently_interrupted = False
 
 # Global prompt queue for interactive mode
-_prompt_queue: queue.Queue[str] = queue.Queue()
+_prompt_queue: queue.Queue[str | None] = queue.Queue()
 _input_thread: threading.Thread | None = None
 _stop_input = threading.Event()
 
@@ -70,7 +70,9 @@ def _background_input_loop():
                 console.log(f"[✓ Prompt queued - {queued_count + 1} total]")
                 logger.debug(f"Queued prompt: {user_input[:50]}...")
         except (EOFError, KeyboardInterrupt):
-            continue
+            # Signal main loop to exit by putting None in queue
+            _prompt_queue.put(None)
+            break
         except Exception as e:
             logger.error(f"Error in background input: {e}")
             time.sleep(0.5)
@@ -106,6 +108,12 @@ def chat(
     # Start background input thread for interactive mode
     if interactive:
         _stop_input.clear()
+        # Clear any stale prompts from previous sessions
+        while not _prompt_queue.empty():
+            try:
+                _prompt_queue.get_nowait()
+            except queue.Empty:
+                break
         _input_thread = threading.Thread(target=_background_input_loop, daemon=True)
         _input_thread.start()
 
@@ -221,6 +229,9 @@ def _run_chat_loop(
             if not _prompt_queue.empty():
                 # Get queued prompt
                 prompt_content = _prompt_queue.get_nowait()
+                # Check for exit sentinel
+                if prompt_content is None:
+                    break
                 msg = Message(
                     "user", prompt_content
                 )  # Don't suppress echo - tests expect to see input
@@ -241,29 +252,18 @@ def _run_chat_loop(
                     logger.debug("Non-interactive and exhausted prompts")
                     break
 
-                user_input = _get_user_input(manager.log, manager.workspace)
-                if user_input is None:
-                    # Either user wants to exit OR we should generate response directly
-                    if _should_prompt_for_input(manager.log):
-                        # User wants to exit
+                # Interactive mode: background thread handles terminal input
+                # Wait on queue to avoid race condition with background thread
+                try:
+                    prompt_content = _prompt_queue.get(timeout=0.5)
+                    # Check for exit sentinel
+                    if prompt_content is None:
                         break
-                    else:
-                        # Don't prompt for input, generate response directly (crash recovery, etc.)
-                        # Process existing log without adding new message
-                        _process_message_conversation(
-                            manager,
-                            stream,
-                            confirm_func,
-                            tool_format,
-                            model,
-                            output_schema,
-                        )
-                else:
-                    # Normal case: user provided input
-                    msg = user_input
+                    # Type narrowing for mypy
+                    assert isinstance(prompt_content, str)
+                    msg = Message("user", prompt_content)
+                    msg = include_paths(msg, manager.workspace)
                     manager.append(msg)
-
-                    # Reset interrupt flag since user provided new input
 
                     # Handle user commands
                     if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
@@ -278,6 +278,19 @@ def _run_chat_loop(
                         model,
                         output_schema,
                     )
+                except queue.Empty:
+                    # Check if we should generate response without new input (crash recovery)
+                    if not _should_prompt_for_input(manager.log):
+                        _process_message_conversation(
+                            manager,
+                            stream,
+                            confirm_func,
+                            tool_format,
+                            model,
+                            output_schema,
+                        )
+                    # Otherwise, keep waiting for user input
+                    continue
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
             # This handles auto-reply mechanism and other loop control logic
