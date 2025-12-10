@@ -423,6 +423,10 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
     return merged
 
 
+# Track which workspaces we've logged config loading for (to avoid duplicate logs)
+_config_logged_workspaces: set[Path] = set()
+
+
 def get_project_config(
     workspace: Path | None, *, quiet: bool = False
 ) -> ProjectConfig | None:
@@ -438,15 +442,35 @@ def get_project_config(
     if workspace is None:
         return None
 
-    # Use cached version if available
-    return _get_project_config_cached(workspace, quiet=quiet)
+    # Get cached result (includes paths for logging)
+    result = _get_project_config_cached(workspace)
+    if result is None:
+        return None
+
+    config, config_path, local_config_path = result
+
+    # Log only on first non-quiet access per workspace
+    if not quiet and workspace not in _config_logged_workspaces:
+        _config_logged_workspaces.add(workspace)
+        console.log(f"Using project configuration at {path_with_tilde(config_path)}")
+        if local_config_path:
+            console.log(
+                f"Using local configuration from {path_with_tilde(local_config_path)}"
+            )
+
+    return config
 
 
 @lru_cache(maxsize=4)
 def _get_project_config_cached(
-    workspace: Path, *, quiet: bool = False
-) -> ProjectConfig | None:
-    """Internal cached implementation of get_project_config."""
+    workspace: Path,
+) -> tuple[ProjectConfig, Path, Path | None] | None:
+    """Internal cached implementation of get_project_config.
+
+    Returns:
+        Tuple of (config, config_path, local_config_path) or None if no config found.
+        local_config_path is None if no local config exists.
+    """
     project_config_paths = [
         p
         for p in (
@@ -457,28 +481,23 @@ def _get_project_config_cached(
     ]
     if project_config_paths:
         project_config_path = project_config_paths[0]
-        if not quiet:
-            console.log(
-                f"Using project configuration at {path_with_tilde(project_config_path)}"
-            )
         # load project config
         with open(project_config_path) as f:
             config_data = tomlkit.load(f).unwrap()
 
         # Look for local config file in the same directory
         local_config_path = project_config_path.parent / "gptme.local.toml"
+        used_local_config_path: Path | None = None
         if local_config_path.exists():
-            if not quiet:
-                console.log(
-                    f"Using local configuration from {path_with_tilde(local_config_path)}"
-                )
+            used_local_config_path = local_config_path
             with open(local_config_path) as f:
                 local_config_data = tomlkit.load(f).unwrap()
 
             # Merge local config into main config
             config_data = _merge_config_data(config_data, local_config_data)
 
-        return ProjectConfig.from_dict(config_data, workspace=workspace)
+        config = ProjectConfig.from_dict(config_data, workspace=workspace)
+        return (config, project_config_path, used_local_config_path)
     return None
 
 
@@ -711,6 +730,7 @@ class Config:
     def from_workspace(cls, workspace: Path) -> Self:
         """Load the configuration from a workspace directory. Clearing any cache."""
         _get_project_config_cached.cache_clear()
+        _config_logged_workspaces.clear()
         return cls(
             user=load_user_config(),
             project=get_project_config(workspace),
