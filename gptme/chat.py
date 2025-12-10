@@ -15,10 +15,7 @@ from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import Message
-from .telemetry import (
-    set_conversation_context,
-    trace_function,
-)
+from .telemetry import set_conversation_context, trace_function
 from .tools import (
     ConfirmFunc,
     ToolFormat,
@@ -378,16 +375,26 @@ def _should_prompt_for_input(log: Log) -> bool:
     """
     last_msg = log[-1] if log else None
 
+    # Check if there's an interrupt message after the last assistant message
+    # This handles cases where hooks (like cost_awareness) add messages after the interrupt
+    has_recent_interrupt = False
+    for msg in reversed(log):
+        if msg.role == "assistant":
+            break
+        if msg.content == INTERRUPT_CONTENT:
+            has_recent_interrupt = True
+            break
+
     # Ask for input when:
     # - No messages at all
     # - Last message was from assistant (normal flow)
-    # - Last message was an interrupt
+    # - There was an interrupt after the last assistant message
     # - Last message was pinned
     # - No user messages exist in the entire log
     return (
         not last_msg
         or (last_msg.role in ["assistant"])
-        or last_msg.content == INTERRUPT_CONTENT
+        or has_recent_interrupt
         or last_msg.pinned
         or not any(role == "user" for role in [m.role for m in log])
     )
