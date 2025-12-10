@@ -547,7 +547,9 @@ class ShellSession:
             pre_drain_rlist, _, _ = select.select([self.stderr_fd], [], [], 0.05)
             if not pre_drain_rlist:
                 break
-            pre_drain_data = os.read(self.stderr_fd, 2**16).decode("utf-8")
+            pre_drain_data = os.read(self.stderr_fd, 2**16).decode(
+                "utf-8", errors="replace"
+            )
             if not pre_drain_data:
                 break
             # Discard leftover stderr from previous commands
