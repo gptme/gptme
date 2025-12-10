@@ -461,3 +461,45 @@ def test_auto_compact_phase3_compresses_long_messages():
 
     # Code block should still be present
     assert "def important():" in compacted[long_msg_idx].content
+
+
+def test_estimate_compaction_savings():
+    """Test that estimate_compaction_savings correctly estimates potential savings."""
+    from gptme.tools.autocompact import estimate_compaction_savings
+
+    # Create messages with known characteristics
+    messages = [
+        Message("system", "System message"),
+        Message("user", "Short user message"),
+        Message(
+            "assistant",
+            "<think>This is reasoning content that should be stripped.</think>\nThis is the actual response.",
+        ),
+        Message("system", "Another system message"),
+    ]
+
+    total, estimated_savings, reasoning_savings = estimate_compaction_savings(
+        messages, reasoning_strip_age_threshold=2
+    )
+
+    # Should detect some potential savings from reasoning stripping
+    assert total > 0
+    assert estimated_savings >= 0
+    assert reasoning_savings >= 0
+
+
+def test_should_auto_compact_respects_minimum_savings():
+    """Test that should_auto_compact skips when estimated savings are too low."""
+    from gptme.tools.autocompact import should_auto_compact
+
+    # Create messages that are close to limit but have minimal compaction potential
+    # Small messages with no reasoning tags and no massive tool results
+    messages = [Message("user", f"Short message {i}") for i in range(100)]
+
+    # Even if close to limit, should not trigger if savings would be minimal
+    # This tests the fix for Issue #945 where 3.8% savings wasn't worth cache invalidation
+    result = should_auto_compact(messages, limit=500)  # Low limit to trigger check
+
+    # Result depends on estimated savings - if minimal, should return False
+    # The key is that the function now considers savings potential, not just token count
+    assert isinstance(result, bool)

@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 _last_autocompact_time = 0.0
 _autocompact_min_interval = 60  # Minimum 60 seconds between autocompact attempts
 
+# Minimum savings threshold - don't compact unless we can achieve meaningful savings
+# This prevents triggering compaction that only saves a few percent (not worth cache invalidation)
+MIN_SAVINGS_RATIO = 0.10  # Require at least 10% savings to justify compaction
+
 
 def extract_code_blocks(content: str) -> tuple[str, list[tuple[str, str]]]:
     """
@@ -332,6 +336,53 @@ def auto_compact_log(
     yield from reduce_log(compacted_log, limit)
 
 
+def estimate_compaction_savings(
+    log: list[Message],
+    max_tool_result_tokens: int = 2000,
+    reasoning_strip_age_threshold: int = 5,
+) -> tuple[int, int, int]:
+    """
+    Estimate potential savings from auto-compaction without actually compacting.
+
+    Returns:
+        Tuple of (total_tokens, estimated_savings, savings_from_reasoning)
+
+    This allows us to decide if compaction is worth the cost (cache invalidation)
+    before actually triggering it.
+    """
+    from ..llm.models import get_default_model, get_model
+
+    model = get_default_model() or get_model("gpt-4")
+    total_tokens = len_tokens(log, model.model)
+    log_length = len(log)
+
+    estimated_tool_result_savings = 0
+    estimated_reasoning_savings = 0
+
+    for idx, msg in enumerate(log):
+        if msg.pinned:
+            continue
+
+        msg_tokens = len_tokens(msg.content, model.model)
+        distance_from_end = log_length - idx - 1
+
+        # Estimate reasoning stripping savings
+        if distance_from_end >= reasoning_strip_age_threshold:
+            if "<think>" in msg.content or "<thinking>" in msg.content:
+                # Rough estimate: reasoning usually ~30-50% of content
+                estimated_reasoning_savings += int(msg_tokens * 0.3)
+
+        # Estimate massive tool result removal savings
+        if msg.role == "system" and msg_tokens > max_tool_result_tokens:
+            # Tool results get reduced to summary (~200 tokens)
+            estimated_tool_result_savings += msg_tokens - 200
+
+    total_estimated_savings = (
+        estimated_tool_result_savings + estimated_reasoning_savings
+    )
+    return total_tokens, total_estimated_savings, estimated_reasoning_savings
+
+
 def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
     """
     Check if a log should be auto-compacted.
@@ -342,6 +393,7 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
     Auto-compacting is triggered when:
     1. The conversation exceeds the limit, OR
     2. The conversation is close to the limit (80%+) AND contains massive tool results
+    3. AND estimated savings exceed MIN_SAVINGS_RATIO (to justify cache invalidation)
     """
     from ..llm.models import get_default_model, get_model
 
@@ -363,8 +415,29 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
                 has_massive_tool_result = True
                 break
 
-    # Trigger auto-compacting if over limit OR close to limit with massive tool results
-    return total_tokens > limit or (close_to_limit and has_massive_tool_result)
+    # First check: would we trigger based on token count?
+    would_trigger = total_tokens > limit or (close_to_limit and has_massive_tool_result)
+
+    if not would_trigger:
+        return False
+
+    # Second check: estimate if savings would be worth it
+    total, estimated_savings, reasoning_savings = estimate_compaction_savings(log)
+    savings_ratio = estimated_savings / total if total > 0 else 0
+
+    if savings_ratio < MIN_SAVINGS_RATIO:
+        logger.info(
+            f"Skipping auto-compact: estimated savings {savings_ratio:.1%} "
+            f"({estimated_savings} tokens) below threshold {MIN_SAVINGS_RATIO:.0%}. "
+            f"Consider using '/compact resume' for LLM-powered summarization."
+        )
+        return False
+
+    logger.debug(
+        f"Auto-compact viable: estimated {savings_ratio:.1%} savings "
+        f"({estimated_savings} tokens, {reasoning_savings} from reasoning)"
+    )
+    return True
 
 
 def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
