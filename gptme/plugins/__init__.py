@@ -19,7 +19,16 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rich.console import Console
+
 logger = logging.getLogger(__name__)
+console = Console()
+
+# Cache for discovered plugins to avoid repeated discovery
+_plugin_cache: dict[tuple[Path, ...], list[Plugin]] = {}
+
+# Track which plugins have been logged as loaded (to avoid duplicate logs)
+_loaded_plugins: set[str] = set()
 
 __all__ = [
     "Plugin",
@@ -64,6 +73,11 @@ def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
     Returns:
         List of discovered Plugin instances
     """
+    # Check cache first (keyed by resolved paths)
+    cache_key = tuple(p.resolve() for p in plugin_paths)
+    if cache_key in _plugin_cache:
+        return _plugin_cache[cache_key]
+
     plugins: list[Plugin] = []
 
     for search_path in plugin_paths:
@@ -82,7 +96,7 @@ def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
             plugin = _load_plugin(search_path)
             if plugin:
                 plugins.append(plugin)
-                logger.info(f"Discovered plugin: {plugin.name}")
+                logger.debug(f"Discovered plugin: {plugin.name}")
             continue
 
         # Strategy 2: Check for src/ layout (pyproject.toml + src/ directory)
@@ -96,7 +110,7 @@ def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
                     plugin = _load_plugin(plugin_dir)
                     if plugin:
                         plugins.append(plugin)
-                        logger.info(f"Discovered plugin: {plugin.name}")
+                        logger.debug(f"Discovered plugin: {plugin.name}")
             continue
 
         # Strategy 3: Search for plugin directories in the path
@@ -107,8 +121,10 @@ def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
                 plugin = _load_plugin(plugin_dir)
                 if plugin:
                     plugins.append(plugin)
-                    logger.info(f"Discovered plugin: {plugin.name}")
+                    logger.debug(f"Discovered plugin: {plugin.name}")
 
+    # Cache for subsequent calls
+    _plugin_cache[cache_key] = plugins
     return plugins
 
 
@@ -217,6 +233,14 @@ def _load_plugin(plugin_path: Path) -> Plugin | None:
     return plugin
 
 
+def _mark_plugin_loaded(plugin: Plugin) -> bool:
+    """Mark a plugin as loaded, return True if newly loaded."""
+    if plugin.name not in _loaded_plugins:
+        _loaded_plugins.add(plugin.name)
+        return True
+    return False
+
+
 def get_plugin_tool_modules(
     plugin_paths: list[Path],
     enabled_plugins: list[str] | None = None,
@@ -237,16 +261,26 @@ def get_plugin_tool_modules(
     plugins = discover_plugins(plugin_paths)
 
     tool_modules: list[str] = []
+    newly_loaded: list[str] = []
     for plugin in plugins:
         # Apply allowlist if provided
         if enabled_plugins and plugin.name not in enabled_plugins:
             logger.debug(f"Skipping plugin {plugin.name}: not in allowlist")
             continue
 
+        # Track newly loaded plugins
+        if plugin.tool_modules and _mark_plugin_loaded(plugin):
+            newly_loaded.append(plugin.name)
+
         # Add plugin's tool modules
         tool_modules.extend(plugin.tool_modules)
 
-    logger.info(f"Loaded {len(tool_modules)} tool modules from {len(plugins)} plugins")
+    # Log all newly loaded plugins in one line
+    if newly_loaded:
+        console.log(f"Using plugins {', '.join(newly_loaded)}")
+
+    if tool_modules:
+        logger.debug(f"Loaded {len(tool_modules)} tool modules")
     return tool_modules
 
 
@@ -273,6 +307,10 @@ def register_plugin_hooks(
             logger.debug(f"Skipping plugin {plugin.name}: not in allowlist")
             continue
 
+        # Mark plugin as loaded (once across all component types)
+        if plugin.hook_modules:
+            _mark_plugin_loaded(plugin)
+
         # Register hooks from each module
         for module_name in plugin.hook_modules:
             try:
@@ -292,9 +330,8 @@ def register_plugin_hooks(
             except Exception as e:
                 logger.error(f"Failed to register hooks from {module_name}: {e}")
 
-    logger.info(
-        f"Registered {hooks_registered} hook modules from {len(plugins)} plugins"
-    )
+    if hooks_registered:
+        logger.debug(f"Registered {hooks_registered} hook modules from plugins")
 
 
 def register_plugin_commands(
@@ -320,6 +357,10 @@ def register_plugin_commands(
             logger.debug(f"Skipping plugin {plugin.name}: not in allowlist")
             continue
 
+        # Mark plugin as loaded (once across all component types)
+        if plugin.command_modules:
+            _mark_plugin_loaded(plugin)
+
         # Register commands from each module
         for module_name in plugin.command_modules:
             try:
@@ -339,9 +380,8 @@ def register_plugin_commands(
             except Exception as e:
                 logger.error(f"Failed to register commands from {module_name}: {e}")
 
-    logger.info(
-        f"Registered {commands_registered} command modules from {len(plugins)} plugins"
-    )
+    if commands_registered:
+        logger.debug(f"Registered {commands_registered} command modules from plugins")
 
 
 def detect_install_environment() -> str:
