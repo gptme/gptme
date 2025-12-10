@@ -23,6 +23,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Generator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -150,23 +151,45 @@ class BackgroundJob:
             self._reader_thread.join(timeout=1.0)
 
 
-# Global storage for background jobs
-_background_jobs: dict[int, BackgroundJob] = {}
-_next_job_id: int = 1
-_job_lock: threading.Lock = threading.Lock()
+# Context-local storage for background jobs (thread-safe for gptme-server)
+# Each thread/context gets its own background jobs
+@dataclass
+class _BackgroundJobsState:
+    """Per-context state for background job management."""
+
+    jobs: dict[int, BackgroundJob] = field(default_factory=dict)
+    next_job_id: int = 1
+
+
+_background_jobs_var: ContextVar[_BackgroundJobsState | None] = ContextVar(
+    "background_jobs", default=None
+)
+_job_init_lock: threading.Lock = threading.Lock()
+
+
+def _get_background_jobs_state() -> _BackgroundJobsState:
+    """Get or create the background jobs state for this context."""
+    state = _background_jobs_var.get()
+    if state is None:
+        with _job_init_lock:
+            # Double-check pattern
+            state = _background_jobs_var.get()
+            if state is None:
+                state = _BackgroundJobsState()
+                _background_jobs_var.set(state)
+    return state
 
 
 def _get_next_job_id() -> int:
-    """Get next available job ID (thread-safe)."""
-    global _next_job_id
-    with _job_lock:
-        job_id = _next_job_id
-        _next_job_id += 1
-        return job_id
+    """Get next available job ID (context-local)."""
+    state = _get_background_jobs_state()
+    job_id = state.next_job_id
+    state.next_job_id += 1
+    return job_id
 
 
 def start_background_job(command: str) -> BackgroundJob:
-    """Start a command as a background job (thread-safe)."""
+    """Start a command as a background job (context-local)."""
     # Proactively clean up finished jobs to prevent memory accumulation
     cleanup_finished_jobs()
 
@@ -189,45 +212,42 @@ def start_background_job(command: str) -> BackgroundJob:
     )
     job.start_reader()
 
-    with _job_lock:
-        _background_jobs[job_id] = job
+    state = _get_background_jobs_state()
+    state.jobs[job_id] = job
 
     return job
 
 
 def get_background_job(job_id: int) -> BackgroundJob | None:
-    """Get a background job by ID."""
-    with _job_lock:
-        return _background_jobs.get(job_id)
+    """Get a background job by ID (context-local)."""
+    state = _get_background_jobs_state()
+    return state.jobs.get(job_id)
 
 
 def list_background_jobs() -> list[BackgroundJob]:
-    """List all background jobs, cleaning up finished ones first."""
+    """List all background jobs (context-local), cleaning up finished ones first."""
     cleanup_finished_jobs()
-    with _job_lock:
-        return list(_background_jobs.values())
+    state = _get_background_jobs_state()
+    return list(state.jobs.values())
 
 
 def cleanup_finished_jobs() -> None:
-    """Remove finished jobs from tracking (thread-safe)."""
-    with _job_lock:
-        finished = [
-            job_id for job_id, job in _background_jobs.items() if not job.is_running()
-        ]
-        for job_id in finished:
-            del _background_jobs[job_id]
+    """Remove finished jobs from tracking (context-local)."""
+    state = _get_background_jobs_state()
+    finished = [job_id for job_id, job in state.jobs.items() if not job.is_running()]
+    for job_id in finished:
+        del state.jobs[job_id]
 
 
 def reset_background_jobs() -> None:
-    """Reset job tracking state. For testing purposes only."""
-    global _next_job_id
-    with _job_lock:
-        # Kill any running jobs
-        for job in _background_jobs.values():
-            if job.is_running():
-                job.kill()
-        _background_jobs.clear()
-        _next_job_id = 1
+    """Reset job tracking state for the current context. For testing purposes only."""
+    state = _get_background_jobs_state()
+    # Kill any running jobs
+    for job in state.jobs.values():
+        if job.is_running():
+            job.kill()
+    state.jobs.clear()
+    state.next_job_id = 1
 
 
 allowlist_commands = [
@@ -455,9 +475,8 @@ class ShellSession:
 
     def __init__(self) -> None:
         self._init()
-
-        # close on exit
-        atexit.register(self.close)
+        # Note: atexit cleanup is handled globally by _cleanup_all_shells()
+        # to support context-local shell instances for gptme-server
 
     def _init(self):
         self.process = subprocess.Popen(
@@ -740,21 +759,75 @@ class ShellSession:
         self._init()
 
 
-_shell: ShellSession | None = None
+# Context-local storage for shell session (thread-safe for gptme-server)
+# Each thread/context gets its own shell session
+_shell_var: ContextVar[ShellSession | None] = ContextVar("shell", default=None)
+_shell_init_lock: threading.Lock = threading.Lock()
+
+# Track all shells created for proper cleanup at exit
+_all_shells: list[ShellSession] = []
+_all_shells_lock: threading.Lock = threading.Lock()
+
+
+def _register_shell_for_cleanup(shell: ShellSession) -> None:
+    """Register a shell for cleanup at process exit."""
+    with _all_shells_lock:
+        _all_shells.append(shell)
+
+
+def _cleanup_all_shells() -> None:
+    """Clean up all shells at process exit."""
+    with _all_shells_lock:
+        for shell in _all_shells:
+            try:
+                shell.close()
+            except Exception as e:
+                logger.warning(f"Error closing shell during cleanup: {e}")
+        _all_shells.clear()
+
+
+# Register global cleanup handler
+atexit.register(_cleanup_all_shells)
 
 
 def get_shell() -> ShellSession:
-    global _shell
-    if _shell is None:
-        # init shell
-        _shell = ShellSession()
-    return _shell
+    """Get the shell session for the current context, creating one if needed."""
+    shell = _shell_var.get()
+    if shell is None:
+        with _shell_init_lock:
+            # Double-check pattern
+            shell = _shell_var.get()
+            if shell is None:
+                shell = ShellSession()
+                _shell_var.set(shell)
+                _register_shell_for_cleanup(shell)
+    return shell
 
 
 # used in testing
-def set_shell(shell: ShellSession) -> None:
-    global _shell
-    _shell = shell
+def set_shell(shell: ShellSession | None) -> None:
+    """Set the shell session for the current context."""
+    _shell_var.set(shell)
+
+
+def cleanup_shell() -> None:
+    """Clean up the shell session for the current context.
+
+    Call this when a session/conversation ends to release resources.
+    Useful for gptme-server to clean up after each session.
+    """
+    shell = _shell_var.get()
+    if shell is not None:
+        try:
+            shell.close()
+            # Remove from global tracking
+            with _all_shells_lock:
+                if shell in _all_shells:
+                    _all_shells.remove(shell)
+        except Exception as e:
+            logger.warning(f"Error cleaning up shell: {e}")
+        finally:
+            _shell_var.set(None)
 
 
 # NOTE: This does not handle control flow words like if, for, while.

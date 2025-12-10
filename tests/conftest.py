@@ -100,15 +100,14 @@ def cleanup_shell_after():
 
     This is critical for CI where orphaned bash processes can cause
     the test runner to hang during cleanup (Issue #910).
+
+    Note: Shell sessions are now context-local (using ContextVar) for
+    thread safety with gptme-server. This cleanup handles the main test
+    context's shell.
     """
     yield
-    # Close shell if it exists
-    if shell_module._shell is not None:
-        try:
-            shell_module._shell.close()
-        except Exception as e:
-            logger.warning(f"Error closing shell during test cleanup: {e}")
-        shell_module._shell = None
+    # Clean up shell for the current context (if any)
+    shell_module.cleanup_shell()
 
 
 @pytest.fixture(autouse=True)
