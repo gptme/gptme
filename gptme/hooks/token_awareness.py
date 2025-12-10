@@ -76,7 +76,7 @@ def add_token_budget(
         yield Message(
             "system",
             f"<budget:token_budget>{budget}</budget:token_budget>",
-            # hide=True,
+            hide=True,
         )
 
         logger.debug(f"Added token budget: {budget}")

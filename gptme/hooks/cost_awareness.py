@@ -98,6 +98,7 @@ def cost_warning_hook(
                 f"<system_warning>Session cost reached ${total:.2f} "
                 f"(tokens: {costs.total_input_tokens:,}/{costs.total_output_tokens:,} in/out, "
                 f"cache hit: {cache_hit_pct:.1f}%)</system_warning>",
+                hide=True,
             )
             logger.info(
                 f"Cost warning: ${total:.2f} (threshold ${threshold:.2f}), "

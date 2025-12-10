@@ -102,7 +102,7 @@ def add_time_message(
             message = Message(
                 "system",
                 f"<system_info>The time is now {time_str}. Time elapsed: {elapsed_str}</system_info>",
-                # hide=True,
+                hide=True,
             )
             yield message
 
