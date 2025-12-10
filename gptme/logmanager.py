@@ -484,7 +484,9 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
         display_name = chat_config.name or conv_id
 
         agent_path = chat_config.agent
-        agent_project_config = get_project_config(agent_path) if agent_path else None
+        agent_project_config = (
+            get_project_config(agent_path, quiet=True) if agent_path else None
+        )
         agent_name = (
             agent_project_config.agent.name
             if agent_project_config and agent_project_config.agent

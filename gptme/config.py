@@ -423,15 +423,30 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
     return merged
 
 
-@lru_cache(maxsize=4)
-def get_project_config(workspace: Path | None) -> ProjectConfig | None:
+def get_project_config(
+    workspace: Path | None, *, quiet: bool = False
+) -> ProjectConfig | None:
     """
     Get a cached copy of or load the project configuration from a gptme.toml file in the workspace or .github directory.
+
+    Args:
+        workspace: Path to the workspace directory
+        quiet: If True, suppress log messages (useful for metadata lookups)
 
     Run :func:`reload_config` or :func:`Config.from_workspace` to reset cache and reload the project config.
     """
     if workspace is None:
         return None
+
+    # Use cached version if available
+    return _get_project_config_cached(workspace, quiet=quiet)
+
+
+@lru_cache(maxsize=4)
+def _get_project_config_cached(
+    workspace: Path, *, quiet: bool = False
+) -> ProjectConfig | None:
+    """Internal cached implementation of get_project_config."""
     project_config_paths = [
         p
         for p in (
@@ -442,9 +457,10 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
     ]
     if project_config_paths:
         project_config_path = project_config_paths[0]
-        console.log(
-            f"Using project configuration at {path_with_tilde(project_config_path)}"
-        )
+        if not quiet:
+            console.log(
+                f"Using project configuration at {path_with_tilde(project_config_path)}"
+            )
         # load project config
         with open(project_config_path) as f:
             config_data = tomlkit.load(f).unwrap()
@@ -452,9 +468,10 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
         # Look for local config file in the same directory
         local_config_path = project_config_path.parent / "gptme.local.toml"
         if local_config_path.exists():
-            console.log(
-                f"Using local configuration from {path_with_tilde(local_config_path)}"
-            )
+            if not quiet:
+                console.log(
+                    f"Using local configuration from {path_with_tilde(local_config_path)}"
+                )
             with open(local_config_path) as f:
                 local_config_data = tomlkit.load(f).unwrap()
 
@@ -693,7 +710,7 @@ class Config:
     @classmethod
     def from_workspace(cls, workspace: Path) -> Self:
         """Load the configuration from a workspace directory. Clearing any cache."""
-        get_project_config.cache_clear()
+        _get_project_config_cached.cache_clear()
         return cls(
             user=load_user_config(),
             project=get_project_config(workspace),
