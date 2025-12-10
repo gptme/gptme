@@ -269,7 +269,8 @@ def get_plugin_tool_modules(
             continue
 
         # Track newly loaded plugins
-        if plugin.tool_modules and _mark_plugin_loaded(plugin):
+        # Track newly loaded plugins
+        if _mark_plugin_loaded(plugin):
             newly_loaded.append(plugin.name)
 
         # Add plugin's tool modules
