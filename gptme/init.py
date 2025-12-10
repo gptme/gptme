@@ -98,7 +98,7 @@ def init_model(
     if model_name is None:
         model_name = get_recommended_model(provider)  # type: ignore[arg-type]
     model_full = f"{provider}/{model_name}"
-    console.log(f"Using model: {model_full}")
+    console.log(f"Using model: [green]{model_full}[/green]")
     init_llm(provider)
     set_default_model(model_full)
 

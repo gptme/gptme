@@ -277,7 +277,9 @@ def get_plugin_tool_modules(
 
     # Log all newly loaded plugins in one line
     if newly_loaded:
-        console.log(f"Using plugins {', '.join(newly_loaded)}")
+        console.log(
+            f"Using plugins {', '.join(f'[green]{plugin}[/green]' for plugin in newly_loaded)}"
+        )
 
     if tool_modules:
         logger.debug(f"Loaded {len(tool_modules)} tool modules")

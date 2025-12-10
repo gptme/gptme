@@ -116,7 +116,7 @@ def _reduce_tree_output_by_depth(output: str, budget: int = 20000) -> str | None
 
         filtered_output = "\n".join(filtered_lines)
         if len(filtered_output) <= budget:
-            logger.info(
+            logger.debug(
                 f"Filtered tree output to max depth {depth} ({len(filtered_lines)} items)"
             )
             return filtered_output
