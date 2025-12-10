@@ -488,8 +488,82 @@ def test_estimate_compaction_savings():
     assert reasoning_savings >= 0
 
 
+def test_estimate_compaction_savings_tool_results_only_when_over_limit():
+    """Test that tool result savings are only counted when over/close to limit.
+
+    This tests the fix for Greptile review finding: estimation must match
+    actual compaction logic, which only removes tool results when
+    tokens > limit or close_to_limit.
+    """
+    from gptme.tools.autocompact import estimate_compaction_savings
+
+    # Create message with massive tool result (>2000 tokens)
+    massive_content = "x " * 3000  # ~3000 tokens
+    messages = [
+        Message("user", "Request"),
+        Message("system", massive_content),  # Massive tool result
+        Message("assistant", "Response"),
+    ]
+
+    # With a very high limit (not close to it), tool results should NOT be counted
+    # because actual compaction wouldn't remove them
+    total_high, savings_high, _ = estimate_compaction_savings(
+        messages,
+        limit=1000000,  # Very high limit
+    )
+
+    # With a low limit (definitely over it), tool results SHOULD be counted
+    total_low, savings_low, _ = estimate_compaction_savings(
+        messages,
+        limit=100,  # Very low limit - definitely over
+    )
+
+    # Savings should be higher when over limit (tool results counted)
+    assert savings_low > savings_high, (
+        f"Savings should be higher when over limit: low_limit={savings_low}, "
+        f"high_limit={savings_high}"
+    )
+
+
+def test_estimate_compaction_savings_includes_phase3():
+    """Test that estimation includes Phase 3 assistant message compression.
+
+    This tests the fix for Greptile review finding: estimation was missing
+    Phase 3 which compresses long assistant messages.
+    """
+    from gptme.tools.autocompact import estimate_compaction_savings
+
+    # Create conversation with long assistant message (>1000 tokens)
+    long_assistant_content = "word " * 1500  # ~1500 tokens
+    messages = [
+        Message("user", "Request 1"),
+        Message("assistant", long_assistant_content),  # Long, will be compressed
+        Message("user", "Request 2"),
+        Message("assistant", "Short response"),  # Recent, won't be compressed
+        Message("user", "Request 3"),
+        Message("assistant", "Final response"),  # Recent, won't be compressed
+    ]
+
+    # With low limit (over it), Phase 3 compression should be estimated
+    total, estimated_savings, reasoning_savings = estimate_compaction_savings(
+        messages,
+        limit=100,  # Over limit to trigger Phase 3 estimation
+        assistant_compression_age_threshold=2,  # Compress messages 2+ from end
+    )
+
+    # Should have savings from assistant compression (not just reasoning)
+    # Since we have no reasoning tags, savings should come from compression
+    assert (
+        estimated_savings > 0
+    ), f"Expected compression savings for long assistant message, got {estimated_savings}"
+
+
 def test_should_auto_compact_respects_minimum_savings():
-    """Test that should_auto_compact skips when estimated savings are too low."""
+    """Test that should_auto_compact skips when estimated savings are too low.
+
+    This tests the fix for Issue #945 where 3.8% savings wasn't worth
+    the cost of prompt cache invalidation.
+    """
     from gptme.tools.autocompact import should_auto_compact
 
     # Create messages that are close to limit but have minimal compaction potential
@@ -497,9 +571,38 @@ def test_should_auto_compact_respects_minimum_savings():
     messages = [Message("user", f"Short message {i}") for i in range(100)]
 
     # Even if close to limit, should not trigger if savings would be minimal
-    # This tests the fix for Issue #945 where 3.8% savings wasn't worth cache invalidation
     result = should_auto_compact(messages, limit=500)  # Low limit to trigger check
 
-    # Result depends on estimated savings - if minimal, should return False
-    # The key is that the function now considers savings potential, not just token count
-    assert isinstance(result, bool)
+    # With minimal savings potential (no reasoning, no tool results, no long messages),
+    # should return False even though we're "over limit"
+    assert (
+        result is False
+    ), "should_auto_compact should return False when savings are below threshold"
+
+
+def test_should_auto_compact_triggers_with_high_savings():
+    """Test that should_auto_compact triggers when savings are substantial."""
+    from gptme.tools.autocompact import should_auto_compact
+
+    # Create messages with high savings potential
+    # Include reasoning content and massive tool result
+    messages = [
+        Message("user", "Initial request"),
+        Message(
+            "assistant",
+            "<think>" + "reasoning " * 500 + "</think>\nResponse",
+        ),
+        Message("system", "tool result " * 3000),  # Massive tool result
+        Message("user", "Follow up"),
+        Message("assistant", "Final response"),
+    ]
+
+    # Should trigger because:
+    # 1. Massive tool result = high savings potential
+    # 2. Reasoning tags = additional savings
+    # 3. Over the low limit
+    result = should_auto_compact(messages, limit=100)
+
+    assert (
+        result is True
+    ), "should_auto_compact should return True when savings exceed threshold"
