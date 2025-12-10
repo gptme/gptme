@@ -165,12 +165,25 @@ class LessonIndex:
             plugins = discover_plugins(plugin_paths)
             for plugin in plugins:
                 # Check for lessons/ directory in plugin
+                # For flat layout: lessons/ is directly in plugin.path
+                # For src/ layout: plugin.path is src/module/, so lessons/ is at project root
                 plugin_lessons_dir = plugin.path / "lessons"
-                if plugin_lessons_dir.exists():
+                if plugin_lessons_dir.is_dir():
                     dirs.append(plugin_lessons_dir)
                     logger.debug(
                         f"Found plugin lessons: {plugin.name} -> {plugin_lessons_dir}"
                     )
+                else:
+                    # Check for src/ layout: walk up to find project root
+                    # plugin.path might be /project/src/module/, lessons at /project/lessons/
+                    project_root = plugin.path.parent.parent
+                    if (project_root / "pyproject.toml").exists():
+                        project_lessons_dir = project_root / "lessons"
+                        if project_lessons_dir.is_dir():
+                            dirs.append(project_lessons_dir)
+                            logger.debug(
+                                f"Found plugin lessons (src layout): {plugin.name} -> {project_lessons_dir}"
+                            )
 
         return dirs
 
