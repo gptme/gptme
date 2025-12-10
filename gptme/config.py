@@ -453,7 +453,7 @@ def get_project_config(workspace: Path | None) -> ProjectConfig | None:
         local_config_path = project_config_path.parent / "gptme.local.toml"
         if local_config_path.exists():
             console.log(
-                f"Loading local configuration from {path_with_tilde(local_config_path)}"
+                f"Using local configuration from {path_with_tilde(local_config_path)}"
             )
             with open(local_config_path) as f:
                 local_config_data = tomlkit.load(f).unwrap()
