@@ -1,4 +1,5 @@
 import logging
+import queue
 import re
 import shlex
 import sys
@@ -51,6 +52,7 @@ Actions = Literal[
     "export",
     "commit",
     "setup",
+    "queue",
     "help",
     "exit",
 ]
@@ -70,6 +72,7 @@ action_descriptions: dict[Actions, str] = {
     "export": "Export conversation as HTML",
     "commit": "Ask assistant to git commit",
     "setup": "Setup gptme with completions and configuration",
+    "queue": "Show or clear the prompt queue",
     "help": "Show this help message",
     "exit": "Exit the program",
 }
@@ -551,6 +554,30 @@ def cmd_plugin(ctx: CommandContext) -> None:
     else:
         print(f"Unknown subcommand: {subcommand}")
         print("Available commands: list, info")
+
+
+@command("queue")
+def handle_queue(ctx: CommandContext) -> Generator[Message, None, None]:
+    """Show or clear the prompt queue."""
+    from .chat import _prompt_queue  # Import here to avoid circular imports
+
+    if ctx.args and ctx.args[0] == "clear":
+        # Clear the queue
+        while not _prompt_queue.empty():
+            try:
+                _prompt_queue.get_nowait()
+            except queue.Empty:
+                break
+        yield Message("system", "Prompt queue cleared.")
+    else:
+        # Show queue status
+        count = _prompt_queue.qsize()
+        if count == 0:
+            yield Message("system", "No prompts in queue.")
+        else:
+            yield Message(
+                "system", f"{count} prompt(s) in queue. Use '/queue clear' to clear."
+            )
 
 
 def execute_cmd(msg: Message, log: LogManager, confirm: ConfirmFunc) -> bool:
