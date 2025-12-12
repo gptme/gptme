@@ -430,12 +430,22 @@ def get_default_model() -> ModelMeta | None:
 
 
 def get_default_model_summary() -> ModelMeta | None:
+    """Get the summary model for the default provider.
+
+    Returns the cheaper summary model if available for the provider,
+    otherwise returns the default model itself (for local providers, etc.).
+    """
     default_model = get_default_model()
     if not default_model:
         return None
     provider = default_model.provider
     assert provider != "unknown"
-    return get_model(f"{provider}/{get_summary_model(provider)}")
+    summary_model_name = get_summary_model(provider)
+    if summary_model_name is None:
+        # No summary model defined for this provider (e.g., local)
+        # Return the default model instead
+        return default_model
+    return get_model(f"{provider}/{summary_model_name}")
 
 
 def set_default_model(model: str | ModelMeta) -> None:
@@ -559,7 +569,12 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
         raise ValueError(f"Provider {provider} did not have a recommended model")
 
 
-def get_summary_model(provider: Provider) -> str:  # pragma: no cover
+def get_summary_model(provider: Provider) -> str | None:  # pragma: no cover
+    """Get a cheaper/faster summary model for a provider.
+
+    Returns None for providers where no summary model is defined (like local providers),
+    signaling that the caller should use the same model.
+    """
     if provider == "openai":
         return "gpt-5-mini"
     elif provider == "openrouter":
@@ -572,8 +587,13 @@ def get_summary_model(provider: Provider) -> str:  # pragma: no cover
         return "deepseek-chat"
     elif provider == "xai":
         return "grok-4-1-fast"
+    elif provider == "local":
+        # Local providers don't have predefined summary models
+        # Return None to signal "use the same model"
+        return None
     else:
-        raise ValueError(f"Provider {provider} did not have a summary model")
+        # Unknown providers - return None rather than raising
+        return None
 
 
 def _get_models_for_provider(

@@ -89,13 +89,16 @@ def _generate_llm_name(
         from ..llm import _chat_complete
         from ..llm.models import get_model, get_summary_model
 
-        # Try to use cheaper summary model
+        # Try to use cheaper summary model (if available for provider)
         naming_model = model
         try:
             current_model = get_model(model)
             if current_model.provider != "unknown":
                 summary_model_name = get_summary_model(current_model.provider)
-                naming_model = f"{current_model.provider}/{summary_model_name}"
+                # Only switch models if a summary model is defined for this provider
+                if summary_model_name is not None:
+                    naming_model = f"{current_model.provider}/{summary_model_name}"
+                # For local/unknown providers, keep using the original model
         except Exception:
             logger.exception("exception during auto-name")
 
