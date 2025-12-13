@@ -7,6 +7,12 @@ Configuration:
         - Set to 0 to disable timeout
         - Invalid values default to 1200 seconds (20 minutes)
         - If not set, defaults to 1200 seconds (20 minutes)
+
+Parameters:
+    quiet: Optional boolean parameter to suppress stdout/stderr output.
+        When enabled, the command runs normally but output is not included
+        in the response, saving tokens. Return codes and errors are still reported.
+        Useful for commands that produce large output that doesn't need analysis.
 """
 
 import atexit
@@ -996,11 +1002,28 @@ def _format_shell_output(
     timed_out: bool = False,
     timeout_value: float | None = None,
     logdir: Path | None = None,
+    quiet: bool = False,
 ) -> str:
-    """Format shell command output into a message."""
+    """Format shell command output into a message.
+    
+    Args:
+        quiet: If True, suppress stdout/stderr to save tokens.
+    """
     # Strip ANSI escape sequences from output
     stdout = strip_ansi_codes(stdout)
     stderr = strip_ansi_codes(stderr)
+
+    # Handle quiet mode - suppress output to save tokens
+    if quiet:
+        msg = _format_block_smart("Ran command", cmd, lang="bash") + "\n\n"
+        msg += "Output suppressed (quiet mode)\n"
+        if returncode and returncode != 0:
+            msg += f"Return code: {returncode}\n"
+        if interrupted:
+            msg += "Process interrupted\n"
+        if timed_out:
+            msg += f"Command timed out (after {timeout_value}s)\n" if timeout_value else "Command timed out\n"
+        return msg
 
     # Apply shortening logic with output storage
     stdout = _shorten_stdout(
@@ -1165,9 +1188,17 @@ def execute_kill_command(job_id_str: str) -> Generator[Message, None, None]:
 
 
 def execute_shell_impl(
-    cmd: str, logdir: Path | None, confirm: ConfirmFunc, timeout: float | None = None
+    cmd: str,
+    logdir: Path | None,
+    confirm: ConfirmFunc,
+    timeout: float | None = None,
+    quiet: bool = False,
 ) -> Generator[Message, None, None]:
-    """Execute shell command and format output."""
+    """Execute shell command and format output.
+    
+    Args:
+        quiet: If True, suppress stdout/stderr in output to save tokens.
+    """
     shell = get_shell()
     allowlisted = is_allowlisted(cmd)
 
@@ -1211,6 +1242,7 @@ def execute_shell_impl(
         timed_out,
         timeout_value=timeout,
         logdir=logdir,
+        quiet=quiet,
     )
     yield Message("system", msg)
 
@@ -1374,6 +1406,12 @@ def execute_shell(
             return
         # Fall through to regular shell execution for other kill commands
 
+    # Extract quiet flag from kwargs
+    quiet = False
+    if kwargs is not None:
+        quiet_str = kwargs.get("quiet", "false").lower()
+        quiet = quiet_str in ("true", "1", "yes")
+
     # Check for timeout from environment variable
     # Default to 20 minutes (1200s) if not set
     timeout: float | None = 1200.0
@@ -1406,13 +1444,13 @@ def execute_shell(
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
         logdir = get_path_fn()
-        yield from execute_shell_impl(cmd, logdir, lambda _: True, timeout=timeout)
+        yield from execute_shell_impl(cmd, logdir, lambda _: True, timeout=timeout, quiet=quiet)
     else:
-        # Create a wrapper function that passes timeout to execute_shell_impl
+        # Create a wrapper function that passes timeout and quiet to execute_shell_impl
         def execute_fn(
             cmd: str, path: Path | None, confirm: ConfirmFunc
         ) -> Generator[Message, None, None]:
-            return execute_shell_impl(cmd, path, confirm, timeout=timeout)
+            return execute_shell_impl(cmd, path, confirm, timeout=timeout, quiet=quiet)
 
         yield from execute_with_confirmation(
             cmd,
@@ -1652,6 +1690,12 @@ tool = ToolSpec(
             type="string",
             description="The shell command with arguments to execute.",
             required=True,
+        ),
+        Parameter(
+            name="quiet",
+            type="boolean",
+            description="Suppress stdout/stderr output to save tokens. Useful for commands with large output that doesn't need analysis.",
+            required=False,
         ),
     ],
 )
