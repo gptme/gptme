@@ -7,14 +7,21 @@ prevent resumption, compacting them to allow the conversation to continue.
 
 import logging
 import re
+import time
 from collections.abc import Generator
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .. import llm
 from ..context import strip_reasoning
-from ..hooks import StopPropagation
+from ..hooks import HookType, StopPropagation
+from ..llm.models import get_default_model, get_model
+from ..logmanager import Log, prepare_messages
 from ..message import Message, len_tokens
 from ..util.output_storage import create_tool_result_summary
+from ..util.reduce import reduce_log
+from .base import ToolSpec
 
 if TYPE_CHECKING:
     from ..logmanager import LogManager
@@ -197,7 +204,6 @@ def auto_compact_log(
         reasoning_strip_age_threshold: Strip reasoning from messages >N positions back
         logdir: Path to conversation directory for saving removed outputs
     """
-    from ..llm.models import get_default_model, get_model
 
     # get the token limit
     model = get_default_model() or get_model("gpt-4")
@@ -331,7 +337,6 @@ def auto_compact_log(
 
     # If still over limit, fall back to regular reduction
     logger.info("Auto-compacting not sufficient, falling back to regular reduction")
-    from ..util.reduce import reduce_log
 
     yield from reduce_log(compacted_log, limit)
 
@@ -366,7 +371,6 @@ def estimate_compaction_savings(
     - Phase 2: Tool result removal (only when over/close to limit)
     - Phase 3: Assistant message compression (only when over/close to limit)
     """
-    from ..llm.models import get_default_model, get_model
 
     model = get_default_model() or get_model("gpt-4")
     total_tokens = len_tokens(log, model.model)
@@ -437,7 +441,6 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
     2. The conversation is close to the limit (80%+) AND contains massive tool results
     3. AND estimated savings exceed MIN_SAVINGS_RATIO (to justify cache invalidation)
     """
-    from ..llm.models import get_default_model, get_model
 
     model = get_default_model() or get_model("gpt-4")
     if limit is None:
@@ -510,8 +513,6 @@ def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
 
 def _compact_auto(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     """Auto-compact using the aggressive compacting algorithm."""
-    from ..llm.models import get_default_model
-    from ..logmanager import Log
 
     if not should_auto_compact(msgs):
         yield Message(
@@ -545,9 +546,6 @@ def _compact_auto(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
 
 def _compact_resume(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     """LLM-powered compact that creates RESUME.md, suggests files to include, and starts a new conversation with the context."""
-    from .. import llm
-    from ..llm.models import get_default_model
-    from ..logmanager import Log, prepare_messages
 
     # Prepare messages for summarization
     prepared_msgs = prepare_messages(msgs)
@@ -579,7 +577,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
         # Generate the resume using LLM
         m = get_default_model()
         assert m
-        resume_response = llm.reply(llm_msgs, model=m.model, tools=[], workspace=None)
+        resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
         resume_content = resume_response.content
 
         # Save RESUME.md file
@@ -594,7 +592,10 @@ Format the response as a structured document that could serve as a RESUME.md fil
         resume_msg = Message("assistant", resume_content)
 
         # Replace conversation history with resume
+        # FIXME: missing core system messages (only 1261 tokens after compaction in test)
+        # TODO: include original or regenerate system messages
         # TODO: fork into a new conversation?
+        # TODO: or use restart to automatically start a new continuation-session?
         ctx.manager.log = Log([system_msg, resume_msg])
         ctx.manager.write()
 
@@ -637,8 +638,6 @@ def _get_compacted_name(conversation_name: str) -> str:
     if not conversation_name:
         raise ValueError("conversation name cannot be empty")
 
-    from datetime import datetime
-
     # Strip any existing compacted suffixes: -compacted-YYYYMMDDHHMM
     # This handles repeated compactions by removing previous timestamps
     base_name = conversation_name
@@ -674,12 +673,6 @@ def autocompact_hook(
     Args:
         manager: Conversation manager with log and workspace
     """
-
-    import time
-
-    from ..llm.models import get_default_model
-    from ..logmanager import Log
-    from ..message import len_tokens
 
     global _last_autocompact_time
 
@@ -748,10 +741,7 @@ def autocompact_hook(
         return
 
 
-from ..hooks import HookType
-
 # Tool specification
-from .base import ToolSpec
 
 tool = ToolSpec(
     name="autocompact",
