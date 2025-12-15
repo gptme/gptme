@@ -35,6 +35,7 @@
 - [Are we tiny?](https://gptme.org/docs/arewetiny.html)
 - [Timeline](https://gptme.org/docs/timeline.html)
 - [Changelog](https://gptme.org/docs/changelog.html)
+- [v0.31.0](https://gptme.org/docs/releases/v0.31.0.html)
 - [v0.30.0](https://gptme.org/docs/releases/v0.30.0.html)
 - [v0.29.0](https://gptme.org/docs/releases/v0.29.0.html)
 - [v0.28.3](https://gptme.org/docs/releases/v0.28.3.html)
