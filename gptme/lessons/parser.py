@@ -180,7 +180,8 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
     description = frontmatter.get("description")
 
     # Translate globs to keywords
-    globs = frontmatter.get("globs", [])
+    # Note: YAML parses empty values (e.g., "globs:") as None, not missing
+    globs = frontmatter.get("globs") or []
     keywords = []
     for glob in globs:
         keywords.extend(_glob_to_keywords(glob))
@@ -196,7 +197,8 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
     status = "active"  # Default status
 
     # Extract other Cursor-specific fields
-    triggers = frontmatter.get("triggers", [])
+    # Note: YAML parses empty values as None, not missing
+    triggers = frontmatter.get("triggers") or []
     version = frontmatter.get("version")
 
     return LessonMetadata(
