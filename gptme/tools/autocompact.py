@@ -585,18 +585,27 @@ Format the response as a structured document that could serve as a RESUME.md fil
         with open(resume_path, "w") as f:
             f.write(resume_content)
 
-        # Create a compact conversation with just the resume
-        system_msg = Message(
+        # Extract original system messages (before any user/assistant messages)
+        # These contain essential context: core prompt, tool instructions, workspace info
+        original_system_msgs = []
+        for msg in msgs:
+            if msg.role == "system":
+                original_system_msgs.append(msg)
+            elif msg.role in ("user", "assistant"):
+                # Stop when we hit the first non-system message
+                break
+
+        # Create the resume intro message
+        resume_intro_msg = Message(
             "system", f"Previous conversation resumed from {resume_path}:"
         )
         resume_msg = Message("assistant", resume_content)
 
-        # Replace conversation history with resume
-        # FIXME: missing core system messages (only 1261 tokens after compaction in test)
-        # TODO: include original or regenerate system messages
+        # Combine: original system messages + resume intro + resume content
+        # This preserves tool instructions and workspace context while compacting conversation history
         # TODO: fork into a new conversation?
         # TODO: or use restart to automatically start a new continuation-session?
-        ctx.manager.log = Log([system_msg, resume_msg])
+        ctx.manager.log = Log(original_system_msgs + [resume_intro_msg, resume_msg])
         ctx.manager.write()
 
         yield Message(
