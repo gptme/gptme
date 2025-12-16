@@ -238,7 +238,7 @@ def _show_user_config_status():
     for provider in all_providers:
         # Generate display name
         display_name = provider.replace("-", " ").title()
-        if provider == "openai-azure":
+        if provider == "azure":
             display_name = "Azure OpenAI"
         elif provider == "xai":
             display_name = "XAI"
