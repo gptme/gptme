@@ -534,6 +534,48 @@ def list_conversations(
     return list(islice(conversation_iter, limit))
 
 
+def get_conversation_by_id(conv_id: str) -> ConversationMeta | None:
+    """
+    Get a conversation by its ID.
+
+    Args:
+        conv_id: The conversation ID to find
+
+    Returns:
+        ConversationMeta if found, None otherwise
+    """
+    for conv in get_conversations():
+        if conv.id == conv_id:
+            return conv
+    return None
+
+
+def delete_conversation(conv_id: str) -> bool:
+    """
+    Delete a conversation by its ID.
+
+    Args:
+        conv_id: The conversation ID to delete
+
+    Returns:
+        True if deleted successfully, False if not found
+
+    Raises:
+        PermissionError: If the conversation directory cannot be deleted
+    """
+    conv = get_conversation_by_id(conv_id)
+    if conv is None:
+        return False
+
+    # Get the conversation directory (parent of conversation.jsonl)
+    conv_path = Path(conv.path)
+    conv_dir = conv_path.parent
+
+    # Delete the entire conversation directory
+    shutil.rmtree(conv_dir)
+    return True
+
+
 def check_for_modifications(log: Log) -> bool:
     """Check if there are any file modifications in last 3 assistant messages since last user message."""
     messages_since_user = []

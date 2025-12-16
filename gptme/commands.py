@@ -12,7 +12,12 @@ from . import llm
 from .config import ChatConfig
 from .constants import INTERRUPT_CONTENT
 from .llm.models import get_default_model, list_models, set_default_model
-from .logmanager import LogManager, prepare_messages
+from .logmanager import (
+    LogManager,
+    delete_conversation,
+    list_conversations,
+    prepare_messages,
+)
 from .message import (
     Message,
     len_tokens,
@@ -42,6 +47,7 @@ Actions = Literal[
     "edit",
     "rename",
     "fork",
+    "delete",
     "tools",
     "model",
     "replay",
@@ -63,6 +69,7 @@ action_descriptions: dict[Actions, str] = {
     "edit": "Edit the conversation in your editor",
     "rename": "Rename the conversation",
     "fork": "Copy the conversation using a new name",
+    "delete": "Delete a conversation by ID (alias: /rm)",
     "summarize": "Summarize the conversation",
     "replay": "Replay tool operations",
     "impersonate": "Impersonate the assistant",
@@ -183,6 +190,58 @@ def cmd_fork(ctx: CommandContext) -> None:
     new_name = ctx.args[0] if ctx.args else input("New name: ")
     ctx.manager.fork(new_name)
     print(f"✅ Forked conversation to: {ctx.manager.logdir}")
+
+
+@command("delete", aliases=["rm"])
+def cmd_delete(ctx: CommandContext) -> None:
+    """Delete a conversation by ID.
+
+    Usage:
+        /delete           - List recent conversations with their IDs
+        /delete <id>      - Delete the conversation with the given ID
+        /delete --force <id> - Delete without confirmation
+    """
+    ctx.manager.undo(1, quiet=True)
+
+    # Check for --force flag
+    force = "--force" in ctx.args or "-f" in ctx.args
+    args = [a for a in ctx.args if a not in ("--force", "-f")]
+
+    if not args:
+        # List conversations to help user find the ID
+        conversations = list_conversations(limit=10)
+        if not conversations:
+            print("No conversations found.")
+            return
+
+        print("Recent conversations (use /delete <id> to delete):\n")
+        for i, conv in enumerate(conversations, 1):
+            # Mark current conversation
+            is_current = ctx.manager.logdir.name == conv.id
+            marker = " (current)" if is_current else ""
+            print(f"  {i}. {conv.name} [id: {conv.id}]{marker}")
+        print("\nNote: Cannot delete the current conversation.")
+        return
+
+    conv_id = args[0]
+
+    # Prevent deleting current conversation
+    if ctx.manager.logdir.name == conv_id:
+        print("❌ Cannot delete the current conversation.")
+        print("   Start a new conversation first, then delete this one.")
+        return
+
+    # Confirm deletion unless --force
+    if not force:
+        if not ctx.confirm(f"Delete conversation '{conv_id}'? This cannot be undone."):
+            print("Cancelled.")
+            return
+
+    # Attempt deletion
+    if delete_conversation(conv_id):
+        print(f"✅ Deleted conversation: {conv_id}")
+    else:
+        print(f"❌ Conversation not found: {conv_id}")
 
 
 @command("summarize")
