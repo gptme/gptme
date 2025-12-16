@@ -4,7 +4,6 @@ import importlib.util
 import os
 import shutil
 from pathlib import Path
-from typing import get_args
 
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
@@ -16,7 +15,7 @@ import gptme
 
 from .config import config_path, get_config, set_config_value
 from .llm import get_model_from_api_key, list_available_providers
-from .llm.models import Provider, get_default_model
+from .llm.models import PROVIDERS, get_default_model
 from .util import console, path_with_tilde
 
 
@@ -230,8 +229,8 @@ def _show_user_config_status():
     api_table.add_column("Provider", style="cyan", no_wrap=True)
     api_table.add_column("Status", justify="center")
 
-    # Get all possible providers from the literal type
-    all_providers = get_args(Provider)
+    # Get all built-in providers
+    all_providers = PROVIDERS
     available_providers = list_available_providers()
     available_provider_names = {provider for provider, _ in available_providers}
 
