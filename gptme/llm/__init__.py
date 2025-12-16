@@ -488,7 +488,7 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         ValueError: If provider doesn't support listing models
         Exception: If API request fails
     """
-    if provider == "openrouter":
+    if provider in ("openrouter", "local"):
         from .llm_openai import get_available_models as get_openai_models
 
         return get_openai_models(provider)
