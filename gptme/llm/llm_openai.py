@@ -671,10 +671,13 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
 @lru_cache(maxsize=1)
 def get_available_models(provider: Provider) -> list[ModelMeta]:
     """Get available models from a provider."""
-    if provider != "openrouter":
+    if provider not in ["openrouter", "local"]:
         raise ValueError(f"Provider {provider} does not support listing models")
 
     config = get_config()
+
+    if provider == "local":
+        return _get_local_models(config)
 
     # Check if we should use the proxy
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
@@ -711,6 +714,58 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
     except Exception as e:
         logger.error(f"Unexpected error retrieving models from {provider}: {e}")
         raise
+
+
+def _get_local_models(config) -> list[ModelMeta]:
+    """Get available models from local provider (ollama or other OpenAI-compatible server)."""
+    # Get base URL from config (ollama typically runs at localhost:11434)
+    base_url = config.get_env("OPENAI_BASE_URL", "http://localhost:11434/v1")
+
+    # Ensure we're hitting the /models endpoint
+    if base_url.endswith("/v1"):
+        models_url = f"{base_url}/models"
+    elif base_url.endswith("/v1/"):
+        models_url = f"{base_url}models"
+    else:
+        # Try to construct a reasonable URL
+        models_url = f"{base_url.rstrip('/')}/v1/models"
+
+    try:
+        response = requests.get(models_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        # OpenAI-compatible format: {"data": [...], "object": "list"}
+        raw_models = data.get("data", [])
+        return [_local_model_to_modelmeta(model) for model in raw_models]
+    except requests.RequestException as e:
+        logger.debug(f"Failed to retrieve models from local provider: {e}")
+        # Return empty list instead of raising - local server might not be running
+        return []
+    except Exception as e:
+        logger.debug(f"Unexpected error retrieving local models: {e}")
+        return []
+
+
+def _local_model_to_modelmeta(model_data: dict) -> ModelMeta:
+    """Convert local/ollama model data to ModelMeta object."""
+    model_id = model_data.get("id", model_data.get("name", "unknown"))
+
+    # Ollama models typically have context of 128k, but this may vary
+    # Try to extract from model data if available
+    context = model_data.get("context_length", 128_000)
+
+    return ModelMeta(
+        provider="local",
+        model=model_id,
+        context=context,
+        max_output=None,  # Ollama doesn't typically report this
+        supports_streaming=True,
+        supports_vision=False,  # Could be enhanced to detect vision models
+        supports_reasoning=False,
+        price_input=0,  # Local models are free
+        price_output=0,
+    )
 
 
 def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:

@@ -605,7 +605,7 @@ def _get_models_for_provider(
     models_to_show = []
 
     # Try dynamic fetching first for supported providers
-    if dynamic_fetch and provider == "openrouter":
+    if dynamic_fetch and provider in ("openrouter", "local"):
         try:
             dynamic_models = get_available_models(provider)
             models_to_show = dynamic_models
