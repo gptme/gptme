@@ -671,13 +671,21 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
 @lru_cache(maxsize=1)
 def get_available_models(provider: Provider) -> list[ModelMeta]:
     """Get available models from a provider."""
-    if provider not in ["openrouter", "local"]:
-        raise ValueError(f"Provider {provider} does not support listing models")
-
     config = get_config()
 
+    # Check for custom provider first (e.g., "ollama" with custom base_url)
+    if is_custom_provider(provider):
+        custom = next((p for p in config.user.providers if p.name == provider), None)
+        if custom:
+            return _get_local_models(config, provider, custom.base_url)
+        # Fall through to local if custom provider not found in config
+        return _get_local_models(config, provider)
+
     if provider == "local":
-        return _get_local_models(config)
+        return _get_local_models(config, provider)
+
+    if provider != "openrouter":
+        raise ValueError(f"Provider {provider} does not support listing models")
 
     # Check if we should use the proxy
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
@@ -716,10 +724,13 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         raise
 
 
-def _get_local_models(config) -> list[ModelMeta]:
+def _get_local_models(
+    config, provider_name: str = "local", base_url: str | None = None
+) -> list[ModelMeta]:
     """Get available models from local provider (ollama or other OpenAI-compatible server)."""
-    # Get base URL from config (ollama typically runs at localhost:11434)
-    base_url = config.get_env("OPENAI_BASE_URL", "http://localhost:11434/v1")
+    # Get base URL from parameter (custom provider) or env var (local provider)
+    if base_url is None:
+        base_url = config.get_env("OPENAI_BASE_URL", "http://localhost:11434/v1")
 
     # Ensure we're hitting the /models endpoint
     if base_url.endswith("/v1"):
@@ -737,26 +748,33 @@ def _get_local_models(config) -> list[ModelMeta]:
 
         # OpenAI-compatible format: {"data": [...], "object": "list"}
         raw_models = data.get("data", [])
-        return [_local_model_to_modelmeta(model) for model in raw_models]
+        return [_local_model_to_modelmeta(model, provider_name) for model in raw_models]
     except requests.RequestException as e:
-        logger.debug(f"Failed to retrieve models from local provider: {e}")
+        logger.debug(f"Failed to retrieve models from {provider_name} provider: {e}")
         # Return empty list instead of raising - local server might not be running
         return []
     except Exception as e:
-        logger.debug(f"Unexpected error retrieving local models: {e}")
+        logger.debug(f"Unexpected error retrieving {provider_name} models: {e}")
         return []
 
 
-def _local_model_to_modelmeta(model_data: dict) -> ModelMeta:
+def _local_model_to_modelmeta(model_data: dict, provider_name: str) -> ModelMeta:
     """Convert local/ollama model data to ModelMeta object."""
+    from .models import CustomProvider
+
     model_id = model_data.get("id", model_data.get("name", "unknown"))
 
     # Ollama models typically have context of 128k, but this may vary
     # Try to extract from model data if available
     context = model_data.get("context_length", 128_000)
 
+    # Use CustomProvider for non-builtin providers, "local" for local provider
+    provider: Provider = (
+        "local" if provider_name == "local" else CustomProvider(provider_name)
+    )
+
     return ModelMeta(
-        provider="local",
+        provider=provider,
         model=model_id,
         context=context,
         max_output=None,  # Ollama doesn't typically report this
