@@ -424,8 +424,13 @@ def cmd_model(ctx: CommandContext) -> None:
     """List or switch models."""
     ctx.manager.undo(1, quiet=True)
     if ctx.args:
-        set_default_model(ctx.args[0])
-        print(f"Set model to {ctx.args[0]}")
+        new_model = ctx.args[0]
+        set_default_model(new_model)
+        # Persist the model change to config so it survives restart/resume
+        chat_config = ChatConfig.from_logdir(ctx.manager.logdir)
+        chat_config.model = new_model
+        chat_config.save()
+        print(f"Set model to {new_model}")
     else:
         model = get_default_model()
         assert model
