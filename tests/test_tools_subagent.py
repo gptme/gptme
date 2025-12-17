@@ -291,15 +291,15 @@ def test_subagent_with_use_subprocess():
 
     sig = inspect.signature(subagent)
 
-    # Verify new Phase 1 parameters exist
+    # Verify subprocess parameter exists (callbacks removed in favor of hooks)
     assert "use_subprocess" in sig.parameters
-    assert "on_complete" in sig.parameters
-    assert "on_progress" in sig.parameters
 
-    # Verify default values
+    # Verify default value
     assert sig.parameters["use_subprocess"].default is False
-    assert sig.parameters["on_complete"].default is None
-    assert sig.parameters["on_progress"].default is None
+
+    # Callbacks have been removed - completion is now delivered via LOOP_CONTINUE hook
+    assert "on_complete" not in sig.parameters
+    assert "on_progress" not in sig.parameters
 
 
 def test_subagent_batch_creates_batch_job():

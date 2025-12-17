@@ -10,7 +10,6 @@ import string
 import subprocess
 import sys
 import threading
-from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -25,11 +24,6 @@ class SubtaskDef(TypedDict):
 
     id: str
     description: str
-
-
-# Callback type definitions for async subagent hooks
-OnCompleteCallback = Callable[["str", "ReturnType"], None]
-OnProgressCallback = Callable[["str", "str", "str"], None]  # agent_id, status, output
 
 
 if TYPE_CHECKING:
@@ -66,9 +60,6 @@ class Subagent:
     # Subprocess mode fields
     process: subprocess.Popen | None = None
     execution_mode: Literal["thread", "subprocess"] = "thread"
-    # Callback hooks
-    on_complete: OnCompleteCallback | None = None
-    on_progress: OnProgressCallback | None = None
     # Cached result for subprocess mode
     _cached_result: ReturnType | None = field(default=None, repr=False)
 
@@ -293,6 +284,29 @@ def _run_subagent_subprocess(
     return process
 
 
+def _summarize_result(result: ReturnType, max_chars: int = 200) -> str:
+    """Create a token-efficient summary of a subagent result.
+
+    Args:
+        result: The subagent's ReturnType
+        max_chars: Maximum characters in the summary
+
+    Returns:
+        A brief summary suitable for notification messages
+    """
+    if result.result is None:
+        return f"Status: {result.status}"
+
+    text = str(result.result)
+
+    # If it's short enough, return as-is
+    if len(text) <= max_chars:
+        return text
+
+    # Truncate with ellipsis
+    return text[: max_chars - 3] + "..."
+
+
 def _monitor_subprocess(
     subagent: "Subagent",
 ) -> None:
@@ -328,12 +342,18 @@ def _monitor_subprocess(
     final_result = ReturnType(status, result)
     object.__setattr__(subagent, "_cached_result", final_result)
 
-    # Invoke on_complete callback if set
-    if subagent.on_complete:
-        try:
-            subagent.on_complete(subagent.agent_id, final_result)
-        except Exception as e:
-            logger.warning(f"on_complete callback failed: {e}")
+    # Notify via hook system (fire-and-forget-then-get-alerted pattern)
+    try:
+        from ..hooks.subagent_completion import notify_completion
+
+        # Create a brief summary for the notification
+        summary = _summarize_result(final_result, max_chars=200)
+        notify_completion(subagent.agent_id, status, summary)
+    except ImportError:
+        # Hook not available, skip notification
+        logger.debug("Subagent completion hook not available")
+    except Exception as e:
+        logger.warning(f"Failed to notify subagent completion: {e}")
 
 
 def _run_planner(
@@ -413,12 +433,13 @@ def subagent(
     context_mode: Literal["full", "instructions-only", "selective"] = "full",
     context_include: list[str] | None = None,
     output_schema: type | None = None,
-    # New Phase 1 parameters
     use_subprocess: bool = False,
-    on_complete: OnCompleteCallback | None = None,
-    on_progress: OnProgressCallback | None = None,
 ):
-    """Starts an asynchronous subagent. Returns None immediately; output is retrieved later via subagent_wait().
+    """Starts an asynchronous subagent. Returns None immediately.
+
+    Subagent completions are delivered via the LOOP_CONTINUE hook, enabling
+    a "fire-and-forget-then-get-alerted" pattern where the orchestrator can
+    continue working and get notified when subagents finish.
 
     Args:
         agent_id: Unique identifier for the subagent
@@ -438,11 +459,9 @@ def subagent(
             - "workspace": Workspace files and structure
         use_subprocess: If True, run subagent in subprocess for output isolation.
             Subprocess mode captures stdout/stderr separately from the parent.
-        on_complete: Callback function(agent_id, result) invoked when subagent completes.
-        on_progress: Callback function(agent_id, status, output) for progress updates.
 
     Returns:
-        None: Starts asynchronous execution. Use subagent_wait() to retrieve output.
+        None: Starts asynchronous execution.
             In executor mode, starts a single task execution.
             In planner mode, starts execution of all subtasks using the specified execution_mode.
 
@@ -504,19 +523,16 @@ def subagent(
             output_schema=output_schema,
             process=process,
             execution_mode="subprocess",
-            on_complete=on_complete,
-            on_progress=on_progress,
         )
         _subagents.append(sa)
 
-        # Start monitor thread to handle callbacks
-        if on_complete or on_progress:
-            monitor_thread = threading.Thread(
-                target=_monitor_subprocess,
-                args=(sa,),
-                daemon=True,
-            )
-            monitor_thread.start()
+        # Start monitor thread for hook-based completion notification
+        monitor_thread = threading.Thread(
+            target=_monitor_subprocess,
+            args=(sa,),
+            daemon=True,
+        )
+        monitor_thread.start()
     else:
         # Thread mode: original behavior
         def run_subagent():
@@ -531,14 +547,19 @@ def subagent(
                 output_schema=output_schema,
             )
 
-            # Invoke callback after completion
-            if on_complete:
-                sa = next((s for s in _subagents if s.agent_id == agent_id), None)
-                if sa:
-                    try:
-                        on_complete(agent_id, sa.status())
-                    except Exception as e:
-                        logger.warning(f"on_complete callback failed: {e}")
+            # Notify via hook system when complete
+            sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+            if sa:
+                result = sa.status()
+                try:
+                    from ..hooks.subagent_completion import notify_completion
+
+                    summary = _summarize_result(result, max_chars=200)
+                    notify_completion(agent_id, result.status, summary)
+                except ImportError:
+                    logger.debug("Subagent completion hook not available")
+                except Exception as e:
+                    logger.warning(f"Failed to notify subagent completion: {e}")
 
         # Start a thread with a subagent
         t = threading.Thread(
@@ -556,8 +577,6 @@ def subagent(
             output_schema=output_schema,
             process=None,
             execution_mode="thread",
-            on_complete=on_complete,
-            on_progress=on_progress,
         )
         _subagents.append(sa)
 
@@ -608,16 +627,16 @@ def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
 
 @dataclass
 class BatchJob:
-    """Manages a batch of subagents for parallel execution."""
+    """Manages a batch of subagents for parallel execution.
+
+    Note: With the hook-based notification system, the orchestrator will receive
+    completion messages automatically via the LOOP_CONTINUE hook. This class
+    provides additional utilities for explicit synchronization when needed.
+    """
 
     agent_ids: list[str]
     results: dict[str, ReturnType] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
-
-    def _on_complete(self, agent_id: str, result: ReturnType) -> None:
-        """Internal callback to collect results."""
-        with self._lock:
-            self.results[agent_id] = result
 
     def wait_all(self, timeout: int = 300) -> dict[str, dict]:
         """Wait for all subagents to complete.
@@ -661,17 +680,19 @@ class BatchJob:
 def subagent_batch(
     tasks: list[tuple[str, str]],
     use_subprocess: bool = False,
-    on_complete: OnCompleteCallback | None = None,
 ) -> BatchJob:
     """Start multiple subagents in parallel and return a BatchJob to manage them.
 
     This is a convenience function for fire-and-gather patterns where you want
     to run multiple independent tasks concurrently.
 
+    With the hook-based notification system, completion messages are delivered
+    automatically via the LOOP_CONTINUE hook. The BatchJob provides additional
+    utilities for explicit synchronization when needed.
+
     Args:
         tasks: List of (agent_id, prompt) tuples
         use_subprocess: If True, run subagents in subprocesses for output isolation
-        on_complete: Optional callback invoked when each subagent completes
 
     Returns:
         A BatchJob instance for managing the parallel subagents.
@@ -685,26 +706,22 @@ def subagent_batch(
             ("test", "Write tests for feature X"),
             ("docs", "Document feature X"),
         ])
-        # Do other work while subagents run...
+        # Orchestrator continues with other work...
+        # Completion messages delivered via LOOP_CONTINUE hook:
+        #   "✅ Subagent 'impl' completed: Feature implemented"
+        #   "✅ Subagent 'test' completed: 5 tests added"
+        #
+        # Or explicitly wait for all if needed:
         results = job.wait_all(timeout=300)
-        for agent_id, result in results.items():
-            print(f"{agent_id}: {result['status']}")
     """
     job = BatchJob(agent_ids=[t[0] for t in tasks])
 
-    def combined_callback(agent_id: str, result: ReturnType) -> None:
-        """Collect results and call user callback."""
-        job._on_complete(agent_id, result)
-        if on_complete:
-            on_complete(agent_id, result)
-
-    # Start all subagents
+    # Start all subagents (completions delivered via hooks)
     for agent_id, prompt in tasks:
         subagent(
             agent_id=agent_id,
             prompt=prompt,
             use_subprocess=use_subprocess,
-            on_complete=combined_callback,
         )
 
     logger.info(f"Started batch of {len(tasks)} subagents: {job.agent_ids}")
@@ -834,26 +851,33 @@ impl: success
 test: success
 docs: success
 
-### Callbacks for Async Progress
-User: start a subagent with completion notification
-Assistant: I'll use a callback to be notified when the subagent completes.
-{ToolUse("ipython", [], '''def on_done(agent_id, result):
-    print(f"Agent {{agent_id}} finished with {{result.status}}")
-
-subagent("callback-demo", "Compute pi to 100 digits", on_complete=on_done)''').to_output(tool_format)}
-System: Subagent started. Callback will be invoked on completion.
+### Fire-and-Forget with Hook Notifications
+User: start a subagent and continue working
+Assistant: I'll spawn a subagent. Completion will be delivered via the LOOP_CONTINUE hook.
+{ToolUse("ipython", [], '''subagent("compute-demo", "Compute pi to 100 digits")
+# I can continue with other work now
+# When the subagent completes, I'll receive a system message like:
+# "✅ Subagent 'compute-demo' completed: pi = 3.14159..."''').to_output(tool_format)}
+System: Started subagent "compute-demo"
+System: ✅ Subagent 'compute-demo' completed: pi = 3.14159265358979...
 """.strip()
 
 
 instructions = """
 You can create, check status, wait for, and read logs from subagents.
 
-Use subagent_read_log() to inspect a subagent's conversation log for debugging or detailed understanding of what happened.
+Subagents support a "fire-and-forget-then-get-alerted" pattern:
+- Call subagent() to start an async task (returns immediately)
+- Continue with other work
+- Receive completion messages via the LOOP_CONTINUE hook
+- Optionally use subagent_wait() for explicit synchronization
 
-New in Phase 1:
+Key features:
 - use_subprocess=True: Run subagent in subprocess for output isolation
-- on_complete callback: Get notified when subagent finishes
-- subagent_batch(): Start multiple subagents in parallel with fire-and-gather pattern
+- subagent_batch(): Start multiple subagents in parallel
+- Hook-based notifications: Completions delivered as system messages
+
+Use subagent_read_log() to inspect a subagent's conversation log for debugging.
 """.strip()
 
 tool = ToolSpec(
