@@ -131,9 +131,18 @@ class Parameter:
 
 # TODO: there must be a better way?
 def derive_type(t) -> str:
+    # Handle None value (e.g., return type of Callable[[...], None])
+    if t is None:
+        return "None"
+
     # Handle string annotations (forward references)
     if isinstance(t, str):
         return t
+
+    # Handle list instances (e.g., from Callable[[arg1, arg2], ret])
+    if isinstance(t, list):
+        inner = ", ".join(derive_type(item) for item in t)
+        return f"[{inner}]"
 
     origin = get_origin(t)
 
