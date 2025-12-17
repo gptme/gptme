@@ -105,14 +105,16 @@ def test_planner_sequential_mode():
         {"id": "seq2", "description": "Second sequential task"},
     ]
 
-    # Note: In real usage, threads would complete. In tests, they may still be running.
-    subagent(
-        agent_id="test-sequential",
-        prompt="Sequential execution test",
-        mode="planner",
-        subtasks=subtasks,
-        execution_mode="sequential",
-    )
+    # Mock _create_subagent_thread to avoid real chat sessions
+    # Sequential mode blocks with t.join(), so we need threads to complete instantly
+    with patch("gptme.tools.subagent._create_subagent_thread"):
+        subagent(
+            agent_id="test-sequential",
+            prompt="Sequential execution test",
+            mode="planner",
+            subtasks=subtasks,
+            execution_mode="sequential",
+        )
 
     # Should spawn 2 executors
     assert len(_subagents) == initial_count + 2
