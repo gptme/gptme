@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 from gptme.tools.subagent import SubtaskDef, _subagents, subagent
@@ -278,3 +280,107 @@ def test_planner_mode_with_context_modes():
 
     # Should spawn 2 executors
     assert len(_subagents) == initial_count + 2
+
+
+# Phase 1 Tests: Subprocess mode, callbacks, batch execution
+
+
+def test_subagent_with_use_subprocess():
+    """Test that use_subprocess parameter is accepted."""
+    import inspect
+
+    sig = inspect.signature(subagent)
+
+    # Verify new Phase 1 parameters exist
+    assert "use_subprocess" in sig.parameters
+    assert "on_complete" in sig.parameters
+    assert "on_progress" in sig.parameters
+
+    # Verify default values
+    assert sig.parameters["use_subprocess"].default is False
+    assert sig.parameters["on_complete"].default is None
+    assert sig.parameters["on_progress"].default is None
+
+
+def test_subagent_batch_creates_batch_job():
+    """Test that subagent_batch returns a BatchJob with correct structure."""
+    from gptme.tools.subagent import BatchJob, _subagents, subagent_batch
+
+    # Clear any previous subagents
+    _subagents.clear()
+
+    # Mock to prevent actual subagent execution
+    with patch("gptme.tools.subagent.subagent") as mock_subagent:
+        job = subagent_batch(
+            [
+                ("agent1", "prompt1"),
+                ("agent2", "prompt2"),
+            ]
+        )
+
+        # Verify BatchJob structure
+        assert isinstance(job, BatchJob)
+        assert job.agent_ids == ["agent1", "agent2"]
+        assert len(job.results) == 0  # No results yet
+
+        # Verify subagent was called for each task
+        assert mock_subagent.call_count == 2
+
+
+def test_batch_job_is_complete():
+    """Test BatchJob.is_complete() method."""
+    from gptme.tools.subagent import BatchJob, ReturnType
+
+    job = BatchJob(agent_ids=["a1", "a2"])
+    assert not job.is_complete()
+
+    job.results["a1"] = ReturnType("success", "done")
+    assert not job.is_complete()
+
+    job.results["a2"] = ReturnType("success", "done")
+    assert job.is_complete()
+
+
+def test_batch_job_get_completed():
+    """Test BatchJob.get_completed() method."""
+    from gptme.tools.subagent import BatchJob, ReturnType
+
+    job = BatchJob(agent_ids=["a1", "a2"])
+
+    # Add one result
+    job.results["a1"] = ReturnType("success", "result1")
+
+    completed = job.get_completed()
+    assert len(completed) == 1
+    assert "a1" in completed
+    assert completed["a1"]["status"] == "success"
+
+
+def test_subagent_execution_mode_field():
+    """Test that Subagent has execution_mode field."""
+    import threading
+    from pathlib import Path
+
+    from gptme.tools.subagent import Subagent
+
+    t = threading.Thread(target=lambda: None)
+    sa = Subagent(
+        agent_id="test",
+        prompt="test prompt",
+        thread=t,
+        logdir=Path("/tmp"),
+        model=None,
+        execution_mode="thread",
+    )
+    assert sa.execution_mode == "thread"
+
+    sa2 = Subagent(
+        agent_id="test2",
+        prompt="test prompt",
+        thread=None,
+        logdir=Path("/tmp"),
+        model=None,
+        execution_mode="subprocess",
+        process=None,
+    )
+    assert sa2.execution_mode == "subprocess"

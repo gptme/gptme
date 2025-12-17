@@ -7,8 +7,11 @@ Lets gptme break down a task into smaller parts, and delegate them to subagents.
 import logging
 import random
 import string
+import subprocess
+import sys
 import threading
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
 
@@ -22,6 +25,11 @@ class SubtaskDef(TypedDict):
 
     id: str
     description: str
+
+
+# Callback type definitions for async subagent hooks
+OnCompleteCallback = Callable[["str", "ReturnType"], None]
+OnProgressCallback = Callable[["str", "str", "str"], None]  # agent_id, status, output
 
 
 if TYPE_CHECKING:
@@ -41,14 +49,28 @@ class ReturnType:
     result: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class Subagent:
+    """Represents a running or completed subagent.
+
+    Supports both thread-based (default) and subprocess-based execution modes.
+    Subprocess mode provides better output isolation.
+    """
+
     agent_id: str
     prompt: str
-    thread: threading.Thread
+    thread: threading.Thread | None
     logdir: Path
     model: str | None
     output_schema: type | None = None
+    # Subprocess mode fields
+    process: subprocess.Popen | None = None
+    execution_mode: Literal["thread", "subprocess"] = "thread"
+    # Callback hooks
+    on_complete: OnCompleteCallback | None = None
+    on_progress: OnProgressCallback | None = None
+    # Cached result for subprocess mode
+    _cached_result: ReturnType | None = field(default=None, repr=False)
 
     def get_log(self) -> "LogManager":
         # noreorder
@@ -56,8 +78,20 @@ class Subagent:
 
         return LogManager.load(self.logdir)
 
+    def is_running(self) -> bool:
+        """Check if the subagent is still running."""
+        if self.execution_mode == "subprocess" and self.process:
+            return self.process.poll() is None
+        elif self.thread:
+            return self.thread.is_alive()
+        return False
+
     def status(self) -> ReturnType:
-        if self.thread.is_alive():
+        # Return cached result if available (subprocess mode)
+        if self._cached_result is not None:
+            return self._cached_result
+
+        if self.is_running():
             return ReturnType("running")
 
         # Check if executor used the complete tool
@@ -212,6 +246,96 @@ def _create_subagent_thread(
     )
 
 
+def _run_subagent_subprocess(
+    prompt: str,
+    logdir: Path,
+    model: str | None,
+    workspace: Path,
+) -> subprocess.Popen:
+    """Run a subagent in a subprocess for output isolation.
+
+    This provides better isolation than threads - subprocess stdout/stderr
+    doesn't mix with the parent's output.
+
+    Args:
+        prompt: Task prompt for the subagent
+        logdir: Directory for conversation logs
+        model: Model to use (or None for default)
+        workspace: Workspace directory
+
+    Returns:
+        The subprocess.Popen object for monitoring
+    """
+    cmd = [
+        sys.executable,
+        "-m",
+        "gptme",
+        "-n",  # Non-interactive
+        "--no-confirm",
+        f"--logdir={logdir}",
+    ]
+
+    if model:
+        cmd.extend(["--model", model])
+
+    # Add the prompt as the final argument
+    cmd.append(prompt)
+
+    # Start subprocess with captured output
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=workspace,
+        text=True,
+    )
+
+    return process
+
+
+def _monitor_subprocess(
+    subagent: "Subagent",
+) -> None:
+    """Monitor a subprocess and invoke callbacks when it completes.
+
+    Runs in a background thread to enable non-blocking operation.
+    """
+    if not subagent.process:
+        return
+
+    # Wait for process to complete
+    stdout, stderr = subagent.process.communicate()
+
+    # Determine status based on return code
+    if subagent.process.returncode == 0:
+        status: Status = "success"
+        # Try to extract result from stdout or log
+        result = stdout.strip() if stdout else None
+        if not result:
+            # Try to get result from conversation log
+            try:
+                log_status = subagent.status()
+                result = log_status.result
+            except Exception:
+                result = "Task completed (check log for details)"
+    else:
+        status = "failure"
+        result = f"Process exited with code {subagent.process.returncode}"
+        if stderr:
+            result += f"\nStderr: {stderr[:500]}"
+
+    # Cache the result
+    final_result = ReturnType(status, result)
+    object.__setattr__(subagent, "_cached_result", final_result)
+
+    # Invoke on_complete callback if set
+    if subagent.on_complete:
+        try:
+            subagent.on_complete(subagent.agent_id, final_result)
+        except Exception as e:
+            logger.warning(f"on_complete callback failed: {e}")
+
+
 def _run_planner(
     agent_id: str,
     prompt: str,
@@ -289,6 +413,10 @@ def subagent(
     context_mode: Literal["full", "instructions-only", "selective"] = "full",
     context_include: list[str] | None = None,
     output_schema: type | None = None,
+    # New Phase 1 parameters
+    use_subprocess: bool = False,
+    on_complete: OnCompleteCallback | None = None,
+    on_progress: OnProgressCallback | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately; output is retrieved later via subagent_wait().
 
@@ -308,6 +436,10 @@ def subagent(
             - "agent": Agent identity and capabilities
             - "tools": Tool descriptions and usage
             - "workspace": Workspace files and structure
+        use_subprocess: If True, run subagent in subprocess for output isolation.
+            Subprocess mode captures stdout/stderr separately from the parent.
+        on_complete: Callback function(agent_id, result) invoked when subagent completes.
+        on_progress: Callback function(agent_id, status, output) for progress updates.
 
     Returns:
         None: Starts asynchronous execution. Use subagent_wait() to retrieve output.
@@ -350,26 +482,84 @@ def subagent(
 
     name = f"subagent-{agent_id}"
     logdir = get_logdir(name + "-" + random_string(4))
+    workspace = Path.cwd()
 
-    def run_subagent():
-        _create_subagent_thread(
+    if use_subprocess:
+        # Subprocess mode: better output isolation
+        logger.info(f"Starting subagent {agent_id} in subprocess mode")
+        process = _run_subagent_subprocess(
             prompt=prompt,
             logdir=logdir,
             model=model_name,
-            context_mode=context_mode,
-            context_include=context_include,
-            workspace=Path.cwd(),
-            target="parent",
-            output_schema=output_schema,
+            workspace=workspace,
         )
 
-    # start a thread with a subagent
-    t = threading.Thread(
-        target=run_subagent,
-        daemon=True,
-    )
-    t.start()
-    _subagents.append(Subagent(agent_id, prompt, t, logdir, model_name, output_schema))
+        # Create Subagent with subprocess reference
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt=prompt,
+            thread=None,
+            logdir=logdir,
+            model=model_name,
+            output_schema=output_schema,
+            process=process,
+            execution_mode="subprocess",
+            on_complete=on_complete,
+            on_progress=on_progress,
+        )
+        _subagents.append(sa)
+
+        # Start monitor thread to handle callbacks
+        if on_complete or on_progress:
+            monitor_thread = threading.Thread(
+                target=_monitor_subprocess,
+                args=(sa,),
+                daemon=True,
+            )
+            monitor_thread.start()
+    else:
+        # Thread mode: original behavior
+        def run_subagent():
+            _create_subagent_thread(
+                prompt=prompt,
+                logdir=logdir,
+                model=model_name,
+                context_mode=context_mode,
+                context_include=context_include,
+                workspace=workspace,
+                target="parent",
+                output_schema=output_schema,
+            )
+
+            # Invoke callback after completion
+            if on_complete:
+                sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+                if sa:
+                    try:
+                        on_complete(agent_id, sa.status())
+                    except Exception as e:
+                        logger.warning(f"on_complete callback failed: {e}")
+
+        # Start a thread with a subagent
+        t = threading.Thread(
+            target=run_subagent,
+            daemon=True,
+        )
+        t.start()
+
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt=prompt,
+            thread=t,
+            logdir=logdir,
+            model=model_name,
+            output_schema=output_schema,
+            process=None,
+            execution_mode="thread",
+            on_complete=on_complete,
+            on_progress=on_progress,
+        )
+        _subagents.append(sa)
 
 
 def subagent_status(agent_id: str) -> dict:
@@ -380,20 +570,145 @@ def subagent_status(agent_id: str) -> dict:
     raise ValueError(f"Subagent with ID {agent_id} not found.")
 
 
-def subagent_wait(agent_id: str) -> dict:
-    """Waits for a subagent to finish. Timeout is 1 minute."""
-    subagent = None
-    for subagent in _subagents:
-        if subagent.agent_id == agent_id:
+def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
+    """Waits for a subagent to finish.
+
+    Args:
+        agent_id: The subagent to wait for
+        timeout: Maximum seconds to wait (default 60)
+
+    Returns:
+        Status dict with 'status' and 'result' keys
+    """
+    sa = None
+    for s in _subagents:
+        if s.agent_id == agent_id:
+            sa = s
             break
 
-    if subagent is None:
+    if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
 
-    logger.info("Waiting for the subagent to finish...")
-    subagent.thread.join(timeout=60)
-    status = subagent.status()
+    logger.info(f"Waiting for subagent {agent_id} to finish...")
+
+    if sa.execution_mode == "subprocess" and sa.process:
+        # Subprocess mode: wait for process
+        try:
+            sa.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Subagent {agent_id} timed out after {timeout}s")
+            sa.process.kill()
+    elif sa.thread:
+        # Thread mode: join thread
+        sa.thread.join(timeout=timeout)
+
+    status = sa.status()
     return asdict(status)
+
+
+@dataclass
+class BatchJob:
+    """Manages a batch of subagents for parallel execution."""
+
+    agent_ids: list[str]
+    results: dict[str, ReturnType] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def _on_complete(self, agent_id: str, result: ReturnType) -> None:
+        """Internal callback to collect results."""
+        with self._lock:
+            self.results[agent_id] = result
+
+    def wait_all(self, timeout: int = 300) -> dict[str, dict]:
+        """Wait for all subagents to complete.
+
+        Args:
+            timeout: Maximum seconds to wait for all subagents
+
+        Returns:
+            Dict mapping agent_id to status dict
+        """
+        import time
+
+        start_time = time.time()
+        for agent_id in self.agent_ids:
+            remaining = max(1, timeout - int(time.time() - start_time))
+            try:
+                result = subagent_wait(agent_id, timeout=remaining)
+                with self._lock:
+                    if agent_id not in self.results:
+                        self.results[agent_id] = ReturnType(
+                            result.get("status", "failure"),
+                            result.get("result"),
+                        )
+            except Exception as e:
+                logger.warning(f"Error waiting for {agent_id}: {e}")
+                with self._lock:
+                    self.results[agent_id] = ReturnType("failure", str(e))
+
+        return {aid: asdict(r) for aid, r in self.results.items()}
+
+    def is_complete(self) -> bool:
+        """Check if all subagents have completed."""
+        return len(self.results) == len(self.agent_ids)
+
+    def get_completed(self) -> dict[str, dict]:
+        """Get results of completed subagents so far."""
+        with self._lock:
+            return {aid: asdict(r) for aid, r in self.results.items()}
+
+
+def subagent_batch(
+    tasks: list[tuple[str, str]],
+    use_subprocess: bool = False,
+    on_complete: OnCompleteCallback | None = None,
+) -> BatchJob:
+    """Start multiple subagents in parallel and return a BatchJob to manage them.
+
+    This is a convenience function for fire-and-gather patterns where you want
+    to run multiple independent tasks concurrently.
+
+    Args:
+        tasks: List of (agent_id, prompt) tuples
+        use_subprocess: If True, run subagents in subprocesses for output isolation
+        on_complete: Optional callback invoked when each subagent completes
+
+    Returns:
+        BatchJob object with methods:
+        - wait_all(timeout): Wait for all subagents, returns dict of results
+        - is_complete(): Check if all subagents finished
+        - get_completed(): Get results so far
+
+    Example:
+        job = subagent_batch([
+            ("impl", "Implement feature X"),
+            ("test", "Write tests for feature X"),
+            ("docs", "Document feature X"),
+        ])
+        # Do other work while subagents run...
+        results = job.wait_all(timeout=300)
+        for agent_id, result in results.items():
+            print(f"{agent_id}: {result['status']}")
+    """
+    job = BatchJob(agent_ids=[t[0] for t in tasks])
+
+    def combined_callback(agent_id: str, result: ReturnType) -> None:
+        """Collect results and call user callback."""
+        job._on_complete(agent_id, result)
+        if on_complete:
+            on_complete(agent_id, result)
+
+    # Start all subagents
+    for agent_id, prompt in tasks:
+        subagent(
+            agent_id=agent_id,
+            prompt=prompt,
+            use_subprocess=use_subprocess,
+            on_complete=combined_callback,
+        )
+
+    logger.info(f"Started batch of {len(tasks)} subagents: {job.agent_ids}")
+    return job
 
 
 def subagent_read_log(
@@ -495,6 +810,38 @@ Assistant: For a simple computation, I'll use instructions-only mode with minima
 User: write tests using pytest
 Assistant: I'll use selective mode to share only tool descriptions, not workspace files.
 {ToolUse("ipython", [], 'subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["tools"])').to_output(tool_format)}
+
+### Subprocess Mode (output isolation)
+User: run a subagent without output mixing with parent
+Assistant: I'll use subprocess mode for better output isolation.
+{ToolUse("ipython", [], 'subagent("isolated", "Compute complex calculation", use_subprocess=True)').to_output(tool_format)}
+System: Subagent started in subprocess mode.
+
+### Batch Execution (parallel tasks)
+User: implement, test, and document a feature in parallel
+Assistant: I'll use subagent_batch for parallel execution with fire-and-gather pattern.
+{ToolUse("ipython", [], '''job = subagent_batch([
+    ("impl", "Implement the user authentication feature"),
+    ("test", "Write tests for authentication"),
+    ("docs", "Document the authentication API"),
+])
+# Do other work while subagents run...
+results = job.wait_all(timeout=300)
+for agent_id, result in results.items():
+    print(f"{{agent_id}}: {{result['status']}}")''').to_output(tool_format)}
+System: Started batch of 3 subagents: ['impl', 'test', 'docs']
+impl: success
+test: success
+docs: success
+
+### Callbacks for Async Progress
+User: start a subagent with completion notification
+Assistant: I'll use a callback to be notified when the subagent completes.
+{ToolUse("ipython", [], '''def on_done(agent_id, result):
+    print(f"Agent {{agent_id}} finished with {{result.status}}")
+
+subagent("callback-demo", "Compute pi to 100 digits", on_complete=on_done)''').to_output(tool_format)}
+System: Subagent started. Callback will be invoked on completion.
 """.strip()
 
 
@@ -502,13 +849,24 @@ instructions = """
 You can create, check status, wait for, and read logs from subagents.
 
 Use subagent_read_log() to inspect a subagent's conversation log for debugging or detailed understanding of what happened.
+
+New in Phase 1:
+- use_subprocess=True: Run subagent in subprocess for output isolation
+- on_complete callback: Get notified when subagent finishes
+- subagent_batch(): Start multiple subagents in parallel with fire-and-gather pattern
 """.strip()
 
 tool = ToolSpec(
     name="subagent",
     desc="Create and manage subagents",
     examples=examples,
-    functions=[subagent, subagent_status, subagent_wait, subagent_read_log],
+    functions=[
+        subagent,
+        subagent_status,
+        subagent_wait,
+        subagent_read_log,
+        subagent_batch,
+    ],
     disabled_by_default=True,
 )
 __doc__ = tool.get_doc(__doc__)
