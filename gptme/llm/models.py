@@ -605,19 +605,23 @@ def _get_models_for_provider(
     models_to_show = []
 
     # Try dynamic fetching first for supported providers
-    if dynamic_fetch and provider in ("openrouter", "local"):
+    if dynamic_fetch and (
+        provider in ("openrouter", "local") or is_custom_provider(provider)
+    ):
         try:
             dynamic_models = get_available_models(provider)
             models_to_show = dynamic_models
         except Exception:
-            # Fall back to static models
-            static_models = [
-                get_model(f"{provider}/{name}") for name in MODELS[provider]
-            ]
-            models_to_show = static_models
+            # Fall back to static models (only for built-in providers)
+            if provider in MODELS:
+                static_models = [
+                    get_model(f"{provider}/{name}") for name in MODELS[provider]
+                ]
+                models_to_show = static_models
+            # Custom providers have no static fallback
     else:
         # Use static models
-        if MODELS[provider]:
+        if provider in MODELS and MODELS[provider]:
             static_models = [
                 get_model(f"{provider}/{name}") for name in MODELS[provider]
             ]
