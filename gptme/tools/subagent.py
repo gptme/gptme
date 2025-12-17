@@ -678,7 +678,8 @@ def subagent_batch(
         The BatchJob provides wait_all(timeout) to wait for completion,
         is_complete() to check status, and get_completed() for partial results.
 
-    Example:
+    Example::
+
         job = subagent_batch([
             ("impl", "Implement feature X"),
             ("test", "Write tests for feature X"),
