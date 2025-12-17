@@ -121,7 +121,7 @@ def cleanup_subagents_after():
     yield
     # Wait briefly for any running subagent threads to complete
     for subagent in _subagents:
-        if subagent.thread.is_alive():
+        if subagent.thread is not None and subagent.thread.is_alive():
             subagent.thread.join(timeout=5.0)
     # Clear the subagents list
     _subagents.clear()
