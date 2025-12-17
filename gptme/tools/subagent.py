@@ -503,7 +503,13 @@ def subagent(
 
     name = f"subagent-{agent_id}"
     logdir = get_logdir(name + "-" + random_string(4))
-    workspace = Path.cwd()
+
+    # Get workspace, handling case where cwd was deleted (e.g., in tests)
+    try:
+        workspace = Path.cwd()
+    except FileNotFoundError:
+        # Fallback to logdir's parent if cwd doesn't exist
+        workspace = logdir.parent
 
     if use_subprocess:
         # Subprocess mode: better output isolation
