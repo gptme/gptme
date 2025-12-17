@@ -36,6 +36,10 @@ Status = Literal["running", "success", "failure"]
 
 _subagents: list["Subagent"] = []
 
+# Cache for subprocess results (keyed by agent_id)
+# This allows Subagent to remain frozen while storing mutable result state
+_subagent_results: dict[str, "ReturnType"] = {}
+
 
 @dataclass(frozen=True)
 class ReturnType:
@@ -43,7 +47,7 @@ class ReturnType:
     result: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class Subagent:
     """Represents a running or completed subagent.
 
@@ -60,8 +64,6 @@ class Subagent:
     # Subprocess mode fields
     process: subprocess.Popen | None = None
     execution_mode: Literal["thread", "subprocess"] = "thread"
-    # Cached result for subprocess mode
-    _cached_result: ReturnType | None = field(default=None, repr=False)
 
     def get_log(self) -> "LogManager":
         # noreorder
@@ -79,8 +81,8 @@ class Subagent:
 
     def status(self) -> ReturnType:
         # Return cached result if available (subprocess mode)
-        if self._cached_result is not None:
-            return self._cached_result
+        if self.agent_id in _subagent_results:
+            return _subagent_results[self.agent_id]
 
         if self.is_running():
             return ReturnType("running")
@@ -338,9 +340,9 @@ def _monitor_subprocess(
         if stderr:
             result += f"\nStderr: {stderr[:500]}"
 
-    # Cache the result
+    # Cache the result in module-level dict (Subagent is frozen)
     final_result = ReturnType(status, result)
-    object.__setattr__(subagent, "_cached_result", final_result)
+    _subagent_results[subagent.agent_id] = final_result
 
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)
     try:
