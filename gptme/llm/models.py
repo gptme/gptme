@@ -724,12 +724,25 @@ def list_models(
         simple_format: Output one model per line as provider/model
         dynamic_fetch: Fetch dynamic models from APIs where available
     """
+    from ..config import get_config  # fmt: skip
+
     if not simple_format:
         print("Available models:")
 
     all_models = []
 
-    for provider in MODELS:
+    # Get custom providers from config
+    config = get_config()
+    custom_providers: list[Provider] = [
+        CustomProvider(p.name) for p in config.user.providers
+    ]
+
+    # Combine built-in and custom providers
+    all_providers: list[Provider] = (
+        list(cast(list[Provider], list(MODELS.keys()))) + custom_providers
+    )
+
+    for provider in all_providers:
         if provider_filter and provider != provider_filter:
             continue
 
