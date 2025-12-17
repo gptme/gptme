@@ -138,7 +138,7 @@ def chat(
             stream,
             confirm_func,
             tool_format,
-            model,
+            None,  # Pass None to allow dynamic model switching via /model command
             interactive,
             logdir,
             output_schema,
