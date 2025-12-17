@@ -316,7 +316,7 @@ def _process_message_conversation(
         assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
         if len(assistant_messages) == 1:
             chat_config = ChatConfig.from_logdir(manager.logdir)
-            if not chat_config.name and model:
+            if not chat_config.name:
 
                 def _auto_name_thread(
                     config: ChatConfig,
@@ -338,9 +338,11 @@ def _process_message_conversation(
                         logger.warning(f"Failed to auto-generate name: {e}")
 
                 # Start naming in background thread (daemon so it doesn't block exit)
+                # Get current model dynamically (model param may be None)
+                current_model = get_default_model()
                 thread = threading.Thread(
                     target=_auto_name_thread,
-                    args=(chat_config, manager.log.messages.copy(), model),
+                    args=(chat_config, manager.log.messages.copy(), current_model),
                     daemon=True,
                 )
                 thread.start()
