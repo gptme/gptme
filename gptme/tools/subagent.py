@@ -674,10 +674,9 @@ def subagent_batch(
         on_complete: Optional callback invoked when each subagent completes
 
     Returns:
-        BatchJob object with methods:
-        - wait_all(timeout): Wait for all subagents, returns dict of results
-        - is_complete(): Check if all subagents finished
-        - get_completed(): Get results so far
+        A BatchJob instance for managing the parallel subagents.
+        The BatchJob provides wait_all(timeout) to wait for completion,
+        is_complete() to check status, and get_completed() for partial results.
 
     Example:
         job = subagent_batch([
