@@ -87,7 +87,11 @@ def _generate_llm_name(
 
     try:
         from ..llm import _chat_complete
-        from ..llm.models import get_model, get_summary_model
+        from ..llm.models import ModelMeta, get_model, get_summary_model
+
+        # Handle case where model is already a ModelMeta object
+        if isinstance(model, ModelMeta):
+            model = model.model
 
         # Try to use cheaper summary model (if available for provider)
         naming_model = model
