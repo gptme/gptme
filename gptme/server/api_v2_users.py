@@ -7,7 +7,7 @@ including GitHub token storage for the hosted service.
 
 import logging
 import os
-from base64 import b64decode, b64encode
+from base64 import b64decode, urlsafe_b64encode
 
 import flask
 from flask import jsonify, request
@@ -72,9 +72,11 @@ def encrypt_token(token: str, user_id: str) -> str | None:
         user_key = hashlib.pbkdf2_hmac(
             "sha256", key, user_id.encode("utf-8"), 100000, dklen=32
         )
-        f = Fernet(b64encode(user_key))
+        # Fernet expects URL-safe base64 key
+        f = Fernet(urlsafe_b64encode(user_key))
+        # Fernet.encrypt() returns base64 bytes, just decode to string
         encrypted = f.encrypt(token.encode("utf-8"))
-        return b64encode(encrypted).decode("utf-8")
+        return encrypted.decode("utf-8")
     except ImportError:
         logger.warning("cryptography package not installed")
         return None
@@ -105,9 +107,10 @@ def decrypt_token(encrypted_b64: str, user_id: str) -> str | None:
         user_key = hashlib.pbkdf2_hmac(
             "sha256", key, user_id.encode("utf-8"), 100000, dklen=32
         )
-        f = Fernet(b64encode(user_key))
-        encrypted = b64decode(encrypted_b64)
-        decrypted = f.decrypt(encrypted)
+        # Fernet expects URL-safe base64 key
+        f = Fernet(urlsafe_b64encode(user_key))
+        # encrypted_b64 is already in Fernet format (base64 string), pass directly
+        decrypted = f.decrypt(encrypted_b64.encode("utf-8"))
         return decrypted.decode("utf-8")
     except Exception as e:
         logger.error(f"Decryption failed: {e}")
