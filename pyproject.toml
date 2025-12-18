@@ -77,6 +77,8 @@ sounddevice = {version="^0.5.1", optional=true}
 flask = {version = "^3.0", optional=true}
 flask-cors = {version = ">=4,<6", optional=true}
 pydantic = "^2.11.7"
+supabase = {version = "^2.0.0", optional=true}
+cryptography = {version = "^44.0.0", optional=true}
 
 # telemetry
 opentelemetry-api = {version = "^1.20.0", optional=true}
@@ -136,7 +138,7 @@ types-lxml = "*"
 tomli = "^2.2.1"
 
 [tool.poetry.extras]
-server = ["flask", "flask-cors", "pydantic"]
+server = ["flask", "flask-cors", "pydantic", "supabase", "cryptography"]
 browser = ["playwright"]
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 computer = []  # pillow (non-opt)

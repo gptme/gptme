@@ -32,6 +32,7 @@ from .api import _abs_to_rel_workspace
 from .api_v2_agents import agents_api
 from .api_v2_common import msg2dict
 from .api_v2_sessions import SessionManager, sessions_api
+from .api_v2_users import users_api
 from .auth import require_auth
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
@@ -53,6 +54,7 @@ v2_api = flask.Blueprint("v2_api", __name__)
 # Register sub-blueprints
 v2_api.register_blueprint(sessions_api)
 v2_api.register_blueprint(agents_api)
+v2_api.register_blueprint(users_api)
 
 
 @v2_api.route("/api/v2")
