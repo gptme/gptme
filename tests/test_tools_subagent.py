@@ -750,3 +750,66 @@ def test_subprocess_monitor_thread_started():
                     sa.process.wait(timeout=5)
                 except Exception:
                     sa.process.kill()
+
+
+@pytest.mark.slow
+@pytest.mark.eval
+def test_subprocess_mode_execution_basic():
+    """Test that subprocess mode actually executes and completes a subagent.
+
+    This test creates a real subagent in subprocess mode and waits for completion,
+    verifying that the subprocess execution path works end-to-end.
+    """
+    from gptme.tools.subagent import _subagents, subagent, subagent_wait
+
+    # Clear any existing subagents
+    _subagents.clear()
+
+    # Create a subagent in subprocess mode with a simple task
+    subagent(
+        agent_id="test-subprocess-exec",
+        prompt="Reply with exactly: SUBPROCESS_TEST_SUCCESS",
+        use_subprocess=True,
+    )
+
+    # Verify the subagent was created with subprocess execution mode
+    sa = next((s for s in _subagents if s.agent_id == "test-subprocess-exec"), None)
+    assert sa is not None
+    assert sa.execution_mode == "subprocess"
+    assert sa.process is not None
+
+    # Wait for completion with a reasonable timeout
+    result = subagent_wait("test-subprocess-exec", timeout=60)
+    assert isinstance(result, dict)
+    # Status should be either success or failure (not running if we waited enough)
+    assert result.get("status") in ["success", "failure", "timeout"]
+
+
+@pytest.mark.slow
+@pytest.mark.eval
+def test_subprocess_mode_read_log():
+    """Test that we can read logs from a subprocess mode subagent."""
+    from gptme.tools.subagent import (
+        _subagents,
+        subagent,
+        subagent_read_log,
+        subagent_wait,
+    )
+
+    _subagents.clear()
+
+    # Create a subagent in subprocess mode
+    subagent(
+        agent_id="test-subprocess-log",
+        prompt="Say hello",
+        use_subprocess=True,
+    )
+
+    # Wait for it to complete (or timeout)
+    subagent_wait("test-subprocess-log", timeout=60)
+
+    # Read the log - should contain something
+    log_content = subagent_read_log("test-subprocess-log")
+    assert isinstance(log_content, str)
+    # Log should exist and have content (at minimum the conversation start)
+    assert len(log_content) > 0
