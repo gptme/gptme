@@ -219,6 +219,7 @@ class TestWaitForOutput:
         assert "timed out" in msg.content
         assert elapsed >= 4  # Should have waited for timeout
 
+    @pytest.mark.slow
     @pytest.mark.xdist_group("tmux_new_session")
     def test_auto_prefixes_session_id(self, cleanup_new_session_sessions):
         """Should automatically add gptme_ prefix if missing.
