@@ -500,11 +500,13 @@ def _check_optional_dependencies():
     ]
 
     # Only check wl-clipboard in Wayland environments
+    # Note: wl-clipboard package provides wl-copy and wl-paste executables, not wl-clipboard
     if _is_wayland_environment():
         dependencies.append(
             {
                 "name": "wl-clipboard",
                 "check_type": "command",
+                "check_command": "wl-copy",  # Actual executable name
                 "purpose": "Clipboard operations on Wayland",
                 "install": "sudo apt install wl-clipboard  # Ubuntu/Debian",
             }
@@ -518,7 +520,9 @@ def _check_optional_dependencies():
     missing_deps = []
 
     for dep in dependencies:
-        is_available = _check_dependency(dep["name"], dep["check_type"])
+        # Use check_command if provided, otherwise use name
+        check_name = dep.get("check_command", dep["name"])
+        is_available = _check_dependency(check_name, dep["check_type"])
         status = "[green]✅[/green]" if is_available else "[red]❌[/red]"
         deps_table.add_row(dep["name"], status, dep["purpose"])
 
