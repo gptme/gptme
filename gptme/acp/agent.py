@@ -261,17 +261,35 @@ class GptmeAgent:
 
         def confirm_callback(msg: str) -> bool:
             """Confirm callback that reports tool calls to ACP client."""
-            # Parse codeblock info from confirmation message
-            # Format: "Execute tool_name: content_preview..."
+            # Parse tool name from confirmation message patterns
+            # gptme tools use various formats, so we pattern-match common ones
             tool_name = "unknown"
-            content_preview = msg
+            content_preview = msg[:100]
 
-            if msg.startswith("Execute "):
-                parts = msg[8:].split(":", 1)
-                if len(parts) >= 1:
-                    tool_name = parts[0].strip()
-                if len(parts) >= 2:
-                    content_preview = parts[1].strip()[:100]
+            # Map confirmation message patterns to tool names
+            msg_lower = msg.lower()
+            if "run command" in msg_lower:
+                tool_name = "shell"
+            elif "execute this code" in msg_lower:
+                tool_name = "python"
+            elif "execute commands" in msg_lower:
+                tool_name = "tmux"
+            elif "apply patch" in msg_lower:
+                tool_name = "patch"
+            elif "save to" in msg_lower or "overwrite" in msg_lower:
+                tool_name = "save"
+            elif "append to" in msg_lower:
+                tool_name = "append"
+            elif "create" in msg_lower and (
+                "file" in msg_lower or "folder" in msg_lower
+            ):
+                tool_name = "save"
+            elif "load mcp server" in msg_lower:
+                tool_name = "mcp"
+            elif "unload mcp server" in msg_lower:
+                tool_name = "mcp"
+            elif "restart gptme" in msg_lower:
+                tool_name = "restart"
 
             # Create tool call
             tool_call = ToolCall(
@@ -311,9 +329,17 @@ class GptmeAgent:
                 return allowed
 
             # Run async code in event loop
+            # Use configurable timeout for permission requests (default 60s)
+            # Longer timeout allows users time to review complex operations
+            permission_timeout = 60.0
             future = asyncio.run_coroutine_threadsafe(report_and_request(), loop)
             try:
-                return future.result(timeout=30.0)
+                return future.result(timeout=permission_timeout)
+            except TimeoutError:
+                logger.warning(
+                    f"Tool permission request timed out after {permission_timeout}s, auto-allowing"
+                )
+                return True
             except Exception as e:
                 logger.warning(f"Tool permission check failed: {e}, auto-allowing")
                 return True
@@ -335,7 +361,9 @@ class GptmeAgent:
             return
 
         for tool_call_id, tool_call in self._tool_calls[session_id].items():
-            if tool_call.status == ToolCallStatus.IN_PROGRESS:
+            # Complete both IN_PROGRESS and PENDING tool calls
+            # PENDING calls may be orphaned if permission request failed to transition
+            if tool_call.status in (ToolCallStatus.IN_PROGRESS, ToolCallStatus.PENDING):
                 status = ToolCallStatus.COMPLETED if success else ToolCallStatus.FAILED
                 await self._update_tool_call(
                     session_id,
