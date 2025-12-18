@@ -732,6 +732,9 @@ class ShellSession:
             self.process.wait(timeout=0.2)
             if self.process.poll() is None:
                 os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            # Process already exited; this can happen due to cleanup races.
+            pass
         except Exception as e:
             logger.warning(f"Error terminating process during close: {e}")
 

@@ -91,7 +91,7 @@ def _generate_llm_name(
 
         # Handle case where model is already a ModelMeta object
         if isinstance(model, ModelMeta):
-            model = model.model
+            model = model.full
 
         # Try to use cheaper summary model (if available for provider)
         naming_model = model

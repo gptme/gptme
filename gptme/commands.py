@@ -56,6 +56,7 @@ Actions = Literal[
     "tokens",
     "export",
     "commit",
+    "clear",
     "setup",
     "help",
     "exit",
@@ -76,6 +77,7 @@ action_descriptions: dict[Actions, str] = {
     "tokens": "Show the number of tokens used",
     "export": "Export conversation as HTML",
     "commit": "Ask assistant to git commit",
+    "clear": "Clear the terminal screen",
     "setup": "Setup gptme with completions and configuration",
     "help": "Show this help message",
     "exit": "Exit the program",
@@ -271,6 +273,14 @@ def cmd_undo(ctx: CommandContext) -> None:
     ctx.manager.undo(n)
 
 
+@command("clear", aliases=["cls"])
+def cmd_clear(ctx: CommandContext) -> None:
+    """Clear the terminal screen."""
+    ctx.manager.undo(1, quiet=True)
+    # ANSI escape code to clear screen and move cursor to home position
+    print("\033[2J\033[H", end="")
+
+
 @command("exit")
 def cmd_exit(ctx: CommandContext) -> None:
     """Exit the program."""
@@ -424,8 +434,13 @@ def cmd_model(ctx: CommandContext) -> None:
     """List or switch models."""
     ctx.manager.undo(1, quiet=True)
     if ctx.args:
-        set_default_model(ctx.args[0])
-        print(f"Set model to {ctx.args[0]}")
+        new_model = ctx.args[0]
+        set_default_model(new_model)
+        # Persist the model change to config so it survives restart/resume
+        chat_config = ChatConfig.from_logdir(ctx.manager.logdir)
+        chat_config.model = new_model
+        chat_config.save()
+        print(f"Set model to {new_model}")
     else:
         model = get_default_model()
         assert model
