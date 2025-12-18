@@ -36,6 +36,7 @@ from .tools import (
 )
 from .util.auto_naming import generate_llm_name
 from .util.cost import log_costs
+from .util.cost_tracker import CostTracker
 from .util.export import export_chat_to_html
 from .util.useredit import edit_text_with_editor
 
@@ -408,11 +409,37 @@ def cmd_impersonate(ctx: CommandContext) -> Generator[Message, None, None]:
     yield from execute_msg(msg, confirm=lambda _: True)
 
 
-@command("tokens")
+@command("tokens", aliases=["cost"])
 def cmd_tokens(ctx: CommandContext) -> None:
-    """Show token usage."""
+    """Show token usage and costs.
+
+    Uses CostTracker for accurate costs when available (tracks actual API usage),
+    falls back to approximation from message history otherwise.
+    """
+    from .util import console
+
     ctx.manager.undo(1, quiet=True)
-    log_costs(ctx.manager.log.messages)
+
+    # Try to get accurate costs from CostTracker first
+    summary = CostTracker.get_summary()
+    if summary and summary.request_count > 0:
+        # Use accurate tracked costs
+        tokens_msg = f"Tokens: {summary.total_input_tokens:,}/{summary.total_output_tokens:,} in/out"
+        if summary.cache_read_tokens > 0 or summary.cache_creation_tokens > 0:
+            tokens_msg += f" (cache: {summary.cache_read_tokens:,} read, {summary.cache_creation_tokens:,} created)"
+
+        console.log(tokens_msg)
+
+        if summary.total_cost > 0:
+            cost_msg = f"Cost:   ${summary.total_cost:.4f}"
+            if summary.cache_hit_rate > 0:
+                cost_msg += f" (cache hit rate: {summary.cache_hit_rate*100:.1f}%)"
+            console.log(cost_msg)
+
+        console.log(f"Requests: {summary.request_count}")
+    else:
+        # Fall back to approximation from message history
+        log_costs(ctx.manager.log.messages)
 
 
 @command("tools")
