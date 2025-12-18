@@ -7,24 +7,38 @@ Current Implementation (Phase 1):
 - Subagents run as independent gptme sessions (thread or subprocess)
 - Communication is one-way: parent → child via prompt
 - Results are retrieved via subagent_status() or subagent_wait()
-- Subagents cannot send progress updates or request clarification from parent
+- Completion notifications delivered via the ``subagent_completion`` hook
+
+Hook System Integration:
+    The ``subagent_completion`` hook (registered via ToolSpec) implements the
+    "fire-and-forget-then-get-alerted" pattern. When a subagent completes, the
+    hook delivers a system message during LOOP_CONTINUE, allowing the parent
+    agent to react naturally without active polling.
+
+    The hook is registered automatically when the subagent tool is loaded.
 
 Future Design Intent (Phase 2/3):
 
-- **Progress notifications**: Allow subagents to push status updates to parent via hooks (e.g., "50% complete", "found issue X")
-- **Clarification requests**: Enable subagents to pause and ask parent for additional context when encountering ambiguity
-- **Bidirectional communication**: Establish message channels between parent/child for collaborative problem-solving
-- **Hierarchical coordination**: Support multi-level agent hierarchies with message routing and result aggregation
+- **Progress notifications**: Allow subagents to push status updates to parent
+  via hooks (e.g., "50% complete", "found issue X")
+- **Clarification requests**: Enable subagents to pause and ask parent for
+  additional context when encountering ambiguity
+- **Bidirectional communication**: Establish message channels between
+  parent/child for collaborative problem-solving
+- **Hierarchical coordination**: Support multi-level agent hierarchies with
+  message routing and result aggregation
 
-These features require hook system integration and coordination protocol design.
+These features will build on the existing hook infrastructure.
 """
 
 import logging
+import queue
 import random
 import string
 import subprocess
 import sys
 import threading
+from collections.abc import Generator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -55,6 +69,59 @@ _subagents: list["Subagent"] = []
 # This allows Subagent to remain frozen while storing mutable result state
 _subagent_results: dict[str, "ReturnType"] = {}
 _subagent_results_lock = threading.Lock()
+
+# Thread-safe queue for completed subagent notifications
+# Each entry is (agent_id, status, summary)
+_completion_queue: queue.Queue[tuple[str, str, str]] = queue.Queue()
+
+
+def notify_completion(agent_id: str, status: str, summary: str) -> None:
+    """Add a subagent completion to the notification queue.
+
+    Called by the monitor thread when a subagent finishes. The queued
+    notification will be delivered via the subagent_completion hook
+    during the next LOOP_CONTINUE cycle.
+
+    Args:
+        agent_id: The subagent's identifier
+        status: "success" or "failure"
+        summary: Brief summary of the result
+    """
+    _completion_queue.put((agent_id, status, summary))
+    logger.debug(f"Queued completion notification for subagent '{agent_id}': {status}")
+
+
+def _subagent_completion_hook(
+    manager: "LogManager",
+    interactive: bool,
+    prompt_queue: object,
+) -> Generator[Message, None, None]:
+    """Check for completed subagents and yield notification messages.
+
+    This hook is triggered during each chat loop iteration via LOOP_CONTINUE.
+    It checks the completion queue and yields system messages for any
+    finished subagents, allowing the orchestrator to react naturally.
+    """
+
+    notifications = []
+
+    # Drain all available notifications
+    while True:
+        try:
+            agent_id, status, summary = _completion_queue.get_nowait()
+            notifications.append((agent_id, status, summary))
+        except queue.Empty:
+            break
+
+    # Yield messages for each completion
+    for agent_id, status, summary in notifications:
+        if status == "success":
+            msg = f"✅ Subagent '{agent_id}' completed: {summary}"
+        else:
+            msg = f"❌ Subagent '{agent_id}' failed: {summary}"
+
+        logger.debug(f"Delivering subagent notification: {msg}")
+        yield Message("system", msg)
 
 
 @dataclass(frozen=True)
@@ -375,14 +442,8 @@ def _monitor_subprocess(
 
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)
     try:
-        from ..hooks.subagent_completion import notify_completion
-
-        # Create a brief summary for the notification
         summary = _summarize_result(final_result, max_chars=200)
         notify_completion(subagent.agent_id, status, summary)
-    except ImportError:
-        # Hook not available, skip notification
-        logger.debug("Subagent completion hook not available")
     except Exception as e:
         logger.warning(f"Failed to notify subagent completion: {e}")
 
@@ -589,12 +650,8 @@ def subagent(
             if sa:
                 result = sa.status()
                 try:
-                    from ..hooks.subagent_completion import notify_completion
-
                     summary = _summarize_result(result, max_chars=200)
                     notify_completion(agent_id, result.status, summary)
-                except ImportError:
-                    logger.debug("Subagent completion hook not available")
                 except Exception as e:
                     logger.warning(f"Failed to notify subagent completion: {e}")
 
@@ -929,5 +986,12 @@ tool = ToolSpec(
         subagent_batch,
     ],
     disabled_by_default=True,
+    hooks={
+        "completion": (
+            "loop_continue",  # HookType.LOOP_CONTINUE.value
+            _subagent_completion_hook,
+            50,  # High priority to ensure timely delivery
+        )
+    },
 )
 __doc__ = tool.get_doc(__doc__)
