@@ -11,5 +11,21 @@ Or via CLI:
 """
 
 from .agent import GptmeAgent
+from .types import (
+    PermissionKind,
+    PermissionOption,
+    ToolCall,
+    ToolCallStatus,
+    ToolKind,
+    gptme_tool_to_acp_kind,
+)
 
-__all__ = ["GptmeAgent"]
+__all__ = [
+    "GptmeAgent",
+    "PermissionKind",
+    "PermissionOption",
+    "ToolCall",
+    "ToolCallStatus",
+    "ToolKind",
+    "gptme_tool_to_acp_kind",
+]
