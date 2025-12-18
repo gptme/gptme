@@ -20,6 +20,25 @@ dev = ["pillow", "pkginfo (>=1.10)", "playwright", "pre-commit", "setuptools", "
 tests = ["hypothesis", "pytest"]
 
 [[package]]
+name = "agent-client-protocol"
+version = "0.7.0"
+description = "A Python implement of Agent Client Protocol (ACP, by Zed Industries)"
+optional = true
+python-versions = "<3.15,>=3.10"
+groups = ["main"]
+markers = "(extra == \"acp\" or extra == \"all\") and python_version < \"3.15\""
+files = [
+    {file = "agent_client_protocol-0.7.0-py3-none-any.whl", hash = "sha256:71fce4088fe7faa85b30278aecd1d8d6012f03505ae2ee6e312f9e2ba4ea1f4e"},
+    {file = "agent_client_protocol-0.7.0.tar.gz", hash = "sha256:c66811bb804868c4e7728b18b67379bcb0335afba3b1c2ff0fcdfd0c48d93029"},
+]
+
+[package.dependencies]
+pydantic = ">=2.7"
+
+[package.extras]
+logfire = ["logfire (>=0.14)", "opentelemetry-sdk (>=1.28.0)"]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 description = "Happy Eyeballs for asyncio"
@@ -7761,7 +7780,8 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
-all = ["dspy", "flask", "flask-cors", "matplotlib", "numpy", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "scipy", "sentence-transformers", "sounddevice", "youtube_transcript_api"]
+acp = ["agent-client-protocol"]
+all = ["agent-client-protocol", "dspy", "flask", "flask-cors", "matplotlib", "numpy", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "scipy", "sentence-transformers", "sounddevice", "youtube_transcript_api"]
 browser = ["playwright"]
 computer = []
 datascience = ["matplotlib", "numpy", "pandas"]
@@ -7776,4 +7796,4 @@ youtube = ["youtube_transcript_api"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "c31e12c1d27bf49fddaf351e6a88c7420b80703895b78e7ed7ba17f794800136"
+content-hash = "0e983cc2e367baefb1b37961821365a26f1d08c3ae3a1e0aad9c6f44c387d6a7"

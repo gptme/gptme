@@ -18,6 +18,7 @@ Issues = "https://github.com/gptme/gptme/issues"
 [project.scripts]
 gptme = "gptme.cli:main"
 gptme-server = "gptme.server.cli:main"
+gptme-acp = "gptme.acp.__main__:main"
 gptme-eval = "gptme.eval.main:main"
 gptme-util = "gptme.util.cli:main"
 gptme-nc = "gptme.ncurses:main"
@@ -93,6 +94,9 @@ sentence-transformers = {version = "^5.1.2", optional=true}
 # build
 pyinstaller = {version="^6.15", python=">=3.10,<3.15", optional=true}  # not yet compatible with Python 3.15+
 
+# acp (Agent Client Protocol)
+agent-client-protocol = {version = ">=0.7", optional=true, python=">=3.10,<3.15"}
+
 [tool.poetry.group.dev.dependencies]
 # lint
 mypy = "*"
@@ -141,6 +145,7 @@ browser = ["playwright"]
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 computer = []  # pillow (non-opt)
 pyinstaller = ["pyinstaller"]
+acp = ["agent-client-protocol"]
 youtube = ["youtube_transcript_api"]
 tts = ["sounddevice", "scipy", "numpy"]
 telemetry = [
@@ -155,6 +160,8 @@ eval = ["dspy", "sentence-transformers"]
 all = [
     # server
     "flask", "flask-cors", "pydantic",
+    # acp
+    "agent-client-protocol",
     # browser
     "playwright",
     # datascience
