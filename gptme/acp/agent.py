@@ -37,19 +37,19 @@ def _import_acp() -> bool:
     """Import ACP modules lazily."""
     global Agent, InitializeResponse, NewSessionResponse, PromptResponse, Client
     try:
-        from acp import (
+        from acp import (  # type: ignore[import-not-found]
             Agent as _Agent,
         )
-        from acp import (
+        from acp import (  # type: ignore[import-not-found]
             InitializeResponse as _InitializeResponse,
         )
-        from acp import (
+        from acp import (  # type: ignore[import-not-found]
             NewSessionResponse as _NewSessionResponse,
         )
-        from acp import (
+        from acp import (  # type: ignore[import-not-found]
             PromptResponse as _PromptResponse,
         )
-        from acp.interfaces import Client as _Client
+        from acp.interfaces import Client as _Client  # type: ignore[import-not-found]
 
         Agent = _Agent
         InitializeResponse = _InitializeResponse
@@ -188,7 +188,10 @@ class GptmeAgent:
         if not _import_acp():
             raise RuntimeError("agent-client-protocol package not installed")
 
-        from acp import text_block, update_agent_message
+        from acp import (  # type: ignore[import-not-found]
+            text_block,
+            update_agent_message,
+        )
 
         log = self._sessions.get(session_id)
         if not log:

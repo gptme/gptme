@@ -28,7 +28,7 @@ def main() -> int:
     )
 
     try:
-        from acp import run_agent
+        from acp import run_agent  # type: ignore[import-not-found]
     except ImportError:
         logger.error(
             "agent-client-protocol package not installed.\n"
