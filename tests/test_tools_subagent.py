@@ -395,6 +395,7 @@ def test_subagent_status_unknown_agent():
         subagent_status("nonexistent-agent-xyz")
 
 
+@pytest.mark.slow
 def test_subagent_wait_basic():
     """Test that subagent_wait can wait for completion."""
     from gptme.tools.subagent import subagent, subagent_wait
@@ -410,6 +411,7 @@ def test_subagent_wait_basic():
     assert result.get("status") in ["success", "failure", "running", "timeout"]
 
 
+@pytest.mark.slow
 def test_subagent_read_log_returns_string():
     """Test that subagent_read_log returns a string with log content."""
     from gptme.tools.subagent import subagent, subagent_read_log
