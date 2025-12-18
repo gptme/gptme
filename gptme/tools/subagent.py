@@ -2,6 +2,24 @@
 A subagent tool for gptme
 
 Lets gptme break down a task into smaller parts, and delegate them to subagents.
+
+Current Implementation (Phase 1):
+- Subagents run as independent gptme sessions (thread or subprocess)
+- Communication is one-way: parent → child via prompt
+- Results are retrieved via subagent_status() or subagent_wait()
+- Subagents cannot send progress updates or request clarification from parent
+
+Future Design Intent (Phase 2/3):
+- **Progress notifications**: Allow subagents to push status updates to parent
+  via hooks (e.g., "50% complete", "found issue X, investigating")
+- **Clarification requests**: Enable subagents to pause and ask the parent agent
+  for additional context or decisions when encountering ambiguity
+- **Bidirectional communication**: Establish message channels between parent/child
+  for collaborative problem-solving
+- **Hierarchical coordination**: Support multi-level agent hierarchies with
+  message routing and result aggregation
+
+These features require hook system integration and coordination protocol design.
 """
 
 import logging
@@ -54,6 +72,16 @@ class Subagent:
 
     Supports both thread-based (default) and subprocess-based execution modes.
     Subprocess mode provides better output isolation.
+
+    Communication Model (Phase 1):
+        - One-way: Parent sends prompt, child executes independently
+        - No runtime updates from child to parent
+        - Results retrieved after completion via status()/subagent_wait()
+
+    Future (Phase 2/3):
+        - Support for progress notifications from child → parent
+        - Clarification requests when child encounters ambiguity
+        - See module docstring for full design intent
     """
 
     agent_id: str

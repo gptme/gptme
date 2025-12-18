@@ -370,3 +370,55 @@ def test_subagent_execution_mode_field():
         process=None,
     )
     assert sa2.execution_mode == "subprocess"
+
+
+def test_subagent_status_returns_dict():
+    """Test that subagent_status returns a dictionary."""
+    from gptme.tools.subagent import subagent, subagent_status
+
+    # First create a subagent
+    subagent(agent_id="test-status-agent", prompt="Simple test")
+
+    # Get status
+    status = subagent_status("test-status-agent")
+    assert isinstance(status, dict)
+    assert "status" in status
+
+
+def test_subagent_status_unknown_agent():
+    """Test that subagent_status raises ValueError for unknown agents."""
+    import pytest
+
+    from gptme.tools.subagent import subagent_status
+
+    with pytest.raises(ValueError, match="not found"):
+        subagent_status("nonexistent-agent-xyz")
+
+
+def test_subagent_wait_basic():
+    """Test that subagent_wait can wait for completion."""
+    from gptme.tools.subagent import subagent, subagent_wait
+
+    # Create a simple subagent
+    subagent(agent_id="test-wait-agent", prompt="Simple quick task")
+
+    # Wait with a short timeout (subagent should complete quickly for simple prompt)
+    # Note: This test may take up to timeout seconds
+    result = subagent_wait("test-wait-agent", timeout=30)
+    assert isinstance(result, dict)
+    # Status should be either success, failure, or running (if it takes too long)
+    assert result.get("status") in ["success", "failure", "running", "timeout"]
+
+
+def test_subagent_read_log_returns_string():
+    """Test that subagent_read_log returns a string with log content."""
+    from gptme.tools.subagent import subagent, subagent_read_log
+
+    # Create a subagent first
+    subagent(agent_id="test-log-agent", prompt="Log test task")
+
+    # Read the log
+    result = subagent_read_log("test-log-agent")
+    assert isinstance(result, str)
+    # The result should contain some log content
+    assert len(result) > 0
