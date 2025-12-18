@@ -210,7 +210,7 @@ class GptmeAgent:
             from ..chat import step as chat_step
 
             # Run gptme chat step in executor to not block event loop
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
 
             def run_chat_step() -> list[Message]:
                 """Run chat step synchronously."""

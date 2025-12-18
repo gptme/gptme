@@ -35,7 +35,7 @@ def gptme_message_to_acp_content(msg: Message) -> list[dict]:
 
     # Add main text content
     if msg.content:
-        # Check for codeblocks and handle them
+        # TODO: Handle codeblocks in Phase 2 - for now, just append plain text
         text = msg.content
         content.append(
             {
