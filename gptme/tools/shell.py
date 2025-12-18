@@ -1005,7 +1005,7 @@ def _format_shell_output(
     quiet: bool = False,
 ) -> str:
     """Format shell command output into a message.
-    
+
     Args:
         quiet: If True, suppress stdout/stderr to save tokens.
     """
@@ -1013,16 +1013,43 @@ def _format_shell_output(
     stdout = strip_ansi_codes(stdout)
     stderr = strip_ansi_codes(stderr)
 
-    # Handle quiet mode - suppress output to save tokens
+    # Handle quiet mode - suppress output but save to file for retrieval
     if quiet:
         msg = _format_block_smart("Ran command", cmd, lang="bash") + "\n\n"
-        msg += "Output suppressed (quiet mode)\n"
+
+        # Save output to file for later retrieval if logdir available
+        if logdir and (stdout or stderr):
+            combined_output = ""
+            if stdout:
+                combined_output += f"=== stdout ===\n{stdout}\n"
+            if stderr:
+                combined_output += f"=== stderr ===\n{stderr}\n"
+
+            _, saved_path = save_large_output(
+                content=combined_output,
+                logdir=logdir,
+                output_type="shell-quiet",
+                command_info=cmd,
+            )
+            msg += (
+                f"Output suppressed (quiet mode). Full output saved to: {saved_path}\n"
+            )
+            msg += (
+                "Use `cat` or `grep` on that file if you need to inspect the output.\n"
+            )
+        else:
+            msg += "Output suppressed (quiet mode)\n"
+
         if returncode and returncode != 0:
             msg += f"Return code: {returncode}\n"
         if interrupted:
             msg += "Process interrupted\n"
         if timed_out:
-            msg += f"Command timed out (after {timeout_value}s)\n" if timeout_value else "Command timed out\n"
+            msg += (
+                f"Command timed out (after {timeout_value}s)\n"
+                if timeout_value
+                else "Command timed out\n"
+            )
         return msg
 
     # Apply shortening logic with output storage
@@ -1195,7 +1222,7 @@ def execute_shell_impl(
     quiet: bool = False,
 ) -> Generator[Message, None, None]:
     """Execute shell command and format output.
-    
+
     Args:
         quiet: If True, suppress stdout/stderr in output to save tokens.
     """
@@ -1444,7 +1471,9 @@ def execute_shell(
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
         logdir = get_path_fn()
-        yield from execute_shell_impl(cmd, logdir, lambda _: True, timeout=timeout, quiet=quiet)
+        yield from execute_shell_impl(
+            cmd, logdir, lambda _: True, timeout=timeout, quiet=quiet
+        )
     else:
         # Create a wrapper function that passes timeout and quiet to execute_shell_impl
         def execute_fn(
