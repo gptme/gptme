@@ -422,3 +422,103 @@ def test_subagent_read_log_returns_string():
     assert isinstance(result, str)
     # The result should contain some log content
     assert len(result) > 0
+
+
+# Subprocess mode execution tests (per Erik's review comment)
+
+
+def test_subprocess_mode_creates_process():
+    """Test that subprocess mode actually creates a subprocess.Popen object."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.subagent import _subagents, subagent
+
+    # Clear previous subagents
+    _subagents.clear()
+
+    # Mock subprocess.Popen to avoid actually running gptme
+    mock_process = MagicMock()
+    mock_process.poll.return_value = None  # Process still running
+
+    with patch("gptme.tools.subagent.subprocess.Popen", return_value=mock_process):
+        subagent(
+            agent_id="test-subprocess",
+            prompt="Simple test task",
+            use_subprocess=True,
+        )
+
+        # Verify subprocess was created
+        assert len(_subagents) >= 1
+        sa = next((s for s in _subagents if s.agent_id == "test-subprocess"), None)
+        assert sa is not None
+        assert sa.execution_mode == "subprocess"
+        assert sa.process is mock_process
+
+
+def test_subprocess_mode_command_construction():
+    """Test that subprocess mode constructs the correct gptme command."""
+    from unittest.mock import MagicMock, patch
+
+    captured_cmd: list[str] = []
+
+    def capture_popen(cmd, **kwargs):
+        captured_cmd.clear()
+        captured_cmd.extend(cmd)
+        mock = MagicMock()
+        mock.poll.return_value = None
+        return mock
+
+    from gptme.tools.subagent import _subagents, subagent
+
+    _subagents.clear()
+
+    with patch("gptme.tools.subagent.subprocess.Popen", side_effect=capture_popen):
+        subagent(
+            agent_id="test-cmd",
+            prompt="Test prompt for command",
+            use_subprocess=True,
+        )
+
+    # Verify command structure
+    assert "-m" in captured_cmd
+    assert "gptme" in captured_cmd
+    assert "-n" in captured_cmd  # Non-interactive
+    assert "--no-confirm" in captured_cmd
+    assert "Test prompt for command" in captured_cmd
+
+
+def test_subprocess_mode_completion_stored():
+    """Test that subprocess completion results are stored in cache."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.subagent import (
+        _subagent_results,
+        _subagents,
+        subagent,
+        subagent_status,
+    )
+
+    _subagents.clear()
+    _subagent_results.clear()
+
+    # Mock process that completes successfully
+    mock_process = MagicMock()
+    mock_process.poll.return_value = 0  # Completed
+    mock_process.communicate.return_value = ("Success output", "")
+
+    with patch("gptme.tools.subagent.subprocess.Popen", return_value=mock_process):
+        subagent(
+            agent_id="test-complete",
+            prompt="Task to complete",
+            use_subprocess=True,
+        )
+
+    # Give monitor thread time to process (it runs in daemon thread)
+    import time
+
+    time.sleep(0.5)
+
+    # Verify status can be retrieved
+    status = subagent_status("test-complete")
+    assert isinstance(status, dict)
+    assert "status" in status
