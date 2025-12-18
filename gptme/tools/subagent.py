@@ -39,6 +39,7 @@ _subagents: list["Subagent"] = []
 # Cache for subprocess results (keyed by agent_id)
 # This allows Subagent to remain frozen while storing mutable result state
 _subagent_results: dict[str, "ReturnType"] = {}
+_subagent_results_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -81,8 +82,9 @@ class Subagent:
 
     def status(self) -> ReturnType:
         # Return cached result if available (subprocess mode)
-        if self.agent_id in _subagent_results:
-            return _subagent_results[self.agent_id]
+        with _subagent_results_lock:
+            if self.agent_id in _subagent_results:
+                return _subagent_results[self.agent_id]
 
         if self.is_running():
             return ReturnType("running")
@@ -341,8 +343,10 @@ def _monitor_subprocess(
             result += f"\nStderr: {stderr[:500]}"
 
     # Cache the result in module-level dict (Subagent is frozen)
+    # Use lock for thread-safe access when multiple subagents run in parallel
     final_result = ReturnType(status, result)
-    _subagent_results[subagent.agent_id] = final_result
+    with _subagent_results_lock:
+        _subagent_results[subagent.agent_id] = final_result
 
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)
     try:
