@@ -10,14 +10,11 @@ Current Implementation (Phase 1):
 - Subagents cannot send progress updates or request clarification from parent
 
 Future Design Intent (Phase 2/3):
-- **Progress notifications**: Allow subagents to push status updates to parent
-  via hooks (e.g., "50% complete", "found issue X, investigating")
-- **Clarification requests**: Enable subagents to pause and ask the parent agent
-  for additional context or decisions when encountering ambiguity
-- **Bidirectional communication**: Establish message channels between parent/child
-  for collaborative problem-solving
-- **Hierarchical coordination**: Support multi-level agent hierarchies with
-  message routing and result aggregation
+
+- **Progress notifications**: Allow subagents to push status updates to parent via hooks (e.g., "50% complete", "found issue X")
+- **Clarification requests**: Enable subagents to pause and ask parent for additional context when encountering ambiguity
+- **Bidirectional communication**: Establish message channels between parent/child for collaborative problem-solving
+- **Hierarchical coordination**: Support multi-level agent hierarchies with message routing and result aggregation
 
 These features require hook system integration and coordination protocol design.
 """
