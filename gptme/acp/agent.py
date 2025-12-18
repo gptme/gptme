@@ -101,7 +101,12 @@ class GptmeAgent:
             InitializeResponse with negotiated protocol version
         """
         if not _import_acp():
-            raise RuntimeError("agent-client-protocol package not installed")
+            # Phase 1: Raise exception since we can't construct ACP error response
+            # without the package. Future: Consider early validation in __main__.py
+            raise RuntimeError(
+                "agent-client-protocol package not installed. "
+                "Install with: pip install 'gptme[acp]'"
+            )
 
         # Initialize gptme on first connection
         if not self._initialized:
@@ -133,7 +138,10 @@ class GptmeAgent:
             NewSessionResponse with session ID
         """
         if not _import_acp():
-            raise RuntimeError("agent-client-protocol package not installed")
+            raise RuntimeError(
+                "agent-client-protocol package not installed. "
+                "Install with: pip install 'gptme[acp]'"
+            )
 
         session_id = uuid4().hex
 
@@ -186,7 +194,10 @@ class GptmeAgent:
             PromptResponse with stop reason
         """
         if not _import_acp():
-            raise RuntimeError("agent-client-protocol package not installed")
+            raise RuntimeError(
+                "agent-client-protocol package not installed. "
+                "Install with: pip install 'gptme[acp]'"
+            )
 
         from acp import (  # type: ignore[import-not-found]
             text_block,

@@ -9,7 +9,7 @@ This module provides bidirectional conversion between:
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
 
@@ -46,8 +46,6 @@ def gptme_message_to_acp_content(msg: Message) -> list[dict]:
 
     return content
 
-
-from typing import Literal
 
 RoleType = Literal["system", "user", "assistant"]
 

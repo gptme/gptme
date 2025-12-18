@@ -7,7 +7,7 @@ Usage:
     python -m gptme.acp
 
 Or via CLI:
-    gptme --acp
+    gptme-acp
 """
 
 from .agent import GptmeAgent
