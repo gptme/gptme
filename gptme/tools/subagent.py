@@ -409,30 +409,27 @@ def _monitor_subprocess(
     """Monitor a subprocess and invoke callbacks when it completes.
 
     Runs in a background thread to enable non-blocking operation.
+    Uses .wait() instead of .communicate() to avoid memory issues with
+    long-running subagents that produce large outputs.
     """
     if not subagent.process:
         return
 
-    # Wait for process to complete
-    stdout, stderr = subagent.process.communicate()
+    # Wait for process to complete (without reading stdout into memory)
+    subagent.process.wait()
 
     # Determine status based on return code
     if subagent.process.returncode == 0:
         status: Status = "success"
-        # Try to extract result from stdout or log
-        result = stdout.strip() if stdout else None
-        if not result:
-            # Try to get result from conversation log
-            try:
-                log_status = subagent.status()
-                result = log_status.result
-            except Exception:
-                result = "Task completed (check log for details)"
+        # Get result from conversation log (primary source for subprocess mode)
+        try:
+            log_status = subagent.status()
+            result = log_status.result
+        except Exception:
+            result = "Task completed (check log for details)"
     else:
         status = "failure"
         result = f"Process exited with code {subagent.process.returncode}"
-        if stderr:
-            result += f"\nStderr: {stderr[:500]}"
 
     # Cache the result in module-level dict (Subagent is frozen)
     # Use lock for thread-safe access when multiple subagents run in parallel
@@ -634,18 +631,27 @@ def subagent(
     else:
         # Thread mode: original behavior
         def run_subagent():
-            _create_subagent_thread(
-                prompt=prompt,
-                logdir=logdir,
-                model=model_name,
-                context_mode=context_mode,
-                context_include=context_include,
-                workspace=workspace,
-                target="parent",
-                output_schema=output_schema,
-            )
+            try:
+                _create_subagent_thread(
+                    prompt=prompt,
+                    logdir=logdir,
+                    model=model_name,
+                    context_mode=context_mode,
+                    context_include=context_include,
+                    workspace=workspace,
+                    target="parent",
+                    output_schema=output_schema,
+                )
+            except Exception as e:
+                # If subagent creation fails, notify with error status
+                logger.error(f"Subagent {agent_id} failed during execution: {e}")
+                try:
+                    notify_completion(agent_id, "error", f"Execution failed: {e}")
+                except Exception as notify_err:
+                    logger.warning(f"Failed to notify subagent error: {notify_err}")
+                return
 
-            # Notify via hook system when complete
+            # Notify via hook system when complete (only if successful)
             sa = next((s for s in _subagents if s.agent_id == agent_id), None)
             if sa:
                 result = sa.status()

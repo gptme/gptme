@@ -129,16 +129,26 @@ def cleanup_shell_after():
 
 @pytest.fixture(autouse=True)
 def cleanup_subagents_after():
-    """Clean up subagent threads after each test.
+    """Clean up subagent threads and subprocesses after each test.
 
     Subagent threads are daemon threads that should die with the parent,
     but explicitly clearing them prevents potential issues.
+    Subprocesses in subprocess mode need explicit termination.
     """
     yield
     # Wait briefly for any running subagent threads to complete
     for subagent in _subagents:
+        # Clean up threads
         if subagent.thread is not None and subagent.thread.is_alive():
             subagent.thread.join(timeout=5.0)
+        # Clean up subprocesses (subprocess mode)
+        if subagent.process is not None and subagent.process.poll() is None:
+            subagent.process.terminate()
+            try:
+                subagent.process.wait(timeout=5.0)
+            except Exception:
+                # Force kill if graceful termination fails
+                subagent.process.kill()
     # Clear the subagents list
     _subagents.clear()
 
