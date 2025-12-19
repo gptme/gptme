@@ -596,7 +596,7 @@ This is gptme
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f09f900bf60&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ff6cc786340&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1470,7 +1470,11 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;instructions-only&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None]): Starts an asynchronous subagent. Returns None immediately; output is retrieved later via subagent_wait().</span>
+<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;instructions-only&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: bool): Starts an asynchronous subagent. Returns None immediately.</span>
+
+<span class="s">    Subagent completions are delivered via the LOOP_CONTINUE hook, enabling</span>
+<span class="s">    a &quot;fire-and-forget-then-get-alerted&quot; pattern where the orchestrator can</span>
+<span class="s">    continue working and get notified when subagents finish.</span>
 
 <span class="s">    Args:</span>
 <span class="s">        agent_id: Unique identifier for the subagent</span>
@@ -1488,9 +1492,11 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="s">            - &quot;agent&quot;: Agent identity and capabilities</span>
 <span class="s">            - &quot;tools&quot;: Tool descriptions and usage</span>
 <span class="s">            - &quot;workspace&quot;: Workspace files and structure</span>
+<span class="s">        use_subprocess: If True, run subagent in subprocess for output isolation.</span>
+<span class="s">            Subprocess mode captures stdout/stderr separately from the parent.</span>
 
 <span class="s">    Returns:</span>
-<span class="s">        None: Starts asynchronous execution. Use subagent_wait() to retrieve output.</span>
+<span class="s">        None: Starts asynchronous execution.</span>
 <span class="s">            In executor mode, starts a single task execution.</span>
 <span class="s">            In planner mode, starts execution of all subtasks using the specified execution_mode.</span>
 
@@ -1498,7 +1504,15 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="s">            The full conversation log is available at the logdir path.</span>
 
 <span class="s">subagent_status(agent_id: str) -&gt; dict: Returns the status of a subagent.</span>
-<span class="s">subagent_wait(agent_id: str) -&gt; dict: Waits for a subagent to finish. Timeout is 1 minute.</span>
+<span class="s">subagent_wait(agent_id: str, timeout: int) -&gt; dict: Waits for a subagent to finish.</span>
+
+<span class="s">    Args:</span>
+<span class="s">        agent_id: The subagent to wait for</span>
+<span class="s">        timeout: Maximum seconds to wait (default 60)</span>
+
+<span class="s">    Returns:</span>
+<span class="s">        Status dict with &#39;status&#39; and &#39;result&#39; keys</span>
+
 <span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, None]) -&gt; str: Read the conversation log of a subagent.</span>
 
 <span class="s">    Args:</span>
@@ -1509,6 +1523,39 @@ output<span class="w"> </span><span class="m">1</span>
 
 <span class="s">    Returns:</span>
 <span class="s">        Formatted log output showing the conversation</span>
+
+<span class="s">subagent_batch(tasks: list[tuple[str, str]], use_subprocess: bool) -&gt; BatchJob: Start multiple subagents in parallel and return a BatchJob to manage them.</span>
+
+<span class="s">    This is a convenience function for fire-and-gather patterns where you want</span>
+<span class="s">    to run multiple independent tasks concurrently.</span>
+
+<span class="s">    With the hook-based notification system, completion messages are delivered</span>
+<span class="s">    automatically via the LOOP_CONTINUE hook. The BatchJob provides additional</span>
+<span class="s">    utilities for explicit synchronization when needed.</span>
+
+<span class="s">    Args:</span>
+<span class="s">        tasks: List of (agent_id, prompt) tuples</span>
+<span class="s">        use_subprocess: If True, run subagents in subprocesses for output isolation</span>
+
+<span class="s">    Returns:</span>
+<span class="s">        A BatchJob instance for managing the parallel subagents.</span>
+<span class="s">        The BatchJob provides wait_all(timeout) to wait for completion,</span>
+<span class="s">        is_complete() to check status, and get_completed() for partial results.</span>
+
+<span class="s">    Example::</span>
+
+<span class="s">        job = subagent_batch([</span>
+<span class="s">            (&quot;impl&quot;, &quot;Implement feature X&quot;),</span>
+<span class="s">            (&quot;test&quot;, &quot;Write tests for feature X&quot;),</span>
+<span class="s">            (&quot;docs&quot;, &quot;Document feature X&quot;),</span>
+<span class="s">        ])</span>
+<span class="s">        # Orchestrator continues with other work...</span>
+<span class="s">        # Completion messages delivered via LOOP_CONTINUE hook:</span>
+<span class="s">        #   &quot;✅ Subagent &#39;impl&#39; completed: Feature implemented&quot;</span>
+<span class="s">        #   &quot;✅ Subagent &#39;test&#39; completed: 5 tests added&quot;</span>
+<span class="s">        #</span>
+<span class="s">        # Or explicitly wait for all if needed:</span>
+<span class="s">        results = job.wait_all(timeout=300)</span>
 
 <span class="sb">```</span>
 
@@ -1573,6 +1620,54 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;tests&quot;</span><span class="p">,</span> <span class="s2">&quot;Write pytest tests for the calculate function&quot;</span><span class="p">,</span> <span class="n">context_mode</span><span class="o">=</span><span class="s2">&quot;selective&quot;</span><span class="p">,</span> <span class="n">context_include</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;tools&quot;</span><span class="p">])</span>
 <span class="sb">```</span>
+
+<span class="gu">### Subprocess Mode (output isolation)</span>
+
+<span class="k">&gt; </span><span class="ge">User: run a subagent without output mixing with parent</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use subprocess mode for better output isolation.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;isolated&quot;</span><span class="p">,</span> <span class="s2">&quot;Compute complex calculation&quot;</span><span class="p">,</span> <span class="n">use_subprocess</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Subagent started in subprocess mode.</span>
+
+<span class="gu">### Batch Execution (parallel tasks)</span>
+
+<span class="k">&gt; </span><span class="ge">User: implement, test, and document a feature in parallel</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use subagent_batch for parallel execution with fire-and-gather pattern.</span>
+<span class="sb">```ipython</span>
+<span class="n">job</span> <span class="o">=</span> <span class="n">subagent_batch</span><span class="p">([</span>
+    <span class="p">(</span><span class="s2">&quot;impl&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement the user authentication feature&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">,</span> <span class="s2">&quot;Write tests for authentication&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;docs&quot;</span><span class="p">,</span> <span class="s2">&quot;Document the authentication API&quot;</span><span class="p">),</span>
+<span class="p">])</span>
+
+<span class="c1"># Do other work while subagents run...</span>
+
+<span class="n">results</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">wait_all</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">agent_id</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">{{</span><span class="s2">agent_id</span><span class="se">}}</span><span class="s2">: </span><span class="se">{{</span><span class="s2">result[&#39;status&#39;]</span><span class="se">}}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Started batch of 3 subagents: [&#39;impl&#39;, &#39;test&#39;, &#39;docs&#39;]</span>
+<span class="k">&gt; </span><span class="ge">impl: success</span>
+<span class="k">&gt; </span><span class="ge">test: success</span>
+<span class="k">&gt; </span><span class="ge">docs: success</span>
+
+<span class="gu">### Fire-and-Forget with Hook Notifications</span>
+
+<span class="k">&gt; </span><span class="ge">User: start a subagent and continue working</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll spawn a subagent. Completion will be delivered via the LOOP_CONTINUE hook.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;compute-demo&quot;</span><span class="p">,</span> <span class="s2">&quot;Compute pi to 100 digits&quot;</span><span class="p">)</span>
+
+<span class="c1"># I can continue with other work now</span>
+
+<span class="c1"># When the subagent completes, I&#39;ll receive a system message like:</span>
+
+<span class="c1"># &quot;✅ Subagent &#39;compute-demo&#39; completed: pi = 3.14159...&quot;</span>
+
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Started subagent &quot;compute-demo&quot;</span>
+<span class="k">&gt; </span><span class="ge">System: ✅ Subagent &#39;compute-demo&#39; completed: pi = 3.14159265358979...</span>
 
 <span class="gu">## tmux</span>
 
@@ -1843,7 +1938,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 9131</p>
+<p>Tokens: 9923</p>
 </dd></dl>
 
 <dl class="py function">
