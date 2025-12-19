@@ -17,7 +17,6 @@ import logging
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
@@ -28,9 +27,6 @@ from .init import init_hooks, init_tools
 from .logmanager import LogManager
 from .message import Message
 from .tools import ToolFormat
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +49,8 @@ class ExecutionContext:
         tool_format: Format for tool use ("markdown" or "tool")
         confirm: Callback for tool confirmation
         auto_confirm: Whether to auto-confirm all tools
+        tools: Optional list of tool names for context/reference (tools are
+            initialized separately via prepare_execution_environment())
     """
 
     workspace: Path
@@ -112,6 +110,12 @@ def create_confirm_callback(
 
     Returns:
         A confirm callback function
+
+    Note:
+        If neither auto_confirm nor confirm_fn is provided, the default
+        behavior is to reject all tool executions. This is a deliberate
+        safety measure for autonomous execution contexts where unchecked
+        tool execution could be dangerous.
     """
     if auto_confirm:
         return lambda _: True
