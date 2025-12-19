@@ -29,6 +29,7 @@ from ..llm import _chat_complete, _stream
 from ..llm.models import get_default_model
 from ..logmanager import LogManager, prepare_messages
 from ..message import Message
+from ..session import BaseSession
 from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools, init_tools
 from .api_v2_common import (
@@ -77,14 +78,30 @@ class ToolExecution:
 
 
 @dataclass
-class ConversationSession:
-    """Session for a conversation."""
+class ConversationSession(BaseSession):
+    """Session for a conversation.
 
-    id: str
-    conversation_id: str
-    active: bool = True
+    Extends BaseSession with server-specific fields for event streaming,
+    tool execution tracking, and client management.
+
+    Inherited from BaseSession:
+        id: str - Session identifier
+        conversation_id: str | None - Conversation/log identifier
+        active: bool - Whether session is active
+        created_at: datetime - Session creation timestamp
+        last_activity: datetime - Last activity timestamp
+
+    Server-specific fields:
+        generating: bool - Whether LLM is currently generating
+        events: list - Event queue for SSE streaming
+        pending_tools: dict - Tools awaiting confirmation
+        auto_confirm_count: int - Auto-confirm counter
+        clients: set - Connected client IDs
+        event_flag: Event - Threading event for notifications
+    """
+
+    # Server-specific fields (all have defaults, required for dataclass inheritance)
     generating: bool = False
-    last_activity: datetime = field(default_factory=datetime.now)
     events: list[EventType] = field(default_factory=list)
     pending_tools: dict[str, ToolExecution] = field(default_factory=dict)
     auto_confirm_count: int = 0
@@ -128,7 +145,7 @@ class SessionManager:
         """Add an event to all sessions for a conversation."""
         for session in cls.get_sessions_for_conversation(conversation_id):
             session.events.append(event)
-            session.last_activity = datetime.now()
+            session.touch()  # Update last_activity timestamp
             session.event_flag.set()  # Signal that new events are available
 
     @classmethod
@@ -149,6 +166,9 @@ class SessionManager:
         """Remove a session."""
         if session_id in cls._sessions:
             conversation_id = cls._sessions[session_id].conversation_id
+            assert (
+                conversation_id is not None
+            ), "Server sessions must have conversation_id"
 
             # Trigger SESSION_END hook when removing the last session for a conversation
             is_last_session = (
@@ -198,6 +218,9 @@ class SessionManager:
 def _append_and_notify(manager: LogManager, session: ConversationSession, msg: Message):
     """Append a message and notify clients."""
     manager.append(msg)
+    assert (
+        session.conversation_id is not None
+    ), "Server sessions must have conversation_id"
     SessionManager.add_event(
         session.conversation_id,
         {

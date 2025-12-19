@@ -24,10 +24,19 @@ class BaseSession:
 
     Provides common session state shared across ACP and Server implementations.
     Server's ConversationSession extends this with additional server-specific fields.
+
+    Attributes:
+        id: Unique session identifier
+        log: Optional LogManager for direct log access (used by ACP)
+        conversation_id: Optional conversation/log ID for deferred loading (used by Server)
+        active: Whether session is active
+        created_at: Session creation timestamp
+        last_activity: Last activity timestamp (updated via touch())
     """
 
     id: str
-    log: LogManager
+    log: LogManager | None = None
+    conversation_id: str | None = None
     active: bool = True
     created_at: datetime = field(default_factory=datetime.now)
     last_activity: datetime = field(default_factory=datetime.now)
@@ -35,6 +44,10 @@ class BaseSession:
     def touch(self) -> None:
         """Update last activity timestamp."""
         self.last_activity = datetime.now()
+
+    def deactivate(self) -> None:
+        """Mark session as inactive."""
+        self.active = False
 
 
 class SessionRegistry:
@@ -58,13 +71,15 @@ class SessionRegistry:
     def create(
         self,
         session_id: str,
-        log: LogManager,
+        log: LogManager | None = None,
+        conversation_id: str | None = None,
     ) -> BaseSession:
         """Create a new session.
 
         Args:
             session_id: Unique session identifier
-            log: LogManager instance for message storage
+            log: Optional LogManager instance for direct log access (ACP pattern)
+            conversation_id: Optional conversation ID for deferred loading (Server pattern)
 
         Returns:
             The created session
@@ -75,7 +90,11 @@ class SessionRegistry:
         if session_id in self._sessions:
             raise ValueError(f"Session {session_id} already exists")
 
-        session = BaseSession(id=session_id, log=log)
+        session = BaseSession(
+            id=session_id,
+            log=log,
+            conversation_id=conversation_id,
+        )
         self._sessions[session_id] = session
         logger.info(f"Created session: {session_id}")
         return session
@@ -102,7 +121,7 @@ class SessionRegistry:
         """
         if session_id in self._sessions:
             session = self._sessions.pop(session_id)
-            session.active = False
+            session.deactivate()
             logger.info(f"Removed session: {session_id}")
             return True
         return False

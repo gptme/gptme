@@ -456,7 +456,7 @@ class GptmeAgent:
             lock=False,
         )
 
-        self._registry.create(session_id, log)
+        self._registry.create(session_id, log=log)
         logger.info(f"ACP NewSession: session_id={session_id}, cwd={cwd}")
 
         assert NewSessionResponse is not None
@@ -501,6 +501,7 @@ class GptmeAgent:
         # Update last_activity timestamp for cleanup tracking
         session.touch()
         log = session.log
+        assert log is not None, "ACP sessions must have a log"
 
         # Convert ACP prompt to gptme message
         msg = acp_content_to_gptme_message(prompt, "user")
