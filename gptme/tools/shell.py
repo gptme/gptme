@@ -1025,7 +1025,16 @@ def _format_shell_output(
     else:
         header = f"Ran {'allowlisted ' if allowlisted else ''}command"
 
-    msg = _format_block_smart(header, cmd, lang="bash") + "\n\n"
+    # Truncate long commands to reduce context waste (Issue #974)
+    # The full command is already visible in the assistant's code block
+    if len(cmd) > 100 or cmd.count("\n") > 2:
+        first_line = cmd.split("\n")[0][:80]
+        line_count = cmd.count("\n") + 1
+        cmd_display = f"{first_line}... ({line_count} lines)"
+    else:
+        cmd_display = cmd
+
+    msg = _format_block_smart(header, cmd_display, lang="bash") + "\n\n"
 
     # Add output
     if stdout:
