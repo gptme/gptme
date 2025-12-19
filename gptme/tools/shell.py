@@ -1030,7 +1030,9 @@ def _format_shell_output(
     if len(cmd) > 100 or cmd.count("\n") > 2:
         first_line = cmd.split("\n")[0][:80]
         line_count = cmd.count("\n") + 1
-        cmd_display = f"{first_line}... ({line_count} lines)"
+        cmd_display = (
+            f"{first_line}... ({line_count} {'line' if line_count == 1 else 'lines'})"
+        )
     else:
         cmd_display = cmd
 
