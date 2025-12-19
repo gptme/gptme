@@ -17,6 +17,7 @@ import logging
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
@@ -27,6 +28,9 @@ from .init import init_hooks, init_tools
 from .logmanager import LogManager
 from .message import Message
 from .tools import ToolFormat
+
+if TYPE_CHECKING:
+    from .config import ChatConfig
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,7 @@ class ExecutionContext:
 def prepare_execution_environment(
     workspace: Path,
     tools: list[str] | None = None,
+    chat_config: ChatConfig | None = None,
 ) -> Config:
     """
     Prepare the execution environment with config, tools, and hooks.
@@ -72,6 +77,7 @@ def prepare_execution_environment(
     This is common setup needed by both ACP and Server before running
     chat steps. It handles:
     - Loading configuration from workspace
+    - Setting chat config (if provided)
     - Initializing tools
     - Initializing hooks
     - Loading .env files
@@ -79,12 +85,18 @@ def prepare_execution_environment(
     Args:
         workspace: The workspace directory
         tools: Optional list of tools to initialize (defaults to all)
+        chat_config: Optional ChatConfig to set on the config
 
     Returns:
         The loaded Config object
     """
     # Load workspace config
     config = Config.from_workspace(workspace=workspace)
+
+    # Set chat config if provided
+    if chat_config:
+        config.chat = chat_config
+
     set_config(config)
 
     # Load .env file if present

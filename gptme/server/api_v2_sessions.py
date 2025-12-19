@@ -18,20 +18,20 @@ from enum import Enum
 from pathlib import Path
 
 import flask
-from dotenv import load_dotenv
 from flask import request
 
-from gptme.config import ChatConfig, Config, set_config
+from gptme.config import ChatConfig, Config
 
 from ..dirs import get_logs_dir
-from ..hooks import HookType, init_hooks, trigger_hook
+from ..executor import prepare_execution_environment
+from ..hooks import HookType, trigger_hook
 from ..llm import _chat_complete, _stream
 from ..llm.models import get_default_model
 from ..logmanager import LogManager, prepare_messages
 from ..message import Message
 from ..session import BaseSession
 from ..telemetry import trace_function
-from ..tools import ToolUse, get_tools, init_tools
+from ..tools import ToolUse, get_tools
 from .api_v2_common import (
     ConfigChangedEvent,
     ErrorEvent,
@@ -269,19 +269,14 @@ def step(
         stream: Whether to stream the response (default: True)
     """
 
-    # Create and set config
-    config = Config.from_workspace(workspace=workspace)
+    # Load chat config and prepare execution environment
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-    config.chat = chat_config
-    set_config(config)
-
-    # Load .env file if present
-    load_dotenv(dotenv_path=workspace / ".env")
-
-    # Initialize tools and hooks in this thread
-    init_tools(chat_config.tools)
-    init_hooks()
+    prepare_execution_environment(
+        workspace=workspace,
+        tools=chat_config.tools,
+        chat_config=chat_config,
+    )
 
     # Load conversation
     manager = LogManager.load(
@@ -507,16 +502,12 @@ def start_tool_execution(
     # For simplicity, we'll run it in a thread
     @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
     def execute_tool_thread() -> None:
-        config = Config.from_workspace(workspace=chat_config.workspace)
-        config.chat = chat_config
-        set_config(config)
-
-        # Initialize tools and hooks in this thread
-        init_tools(None)
-        init_hooks()
-
-        # Load .env file if present
-        load_dotenv(dotenv_path=chat_config.workspace / ".env")
+        # Prepare execution environment (config, tools, hooks, .env)
+        prepare_execution_environment(
+            workspace=chat_config.workspace,
+            tools=None,
+            chat_config=chat_config,
+        )
 
         # Load the conversation
         manager = LogManager.load(conversation_id, lock=False)
