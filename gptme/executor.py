@@ -31,6 +31,7 @@ from .tools import ToolFormat
 
 if TYPE_CHECKING:
     from .config import ChatConfig
+    from .tools import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +71,12 @@ def prepare_execution_environment(
     workspace: Path,
     tools: list[str] | None = None,
     chat_config: ChatConfig | None = None,
-) -> Config:
+) -> tuple[Config, list[ToolSpec]]:
     """
     Prepare the execution environment with config, tools, and hooks.
 
-    This is common setup needed by both ACP and Server before running
-    chat steps. It handles:
+    This is common setup needed by ACP, Server, evals, and subagents.
+    It handles:
     - Loading configuration from workspace
     - Setting chat config (if provided)
     - Initializing tools
@@ -88,7 +89,7 @@ def prepare_execution_environment(
         chat_config: Optional ChatConfig to set on the config
 
     Returns:
-        The loaded Config object
+        Tuple of (Config, list of initialized ToolSpec)
     """
     # Load workspace config
     config = Config.from_workspace(workspace=workspace)
@@ -103,10 +104,10 @@ def prepare_execution_environment(
     load_dotenv(dotenv_path=workspace / ".env")
 
     # Initialize tools and hooks
-    init_tools(tools)
+    initialized_tools = init_tools(tools)
     init_hooks()
 
-    return config
+    return config, initialized_tools
 
 
 def create_confirm_callback(

@@ -6,7 +6,7 @@ from pathlib import Path
 from gptme import Message, get_prompt
 from gptme import chat as gptme_chat
 from gptme.dirs import get_logs_dir
-from gptme.tools import init_tools
+from gptme.executor import prepare_execution_environment
 from gptme.util.auto_naming import generate_conversation_id
 
 from ..tools import ToolFormat
@@ -66,8 +66,11 @@ class GPTMe(Agent):
         if files:
             store.upload(files)
 
-        # Use configured tools or default to all tools
-        tools = init_tools(allowlist=self.tools)
+        # Prepare execution environment and get initialized tools
+        _, tools = prepare_execution_environment(
+            workspace=self.workspace_dir,
+            tools=self.tools,
+        )
 
         print("\n--- Start of generation ---")
         logger.debug(f"Working in {store.working_dir}")

@@ -253,15 +253,15 @@ def _create_subagent_thread(
     """
     # noreorder
     from gptme import chat  # fmt: skip
+    from gptme.executor import prepare_execution_environment  # fmt: skip
     from gptme.llm.models import set_default_model  # fmt: skip
-    from gptme.tools import init_tools  # fmt: skip
 
     from ..prompts import get_prompt  # fmt: skip
 
     # Initialize model and tools for this thread
     if model:
         set_default_model(model)
-    init_tools(allowlist=None)
+    prepare_execution_environment(workspace=workspace, tools=None)
 
     prompt_msgs = [Message("user", prompt)]
 
