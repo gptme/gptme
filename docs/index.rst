@@ -38,6 +38,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    agents
    server
    mcp
+   acp
    cli
 
 .. toctree::
