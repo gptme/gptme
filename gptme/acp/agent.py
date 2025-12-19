@@ -498,6 +498,8 @@ class GptmeAgent:
             logger.error(f"Unknown session: {session_id}")
             assert PromptResponse is not None
             return PromptResponse(stop_reason="error")
+        # Update last_activity timestamp for cleanup tracking
+        session.touch()
         log = session.log
 
         # Convert ACP prompt to gptme message
