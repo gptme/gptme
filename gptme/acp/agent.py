@@ -7,8 +7,9 @@ as a coding agent from any ACP-compatible editor (Zed, JetBrains, etc.).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import tempfile
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -31,6 +32,18 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+# Session storage directory (persistent across agent restarts)
+ACP_SESSIONS_DIR = Path(
+    os.environ.get("GPTME_ACP_SESSIONS_DIR", "~/.local/share/gptme/acp-sessions")
+).expanduser()
+
+
+class SessionCancelled(Exception):
+    """Raised when a session operation is cancelled."""
+
+    pass
+
 
 # Lazy imports to avoid dependency issues when acp is not installed
 Agent: type | None = None
@@ -85,6 +98,10 @@ class GptmeAgent:
         self._tool_calls: dict[str, dict[str, ToolCall]] = {}
         # Phase 2: Permission policies per session (allow_always, reject_always)
         self._permission_policies: dict[str, dict[str, str]] = {}
+        # Phase 3: Cancellation flags per session
+        self._cancel_requested: dict[str, bool] = {}
+        # Phase 3: Track session metadata for persistence
+        self._session_metadata: dict[str, dict[str, Any]] = {}
 
     def on_connect(self, conn: Any) -> None:
         """Called when a client connects.
@@ -261,6 +278,11 @@ class GptmeAgent:
 
         def confirm_callback(msg: str) -> bool:
             """Confirm callback that reports tool calls to ACP client."""
+            # Phase 3: Check if cancellation was requested
+            if self._cancel_requested.get(session_id, False):
+                logger.info(f"Session {session_id[:8]} cancellation detected")
+                raise SessionCancelled(f"Session {session_id} was cancelled")
+
             # Parse tool name from confirmation message patterns
             # gptme tools use various formats, so we pattern-match common ones
             tool_name = "unknown"
@@ -371,6 +393,66 @@ class GptmeAgent:
                     status,
                 )
 
+    # Phase 3: Session persistence helpers
+
+    def _get_session_dir(self, session_id: str) -> Path:
+        """Get the persistent directory for a session.
+
+        Args:
+            session_id: The session ID
+
+        Returns:
+            Path to session directory
+        """
+        return ACP_SESSIONS_DIR / session_id
+
+    def _save_session_metadata(self, session_id: str) -> None:
+        """Save session metadata to disk for persistence.
+
+        Args:
+            session_id: The session ID
+        """
+        if session_id not in self._session_metadata:
+            return
+
+        session_dir = self._get_session_dir(session_id)
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        metadata_file = session_dir / "metadata.json"
+        with open(metadata_file, "w") as f:
+            json.dump(self._session_metadata[session_id], f, indent=2)
+
+    def _load_session_metadata(self, session_id: str) -> dict[str, Any] | None:
+        """Load session metadata from disk.
+
+        Args:
+            session_id: The session ID
+
+        Returns:
+            Session metadata dict or None if not found
+        """
+        metadata_file = self._get_session_dir(session_id) / "metadata.json"
+        if not metadata_file.exists():
+            return None
+
+        with open(metadata_file) as f:
+            return json.load(f)
+
+    def _list_persistent_sessions(self) -> list[str]:
+        """List all session IDs with persistent storage.
+
+        Returns:
+            List of session IDs
+        """
+        if not ACP_SESSIONS_DIR.exists():
+            return []
+
+        return [
+            d.name
+            for d in ACP_SESSIONS_DIR.iterdir()
+            if d.is_dir() and (d / "metadata.json").exists()
+        ]
+
     async def initialize(
         self,
         protocol_version: int,
@@ -433,8 +515,10 @@ class GptmeAgent:
 
         session_id = uuid4().hex
 
-        # Create a temporary directory for the log
-        logdir = Path(tempfile.mkdtemp(prefix=f"gptme-acp-{session_id[:8]}-"))
+        # Phase 3: Use persistent directory for session
+        session_dir = self._get_session_dir(session_id)
+        logdir = session_dir / "log"
+        logdir.mkdir(parents=True, exist_ok=True)
 
         # Get tools and initial prompt
         tools = get_tools()
@@ -456,6 +540,14 @@ class GptmeAgent:
         )
 
         self._sessions[session_id] = log
+        # Phase 3: Save session metadata for persistence
+        self._session_metadata[session_id] = {
+            "cwd": cwd,
+            "model": self._model,
+            "mcp_servers": [str(s) for s in mcp_servers] if mcp_servers else [],
+        }
+        self._save_session_metadata(session_id)
+
         logger.info(f"ACP NewSession: session_id={session_id}, cwd={cwd}")
 
         assert NewSessionResponse is not None
@@ -553,6 +645,14 @@ class GptmeAgent:
             assert PromptResponse is not None
             return PromptResponse(stop_reason="end_turn")
 
+        except SessionCancelled:
+            logger.info(f"Session {session_id[:8]} cancelled during prompt")
+            # Clear cancellation flag for future operations
+            self._cancel_requested[session_id] = False
+            # Tool calls already marked as failed by _complete_pending_tool_calls in cancel()
+            assert PromptResponse is not None
+            return PromptResponse(stop_reason="cancelled")
+
         except Exception as e:
             logger.exception(f"Error processing prompt: {e}")
             # Phase 2: Mark tool calls as failed on error
@@ -572,30 +672,91 @@ class GptmeAgent:
         session_id: str,
         **kwargs: Any,
     ) -> Any:
-        """Load an existing session (Phase 2 feature).
+        """Load an existing session from persistent storage.
+
+        This enables session persistence across agent restarts.
+        Sessions are stored in ~/.local/share/gptme/acp-sessions/.
 
         Args:
             session_id: Session ID to load
 
         Returns:
-            Session data or error
+            LoadSessionResponse with session data
         """
-        # Phase 2: Implement session persistence
-        logger.warning(f"load_session not yet implemented: {session_id}")
-        raise NotImplementedError("Session loading not yet implemented")
+        if not _import_acp():
+            raise RuntimeError(
+                "agent-client-protocol package not installed. "
+                "Install with: pip install 'gptme[acp]'"
+            )
+
+        # Check if session is already loaded in memory
+        if session_id in self._sessions:
+            logger.info(f"Session {session_id[:8]} already loaded")
+            # Return success - session is available
+            return {"session_id": session_id, "status": "loaded"}
+
+        # Try to load from persistent storage
+        metadata = self._load_session_metadata(session_id)
+        if not metadata:
+            logger.warning(f"Session {session_id} not found in persistent storage")
+            raise ValueError(f"Session {session_id} not found")
+
+        session_dir = self._get_session_dir(session_id)
+        logdir = session_dir / "log"
+
+        if not logdir.exists():
+            logger.warning(f"Session log directory not found: {logdir}")
+            raise ValueError(f"Session {session_id} log directory not found")
+
+        # Initialize gptme if needed
+        if not self._initialized:
+            init(
+                model=self._model,
+                interactive=False,
+                tool_allowlist=None,
+                tool_format="markdown",
+            )
+            self._initialized = True
+
+        # Load the log manager from disk
+        cwd = metadata.get("cwd")
+        log = LogManager.load(
+            logdir=logdir,
+            initial_msgs=[],  # Don't re-add initial messages - they're in the log
+            create=False,  # Don't create if not exists
+            lock=False,
+        )
+
+        self._sessions[session_id] = log
+        self._session_metadata[session_id] = metadata
+
+        logger.info(f"ACP LoadSession: session_id={session_id[:8]}, cwd={cwd}")
+        return {"session_id": session_id, "status": "loaded", "cwd": cwd}
 
     async def cancel(
         self,
         session_id: str,
         **kwargs: Any,
     ) -> None:
-        """Cancel an ongoing operation (Phase 2 feature).
+        """Cancel an ongoing operation in a session.
+
+        This sets a cancellation flag that will be checked before
+        the next tool execution. Active operations will complete
+        their current step before stopping.
 
         Args:
             session_id: Session to cancel
         """
-        # Phase 2: Implement cancellation
-        logger.warning(f"cancel not yet implemented: {session_id}")
+        if session_id not in self._sessions:
+            logger.warning(f"Cannot cancel unknown session: {session_id}")
+            return
+
+        # Set cancellation flag
+        self._cancel_requested[session_id] = True
+        logger.info(f"ACP Cancel requested for session: {session_id[:8]}")
+
+        # Mark any pending tool calls as failed
+        await self._complete_pending_tool_calls(session_id, success=False)
 
 
 def create_agent() -> GptmeAgent:
