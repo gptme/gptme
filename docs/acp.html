@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Alternatives &#8212; gptme</title>
+    <title>ACP (Agent Client Protocol) &#8212; gptme</title>
   
   
   
@@ -46,13 +46,13 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.6.3.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'alternatives';</script>
-    <link rel="canonical" href="https://gptme.org/docs/alternatives.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'acp';</script>
+    <link rel="canonical" href="https://gptme.org/docs/acp.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Are we tiny?" href="arewetiny.html" />
-    <link rel="prev" title="API Reference" href="api.html" />
+    <link rel="next" title="CLI Reference" href="cli.html" />
+    <link rel="prev" title="MCP" href="mcp.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -149,7 +149,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
@@ -171,7 +171,7 @@
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
-<li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">ACP (Agent Client Protocol)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
@@ -188,8 +188,8 @@
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
-<ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Alternatives</a></li>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
 <li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -329,7 +329,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/alternatives.rst" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/acp.rst" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -359,7 +359,7 @@
       
       
       
-      <li><a href="_sources/alternatives.rst" target="_blank"
+      <li><a href="_sources/acp.rst" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -435,7 +435,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Alternatives</h1>
+    <h1>ACP (Agent Client Protocol)</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -445,19 +445,19 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#comparison">Comparison</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#projects">Projects</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">gptme</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#aider">Aider</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#moatless-tools">Moatless Tools</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openhands">OpenHands</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lovable-dev">Lovable.dev</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cursor">Cursor</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cline">Cline</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude">Claude</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#chatgpt">ChatGPT</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-agent">Running the Agent</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#editor-integration">Editor Integration</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol-methods">Protocol Methods</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#capabilities">Capabilities</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#development-roadmap">Development Roadmap</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
 </ul>
             </nav>
         </div>
@@ -469,273 +469,190 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="alternatives">
-<h1>Alternatives<a class="headerlink" href="#alternatives" title="Link to this heading">#</a></h1>
-<p>The AI-assisted development space is rapidly evolving, with many projects emerging and rapidly improving. Here, we’ll provide an overview of gptme and some similar projects that might be good alternatives (or vice versa) for your use case, highlighting their key features to help you understand the landscape.</p>
-<p>When selecting an AI-assisted development tool, consider the following factors:</p>
-<ol class="arabic simple">
-<li><p>Your preferred working environment (terminal, IDE, etc.)</p></li>
-<li><p>The specific tasks you need assistance with</p></li>
-<li><p>Integration with your existing workflow</p></li>
-<li><p>The level of control and customization you require</p></li>
-</ol>
-<p>Each of these projects has its own strengths and may be better suited for different use cases. We encourage you to explore them and find the one that best fits your needs.</p>
-<p>If your answers to these questions are “terminal”, “general-purpose/coding”, “extensible”, and “highly customizable”, gptme might be the right choice for you.</p>
-<p>Remember that the AI-assisted development space is rapidly evolving, and these tools are continuously improving and adding new features. Always check the latest documentation and releases for the most up-to-date information.</p>
-<p>Let’s start with the comparison, we will first show an overview comparison and then dig deeper into each alternative.</p>
-<section id="comparison">
-<h2>Comparison<a class="headerlink" href="#comparison" title="Link to this heading">#</a></h2>
-<p>While we obviously like gptme, there are other great projects in the AI-assisted development space that provide similar but different capabilities, which be more what you are looking for.</p>
-<p>Here we will briefly introduce some we like, along with their key features.</p>
-<div class="pst-scrollable-table-container"><table class="table" id="id6">
-<caption><span class="caption-text">Comparison</span><a class="headerlink" href="#id6" title="Link to this table">#</a></caption>
-<colgroup>
-<col style="width: 20.5%" />
-<col style="width: 10.2%" />
-<col style="width: 20.5%" />
-<col style="width: 10.2%" />
-<col style="width: 14.8%" />
-<col style="width: 10.2%" />
-<col style="width: 13.6%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"></th>
-<th class="head"><p>Type</p></th>
-<th class="head"><p>Focus</p></th>
-<th class="head"><p>Hosting</p></th>
-<th class="head"><p>Price</p></th>
-<th class="head"><p>Funding</p></th>
-<th class="head"><p>Open Source</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>gptme</p></td>
-<td><p>CLI</p></td>
-<td><p>General purpose</p></td>
-<td><p>Local</p></td>
-<td><p>Free</p></td>
-<td><p>Bootstrap</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-odd"><td><p>Open Interpreter</p></td>
-<td><p>CLI</p></td>
-<td><p>General purpose</p></td>
-<td><p>Local</p></td>
-<td><p>Free</p></td>
-<td><p>?</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-even"><td><p>Aider</p></td>
-<td><p>CLI</p></td>
-<td><p>Coding</p></td>
-<td><p>Local</p></td>
-<td><p>Free</p></td>
-<td><p>Bootstrap</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-odd"><td><p>Moatless Tools</p></td>
-<td><p>CLI</p></td>
-<td><p>Coding</p></td>
-<td><p>Local</p></td>
-<td><p>Free</p></td>
-<td><p>Bootstrap</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-even"><td><p>OpenHands</p></td>
-<td><p>CLI/Web</p></td>
-<td><p>General purpose</p></td>
-<td><p>Both</p></td>
-<td><p>Free</p></td>
-<td><p>VC ($5M)</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-odd"><td><p>Lovable.dev</p></td>
-<td><p>Web app</p></td>
-<td><p>Frontend</p></td>
-<td><p>SaaS</p></td>
-<td><p>Credits</p></td>
-<td><p>VC ($8M)</p></td>
-<td><p>❌</p></td>
-</tr>
-<tr class="row-even"><td><p>Cursor</p></td>
-<td><p>IDE fork</p></td>
-<td><p>Coding</p></td>
-<td><p>Desktop</p></td>
-<td><p>$20/mo</p></td>
-<td><p>VC ($1.1B)</p></td>
-<td><p>❌</p></td>
-</tr>
-<tr class="row-odd"><td><p>Claude Desktop</p></td>
-<td><p>Desktop app</p></td>
-<td><p>General purpose</p></td>
-<td><p>Desktop</p></td>
-<td><p>$20/mo</p></td>
-<td><p>VC</p></td>
-<td><p>❌</p></td>
-</tr>
-<tr class="row-even"><td><p>Claude Projects</p></td>
-<td><p>Web app</p></td>
-<td><p>Chat with files</p></td>
-<td><p>SaaS</p></td>
-<td><p>$20/mo</p></td>
-<td><p>VC</p></td>
-<td><p>❌</p></td>
-</tr>
-</tbody>
-</table>
+  <section id="acp-agent-client-protocol">
+<span id="acp"></span><h1>ACP (Agent Client Protocol)<a class="headerlink" href="#acp-agent-client-protocol" title="Link to this heading">#</a></h1>
+<p>gptme implements the <a class="reference external" href="https://github.com/ArcadeAI/agent-client-protocol">Agent Client Protocol (ACP)</a>, allowing it to be used as a coding agent from any ACP-compatible editor such as <a class="reference external" href="https://zed.dev/">Zed</a> and JetBrains IDEs.</p>
+<p>This enables a seamless integration where your editor can leverage gptme’s powerful toolset (code execution, file editing, web browsing, etc.) directly within your development workflow.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>ACP support is currently in development. Phase 1 (basic integration) is complete.
+Future phases will add tool call reporting, session persistence, and enhanced features.</p>
+</div>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
+<p>To use gptme as an ACP agent, install with the <code class="docutils literal notranslate"><span class="pre">acp</span></code> extra:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[acp]&#39;</span>
+</pre></div>
+</div>
+<p>Or with pip:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[acp]&#39;</span>
+</pre></div>
 </div>
 </section>
-<section id="projects">
-<h2>Projects<a class="headerlink" href="#projects" title="Link to this heading">#</a></h2>
-<p>To begin, lets first introduce gptme and then we will compare it to some of the other projects in the space.</p>
-<section id="gptme">
-<h3>gptme<a class="headerlink" href="#gptme" title="Link to this heading">#</a></h3>
-<p>gptme is a personal AI assistant that runs in your terminal, designed to assist with various programming tasks and knowledge work.</p>
-<p>Key features:</p>
-<ul class="simple">
-<li><p>Runs in the terminal</p></li>
-<li><p>Can execute shell commands and Python code</p></li>
-<li><p>Ability to read, write, and patch files</p></li>
-<li><p>Web browsing capabilities</p></li>
-<li><p>Vision support for images and screenshots</p></li>
-<li><p>Self-correcting behavior</p></li>
-<li><p>Support for multiple LLM providers</p></li>
-<li><p>Extensible tool system</p></li>
-<li><p>Highly customizable, aims to be simple to modify</p></li>
-</ul>
-<p>First commit: March 24, 2023.</p>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
+<section id="running-the-agent">
+<h3>Running the Agent<a class="headerlink" href="#running-the-agent" title="Link to this heading">#</a></h3>
+<p>Start the gptme ACP agent:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Via module</span>
+python<span class="w"> </span>-m<span class="w"> </span>gptme.acp
+</pre></div>
+</div>
+<p>The agent communicates via stdio using the ACP protocol, making it compatible with any ACP client.</p>
 </section>
-<section id="aider">
-<h3>Aider<a class="headerlink" href="#aider" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://aider.chat/">Aider</a> is AI pair programming in your terminal.</p>
-<p>Key features:</p>
-<ul class="simple">
-<li><p>Git integration</p></li>
-<li><p>Code editing capabilities</p></li>
-<li><p>Conversation history</p></li>
-<li><p>Customizable prompts</p></li>
-<li><p>Builds a code map for context</p></li>
-<li><p>Scores highly on SWE-Bench</p></li>
-</ul>
-<p>Differences to gptme:</p>
-<ul class="simple">
-<li><p>gptme is less git-commit focused</p></li>
-<li><p>gptme is more general-purpose</p></li>
-<li><p>gptme has wider array of tools</p></li>
-</ul>
-<p>First commit: April 4, 2023.</p>
+<section id="editor-integration">
+<h3>Editor Integration<a class="headerlink" href="#editor-integration" title="Link to this heading">#</a></h3>
+<p><strong>Zed Editor</strong></p>
+<p>Zed has native ACP support. To use gptme as your coding agent:</p>
+<ol class="arabic simple">
+<li><p>Install gptme with ACP support</p></li>
+<li><p>Configure Zed to use gptme as the agent command</p></li>
+<li><p>The agent will be available in Zed’s agent panel</p></li>
+</ol>
+<p><strong>JetBrains IDEs</strong></p>
+<p>JetBrains IDEs with ACP plugin support can integrate with gptme similarly. Configure the plugin to use <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">gptme.acp</span></code> as the agent command.</p>
 </section>
-<section id="moatless-tools">
-<h3>Moatless Tools<a class="headerlink" href="#moatless-tools" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://github.com/aorwall/moatless-tools">Moatless Tools</a> is an impressive AI coding agent that has performed really well on <a class="reference external" href="https://www.swebench.com/">SWE-Bench</a>.</p>
-<p>Key features:</p>
-<ul class="simple">
-<li><p>Various specialized tools for different tasks</p></li>
-<li><p>Integration with popular development environments</p></li>
-<li><p>Focus on specific development workflows</p></li>
-<li><p>Scores highly on SWE-Bench</p></li>
-</ul>
 </section>
-<section id="openhands">
-<h3>OpenHands<a class="headerlink" href="#openhands" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://github.com/All-Hands-AI/OpenHands">OpenHands</a> (formerly OpenDevin) is a leading open-source platform for software development agents, with impressive performance on benchmarks and a large community.</p>
-<p>Key features:</p>
+<section id="architecture">
+<h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">#</a></h2>
+<p>The ACP implementation in gptme consists of:</p>
+<dl class="simple">
+<dt><strong>GptmeAgent</strong></dt><dd><p>The main agent class implementing the ACP interface. It:</p>
 <ul class="simple">
-<li><p>Leading performance on SWE-bench (&gt;50% score)</p></li>
-<li><p>Can do anything a human developer can: write code, run commands, browse web</p></li>
-<li><p>Support for multiple LLM providers</p></li>
-<li><p>Both CLI and web interface</p></li>
-<li><p>Docker-based sandboxed execution</p></li>
-<li><p>Active development and large community (46.9k stars)</p></li>
+<li><p>Handles <code class="docutils literal notranslate"><span class="pre">initialize</span></code> to set up the gptme environment</p></li>
+<li><p>Creates sessions via <code class="docutils literal notranslate"><span class="pre">new_session</span></code> with proper logging</p></li>
+<li><p>Processes prompts through gptme’s chat infrastructure</p></li>
+<li><p>Streams responses back to the client</p></li>
 </ul>
-<p>Differences to gptme:</p>
+</dd>
+<dt><strong>Session Management</strong></dt><dd><p>Each ACP session maps to a gptme conversation with:</p>
 <ul class="simple">
-<li><p>More focused on software development</p></li>
-<li><p>Has web UI in addition to CLI</p></li>
-<li><p>Larger community and more active development</p></li>
-<li><p>Docker-based sandboxing vs gptme’s direct execution</p></li>
+<li><p>Isolated log directory</p></li>
+<li><p>Working directory context</p></li>
+<li><p>Full tool access (code execution, file editing, etc.)</p></li>
 </ul>
-<p>First commit: March 13, 2024.</p>
+</dd>
+</dl>
 </section>
-<section id="lovable-dev">
-<h3>Lovable.dev<a class="headerlink" href="#lovable-dev" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://lovable.dev">lovable.dev</a> (previously <a class="reference external" href="https://gptengineer.app">GPT Engineer.app</a>) lets you build webapps fast using natural language.</p>
-<p>Key features:</p>
+<section id="protocol-methods">
+<h2>Protocol Methods<a class="headerlink" href="#protocol-methods" title="Link to this heading">#</a></h2>
+<p>The agent implements the following ACP methods:</p>
+<dl class="simple">
+<dt><strong>initialize</strong></dt><dd><p>Negotiates protocol version and initializes gptme. Called once when a client connects.</p>
+</dd>
+<dt><strong>new_session</strong></dt><dd><p>Creates a new gptme session with:</p>
 <ul class="simple">
-<li><p>Builds frontends with ease, just by prompting</p></li>
-<li><p>LLM-powered no-code editor for frontends</p></li>
-<li><p>Git/GitHub integration, ability to import projects</p></li>
-<li><p>Supabase integration for backend support</p></li>
+<li><p>Unique session ID</p></li>
+<li><p>Working directory context</p></li>
+<li><p>Initial system prompts and tool configuration</p></li>
 </ul>
-<p>Differences to gptme:</p>
-<ul class="simple">
-<li><p>gptme is terminal-only (for now)</p></li>
-<li><p>gptme is much more general-purpose</p></li>
-<li><p>gptme is far from low/no-code</p></li>
-<li><p>gptme is far from as good at building frontends</p></li>
-<li><p>gptme is not no-code, you still need to select your context yourself</p></li>
-</ul>
-<p>Disclaimer: gptme author Erik was an early hire at Lovable.</p>
+</dd>
+<dt><strong>prompt</strong></dt><dd><p>Handles user prompts by:</p>
+<ol class="arabic simple">
+<li><p>Converting ACP content to gptme messages</p></li>
+<li><p>Running through gptme’s chat step</p></li>
+<li><p>Streaming responses via <code class="docutils literal notranslate"><span class="pre">session/update</span></code></p></li>
+<li><p>Returning completion status</p></li>
+</ol>
+</dd>
+</dl>
 </section>
-<section id="cursor">
-<h3>Cursor<a class="headerlink" href="#cursor" title="Link to this heading">#</a></h3>
-<p>If you are a VSCode user who doesn’t mind using a fork, this seems to be it.</p>
-<p>Key features:</p>
+<section id="configuration">
+<h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
+<p>The ACP agent uses gptme’s standard configuration. You can customize:</p>
 <ul class="simple">
-<li><p>AI native IDE</p></li>
-<li><p>Git checkpointing</p></li>
-<li><p>Great tab completion (“Babble”, from <a class="reference external" href="https://www.coplay.dev/blog/a-brief-history-of-cursor-s-tab-completion">acquiring Supermaven</a>)</p></li>
+<li><p><strong>Model</strong>: Set via <code class="docutils literal notranslate"><span class="pre">GPTME_MODEL</span></code> environment variable or config</p></li>
+<li><p><strong>Tools</strong>: All gptme tools are available by default</p></li>
+<li><p><strong>Working Directory</strong>: Inherited from the <code class="docutils literal notranslate"><span class="pre">new_session</span></code> request</p></li>
 </ul>
-<p>Differences to gptme:</p>
+<p>Example configuration in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[general]</span>
+<span class="n">model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-4-20250514&quot;</span>
+
+<span class="k">[tools]</span>
+<span class="c1"># Tools are auto-confirmed in ACP mode</span>
+<span class="c1"># Configure allowlist if needed</span>
+<span class="n">allowlist</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;python&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;patch&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;save&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+</section>
+<section id="capabilities">
+<h2>Capabilities<a class="headerlink" href="#capabilities" title="Link to this heading">#</a></h2>
+<p>Through ACP, gptme provides:</p>
 <ul class="simple">
-<li><p>gptme is in-terminal instead of in-vscode-fork</p></li>
-<li><p>gptme is extensible with tools, more general-purpose</p>
-<ul>
-<li><p>Less true now that Cursor supports MCP</p></li>
-</ul>
-</li>
+<li><p><strong>Code Execution</strong>: Run Python and shell commands</p></li>
+<li><p><strong>File Operations</strong>: Read, write, and patch files</p></li>
+<li><p><strong>Web Browsing</strong>: Search and read web pages</p></li>
+<li><p><strong>Context Awareness</strong>: Workspace and project understanding</p></li>
+<li><p><strong>Conversation Memory</strong>: Persistent session history</p></li>
 </ul>
 </section>
-<section id="cline">
-<h3>Cline<a class="headerlink" href="#cline" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://cline.bot/">Cline</a> is a coding agent running as a VSCode extension. Similar to Cursor, but open-source and not a full VSCode fork.</p>
-<p>It also has a fork called <a class="reference external" href="https://github.com/RooVetGit/Roo-Code">Roo Code</a> (prev Roo Cline).</p>
+<section id="development-roadmap">
+<h2>Development Roadmap<a class="headerlink" href="#development-roadmap" title="Link to this heading">#</a></h2>
+<p><strong>Phase 1: Basic Integration</strong> ✅ Complete</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Agent initialization and session creation</p></li>
+<li><p>Prompt handling with response streaming</p></li>
+<li><p>Full tool access through gptme</p></li>
+</ul>
+</div></blockquote>
+<p><strong>Phase 2: Tool Call Reporting</strong> 🚧 In Progress</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Report tool executions to client</p></li>
+<li><p>Permission request workflow</p></li>
+<li><p>Status lifecycle tracking</p></li>
+</ul>
+</div></blockquote>
+<p><strong>Phase 3: Session Persistence</strong> 🚧 In Progress</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Save and restore sessions</p></li>
+<li><p>Cancellation support</p></li>
+<li><p>Session metadata management</p></li>
+</ul>
+</div></blockquote>
+<p><strong>Phase 4: Polish &amp; Documentation</strong> 🚧 Current</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Comprehensive documentation</p></li>
+<li><p>Example configurations</p></li>
+<li><p>Integration guides</p></li>
+</ul>
+</div></blockquote>
+<p>See <a class="reference external" href="https://github.com/gptme/gptme/issues/977">Issue #977</a> for implementation progress.</p>
 </section>
-<section id="claude">
-<h3>Claude<a class="headerlink" href="#claude" title="Link to this heading">#</a></h3>
-<p>Anthropic’s Claude has gotten popular due to its excellent coding capabilities. It has also championed MCP as a way to extend its capabilities and solve the n-to-m problem of tool clients (Claude Desktop, Cursor) and servers (browser, shell, python).</p>
-<p class="rubric">Projects</p>
-<p>Claude Projects lets users upload their files and chat with them. It requires a Claude subscription.</p>
-<p>Released Jun 25, 2024.</p>
-<p class="rubric">Artifacts</p>
-<p>Claude Artifacts allows users to directly preview certain content, like HTML and React components, allowing to build small web apps with Claude.</p>
-<p>It is like a mini-version of Lovable.dev.</p>
-<p>Released Aug 27, 2024.</p>
-<p class="rubric">Desktop</p>
-<p>Claude Desktop is a desktop client for Claude.</p>
-<p>It supports MCP, allowing for a wide array of tools and resources to be used with it. (gptme also intends to support MCP)</p>
-<p>Released October 31st, 2024.</p>
-<p class="rubric">Code</p>
-<p>Claude Code is a “is an agentic coding tool that lives in your terminal, understands your codebase, and helps you code faster through natural language commands”.</p>
-<p>It is pretty much a full-on clone of gptme, with MCP support. Unlike gptme, it is not open-source (and they have <a class="reference external" href="https://github.com/anthropics/claude-code/issues/59">no such plans</a>.</p>
-<p>We have not made a thorough comparison yet. While users we asked have said they still prefer gptme, they acknowledge Claude Code has certain advantages which gptme could learn from.</p>
-<p>Released February 24, 2025.</p>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
+<dl class="simple">
+<dt><strong>“agent-client-protocol package not installed”</strong></dt><dd><p>Install with: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">'gptme[acp]'</span></code></p>
+</dd>
+</dl>
+<p><strong>Agent not responding</strong></p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Check that gptme is properly configured</p></li>
+<li><p>Verify your model API keys are set</p></li>
+<li><p>Check stderr for error messages (ACP uses stdout for protocol)</p></li>
+</ul>
+</div></blockquote>
+<p><strong>Tool execution not working</strong></p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Ensure tools are not blocked by configuration</p></li>
+<li><p>Check working directory permissions</p></li>
+</ul>
+</div></blockquote>
 </section>
-<section id="chatgpt">
-<h3>ChatGPT<a class="headerlink" href="#chatgpt" title="Link to this heading">#</a></h3>
-<p class="rubric">Code Interpreter</p>
-<p>ChatGPT’s Code Interpreter was one of the early inspirations for gptme as an open-source and local-first alternative, giving the LLM access to your terminal and local files.</p>
-<p>There’s not much to compare here anymore, as gptme has evolved a lot since then (while Code Interpreter hasn’t), but it’s worth mentioning as it was one of the first projects in this space.</p>
-<p>Released July 6, 2023.</p>
-<p class="rubric">Canvas</p>
-<p>ChatGPT Canvas was OpenAI’s response to Claude Artifacts (released ~1 month before).</p>
-<p>Released October 3, 2024.</p>
-<p class="rubric">Codex</p>
-<p><a class="reference external" href="https://github.com/openai/codex">Codex</a> is a “lightweight coding agent that runs in your terminal”.</p>
-<p>It was OpenAI’s response to Claude Code (released ~2 months before). Unlike Claude Code, it is open-source.</p>
-<p>Released April 16th, 2025.</p>
-<p>(not to be confused with OpenAI’s earlier Codex model)</p>
-</section>
+<section id="related">
+<h2>Related<a class="headerlink" href="#related" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="agents.html"><span class="doc">Agents</span></a> - Creating custom AI agents with gptme</p></li>
+<li><p><a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> - Model Context Protocol integration</p></li>
+<li><p><a class="reference internal" href="config.html"><span class="doc">Configuration</span></a> - gptme configuration options</p></li>
+<li><p><a class="reference internal" href="tools.html"><span class="doc">Tools</span></a> - Available tools in gptme</p></li>
+</ul>
 </section>
 </section>
 
@@ -751,20 +668,20 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="api.html"
+       href="mcp.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">API Reference</p>
+        <p class="prev-next-title">MCP</p>
       </div>
     </a>
     <a class="right-next"
-       href="arewetiny.html"
+       href="cli.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Are we tiny?</p>
+        <p class="prev-next-title">CLI Reference</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -785,19 +702,19 @@
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#comparison">Comparison</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#projects">Projects</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">gptme</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#aider">Aider</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#moatless-tools">Moatless Tools</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openhands">OpenHands</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lovable-dev">Lovable.dev</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cursor">Cursor</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cline">Cline</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude">Claude</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#chatgpt">ChatGPT</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#running-the-agent">Running the Agent</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#editor-integration">Editor Integration</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol-methods">Protocol Methods</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#capabilities">Capabilities</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#development-roadmap">Development Roadmap</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related">Related</a></li>
 </ul>
   </nav></div>
 

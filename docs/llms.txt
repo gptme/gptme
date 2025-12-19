@@ -20,6 +20,7 @@
 - [Agents](https://gptme.org/docs/agents.html)
 - [Server](https://gptme.org/docs/server.html)
 - [MCP](https://gptme.org/docs/mcp.html)
+- [ACP (Agent Client Protocol)](https://gptme.org/docs/acp.html)
 - [CLI Reference](https://gptme.org/docs/cli.html)
 - [Contributing](https://gptme.org/docs/contributing.html)
 - [Building Executables](https://gptme.org/docs/building.html)
