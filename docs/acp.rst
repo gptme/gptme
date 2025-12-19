@@ -39,9 +39,6 @@ Start the gptme ACP agent:
     # Via module
     python -m gptme.acp
 
-    # Or via CLI (planned)
-    gptme --acp
-
 The agent communicates via stdio using the ACP protocol, making it compatible with any ACP client.
 
 Editor Integration
@@ -183,7 +180,7 @@ Troubleshooting
 Related
 -------
 
-- :ref:`agents` - Creating custom AI agents with gptme
+- :doc:`agents` - Creating custom AI agents with gptme
 - :ref:`mcp` - Model Context Protocol integration
-- :ref:`config` - gptme configuration options
-- :ref:`tools` - Available tools in gptme
+- :doc:`config` - gptme configuration options
+- :doc:`tools` - Available tools in gptme
