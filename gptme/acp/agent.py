@@ -648,7 +648,9 @@ class GptmeAgent:
         except SessionCancelled:
             logger.info(f"Session {session_id[:8]} cancelled during prompt")
             # Clear cancellation flag for future operations
-            self._cancel_requested[session_id] = False
+            # Use pop() to atomically remove the entry, avoiding race condition
+            # where a new cancel() request during cleanup would be lost
+            self._cancel_requested.pop(session_id, None)
             # Tool calls already marked as failed by _complete_pending_tool_calls in cancel()
             assert PromptResponse is not None
             return PromptResponse(stop_reason="cancelled")

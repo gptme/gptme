@@ -129,9 +129,71 @@ class TestCancellation:
 class TestAgentInitialization:
     """Tests for agent initialization."""
 
-    def test_agent_has_phase3_attributes(self, agent: GptmeAgent):
-        """Test that agent has Phase 3 attributes."""
-        assert hasattr(agent, "_cancel_requested")
-        assert hasattr(agent, "_session_metadata")
-        assert isinstance(agent._cancel_requested, dict)
-        assert isinstance(agent._session_metadata, dict)
+
+class TestLoadSessionIntegration:
+    """Integration tests for load_session async method."""
+
+    def test_load_session_already_in_memory(self, agent: GptmeAgent):
+        """Test loading a session that's already in memory."""
+        import asyncio
+
+        session_id = "already_loaded_session"
+
+        # Put session in memory
+        agent._sessions[session_id] = MagicMock()
+
+        async def run_test():
+            return await agent.load_session(session_id)
+
+        result = asyncio.run(run_test())
+
+        assert result["session_id"] == session_id
+        assert result["status"] == "loaded"
+
+    def test_load_session_not_found(self, agent: GptmeAgent, tmp_path: Path):
+        """Test loading a session that doesn't exist."""
+        import asyncio
+
+        with patch("gptme.acp.agent.ACP_SESSIONS_DIR", tmp_path):
+
+            async def run_test():
+                return await agent.load_session("nonexistent_session")
+
+            with pytest.raises(ValueError, match="not found"):
+                asyncio.run(run_test())
+
+    def test_load_session_from_disk(self, agent: GptmeAgent, tmp_path: Path):
+        """Test loading a session from persistent storage."""
+        import asyncio
+        import json
+
+        session_id = "persisted_session"
+
+        with patch("gptme.acp.agent.ACP_SESSIONS_DIR", tmp_path):
+            # Create session directory structure
+            session_dir = tmp_path / session_id
+            session_dir.mkdir()
+
+            # Create metadata
+            metadata = {"cwd": "/test/cwd", "model": "test-model", "mcp_servers": []}
+            (session_dir / "metadata.json").write_text(json.dumps(metadata))
+
+            # Create log directory with minimal log file
+            log_dir = session_dir / "log"
+            log_dir.mkdir()
+
+            # Create empty conversation.jsonl file (LogManager needs this)
+            (log_dir / "conversation.jsonl").write_text("")
+
+            async def run_test():
+                return await agent.load_session(session_id)
+
+            # Mock init to avoid full gptme initialization
+            with patch.object(agent, "_initialized", True):
+                result = asyncio.run(run_test())
+
+            assert result["session_id"] == session_id
+            assert result["status"] == "loaded"
+            assert result["cwd"] == "/test/cwd"
+            assert session_id in agent._sessions
+            assert session_id in agent._session_metadata
