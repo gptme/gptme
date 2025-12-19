@@ -17,6 +17,7 @@ from ..init import init
 from ..logmanager import LogManager
 from ..message import Message
 from ..prompts import get_prompt
+from ..session import SessionRegistry
 from ..tools import get_tools
 from .adapter import acp_content_to_gptme_message, gptme_message_to_acp_content
 from .types import (
@@ -78,7 +79,7 @@ class GptmeAgent:
     def __init__(self) -> None:
         """Initialize the gptme agent."""
         self._conn: Any = None
-        self._sessions: dict[str, LogManager] = {}
+        self._registry = SessionRegistry()
         self._initialized = False
         self._model: str = "anthropic/claude-sonnet-4-20250514"
         # Phase 2: Track active tool calls per session
@@ -455,7 +456,7 @@ class GptmeAgent:
             lock=False,
         )
 
-        self._sessions[session_id] = log
+        self._registry.create(session_id, log)
         logger.info(f"ACP NewSession: session_id={session_id}, cwd={cwd}")
 
         assert NewSessionResponse is not None
@@ -492,11 +493,12 @@ class GptmeAgent:
             update_agent_message,
         )
 
-        log = self._sessions.get(session_id)
-        if not log:
+        session = self._registry.get(session_id)
+        if not session:
             logger.error(f"Unknown session: {session_id}")
             assert PromptResponse is not None
             return PromptResponse(stop_reason="error")
+        log = session.log
 
         # Convert ACP prompt to gptme message
         msg = acp_content_to_gptme_message(prompt, "user")
