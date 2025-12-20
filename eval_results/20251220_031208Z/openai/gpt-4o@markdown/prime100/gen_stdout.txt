@@ -1,0 +1,16 @@
+
+--- Start of generation ---
+[03:11:37] Using model: openai/gpt-4o                                           
+[03:11:38] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2025-12-20-gptme-evals-openai--gpt-4o-markd
+           own-37088                                                            
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2025-12-20-gptme-evals-openai--gpt-4o-markd
+           own-37088/workspace                                                  
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script prime.py that computes and prints the 100th prime number 
+when called, then call it
+Assistant: Thinking...                                                                                Assistant: 
+Let's start by writing a Python script named `prime.py` that computes and prints the 100th prime number. I'll create the script for you.                                                                                --- Finished generation ---
+
