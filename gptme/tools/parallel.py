@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from ..config import get_config, set_config
 from ..message import Message
+from ..util.terminal import terminal_state_title
 
 if TYPE_CHECKING:
     from ..logmanager import Log
@@ -45,8 +46,9 @@ def execute_tooluse_in_thread(
 
     results: list[Message] = []
     try:
-        for tool_response in tooluse.execute(confirm, log, workspace):
-            results.append(tool_response.replace(call_id=tooluse.call_id))
+        with terminal_state_title(f"🛠️ running {tooluse.tool}"):
+            for tool_response in tooluse.execute(confirm, log, workspace):
+                results.append(tool_response.replace(call_id=tooluse.call_id))
     except Exception as e:
         logger.exception(f"Error executing tool {tooluse.tool}: {e}")
         results.append(

@@ -225,8 +225,12 @@ def execute_msg(
     # Check if parallel execution is enabled and we have multiple tools
     if is_parallel_enabled() and len(runnable_tools) > 1:
         logger.info(f"Executing {len(runnable_tools)} tools in parallel")
-        results = execute_tools_parallel(runnable_tools, confirm, log, workspace)
-        yield from results
+        try:
+            results = execute_tools_parallel(runnable_tools, confirm, log, workspace)
+            yield from results
+        except KeyboardInterrupt:
+            clear_interruptible()
+            yield Message("system", INTERRUPT_CONTENT)
     else:
         # Sequential execution (default behavior)
         for tooluse in runnable_tools:

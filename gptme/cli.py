@@ -149,7 +149,7 @@ The interface provides user commands that can be used to interact with the syste
     "--parallel/--no-parallel",
     "parallel",
     default=None,
-    help="Enable parallel tool execution (can also set GPTME_TOOLUSE_PARALLEL=1)",
+    help="Enable parallel tool execution (also disables break-on-tooluse; can set GPTME_TOOLUSE_PARALLEL=1)",
 )
 @click.option(
     "--version",
