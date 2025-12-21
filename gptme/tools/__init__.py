@@ -205,11 +205,31 @@ def execute_msg(
     log: Log | None = None,
     workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
-    """Uses any tools called in a message and returns the response."""
+    """Uses any tools called in a message and returns the response.
+
+    If GPTME_TOOLUSE_PARALLEL is enabled, executes independent tool calls
+    in parallel using threads.
+    """
+    from .parallel import execute_tools_parallel, is_parallel_enabled
+
     assert msg.role == "assistant", "Only assistant messages can be executed"
 
-    for tooluse in ToolUse.iter_from_content(msg.content):
-        if tooluse.is_runnable:
+    # Collect all runnable tool uses
+    runnable_tools = [
+        tu for tu in ToolUse.iter_from_content(msg.content) if tu.is_runnable
+    ]
+
+    if not runnable_tools:
+        return
+
+    # Check if parallel execution is enabled and we have multiple tools
+    if is_parallel_enabled() and len(runnable_tools) > 1:
+        logger.info(f"Executing {len(runnable_tools)} tools in parallel")
+        results = execute_tools_parallel(runnable_tools, confirm, log, workspace)
+        yield from results
+    else:
+        # Sequential execution (default behavior)
+        for tooluse in runnable_tools:
             with terminal_state_title("🛠️ running {tooluse.tool}"):
                 try:
                     for tool_response in tooluse.execute(confirm, log, workspace):

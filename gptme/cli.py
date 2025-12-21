@@ -146,6 +146,12 @@ The interface provides user commands that can be used to interact with the syste
     help="Show verbose output.",
 )
 @click.option(
+    "--parallel/--no-parallel",
+    "parallel",
+    default=None,
+    help="Enable parallel tool execution (can also set GPTME_TOOLUSE_PARALLEL=1)",
+)
+@click.option(
     "--version",
     is_flag=True,
     help="Show version and configuration information",
@@ -173,8 +179,18 @@ def main(
     workspace: str | None,
     agent_path: str | None,
     profile: bool,
+    parallel: bool | None,
 ):
     """Main entrypoint for the CLI."""
+    import os
+
+    # Handle parallel flag - set env var if CLI flag provided
+    if parallel is not None:
+        os.environ["GPTME_TOOLUSE_PARALLEL"] = "1" if parallel else "0"
+        # When parallel is enabled, also disable break_on_tooluse to allow multiple tool calls
+        if parallel:
+            os.environ["GPTME_BREAK_ON_TOOLUSE"] = "0"
+
     # Convert tool_allowlist from tuple to string or None
     # Use get_parameter_source to distinguish between default (None) and explicit empty list
     from click.core import ParameterSource
