@@ -234,7 +234,7 @@ def execute_msg(
     else:
         # Sequential execution (default behavior)
         for tooluse in runnable_tools:
-            with terminal_state_title("🛠️ running {tooluse.tool}"):
+            with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 try:
                     for tool_response in tooluse.execute(confirm, log, workspace):
                         yield tool_response.replace(call_id=tooluse.call_id)
