@@ -659,6 +659,29 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dd><p>Enable profiling and save results to gptme-profile-{timestamp}.prof</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-context-mode">
+<span class="sig-name descname"><span class="pre">--context-mode</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;context_mode&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-context-mode" title="Link to this definition">#</a></dt>
+<dd><p>Context mode for subagent-style execution. ‘full’ includes all context, ‘instructions-only’ minimal context, ‘selective’ uses –context-include.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options<span class="colon">:</span></dt>
+<dd class="field-odd"><p>full | instructions-only | selective</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-context-include">
+<span class="sig-name descname"><span class="pre">--context-include</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;context_include&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-context-include" title="Link to this definition">#</a></dt>
+<dd><p>Context components to include when using –context-mode=selective. Can be specified multiple times. Options: agent, tools, workspace.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-output-schema">
+<span class="sig-name descname"><span class="pre">--output-schema</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output_schema&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-output-schema" title="Link to this definition">#</a></dt>
+<dd><p>Schema for structured output in format ‘module:ClassName’. The class should be a Pydantic BaseModel.</p>
+</dd></dl>
+
 <p class="rubric">Arguments</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-arg-PROMPTS">
