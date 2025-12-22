@@ -407,7 +407,7 @@ class DockerGPTMeEnv(DockerExecutionEnv):
 
         # Add system prompt if specified
         if system_prompt:
-            cmd_parts.extend(["--prompt", system_prompt])
+            cmd_parts.extend(["--system", system_prompt])
 
         # Add the user prompt (properly escaped using shlex)
         cmd_parts.append(shlex.quote(prompt))
