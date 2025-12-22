@@ -41,8 +41,6 @@ class SimpleExecutionEnv(FileStore, ExecutionEnv):
     """
 
     def run(self, command, silent=True) -> tuple[str, str, int]:
-        os.chdir(self.working_dir)
-
         start = time.time()
         if not silent:
             print("\n--- Start of run ---")
