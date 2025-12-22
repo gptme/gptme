@@ -389,25 +389,26 @@ class DockerGPTMeEnv(DockerExecutionEnv):
 
         # Build gptme CLI command
         # Use -n for non-interactive mode
+        # All parameters are shell-escaped for safety
         cmd_parts = [
             "python",
             "-m",
             "gptme",
             "-n",  # Non-interactive
             "--model",
-            model,
+            shlex.quote(model),
             "--tool-format",
-            tool_format,
+            shlex.quote(tool_format),
         ]
 
-        # Add tools if specified
+        # Add tools if specified (each tool name escaped)
         if tools:
             for tool in tools:
-                cmd_parts.extend(["--tool", tool])
+                cmd_parts.extend(["--tool", shlex.quote(tool)])
 
-        # Add system prompt if specified
+        # Add system prompt if specified (escaped)
         if system_prompt:
-            cmd_parts.extend(["--system", system_prompt])
+            cmd_parts.extend(["--system", shlex.quote(system_prompt)])
 
         # Add the user prompt (properly escaped using shlex)
         cmd_parts.append(shlex.quote(prompt))
@@ -471,7 +472,7 @@ class DockerGPTMeEnv(DockerExecutionEnv):
         duration = time.time() - start
         print(f"--- Finished gptme execution (Docker) in {duration:.1f}s ---\n")
 
-        return stdout_full, stderr_full, p.returncode if p.returncode else 0
+        return stdout_full, stderr_full, p.returncode if p.returncode is not None else 0
 
     def get_logs(self) -> dict[str, str]:
         """
