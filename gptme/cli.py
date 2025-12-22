@@ -179,7 +179,7 @@ The interface provides user commands that can be used to interact with the syste
     "--output-schema",
     "output_schema",
     default=None,
-    help="JSON schema for structured output. The output will be validated against this schema.",
+    help="Schema for structured output in format 'module:ClassName'. The class should be a Pydantic BaseModel.",
 )
 def main(
     ctx: click.Context,
@@ -439,6 +439,24 @@ def main(
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready
     signal.signal(signal.SIGINT, handle_keyboard_interrupt)
 
+    # Parse output_schema if provided (format: "module:ClassName")
+    output_schema_type: type | None = None
+    if output_schema:
+        try:
+            if ":" in output_schema:
+                module_name, class_name = output_schema.rsplit(":", 1)
+                import importlib
+
+                module = importlib.import_module(module_name)
+                output_schema_type = getattr(module, class_name)
+            else:
+                logger.warning(
+                    f"Invalid output_schema format: {output_schema}. "
+                    "Expected 'module:ClassName'"
+                )
+        except (ImportError, AttributeError) as e:
+            logger.warning(f"Could not load output_schema {output_schema}: {e}")
+
     try:
         chat(
             prompt_msgs,
@@ -452,6 +470,7 @@ def main(
             show_hidden,
             config.chat.tools,
             config.chat.tool_format,
+            output_schema_type,
         )
     except (RuntimeError, Exception) as e:
         logger.error("Fatal error occurred")
