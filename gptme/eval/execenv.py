@@ -1,5 +1,6 @@
 import base64
 import os
+import shlex
 import subprocess
 import tempfile
 import time
@@ -378,7 +379,7 @@ class DockerGPTMeEnv(DockerExecutionEnv):
             model: Model identifier (e.g., "openai/gpt-4o")
             tool_format: Tool format to use (default: "markdown")
             tools: List of tools to enable (default: all)
-            system_prompt: Custom system prompt (default: "full")
+            system_prompt: Custom system prompt (default: None)
 
         Returns:
             Tuple of (stdout, stderr, exit_code)
@@ -410,10 +411,8 @@ class DockerGPTMeEnv(DockerExecutionEnv):
         if system_prompt:
             cmd_parts.extend(["--prompt", system_prompt])
 
-        # Add the user prompt (properly escaped)
-        # Use single quotes and escape any single quotes in the prompt
-        escaped_prompt = prompt.replace("'", "'\\''")
-        cmd_parts.append(f"'{escaped_prompt}'")
+        # Add the user prompt (properly escaped using shlex)
+        cmd_parts.append(shlex.quote(prompt))
 
         command = " ".join(cmd_parts)
 
