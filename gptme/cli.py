@@ -161,6 +161,26 @@ The interface provides user commands that can be used to interact with the syste
     is_flag=True,
     help="Enable profiling and save results to gptme-profile-{timestamp}.prof",
 )
+@click.option(
+    "--context-mode",
+    "context_mode",
+    type=click.Choice(["full", "instructions-only", "selective"]),
+    default=None,
+    help="Context mode for subagent-style execution. 'full' includes all context, 'instructions-only' minimal context, 'selective' uses --context-include.",
+)
+@click.option(
+    "--context-include",
+    "context_include",
+    multiple=True,
+    default=None,
+    help="Context components to include when using --context-mode=selective. Can be specified multiple times. Options: agent, tools, workspace.",
+)
+@click.option(
+    "--output-schema",
+    "output_schema",
+    default=None,
+    help="JSON schema for structured output. The output will be validated against this schema.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -180,6 +200,9 @@ def main(
     agent_path: str | None,
     profile: bool,
     parallel: bool | None,
+    context_mode: str | None,
+    context_include: tuple[str, ...],
+    output_schema: str | None,
 ):
     """Main entrypoint for the CLI."""
     import os

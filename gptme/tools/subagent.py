@@ -338,6 +338,9 @@ def _run_subagent_subprocess(
     logdir: Path,
     model: str | None,
     workspace: Path,
+    context_mode: Literal["full", "instructions-only", "selective"] | None = None,
+    context_include: list[str] | None = None,
+    output_schema: str | None = None,
 ) -> subprocess.Popen:
     """Run a subagent in a subprocess for output isolation.
 
@@ -349,6 +352,9 @@ def _run_subagent_subprocess(
         logdir: Directory for conversation logs
         model: Model to use (or None for default)
         workspace: Workspace directory
+        context_mode: Context mode (full, instructions-only, selective)
+        context_include: Context components to include for selective mode
+        output_schema: JSON schema for structured output
 
     Returns:
         The subprocess.Popen object for monitoring
@@ -364,6 +370,17 @@ def _run_subagent_subprocess(
 
     if model:
         cmd.extend(["--model", model])
+
+    # Add context configuration flags (Issue #971)
+    if context_mode:
+        cmd.extend(["--context-mode", context_mode])
+
+    if context_include:
+        for component in context_include:
+            cmd.extend(["--context-include", component])
+
+    if output_schema:
+        cmd.extend(["--output-schema", output_schema])
 
     # Add the prompt as the final argument
     cmd.append(prompt)
@@ -601,11 +618,26 @@ def subagent(
     if use_subprocess:
         # Subprocess mode: better output isolation
         logger.info(f"Starting subagent {agent_id} in subprocess mode")
+        # Convert output_schema type to JSON string if present
+        output_schema_str = None
+        if output_schema is not None:
+            import json
+
+            # Convert pydantic model or type to JSON schema string
+            if hasattr(output_schema, "model_json_schema"):
+                output_schema_str = json.dumps(output_schema.model_json_schema())
+            elif hasattr(output_schema, "__annotations__"):
+                # TypedDict or dataclass - create simple schema
+                output_schema_str = json.dumps({"type": "object"})
+
         process = _run_subagent_subprocess(
             prompt=prompt,
             logdir=logdir,
             model=model_name,
             workspace=workspace,
+            context_mode=context_mode,
+            context_include=context_include,
+            output_schema=output_schema_str,
         )
 
         # Create Subagent with subprocess reference
