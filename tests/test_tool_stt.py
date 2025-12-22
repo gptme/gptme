@@ -40,51 +40,30 @@ class TestOpenAIClient:
     def test_get_openai_client_success(self):
         """Test successful OpenAI client creation."""
         mock_client = MagicMock()
-        with patch("gptme.tools.stt.OpenAI", return_value=mock_client, create=True):
-            # Patch the import inside the function
-            with patch.dict(
-                "sys.modules", {"openai": MagicMock(OpenAI=lambda: mock_client)}
-            ):
-                # Create a fresh import that uses our mock
-                import gptme.tools.stt as stt_module
 
-                # Mock the OpenAI import inside the function
-                original_func = stt_module._get_openai_client
+        # Create a mock openai module with OpenAI class
+        mock_openai = MagicMock()
+        mock_openai.OpenAI = MagicMock(return_value=mock_client)
 
-                def mocked_get_client():
-                    return mock_client
+        with patch.dict("sys.modules", {"openai": mock_openai}):
+            from gptme.tools.stt import _get_openai_client
 
-                stt_module._get_openai_client = mocked_get_client
-                try:
-                    result = stt_module._get_openai_client()
-                    assert result == mock_client
-                finally:
-                    stt_module._get_openai_client = original_func
+            result = _get_openai_client()
+            assert result == mock_client
+            mock_openai.OpenAI.assert_called_once()
 
     def test_get_openai_client_import_error(self):
-        """Test OpenAI client creation when openai package is not installed."""
+        """Test OpenAI client creation when openai module lacks OpenAI class."""
+        import types
 
-        with patch.dict("sys.modules", {"openai": None}):
-            # Force ImportError by removing the module
-            import sys
+        # Create an empty module that doesn't have OpenAI (simulates missing package)
+        fake_openai = types.ModuleType("openai")
 
-            openai_backup = sys.modules.get("openai")
-            sys.modules["openai"] = None  # type: ignore
+        with patch.dict("sys.modules", {"openai": fake_openai}):
+            from gptme.tools.stt import _get_openai_client
 
-            # Create a version that raises ImportError
-            def mock_get_client():
-                try:
-                    from openai import OpenAI  # noqa: F401
-
-                    return OpenAI()
-                except (ImportError, TypeError):
-                    return None
-
-            result = mock_get_client()
+            result = _get_openai_client()
             assert result is None
-
-            if openai_backup:
-                sys.modules["openai"] = openai_backup
 
 
 class TestTranscribeAudio:
