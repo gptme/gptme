@@ -247,3 +247,247 @@ class DockerExecutionEnv(ExecutionEnv):
     def __del__(self) -> None:
         """Cleanup container on object destruction."""
         self.cleanup()
+
+
+# Environment variable passthrough configuration
+# These are the API keys and config vars that should be passed to Docker containers
+DOCKER_ENV_PASSTHROUGH = [
+    # OpenAI
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    # Anthropic
+    "ANTHROPIC_API_KEY",
+    # Google
+    "GOOGLE_API_KEY",
+    # Groq
+    "GROQ_API_KEY",
+    # OpenRouter
+    "OPENROUTER_API_KEY",
+    # Azure OpenAI
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_ENDPOINT",
+    # Deepseek
+    "DEEPSEEK_API_KEY",
+    # xAI
+    "XAI_API_KEY",
+    # Local/Custom
+    "OLLAMA_BASE_URL",
+    # gptme specific
+    "GPTME_MODEL",
+    "GPTME_TOOL_FORMAT",
+]
+
+
+class DockerGPTMeEnv(DockerExecutionEnv):
+    """
+    Docker-based execution environment that runs gptme itself inside Docker.
+
+    This provides full isolation for evals by running the entire gptme CLI
+    inside a Docker container, not just the verification commands.
+
+    Benefits:
+    - Full isolation: gptme and all tool execution contained
+    - No host pollution: git config, file modifications stay in container
+    - Security: Untrusted code execution sandboxed
+    - Reproducibility: Consistent environment across runs
+
+    Args:
+        image: Docker image with gptme installed (default: gptme-eval:latest)
+        working_dir: Working directory inside container (default: /workspace)
+        host_dir: Host directory to mount (default: temp directory)
+        log_dir: Directory to store gptme logs (default: host_dir/logs)
+        timeout: Timeout for gptme execution in seconds (default: 300)
+        env_passthrough: List of env vars to pass to container
+    """
+
+    def __init__(
+        self,
+        image: str = "gptme-eval:latest",
+        working_dir: str = "/workspace",
+        host_dir: Path | None = None,
+        log_dir: Path | None = None,
+        timeout: int = 300,
+        env_passthrough: list[str] | None = None,
+    ):
+        super().__init__(image=image, working_dir=working_dir, host_dir=host_dir)
+        self.log_dir = log_dir or (self.host_dir / "logs")
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.timeout = timeout
+        self.env_passthrough = env_passthrough or DOCKER_ENV_PASSTHROUGH
+
+    def _get_env_args(self) -> list[str]:
+        """Get Docker -e arguments for environment variable passthrough."""
+        env_args: list[str] = []
+        for var in self.env_passthrough:
+            value = os.environ.get(var)
+            if value:
+                env_args.extend(["-e", f"{var}={value}"])
+        return env_args
+
+    def start_container(self) -> None:
+        """Start Docker container with volume mount and env passthrough."""
+        try:
+            cmd = [
+                "docker",
+                "run",
+                "-d",
+                "-v",
+                f"{self.host_dir}:{self.working_dir}",
+                "-v",
+                f"{self.log_dir}:/app/logs",  # Mount logs directory
+            ]
+            # Add environment variable passthrough
+            cmd.extend(self._get_env_args())
+            cmd.extend(
+                [
+                    self.image,
+                    "tail",
+                    "-f",
+                    "/dev/null",  # Keep container alive
+                ]
+            )
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.container_id = result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Failed to start Docker container with image '{self.image}'.\n"
+            if "Unable to find image" in e.stderr or "No such image" in e.stderr:
+                error_msg += "Docker image not found. Build it with: make build-docker"
+            else:
+                error_msg += f"Error: {e.stderr}"
+            raise RuntimeError(error_msg) from e
+
+    def run_gptme(
+        self,
+        prompt: str,
+        model: str,
+        tool_format: str = "markdown",
+        tools: list[str] | None = None,
+        system_prompt: str | None = None,
+    ) -> tuple[str, str, int]:
+        """
+        Run gptme CLI inside the Docker container.
+
+        Args:
+            prompt: The user prompt to process
+            model: Model identifier (e.g., "openai/gpt-4o")
+            tool_format: Tool format to use (default: "markdown")
+            tools: List of tools to enable (default: all)
+            system_prompt: Custom system prompt (default: "full")
+
+        Returns:
+            Tuple of (stdout, stderr, exit_code)
+        """
+        if not self.container_id:
+            self.start_container()
+
+        assert self.container_id is not None
+
+        # Build gptme CLI command
+        # Use -n for non-interactive mode
+        cmd_parts = [
+            "python",
+            "-m",
+            "gptme",
+            "-n",  # Non-interactive
+            "--model",
+            model,
+            "--tool-format",
+            tool_format,
+        ]
+
+        # Add tools if specified
+        if tools:
+            for tool in tools:
+                cmd_parts.extend(["--tool", tool])
+
+        # Add system prompt if specified
+        if system_prompt:
+            cmd_parts.extend(["--prompt", system_prompt])
+
+        # Add the user prompt (properly escaped)
+        # Use single quotes and escape any single quotes in the prompt
+        escaped_prompt = prompt.replace("'", "'\\''")
+        cmd_parts.append(f"'{escaped_prompt}'")
+
+        command = " ".join(cmd_parts)
+
+        start = time.time()
+        print("\n--- Start of gptme execution (Docker) ---")
+        print(f"Model: {model}")
+        print(f"Tool format: {tool_format}")
+        print(
+            f"Prompt: {prompt[:100]}..." if len(prompt) > 100 else f"Prompt: {prompt}"
+        )
+
+        # Execute gptme in Docker container
+        p = subprocess.Popen(
+            [
+                "docker",
+                "exec",
+                "-i",
+                "-w",
+                self.working_dir,
+                self.container_id,
+                "/bin/bash",
+                "-c",
+                command,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        stdout_full, stderr_full = "", ""
+        while p.poll() is None or p.stdout or p.stderr:
+            assert p.stdout is not None
+            assert p.stderr is not None
+            stdout = p.stdout.readline()
+            stderr = p.stderr.readline()
+            if stdout:
+                print(stdout, end="")
+                stdout_full += stdout
+            if stderr:
+                print(stderr, end="")
+                stderr_full += stderr
+            if not stdout and not stderr and p.poll() is not None:
+                break
+            if time.time() - start > self.timeout:
+                print(f"Timeout after {self.timeout}s!")
+                p.kill()
+                # Stop container to terminate gptme
+                if self.container_id:
+                    subprocess.run(
+                        ["docker", "stop", self.container_id],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                break
+
+        duration = time.time() - start
+        print(f"--- Finished gptme execution (Docker) in {duration:.1f}s ---\n")
+
+        return stdout_full, stderr_full, p.returncode if p.returncode else 0
+
+    def get_logs(self) -> dict[str, str]:
+        """
+        Retrieve gptme logs from the container.
+
+        Returns:
+            Dictionary mapping log file names to their contents
+        """
+        logs: dict[str, str] = {}
+        for path in self.log_dir.glob("**/*.jsonl"):
+            try:
+                with open(path) as f:
+                    logs[str(path.relative_to(self.log_dir))] = f.read()
+            except (OSError, UnicodeDecodeError):
+                pass
+        return logs
