@@ -431,6 +431,8 @@ def main(
             model=config.chat.model,
             workspace=workspace_path,
             agent_path=config.chat.agent,
+            context_mode=context_mode,  # type: ignore[arg-type]  # click returns str
+            context_include=list(context_include) if context_include else None,
         )
 
     # register a handler for Ctrl-C

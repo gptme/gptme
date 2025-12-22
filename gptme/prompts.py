@@ -44,6 +44,9 @@ PromptType = Literal["full", "short"]
 logger = logging.getLogger(__name__)
 
 
+ContextMode = Literal["full", "instructions-only", "selective"]
+
+
 def get_prompt(
     tools: list[ToolSpec],
     tool_format: ToolFormat = "markdown",
@@ -52,9 +55,22 @@ def get_prompt(
     model: str | None = None,
     workspace: Path | None = None,
     agent_path: Path | None = None,
+    context_mode: ContextMode | None = None,
+    context_include: list[str] | None = None,
 ) -> list[Message]:
     """
     Get the initial system prompt.
+
+    Args:
+        tools: List of available tools
+        tool_format: Format for tool descriptions
+        prompt: Prompt type or custom prompt string
+        interactive: Whether in interactive mode
+        model: Model to use
+        workspace: Workspace directory
+        agent_path: Path to agent configuration
+        context_mode: Context mode (full, instructions-only, selective)
+        context_include: Components to include in selective mode (agent, tools, workspace)
 
     Returns a list of messages: [core_system_prompt, workspace_prompt] (if workspace provided).
     """
@@ -63,19 +79,51 @@ def get_prompt(
         agent_config.agent.name if agent_config and agent_config.agent else None
     )
 
+    # Default context_mode to "full" if not specified
+    effective_mode = context_mode or "full"
+    include_set = set(context_include or [])
+
+    # Determine what to include based on context_mode
+    include_tools = effective_mode == "full" or (
+        effective_mode == "selective" and "tools" in include_set
+    )
+    include_workspace = effective_mode == "full" or (
+        effective_mode == "selective" and "workspace" in include_set
+    )
+    include_agent = effective_mode == "full" or (
+        effective_mode == "selective" and "agent" in include_set
+    )
+
     # Generate core system messages (without workspace context)
     core_msgs: list[Message]
-    if prompt == "full":
-        core_msgs = list(
-            prompt_full(interactive, tools, tool_format, model, agent_name=agent_name)
-        )
+    if effective_mode == "instructions-only":
+        # Minimal mode: only basic gptme prompt
+        core_msgs = list(prompt_gptme(interactive, model, agent_name))
+    elif prompt == "full":
+        if include_tools:
+            core_msgs = list(
+                prompt_full(
+                    interactive, tools, tool_format, model, agent_name=agent_name
+                )
+            )
+        else:
+            # Full mode without tools
+            core_msgs = list(prompt_gptme(interactive, model, agent_name))
+            if interactive:
+                core_msgs.extend(prompt_user())
+            core_msgs.extend(prompt_project())
+            core_msgs.extend(prompt_systeminfo())
+            core_msgs.extend(prompt_timeinfo())
     elif prompt == "short":
-        core_msgs = list(
-            prompt_short(interactive, tools, tool_format, agent_name=agent_name)
-        )
+        if include_tools:
+            core_msgs = list(
+                prompt_short(interactive, tools, tool_format, agent_name=agent_name)
+            )
+        else:
+            core_msgs = list(prompt_gptme(interactive, model, agent_name))
     else:
         core_msgs = [Message("system", prompt)]
-        if tools:
+        if tools and include_tools:
             core_msgs.extend(prompt_tools(tools=tools, tool_format=tool_format))
 
     # TODO: generate context_cmd outputs seperately and put them last in a "dynamic context" section
@@ -83,15 +131,17 @@ def get_prompt(
     #       probably together with chat history since it's also dynamic/live context.
     #       as opposed to static (core/system prompt) and semi-static (workspace/project prompt, like files).
 
-    # Generate workspace messages separately
+    # Generate workspace messages separately (if included)
     workspace_msgs = (
-        list(prompt_workspace(workspace)) if workspace != agent_path else []
+        list(prompt_workspace(workspace))
+        if include_workspace and workspace and workspace != agent_path
+        else []
     )
 
-    # Generate workspace context from agent if provided
+    # Generate workspace context from agent if provided (if included)
     agent_msgs = (
         list(prompt_workspace(agent_path, title="Agent Workspace", include_path=True))
-        if agent_path
+        if include_agent and agent_path
         else []
     )
 
@@ -101,11 +151,13 @@ def get_prompt(
         core_prompt = _join_messages(core_msgs)
         result.append(core_prompt)
 
-    # Add agent messages seperately
-    result.extend(agent_msgs)
+    # Add agent messages separately (if included)
+    if include_agent:
+        result.extend(agent_msgs)
 
-    # Add workspace messages separately
-    result.extend(workspace_msgs)
+    # Add workspace messages separately (if included)
+    if include_workspace:
+        result.extend(workspace_msgs)
 
     # Generate cross-conversation context if enabled
     # Add chat history context
