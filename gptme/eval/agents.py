@@ -10,6 +10,7 @@ from gptme.executor import prepare_execution_environment
 from gptme.util.auto_naming import generate_conversation_id
 
 from ..tools import ToolFormat
+from .execenv import DockerGPTMeEnv
 from .filestore import FileStore
 from .types import Files
 
@@ -23,6 +24,7 @@ class Agent:
     system_prompt: str | None = None
     log_dir: Path
     workspace_dir: Path
+    use_docker: bool = False
 
     def __init__(
         self,
@@ -30,11 +32,13 @@ class Agent:
         tool_format: ToolFormat = "markdown",
         tools: list[str] | None = None,
         system_prompt: str | None = None,
+        use_docker: bool = False,
     ):
         self.model = model
         self.tool_format = tool_format
         self.tools = tools
         self.system_prompt = system_prompt
+        self.use_docker = use_docker
 
         _id = random.randint(10000, 99999)
         model_fmt = f"{self.model.replace('/', '--')}-{self.tool_format}"
@@ -66,6 +70,47 @@ class GPTMe(Agent):
         if files:
             store.upload(files)
 
+        if self.use_docker:
+            return self._act_docker(store, prompt)
+        else:
+            return self._act_local(store, prompt)
+
+    def _act_docker(self, store: FileStore, prompt: str) -> Files:
+        """Execute gptme inside a Docker container for isolation."""
+        print("\n--- Start of generation (Docker-isolated) ---")
+        logger.debug(f"Working in {store.working_dir} (Docker mode)")
+
+        # Create Docker environment with workspace mounted
+        docker_env = DockerGPTMeEnv(
+            host_dir=self.workspace_dir,
+        )
+
+        try:
+            # Run gptme inside Docker
+            stdout, stderr, exit_code = docker_env.run_gptme(
+                prompt=prompt,
+                model=self.model,
+                tool_format=self.tool_format,
+                tools=self.tools,
+                system_prompt=self.system_prompt,
+            )
+
+            if exit_code != 0:
+                logger.warning(f"Docker gptme exited with code {exit_code}")
+                if stderr:
+                    logger.warning(f"stderr: {stderr[:500]}")
+        except Exception as e:
+            logger.error(f"Docker execution failed: {e}")
+            raise
+        finally:
+            # Clean up container
+            docker_env.cleanup()
+
+        print("--- Finished generation (Docker-isolated) ---\n")
+        return store.download()
+
+    def _act_local(self, store: FileStore, prompt: str) -> Files:
+        """Execute gptme directly in the current process."""
         # Prepare execution environment and get initialized tools
         _, tools = prepare_execution_environment(
             workspace=self.workspace_dir,

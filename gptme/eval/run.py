@@ -94,7 +94,12 @@ def run_evals(
                 tools = test.get(
                     "tools"
                 )  # Get tools from test spec, None if not specified
-                agent = GPTMe(model=model, tool_format=tool_format, tools=tools)
+                agent = GPTMe(
+                    model=model,
+                    tool_format=tool_format,
+                    tools=tools,
+                    use_docker=use_docker,
+                )
                 future = executor.submit(
                     execute,
                     test,
