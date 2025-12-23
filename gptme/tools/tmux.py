@@ -142,23 +142,22 @@ def _capture_pane(pane_id: str) -> str:
 
 
 # decorator for lock
-def flock():
-    lock = threading.Lock()
+# Lock for new_session to avoid race conditions when creating sessions concurrently
+_new_session_lock = threading.Lock()
 
+def flock(lock):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             with lock:
                 return func(*args, **kwargs)
-
         return wrapper
-
     return decorator
 
 
 # @flock to avoid race conditions when creating new sessions concurrently
 # as can happen in tests, causing flakiness
-@flock()
+@flock(_new_session_lock)
 def new_session(command: str) -> Message:
     _max_session_id = 0
     for session in get_sessions():
