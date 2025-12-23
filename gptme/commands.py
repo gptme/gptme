@@ -475,25 +475,33 @@ def cmd_context(ctx: CommandContext) -> None:
     """Show context token usage breakdown."""
     from collections import defaultdict
 
+    from .llm.models import get_default_model
     from .util import console
     from .util.tokens import len_tokens
 
     ctx.manager.undo(1, quiet=True)
 
-    # Use gpt-4 for token counting (consistent with other commands)
-    model = "gpt-4"
+    # Try to use the current model's tokenizer, fallback to gpt-4
+    current_model = get_default_model()
+    tokenizer_model = "gpt-4"
+    is_approximate = True
+
+    if current_model:
+        # Use matching tokenizer for OpenAI models
+        if current_model.provider == "openai" or (
+            current_model.provider == "openrouter"
+            and current_model.model.startswith("openai/")
+        ):
+            tokenizer_model = current_model.model.split("/")[-1]
+            is_approximate = False
 
     # Track token counts by category
     by_role: dict[str, int] = defaultdict(int)
     by_type: dict[str, int] = defaultdict(int)
 
-    # Analyze each message
+    # Analyze each message (including hidden, since they're sent to the model)
     for msg in ctx.manager.log.messages:
-        # Skip hidden messages
-        if msg.hide:
-            continue
-
-        content_tokens = len_tokens(msg.content, model)
+        content_tokens = len_tokens(msg.content, tokenizer_model)
 
         # Count by role
         by_role[msg.role] += content_tokens
@@ -525,6 +533,9 @@ def cmd_context(ctx: CommandContext) -> None:
         console.log(f"  {type_name:10s}: {tokens:6,} ({pct:5.1f}%)")
 
     console.log(f"\n[bold]Total Context:[/bold] {total_tokens:,} tokens")
+
+    if is_approximate:
+        console.log(f"[dim](approximate, using {tokenizer_model} tokenizer)[/dim]")
 
 
 @command("model", aliases=["models"])

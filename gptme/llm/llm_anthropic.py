@@ -21,6 +21,7 @@ from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec
 from .models import ModelMeta, get_model
 from .utils import (
+    apply_cache_control,
     extract_tool_uses_from_assistant_message,
     parameters2dict,
     process_image_file,
@@ -782,28 +783,13 @@ def _prepare_messages_for_api(
 
         messages_dicts_new.append({"role": msg["role"], "content": content_parts})
 
-    # set for the first system message (static between sessions)
-    # Only set cache_control if the system message has non-empty content
-    if system_messages:
-        system_text = system_messages[0].get("text")
-        if system_text and isinstance(system_text, str) and system_text.strip():
-            system_messages[0]["cache_control"] = {"type": "ephemeral"}
-
-    # set cache points at the two last user messages, as suggested in Anthropic docs:
-    # > The conversation history (previous messages) is included in the messages array.
-    # > The final turn is marked with cache-control, for continuing in followups.
-    # > The second-to-last user message is marked for caching with the cache_control parameter, so that this checkpoint can read from the previous cache.
-    # https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching#continuing-a-multi-turn-conversation
-    for msgp in [msg for msg in messages_dicts_new if msg["role"] == "user"][-2:]:
-        assert isinstance(msgp["content"], list)
-        if msgp["content"]:  # Ensure content list is not empty
-            last_content = msgp["content"][-1]
-            # Only set cache_control if this isn't an empty text block
-            if last_content.get("type") != "text" or (
-                last_content.get("text")
-                and isinstance(last_content.get("text"), str)
-                and last_content.get("text").strip()
-            ):
-                last_content["cache_control"] = {"type": "ephemeral"}
+    # Apply cache control for Anthropic prompt caching
+    # See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+    messages_with_cache, system_with_cache = apply_cache_control(
+        cast(list[dict], messages_dicts_new),
+        cast(list[dict] | None, system_messages),
+    )
+    messages_dicts_new = cast(list[anthropic.types.MessageParam], messages_with_cache)
+    system_messages = cast(list[anthropic.types.TextBlockParam], system_with_cache)
 
     return messages_dicts_new, system_messages, tools_dict

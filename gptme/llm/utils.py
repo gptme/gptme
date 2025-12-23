@@ -187,3 +187,89 @@ def process_image_file(
         return None
 
     return data, media_type
+
+
+def apply_cache_control(
+    messages: list[dict],
+    system_messages: list[dict] | None = None,
+) -> tuple[list[dict], list[dict] | None]:
+    """Apply cache_control breakpoints for Anthropic-style caching.
+
+    Anthropic requires explicit cache_control markers, unlike providers with
+    automatic caching. This applies cache control to:
+    1. The system message (either in system_messages or first message)
+    2. The last two user messages (for multi-turn conversation caching)
+
+    Works with both OpenAI-style (system in messages) and Anthropic-style
+    (system_messages as separate list) message formats.
+
+    See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+    See: https://openrouter.ai/docs/guides/best-practices/prompt-caching
+
+    Args:
+        messages: List of message dicts with role and content
+        system_messages: Optional separate list of system message content parts
+                        (Anthropic-style)
+
+    Returns:
+        Tuple of (modified messages, modified system_messages)
+    """
+    # Deep copy to avoid mutating originals
+    messages = [dict(m) for m in messages]
+    if system_messages is not None:
+        system_messages = [dict(s) for s in system_messages]
+
+    def _set_cache_control_on_last_part(content: list[dict]) -> list[dict]:
+        """Add cache_control to the last non-empty content part."""
+        if not content:
+            return content
+
+        content = [dict(p) if isinstance(p, dict) else p for p in content]
+
+        # Find the last non-empty part and add cache_control
+        for i in range(len(content) - 1, -1, -1):
+            part = content[i]
+            if not isinstance(part, dict):
+                continue
+
+            if part.get("type") == "text":
+                text = part.get("text", "")
+                if isinstance(text, str) and text.strip():
+                    content[i] = {**part, "cache_control": {"type": "ephemeral"}}
+                    break
+            else:
+                # Non-text parts (images, tool results, etc.)
+                content[i] = {**part, "cache_control": {"type": "ephemeral"}}
+                break
+
+        return content
+
+    # Handle system messages (Anthropic-style separate list)
+    if system_messages:
+        text = system_messages[0].get("text")
+        if text and isinstance(text, str) and text.strip():
+            system_messages[0] = {
+                **system_messages[0],
+                "cache_control": {"type": "ephemeral"},
+            }
+
+    # Handle system message in messages array (OpenAI-style)
+    if messages and messages[0].get("role") == "system" and system_messages is None:
+        content = messages[0].get("content")
+        if content:
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            messages[0]["content"] = _set_cache_control_on_last_part(content)
+
+    # Set cache points on last two user messages
+    user_indices = [i for i, m in enumerate(messages) if m.get("role") == "user"]
+    for idx in user_indices[-2:]:
+        content = messages[idx].get("content")
+        if content:
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            elif isinstance(content, list):
+                content = list(content)
+            messages[idx]["content"] = _set_cache_control_on_last_part(content)
+
+    return messages, system_messages

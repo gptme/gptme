@@ -13,6 +13,7 @@ from ..telemetry import record_llm_request
 from ..tools import ToolSpec
 from .models import ModelMeta, Provider, is_custom_provider
 from .utils import (
+    apply_cache_control,
     extract_tool_uses_from_assistant_message,
     parameters2dict,
     process_image_file,
@@ -56,9 +57,19 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     else:
         input_tokens = None
 
+    # Determine the provider for telemetry
+    # For OpenRouter models, detect the underlying provider from the model string
+    # e.g., "openrouter/anthropic/claude-sonnet-4.5" -> "anthropic"
+    provider = "openai"
+    if model.startswith("openrouter/"):
+        parts = model.split("/")
+        if len(parts) >= 2:
+            # openrouter/anthropic/... -> anthropic
+            provider = parts[1]
+
     # Record the LLM request with token usage
     record_llm_request(
-        provider="openai",
+        provider=provider,
         model=model,
         success=True,
         input_tokens=input_tokens,
@@ -71,7 +82,7 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     from ..telemetry import _calculate_llm_cost
 
     cost = _calculate_llm_cost(
-        provider="openai",
+        provider=provider,
         model=model,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
@@ -352,6 +363,9 @@ def extra_body(provider: Provider, model_meta: ModelMeta) -> dict[str, Any]:
     """Return extra body for the OpenAI API based on the model."""
     body: dict[str, Any] = {}
     if provider == "openrouter":
+        # Enable detailed usage info including cached tokens
+        # See: https://openrouter.ai/docs/guides/usage-accounting
+        body["usage"] = {"include": True}
         if model_meta.supports_reasoning:
             body["reasoning"] = {"enabled": True, "max_tokens": 20000}
         if "@" in model_meta.model:
@@ -865,4 +879,10 @@ def _prepare_messages_for_api(
 
     messages_dicts = _transform_msgs_for_special_provider(messages_dicts, model_meta)
 
-    return list(messages_dicts), tools_dict
+    messages_list = list(messages_dicts)
+
+    # Apply cache control for Anthropic models on OpenRouter
+    if model.startswith("openrouter/anthropic/"):
+        messages_list, _ = apply_cache_control(messages_list)
+
+    return messages_list, tools_dict
