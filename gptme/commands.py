@@ -421,22 +421,33 @@ def cmd_tokens(ctx: CommandContext) -> None:
     ctx.manager.undo(1, quiet=True)
 
     # Try to get accurate costs from CostTracker first
-    summary = CostTracker.get_summary()
-    if summary and summary.request_count > 0:
-        # Use accurate tracked costs
-        tokens_msg = f"Tokens: {summary.total_input_tokens:,}/{summary.total_output_tokens:,} in/out"
-        if summary.cache_read_tokens > 0 or summary.cache_creation_tokens > 0:
-            tokens_msg += f" (cache: {summary.cache_read_tokens:,} read, {summary.cache_creation_tokens:,} created)"
+    costs = CostTracker.get_session_costs()
+    if costs and costs.entries:
+        # Show last request details
+        last = costs.entries[-1]
+        console.log("[bold]Last Request:[/bold]")
+        console.log(f"  Tokens:  {last.input_tokens:,} in / {last.output_tokens:,} out")
+        console.log(
+            f"  Cache:   {last.cache_read_tokens:,} read / {last.cache_creation_tokens:,} created"
+        )
+        console.log(f"  Cost:    ${last.cost:.4f}")
 
-        console.log(tokens_msg)
+        # Show session totals
+        console.log("\n[bold]Session Total:[/bold]")
+        summary = CostTracker.get_summary()
+        assert summary  # Should exist if we have costs
 
-        if summary.total_cost > 0:
-            cost_msg = f"Cost:   ${summary.total_cost:.4f}"
-            if summary.cache_hit_rate > 0:
-                cost_msg += f" (cache hit rate: {summary.cache_hit_rate*100:.1f}%)"
-            console.log(cost_msg)
+        console.log(
+            f"  Tokens:  {summary.total_input_tokens:,} in / {summary.total_output_tokens:,} out"
+        )
+        console.log(
+            f"  Cache:   {summary.cache_read_tokens:,} read / {summary.cache_creation_tokens:,} created"
+        )
 
-        console.log(f"Requests: {summary.request_count}")
+        cache_hit_pct = summary.cache_hit_rate * 100
+        console.log(f"  Hit rate: {cache_hit_pct:.1f}%")
+        console.log(f"  Cost:    ${summary.total_cost:.4f}")
+        console.log(f"  Requests: {summary.request_count}")
     else:
         # Fall back to approximation from message history
         log_costs(ctx.manager.log.messages)
@@ -454,6 +465,63 @@ def cmd_tools(ctx: CommandContext) -> None:
     {tool.desc.rstrip(".")}
     tokens (example): {len_tokens(tool.get_examples(get_tool_format()), "gpt-4")}"""
         )
+
+
+@command("context")
+def cmd_context(ctx: CommandContext) -> None:
+    """Show context token usage breakdown."""
+    from collections import defaultdict
+
+    from .util import console
+    from .util.tokens import len_tokens
+
+    ctx.manager.undo(1, quiet=True)
+
+    # Use gpt-4 for token counting (consistent with other commands)
+    model = "gpt-4"
+
+    # Track token counts by category
+    by_role: dict[str, int] = defaultdict(int)
+    by_type: dict[str, int] = defaultdict(int)
+
+    # Analyze each message
+    for msg in ctx.manager.log.messages:
+        # Skip hidden messages
+        if msg.hide:
+            continue
+
+        content_tokens = len_tokens(msg.content, model)
+
+        # Count by role
+        by_role[msg.role] += content_tokens
+
+        # Categorize content type
+        # Check for tool uses
+        tool_uses = list(ToolUse.iter_from_content(msg.content))
+        if tool_uses:
+            by_type["tool_use"] += content_tokens
+        # Check for thinking blocks (Anthropic uses <thinking> tags)
+        elif "<thinking>" in msg.content or "<think>" in msg.content:
+            by_type["thinking"] += content_tokens
+        else:
+            by_type["message"] += content_tokens
+
+    # Calculate totals
+    total_tokens = sum(by_role.values())
+
+    # Display breakdown
+    console.log("[bold]Token Usage by Role:[/bold]")
+    for role in ["system", "user", "assistant"]:
+        tokens = by_role.get(role, 0)
+        pct = (tokens / total_tokens * 100) if total_tokens > 0 else 0
+        console.log(f"  {role:10s}: {tokens:6,} ({pct:5.1f}%)")
+
+    console.log("\n[bold]Token Usage by Type:[/bold]")
+    for type_name, tokens in sorted(by_type.items(), key=lambda x: x[1], reverse=True):
+        pct = (tokens / total_tokens * 100) if total_tokens > 0 else 0
+        console.log(f"  {type_name:10s}: {tokens:6,} ({pct:5.1f}%)")
+
+    console.log(f"\n[bold]Total Context:[/bold] {total_tokens:,} tokens")
 
 
 @command("model", aliases=["models"])
