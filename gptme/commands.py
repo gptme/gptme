@@ -35,8 +35,6 @@ from .tools import (
     get_tools,
 )
 from .util.auto_naming import generate_llm_name
-from .util.cost import log_costs
-from .util.cost_tracker import CostTracker
 from .util.export import export_chat_to_html
 from .util.useredit import edit_text_with_editor
 
@@ -442,110 +440,20 @@ def cmd_impersonate(ctx: CommandContext) -> Generator[Message, None, None]:
 def cmd_tokens(ctx: CommandContext) -> None:
     """Show token usage and costs.
 
-    Uses CostTracker for accurate costs when available (tracks actual API usage),
-    falls back to approximation from message history otherwise.
+    Shows session costs (current session) and conversation costs (all messages)
+    when both are available. Falls back to approximation for old conversations.
     """
-    from .util import console
+    from .util.cost_display import (
+        display_costs,
+        gather_conversation_costs,
+        gather_session_costs,
+    )
 
     ctx.manager.undo(1, quiet=True)
 
-    # Try to get accurate costs from CostTracker first
-    costs = CostTracker.get_session_costs()
-    if costs and costs.entries:
-        # Show last request details
-        last = costs.entries[-1]
-        console.log("[bold]Last Request:[/bold]")
-        console.log(f"  Tokens:  {last.input_tokens:,} in / {last.output_tokens:,} out")
-        console.log(
-            f"  Cache:   {last.cache_read_tokens:,} read / {last.cache_creation_tokens:,} created"
-        )
-        console.log(f"  Cost:    ${last.cost:.4f}")
-
-        # Show session totals
-        console.log("\n[bold]Session Total:[/bold]")
-        summary = CostTracker.get_summary()
-        assert summary  # Should exist if we have costs
-
-        console.log(
-            f"  Tokens:  {summary.total_input_tokens:,} in / {summary.total_output_tokens:,} out"
-        )
-        console.log(
-            f"  Cache:   {summary.cache_read_tokens:,} read / {summary.cache_creation_tokens:,} created"
-        )
-
-        cache_hit_pct = summary.cache_hit_rate * 100
-        console.log(f"  Hit rate: {cache_hit_pct:.1f}%")
-        console.log(f"  Cost:    ${summary.total_cost:.4f}")
-        console.log(f"  Requests: {summary.request_count}")
-    else:
-        # Reconstruct from message metadata (resumed sessions)
-        total_input = 0
-        total_output = 0
-        total_cache_read = 0
-        total_cache_created = 0
-        total_cost = 0.0
-        request_count = 0
-        last_metadata = None
-
-        for msg in ctx.manager.log.messages:
-            if msg.metadata:
-                # Track last metadata for "Last Request" display
-                if msg.role == "assistant":
-                    last_metadata = msg.metadata
-                    request_count += 1
-
-                total_input += msg.metadata.get("input_tokens", 0)
-                total_output += msg.metadata.get("output_tokens", 0)
-                total_cache_read += msg.metadata.get("cache_read_tokens", 0)
-                total_cache_created += msg.metadata.get("cache_creation_tokens", 0)
-                total_cost += msg.metadata.get("cost", 0.0)
-
-        # Only use metadata format if there's actual data (not all 0s)
-        has_token_data = total_input > 0 or total_output > 0
-        has_cost_data = total_cost > 0
-
-        if request_count > 0 and (has_token_data or has_cost_data):
-            # Show last request if available and has data
-            if last_metadata and (
-                last_metadata.get("input_tokens", 0) > 0
-                or last_metadata.get("output_tokens", 0) > 0
-                or last_metadata.get("cost", 0) > 0
-            ):
-                console.log("[bold]Last Request:[/bold]")
-                console.log(
-                    f"  Tokens:  {last_metadata.get('input_tokens', 0):,} in / "
-                    f"{last_metadata.get('output_tokens', 0):,} out"
-                )
-                console.log(
-                    f"  Cache:   {last_metadata.get('cache_read_tokens', 0):,} read / "
-                    f"{last_metadata.get('cache_creation_tokens', 0):,} created"
-                )
-                console.log(f"  Cost:    ${last_metadata.get('cost', 0.0):.4f}")
-                console.log("")
-
-            # Show totals
-            console.log("[bold]Conversation Total:[/bold]")
-            console.log(f"  Tokens:  {total_input:,} in / {total_output:,} out")
-            console.log(
-                f"  Cache:   {total_cache_read:,} read / {total_cache_created:,} created"
-            )
-
-            # Calculate cache hit rate
-            total_input_with_cache = (
-                total_input + total_cache_read + total_cache_created
-            )
-            if total_input_with_cache > 0:
-                hit_rate = (total_cache_read / total_input_with_cache) * 100
-                console.log(f"  Hit rate: {hit_rate:.1f}%")
-
-            console.log(f"  Cost:    ${total_cost:.4f}")
-            console.log(f"  Requests: {request_count}")
-        else:
-            # No metadata available, fall back to approximation
-            console.log(
-                "[yellow]No cost data available. Showing token approximation:[/yellow]"
-            )
-            log_costs(ctx.manager.log.messages)
+    session = gather_session_costs()
+    conversation = gather_conversation_costs(ctx.manager.log.messages)
+    display_costs(session, conversation)
 
 
 @command("tools")
