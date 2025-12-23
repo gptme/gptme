@@ -59,6 +59,7 @@ Actions = Literal[
     "commit",
     "clear",
     "setup",
+    "restart",
     "help",
     "exit",
 ]
@@ -80,6 +81,7 @@ action_descriptions: dict[Actions, str] = {
     "commit": "Ask assistant to git commit",
     "clear": "Clear the terminal screen",
     "setup": "Setup gptme with completions and configuration",
+    "restart": "Restart gptme process",
     "help": "Show this help message",
     "exit": "Exit the program",
 }
@@ -288,6 +290,33 @@ def cmd_exit(ctx: CommandContext) -> None:
     ctx.manager.undo(1, quiet=True)
     ctx.manager.write()
     sys.exit(0)
+
+
+@command("restart")
+def cmd_restart(ctx: CommandContext) -> None:
+    """Restart the gptme process.
+
+    Useful for:
+    - Applying configuration changes that require a restart
+    - Reloading tools after code modifications
+    - Recovering from state issues
+    """
+    from .tools.restart import _do_restart
+
+    ctx.manager.undo(1, quiet=True)
+
+    if not ctx.confirm("Restart gptme? This will exit and restart the process."):
+        print("Restart cancelled.")
+        return
+
+    # Ensure everything is synced to disk
+    ctx.manager.write(sync=True)
+
+    conversation_name = ctx.manager.logdir.name
+    print(f"Restarting gptme with conversation: {conversation_name}")
+
+    # Perform the restart
+    _do_restart(conversation_name)
 
 
 @command("replay")
