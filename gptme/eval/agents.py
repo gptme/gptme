@@ -80,9 +80,10 @@ class GPTMe(Agent):
         print("\n--- Start of generation (Docker-isolated) ---")
         logger.debug(f"Working in {store.working_dir} (Docker mode)")
 
-        # Create Docker environment with workspace mounted
+        # Create Docker environment with workspace and logs mounted
         docker_env = DockerGPTMeEnv(
             host_dir=self.workspace_dir,
+            log_dir=self.log_dir,
         )
 
         try:

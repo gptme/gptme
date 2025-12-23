@@ -330,6 +330,8 @@ class DockerGPTMeEnv(DockerExecutionEnv):
                 "docker",
                 "run",
                 "-d",
+                "-e",
+                "GPTME_LOGS_HOME=/app/logs",  # Tell gptme to use mounted logs dir
                 "-v",
                 f"{self.host_dir}:{self.working_dir}",
                 "-v",
