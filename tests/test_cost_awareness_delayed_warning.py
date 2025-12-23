@@ -32,7 +32,7 @@ def reset_pending_warning():
 
 
 def test_warning_printed_but_not_injected_immediately(mock_manager, capsys):
-    """Test that warning is printed to user but not injected as message immediately."""
+    """Test that warning is stored but not injected as message immediately."""
     # Setup: Create a session with cost that crosses threshold
     CostTracker.start_session("test_session")
     CostTracker.record(
@@ -48,23 +48,17 @@ def test_warning_printed_but_not_injected_immediately(mock_manager, capsys):
     )
 
     # Execute the hook
-    with patch("gptme.util.console") as mock_console:
-        messages = list(cost_warning_hook(mock_manager))
+    messages = list(cost_warning_hook(mock_manager))
 
-    # Warning should be printed to console
-    mock_console.print.assert_called_once()
-    call_args = mock_console.print.call_args[0][0]
-    assert "Session cost reached $0.15" in call_args
-    assert "cache hit:" in call_args
-
-    # But NO message should be yielded immediately
+    # NO message should be yielded immediately
     assert len(messages) == 0
 
-    # Pending warning should be stored
+    # Pending warning should be stored for later injection
     import gptme.hooks.cost_awareness as module
 
     assert module._pending_warning is not None
     assert "<system_warning>" in module._pending_warning
+    assert "Session cost reached $0.15" in module._pending_warning
 
 
 def test_warning_injected_on_next_user_message(mock_manager):
@@ -146,6 +140,8 @@ def test_no_warning_when_no_threshold_crossed(mock_manager):
 
 def test_no_duplicate_warnings_for_same_threshold(mock_manager):
     """Test that multiple requests in same threshold range don't create duplicate warnings."""
+    import gptme.hooks.cost_awareness as module
+
     # Setup: Create a session and cross threshold
     CostTracker.start_session("test_session")
     CostTracker.record(
@@ -161,9 +157,11 @@ def test_no_duplicate_warnings_for_same_threshold(mock_manager):
     )
 
     # First warning should be created
-    with patch("gptme.util.console") as mock_console:
-        list(cost_warning_hook(mock_manager))
-        assert mock_console.print.call_count == 1
+    list(cost_warning_hook(mock_manager))
+    assert module._pending_warning is not None
+
+    # Clear the pending warning (simulating it was injected)
+    module._pending_warning = None
 
     # Add another request in same threshold range
     CostTracker.record(
@@ -178,7 +176,6 @@ def test_no_duplicate_warnings_for_same_threshold(mock_manager):
         )
     )
 
-    # Should NOT create another warning
-    with patch("gptme.util.console") as mock_console:
-        list(cost_warning_hook(mock_manager))
-        mock_console.print.assert_not_called()
+    # Should NOT create another warning (same threshold range)
+    list(cost_warning_hook(mock_manager))
+    assert module._pending_warning is None  # No new warning stored

@@ -17,10 +17,8 @@ dirs = ["docs/lessons"]
 #[rag]
 #enabled = true
 
-[plugins]
-paths = [
-    # Add your local plugin paths here
-    "../gptme-bob/gptme-contrib/plugins/consortium",
-    "../gptme-bob/gptme-contrib/plugins/imagen",
-    "../gptme-bob/gptme-contrib/plugins/warp-grep",
-]
+#[plugins]
+#paths = [
+#    # Add your local plugin paths here
+#    # Example: "../gptme-contrib/plugins/consortium"
+#]

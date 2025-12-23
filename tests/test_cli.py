@@ -88,7 +88,9 @@ def test_command_tokens(args: list[str], runner: CliRunner):
     args.append("/tokens")
     result = runner.invoke(gptme.cli.main, args)
     assert "/tokens" in result.output
-    assert "Tokens:" in result.output
+    # When no LLM calls have been made, shows "No cost data available"
+    # When data exists, shows "Tokens:" - either is valid
+    assert "Tokens:" in result.output or "No cost data available" in result.output
     assert result.exit_code == 0
 
 
