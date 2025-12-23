@@ -6,9 +6,11 @@ Examples of such commands: ``npm run dev``, ``python3 server.py``, ``python3 tra
 It allows for inspecting pane contents and sending input.
 """
 
+import functools
 import logging
 import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -139,6 +141,24 @@ def _capture_pane(pane_id: str) -> str:
     return result.stdout.rstrip()
 
 
+# decorator for lock
+def flock():
+    lock = threading.Lock()
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            with lock:
+                return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+# @flock to avoid race conditions when creating new sessions concurrently
+# as can happen in tests, causing flakiness
+@flock()
 def new_session(command: str) -> Message:
     _max_session_id = 0
     for session in get_sessions():
