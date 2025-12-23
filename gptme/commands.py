@@ -500,9 +500,17 @@ def cmd_tokens(ctx: CommandContext) -> None:
                 total_cache_created += msg.metadata.get("cache_creation_tokens", 0)
                 total_cost += msg.metadata.get("cost", 0.0)
 
-        if request_count > 0:
-            # Show last request if available
-            if last_metadata:
+        # Only use metadata format if there's actual data (not all 0s)
+        has_token_data = total_input > 0 or total_output > 0
+        has_cost_data = total_cost > 0
+
+        if request_count > 0 and (has_token_data or has_cost_data):
+            # Show last request if available and has data
+            if last_metadata and (
+                last_metadata.get("input_tokens", 0) > 0
+                or last_metadata.get("output_tokens", 0) > 0
+                or last_metadata.get("cost", 0) > 0
+            ):
                 console.log("[bold]Last Request:[/bold]")
                 console.log(
                     f"  Tokens:  {last_metadata.get('input_tokens', 0):,} in / "
