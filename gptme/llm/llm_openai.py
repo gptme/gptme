@@ -67,6 +67,17 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
         total_tokens=total_tokens,
     )
 
+    # Calculate cost for metadata
+    from ..telemetry import _calculate_llm_cost
+
+    cost = _calculate_llm_cost(
+        provider="openai",
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+    )
+
     # Return MessageMetadata for attachment to Message
     metadata: MessageMetadata = {"model": model}
     if input_tokens is not None:
@@ -75,6 +86,8 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
         metadata["output_tokens"] = output_tokens
     if cache_read_tokens is not None:
         metadata["cache_read_tokens"] = cache_read_tokens
+    if cost > 0:
+        metadata["cost"] = cost
     return metadata
 
 

@@ -125,6 +125,18 @@ def _record_usage(
         total_tokens=total_tokens if total_tokens > 0 else None,
     )
 
+    # Calculate cost for metadata
+    from ..telemetry import _calculate_llm_cost
+
+    cost = _calculate_llm_cost(
+        provider="anthropic",
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_creation_tokens=cache_creation_tokens,
+        cache_read_tokens=cache_read_tokens,
+    )
+
     # Return MessageMetadata for attachment to Message
     metadata: MessageMetadata = {"model": model}
     if input_tokens is not None:
@@ -135,6 +147,8 @@ def _record_usage(
         metadata["cache_read_tokens"] = cache_read_tokens
     if cache_creation_tokens is not None:
         metadata["cache_creation_tokens"] = cache_creation_tokens
+    if cost > 0:
+        metadata["cost"] = cost
     return metadata
 
 
