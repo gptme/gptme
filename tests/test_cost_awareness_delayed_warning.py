@@ -26,9 +26,9 @@ def reset_pending_warning():
     """Reset pending warning before each test."""
     import gptme.hooks.cost_awareness as module
 
-    module._pending_warning = None
+    module._pending_warning_var.set(None)
     yield
-    module._pending_warning = None
+    module._pending_warning_var.set(None)
 
 
 def test_warning_printed_but_not_injected_immediately(mock_manager, capsys):
@@ -56,9 +56,10 @@ def test_warning_printed_but_not_injected_immediately(mock_manager, capsys):
     # Pending warning should be stored for later injection
     import gptme.hooks.cost_awareness as module
 
-    assert module._pending_warning is not None
-    assert "<system_warning>" in module._pending_warning
-    assert "Session cost reached $0.15" in module._pending_warning
+    pending = module._pending_warning_var.get()
+    assert pending is not None
+    assert "<system_warning>" in pending
+    assert "Session cost reached $0.15" in pending
 
 
 def test_warning_injected_on_next_user_message(mock_manager):
@@ -66,7 +67,7 @@ def test_warning_injected_on_next_user_message(mock_manager):
     # Setup: Store a pending warning
     import gptme.hooks.cost_awareness as module
 
-    module._pending_warning = "<system_warning>Test warning</system_warning>"
+    module._pending_warning_var.set("<system_warning>Test warning</system_warning>")
 
     # Create a messages list with a user message
     msgs = [Message("user", "Hello")]
@@ -83,7 +84,7 @@ def test_warning_injected_on_next_user_message(mock_manager):
     assert warning.hide is True
 
     # Pending warning should be cleared
-    assert module._pending_warning is None
+    assert module._pending_warning_var.get() is None
 
 
 def test_warning_not_injected_on_assistant_message(mock_manager):
@@ -91,7 +92,7 @@ def test_warning_not_injected_on_assistant_message(mock_manager):
     # Setup: Store a pending warning
     import gptme.hooks.cost_awareness as module
 
-    module._pending_warning = "<system_warning>Test warning</system_warning>"
+    module._pending_warning_var.set("<system_warning>Test warning</system_warning>")
 
     # Create a messages list with an assistant message
     msgs = [Message("assistant", "Response")]
@@ -103,7 +104,7 @@ def test_warning_not_injected_on_assistant_message(mock_manager):
     assert len(result) == 0
 
     # Pending warning should still be there
-    assert module._pending_warning is not None
+    assert module._pending_warning_var.get() is not None
 
 
 def test_no_warning_when_no_threshold_crossed(mock_manager):
@@ -135,7 +136,7 @@ def test_no_warning_when_no_threshold_crossed(mock_manager):
     # No pending warning
     import gptme.hooks.cost_awareness as module
 
-    assert module._pending_warning is None
+    assert module._pending_warning_var.get() is None
 
 
 def test_no_duplicate_warnings_for_same_threshold(mock_manager):
@@ -158,10 +159,10 @@ def test_no_duplicate_warnings_for_same_threshold(mock_manager):
 
     # First warning should be created
     list(cost_warning_hook(mock_manager))
-    assert module._pending_warning is not None
+    assert module._pending_warning_var.get() is not None
 
     # Clear the pending warning (simulating it was injected)
-    module._pending_warning = None
+    module._pending_warning_var.set(None)
 
     # Add another request in same threshold range
     CostTracker.record(
@@ -178,4 +179,4 @@ def test_no_duplicate_warnings_for_same_threshold(mock_manager):
 
     # Should NOT create another warning (same threshold range)
     list(cost_warning_hook(mock_manager))
-    assert module._pending_warning is None  # No new warning stored
+    assert module._pending_warning_var.get() is None  # No new warning stored

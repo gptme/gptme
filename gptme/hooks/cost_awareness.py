@@ -10,6 +10,7 @@ See Issue #935 for design context.
 
 import logging
 from collections.abc import Generator
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,8 +23,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Module-level storage for pending warning to inject on next user message
-_pending_warning: str | None = None
+# Thread-safe storage for pending warning to inject on next user message
+_pending_warning_var: ContextVar[str | None] = ContextVar(
+    "pending_warning", default=None
+)
 
 # Default cost warning thresholds (in USD)
 # Warns when total session cost crosses these values
@@ -83,7 +86,6 @@ def cost_warning_hook(
     Yields:
         Nothing - warning is stored for later injection
     """
-    global _pending_warning
 
     costs = CostTracker.get_session_costs()
     if not costs or not costs.entries:
@@ -106,7 +108,7 @@ def cost_warning_hook(
             )
 
             # Store warning to inject on next user message
-            _pending_warning = warning_text
+            _pending_warning_var.set(warning_text)
 
             # Log the warning with full details
             logger.info(
@@ -139,19 +141,19 @@ def inject_pending_warning(
     Yields:
         System message with pending warning if one exists
     """
-    global _pending_warning
+    pending_warning = _pending_warning_var.get()
 
     # Only inject if there's a pending warning and the last message is from user
-    if not _pending_warning:
+    if not pending_warning:
         return
 
     if messages and messages[-1].role == "user":
         yield Message(
             "system",
-            _pending_warning,
+            pending_warning,
             hide=True,
         )
-        _pending_warning = None  # Clear after injecting
+        _pending_warning_var.set(None)  # Clear after injecting
 
     yield from ()
 
