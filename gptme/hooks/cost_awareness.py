@@ -105,21 +105,16 @@ def cost_warning_hook(
                 f"cache hit: {cache_hit_pct:.1f}%)</system_warning>"
             )
 
-            # Print warning to user immediately (without <system_warning> tags)
-            from ..util import console
-
-            console.print(
-                f"[yellow]⚠ Session cost reached ${total:.2f} "
-                f"(tokens: {costs.total_input_tokens:,}/{costs.total_output_tokens:,} in/out, "
-                f"cache hit: {cache_hit_pct:.1f}%)[/yellow]"
-            )
-
             # Store warning to inject on next user message
             _pending_warning = warning_text
 
+            # Log the warning with full details
             logger.info(
-                f"Cost warning: ${total:.2f} (threshold ${threshold:.2f}), "
-                f"cache hit rate: {cache_hit_pct:.1f}%"
+                f"Session cost reached ${total:.2f} "
+                f"(tokens: {costs.total_input_tokens:,} in / {costs.total_output_tokens:,} out, "
+                f"cache: {costs.total_cache_read_tokens:,} read / {costs.total_cache_creation_tokens:,} created, "
+                f"hit rate: {cache_hit_pct:.1f}%) "
+                f"[threshold: ${threshold:.2f}]"
             )
             # Only emit one warning per request
             break

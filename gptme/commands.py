@@ -478,8 +478,66 @@ def cmd_tokens(ctx: CommandContext) -> None:
         console.log(f"  Cost:    ${summary.total_cost:.4f}")
         console.log(f"  Requests: {summary.request_count}")
     else:
-        # Fall back to approximation from message history
-        log_costs(ctx.manager.log.messages)
+        # Reconstruct from message metadata (resumed sessions)
+        total_input = 0
+        total_output = 0
+        total_cache_read = 0
+        total_cache_created = 0
+        total_cost = 0.0
+        request_count = 0
+        last_metadata = None
+
+        for msg in ctx.manager.log.messages:
+            if msg.metadata:
+                # Track last metadata for "Last Request" display
+                if msg.role == "assistant":
+                    last_metadata = msg.metadata
+                    request_count += 1
+
+                total_input += msg.metadata.get("input_tokens", 0)
+                total_output += msg.metadata.get("output_tokens", 0)
+                total_cache_read += msg.metadata.get("cache_read_tokens", 0)
+                total_cache_created += msg.metadata.get("cache_creation_tokens", 0)
+                total_cost += msg.metadata.get("cost", 0.0)
+
+        if request_count > 0:
+            # Show last request if available
+            if last_metadata:
+                console.log("[bold]Last Request:[/bold]")
+                console.log(
+                    f"  Tokens:  {last_metadata.get('input_tokens', 0):,} in / "
+                    f"{last_metadata.get('output_tokens', 0):,} out"
+                )
+                console.log(
+                    f"  Cache:   {last_metadata.get('cache_read_tokens', 0):,} read / "
+                    f"{last_metadata.get('cache_creation_tokens', 0):,} created"
+                )
+                console.log(f"  Cost:    ${last_metadata.get('cost', 0.0):.4f}")
+                console.log("")
+
+            # Show totals
+            console.log("[bold]Conversation Total:[/bold]")
+            console.log(f"  Tokens:  {total_input:,} in / {total_output:,} out")
+            console.log(
+                f"  Cache:   {total_cache_read:,} read / {total_cache_created:,} created"
+            )
+
+            # Calculate cache hit rate
+            total_input_with_cache = (
+                total_input + total_cache_read + total_cache_created
+            )
+            if total_input_with_cache > 0:
+                hit_rate = (total_cache_read / total_input_with_cache) * 100
+                console.log(f"  Hit rate: {hit_rate:.1f}%")
+
+            console.log(f"  Cost:    ${total_cost:.4f}")
+            console.log(f"  Requests: {request_count}")
+        else:
+            # No metadata available, fall back to approximation
+            console.log(
+                "[yellow]No cost data available. Showing token approximation:[/yellow]"
+            )
+            log_costs(ctx.manager.log.messages)
 
 
 @command("tools")
