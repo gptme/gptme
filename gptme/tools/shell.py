@@ -219,7 +219,7 @@ def cleanup_finished_jobs() -> None:
 
 
 def reset_background_jobs() -> None:
-    """Reset job tracking state. For testing purposes only."""
+    """Stop and clean up all background jobs. Called on exit and for testing."""
     global _next_job_id
     with _job_lock:
         # Kill any running jobs
@@ -228,6 +228,10 @@ def reset_background_jobs() -> None:
                 job.kill()
         _background_jobs.clear()
         _next_job_id = 1
+
+
+# Register cleanup handler to prevent orphaned bg jobs when gptme exits (Issue #993)
+atexit.register(reset_background_jobs)
 
 
 allowlist_commands = [
@@ -1349,6 +1353,48 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
             pass
 
 
+def _execute_preceding_commands(
+    cmds: str, confirm: ConfirmFunc
+) -> Generator[Message, None, None]:
+    """Execute commands that precede a bg command.
+
+    These commands modify shell state (e.g., cd) that the bg command needs.
+    We execute them through the shell session to maintain state.
+
+    Issue #992: Enables patterns like:
+        cd /project
+        bg npm run dev
+    """
+    # Use the stateful shell session to execute preceding commands
+    # so that state changes (like cd) persist for the bg command
+    shell_session = get_shell()
+
+    try:
+        # Run the preceding commands to update shell state
+        returncode, stdout, stderr = shell_session.run(cmds, timeout=30.0)
+
+        # Only report output if there is any
+        output_parts = []
+        if stdout and stdout.strip():
+            output_parts.append(f"```stdout\n{stdout.strip()}\n```")
+        if stderr and stderr.strip():
+            output_parts.append(f"```stderr\n{stderr.strip()}\n```")
+
+        if output_parts:
+            yield Message(
+                "system",
+                "Ran preceding commands:\n" + "\n".join(output_parts),
+            )
+
+        if returncode != 0:
+            yield Message(
+                "system",
+                f"Warning: Preceding commands exited with code {returncode}",
+            )
+    except Exception as e:
+        yield Message("system", f"Error running preceding commands: {e}")
+
+
 def execute_shell(
     code: str | None,
     args: list[str] | None,
@@ -1358,15 +1404,54 @@ def execute_shell(
     """Executes a shell command and returns the output."""
     cmd = get_shell_command(code, args, kwargs)
 
-    # Handle background job commands (Issue #576)
-    cmd_lower = cmd.strip().lower()
-    cmd_parts = cmd.strip().split(maxsplit=1)
+    # Handle background job commands (Issue #576, #992)
+    cmd_stripped = cmd.strip()
+    cmd_lower = cmd_stripped.lower()
+    cmd_parts = cmd_stripped.split(maxsplit=1)
 
-    if cmd_lower.startswith("bg "):
-        # Start background job: bg <command>
-        bg_cmd = cmd[3:].strip()
-        yield from execute_bg_command(bg_cmd)
-        return
+    # Check for bg command - can be on any line (Issue #992)
+    # Split into lines and find if any line starts with "bg "
+    lines = cmd_stripped.split("\n")
+    bg_line_idx = None
+    for i, line in enumerate(lines):
+        line_stripped = line.strip().lower()
+        if line_stripped.startswith("bg "):
+            bg_line_idx = i
+            break
+
+    if bg_line_idx is not None:
+        # Found a bg command
+        if bg_line_idx == 0 and len(lines) == 1:
+            # Simple case: bg is the only command
+            bg_cmd = cmd_stripped[3:].strip()
+            yield from execute_bg_command(bg_cmd)
+            return
+        elif bg_line_idx > 0:
+            # bg is on a later line - execute preceding commands first (Issue #992)
+            preceding_cmds = "\n".join(lines[:bg_line_idx])
+            if preceding_cmds.strip():
+                # Execute preceding commands (they modify shell state like cd)
+                yield from _execute_preceding_commands(preceding_cmds, confirm)
+            # Now execute the bg command
+            bg_line = lines[bg_line_idx].strip()
+            bg_cmd = bg_line[3:].strip()  # Remove "bg " prefix
+            yield from execute_bg_command(bg_cmd)
+            # Execute any remaining commands after bg (unlikely but handle it)
+            if bg_line_idx < len(lines) - 1:
+                remaining_cmds = "\n".join(lines[bg_line_idx + 1 :])
+                if remaining_cmds.strip():
+                    yield from execute_shell(remaining_cmds, None, None, confirm)
+            return
+        else:
+            # bg is first line but there are more lines after it
+            # Start bg job, then execute remaining commands
+            bg_line = lines[0].strip()
+            bg_cmd = bg_line[3:].strip()
+            yield from execute_bg_command(bg_cmd)
+            remaining_cmds = "\n".join(lines[1:])
+            if remaining_cmds.strip():
+                yield from execute_shell(remaining_cmds, None, None, confirm)
+            return
 
     if cmd_lower == "jobs":
         # List background jobs
