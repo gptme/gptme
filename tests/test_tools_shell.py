@@ -1288,3 +1288,53 @@ def test_execute_jobs_command():
 
     job.kill()
     reset_background_jobs()
+
+
+def test_is_inside_string_context():
+    """Test the helper function that detects string context."""
+    from gptme.tools.shell import _is_inside_string_context
+
+    # Simple case - first line is never inside string
+    assert _is_inside_string_context(["bg echo test"], 0) is False
+
+    # Heredoc context
+    heredoc_lines = ["cat <<EOF", "bg this is inside heredoc", "EOF"]
+    assert _is_inside_string_context(heredoc_lines, 0) is False
+    assert _is_inside_string_context(heredoc_lines, 1) is True  # Inside heredoc
+    assert _is_inside_string_context(heredoc_lines, 2) is False  # After EOF
+
+    # Multi-line single-quoted string
+    single_quote_lines = ["echo 'first line", "bg inside string", "end'"]
+    assert _is_inside_string_context(single_quote_lines, 0) is False
+    assert _is_inside_string_context(single_quote_lines, 1) is True  # Inside string
+
+    # Multi-line double-quoted string
+    double_quote_lines = ['echo "first line', "bg inside string", 'end"']
+    assert _is_inside_string_context(double_quote_lines, 0) is False
+    assert _is_inside_string_context(double_quote_lines, 1) is True  # Inside string
+
+    # Normal multi-line commands (not in string)
+    normal_lines = ["cd /tmp", "bg npm run dev", "echo done"]
+    assert _is_inside_string_context(normal_lines, 0) is False
+    assert _is_inside_string_context(normal_lines, 1) is False  # Not inside string
+    assert _is_inside_string_context(normal_lines, 2) is False
+
+
+def test_bg_detection_ignores_heredoc():
+    """Test that bg detection skips lines inside heredocs."""
+    from gptme.tools.shell import execute_shell, reset_background_jobs
+
+    reset_background_jobs()
+
+    # This should NOT trigger bg detection - the "bg" is inside a heredoc
+    cmd = "cat <<EOF\nbg this is not a command\nEOF\necho after_heredoc"
+
+    # Execute and check no background job was started
+    messages = list(execute_shell(cmd, [], None, lambda *args, **kwargs: True))
+
+    # Should not contain "Started background job" - this is heredoc content
+    content = " ".join(m.content for m in messages)
+    assert "Started background job" not in content
+    assert "after_heredoc" in content
+
+    reset_background_jobs()

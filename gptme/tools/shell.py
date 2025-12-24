@@ -137,14 +137,32 @@ class BackgroundJob:
         return time.time() - self.start_time
 
     def kill(self) -> None:
-        """Terminate the background job."""
+        """Terminate the background job and all its child processes."""
         self._stop_event.set()
         try:
-            self.process.terminate()
+            # Use process group to kill child processes too (like ShellSession.close)
+            # This prevents orphaned children when bg job spawns subprocesses (e.g., npm -> node)
+            pgid = os.getpgid(self.process.pid)
+            os.killpg(pgid, signal.SIGTERM)
             self.process.wait(timeout=2.0)
         except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait()
+            try:
+                pgid = os.getpgid(self.process.pid)
+                os.killpg(pgid, signal.SIGKILL)
+                self.process.wait()
+            except ProcessLookupError:
+                pass  # Already exited
+        except ProcessLookupError:
+            # Process already exited; can happen due to cleanup races
+            pass
+        except Exception as e:
+            logger.warning(f"Error terminating background job: {e}")
+            # Fallback to direct process kill
+            try:
+                self.process.kill()
+                self.process.wait()
+            except Exception:
+                pass
         # Join reader thread to ensure clean shutdown
         if self._reader_thread and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=1.0)
@@ -228,6 +246,66 @@ def reset_background_jobs() -> None:
                 job.kill()
         _background_jobs.clear()
         _next_job_id = 1
+
+
+def _is_inside_string_context(lines: list[str], line_idx: int) -> bool:
+    """Check if a line appears to be inside a multi-line string context.
+
+    This is a heuristic to prevent false positive bg command detection when
+    "bg " appears at the start of a line that's actually inside a heredoc
+    or multi-line string.
+
+    Returns True if the line appears to be inside a string context.
+    """
+    if line_idx == 0:
+        return False
+
+    # Check preceding lines for heredoc markers
+    preceding_text = "\n".join(lines[:line_idx])
+    current_line = lines[line_idx].strip()
+
+    # Check for open heredoc (<<EOF, <<'EOF', <<"EOF", <<-EOF)
+    # Simple heuristic: look for << followed by delimiter without matching delimiter line
+    heredoc_pattern = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
+    for match in heredoc_pattern.finditer(preceding_text):
+        delimiter = match.group(1)
+        # Check if current line IS the delimiter (heredoc terminator)
+        if current_line == delimiter:
+            # This line is the heredoc terminator, not inside the heredoc
+            continue
+        # Check if the delimiter appears on its own line before the current line
+        delimiter_found = False
+        for line in lines[:line_idx]:
+            if line.strip() == delimiter:
+                delimiter_found = True
+                break
+        if not delimiter_found:
+            # We're inside an open heredoc
+            return True
+
+    # Check for unbalanced quotes (simple heuristic)
+    # Count single and double quotes, excluding escaped ones
+    single_quotes = 0
+    double_quotes = 0
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(preceding_text):
+        char = preceding_text[i]
+        # Skip escaped characters
+        if char == "\\" and i + 1 < len(preceding_text):
+            i += 2
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+            single_quotes += 1
+        elif char == '"' and not in_single:
+            in_double = not in_double
+            double_quotes += 1
+        i += 1
+
+    # If we're inside an unclosed quote, we're in string context
+    return in_single or in_double
 
 
 # Register cleanup handler to prevent orphaned bg jobs when gptme exits (Issue #993)
@@ -1411,13 +1489,16 @@ def execute_shell(
 
     # Check for bg command - can be on any line (Issue #992)
     # Split into lines and find if any line starts with "bg "
+    # Skip lines that appear to be inside string context (heredocs, multi-line strings)
     lines = cmd_stripped.split("\n")
     bg_line_idx = None
     for i, line in enumerate(lines):
         line_stripped = line.strip().lower()
         if line_stripped.startswith("bg "):
-            bg_line_idx = i
-            break
+            # Verify this isn't inside a heredoc or multi-line string
+            if not _is_inside_string_context(lines, i):
+                bg_line_idx = i
+                break
 
     if bg_line_idx is not None:
         # Found a bg command
