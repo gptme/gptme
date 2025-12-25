@@ -992,6 +992,21 @@ Assistant: I'll spawn a subagent. Completion will be delivered via the LOOP_CONT
 # "✅ Subagent 'compute-demo' completed: pi = 3.14159..."''').to_output(tool_format)}
 System: Started subagent "compute-demo"
 System: ✅ Subagent 'compute-demo' completed: pi = 3.14159265358979...
+
+### Structured Delegation Template
+User: implement a robust auth feature
+Assistant: I'll use the structured delegation template for clear task handoff.
+{ToolUse("ipython", [], '''prompt = """
+TASK: Implement JWT-based authentication for the API
+EXPECTED OUTCOME: auth.py with login/logout/refresh endpoints, all tests passing
+REQUIRED SKILLS: Python, FastAPI, JWT token handling, password hashing
+REQUIRED TOOLS: save (for creating files), shell (for running pytest)
+MUST DO: Use bcrypt for passwords, validate all inputs, return proper HTTP codes
+MUST NOT DO: Store plaintext passwords, log sensitive data, skip token expiry
+CONTEXT: Part of gptme-server, see existing patterns in server.py
+"""
+subagent("auth-impl", prompt)''').to_output(tool_format)}
+System: Subagent started successfully.
 """.strip()
 
 
@@ -1010,6 +1025,29 @@ Key features:
 - Hook-based notifications: Completions delivered as system messages
 
 Use subagent_read_log() to inspect a subagent's conversation log for debugging.
+
+## Structured Delegation Template
+
+For complex delegations, use this 7-section template for clear task handoff:
+
+TASK: [What the subagent should do]
+EXPECTED OUTCOME: [Specific deliverable - format, structure, quality bars]
+REQUIRED SKILLS: [What capabilities the subagent needs]
+REQUIRED TOOLS: [Specific tools the subagent should use]
+MUST DO: [Non-negotiable requirements]
+MUST NOT DO: [Explicit constraints and forbidden actions]
+CONTEXT: [Background info, dependencies, related work]
+
+Example prompt using the template:
+'''
+TASK: Implement the user authentication feature
+EXPECTED OUTCOME: auth.py with login/logout endpoints, passing tests
+REQUIRED SKILLS: Python, FastAPI, JWT tokens
+REQUIRED TOOLS: save, shell (for pytest)
+MUST DO: Use bcrypt for password hashing, return proper HTTP status codes
+MUST NOT DO: Store plaintext passwords, skip input validation
+CONTEXT: This is for the gptme server API, see existing endpoints in server.py
+'''
 """.strip()
 
 tool = ToolSpec(
