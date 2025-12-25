@@ -332,11 +332,12 @@ def auto_compact_log(
             )
 
     # Phase 3: Extractive compression for long assistant messages
+    compacted_log_len = len(compacted_log)
     for idx, msg in enumerate(compacted_log):
         if msg.pinned:
             continue
 
-        distance_from_end = log_length - idx - 1
+        distance_from_end = compacted_log_len - idx - 1
         msg_tokens = len_tokens(msg.content, model.model)
 
         # Compress messages >1000 tokens that aren't very recent
