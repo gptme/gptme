@@ -145,13 +145,16 @@ def _capture_pane(pane_id: str) -> str:
 # Lock for new_session to avoid race conditions when creating sessions concurrently
 _new_session_lock = threading.Lock()
 
+
 def flock(lock):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             with lock:
                 return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -159,17 +162,29 @@ def flock(lock):
 # as can happen in tests, causing flakiness
 @flock(_new_session_lock)
 def new_session(command: str) -> Message:
-    _max_session_id = 0
-    for session in get_sessions():
-        # Only parse sessions matching exact pattern "gptme_N" (not gptme_gw0_*, gptme_test_*, etc.)
-        if session.startswith("gptme_"):
-            parts = session.split("_")
-            if len(parts) == 2 and parts[1].isdigit():
-                _max_session_id = max(_max_session_id, int(parts[1]))
-    session_id = f"gptme_{_max_session_id + 1}"
-    # cmd = ["tmux", "new-session", "-d", "-s", session_id, command]
-    cmd = ["tmux", "new-session", "-d", "-s", session_id, "bash"]
-    _run_tmux_command(cmd)
+    # Retry loop to handle race conditions where session already exists
+    max_retries = 5
+    session_id = ""
+    for attempt in range(max_retries):
+        _max_session_id = 0
+        for session in get_sessions():
+            # Only parse sessions matching exact pattern "gptme_N" (not gptme_gw0_*, gptme_test_*, etc.)
+            if session.startswith("gptme_"):
+                parts = session.split("_")
+                if len(parts) == 2 and parts[1].isdigit():
+                    _max_session_id = max(_max_session_id, int(parts[1]))
+        # Add attempt offset to avoid collision on retry
+        session_id = f"gptme_{_max_session_id + 1 + attempt}"
+        try:
+            cmd = ["tmux", "new-session", "-d", "-s", session_id, "bash"]
+            _run_tmux_command(cmd)
+            break  # Success, exit retry loop
+        except subprocess.CalledProcessError:
+            if attempt == max_retries - 1:
+                raise  # Re-raise on last attempt
+            # Session might already exist (race condition), retry with higher ID
+            sleep(0.1)  # Brief delay before retry
+            continue
 
     # set session size
     cmd = ["tmux", "resize-window", "-t", session_id, "-x", "120", "-y", "40"]
