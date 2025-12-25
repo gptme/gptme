@@ -194,8 +194,12 @@ def auto_compact_log(
 
     More aggressive than reduce_log - implements strategic removal:
     1. Strips reasoning tags from older messages (age-based)
-    2. Removes massive tool results (existing behavior)
+    2. Removes massive tool results (largest-first strategy for efficiency)
     3. Extractive compression for long assistant messages (Phase 3)
+
+    The "truncate largest first" strategy (inspired by oh-my-opencode) ensures we
+    achieve target token reduction with minimal information loss by prioritizing
+    the largest outputs for truncation.
 
     Args:
         log: List of messages to compact
@@ -249,21 +253,18 @@ def auto_compact_log(
             f"Stripping reasoning from messages beyond threshold {reasoning_strip_age_threshold}"
         )
 
-    # Process messages and remove massive tool results
-    compacted_log = []
-    tokens_saved = 0
+    # Phase 1: Strategic reasoning stripping for older messages
+    # Process all messages first to strip reasoning
+    compacted_log: list[Message] = []
     reasoning_tokens_saved = 0
 
     for idx, msg in enumerate(log):
-        # Skip processing pinned messages
         if msg.pinned:
             compacted_log.append(msg)
             continue
 
-        # Calculate distance from end (for age-based processing)
         distance_from_end = log_length - idx - 1
 
-        # Phase 1: Strategic reasoning stripping for older messages
         # Strip reasoning from messages beyond the threshold
         if distance_from_end >= reasoning_strip_age_threshold:
             stripped_content, reasoning_saved = strip_reasoning(
@@ -277,16 +278,39 @@ def auto_compact_log(
                     f"saved {reasoning_saved} tokens (distance from end: {distance_from_end})"
                 )
 
-        msg_tokens = len_tokens(msg.content, model.model)
+        compacted_log.append(msg)
 
-        # Phase 2: Check if this is a massive tool result (system message with huge content)
-        # Use same logic as should_auto_compact: over limit OR close to limit with massive tool result
-        close_to_limit = tokens >= int(0.8 * model.context)
-        if (
-            msg.role == "system"
-            and msg_tokens > max_tool_result_tokens
-            and (tokens > limit or close_to_limit)
-        ):
+    # Phase 2: Truncate largest tool results first (oh-my-opencode strategy)
+    # Instead of truncating all large results in order, prioritize the largest
+    # This achieves target reduction with minimal information loss
+    tokens_saved = 0
+    current_tokens = len_tokens(compacted_log, model.model)
+    target_tokens = int(0.8 * model.context)  # Target 80% of context
+
+    if current_tokens > target_tokens:
+        # Identify all candidate tool results for truncation (with original indices)
+        candidates: list[tuple[int, int, Message]] = []  # (idx, tokens, msg)
+        for idx, msg in enumerate(compacted_log):
+            if msg.pinned:
+                continue
+            if msg.role == "system":
+                msg_tokens = len_tokens(msg.content, model.model)
+                if msg_tokens > max_tool_result_tokens:
+                    candidates.append((idx, msg_tokens, msg))
+
+        # Sort by token count descending (largest first)
+        candidates.sort(key=lambda x: x[1], reverse=True)
+
+        # Truncate largest outputs until under target
+        truncated_indices: set[int] = set()
+        for idx, msg_tokens, msg in candidates:
+            if current_tokens <= target_tokens:
+                logger.info(
+                    f"Reached target tokens ({current_tokens} <= {target_tokens}), "
+                    f"stopping truncation early"
+                )
+                break
+
             # Replace with a brief summary message
             summary_content = create_tool_result_summary(
                 content=msg.content,
@@ -295,33 +319,43 @@ def auto_compact_log(
                 tool_name="autocompact",
             )
             summary_msg = msg.replace(content=summary_content)
-            compacted_log.append(summary_msg)
+            compacted_log[idx] = summary_msg
+            truncated_indices.add(idx)
 
-            tokens_saved += msg_tokens - len_tokens(summary_content, model.model)
+            saved = msg_tokens - len_tokens(summary_content, model.model)
+            tokens_saved += saved
+            current_tokens -= saved
             logger.info(
-                f"Removed massive tool result: {msg_tokens} tokens -> {len_tokens(summary_content, model.model)} tokens"
+                f"Truncated largest tool result at idx {idx}: "
+                f"{msg_tokens} -> {len_tokens(summary_content, model.model)} tokens "
+                f"(saved {saved}, now at {current_tokens} tokens)"
             )
-        else:
-            # Phase 3: Extractive compression for long assistant messages
-            # Compress messages >1000 tokens that aren't very recent
-            if (
-                distance_from_end >= 3  # Don't compress very recent messages
-                and msg.role == "assistant"  # Only compress assistant responses
-                and msg_tokens > 1000  # Only compress long messages
-            ):
-                compressed_content = compress_content(msg.content, target_ratio=0.7)
-                compressed_tokens = len_tokens(compressed_content, model.model)
 
-                if compressed_tokens < msg_tokens:
-                    msg = msg.replace(content=compressed_content)
-                    compression_saved = msg_tokens - compressed_tokens
-                    tokens_saved += compression_saved
-                    logger.info(
-                        f"Compressed message {idx}: {msg_tokens} -> {compressed_tokens} tokens "
-                        f"({compression_saved} saved, {(compression_saved/msg_tokens)*100:.1f}% reduction)"
-                    )
+    # Phase 3: Extractive compression for long assistant messages
+    for idx, msg in enumerate(compacted_log):
+        if msg.pinned:
+            continue
 
-            compacted_log.append(msg)
+        distance_from_end = log_length - idx - 1
+        msg_tokens = len_tokens(msg.content, model.model)
+
+        # Compress messages >1000 tokens that aren't very recent
+        if (
+            distance_from_end >= 3  # Don't compress very recent messages
+            and msg.role == "assistant"  # Only compress assistant responses
+            and msg_tokens > 1000  # Only compress long messages
+        ):
+            compressed_content = compress_content(msg.content, target_ratio=0.7)
+            compressed_tokens = len_tokens(compressed_content, model.model)
+
+            if compressed_tokens < msg_tokens:
+                compacted_log[idx] = msg.replace(content=compressed_content)
+                compression_saved = msg_tokens - compressed_tokens
+                tokens_saved += compression_saved
+                logger.info(
+                    f"Compressed message {idx}: {msg_tokens} -> {compressed_tokens} tokens "
+                    f"({compression_saved} saved, {(compression_saved/msg_tokens)*100:.1f}% reduction)"
+                )
 
     # Check if we're now within limits
     final_tokens = len_tokens(compacted_log, model.model)
@@ -329,7 +363,7 @@ def auto_compact_log(
     if final_tokens <= limit:
         logger.info(
             f"Auto-compacting successful: {tokens} -> {final_tokens} tokens "
-            f"(saved {total_saved}: {tokens_saved} from tool results, "
+            f"(saved {total_saved}: {tokens_saved} from tool results/compression, "
             f"{reasoning_tokens_saved} from reasoning)"
         )
         yield from compacted_log
