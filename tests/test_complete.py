@@ -6,6 +6,7 @@ import pytest
 
 from gptme.logmanager import Log
 from gptme.message import Message
+from gptme.tools import todo
 from gptme.tools.base import ToolUse
 from gptme.tools.complete import SessionCompleteException, auto_reply_hook
 
@@ -163,3 +164,174 @@ class TestAutoReplyHook:
                 auto_reply_hook(manager, interactive=False, prompt_queue=None)
             )
             assert len(result) == 0
+
+
+class TestTodoContinuationEnforcer:
+    """Tests for todo-based continuation enforcement."""
+
+    def setup_method(self):
+        """Clear todos before each test."""
+        todo._current_todos.clear()
+
+    def teardown_method(self):
+        """Clear todos after each test."""
+        todo._current_todos.clear()
+
+    def test_auto_reply_with_incomplete_todos(self):
+        """Should mention incomplete todos when they exist."""
+        # Add some incomplete todos
+        todo._current_todos["1"] = {
+            "id": "1",
+            "text": "Implement feature X",
+            "state": "in_progress",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+        todo._current_todos["2"] = {
+            "id": "2",
+            "text": "Write tests",
+            "state": "pending",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+
+        messages = [
+            Message("assistant", "Let me think about this..."),
+        ]
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+
+        result = list(auto_reply_hook(manager, interactive=False, prompt_queue=None))
+        assert len(result) == 1
+        assert isinstance(result[0], Message)
+        # Should mention incomplete todos
+        assert "incomplete todos" in result[0].content
+        assert "Implement feature X" in result[0].content
+        assert "Write tests" in result[0].content
+
+    def test_auto_reply_without_incomplete_todos(self):
+        """Should show normal message when no incomplete todos."""
+        # Add only completed todos
+        todo._current_todos["1"] = {
+            "id": "1",
+            "text": "Done task",
+            "state": "completed",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+
+        messages = [
+            Message("assistant", "Let me think about this..."),
+        ]
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+
+        result = list(auto_reply_hook(manager, interactive=False, prompt_queue=None))
+        assert len(result) == 1
+        assert isinstance(result[0], Message)
+        # Should show normal "Did you mean to finish?" message
+        assert "Did you mean to finish?" in result[0].content
+        assert "use the `complete` tool" in result[0].content
+
+    def test_auto_reply_empty_todos(self):
+        """Should show normal message when todo list is empty."""
+        # Ensure no todos
+        assert len(todo._current_todos) == 0
+
+        messages = [
+            Message("assistant", "Let me think about this..."),
+        ]
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+
+        result = list(auto_reply_hook(manager, interactive=False, prompt_queue=None))
+        assert len(result) == 1
+        assert isinstance(result[0], Message)
+        # Should show normal "Did you mean to finish?" message
+        assert "Did you mean to finish?" in result[0].content
+
+
+class TestTodoHelpers:
+    """Tests for todo helper functions."""
+
+    def setup_method(self):
+        """Clear todos before each test."""
+        todo._current_todos.clear()
+
+    def teardown_method(self):
+        """Clear todos after each test."""
+        todo._current_todos.clear()
+
+    def test_has_incomplete_todos_true(self):
+        """Should return True when incomplete todos exist."""
+        todo._current_todos["1"] = {
+            "id": "1",
+            "text": "Task",
+            "state": "pending",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+        assert todo.has_incomplete_todos() is True
+
+    def test_has_incomplete_todos_in_progress(self):
+        """Should return True for in_progress todos."""
+        todo._current_todos["1"] = {
+            "id": "1",
+            "text": "Task",
+            "state": "in_progress",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+        assert todo.has_incomplete_todos() is True
+
+    def test_has_incomplete_todos_false(self):
+        """Should return False when all todos are completed."""
+        todo._current_todos["1"] = {
+            "id": "1",
+            "text": "Task",
+            "state": "completed",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+        assert todo.has_incomplete_todos() is False
+
+    def test_has_incomplete_todos_empty(self):
+        """Should return False when no todos exist."""
+        assert todo.has_incomplete_todos() is False
+
+    def test_get_incomplete_todos_summary(self):
+        """Should return formatted summary of incomplete todos."""
+        todo._current_todos["1"] = {
+            "id": "1",
+            "text": "Task 1",
+            "state": "in_progress",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+        todo._current_todos["2"] = {
+            "id": "2",
+            "text": "Task 2",
+            "state": "pending",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+
+        summary = todo.get_incomplete_todos_summary()
+        assert "Task 1" in summary
+        assert "Task 2" in summary
+        assert "🔄" in summary  # in_progress emoji
+        assert "🔲" in summary  # pending emoji
+
+    def test_get_incomplete_todos_summary_empty(self):
+        """Should return empty string when no incomplete todos."""
+        todo._current_todos["1"] = {
+            "id": "1",
+            "text": "Done",
+            "state": "completed",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+        assert todo.get_incomplete_todos_summary() == ""

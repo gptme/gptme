@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from ..hooks import HookType, StopPropagation
 from ..message import Message
 from .base import ConfirmFunc, ToolSpec, ToolUse
+from .todo import get_incomplete_todos_summary, has_incomplete_todos
 
 if TYPE_CHECKING:
     from ..logmanager import LogManager
@@ -135,14 +136,26 @@ def auto_reply_hook(
         raise SessionCompleteException("No tools used after 2 auto-reply confirmations")
 
     # First time - inject auto-reply
-    logger.info(
-        "Auto-reply: Assistant message had no tools. Asking for confirmation..."
-    )
-    yield Message(
-        "user",
-        "<system>No tool call detected in last message. Did you mean to finish? If so, make sure you are completely done and then use the `complete` tool to end the session.</system>",
-        quiet=False,
-    )
+    # Check for incomplete todos - if present, remind about them instead of asking about completion
+    if has_incomplete_todos():
+        incomplete_summary = get_incomplete_todos_summary()
+        logger.info(
+            "Auto-reply: Assistant had no tools but has incomplete todos. Reminding to continue..."
+        )
+        yield Message(
+            "user",
+            f"<system>No tool call detected in last message. You have incomplete todos:\n{incomplete_summary}\n\nPlease continue working on these tasks, or mark them complete/remove them before finishing.</system>",
+            quiet=False,
+        )
+    else:
+        logger.info(
+            "Auto-reply: Assistant message had no tools. Asking for confirmation..."
+        )
+        yield Message(
+            "user",
+            "<system>No tool call detected in last message. Did you mean to finish? If so, make sure you are completely done and then use the `complete` tool to end the session.</system>",
+            quiet=False,
+        )
 
 
 tool = ToolSpec(

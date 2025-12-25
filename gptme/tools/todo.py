@@ -71,6 +71,46 @@ def _generate_todo_id() -> str:
     return str(max(existing_ids, default=0) + 1)
 
 
+def has_incomplete_todos() -> bool:
+    """Check if there are any incomplete todos in working memory.
+
+    Used by auto_reply_hook to determine if the agent should continue
+    working instead of being asked about completion.
+
+    Returns:
+        True if there are any pending or in_progress todos.
+    """
+    for todo in _current_todos.values():
+        if todo["state"] in ("pending", "in_progress"):
+            return True
+    return False
+
+
+def get_incomplete_todos_summary() -> str:
+    """Get a summary of incomplete todos for continuation prompts.
+
+    Returns:
+        A formatted string listing incomplete todos, or empty string if none.
+    """
+    incomplete = [
+        todo
+        for todo in _current_todos.values()
+        if todo["state"] in ("pending", "in_progress")
+    ]
+    if not incomplete:
+        return ""
+
+    # Sort by ID for consistent ordering
+    incomplete.sort(key=lambda x: int(x["id"]))
+
+    lines = []
+    for todo in incomplete:
+        state_emoji = "🔄" if todo["state"] == "in_progress" else "🔲"
+        lines.append(f"  {state_emoji} {todo['text']}")
+
+    return "\n".join(lines)
+
+
 def _format_todo_list() -> str:
     """Format the current todo list for display."""
     if not _current_todos:
@@ -388,4 +428,9 @@ to restore your todo list state.
 )
 
 
-__all__ = ["todoread", "todowrite"]
+__all__ = [
+    "todoread",
+    "todowrite",
+    "has_incomplete_todos",
+    "get_incomplete_todos_summary",
+]
