@@ -78,13 +78,12 @@ class LessonMatcher:
             # Skill description matching (Anthropic format)
             # Extract significant words from description and match
             if lesson.metadata.description and not matched_by:
-                # Only use description matching if not already matched by name
+                # Only use description matching if not already matched
+                # (avoids duplicate matching from keywords, name, or tools)
                 desc_words = self._extract_description_keywords(
                     lesson.metadata.description
                 )
-                matched_desc_words = [
-                    w for w in desc_words if w.lower() in message_lower
-                ]
+                matched_desc_words = [w for w in desc_words if w in message_lower]
                 if len(matched_desc_words) >= 2:  # Require at least 2 matches
                     score += 0.5 * len(matched_desc_words)
                     matched_by.append(f"description:{','.join(matched_desc_words[:3])}")
