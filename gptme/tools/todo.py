@@ -100,8 +100,10 @@ def get_incomplete_todos_summary() -> str:
     if not incomplete:
         return ""
 
-    # Sort by ID for consistent ordering
-    incomplete.sort(key=lambda x: int(x["id"]))
+    # Sort by ID for consistent ordering (numeric IDs first, then alphabetically)
+    incomplete.sort(
+        key=lambda x: (0, int(x["id"])) if x["id"].isdigit() else (1, x["id"])
+    )
 
     lines = []
     for todo in incomplete:
