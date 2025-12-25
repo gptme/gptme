@@ -1,0 +1,2 @@
+/app/.git: Permission denied
+bash: line 32: sudo: command not found
