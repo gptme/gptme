@@ -996,16 +996,7 @@ System: ✅ Subagent 'compute-demo' completed: pi = 3.14159265358979...
 ### Structured Delegation Template
 User: implement a robust auth feature
 Assistant: I'll use the structured delegation template for clear task handoff.
-{ToolUse("ipython", [], """prompt = '''
-TASK: Implement JWT-based authentication for the API
-EXPECTED OUTCOME: auth.py with login/logout/refresh endpoints, all tests passing
-REQUIRED SKILLS: Python, FastAPI, JWT token handling, password hashing
-REQUIRED TOOLS: save (for creating files), shell (for running pytest)
-MUST DO: Use bcrypt for passwords, validate all inputs, return proper HTTP codes
-MUST NOT DO: Store plaintext passwords, log sensitive data, skip token expiry
-CONTEXT: Part of gptme-server, see existing patterns in server.py
-'''
-subagent("auth-impl", prompt)""").to_output(tool_format)}
+{ToolUse("ipython", [], 'prompt = "TASK: Implement JWT auth\\nEXPECTED OUTCOME: auth.py with endpoints, tests passing\\nMUST DO: Use bcrypt, validate inputs\\nMUST NOT DO: Store plaintext passwords"\\nsubagent("auth-impl", prompt)').to_output(tool_format)}
 System: Subagent started successfully.
 """.strip()
 
