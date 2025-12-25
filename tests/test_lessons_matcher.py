@@ -231,3 +231,166 @@ class TestLessonMatcher:
         assert len(results) == 2
         assert results[0].lesson.title == "Lesson B"  # Higher score
         assert results[1].lesson.title == "Lesson A"  # Lower score
+
+
+class TestSkillMatching:
+    """Tests for Anthropic skill format matching (name and description)."""
+
+    @pytest.fixture
+    def sample_skills(self):
+        """Create sample skills for testing."""
+        return [
+            Lesson(
+                title="Python REPL Skill",
+                category="skills",
+                description="Interactive Python REPL automation",
+                body="# Python REPL Skill\n\nContent",
+                metadata=LessonMetadata(
+                    name="python-repl",
+                    description="Interactive Python REPL automation with common helpers and best practices",
+                ),
+                path=Path("/skills/python-repl/SKILL.md"),
+            ),
+            Lesson(
+                title="Context Optimization",
+                category="skills",
+                description="Optimize context window usage",
+                body="# Context Optimization\n\nContent",
+                metadata=LessonMetadata(
+                    name="context-optimization",
+                    description="Techniques for optimizing context window usage and token efficiency",
+                ),
+                path=Path("/skills/context-optimization/SKILL.md"),
+            ),
+            Lesson(
+                title="Tool Design Skill",
+                category="skills",
+                description="Design effective tools",
+                body="# Tool Design Skill\n\nContent",
+                metadata=LessonMetadata(
+                    name="tool-design",
+                    description="Best practices for designing effective AI assistant tools",
+                ),
+                path=Path("/skills/tool-design/SKILL.md"),
+            ),
+        ]
+
+    def test_skill_name_match_exact(self, sample_skills):
+        """Test matching skill by exact name."""
+        matcher = LessonMatcher()
+        context = MatchContext(message="I need help with python-repl")
+
+        results = matcher.match(sample_skills, context)
+
+        assert len(results) == 1
+        assert results[0].lesson.title == "Python REPL Skill"
+        assert "skill:python-repl" in results[0].matched_by
+        assert results[0].score >= 1.5  # name match weight
+
+    def test_skill_name_match_with_spaces(self, sample_skills):
+        """Test matching skill name with spaces instead of hyphens."""
+        matcher = LessonMatcher()
+        context = MatchContext(message="How do I use python repl?")
+
+        results = matcher.match(sample_skills, context)
+
+        assert len(results) == 1
+        assert results[0].lesson.title == "Python REPL Skill"
+        assert "skill:python-repl" in results[0].matched_by
+
+    def test_skill_name_match_no_separator(self, sample_skills):
+        """Test matching skill name without any separator."""
+        matcher = LessonMatcher()
+        context = MatchContext(message="pythonrepl tips")
+
+        results = matcher.match(sample_skills, context)
+
+        assert len(results) == 1
+        assert results[0].lesson.title == "Python REPL Skill"
+
+    def test_skill_description_match(self, sample_skills):
+        """Test matching skill by description keywords."""
+        matcher = LessonMatcher()
+        # Use words from description: "token efficiency"
+        context = MatchContext(
+            message="I need to improve token efficiency in my prompts"
+        )
+
+        results = matcher.match(sample_skills, context)
+
+        assert len(results) >= 1
+        # Should match context-optimization based on description
+        skill_names = [r.lesson.title for r in results]
+        assert "Context Optimization" in skill_names
+
+    def test_skill_name_preferred_over_description(self, sample_skills):
+        """Test that name match is preferred over description match."""
+        matcher = LessonMatcher()
+        context = MatchContext(message="python-repl usage")
+
+        results = matcher.match(sample_skills, context)
+
+        # Name match should take precedence
+        assert len(results) >= 1
+        assert results[0].lesson.title == "Python REPL Skill"
+        # Should have skill: match, not description: match
+        matched_types = [m.split(":")[0] for m in results[0].matched_by]
+        assert "skill" in matched_types
+
+    def test_mixed_lessons_and_skills(self, sample_lessons, sample_skills):
+        """Test matching with both lessons and skills."""
+        matcher = LessonMatcher()
+        all_content = sample_lessons + sample_skills
+        context = MatchContext(message="I need to patch a file and use python-repl")
+
+        results = matcher.match(all_content, context)
+
+        # Should match both lesson (patch) and skill (python-repl)
+        assert len(results) >= 2
+        titles = [r.lesson.title for r in results]
+        assert "Patch Lesson" in titles
+        assert "Python REPL Skill" in titles
+
+    def test_skill_no_match_when_unrelated(self, sample_skills):
+        """Test that skills don't match on unrelated content."""
+        matcher = LessonMatcher()
+        context = MatchContext(message="What is the weather like today?")
+
+        results = matcher.match(sample_skills, context)
+
+        # Should have no matches
+        assert len(results) == 0
+
+    def test_extract_description_keywords(self):
+        """Test the _extract_description_keywords helper method."""
+        matcher = LessonMatcher()
+
+        keywords = matcher._extract_description_keywords(
+            "Interactive Python REPL automation with common helpers"
+        )
+
+        # Should extract meaningful words, not stop words
+        assert "interactive" in keywords
+        assert "python" in keywords
+        assert "repl" in keywords
+        assert "automation" in keywords
+        assert "helpers" in keywords
+        # Stop words should be excluded
+        assert "with" not in keywords
+
+    def test_description_requires_multiple_matches(self, sample_skills):
+        """Test that description matching requires at least 2 keyword matches."""
+        matcher = LessonMatcher()
+        # Only one word from description
+        context = MatchContext(message="Something about efficiency")
+
+        results = matcher.match(sample_skills, context)
+
+        # Should not match based on single description word
+        # (unless also matched by name)
+        for result in results:
+            matched_types = [m.split(":")[0] for m in result.matched_by]
+            if "description" in matched_types:
+                # If matched by description, should have matched by name too
+                # or multiple description words
+                assert result.score > 0.5

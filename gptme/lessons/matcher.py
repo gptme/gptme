@@ -32,10 +32,14 @@ class LessonMatcher:
     def match(
         self, lessons: list[Lesson], context: MatchContext, threshold: float = 0.0
     ) -> list[MatchResult]:
-        """Find matching lessons and score them.
+        """Find matching lessons and skills and score them.
+
+        Supports two formats:
+        - Lessons: match by `keywords` in frontmatter
+        - Skills (Anthropic format): match by `name` and `description` in frontmatter
 
         Args:
-            lessons: List of lessons to match against
+            lessons: List of lessons/skills to match against
             context: Context to match (message, tools, etc.)
             threshold: Minimum score threshold
 
@@ -49,11 +53,41 @@ class LessonMatcher:
             score = 0.0
             matched_by = []
 
-            # Keyword matching
+            # Keyword matching (lesson format)
             for keyword in lesson.metadata.keywords:
                 if keyword.lower() in message_lower:
                     score += 1.0
                     matched_by.append(f"keyword:{keyword}")
+
+            # Skill name matching (Anthropic format)
+            # Match if skill name appears in message
+            if lesson.metadata.name:
+                name_lower = lesson.metadata.name.lower()
+                # Handle hyphenated names (e.g., "python-repl" matches "python repl")
+                name_variants = [
+                    name_lower,
+                    name_lower.replace("-", " "),
+                    name_lower.replace("-", ""),
+                ]
+                for variant in name_variants:
+                    if variant in message_lower:
+                        score += 1.5  # Slightly higher weight for name matches
+                        matched_by.append(f"skill:{lesson.metadata.name}")
+                        break
+
+            # Skill description matching (Anthropic format)
+            # Extract significant words from description and match
+            if lesson.metadata.description and not matched_by:
+                # Only use description matching if not already matched by name
+                desc_words = self._extract_description_keywords(
+                    lesson.metadata.description
+                )
+                matched_desc_words = [
+                    w for w in desc_words if w.lower() in message_lower
+                ]
+                if len(matched_desc_words) >= 2:  # Require at least 2 matches
+                    score += 0.5 * len(matched_desc_words)
+                    matched_by.append(f"description:{','.join(matched_desc_words[:3])}")
 
             # Tool matching
             if context.tools_used and lesson.metadata.tools:
@@ -61,8 +95,6 @@ class LessonMatcher:
                     if tool in context.tools_used:
                         score += 2.0  # Higher weight for tool matches
                         matched_by.append(f"tool:{tool}")
-
-            # Future: glob matching, semantic matching
 
             if score > threshold:
                 results.append(
@@ -72,6 +104,73 @@ class LessonMatcher:
         # Sort by score, descending
         results.sort(key=lambda r: r.score, reverse=True)
         return results
+
+    def _extract_description_keywords(self, description: str) -> list[str]:
+        """Extract significant keywords from skill description.
+
+        Args:
+            description: Skill description text
+
+        Returns:
+            List of significant keywords (lowercase)
+        """
+        # Common stop words to exclude
+        stop_words = {
+            "a",
+            "an",
+            "the",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "from",
+            "as",
+            "is",
+            "was",
+            "are",
+            "were",
+            "been",
+            "be",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "must",
+            "can",
+            "this",
+            "that",
+            "these",
+            "those",
+            "it",
+            "its",
+        }
+
+        # Split on non-word characters and filter
+        import re
+
+        words = re.split(r"\W+", description.lower())
+        keywords = [
+            w
+            for w in words
+            if len(w) > 2 and w not in stop_words  # Min 3 chars
+        ]
+
+        return keywords
 
     def match_keywords(
         self, lessons: list[Lesson], keywords: list[str]
