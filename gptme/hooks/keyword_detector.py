@@ -13,7 +13,7 @@ See Issue #205 for context.
 import logging
 import re
 from collections.abc import Callable, Generator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -84,7 +84,12 @@ class KeywordDetector:
     """Manages keyword patterns and their detection."""
 
     def __init__(self, patterns: list[KeywordPattern] | None = None):
-        self.patterns = patterns if patterns is not None else list(DEFAULT_PATTERNS)
+        # Create independent copies of patterns to avoid shared state
+        # (important for parallel test execution where _last_triggered is mutable)
+        if patterns is not None:
+            self.patterns = [replace(p, _last_triggered=-100) for p in patterns]
+        else:
+            self.patterns = [replace(p, _last_triggered=-100) for p in DEFAULT_PATTERNS]
         self.message_count = 0
         self._custom_handlers: dict[
             str, Callable[[str, KeywordPattern], Message | None]
