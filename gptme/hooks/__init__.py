@@ -635,6 +635,9 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
         "cost_awareness": lambda: __import__(
             "gptme.hooks.cost_awareness", fromlist=["register"]
         ).register(),
+        "keyword_detector": lambda: __import__(
+            "gptme.hooks.keyword_detector", fromlist=["register_keyword_detector_hooks"]
+        ).register_keyword_detector_hooks(),
         # NOTE: subagent_completion is now registered via ToolSpec in tools/subagent.py
         "test": lambda: __import__(
             "gptme.hooks.test", fromlist=["register_test_hooks"]
