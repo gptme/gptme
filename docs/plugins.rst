@@ -27,7 +27,11 @@ A plugin is a Python package (directory with ``__init__.py``) that can contain:
 Configuration
 -------------
 
-Add plugin paths to your ``gptme.toml``:
+Plugins can be configured at two levels:
+
+**User-level** (``~/.config/gptme/config.toml``): Applies to all projects.
+
+**Project-level** (``gptme.toml`` in workspace root): Applies only to this project, merged with user config.
 
 .. code-block:: toml
 
@@ -36,10 +40,13 @@ Add plugin paths to your ``gptme.toml``:
    paths = [
        "~/.config/gptme/plugins",
        "~/.local/share/gptme/plugins",
+       "./plugins",  # Project-local plugins
    ]
 
    # Optional: only enable specific plugins (empty = all discovered)
    enabled = ["my_plugin", "another_plugin"]
+
+Project-level plugin paths are relative to the workspace root.
 
 Skills vs Plugins
 -----------------
