@@ -23,9 +23,27 @@ logger = logging.getLogger(__name__)
 
 
 def is_parallel_enabled() -> bool:
-    """Check if parallel tool execution is enabled."""
+    """Check if parallel tool execution is enabled.
+
+    .. deprecated::
+        Parallel execution is deprecated due to thread-safety issues with
+        prompt_toolkit and global state. Use GPTME_BREAK_ON_TOOLUSE=0 for
+        multi-tool mode which allows multiple tool calls per response but
+        executes them sequentially.
+    """
+    import warnings
+
     config = get_config()
-    return bool(config.get_env_bool("GPTME_TOOLUSE_PARALLEL", False))
+    enabled = bool(config.get_env_bool("GPTME_TOOLUSE_PARALLEL", False))
+    if enabled:
+        warnings.warn(
+            "Parallel tool execution (GPTME_TOOLUSE_PARALLEL) is deprecated due to "
+            "thread-safety issues and will be removed in a future version. "
+            "Use GPTME_BREAK_ON_TOOLUSE=0 for multi-tool mode instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    return enabled
 
 
 def execute_tooluse_in_thread(

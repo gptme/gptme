@@ -4,6 +4,8 @@ import os
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from gptme.message import Message
 from gptme.tools.parallel import (
     execute_tools_parallel,
@@ -22,11 +24,13 @@ class TestIsParallelEnabled:
             mock_config.return_value.get_env_bool.return_value = False
             assert is_parallel_enabled() is False
 
-    def test_enabled_via_env(self):
-        """Parallel should be enabled when env var is set."""
+    def test_enabled_via_env_warns_deprecation(self):
+        """Parallel should warn about deprecation when enabled."""
         with patch("gptme.tools.parallel.get_config") as mock_config:
             mock_config.return_value.get_env_bool.return_value = True
-            assert is_parallel_enabled() is True
+            with pytest.warns(DeprecationWarning, match="GPTME_TOOLUSE_PARALLEL"):
+                result = is_parallel_enabled()
+            assert result is True
 
 
 class TestExecuteToolsParallel:

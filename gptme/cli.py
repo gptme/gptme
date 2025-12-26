@@ -146,10 +146,17 @@ The interface provides user commands that can be used to interact with the syste
     help="Show verbose output.",
 )
 @click.option(
+    "--multi-tool/--no-multi-tool",
+    "multi_tool",
+    default=None,
+    help="Allow multiple tool calls per LLM response (disables break-on-tooluse). Enables efficient API usage with sequential execution.",
+)
+@click.option(
     "--parallel/--no-parallel",
     "parallel",
     default=None,
-    help="Enable parallel tool execution (also disables break-on-tooluse; can set GPTME_TOOLUSE_PARALLEL=1)",
+    hidden=True,  # Deprecated, hidden from help
+    help="[DEPRECATED] Use --multi-tool instead. Previously enabled parallel execution which caused thread-safety issues.",
 )
 @click.option(
     "--version",
@@ -199,6 +206,7 @@ def main(
     workspace: str | None,
     agent_path: str | None,
     profile: bool,
+    multi_tool: bool | None,
     parallel: bool | None,
     context_mode: str | None,
     context_include: tuple[str, ...],
@@ -206,13 +214,37 @@ def main(
 ):
     """Main entrypoint for the CLI."""
     import os
+    import warnings
 
-    # Handle parallel flag - set env var if CLI flag provided
+    # Handle deprecated --parallel flag
     if parallel is not None:
-        os.environ["GPTME_TOOLUSE_PARALLEL"] = "1" if parallel else "0"
-        # When parallel is enabled, also disable break_on_tooluse to allow multiple tool calls
-        if parallel:
-            os.environ["GPTME_BREAK_ON_TOOLUSE"] = "0"
+        warnings.warn(
+            "--parallel is deprecated and will be removed in a future version. "
+            "Use --multi-tool instead. Note: parallel execution has been removed "
+            "due to thread-safety issues; --multi-tool enables multiple tool calls "
+            "per response with sequential execution.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Treat --parallel as equivalent to --multi-tool
+        if multi_tool is None:
+            multi_tool = parallel
+
+    # Check for deprecated GPTME_TOOLUSE_PARALLEL env var
+    if os.environ.get("GPTME_TOOLUSE_PARALLEL"):
+        warnings.warn(
+            "GPTME_TOOLUSE_PARALLEL environment variable is deprecated and will be "
+            "ignored in a future version. Parallel execution has been removed due to "
+            "thread-safety issues. Use GPTME_BREAK_ON_TOOLUSE=0 for multi-tool mode.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    # Handle multi-tool flag - only controls break_on_tooluse, not parallel execution
+    if multi_tool is not None:
+        # Only set GPTME_BREAK_ON_TOOLUSE - multi-tool mode allows multiple tool calls
+        # per LLM response but executes them sequentially (no thread-safety issues)
+        os.environ["GPTME_BREAK_ON_TOOLUSE"] = "0" if multi_tool else "1"
 
     # Convert tool_allowlist from tuple to string or None
     # Use get_parameter_source to distinguish between default (None) and explicit empty list
