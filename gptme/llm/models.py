@@ -644,6 +644,12 @@ def _apply_model_filters(
     return filtered_models
 
 
+# Cache for model list (used by completers and CLI)
+_model_list_cache: list[ModelMeta] | None = None
+_model_list_cache_time: float = 0
+_MODEL_LIST_CACHE_TTL = 300  # 5 minutes
+
+
 def get_model_list(
     provider_filter: str | None = None,
     vision_only: bool = False,
@@ -654,6 +660,7 @@ def get_model_list(
     Get list of available models with optional filtering.
 
     This is the underlying function used by list_models() and command completers.
+    Results are cached for 5 minutes when dynamic_fetch=True to avoid repeated API calls.
 
     Args:
         provider_filter: Only include models from this provider
@@ -664,7 +671,24 @@ def get_model_list(
     Returns:
         List of ModelMeta objects
     """
+    import time
+
     from ..config import get_config  # fmt: skip
+
+    global _model_list_cache, _model_list_cache_time
+
+    # Check cache for unfiltered dynamic fetches
+    current_time = time.time()
+    use_cache = (
+        dynamic_fetch and not provider_filter and not vision_only and not reasoning_only
+    )
+
+    if (
+        use_cache
+        and _model_list_cache is not None
+        and current_time - _model_list_cache_time < _MODEL_LIST_CACHE_TTL
+    ):
+        return _model_list_cache
 
     all_models: list[ModelMeta] = []
 
@@ -689,6 +713,11 @@ def get_model_list(
         # Apply filters
         filtered_models = _apply_model_filters(models, vision_only, reasoning_only)
         all_models.extend(filtered_models)
+
+    # Update cache for unfiltered results
+    if use_cache:
+        _model_list_cache = all_models
+        _model_list_cache_time = current_time
 
     return all_models
 

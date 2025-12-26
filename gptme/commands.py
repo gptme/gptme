@@ -666,56 +666,13 @@ def cmd_context(ctx: CommandContext) -> None:
         console.log(f"[dim](approximate, using {tokenizer_model} tokenizer)[/dim]")
 
 
-# Cache for model completions (similar to fish completion cache)
-_model_completions_cache: list[tuple[str, str]] | None = None
-_model_cache_time: float = 0
-_MODEL_CACHE_TTL = 300  # 5 minutes, same as fish completion
-
-
-def _get_cached_models() -> list[tuple[str, str]]:
-    """Get cached model list, refreshing if stale.
-
-    Uses the same get_model_list() function as gptme-util models list.
-    """
-    import time
-
-    from .llm.models import get_default_model, get_model_list
-
-    global _model_completions_cache, _model_cache_time
-
-    current_time = time.time()
-    if (
-        _model_completions_cache is not None
-        and current_time - _model_cache_time < _MODEL_CACHE_TTL
-    ):
-        return _model_completions_cache
-
-    completions: list[tuple[str, str]] = []
-    current = get_default_model()
-
-    # Use the same function as gptme-util models list
-    try:
-        models = get_model_list(dynamic_fetch=True)
-        for model_meta in models:
-            full_name = model_meta.full
-            is_current = current and current.full == full_name
-            desc = "(current)" if is_current else ""
-            completions.append((full_name, desc))
-    except Exception:
-        # Fall back to empty list on error (static models will still show via provider prefixes)
-        pass
-
-    _model_completions_cache = completions
-    _model_cache_time = current_time
-    return completions
-
-
 def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
     """Complete model names using dynamic fetching with caching.
 
     Uses the same model listing logic as gptme-util models list --simple.
+    Caching is handled by get_model_list() in models.py.
     """
-    from .llm.models import MODELS, PROVIDERS, get_default_model
+    from .llm.models import MODELS, PROVIDERS, get_default_model, get_model_list
 
     completions: list[tuple[str, str]] = []
     current = get_default_model()
@@ -731,16 +688,18 @@ def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]
                 desc = f"{model_count} models" if model_count else "dynamic"
                 completions.append((provider_prefix, desc))
 
-    # Get full model list from cache and filter
-    all_models = _get_cached_models()
-
-    for full_name, desc in all_models:
-        if full_name.startswith(partial):
-            # Update description if this is the current model
-            is_current = current and current.full == full_name
-            if is_current:
-                desc = "(current)"
-            completions.append((full_name, desc))
+    # Get full model list (cached in get_model_list)
+    try:
+        models = get_model_list(dynamic_fetch=True)
+        for model_meta in models:
+            full_name = model_meta.full
+            if full_name.startswith(partial):
+                is_current = current and current.full == full_name
+                desc = "(current)" if is_current else ""
+                completions.append((full_name, desc))
+    except Exception:
+        # Fall back to empty list on error (provider prefixes will still show)
+        pass
 
     # Deduplicate while preserving order
     seen = set()
