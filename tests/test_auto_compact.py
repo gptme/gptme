@@ -632,8 +632,21 @@ def test_auto_compact_phase4_revert_with_enough_messages():
     compacted = list(auto_compact_log(messages, limit=int(0.5 * model.context)))
 
     # Should have fewer messages after compaction
-    # Phase 4 might remove an exchange if other phases don't reduce enough
     assert len(compacted) <= len(messages)
+
+    # Verify Phase 4 behavior: if it triggered, there should be a revert notice
+    # Phase 4 inserts a system message containing "Auto-compacted: Removed exchange"
+    revert_notices = [
+        m for m in compacted if "Auto-compacted: Removed exchange" in m.content
+    ]
+    # Note: Phase 4 may or may not trigger depending on how effective Phases 1-3 are
+    # If a revert notice exists, Phase 4 triggered successfully
+    # If no notice, either Phases 1-3 were sufficient or reduce_log was used
+    # Both outcomes are valid - we just verify the notice format is correct if present
+    for notice in revert_notices:
+        assert (
+            "tokens saved" in notice.content
+        ), "Revert notice should mention tokens saved"
 
 
 def test_auto_compact_phase4_skips_short_conversations():
@@ -641,6 +654,7 @@ def test_auto_compact_phase4_skips_short_conversations():
     from gptme.tools.autocompact import auto_compact_log
 
     # Create a short conversation (< 5 messages)
+    # These messages are small enough to not trigger any compaction
     messages = [
         Message("user", "Hello", datetime.now()),
         Message("assistant", "Hi there!", datetime.now()),
@@ -650,7 +664,18 @@ def test_auto_compact_phase4_skips_short_conversations():
     # This should not crash or remove messages via Phase 4
     compacted = list(auto_compact_log(messages))
 
-    # Short conversation should remain intact (no Phase 4 removal)
-    # Content might be modified by other phases, but message count shouldn't decrease
-    # due to Phase 4 specifically
-    assert len(compacted) >= 1  # At least some messages remain
+    # Short conversation should remain intact - message count unchanged
+    # With < 5 messages, Phase 4 is explicitly skipped (min_messages_for_revert = 5)
+    # And these tiny messages won't trigger other phases either
+    assert len(compacted) == len(messages), (
+        f"Expected {len(messages)} messages but got {len(compacted)}. "
+        "Short conversations should not have messages removed."
+    )
+
+    # Verify no Phase 4 revert notice was inserted
+    revert_notices = [
+        m for m in compacted if "Auto-compacted: Removed exchange" in m.content
+    ]
+    assert (
+        len(revert_notices) == 0
+    ), "Phase 4 should not trigger for conversations with < 5 messages"

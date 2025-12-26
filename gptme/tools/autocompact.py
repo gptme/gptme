@@ -387,13 +387,18 @@ def auto_compact_log(
 
         # Find indices of user-assistant pairs (excluding the most recent exchange)
         # We want to remove older exchanges, not the current one
+        #
+        # The -2 boundary ensures we never consider the last two messages as candidates:
+        # - If the last two are user+assistant, they're the most recent exchange (preserved)
+        # - If they're not, there's no complete exchange to preserve at the end anyway
         pairs_to_remove: list[tuple[int, int]] = []  # (user_idx, assistant_idx)
         i = 0
         while i < len(compacted_log) - 2:  # -2 to preserve most recent exchange
             msg = compacted_log[i]
             if msg.role == "user" and not msg.pinned:
                 # Look for following assistant message
-                if i + 1 < len(compacted_log) - 1:
+                # Note: i+1 is always < len-1 due to outer loop constraint (i < len-2)
+                if i + 1 < len(compacted_log):
                     next_msg = compacted_log[i + 1]
                     if next_msg.role == "assistant" and not next_msg.pinned:
                         pairs_to_remove.append((i, i + 1))
