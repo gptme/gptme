@@ -214,7 +214,11 @@ def send_keys(pane_id: str, keys: str) -> Message:
         pane_id = f"gptme_{pane_id}"
     # Parse keys into separate arguments to avoid shell injection
     # shlex.split properly handles quoted strings and escapes
-    key_args = shlex.split(keys)
+    try:
+        key_args = shlex.split(keys)
+    except ValueError:
+        # Fall back to single argument if shlex can't parse (unmatched quotes, etc.)
+        key_args = [keys]
     result = subprocess.run(
         ["tmux", "send-keys", "-t", pane_id, *key_args],
         capture_output=True,
