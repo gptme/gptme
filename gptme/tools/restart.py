@@ -28,6 +28,7 @@ _FLAGS_WITH_VALUES = {
     "--workspace",
     "--agent-path",
     "--system",
+    "-t",
     "--tools",
     "--tool-format",
     "--context-mode",
@@ -78,8 +79,9 @@ def _do_restart(conversation_name: str | None = None):
             # This is a flag
             if arg in ["--name", "-r", "--resume"]:
                 # Skip --name and --resume since we'll add --name explicitly
+                # Note: -r and --resume are boolean flags (no value), --name takes a value
                 if arg in _FLAGS_WITH_VALUES:
-                    skip_value = True  # Also skip the value
+                    skip_value = True  # Also skip the value (for --name)
                 # Don't add to filtered_args
             elif arg in _FLAGS_WITH_VALUES:
                 # Flag takes a value, keep flag and mark to keep next arg
@@ -87,8 +89,9 @@ def _do_restart(conversation_name: str | None = None):
                 skip_next = True
             elif "=" in arg:
                 # Flag with inline value (--flag=value), keep it
-                # But skip if it's --name=something
-                if not arg.startswith("--name="):
+                # But skip if it's --name=something or --resume=something
+                flag_name = arg.split("=")[0]
+                if flag_name not in ["--name", "--resume", "-r"]:
                     filtered_args.append(arg)
             else:
                 # Boolean flag (no value), keep it
