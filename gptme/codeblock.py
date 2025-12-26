@@ -26,12 +26,20 @@ class Codeblock:
     @classmethod
     @trace_function(name="codeblock.from_markdown", attributes={"component": "parser"})
     def from_markdown(cls, content: str) -> "Codeblock":
-        if content.strip().startswith("```"):
-            content = content[3:]
-        if content.strip().endswith("```"):
-            content = content[:-3]
-        lang = content.splitlines()[0].strip()
-        return cls(lang, content[len(lang) :])
+        import re
+
+        # Handle variable-length fences (3+ backticks)
+        start_match = re.match(r"^(`{3,})", content.strip())
+        if start_match:
+            fence_len = len(start_match.group(1))
+            content = content.strip()[fence_len:]
+        # Check for closing fence at end
+        end_match = re.search(r"(`{3,})$", content.strip())
+        if end_match:
+            end_fence_len = len(end_match.group(1))
+            content = content.strip()[:-end_fence_len]
+        lang = content.splitlines()[0].strip() if content.strip() else ""
+        return cls(lang, content[len(lang) :].lstrip("\n") if lang else content)
 
     @classmethod
     @trace_function(name="codeblock.from_xml", attributes={"component": "parser"})
@@ -63,9 +71,10 @@ class Codeblock:
 
 import re
 
-# valid start/end of markdown code blocks
-re_triple_tick_start = re.compile(r"^```.*\n")
-re_triple_tick_end = re.compile(r"^```$")
+# valid start/end of markdown code blocks (supports 3+ backticks)
+# Captures the backtick count to support nested blocks per CommonMark spec
+re_fence_start = re.compile(r"^(`{3,})(.*)\n")
+re_fence_end = re.compile(r"^(`{3,})$")
 
 
 def _extract_codeblocks(
@@ -101,7 +110,9 @@ def _extract_codeblocks(
             return
 
     # speed check (early exit): check if message contains a code block
-    if markdown.count("```") < 2:
+    # Check for at least 2 fence markers (3+ backticks each)
+    fence_pattern = re.compile(r"`{3,}")
+    if len(fence_pattern.findall(markdown)) < 2:
         return
 
     lines = markdown.split("\n")
@@ -110,10 +121,13 @@ def _extract_codeblocks(
     while i < len(lines):
         line = lines[i]
 
-        # Look for code block start
-        if line.startswith("```"):
+        # Look for code block start (3+ backticks)
+        # Count the backticks at the start of the line
+        fence_match = re.match(r"^(`{3,})", line)
+        if fence_match:
+            fence_len = len(fence_match.group(1))
             start_line = i  # Track the starting line number
-            lang = line[3:].strip()
+            lang = line[fence_len:].strip()
             content_lines: list[str] = []
             i += 1
 
@@ -124,16 +138,25 @@ def _extract_codeblocks(
             while i < len(lines):
                 line = lines[i]
 
-                # Check if this line starts with ``` (potential opening or closing)
-                if line.startswith("```"):
-                    if line.strip() == "```":
-                        # Bare ``` - determine if opening or closing based on context
+                # Check if this line starts with backticks (potential opening or closing)
+                line_fence_match = re.match(r"^(`{3,})", line)
+                if line_fence_match:
+                    line_fence_len = len(line_fence_match.group(1))
+                    # Check if this is a bare fence (only backticks on the line)
+                    is_bare_fence = line.strip() == "`" * line_fence_len
+                    # For closing the outer block, need exact match of opening fence length
+                    # For inner nested blocks, any bare fence can close them
+                    is_outer_close = is_bare_fence and line_fence_len == fence_len
+                    if is_outer_close or (is_bare_fence and nesting_depth > 1):
+                        # Bare fence - determine if opening or closing based on context
 
                         # Check next line
                         has_next_line = i + 1 < len(lines)
                         next_has_content = has_next_line and lines[i + 1].strip() != ""
                         next_is_blank = has_next_line and lines[i + 1].strip() == ""
-                        next_is_fence = has_next_line and lines[i + 1].startswith("```")
+                        next_is_fence = has_next_line and bool(
+                            re.match(r"^`{3,}", lines[i + 1])
+                        )
 
                         # Decision logic:
                         # 1. If we have nested blocks open (depth > 1), prefer closing
@@ -174,8 +197,12 @@ def _extract_codeblocks(
                                 # This distinguishes real nested blocks from bare backticks in content
                                 has_closing_fence = False
                                 for j in range(i + 1, min(i + 20, len(lines))):
-                                    if lines[j].strip() == "```":
-                                        # Found another bare fence
+                                    # Check if this line is a bare fence (only backticks)
+                                    inner_fence_match = re.match(
+                                        r"^(`{3,})$", lines[j].strip()
+                                    )
+                                    if inner_fence_match:
+                                        # Found a bare fence
                                         # Check if there's content after it (allowing blank lines)
                                         # Look ahead a few more lines to see if outer block continues
                                         has_more_content = False
@@ -190,7 +217,7 @@ def _extract_codeblocks(
                                             has_closing_fence = True
                                         break
                                     elif (
-                                        lines[j].startswith("```")
+                                        re.match(r"^`{3,}", lines[j])
                                         and len(lines[j].strip()) > 3
                                     ):
                                         # Hit a language-tagged fence, stop looking
@@ -237,9 +264,9 @@ def _extract_codeblocks(
                                 # This closes a nested block, add to content
                                 content_lines.append(line)
                     else:
-                        # Line has content after ``` - check if it looks like a valid language tag
+                        # Line has content after backticks - check if it looks like a valid language tag
                         # to determine if it opens a nested block or is just content
-                        potential_lang = line[3:].strip()
+                        potential_lang = line[line_fence_len:].strip()
                         # Valid language tags start with alphanumeric, underscore, slash, or dot
                         # They should NOT start with quotes or other special characters
                         # Examples of valid: python, js, save path/to/file.py, .env

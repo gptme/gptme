@@ -1032,3 +1032,50 @@ Final content.
     # Per Erik's review: 1. save (open), 2. no langtag (open), 3. python (open),
     # 4. no langtag (closes 3), 5. no langtag (closes 2), but no 6th fence to close 1
     assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
+
+
+# Tests for quad+ backtick support (Issue #1005)
+def test_quad_backticks_contain_triple():
+    """Quad backticks should allow triple backticks inside without closing."""
+    markdown = (
+        "````save /path/to/file.md\n"
+        "# Example Doc\n"
+        "\n"
+        "```python\n"
+        "print('hello')\n"
+        "```\n"
+        "````"
+    )
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1
+    assert blocks[0].lang == "save /path/to/file.md"
+    assert "```python" in blocks[0].content
+    assert "print('hello')" in blocks[0].content
+
+
+def test_quintuple_backticks_contain_quad():
+    """Quintuple backticks should allow quad backticks inside."""
+    markdown = (
+        "`````markdown\n"
+        "Example using quad backticks:\n"
+        "\n"
+        "````python\n"
+        "code here\n"
+        "````\n"
+        "`````"
+    )
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1
+    assert blocks[0].lang == "markdown"
+    assert "````python" in blocks[0].content
+
+
+def test_quad_backticks_not_closed_by_triple():
+    """Quad backticks should not be closed by triple backticks."""
+    markdown = "````text\n" "line 1\n" "```\n" "line 2\n" "````"
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1
+    assert blocks[0].lang == "text"
+    assert "line 1" in blocks[0].content
+    assert "```" in blocks[0].content
+    assert "line 2" in blocks[0].content
