@@ -260,8 +260,9 @@ def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0)
         def wrapper(*args, **kwargs):
             for attempt in range(max_retries):
                 try:
-                    yield from func(*args, **kwargs)
-                    break  # If generator completes successfully, exit retry loop
+                    # Use 'return (yield from ...)' to propagate the generator's return value
+                    # Without 'return', the metadata returned by stream() would be lost
+                    return (yield from func(*args, **kwargs))
                 except Exception as e:
                     _handle_anthropic_transient_error(
                         e, attempt, max_retries, base_delay
