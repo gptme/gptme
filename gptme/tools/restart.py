@@ -19,6 +19,23 @@ logger = logging.getLogger(__name__)
 _triggered_restart = False
 
 
+# Flags that take a value (next argument)
+_FLAGS_WITH_VALUES = {
+    "--name",
+    "-m",
+    "--model",
+    "-w",
+    "--workspace",
+    "--agent-path",
+    "--system",
+    "--tools",
+    "--tool-format",
+    "--context-mode",
+    "--context-include",
+    "--output-schema",
+}
+
+
 def _do_restart(conversation_name: str | None = None):
     """Restart gptme by manually triggering cleanup and then execing.
 
@@ -33,25 +50,57 @@ def _do_restart(conversation_name: str | None = None):
     """
     import atexit
 
-    # Build restart command with explicit conversation name
+    # Build restart command, filtering out positional arguments (prompts)
+    # since they are already in the conversation log (Issue #1011)
     # Use sys.argv[0] (gptme script) not sys.executable (python interpreter)
-    restart_args = sys.argv[:]
+    filtered_args = [sys.argv[0]]  # Keep script name
+    skip_next = False
+    i = 1
+
+    skip_value = False  # True when we need to skip the next value (for --name)
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+
+        if skip_next:
+            # This arg is a value for the previous flag, keep it
+            filtered_args.append(arg)
+            skip_next = False
+            i += 1
+            continue
+
+        if skip_value:
+            # This arg is a value for --name/--resume, skip it
+            skip_value = False
+            i += 1
+            continue
+
+        if arg.startswith("-"):
+            # This is a flag
+            if arg in ["--name", "-r", "--resume"]:
+                # Skip --name and --resume since we'll add --name explicitly
+                if arg in _FLAGS_WITH_VALUES:
+                    skip_value = True  # Also skip the value
+                # Don't add to filtered_args
+            elif arg in _FLAGS_WITH_VALUES:
+                # Flag takes a value, keep flag and mark to keep next arg
+                filtered_args.append(arg)
+                skip_next = True
+            elif "=" in arg:
+                # Flag with inline value (--flag=value), keep it
+                # But skip if it's --name=something
+                if not arg.startswith("--name="):
+                    filtered_args.append(arg)
+            else:
+                # Boolean flag (no value), keep it
+                filtered_args.append(arg)
+        # else: positional argument (prompt) - skip it (Issue #1011)
+
+        i += 1
+
+    restart_args = filtered_args
 
     # Ensure we have the conversation name in the args
     if conversation_name:
-        # Remove any existing --name or --resume args and their values
-        filtered_args = []
-        skip_next = False
-        for arg in restart_args:
-            if skip_next:
-                skip_next = False
-                continue
-            if arg in ["--name", "-r", "--resume"]:
-                skip_next = True  # Skip this flag and the next argument (its value)
-                continue
-            filtered_args.append(arg)
-        restart_args = filtered_args
-
         # Add explicit --name to resume this conversation
         restart_args.extend(["--name", conversation_name])
 
