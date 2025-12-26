@@ -666,42 +666,103 @@ def cmd_context(ctx: CommandContext) -> None:
         console.log(f"[dim](approximate, using {tokenizer_model} tokenizer)[/dim]")
 
 
-def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
-    """Complete model names."""
-    from .llm.models import MODELS, get_default_model
+# Cache for model completions (similar to fish completion cache)
+_model_completions_cache: list[tuple[str, str]] | None = None
+_model_cache_time: float = 0
+_MODEL_CACHE_TTL = 300  # 5 minutes, same as fish completion
+
+
+def _get_cached_models() -> list[tuple[str, str]]:
+    """Get cached model list, refreshing if stale."""
+    import time
+
+    from .config import get_config
+    from .llm.models import (
+        MODELS,
+        PROVIDERS,
+        CustomProvider,
+        _get_models_for_provider,
+        get_default_model,
+    )
+
+    global _model_completions_cache, _model_cache_time
+
+    current_time = time.time()
+    if (
+        _model_completions_cache is not None
+        and current_time - _model_cache_time < _MODEL_CACHE_TTL
+    ):
+        return _model_completions_cache
 
     completions: list[tuple[str, str]] = []
     current = get_default_model()
 
-    # Add provider/ completions
-    for provider in MODELS:
-        provider_prefix = f"{provider}/"
-        if provider_prefix.startswith(partial) or partial.startswith(provider_prefix):
-            # If partial is just the provider or starts with it
-            if partial.startswith(provider_prefix):
-                # User typed provider/, show models for that provider
-                model_partial = partial[len(provider_prefix) :]
-                for model in MODELS[provider]:
-                    full_name = f"{provider}/{model}"
-                    if model.startswith(model_partial):
-                        is_current = current and current.full == full_name
-                        desc = "(current)" if is_current else ""
-                        completions.append((full_name, desc))
-            else:
-                # Show provider/ as completion option
-                completions.append((provider_prefix, f"{len(MODELS[provider])} models"))
+    # Get custom providers from config
+    config = get_config()
+    custom_providers = [CustomProvider(p.name) for p in config.user.providers]
+    all_providers = list(PROVIDERS) + custom_providers
 
-    # Also match full model names directly
-    if "/" not in partial:
-        for provider in MODELS:
-            for model in MODELS[provider]:
-                full_name = f"{provider}/{model}"
-                if model.startswith(partial):
+    for provider in all_providers:
+        try:
+            # Use dynamic fetching for supported providers
+            models = _get_models_for_provider(provider, dynamic_fetch=True)
+            for model_meta in models:
+                full_name = model_meta.full
+                is_current = current and current.full == full_name
+                desc = "(current)" if is_current else ""
+                completions.append((full_name, desc))
+        except Exception:
+            # Fall back to static models on error
+            if provider in MODELS:
+                for model_name in MODELS[provider]:
+                    full_name = f"{provider}/{model_name}"
                     is_current = current and current.full == full_name
                     desc = "(current)" if is_current else ""
                     completions.append((full_name, desc))
 
-    return completions[:20]  # Limit to 20 completions
+    _model_completions_cache = completions
+    _model_cache_time = current_time
+    return completions
+
+
+def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
+    """Complete model names using dynamic fetching with caching."""
+    from .llm.models import MODELS, PROVIDERS, get_default_model
+
+    completions: list[tuple[str, str]] = []
+    current = get_default_model()
+
+    # Check if user is typing a provider prefix
+    if "/" not in partial:
+        # Show provider/ prefixes that match
+        for provider in PROVIDERS:
+            provider_prefix = f"{provider}/"
+            if provider_prefix.startswith(partial) or provider.startswith(partial):
+                # Count models for this provider
+                model_count = len(MODELS.get(provider, {}))
+                desc = f"{model_count} models" if model_count else "dynamic"
+                completions.append((provider_prefix, desc))
+
+    # Get full model list from cache and filter
+    all_models = _get_cached_models()
+
+    for full_name, desc in all_models:
+        if full_name.startswith(partial):
+            # Update description if this is the current model
+            is_current = current and current.full == full_name
+            if is_current:
+                desc = "(current)"
+            completions.append((full_name, desc))
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_completions = []
+    for item in completions:
+        if item[0] not in seen:
+            seen.add(item[0])
+            unique_completions.append(item)
+
+    return unique_completions[:30]  # Limit to 30 completions
 
 
 @command("model", aliases=["models"], completer=_complete_model)
