@@ -410,6 +410,57 @@ from gptme.lessons.commands import (
 )
 
 
+@pytest.fixture
+def mock_skill_index():
+    """Create a mock LessonIndex with skills (Anthropic format with name/description)."""
+    with patch("gptme.lessons.commands.LessonIndex") as mock_index_class:
+        mock_index = MagicMock()
+
+        # Create skills (have metadata.name) and lessons (no metadata.name)
+        skill_metadata = LessonMetadata(
+            name="python-repl",
+            description="Interactive Python REPL skill",
+            keywords=["python", "repl"],
+        )
+        skill = Lesson(
+            title="Python REPL",
+            category="tools",
+            description="Interactive Python REPL skill",
+            body="# Python REPL\n\nUse Python for calculations.",
+            metadata=skill_metadata,
+            path=Path("/skills/python-repl/SKILL.md"),
+        )
+
+        skill2_metadata = LessonMetadata(
+            name="shell-commands",
+            description="Execute shell commands",
+            keywords=["shell", "bash"],
+        )
+        skill2 = Lesson(
+            title="Shell Commands",
+            category="tools",
+            description="Execute shell commands",
+            body="# Shell Commands\n\nRun shell commands safely.",
+            metadata=skill2_metadata,
+            path=Path("/skills/shell-commands/SKILL.md"),
+        )
+
+        # Regular lesson (no metadata.name)
+        lesson_metadata = LessonMetadata(keywords=["git", "workflow"])
+        lesson = Lesson(
+            title="Git Workflow",
+            category="workflow",
+            description="Git best practices",
+            body="# Git Workflow\n\nCommit often.",
+            metadata=lesson_metadata,
+            path=Path("/lessons/workflow/git-workflow.md"),
+        )
+
+        mock_index.lessons = [skill, skill2, lesson]
+        mock_index_class.return_value = mock_index
+        yield mock_index_class
+
+
 class TestSkillsHelpFunction:
     """Test /skills help output."""
 
@@ -444,6 +495,23 @@ class TestSkillsListFunction:
         result = _skills_list()
         assert "found" in result.lower() or "skill" in result.lower()
 
+    def test_skills_list_with_skills(self, mock_skill_index):
+        """List shows skills when available."""
+        result = _skills_list()
+        assert "Available Skills" in result
+        assert "python-repl" in result
+        assert "shell-commands" in result
+        assert "Total: 2 skills" in result
+
+    def test_skills_list_sorted(self, mock_skill_index):
+        """Skills are sorted by name."""
+        result = _skills_list()
+        # python-repl should come after shell-commands alphabetically
+        # Actually: p comes before s, so python-repl first
+        python_pos = result.find("python-repl")
+        shell_pos = result.find("shell-commands")
+        assert python_pos < shell_pos  # sorted alphabetically
+
 
 class TestSkillsReadFunction:
     """Test /skills read functionality."""
@@ -454,6 +522,34 @@ class TestSkillsReadFunction:
         result = _skills_read("nonexistent-skill-xyz")
         assert "not found" in result.lower()
 
+    def test_skills_read_skill_by_name(self, mock_skill_index):
+        """Read finds skill by metadata.name."""
+        result = _skills_read("python-repl")
+        assert "python-repl" in result
+        assert "Python for calculations" in result
+
+    def test_skills_read_skill_partial_match(self, mock_skill_index):
+        """Read finds skill with partial name match."""
+        result = _skills_read("python")
+        assert "python-repl" in result
+
+    def test_skills_read_lesson_by_title(self, mock_skill_index):
+        """Read finds lesson by title when no skill match."""
+        result = _skills_read("Git Workflow")
+        assert "Git Workflow" in result
+        assert "Commit often" in result
+
+    def test_skills_read_lesson_by_filename(self, mock_skill_index):
+        """Read finds lesson by filename when no skill match."""
+        result = _skills_read("git-workflow")
+        assert "Git Workflow" in result
+
+    def test_skills_read_empty_index(self, mock_lesson_index):
+        """Read handles empty index gracefully."""
+        mock_lesson_index.return_value.lessons = []
+        result = _skills_read("anything")
+        assert "not found" in result.lower() or "No" in result
+
 
 class TestSkillsAllFunction:
     """Test /skills all functionality."""
@@ -463,6 +559,30 @@ class TestSkillsAllFunction:
         result = _skills_all()
         # Should return something about skills or lessons
         assert "skill" in result.lower() or "lesson" in result.lower()
+
+    def test_skills_all_shows_both(self, mock_skill_index):
+        """All shows both skills and lessons sections."""
+        result = _skills_all()
+        assert "# Skills" in result
+        assert "# Lessons" in result
+        assert "python-repl" in result
+        assert "Git Workflow" in result
+        assert "Total: 2 skills, 1 lessons" in result
+
+    def test_skills_all_groups_lessons_by_category(self, mock_skill_index):
+        """All groups lessons by category."""
+        result = _skills_all()
+        assert "## Workflow" in result
+
+    def test_skills_all_empty(self, mock_lesson_index):
+        """All handles empty index."""
+        mock_lesson_index.return_value.lessons = []
+        result = _skills_all()
+        assert (
+            "found" in result.lower()
+            or "skill" in result.lower()
+            or "lesson" in result.lower()
+        )
 
 
 class TestSkillsCommandHandler:
@@ -492,3 +612,51 @@ class TestSkillsCommandHandler:
         assert len(messages) == 1
         assert "Unknown subcommand" in messages[0].content
         assert "Skills Commands" in messages[0].content
+
+    def test_skills_read_no_args(self, mock_lesson_index):
+        """Read subcommand without args shows usage."""
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock()
+        ctx.full_args = "read"
+
+        messages = list(skills(ctx))
+
+        assert len(messages) == 1
+        assert "Usage" in messages[0].content
+
+    def test_skills_list_subcommand(self, mock_skill_index):
+        """List subcommand works."""
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock()
+        ctx.full_args = "list"
+
+        messages = list(skills(ctx))
+
+        assert len(messages) == 1
+        assert "Available Skills" in messages[0].content
+
+    def test_skills_all_subcommand(self, mock_skill_index):
+        """All subcommand works."""
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock()
+        ctx.full_args = "all"
+
+        messages = list(skills(ctx))
+
+        assert len(messages) == 1
+        assert "Skills" in messages[0].content
+
+    def test_skills_read_subcommand(self, mock_skill_index):
+        """Read subcommand with name works."""
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock()
+        ctx.full_args = "read python-repl"
+
+        messages = list(skills(ctx))
+
+        assert len(messages) == 1
+        assert "python-repl" in messages[0].content
