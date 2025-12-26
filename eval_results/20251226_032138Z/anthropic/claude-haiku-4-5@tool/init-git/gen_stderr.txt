@@ -1,0 +1,3 @@
+/app/.git: Permission denied
+bash: line 32: sudo: command not found
+mkdir: cannot create directory ‘/app/project’: Permission denied
