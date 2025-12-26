@@ -238,8 +238,11 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 
 ### 🛠 Developer perks
 
+- ⭐ One of the first agent CLIs created (Spring 2023) that is still in active development.
 - 🧰 Easy to extend
-  - Most functionality is implemented as [tools][docs-tools], making it easy to add new features.
+  - Most functionality can be implemented with [tools][docs-tools], [hooks][docs-hooks], and [commands][docs-commands], making it easy to add new features.
+  - Trying to stay [tiny][docs-arewetiny].
+  - [Plugins][docs-plugins] allow for easy packaging of extensions.
 - 🧪 Extensive testing, high coverage.
 - 🧹 Clean codebase, checked and formatted with `mypy`, `ruff`, and `pyupgrade`.
 - 🤖 [GitHub Bot][docs-bot] to request changes from comments! (see [#16](https://github.com/gptme/gptme/issues/16))
@@ -300,20 +303,25 @@ Usage: gptme [OPTIONS] [PROMPTS]...
   Available commands:
     /undo         Undo the last action
     /log          Show the conversation log
-    /tools        Show available tools
-    /model        List or switch models
     /edit         Edit the conversation in your editor
     /rename       Rename the conversation
-    /fork         Copy the conversation using a new name
+    /fork         Create a copy of the conversation
     /summarize    Summarize the conversation
-    /replay       Rerun tools in the conversation, won't store output
-    /impersonate  Impersonate the assistant
-    /tokens       Show the number of tokens used
+    /replay       Replay tool operations
     /export       Export conversation as HTML
+    /model        List or switch models
+    /tokens       Show token usage and costs
+    /context      Show context token breakdown
+    /tools        Show available tools
     /commit       Ask assistant to git commit
-    /setup        Setup gptme with completions and configuration
+    /compact      Compact the conversation
+    /impersonate  Impersonate the assistant
+    /restart      Restart gptme process
+    /setup        Setup gptme
     /help         Show this help message
     /exit         Exit the program
+
+  See docs for all commands: https://gptme.org/docs/commands.html
 
   Keyboard shortcuts:
     Ctrl+X Ctrl+E  Edit prompt in your editor
@@ -393,4 +401,8 @@ Options:
 [docs-evals]: https://gptme.org/docs/evals.html
 [docs-server]: https://gptme.org/docs/server.html
 [docs-config]: https://gptme.org/docs/config.html
+[docs-arewetiny]: https://gptme.org/docs/arewetiny.html
+[docs-plugins]: https://gptme.org/docs/plugins.html
+[docs-hooks]: https://gptme.org/docs/hooks.html
+[docs-commands]: https://gptme.org/docs/commands.html
 [anthropic-computer-use]: https://www.anthropic.com/news/3-5-models-and-computer-use
