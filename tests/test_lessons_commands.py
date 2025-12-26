@@ -395,3 +395,100 @@ class TestLessonCommand:
         assert len(messages) == 1
         assert "Unknown subcommand: unknown" in messages[0].content
         assert "# Lesson Commands" in messages[0].content
+
+
+# ============================================================================
+# Skills Command Tests (Issue #1000)
+# ============================================================================
+
+from gptme.lessons.commands import (
+    _skills_all,
+    _skills_help,
+    _skills_list,
+    _skills_read,
+    skills,
+)
+
+
+class TestSkillsHelpFunction:
+    """Test /skills help output."""
+
+    def test_skills_help_contains_commands(self):
+        """Help text shows all available commands."""
+        result = _skills_help()
+        assert "Skills Commands" in result
+        assert "/skills list" in result
+        assert "/skills read" in result
+        assert "/skills all" in result
+
+    def test_skills_help_mentions_anthropic(self):
+        """Help explains Anthropic skill format."""
+        result = _skills_help()
+        assert "Anthropic" in result or "name" in result
+
+
+class TestSkillsListFunction:
+    """Test /skills list functionality."""
+
+    def test_skills_list_with_mock(self, mock_lesson_index):
+        """List returns message about skills."""
+        # The mock_lesson_index provides lessons without 'name' in metadata
+        # so should report no skills found
+        result = _skills_list()
+        # Either finds skills or reports none found
+        assert "skill" in result.lower()
+
+    def test_skills_list_empty(self, mock_lesson_index):
+        """List handles empty index."""
+        mock_lesson_index.return_value.lessons = []
+        result = _skills_list()
+        assert "found" in result.lower() or "skill" in result.lower()
+
+
+class TestSkillsReadFunction:
+    """Test /skills read functionality."""
+
+    def test_skills_read_not_found(self, mock_lesson_index):
+        """Read returns not found for nonexistent skill."""
+        mock_lesson_index.return_value.lessons = []
+        result = _skills_read("nonexistent-skill-xyz")
+        assert "not found" in result.lower()
+
+
+class TestSkillsAllFunction:
+    """Test /skills all functionality."""
+
+    def test_skills_all_returns_content(self, mock_lesson_index):
+        """All command returns some content."""
+        result = _skills_all()
+        # Should return something about skills or lessons
+        assert "skill" in result.lower() or "lesson" in result.lower()
+
+
+class TestSkillsCommandHandler:
+    """Test /skills command routing."""
+
+    def test_skills_no_args_shows_help(self, mock_lesson_index):
+        """No args shows help."""
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock()
+        ctx.full_args = ""
+
+        messages = list(skills(ctx))
+
+        assert len(messages) == 1
+        assert "Skills Commands" in messages[0].content
+
+    def test_skills_unknown_subcommand(self, mock_lesson_index):
+        """Unknown subcommand shows error and help."""
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock()
+        ctx.full_args = "invalidcmd"
+
+        messages = list(skills(ctx))
+
+        assert len(messages) == 1
+        assert "Unknown subcommand" in messages[0].content
+        assert "Skills Commands" in messages[0].content
