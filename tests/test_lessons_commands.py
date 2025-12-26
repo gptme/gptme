@@ -506,8 +506,7 @@ class TestSkillsListFunction:
     def test_skills_list_sorted(self, mock_skill_index):
         """Skills are sorted by name."""
         result = _skills_list()
-        # python-repl should come after shell-commands alphabetically
-        # Actually: p comes before s, so python-repl first
+        # 'p' comes before 's' alphabetically, so python-repl should appear first
         python_pos = result.find("python-repl")
         shell_pos = result.find("shell-commands")
         assert python_pos < shell_pos  # sorted alphabetically
