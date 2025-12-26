@@ -370,6 +370,88 @@ def auto_compact_log(
         yield from compacted_log
         return
 
+    # Phase 4: Revert last exchange (user + assistant pair) if still over limit
+    # Inspired by oh-my-opencode's multi-stage fallback strategy
+    # This removes the oldest user-assistant pair to free up context space
+    #
+    # Only attempt revert if we have enough messages to safely remove an exchange
+    # Minimum 5 messages ensures we preserve meaningful conversation structure:
+    # - At least 2 for current exchange (user + assistant)
+    # - At least 2 for an older exchange to remove
+    # - At least 1 for system/context
+    min_messages_for_revert = 5
+    if len(compacted_log) >= min_messages_for_revert:
+        logger.info(
+            f"Phase 4: Attempting revert fallback (tokens: {final_tokens}, limit: {limit})"
+        )
+
+        # Find indices of user-assistant pairs (excluding the most recent exchange)
+        # We want to remove older exchanges, not the current one
+        pairs_to_remove: list[tuple[int, int]] = []  # (user_idx, assistant_idx)
+        i = 0
+        while i < len(compacted_log) - 2:  # -2 to preserve most recent exchange
+            msg = compacted_log[i]
+            if msg.role == "user" and not msg.pinned:
+                # Look for following assistant message
+                if i + 1 < len(compacted_log) - 1:
+                    next_msg = compacted_log[i + 1]
+                    if next_msg.role == "assistant" and not next_msg.pinned:
+                        pairs_to_remove.append((i, i + 1))
+                        i += 2
+                        continue
+            i += 1
+
+        # Remove oldest pair first (pairs are in chronological order)
+        if pairs_to_remove:
+            user_idx, assistant_idx = pairs_to_remove[0]
+            user_msg = compacted_log[user_idx]
+            assistant_msg = compacted_log[assistant_idx]
+
+            # Calculate tokens that will be saved
+            user_tokens = len_tokens(user_msg.content, model.model)
+            assistant_tokens = len_tokens(assistant_msg.content, model.model)
+            pair_tokens = user_tokens + assistant_tokens
+
+            # Create truncated preview of what was removed
+            user_preview = (
+                user_msg.content[:100] + "..."
+                if len(user_msg.content) > 100
+                else user_msg.content
+            )
+            user_preview = user_preview.replace("\n", " ")
+
+            # Remove the pair (remove assistant first to preserve indices)
+            del compacted_log[assistant_idx]
+            del compacted_log[user_idx]
+
+            # Insert a system message indicating what was reverted
+            revert_notice = Message(
+                "system",
+                f"⚠️ Auto-compacted: Removed exchange to reduce context "
+                f"({pair_tokens} tokens saved)\n"
+                f'Removed user message: "{user_preview}"',
+                pinned=False,
+            )
+            compacted_log.insert(user_idx, revert_notice)
+
+            # Update token counts
+            final_tokens = len_tokens(compacted_log, model.model)
+            total_saved += pair_tokens - len_tokens(revert_notice.content, model.model)
+
+            logger.info(
+                f"Phase 4: Reverted one exchange, saved {pair_tokens} tokens "
+                f"(now at {final_tokens} tokens)"
+            )
+
+            # Check if we're now within limits
+            if final_tokens <= limit:
+                logger.info(
+                    f"Auto-compacting successful after revert: "
+                    f"{tokens} -> {final_tokens} tokens"
+                )
+                yield from compacted_log
+                return
+
     # If still over limit, fall back to regular reduction
     logger.info("Auto-compacting not sufficient, falling back to regular reduction")
 

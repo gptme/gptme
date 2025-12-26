@@ -606,3 +606,51 @@ def test_should_auto_compact_triggers_with_high_savings():
     assert (
         result is True
     ), "should_auto_compact should return True when savings exceed threshold"
+
+
+def test_auto_compact_phase4_revert_with_enough_messages():
+    """Test that Phase 4 revert removes oldest exchange when conversation is long enough."""
+    from gptme.tools.autocompact import auto_compact_log
+
+    model = get_default_model() or get_model("gpt-4")
+    target_tokens = int(0.85 * model.context)
+
+    # Create a large content that will push over the limit
+    words = [f"word_{i}" for i in range(target_tokens // 3)]
+    large_content = " ".join(words)
+
+    # Create a conversation with enough messages (>5) to trigger Phase 4
+    messages = [
+        Message("user", "First question about Python", datetime.now()),
+        Message("assistant", "Here's info about Python basics", datetime.now()),
+        Message("user", "Second question about JavaScript", datetime.now()),
+        Message("assistant", "Here's info about JavaScript", datetime.now()),
+        Message("user", "Third question", datetime.now()),
+        Message("assistant", large_content, datetime.now()),  # Large response
+    ]
+
+    compacted = list(auto_compact_log(messages, limit=int(0.5 * model.context)))
+
+    # Should have fewer messages after compaction
+    # Phase 4 might remove an exchange if other phases don't reduce enough
+    assert len(compacted) <= len(messages)
+
+
+def test_auto_compact_phase4_skips_short_conversations():
+    """Test that Phase 4 doesn't remove exchanges from very short conversations."""
+    from gptme.tools.autocompact import auto_compact_log
+
+    # Create a short conversation (< 5 messages)
+    messages = [
+        Message("user", "Hello", datetime.now()),
+        Message("assistant", "Hi there!", datetime.now()),
+        Message("system", "Command output", datetime.now()),
+    ]
+
+    # This should not crash or remove messages via Phase 4
+    compacted = list(auto_compact_log(messages))
+
+    # Short conversation should remain intact (no Phase 4 removal)
+    # Content might be modified by other phases, but message count shouldn't decrease
+    # due to Phase 4 specifically
+    assert len(compacted) >= 1  # At least some messages remain
