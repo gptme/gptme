@@ -368,7 +368,7 @@ def _linux_handle_key_sequence(key_sequence: str, display: str) -> None:
 
         elif op["type"] == "key":
             key = xdotool_key_map.get(op["key"].lower(), op["key"])
-            _run_xdotool(f"key {key}", display)
+            _run_xdotool(f"key {shlex.quote(key)}", display)
 
         elif op["type"] == "combo":
             xdotool_keys = []
@@ -376,12 +376,12 @@ def _linux_handle_key_sequence(key_sequence: str, display: str) -> None:
             # Add modifiers
             for mod in op["modifiers"]:
                 mapped_mod = xdotool_key_map.get(mod.lower(), mod)
-                xdotool_keys.append(mapped_mod)
+                xdotool_keys.append(shlex.quote(mapped_mod))
 
             # Add main key
             if op["key"]:
                 mapped_key = xdotool_key_map.get(op["key"].lower(), op["key"])
-                xdotool_keys.append(mapped_key)
+                xdotool_keys.append(shlex.quote(mapped_key))
 
             # Execute as a key sequence
             xdotool_key_seq = " ".join(xdotool_keys)
