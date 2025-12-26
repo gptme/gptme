@@ -125,7 +125,8 @@ def docker_reexec(argv: list[str]) -> None:
         *env_args,
         "-v",
         # use separate config dir for gptme-eval (only stores API keys)
-        f"{Path.home()}/.config/gptme-eval:/home/appuser/.config/gptme",
+        # Mount to /tmp/.config/gptme to match HOME=/tmp environment
+        f"{Path.home()}/.config/gptme-eval:/tmp/.config/gptme",
         "-v",
         f"{git_root}/eval_results:/app/eval_results",
         "-v",
