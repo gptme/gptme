@@ -123,9 +123,13 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_CHAT_HISTORY`` - Enable cross-conversation context (default: false)
 - ``GPTME_COSTS`` - Enable cost reporting for API calls (default: false)
 - ``GPTME_FRESH`` - Enable fresh context mode (default: false)
-- ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream (default: true)
+- ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream (default: true). Set to ``0`` to allow multiple tool calls per LLM response (equivalent to ``--multi-tool`` flag).
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
 - ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
+
+.. rubric:: Deprecated Environment Variables
+
+- ``GPTME_TOOLUSE_PARALLEL`` - **DEPRECATED**: Previously enabled parallel thread execution of tool calls, but caused thread-safety issues with prompt_toolkit. Use ``GPTME_BREAK_ON_TOOLUSE=0`` instead for multi-tool mode with sequential execution.
 
 .. rubric:: API Configuration
 
