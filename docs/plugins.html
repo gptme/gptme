@@ -514,18 +514,22 @@
 </section>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
-<p>Add plugin paths to your <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>:</p>
+<p>Plugins can be configured at two levels:</p>
+<p><strong>User-level</strong> (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>): Applies to all projects.</p>
+<p><strong>Project-level</strong> (<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> in workspace root): Applies only to this project, merged with user config.</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
 <span class="c1"># Paths to search for plugins (supports ~ expansion and relative paths)</span>
 <span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="s2">&quot;~/.config/gptme/plugins&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="s2">&quot;~/.local/share/gptme/plugins&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;./plugins&quot;</span><span class="p">,</span><span class="w">  </span><span class="c1"># Project-local plugins</span>
 <span class="p">]</span>
 
 <span class="c1"># Optional: only enable specific plugins (empty = all discovered)</span>
 <span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;my_plugin&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;another_plugin&quot;</span><span class="p">]</span>
 </pre></div>
 </div>
+<p>Project-level plugin paths are relative to the workspace root.</p>
 </section>
 <section id="skills-vs-plugins">
 <h2>Skills vs Plugins<a class="headerlink" href="#skills-vs-plugins" title="Link to this heading">#</a></h2>
