@@ -111,12 +111,29 @@ OriginalCommandHandler = (
 # Wrapped handler type (after decoration - always returns generator)
 CommandHandler = Callable[[CommandContext], Generator[Message, None, None]]
 
+# Completer function type: (partial_arg, previous_args) -> list of (completion, description)
+CommandCompleter = Callable[[str, list[str]], list[tuple[str, str]]]
+
 # Command registry
 _command_registry: dict[str, CommandHandler] = {}
 
+# Completer registry - maps command names to their completer functions
+_command_completers: dict[str, CommandCompleter] = {}
 
-def command(name: str, aliases: list[str] | None = None):
-    """Decorator to register command handlers."""
+
+def command(
+    name: str,
+    aliases: list[str] | None = None,
+    completer: CommandCompleter | None = None,
+):
+    """Decorator to register command handlers.
+
+    Args:
+        name: Command name (without leading /)
+        aliases: Optional list of command aliases
+        completer: Optional function for argument completion.
+                   Takes (partial_arg, previous_args) and returns list of (completion, description) tuples.
+    """
 
     def decorator(func: OriginalCommandHandler) -> OriginalCommandHandler:
         def wrapper(ctx: CommandContext) -> Generator[Message, None, None]:
@@ -130,13 +147,24 @@ def command(name: str, aliases: list[str] | None = None):
         if aliases:
             for alias in aliases:
                 _command_registry[alias] = wrapper
+
+        # Register completer if provided
+        if completer:
+            _command_completers[name] = completer
+            if aliases:
+                for alias in aliases:
+                    _command_completers[alias] = completer
+
         return func
 
     return decorator
 
 
 def register_command(
-    name: str, handler: CommandHandler, aliases: list[str] | None = None
+    name: str,
+    handler: CommandHandler,
+    aliases: list[str] | None = None,
+    completer: CommandCompleter | None = None,
 ) -> None:
     """Register a command handler dynamically (for tools).
 
@@ -144,11 +172,21 @@ def register_command(
         name: Command name (without leading /)
         handler: Function that takes CommandContext and yields Messages
         aliases: Optional list of command aliases
+        completer: Optional function for argument completion.
+                   Takes (partial_arg, previous_args) and returns list of (completion, description) tuples.
     """
     _command_registry[name] = handler
     if aliases:
         for alias in aliases:
             _command_registry[alias] = handler
+
+    # Register completer if provided
+    if completer:
+        _command_completers[name] = completer
+        if aliases:
+            for alias in aliases:
+                _command_completers[alias] = completer
+
     logger.debug(
         f"Registered command: {name}" + (f" (aliases: {aliases})" if aliases else "")
     )
@@ -163,6 +201,8 @@ def unregister_command(name: str) -> None:
     if name in _command_registry:
         del _command_registry[name]
         logger.debug(f"Unregistered command: {name}")
+    if name in _command_completers:
+        del _command_completers[name]
 
 
 def get_registered_commands() -> list[str]:
@@ -170,14 +210,43 @@ def get_registered_commands() -> list[str]:
     return list(_command_registry.keys())
 
 
-@command("log")
+def get_command_completer(name: str) -> CommandCompleter | None:
+    """Get the completer function for a command.
+
+    Args:
+        name: Command name (without leading /)
+
+    Returns:
+        Completer function or None if no completer registered
+    """
+    return _command_completers.get(name)
+
+
+def _complete_log(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
+    """Complete log command flags."""
+    completions: list[tuple[str, str]] = []
+    if partial.startswith("-") or not partial:
+        if "--hidden".startswith(partial):
+            completions.append(("--hidden", "Show hidden system messages"))
+    return completions
+
+
+@command("log", completer=_complete_log)
 def cmd_log(ctx: CommandContext) -> None:
     """Show the conversation log."""
     ctx.manager.undo(1, quiet=True)
     ctx.manager.log.print(show_hidden="--hidden" in ctx.args)
 
 
-@command("rename")
+def _complete_rename(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
+    """Complete rename with suggestions."""
+    completions: list[tuple[str, str]] = []
+    if "auto".startswith(partial):
+        completions.append(("auto", "Auto-generate name from conversation"))
+    return completions
+
+
+@command("rename", completer=_complete_rename)
 def cmd_rename(ctx: CommandContext) -> None:
     """Rename the conversation."""
     ctx.manager.undo(1, quiet=True)
@@ -192,7 +261,20 @@ def cmd_rename(ctx: CommandContext) -> None:
     rename(ctx.manager, new_name, ctx.confirm)
 
 
-@command("fork")
+def _complete_fork(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
+    """Complete fork with conversation name suggestions."""
+    import time
+
+    completions: list[tuple[str, str]] = []
+    # Suggest a timestamped fork name
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    suggestion = f"fork-{timestamp}"
+    if suggestion.startswith(partial) or not partial:
+        completions.append((suggestion, "Timestamped fork name"))
+    return completions
+
+
+@command("fork", completer=_complete_fork)
 def cmd_fork(ctx: CommandContext) -> None:
     """Fork the conversation."""
     ctx.manager.undo(1, quiet=True)
@@ -201,7 +283,28 @@ def cmd_fork(ctx: CommandContext) -> None:
     print(f"✅ Forked conversation to: {ctx.manager.logdir}")
 
 
-@command("delete", aliases=["rm"])
+def _complete_delete(partial: str, prev_args: list[str]) -> list[tuple[str, str]]:
+    """Complete conversation IDs for deletion."""
+    completions: list[tuple[str, str]] = []
+
+    # Check for flags
+    if partial.startswith("-"):
+        if "--force".startswith(partial):
+            completions.append(("--force", "Delete without confirmation"))
+        if "-f".startswith(partial):
+            completions.append(("-f", "Delete without confirmation"))
+        return completions
+
+    # Get recent conversations
+    conversations = list_conversations(limit=20)
+    for conv in conversations:
+        if conv.id.startswith(partial) or conv.name.lower().startswith(partial.lower()):
+            completions.append((conv.id, conv.name or ""))
+
+    return completions
+
+
+@command("delete", aliases=["rm"], completer=_complete_delete)
 def cmd_delete(ctx: CommandContext) -> None:
     """Delete a conversation by ID.
 
@@ -323,7 +426,26 @@ def cmd_restart(ctx: CommandContext) -> None:
     _do_restart(conversation_name)
 
 
-@command("replay")
+def _complete_replay(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
+    """Complete replay command options."""
+    completions: list[tuple[str, str]] = []
+    options = [
+        ("last", "Replay only the last assistant message"),
+        ("all", "Replay all assistant messages"),
+    ]
+    for opt, desc in options:
+        if opt.startswith(partial.lower()):
+            completions.append((opt, desc))
+
+    # Also suggest tool names
+    for tool in get_tools():
+        if tool.name.startswith(partial.lower()):
+            completions.append((tool.name, f"Replay all {tool.name} operations"))
+
+    return completions
+
+
+@command("replay", completer=_complete_replay)
 def cmd_replay(ctx: CommandContext) -> None:
     """Replay the conversation or specific tool operations."""
     ctx.manager.undo(1, quiet=True)
@@ -544,7 +666,45 @@ def cmd_context(ctx: CommandContext) -> None:
         console.log(f"[dim](approximate, using {tokenizer_model} tokenizer)[/dim]")
 
 
-@command("model", aliases=["models"])
+def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
+    """Complete model names."""
+    from .llm.models import MODELS, get_default_model
+
+    completions: list[tuple[str, str]] = []
+    current = get_default_model()
+
+    # Add provider/ completions
+    for provider in MODELS:
+        provider_prefix = f"{provider}/"
+        if provider_prefix.startswith(partial) or partial.startswith(provider_prefix):
+            # If partial is just the provider or starts with it
+            if partial.startswith(provider_prefix):
+                # User typed provider/, show models for that provider
+                model_partial = partial[len(provider_prefix) :]
+                for model in MODELS[provider]:
+                    full_name = f"{provider}/{model}"
+                    if model.startswith(model_partial):
+                        is_current = current and current.full == full_name
+                        desc = "(current)" if is_current else ""
+                        completions.append((full_name, desc))
+            else:
+                # Show provider/ as completion option
+                completions.append((provider_prefix, f"{len(MODELS[provider])} models"))
+
+    # Also match full model names directly
+    if "/" not in partial:
+        for provider in MODELS:
+            for model in MODELS[provider]:
+                full_name = f"{provider}/{model}"
+                if model.startswith(partial):
+                    is_current = current and current.full == full_name
+                    desc = "(current)" if is_current else ""
+                    completions.append((full_name, desc))
+
+    return completions[:20]  # Limit to 20 completions
+
+
+@command("model", aliases=["models"], completer=_complete_model)
 def cmd_model(ctx: CommandContext) -> None:
     """List or switch models."""
     ctx.manager.undo(1, quiet=True)
@@ -603,7 +763,40 @@ def cmd_help(ctx: CommandContext) -> None:
     help()
 
 
-@command("plugin")
+def _complete_plugin(partial: str, prev_args: list[str]) -> list[tuple[str, str]]:
+    """Complete plugin command subcommands and arguments."""
+    completions: list[tuple[str, str]] = []
+
+    if not prev_args:
+        # Complete subcommand
+        subcommands = [
+            ("list", "Show all discovered plugins"),
+            ("info", "Show details about a specific plugin"),
+        ]
+        for cmd, desc in subcommands:
+            if cmd.startswith(partial):
+                completions.append((cmd, desc))
+    elif prev_args[0] == "info":
+        # Complete plugin names
+        from pathlib import Path
+
+        from .config import get_config
+        from .plugins import discover_plugins
+
+        config = get_config()
+        if config.project and config.project.plugins and config.project.plugins.paths:
+            plugin_paths = [
+                Path(p).expanduser().resolve() for p in config.project.plugins.paths
+            ]
+            plugins = discover_plugins(plugin_paths)
+            for plugin in plugins:
+                if plugin.name.startswith(partial):
+                    completions.append((plugin.name, str(plugin.path)))
+
+    return completions
+
+
+@command("plugin", completer=_complete_plugin)
 def cmd_plugin(ctx: CommandContext) -> None:
     """Manage plugins - list, show info, check installation status."""
     from pathlib import Path

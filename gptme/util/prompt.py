@@ -294,7 +294,7 @@ class GptmeCompleter(Completer):
         self.path_completer = PathCompleter2(expanduser=True)
 
     def get_completions(self, document, complete_event):
-        from ..commands import get_user_commands  # fmt: skip
+        from ..commands import get_command_completer, get_user_commands  # fmt: skip
 
         document.get_word_before_cursor()
         text = document.text_before_cursor
@@ -304,15 +304,50 @@ class GptmeCompleter(Completer):
 
         # Command completion
         if text.startswith("/"):
-            for option in completions:
-                if option.startswith(text):
-                    # make the already typed part bold and underlined
-                    html = f"<teal><u><b>{text}</b></u>{option[len(text) :]}</teal>"
-                    yield Completion(
-                        option,
-                        start_position=-len(text),
-                        display=HTML(html),
+            # Check if we're completing the command name or its arguments
+            parts = text.split(None, 1)  # Split on first whitespace
+            cmd_name = parts[0][1:]  # Remove leading /
+
+            if len(parts) == 1 and not text.endswith(" "):
+                # Completing command name
+                for option in completions:
+                    if option.startswith(text):
+                        # make the already typed part bold and underlined
+                        html = f"<teal><u><b>{text}</b></u>{option[len(text) :]}</teal>"
+                        yield Completion(
+                            option,
+                            start_position=-len(text),
+                            display=HTML(html),
+                        )
+            else:
+                # Completing command arguments
+                completer = get_command_completer(cmd_name)
+                if completer:
+                    # Parse arguments
+                    arg_text = parts[1] if len(parts) > 1 else ""
+                    args = arg_text.split()
+                    partial = args[-1] if args and not arg_text.endswith(" ") else ""
+                    prev_args = (
+                        args[:-1] if args and not arg_text.endswith(" ") else args
                     )
+
+                    try:
+                        for completion_text, description in completer(
+                            partial, prev_args
+                        ):
+                            if completion_text.startswith(partial):
+                                # Highlight matched portion
+                                matched = partial
+                                rest = completion_text[len(partial) :]
+                                html = f"<teal><u><b>{matched}</b></u>{rest}</teal>"
+                                yield Completion(
+                                    completion_text,
+                                    start_position=-len(partial),
+                                    display=HTML(html),
+                                    display_meta=description if description else None,
+                                )
+                    except Exception as e:
+                        logger.debug(f"Command completer error: {e}")
 
         # Path completion
         elif (
