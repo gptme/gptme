@@ -220,7 +220,7 @@ def main(
     if parallel is not None:
         warnings.warn(
             "--parallel is deprecated and will be removed in a future version. "
-            "Use --multi-tool instead. Note: parallel execution has been removed "
+            "Use --multi-tool instead. Note: parallel execution is deprecated "
             "due to thread-safety issues; --multi-tool enables multiple tool calls "
             "per response with sequential execution.",
             DeprecationWarning,
@@ -234,7 +234,7 @@ def main(
     if os.environ.get("GPTME_TOOLUSE_PARALLEL"):
         warnings.warn(
             "GPTME_TOOLUSE_PARALLEL environment variable is deprecated and will be "
-            "ignored in a future version. Parallel execution has been removed due to "
+            "ignored in a future version. Parallel execution is deprecated due to "
             "thread-safety issues. Use GPTME_BREAK_ON_TOOLUSE=0 for multi-tool mode.",
             DeprecationWarning,
             stacklevel=2,
