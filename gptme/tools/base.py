@@ -739,16 +739,31 @@ def get_path(
 
 # TODO: allow using via specifying .py paths with --tools flag
 def load_from_file(path: Path) -> list[ToolSpec]:
-    """Import a tool from a Python file and register the ToolSpec."""
+    """Import a tool from a Python file and register the ToolSpec.
+
+    Security:
+        - Path must exist and be a regular file
+        - Path must have .py extension
+        - Resolved path is used to prevent symlink attacks
+    """
     from . import get_tool, get_tools
+
+    # Validate path before import
+    resolved_path = path.resolve()
+    if not resolved_path.exists():
+        raise ValueError(f"Tool file does not exist: {path}")
+    if not resolved_path.is_file():
+        raise ValueError(f"Tool path is not a file: {path}")
+    if resolved_path.suffix != ".py":
+        raise ValueError(f"Tool file must be a .py file: {path}")
 
     tools_before = set([t.name for t in get_tools()])
 
     # import the python file
-    script_dir = path.resolve().parent
+    script_dir = resolved_path.parent
     if script_dir not in sys.path:
         sys.path.append(str(script_dir))
-    importlib.import_module(path.stem)
+    importlib.import_module(resolved_path.stem)
 
     tools_after = set([t.name for t in get_tools()])
     tools_new = tools_after - tools_before

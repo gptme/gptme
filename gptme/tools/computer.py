@@ -200,6 +200,8 @@ def _scale_coordinates(
 
 def _run_xdotool(cmd: str, display: str | None = None) -> str:
     """Run an xdotool command with optional display setting and wait for completion."""
+    import shlex
+
     if IS_MACOS:
         raise RuntimeError("xdotool is not supported on macOS")
 
@@ -207,9 +209,10 @@ def _run_xdotool(cmd: str, display: str | None = None) -> str:
     if display:
         env["DISPLAY"] = display
     try:
+        # Parse cmd into arguments to avoid shell injection
+        cmd_args = shlex.split(cmd)
         result = subprocess.run(
-            f"xdotool {cmd}",
-            shell=True,
+            ["xdotool", *cmd_args],
             env=env,
             check=True,
             capture_output=True,
@@ -300,12 +303,10 @@ def _macos_key(key_sequence: str) -> None:
                 commands.append(f"ku:{','.join(modifiers)}")
 
     try:
-        # Use shell=True with the joined commands, which we know works reliably
-        cmd_shell = "cliclick " + " ".join(commands)
-        logger.info(f"Running: {cmd_shell}")
-        subprocess.run(
-            cmd_shell, shell=True, check=True, capture_output=True, text=True
-        )
+        # Use list form to avoid shell injection - cliclick accepts commands as args
+        cmd_list = ["cliclick", *commands]
+        logger.info(f"Running: {' '.join(cmd_list)}")
+        subprocess.run(cmd_list, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to send key sequence: {e.stderr}") from e
 

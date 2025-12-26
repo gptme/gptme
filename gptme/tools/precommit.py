@@ -117,11 +117,11 @@ def run_precommit_checks() -> tuple[bool, str | None]:
         return False, None
 
     # cmd = "pre-commit run --files $(git ls-files -m)"
-    cmd = "pre-commit run --all-files"
+    cmd = ["pre-commit", "run", "--all-files"]
     start_time = time.monotonic()
-    logger.info(f"Running pre-commit checks: {cmd}")
+    logger.info(f"Running pre-commit checks: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
         return True, None  # No issues found
     except subprocess.CalledProcessError as e:
         # if exit code is 130, it means the user interrupted the process
