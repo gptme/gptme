@@ -132,7 +132,26 @@ def docker_reexec(argv: list[str]) -> None:
         image,
     ] + argv
 
-    logger.info(f"Re-executing inside Docker: {' '.join(docker_cmd)}")
+    # Redact API keys in log output for security
+    def redact_env_args(cmd: list[str]) -> list[str]:
+        """Redact API key values from docker command for safe logging."""
+        redacted = []
+        i = 0
+        while i < len(cmd):
+            if cmd[i] == "-e" and i + 1 < len(cmd):
+                env_assignment = cmd[i + 1]
+                if "=" in env_assignment:
+                    var_name = env_assignment.split("=", 1)[0]
+                    if "KEY" in var_name or "TOKEN" in var_name:
+                        redacted.append(cmd[i])
+                        redacted.append(f"{var_name}=***REDACTED***")
+                        i += 2
+                        continue
+            redacted.append(cmd[i])
+            i += 1
+        return redacted
+
+    logger.info(f"Re-executing inside Docker: {' '.join(redact_env_args(docker_cmd))}")
 
     # Run and exit with same code
     result = subprocess.run(docker_cmd)
