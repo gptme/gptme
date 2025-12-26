@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -11,7 +11,8 @@ def test_planner_mode_requires_subtasks():
         subagent(agent_id="test-planner", prompt="Test task", mode="planner")
 
 
-def test_planner_mode_spawns_executors():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_planner_mode_spawns_executors(mock_create_thread: MagicMock):
     """Test that planner mode spawns executor subagents."""
     initial_count = len(_subagents)
 
@@ -36,7 +37,8 @@ def test_planner_mode_spawns_executors():
     assert "test-planner-task2" in executor_ids
 
 
-def test_planner_mode_executor_prompts():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_planner_mode_executor_prompts(mock_create_thread: MagicMock):
     """Test that executor prompts include context and subtask description."""
     subtasks: list[SubtaskDef] = [
         {"id": "task1", "description": "Do something specific"}
@@ -55,7 +57,8 @@ def test_planner_mode_executor_prompts():
     assert "Do something specific" in executor.prompt
 
 
-def test_executor_mode_still_works():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_executor_mode_still_works(mock_create_thread: MagicMock):
     """Test that default executor mode still works as before."""
     initial_count = len(_subagents)
 
@@ -70,7 +73,8 @@ def test_executor_mode_still_works():
     assert executor.prompt == "Simple task"
 
 
-def test_planner_parallel_mode():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_planner_parallel_mode(mock_create_thread: MagicMock):
     """Test that parallel mode spawns all executors at once."""
     initial_count = len(_subagents)
 
@@ -125,7 +129,8 @@ def test_planner_sequential_mode():
     assert "test-sequential-seq2" in executor_ids
 
 
-def test_planner_default_is_parallel():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_planner_default_is_parallel(mock_create_thread: MagicMock):
     """Test that default execution mode is parallel."""
     initial_count = len(_subagents)
 
@@ -145,7 +150,8 @@ def test_planner_default_is_parallel():
     assert len(_subagents) == initial_count + 1
 
 
-def test_context_mode_default_is_full():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_context_mode_default_is_full(mock_create_thread: MagicMock):
     """Test that default context_mode is 'full'."""
     initial_count = len(_subagents)
 
@@ -155,7 +161,8 @@ def test_context_mode_default_is_full():
     assert len(_subagents) == initial_count + 1
 
 
-def test_context_mode_instructions_only():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_context_mode_instructions_only(mock_create_thread: MagicMock):
     """Test that instructions-only mode works with minimal context."""
     initial_count = len(_subagents)
 
@@ -183,7 +190,8 @@ def test_context_mode_selective_requires_context_include():
         )
 
 
-def test_context_mode_selective_with_tools():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_context_mode_selective_with_tools(mock_create_thread: MagicMock):
     """Test selective mode with tools context."""
     initial_count = len(_subagents)
 
@@ -201,7 +209,8 @@ def test_context_mode_selective_with_tools():
     assert executor.agent_id == "test-selective-tools"
 
 
-def test_context_mode_selective_with_agent():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_context_mode_selective_with_agent(mock_create_thread: MagicMock):
     """Test selective mode with agent context."""
     initial_count = len(_subagents)
 
@@ -216,7 +225,8 @@ def test_context_mode_selective_with_agent():
     assert len(_subagents) == initial_count + 1
 
 
-def test_context_mode_selective_with_workspace():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_context_mode_selective_with_workspace(mock_create_thread: MagicMock):
     """Test selective mode with workspace context."""
     initial_count = len(_subagents)
 
@@ -231,7 +241,8 @@ def test_context_mode_selective_with_workspace():
     assert len(_subagents) == initial_count + 1
 
 
-def test_context_mode_selective_multiple_components():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_context_mode_selective_multiple_components(mock_create_thread: MagicMock):
     """Test selective mode with multiple context components."""
     initial_count = len(_subagents)
 
@@ -246,7 +257,8 @@ def test_context_mode_selective_multiple_components():
     assert len(_subagents) == initial_count + 1
 
 
-def test_planner_mode_with_context_modes():
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_planner_mode_with_context_modes(mock_create_thread: MagicMock):
     """Test that planner mode works with context modes."""
     initial_count = len(_subagents)
 
