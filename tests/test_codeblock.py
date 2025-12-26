@@ -1079,3 +1079,27 @@ def test_quad_backticks_not_closed_by_triple():
     assert "line 1" in blocks[0].content
     assert "```" in blocks[0].content
     assert "line 2" in blocks[0].content
+
+
+def test_mismatched_fence_lengths():
+    """Mismatched fence lengths should not be parsed as complete blocks.
+
+    Per CommonMark spec, opening and closing fences must have the same length.
+    E.g., ````text\nline 1\n``` should not parse as a valid block because
+    the opening fence (4 backticks) doesn't match the closing fence (3 backticks).
+    """
+    # Quad opening, triple closing - should NOT be extracted as complete block
+    markdown = "````text\nline 1\n```"
+    blocks = Codeblock.iter_from_markdown(markdown)
+    # No complete block should be extracted since closing fence doesn't match
+    assert len(blocks) == 0
+
+    # Quintuple opening, quad closing - should NOT be extracted
+    markdown2 = "`````text\nline 1\n````"
+    blocks2 = Codeblock.iter_from_markdown(markdown2)
+    assert len(blocks2) == 0
+
+    # Triple opening, quad closing - should NOT be extracted
+    markdown3 = "```text\nline 1\n````"
+    blocks3 = Codeblock.iter_from_markdown(markdown3)
+    assert len(blocks3) == 0

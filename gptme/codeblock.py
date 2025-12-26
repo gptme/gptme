@@ -28,18 +28,25 @@ class Codeblock:
     def from_markdown(cls, content: str) -> "Codeblock":
         import re
 
+        stripped = content.strip()
+        fence_len = 0
+
         # Handle variable-length fences (3+ backticks)
-        start_match = re.match(r"^(`{3,})", content.strip())
+        start_match = re.match(r"^(`{3,})", stripped)
         if start_match:
             fence_len = len(start_match.group(1))
-            content = content.strip()[fence_len:]
-        # Check for closing fence at end
-        end_match = re.search(r"(`{3,})$", content.strip())
+            stripped = stripped[fence_len:]
+
+        # Check for closing fence at end - only strip if fence lengths match
+        end_match = re.search(r"(`{3,})$", stripped.strip())
         if end_match:
             end_fence_len = len(end_match.group(1))
-            content = content.strip()[:-end_fence_len]
-        lang = content.splitlines()[0].strip() if content.strip() else ""
-        return cls(lang, content[len(lang) :].lstrip("\n") if lang else content)
+            # Only strip closing fence if it matches opening fence length (CommonMark spec)
+            if fence_len == end_fence_len:
+                stripped = stripped.strip()[:-end_fence_len]
+
+        lang = stripped.splitlines()[0].strip() if stripped.strip() else ""
+        return cls(lang, stripped[len(lang) :].lstrip("\n") if lang else stripped)
 
     @classmethod
     @trace_function(name="codeblock.from_xml", attributes={"component": "parser"})
@@ -70,11 +77,6 @@ class Codeblock:
 
 
 import re
-
-# valid start/end of markdown code blocks (supports 3+ backticks)
-# Captures the backtick count to support nested blocks per CommonMark spec
-re_fence_start = re.compile(r"^(`{3,})(.*)\n")
-re_fence_end = re.compile(r"^(`{3,})$")
 
 
 def _extract_codeblocks(
