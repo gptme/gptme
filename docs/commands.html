@@ -1,0 +1,1066 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Commands &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=a3416100" />
+    <link rel="stylesheet" type="text/css" href="_static/asciinema-player_3.6.3.css" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=3a28e17f" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/asciinema-player_3.6.3.js"></script>
+    <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'commands';</script>
+    <link rel="canonical" href="https://gptme.org/docs/commands.html" />
+    <link rel="icon" href="_static/logo.png"/>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="CLI Reference" href="cli.html" />
+    <link rel="prev" title="ACP (Agent Client Protocol)" href="acp.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <img src="_static/logo.png" class="logo__image only-dark pst-js-only" alt="gptme - Home"/>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html">Projects</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skills/README.html">Skills System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
+<li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/commands.rst" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="_sources/commands.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button>
+
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Commands</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-commands">Built-in Commands</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#conversation-management">Conversation Management</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#log">/log</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#edit">/edit</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#undo">/undo</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#rename">/rename</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fork">/fork</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#delete">/delete</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#summarize">/summarize</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#replay">/replay</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#export">/export</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-token-management">Model &amp; Token Management</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#model">/model</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#tokens">/tokens</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#context">/context</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tools-information">Tools &amp; Information</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#tools">/tools</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#help">/help</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-control">Session Control</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#exit">/exit</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#restart">/restart</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#clear">/clear</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced">Advanced</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#impersonate">/impersonate</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">/setup</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin">/plugin</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-commands">Tool Commands</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commit-autocommit">/commit (autocommit)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#compact-autocompact">/compact (autocompact)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lesson-lessons">/lesson (lessons)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-precommit">/pre-commit (precommit)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-mcp">/mcp (mcp)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-shortcuts">Tool Shortcuts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-registration">Command Registration</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="commands">
+<h1>Commands<a class="headerlink" href="#commands" title="Link to this heading">#</a></h1>
+<p>This page documents all available slash commands in gptme.
+Commands are entered by typing a forward slash (<code class="docutils literal notranslate"><span class="pre">/</span></code>) followed by the command name.</p>
+<p>For CLI arguments and options, see the <a class="reference internal" href="cli.html"><span class="doc">CLI Reference</span></a> reference.</p>
+<nav class="contents local" id="table-of-contents">
+<p class="topic-title">Table of Contents</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#overview" id="id1">Overview</a></p></li>
+<li><p><a class="reference internal" href="#built-in-commands" id="id2">Built-in Commands</a></p>
+<ul>
+<li><p><a class="reference internal" href="#conversation-management" id="id3">Conversation Management</a></p></li>
+<li><p><a class="reference internal" href="#model-token-management" id="id4">Model &amp; Token Management</a></p></li>
+<li><p><a class="reference internal" href="#tools-information" id="id5">Tools &amp; Information</a></p></li>
+<li><p><a class="reference internal" href="#session-control" id="id6">Session Control</a></p></li>
+<li><p><a class="reference internal" href="#advanced" id="id7">Advanced</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#tool-commands" id="id8">Tool Commands</a></p>
+<ul>
+<li><p><a class="reference internal" href="#commit-autocommit" id="id9">/commit (autocommit)</a></p></li>
+<li><p><a class="reference internal" href="#compact-autocompact" id="id10">/compact (autocompact)</a></p></li>
+<li><p><a class="reference internal" href="#lesson-lessons" id="id11">/lesson (lessons)</a></p></li>
+<li><p><a class="reference internal" href="#pre-commit-precommit" id="id12">/pre-commit (precommit)</a></p></li>
+<li><p><a class="reference internal" href="#mcp-mcp" id="id13">/mcp (mcp)</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#tool-shortcuts" id="id14">Tool Shortcuts</a></p></li>
+<li><p><a class="reference internal" href="#keyboard-shortcuts" id="id15">Keyboard Shortcuts</a></p></li>
+<li><p><a class="reference internal" href="#command-registration" id="id16">Command Registration</a></p></li>
+</ul>
+</nav>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p>gptme provides two types of commands:</p>
+<ol class="arabic simple">
+<li><p><strong>Built-in commands</strong> - Core commands always available</p></li>
+<li><p><strong>Tool commands</strong> - Commands registered by enabled tools</p></li>
+</ol>
+<p>To see available commands in your session, use <code class="docutils literal notranslate"><span class="pre">/help</span></code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Some commands are only available when their corresponding tool is enabled.
+Use <code class="docutils literal notranslate"><span class="pre">/tools</span></code> to see which tools are currently active.</p>
+</div>
+</section>
+<section id="built-in-commands">
+<h2>Built-in Commands<a class="headerlink" href="#built-in-commands" title="Link to this heading">#</a></h2>
+<section id="conversation-management">
+<h3>Conversation Management<a class="headerlink" href="#conversation-management" title="Link to this heading">#</a></h3>
+<section id="log">
+<h4>/log<a class="headerlink" href="#log" title="Link to this heading">#</a></h4>
+<p>Show the conversation log.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/log           # Show visible messages
+/log --hidden  # Include hidden system messages
+</pre></div>
+</div>
+</section>
+<section id="edit">
+<h4>/edit<a class="headerlink" href="#edit" title="Link to this heading">#</a></h4>
+<p>Edit the conversation in your default editor.</p>
+<p>Opens the conversation as TOML in <code class="docutils literal notranslate"><span class="pre">$EDITOR</span></code>, allowing you to modify, delete, or reorder messages.
+After saving and closing, the edited conversation is loaded.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/edit
+</pre></div>
+</div>
+</section>
+<section id="undo">
+<h4>/undo<a class="headerlink" href="#undo" title="Link to this heading">#</a></h4>
+<p>Undo the last action(s).</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/undo      # Undo last message
+/undo 3    # Undo last 3 messages
+</pre></div>
+</div>
+</section>
+<section id="rename">
+<h4>/rename<a class="headerlink" href="#rename" title="Link to this heading">#</a></h4>
+<p>Rename the conversation.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/rename new-name    # Rename to specific name
+/rename             # Interactive mode, enter empty for auto-generate
+/rename auto        # Auto-generate name using LLM
+</pre></div>
+</div>
+</section>
+<section id="fork">
+<h4>/fork<a class="headerlink" href="#fork" title="Link to this heading">#</a></h4>
+<p>Create a copy of the current conversation with a new name.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/fork my-experiment
+</pre></div>
+</div>
+</section>
+<section id="delete">
+<h4>/delete<a class="headerlink" href="#delete" title="Link to this heading">#</a></h4>
+<p>Delete a conversation by ID.</p>
+<p><strong>Alias:</strong> <code class="docutils literal notranslate"><span class="pre">/rm</span></code></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/delete              # List recent conversations with IDs
+/delete abc123       # Delete conversation with ID abc123
+/delete --force xyz  # Delete without confirmation
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Cannot delete the currently active conversation. Start a new conversation first.</p>
+</div>
+</section>
+<section id="summarize">
+<h4>/summarize<a class="headerlink" href="#summarize" title="Link to this heading">#</a></h4>
+<p>Generate an LLM-powered summary of the conversation.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/summarize
+</pre></div>
+</div>
+</section>
+<section id="replay">
+<h4>/replay<a class="headerlink" href="#replay" title="Link to this heading">#</a></h4>
+<p>Replay tool operations from the conversation.</p>
+<p>Useful for:</p>
+<ul class="simple">
+<li><p>Re-executing code blocks after making manual changes</p></li>
+<li><p>Restoring state (like todo lists) when resuming a conversation</p></li>
+<li><p>Debugging tool behavior</p></li>
+</ul>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/replay              # Interactive: choose last, all, or tool name
+/replay last         # Replay only the last assistant message with tool uses
+/replay all          # Replay all assistant messages
+/replay todowrite    # Replay all operations for a specific tool
+</pre></div>
+</div>
+</section>
+<section id="export">
+<h4>/export<a class="headerlink" href="#export" title="Link to this heading">#</a></h4>
+<p>Export the conversation as an HTML file.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/export                   # Export to &lt;conversation-name&gt;.html
+/export my-chat.html      # Export to specific filename
+</pre></div>
+</div>
+</section>
+</section>
+<section id="model-token-management">
+<h3>Model &amp; Token Management<a class="headerlink" href="#model-token-management" title="Link to this heading">#</a></h3>
+<section id="model">
+<h4>/model<a class="headerlink" href="#model" title="Link to this heading">#</a></h4>
+<p>List available models or switch to a different model.</p>
+<p><strong>Alias:</strong> <code class="docutils literal notranslate"><span class="pre">/models</span></code></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/model                    # Show current model info and list available
+/model openai/gpt-4o      # Switch to specific model
+/model anthropic          # Switch to provider&#39;s default model
+</pre></div>
+</div>
+<p>The model change is persisted to the conversation’s config file.</p>
+</section>
+<section id="tokens">
+<h4>/tokens<a class="headerlink" href="#tokens" title="Link to this heading">#</a></h4>
+<p>Show token usage and cost information.</p>
+<p><strong>Alias:</strong> <code class="docutils literal notranslate"><span class="pre">/cost</span></code></p>
+<p>Displays:</p>
+<ul class="simple">
+<li><p>Session costs (current session usage)</p></li>
+<li><p>Conversation costs (all messages)</p></li>
+<li><p>Breakdown by input/output tokens</p></li>
+</ul>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/tokens
+</pre></div>
+</div>
+</section>
+<section id="context">
+<h4>/context<a class="headerlink" href="#context" title="Link to this heading">#</a></h4>
+<p>Show detailed context token usage breakdown.</p>
+<p>Displays token counts by:</p>
+<ul class="simple">
+<li><p>Role (system, user, assistant)</p></li>
+<li><p>Content type (messages, tool uses, thinking blocks)</p></li>
+</ul>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/context
+</pre></div>
+</div>
+</section>
+</section>
+<section id="tools-information">
+<h3>Tools &amp; Information<a class="headerlink" href="#tools-information" title="Link to this heading">#</a></h3>
+<section id="tools">
+<h4>/tools<a class="headerlink" href="#tools" title="Link to this heading">#</a></h4>
+<p>List all available tools with their descriptions and token usage.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/tools
+</pre></div>
+</div>
+</section>
+<section id="help">
+<h4>/help<a class="headerlink" href="#help" title="Link to this heading">#</a></h4>
+<p>Show the help message with available commands and keyboard shortcuts.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/help
+</pre></div>
+</div>
+</section>
+</section>
+<section id="session-control">
+<h3>Session Control<a class="headerlink" href="#session-control" title="Link to this heading">#</a></h3>
+<section id="exit">
+<h4>/exit<a class="headerlink" href="#exit" title="Link to this heading">#</a></h4>
+<p>Exit gptme, saving the conversation.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/exit
+</pre></div>
+</div>
+</section>
+<section id="restart">
+<h4>/restart<a class="headerlink" href="#restart" title="Link to this heading">#</a></h4>
+<p>Restart the gptme process.</p>
+<p>Useful for:</p>
+<ul class="simple">
+<li><p>Applying configuration changes</p></li>
+<li><p>Reloading tools after code modifications</p></li>
+<li><p>Recovering from state issues</p></li>
+</ul>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/restart
+</pre></div>
+</div>
+</section>
+<section id="clear">
+<h4>/clear<a class="headerlink" href="#clear" title="Link to this heading">#</a></h4>
+<p>Clear the terminal screen.</p>
+<p><strong>Alias:</strong> <code class="docutils literal notranslate"><span class="pre">/cls</span></code></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/clear
+</pre></div>
+</div>
+</section>
+</section>
+<section id="advanced">
+<h3>Advanced<a class="headerlink" href="#advanced" title="Link to this heading">#</a></h3>
+<section id="impersonate">
+<h4>/impersonate<a class="headerlink" href="#impersonate" title="Link to this heading">#</a></h4>
+<p>Add a message as if it came from the assistant.</p>
+<p>Useful for guiding the conversation or testing tool behavior.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/impersonate I&#39;ll help you with that task.
+/impersonate          # Interactive mode: enter text at prompt
+</pre></div>
+</div>
+</section>
+<section id="setup">
+<h4>/setup<a class="headerlink" href="#setup" title="Link to this heading">#</a></h4>
+<p>Run the gptme setup wizard.</p>
+<p>Configures:</p>
+<ul class="simple">
+<li><p>Shell completions (bash, zsh, fish)</p></li>
+<li><p>Configuration file</p></li>
+<li><p>Project-specific settings</p></li>
+</ul>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/setup
+</pre></div>
+</div>
+</section>
+<section id="plugin">
+<h4>/plugin<a class="headerlink" href="#plugin" title="Link to this heading">#</a></h4>
+<p>Manage gptme plugins.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/plugin list           # List discovered plugins
+/plugin info &lt;name&gt;    # Show details about a plugin
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="tool-commands">
+<h2>Tool Commands<a class="headerlink" href="#tool-commands" title="Link to this heading">#</a></h2>
+<p>These commands are provided by tools and are only available when the tool is enabled.</p>
+<section id="commit-autocommit">
+<h3>/commit (autocommit)<a class="headerlink" href="#commit-autocommit" title="Link to this heading">#</a></h3>
+<p>Ask the assistant to review staged changes and create a git commit.</p>
+<p>The assistant will:</p>
+<ol class="arabic simple">
+<li><p>Check <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">status</span></code> and <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">diff</span> <span class="pre">--staged</span></code></p></li>
+<li><p>Propose a commit message following Conventional Commits</p></li>
+<li><p>Create the commit (with confirmation)</p></li>
+</ol>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/commit
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Enable auto-commit on every message by setting <code class="docutils literal notranslate"><span class="pre">GPTME_AUTOCOMMIT=true</span></code>.</p>
+</div>
+</section>
+<section id="compact-autocompact">
+<h3>/compact (autocompact)<a class="headerlink" href="#compact-autocompact" title="Link to this heading">#</a></h3>
+<p>Manually trigger conversation compaction to reduce context size.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/compact           # Auto-compact using summarization
+/compact auto      # Same as above
+/compact resume    # Generate an LLM-powered resume/summary
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Auto-compaction happens automatically when tool outputs exceed size thresholds.</p>
+</div>
+</section>
+<section id="lesson-lessons">
+<h3>/lesson (lessons)<a class="headerlink" href="#lesson-lessons" title="Link to this heading">#</a></h3>
+<p>Manage the lessons system for contextual guidance.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/lesson                    # Show help
+/lesson list               # List all lessons
+/lesson list tools         # List lessons in a category
+/lesson search &lt;query&gt;     # Search lessons by keyword
+/lesson show &lt;name&gt;        # Show a specific lesson
+/lesson refresh            # Refresh lessons from disk
+</pre></div>
+</div>
+<p>For more on lessons, see <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a>.</p>
+</section>
+<section id="pre-commit-precommit">
+<h3>/pre-commit (precommit)<a class="headerlink" href="#pre-commit-precommit" title="Link to this heading">#</a></h3>
+<p>Manually run pre-commit checks on the repository.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/pre-commit
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Pre-commit checks run automatically after file modifications when
+a <code class="docutils literal notranslate"><span class="pre">.pre-commit-config.yaml</span></code> exists. Control with <code class="docutils literal notranslate"><span class="pre">GPTME_CHECK=true/false</span></code>.</p>
+</div>
+</section>
+<section id="mcp-mcp">
+<h3>/mcp (mcp)<a class="headerlink" href="#mcp-mcp" title="Link to this heading">#</a></h3>
+<p>Manage Model Context Protocol (MCP) servers.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/mcp search &lt;query&gt;        # Search for MCP servers
+/mcp info &lt;name&gt;           # Show info about a server
+/mcp list                  # List loaded servers
+/mcp load &lt;name&gt;           # Load/start an MCP server
+/mcp unload &lt;name&gt;         # Unload/stop an MCP server
+</pre></div>
+</div>
+<p>For more on MCP, see <a class="reference internal" href="mcp.html"><span class="doc">MCP</span></a>.</p>
+</section>
+</section>
+<section id="tool-shortcuts">
+<h2>Tool Shortcuts<a class="headerlink" href="#tool-shortcuts" title="Link to this heading">#</a></h2>
+<p>You can execute tool code directly using slash commands with the tool’s language tag:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/sh echo hello             # Execute shell command
+/shell ls -la              # Same as above
+/python print(&quot;hello&quot;)     # Execute Python code
+/ipython 2 + 2             # Same as above
+</pre></div>
+</div>
+<p>This is equivalent to writing a code block:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="sb">```shell</span>
+<span class="nb">echo</span><span class="w"> </span>hello
+<span class="sb">```</span>
+</pre></div>
+</div>
+</section>
+<section id="keyboard-shortcuts">
+<h2>Keyboard Shortcuts<a class="headerlink" href="#keyboard-shortcuts" title="Link to this heading">#</a></h2>
+<p>These shortcuts work in the interactive prompt:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Ctrl+X</span> <span class="pre">Ctrl+E</span></code></p></td>
+<td><p>Edit the current prompt in your editor (<code class="docutils literal notranslate"><span class="pre">$EDITOR</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Ctrl+J</span></code></p></td>
+<td><p>Insert a newline without executing (for multi-line input)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Ctrl+C</span></code></p></td>
+<td><p>Cancel current input or interrupt running operation</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Ctrl+D</span></code></p></td>
+<td><p>Exit gptme (same as <code class="docutils literal notranslate"><span class="pre">/exit</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Tab</span></code></p></td>
+<td><p>Auto-complete commands, paths, and filenames</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">Up/Down</span></code></p></td>
+<td><p>Navigate command history</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="command-registration">
+<h2>Command Registration<a class="headerlink" href="#command-registration" title="Link to this heading">#</a></h2>
+<p>Tools can register custom commands using the <code class="docutils literal notranslate"><span class="pre">commands</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.tools</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span> <span class="nn">gptme.commands</span> <span class="kn">import</span> <span class="n">CommandContext</span>
+
+<span class="k">def</span> <span class="nf">my_command</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">undo</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># Remove the command from log</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Arguments: </span><span class="si">{</span><span class="n">ctx</span><span class="o">.</span><span class="n">args</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="c1"># Optionally yield Message objects</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;mytool&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;My custom tool&quot;</span><span class="p">,</span>
+    <span class="n">commands</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;mycommand&quot;</span><span class="p">:</span> <span class="n">my_command</span><span class="p">,</span>
+    <span class="p">},</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> for more on creating tools with commands.</p>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="acp.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">ACP (Agent Client Protocol)</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="cli.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">CLI Reference</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-commands">Built-in Commands</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#conversation-management">Conversation Management</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#log">/log</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#edit">/edit</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#undo">/undo</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#rename">/rename</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#fork">/fork</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#delete">/delete</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#summarize">/summarize</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#replay">/replay</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#export">/export</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-token-management">Model &amp; Token Management</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#model">/model</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#tokens">/tokens</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#context">/context</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tools-information">Tools &amp; Information</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#tools">/tools</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#help">/help</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-control">Session Control</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#exit">/exit</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#restart">/restart</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#clear">/clear</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced">Advanced</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#impersonate">/impersonate</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">/setup</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin">/plugin</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-commands">Tool Commands</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commit-autocommit">/commit (autocommit)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#compact-autocompact">/compact (autocompact)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lesson-lessons">/lesson (lessons)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-precommit">/pre-commit (precommit)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-mcp">/mcp (mcp)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-shortcuts">Tool Shortcuts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-registration">Command Registration</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2025, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

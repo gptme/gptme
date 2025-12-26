@@ -23,19 +23,17 @@ To get inspiration for your first prompt, see the :doc:`examples`.
 Commands
 --------
 
-.. TODO: use autodoc from source, like cli reference
+gptme provides slash-commands for various actions within the chat.
+For the complete reference, see :doc:`commands`.
 
-You can use these slash-commands for various actions within the chat:
+Common commands:
 
-- ``/undo`` - Undo the last action
+- ``/help`` - Show available commands
+- ``/undo [n]`` - Undo the last n actions
 - ``/log`` - Show the conversation log
-- ``/tools`` - Show available tools
 - ``/edit`` - Edit the conversation in your editor
-- ``/rename`` - Rename the conversation
-- ``/fork`` - Create a copy of the conversation
-- ``/summarize`` - Summarize the conversation
-- ``/replay`` - Re-execute codeblocks in the conversation
-- ``/help`` - Show help message
+- ``/model`` - List or switch models
+- ``/tokens`` - Show token usage and costs
 - ``/exit`` - Exit the program
 
 Interfaces

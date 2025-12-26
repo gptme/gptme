@@ -52,7 +52,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Contributing" href="contributing.html" />
-    <link rel="prev" title="ACP (Agent Client Protocol)" href="acp.html" />
+    <link rel="prev" title="Commands" href="commands.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -172,6 +172,7 @@
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
 <li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">CLI Reference</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
@@ -536,18 +537,21 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <div class="line-block">
 <div class="line">/undo         Undo the last action</div>
 <div class="line">/log          Show the conversation log</div>
-<div class="line">/tools        Show available tools</div>
-<div class="line">/model        List or switch models</div>
 <div class="line">/edit         Edit the conversation in your editor</div>
 <div class="line">/rename       Rename the conversation</div>
-<div class="line">/fork         Copy the conversation using a new name</div>
+<div class="line">/fork         Create a copy of the conversation</div>
 <div class="line">/delete       Delete a conversation by ID (alias: /rm)</div>
 <div class="line">/summarize    Summarize the conversation</div>
 <div class="line">/replay       Replay tool operations</div>
-<div class="line">/impersonate  Impersonate the assistant</div>
-<div class="line">/tokens       Show the number of tokens used</div>
 <div class="line">/export       Export conversation as HTML</div>
+<div class="line">/model        List or switch models</div>
+<div class="line">/tokens       Show token usage and costs (alias: /cost)</div>
+<div class="line">/context      Show context token breakdown</div>
+<div class="line">/tools        Show available tools</div>
 <div class="line">/commit       Ask assistant to git commit</div>
+<div class="line">/compact      Compact the conversation</div>
+<div class="line">/impersonate  Impersonate the assistant</div>
+<div class="line">/plugin       Manage plugins</div>
 <div class="line">/clear        Clear the terminal screen</div>
 <div class="line">/setup        Setup gptme with completions and configuration</div>
 <div class="line">/restart      Restart gptme process</div>
@@ -1267,12 +1271,12 @@ using the same logic as the main gptme tool.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="acp.html"
+       href="commands.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">ACP (Agent Client Protocol)</p>
+        <p class="prev-next-title">Commands</p>
       </div>
     </a>
     <a class="right-next"
