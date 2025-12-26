@@ -673,17 +673,13 @@ _MODEL_CACHE_TTL = 300  # 5 minutes, same as fish completion
 
 
 def _get_cached_models() -> list[tuple[str, str]]:
-    """Get cached model list, refreshing if stale."""
+    """Get cached model list, refreshing if stale.
+
+    Uses the same get_model_list() function as gptme-util models list.
+    """
     import time
 
-    from .config import get_config
-    from .llm.models import (
-        MODELS,
-        PROVIDERS,
-        CustomProvider,
-        _get_models_for_provider,
-        get_default_model,
-    )
+    from .llm.models import get_default_model, get_model_list
 
     global _model_completions_cache, _model_cache_time
 
@@ -697,28 +693,17 @@ def _get_cached_models() -> list[tuple[str, str]]:
     completions: list[tuple[str, str]] = []
     current = get_default_model()
 
-    # Get custom providers from config
-    config = get_config()
-    custom_providers = [CustomProvider(p.name) for p in config.user.providers]
-    all_providers = list(PROVIDERS) + custom_providers
-
-    for provider in all_providers:
-        try:
-            # Use dynamic fetching for supported providers
-            models = _get_models_for_provider(provider, dynamic_fetch=True)
-            for model_meta in models:
-                full_name = model_meta.full
-                is_current = current and current.full == full_name
-                desc = "(current)" if is_current else ""
-                completions.append((full_name, desc))
-        except Exception:
-            # Fall back to static models on error
-            if provider in MODELS:
-                for model_name in MODELS[provider]:
-                    full_name = f"{provider}/{model_name}"
-                    is_current = current and current.full == full_name
-                    desc = "(current)" if is_current else ""
-                    completions.append((full_name, desc))
+    # Use the same function as gptme-util models list
+    try:
+        models = get_model_list(dynamic_fetch=True)
+        for model_meta in models:
+            full_name = model_meta.full
+            is_current = current and current.full == full_name
+            desc = "(current)" if is_current else ""
+            completions.append((full_name, desc))
+    except Exception:
+        # Fall back to empty list on error (static models will still show via provider prefixes)
+        pass
 
     _model_completions_cache = completions
     _model_cache_time = current_time
@@ -726,7 +711,10 @@ def _get_cached_models() -> list[tuple[str, str]]:
 
 
 def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
-    """Complete model names using dynamic fetching with caching."""
+    """Complete model names using dynamic fetching with caching.
+
+    Uses the same model listing logic as gptme-util models list --simple.
+    """
     from .llm.models import MODELS, PROVIDERS, get_default_model
 
     completions: list[tuple[str, str]] = []
