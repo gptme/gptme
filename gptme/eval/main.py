@@ -92,11 +92,34 @@ def docker_reexec(argv: list[str]) -> None:
             check=True,
         )
 
+    # Collect environment variables to pass through
+    # These are common LLM provider API keys that may be needed
+    env_vars_to_pass = [
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GROQ_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "XAI_API_KEY",
+        "GEMINI_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_ENDPOINT",
+    ]
+
+    env_args = []
+    for var in env_vars_to_pass:
+        if var in os.environ:
+            env_args.extend(["-e", f"{var}={os.environ[var]}"])
+
     # Construct docker run command
     docker_cmd = [
         "docker",
         "run",
         "--rm",
+        # Run as current user to avoid permission issues with created files
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
+        *env_args,
         "-v",
         # use separate config dir for gptme-eval (only stores API keys)
         f"{Path.home()}/.config/gptme-eval:/home/appuser/.config/gptme",
