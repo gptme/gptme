@@ -77,11 +77,13 @@ def _do_restart(conversation_name: str | None = None):
 
         if arg.startswith("-"):
             # This is a flag
-            if arg in ["--name", "-r", "--resume"]:
-                # Skip --name and --resume since we'll add --name explicitly
-                # Note: -r and --resume are boolean flags (no value), --name takes a value
+            if arg in ["--name", "-r", "--resume", "-m", "--model"]:
+                # Skip --name, --resume, and --model since:
+                # - --name: we'll add it explicitly with conversation name
+                # - --resume/-r: boolean flags, not needed on restart
+                # - --model/-m: model is persisted and loaded on resume
                 if arg in _FLAGS_WITH_VALUES:
-                    skip_value = True  # Also skip the value (for --name)
+                    skip_value = True  # Also skip the value (for --name, -m, --model)
                 # Don't add to filtered_args
             elif arg in _FLAGS_WITH_VALUES:
                 # Flag takes a value, keep flag and mark to keep next arg
@@ -89,9 +91,9 @@ def _do_restart(conversation_name: str | None = None):
                 skip_next = True
             elif "=" in arg:
                 # Flag with inline value (--flag=value), keep it
-                # But skip if it's --name=something or --resume=something
+                # But skip if it's --name/--resume/--model=something
                 flag_name = arg.split("=")[0]
-                if flag_name not in ["--name", "--resume", "-r"]:
+                if flag_name not in ["--name", "--resume", "-r", "-m", "--model"]:
                     filtered_args.append(arg)
             else:
                 # Boolean flag (no value), keep it
