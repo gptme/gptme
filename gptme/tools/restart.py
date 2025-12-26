@@ -77,13 +77,33 @@ def _do_restart(conversation_name: str | None = None):
 
         if arg.startswith("-"):
             # This is a flag
-            if arg in ["--name", "-r", "--resume", "-m", "--model"]:
-                # Skip --name, --resume, and --model since:
-                # - --name: we'll add it explicitly with conversation name
-                # - --resume/-r: boolean flags, not needed on restart
-                # - --model/-m: model is persisted and loaded on resume
+            # Flags that are persisted to the chat config and loaded on resume
+            # These should NOT be re-passed on restart since they're in the conversation config
+            _PERSISTED_FLAGS = {
+                "--name",  # we add explicitly with conversation name
+                "-r",
+                "--resume",  # boolean flags for resuming
+                "-m",
+                "--model",  # model is persisted
+                "-t",
+                "--tools",  # tools allowlist is persisted
+                "--tool-format",  # tool format is persisted
+                "--stream",
+                "--no-stream",  # streaming preference
+                "-n",
+                "--non-interactive",  # interactive mode
+                "--agent-path",  # agent path
+                "-w",
+                "--workspace",  # workspace path
+                "--multi-tool",
+                "--no-multi-tool",  # multi-tool mode
+                "--context-mode",  # context mode
+                "--context-include",  # context includes
+            }
+            if arg in _PERSISTED_FLAGS:
+                # Skip flags that are persisted to chat config
                 if arg in _FLAGS_WITH_VALUES:
-                    skip_value = True  # Also skip the value (for --name, -m, --model)
+                    skip_value = True  # Also skip the value
                 # Don't add to filtered_args
             elif arg in _FLAGS_WITH_VALUES:
                 # Flag takes a value, keep flag and mark to keep next arg
@@ -91,9 +111,30 @@ def _do_restart(conversation_name: str | None = None):
                 skip_next = True
             elif "=" in arg:
                 # Flag with inline value (--flag=value), keep it
-                # But skip if it's --name/--resume/--model=something
+                # But skip if it's a persisted flag (loaded from chat config)
                 flag_name = arg.split("=")[0]
-                if flag_name not in ["--name", "--resume", "-r", "-m", "--model"]:
+                _PERSISTED_FLAGS_INLINE = {
+                    "--name",
+                    "--resume",
+                    "-r",
+                    "-m",
+                    "--model",
+                    "-t",
+                    "--tools",
+                    "--tool-format",
+                    "--stream",
+                    "--no-stream",
+                    "-n",
+                    "--non-interactive",
+                    "--agent-path",
+                    "-w",
+                    "--workspace",
+                    "--multi-tool",
+                    "--no-multi-tool",
+                    "--context-mode",
+                    "--context-include",
+                }
+                if flag_name not in _PERSISTED_FLAGS_INLINE:
                     filtered_args.append(arg)
             else:
                 # Boolean flag (no value), keep it
