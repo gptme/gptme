@@ -116,17 +116,7 @@ def docker_reexec(argv: list[str]) -> None:
         "docker",
         "run",
         "--rm",
-        # Run as current user to avoid permission issues with created files
-        "--user",
-        f"{os.getuid()}:{os.getgid()}",
-        # Set HOME to /tmp since container's /home/appuser may not be writable by host UID
-        "-e",
-        "HOME=/tmp",
         *env_args,
-        "-v",
-        # use separate config dir for gptme-eval (only stores API keys)
-        # Mount to /tmp/.config/gptme to match HOME=/tmp environment
-        f"{Path.home()}/.config/gptme-eval:/tmp/.config/gptme",
         "-v",
         f"{git_root}/eval_results:/app/eval_results",
         "-v",
