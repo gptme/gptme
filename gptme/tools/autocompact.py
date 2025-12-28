@@ -630,12 +630,17 @@ def _compact_auto(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     ctx.manager.log = Log(compacted_msgs)
     ctx.manager.write()
 
+    reduction_pct = (
+        ((original_tokens - compacted_tokens) / original_tokens * 100)
+        if original_tokens > 0
+        else 0.0
+    )
     yield Message(
         "system",
         f"✅ Auto-compacting completed:\n"
         f"• Messages: {original_count} → {compacted_count}\n"
         f"• Tokens: {original_tokens:,} → {compacted_tokens:,} "
-        f"({((original_tokens - compacted_tokens) / original_tokens * 100):.1f}% reduction)",
+        f"({reduction_pct:.1f}% reduction)",
     )
 
 
@@ -829,13 +834,18 @@ def autocompact_hook(
         manager.log = Log(compacted_msgs)
         manager.write()
 
+        reduction_pct = (
+            ((original_tokens - compacted_tokens) / original_tokens * 100)
+            if original_tokens > 0
+            else 0.0
+        )
         # Yield a message indicating what happened
         yield Message(
             "system",
             f"🔄 Auto-compacted conversation due to massive tool results:\n"
             f"• Messages: {original_count} → {compacted_count}\n"
             f"• Tokens: {original_tokens:,} → {compacted_tokens:,} "
-            f"({((original_tokens - compacted_tokens) / original_tokens * 100):.1f}% reduction)\n"
+            f"({reduction_pct:.1f}% reduction)\n"
             f"Original state preserved in '{fork_name}'.",
             hide=True,  # Hide to prevent triggering responses
         )
