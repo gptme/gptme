@@ -342,6 +342,8 @@ def auto_compact_log(
             )
 
             # Add master context reference for exact recovery
+            # Note: idx must match the message position in conversation.jsonl
+            # This is safe because Phase 1-2 preserve message positions (1:1 mapping)
             if master_logfile and idx < len(master_context_index):
                 byte_range = master_context_index[idx]
                 # Get first line as preview
@@ -391,6 +393,8 @@ def auto_compact_log(
 
             if compressed_tokens < msg_tokens:
                 # Add master context reference for exact recovery
+                # Note: idx must match the message position in conversation.jsonl
+                # This is safe because Phases 1-3 preserve message positions (1:1 mapping)
                 if master_logfile and idx < len(master_context_index):
                     byte_range = master_context_index[idx]
                     # Get first line as preview

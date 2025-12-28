@@ -83,8 +83,8 @@ def create_master_context_reference(
     ]
 
     if preview:
-        # Limit preview to first 200 chars
-        parts.append(f"Preview: {preview[:200]}...")
+        # Limit preview to first 200 chars, add ellipsis only if truncated
+        parts.append(f"Preview: {preview[:200]}{'...' if len(preview) > 200 else ''}")
 
     parts.append(
         "To recover: grep or read the master context file at the byte range above."
@@ -110,4 +110,9 @@ def recover_from_master_context(logfile: Path, byte_range: MessageByteRange) -> 
 
     # Parse the JSON line to get the message content
     json_data = json.loads(data.decode("utf-8"))
-    return json_data.get("content", "")
+    if "content" not in json_data:
+        raise ValueError(
+            f"Message at byte range {byte_range.byte_start}-{byte_range.byte_end} "
+            f"has no 'content' field"
+        )
+    return json_data["content"]
