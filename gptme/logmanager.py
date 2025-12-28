@@ -233,6 +233,8 @@ class LogManager:
                 self._branches["main"] = self._branches["main"].append(msg)
             # Also append to the current view
             self._views[self.current_view] = self._views[self.current_view].append(msg)
+            # Update self.log to reflect the view (what the agent sees)
+            self.log = self._views[self.current_view]
         else:
             # Not on a view, append to current branch normally (no dual-write)
             self.log = self.log.append(msg)
@@ -448,12 +450,16 @@ class LogManager:
             raise ValueError(f"View '{name}' does not exist")
         self.write()  # Save current state first
         self.current_view = name
+        # Update self.log to reflect the view (what the agent sees)
+        self.log = self._views[name]
         logger.info(f"Switched to view: {name}")
 
     def switch_to_master(self) -> None:
         """Switch back to master (full uncompacted history)."""
         self.write()  # Save current state first
         self.current_view = None
+        # Update self.log to reflect master (full history)
+        self.log = self._branches[self.current_branch]
         logger.info("Switched to master branch")
 
     def get_next_view_name(self) -> str:
