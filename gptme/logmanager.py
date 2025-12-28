@@ -196,6 +196,9 @@ class LogManager:
 
     @property
     def log(self) -> Log:
+        # If viewing a compacted view, return that; otherwise return branch log
+        if self.current_view is not None:
+            return self._views[self.current_view]
         return self._branches[self.current_branch]
 
     @log.setter
@@ -450,16 +453,14 @@ class LogManager:
             raise ValueError(f"View '{name}' does not exist")
         self.write()  # Save current state first
         self.current_view = name
-        # Update self.log to reflect the view (what the agent sees)
-        self.log = self._views[name]
+        # log getter now returns view when current_view is set
         logger.info(f"Switched to view: {name}")
 
     def switch_to_master(self) -> None:
         """Switch back to master (full uncompacted history)."""
         self.write()  # Save current state first
         self.current_view = None
-        # Update self.log to reflect master (full history)
-        self.log = self._branches[self.current_branch]
+        # log getter now returns branch when current_view is None
         logger.info("Switched to master branch")
 
     def get_next_view_name(self) -> str:
