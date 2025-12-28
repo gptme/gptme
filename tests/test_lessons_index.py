@@ -89,12 +89,19 @@ class TestLessonIndex:
 
 
 class TestLessonDeduplication:
-    """Tests for lesson deduplication feature."""
+    """Tests for lesson deduplication feature.
 
-    def test_deduplication_same_filename(self, sample_lesson_content):
-        """Test that lessons with same filename are deduplicated.
+    Deduplication is based on resolved path (realpath), not filename.
+    This handles symlinks pointing to the same file correctly.
+    """
 
-        The first directory in the list should take precedence.
+    def test_same_filename_different_files_not_deduplicated(
+        self, sample_lesson_content
+    ):
+        """Test that different files with same filename are NOT deduplicated.
+
+        With realpath-based deduplication, files with same name but different
+        paths are treated as separate lessons.
         """
         clear_cache()
         with (
@@ -106,20 +113,53 @@ class TestLessonDeduplication:
             dir1.mkdir()
             dir2.mkdir()
 
-            # Same filename in both directories
+            # Same filename in both directories, but different physical files
             content1 = sample_lesson_content.replace("Test Lesson", "First Version")
             content2 = sample_lesson_content.replace("Test Lesson", "Second Version")
 
             (dir1 / "duplicate.md").write_text(content1)
             (dir2 / "duplicate.md").write_text(content2)
 
-            # dir1 has higher precedence (first in list)
             index = LessonIndex([dir1, dir2])
 
-            # Should only have one lesson
+            # Both files have different realpaths, so both are included
+            assert len(index.lessons) == 2
+            titles = {lesson.title for lesson in index.lessons}
+            assert "First Version" in titles
+            assert "Second Version" in titles
+
+    def test_symlink_deduplication(self, sample_lesson_content):
+        """Test that symlinks to the same file are deduplicated.
+
+        This is the main use case: when lessons/x.md is a symlink to
+        gptme-contrib/lessons/x.md, and both directories are configured,
+        the lesson should only be included once.
+        """
+        clear_cache()
+        with (
+            tempfile.TemporaryDirectory() as tmp1,
+            tempfile.TemporaryDirectory() as tmp2,
+        ):
+            real_dir = Path(tmp1) / "real-lessons"
+            symlink_dir = Path(tmp2) / "symlinked-lessons"
+            real_dir.mkdir()
+            symlink_dir.mkdir()
+
+            # Create the real file
+            content = sample_lesson_content.replace("Test Lesson", "Real Lesson")
+            real_file = real_dir / "shared-lesson.md"
+            real_file.write_text(content)
+
+            # Create a symlink pointing to the real file
+            symlink_file = symlink_dir / "shared-lesson.md"
+            symlink_file.symlink_to(real_file)
+
+            # Index both directories (symlink dir first)
+            index = LessonIndex([symlink_dir, real_dir])
+
+            # Should only have one lesson (realpath deduplication)
             assert len(index.lessons) == 1
-            # Should be the first version (from dir1)
-            assert index.lessons[0].title == "First Version"
+            assert index.lessons[0].title == "Real Lesson"
 
     def test_deduplication_different_filenames(self, sample_lesson_content):
         """Test that lessons with different filenames are not deduplicated."""
@@ -147,8 +187,37 @@ class TestLessonDeduplication:
             assert "Lesson A" in titles
             assert "Lesson B" in titles
 
-    def test_deduplication_in_subdirectories(self, sample_lesson_content):
-        """Test deduplication works across subdirectories."""
+    def test_symlink_in_subdirectory(self, sample_lesson_content):
+        """Test symlink deduplication works in subdirectories."""
+        clear_cache()
+        with (
+            tempfile.TemporaryDirectory() as tmp1,
+            tempfile.TemporaryDirectory() as tmp2,
+        ):
+            real_dir = Path(tmp1) / "lessons"
+            symlink_dir = Path(tmp2) / "lessons"
+            real_dir.mkdir()
+            symlink_dir.mkdir()
+
+            # Create real file in subdirectory
+            (real_dir / "workflow").mkdir()
+            content = sample_lesson_content.replace("Test Lesson", "Workflow Lesson")
+            real_file = real_dir / "workflow" / "git-workflow.md"
+            real_file.write_text(content)
+
+            # Create symlink in different subdirectory
+            (symlink_dir / "tools").mkdir()
+            symlink_file = symlink_dir / "tools" / "git-workflow.md"
+            symlink_file.symlink_to(real_file)
+
+            index = LessonIndex([symlink_dir, real_dir])
+
+            # Should only have one lesson (symlink resolves to same file)
+            assert len(index.lessons) == 1
+            assert index.lessons[0].title == "Workflow Lesson"
+
+    def test_different_files_same_name_in_subdirectories(self, sample_lesson_content):
+        """Test different files with same name in subdirectories are NOT deduplicated."""
         clear_cache()
         with (
             tempfile.TemporaryDirectory() as tmp1,
@@ -159,7 +228,7 @@ class TestLessonDeduplication:
             dir1.mkdir()
             dir2.mkdir()
 
-            # Create in different subdirectories but same filename
+            # Create different files with same name in different subdirectories
             (dir1 / "workflow").mkdir()
             (dir2 / "tools").mkdir()
 
@@ -171,13 +240,45 @@ class TestLessonDeduplication:
 
             index = LessonIndex([dir1, dir2])
 
-            # Should only have one lesson
-            assert len(index.lessons) == 1
-            # Should be from dir1 (workflow category)
-            assert index.lessons[0].title == "Workflow Version"
+            # Both files have different realpaths, so both are included
+            assert len(index.lessons) == 2
+            titles = {lesson.title for lesson in index.lessons}
+            assert "Workflow Version" in titles
+            assert "Tools Version" in titles
 
-    def test_deduplication_multiple_duplicates(self, sample_lesson_content):
-        """Test deduplication with more than 2 directories."""
+    def test_symlinks_multiple_directories(self, sample_lesson_content):
+        """Test symlink deduplication with more than 2 directories."""
+        clear_cache()
+        with (
+            tempfile.TemporaryDirectory() as tmp1,
+            tempfile.TemporaryDirectory() as tmp2,
+            tempfile.TemporaryDirectory() as tmp3,
+        ):
+            # tmp1 has the real file
+            real_dir = Path(tmp1) / "lessons"
+            real_dir.mkdir()
+            content = sample_lesson_content.replace("Test Lesson", "Real Lesson")
+            real_file = real_dir / "shared.md"
+            real_file.write_text(content)
+
+            # tmp2 and tmp3 have symlinks to the real file
+            symlink_dirs = []
+            for tmp in [tmp2, tmp3]:
+                symlink_dir = Path(tmp) / "lessons"
+                symlink_dir.mkdir()
+                symlink_dirs.append(symlink_dir)
+                symlink_file = symlink_dir / "shared.md"
+                symlink_file.symlink_to(real_file)
+
+            # Index all directories
+            index = LessonIndex(symlink_dirs + [real_dir])
+
+            # Should only have one lesson (all resolve to same realpath)
+            assert len(index.lessons) == 1
+            assert index.lessons[0].title == "Real Lesson"
+
+    def test_different_files_multiple_directories(self, sample_lesson_content):
+        """Test different files with same name in multiple directories."""
         clear_cache()
         with (
             tempfile.TemporaryDirectory() as tmp1,
@@ -197,10 +298,12 @@ class TestLessonDeduplication:
 
             index = LessonIndex(dirs)
 
-            # Should only have one lesson
-            assert len(index.lessons) == 1
-            # Should be Version 1 (from first directory)
-            assert index.lessons[0].title == "Version 1"
+            # All files have different realpaths, so all are included
+            assert len(index.lessons) == 3
+            titles = {lesson.title for lesson in index.lessons}
+            assert "Version 1" in titles
+            assert "Version 2" in titles
+            assert "Version 3" in titles
 
 
 class TestLessonCache:

@@ -1,6 +1,7 @@
 """Lesson index for discovery and search."""
 
 import logging
+import os
 from pathlib import Path
 
 from .parser import Lesson, parse_lesson
@@ -190,9 +191,11 @@ class LessonIndex:
     def _index_lessons(self) -> None:
         """Discover and parse all lessons (with caching and deduplication).
 
-        Deduplication: Lessons are deduplicated by filename. When the same
-        filename exists in multiple directories, the version from the earlier
-        directory (higher precedence) is used.
+        Deduplication: Lessons are deduplicated by resolved path (realpath).
+        This handles:
+        - Symlinks pointing to files in other configured directories
+        - Multiple paths resolving to the same physical file
+        - Same filename in different directories (only first is used)
 
         Directory order determines precedence:
         1. User config (~/.config/gptme/lessons)
@@ -203,15 +206,16 @@ class LessonIndex:
         cache_hits = 0
         cache_misses = 0
         skipped_duplicates = 0
-        # Track seen lesson filenames for deduplication
-        seen_names: set[str] = set()
+        # Track seen lesson paths (resolved via realpath) for deduplication
+        # This handles symlinks pointing to the same file
+        seen_paths: set[str] = set()
 
         for lesson_dir in self.lesson_dirs:
             if not lesson_dir.exists():
                 logger.debug(f"Lesson directory not found: {lesson_dir}")
                 continue
 
-            hits, misses, skipped = self._index_directory(lesson_dir, seen_names)
+            hits, misses, skipped = self._index_directory(lesson_dir, seen_paths)
             cache_hits += hits
             cache_misses += misses
             skipped_duplicates += skipped
@@ -223,13 +227,13 @@ class LessonIndex:
         logger.info(" ".join(log_parts))
 
     def _index_directory(
-        self, directory: Path, seen_names: set[str]
+        self, directory: Path, seen_paths: set[str]
     ) -> tuple[int, int, int]:
         """Index all lessons in a directory (with caching and deduplication).
 
         Args:
             directory: Directory to scan for lessons
-            seen_names: Set of lesson filenames already indexed (for deduplication)
+            seen_paths: Set of resolved lesson paths already indexed (for deduplication)
 
         Returns:
             Tuple of (cache_hits, cache_misses, skipped_duplicates)
@@ -248,12 +252,13 @@ class LessonIndex:
             if "template" in lesson_file.name.lower():
                 continue
 
-            # Deduplication: Skip if lesson with same filename already indexed
-            lesson_name = lesson_file.name
-            if lesson_name in seen_names:
+            # Deduplication: Skip if lesson with same resolved path already indexed
+            # This handles symlinks pointing to the same file
+            resolved_path = os.path.realpath(lesson_file)
+            if resolved_path in seen_paths:
                 logger.debug(
                     f"Skipping duplicate lesson: {lesson_file.relative_to(directory)} "
-                    f"(already indexed from earlier directory)"
+                    f"(resolves to already indexed file)"
                 )
                 skipped_duplicates += 1
                 continue
@@ -278,7 +283,7 @@ class LessonIndex:
                     continue
 
                 self.lessons.append(lesson)
-                seen_names.add(lesson_name)  # Mark as seen for deduplication
+                seen_paths.add(resolved_path)  # Mark resolved path as seen
             except Exception as e:
                 logger.warning(f"Failed to parse lesson {lesson_file}: {e}")
 
