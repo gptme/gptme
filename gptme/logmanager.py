@@ -102,8 +102,12 @@ class LogManager:
         logdir: PathLike | None = None,
         branch: str | None = None,
         lock: bool = True,
+        view: str | None = None,
     ):
         self.current_branch = branch or "main"
+        # View branch support: compacted views stored separately from user branches
+        # When current_view is set, new messages go to BOTH master AND the view
+        self.current_view: str | None = view
         if logdir:
             self.logdir = Path(logdir)
         else:
@@ -155,6 +159,21 @@ class LogManager:
             if _branch not in self._branches:
                 self._branches[_branch] = Log.read_jsonl(file)
 
+        # Load view branches (compacted views stored in views/ directory)
+        self._views: dict[str, Log] = {}
+        views_dir = self.logdir / "views"
+        if views_dir.exists():
+            for file in views_dir.glob("*.jsonl"):
+                view_name = file.stem
+                self._views[view_name] = Log.read_jsonl(file)
+                logger.debug(f"Loaded view branch: {view_name}")
+
+        # If a view was requested, load it as the active log
+        if self.current_view and self.current_view in self._views:
+            # When on a view, the "current" log is the view
+            # but we track master separately for dual-write
+            pass  # View is already loaded in _views
+
     def _release_lock(self):
         """Release the lock and close the file descriptor"""
         if self._lock_fd:
@@ -198,10 +217,26 @@ class LogManager:
         return chat_config.name or self.chat_id
 
     def append(self, msg: Message) -> None:
-        """Appends a message to the log, writes the log, prints the message."""
+        """Appends a message to the log, writes the log, prints the message.
+
+        When on a view branch, implements dual-write:
+        - Appends to master branch (preserves full history)
+        - Appends to current view (maintains compacted context)
+        """
         # Store files by content hash and update message with hashes
         msg = self._store_message_files(msg)
-        self.log = self.log.append(msg)
+
+        # If on a view branch, dual-write to both master AND view
+        if self.current_view and self.current_view in self._views:
+            # Append to master (main branch) for full history preservation
+            if "main" in self._branches:
+                self._branches["main"] = self._branches["main"].append(msg)
+            # Also append to the current view
+            self._views[self.current_view] = self._views[self.current_view].append(msg)
+        else:
+            # Not on a view, append to current branch normally (no dual-write)
+            self.log = self.log.append(msg)
+
         self.write()
         if not msg.quiet:
             print_msg(msg, oneline=False)
@@ -249,6 +284,14 @@ class LogManager:
                     continue
                 branch_path = branches_dir / f"{branch}.jsonl"
                 log.write_jsonl(branch_path)
+
+            # Write view branches
+            if self._views:
+                views_dir = self.logdir / "views"
+                views_dir.mkdir(parents=True, exist_ok=True)
+                for view_name, log in self._views.items():
+                    view_path = views_dir / f"{view_name}.jsonl"
+                    log.write_jsonl(view_path)
 
         # Force sync to disk if requested
         if sync:
@@ -372,6 +415,68 @@ class LogManager:
             return "\n".join(diff)
         else:
             return None
+
+    # ==================== View Branch Methods ====================
+    # Views are compacted versions of the conversation stored separately.
+    # When on a view, new messages go to BOTH master AND the view (dual-write).
+
+    def create_view(self, name: str, log: Log | list[Message]) -> None:
+        """Create a new view branch with compacted content.
+
+        Args:
+            name: View name (e.g., 'compacted-001')
+            log: The compacted log to store
+        """
+        if isinstance(log, list):
+            log = Log(log)
+        self._views[name] = log
+
+        # Write to views directory
+        views_dir = self.logdir / "views"
+        views_dir.mkdir(parents=True, exist_ok=True)
+        view_path = views_dir / f"{name}.jsonl"
+        log.write_jsonl(view_path)
+        logger.info(f"Created view branch: {name} ({len(log)} messages)")
+
+    def switch_view(self, name: str) -> None:
+        """Switch to a view branch.
+
+        Args:
+            name: View name to switch to
+        """
+        if name not in self._views:
+            raise ValueError(f"View '{name}' does not exist")
+        self.write()  # Save current state first
+        self.current_view = name
+        logger.info(f"Switched to view: {name}")
+
+    def switch_to_master(self) -> None:
+        """Switch back to master (full uncompacted history)."""
+        self.write()  # Save current state first
+        self.current_view = None
+        logger.info("Switched to master branch")
+
+    def get_next_view_name(self) -> str:
+        """Generate the next sequential view name."""
+        existing = [
+            int(v.split("-")[1])
+            for v in self._views.keys()
+            if v.startswith("compacted-") and v.split("-")[1].isdigit()
+        ]
+        next_num = max(existing, default=0) + 1
+        return f"compacted-{next_num:03d}"
+
+    @property
+    def active_log(self) -> Log:
+        """Get the currently active log (view or master)."""
+        if self.current_view and self.current_view in self._views:
+            return self._views[self.current_view]
+        return self._branches[self.current_branch]
+
+    @property
+    def master_log(self) -> Log:
+        """Get the master log (always the main branch, never compacted)."""
+        return self._branches.get("main", self._branches[self.current_branch])
 
     def fork(self, name: str) -> None:
         """

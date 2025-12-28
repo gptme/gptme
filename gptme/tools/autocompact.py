@@ -802,24 +802,7 @@ def autocompact_hook(
     logger.info("Auto-compacting triggered: conversation has massive tool results")
     _last_autocompact_time = current_time
 
-    # Create compacted fork (original stays as backup)
-    fork_name = _get_compacted_name(manager.logfile.parent.name)
-    try:
-        # Fork creates compacted conversation (manager switches to fork automatically)
-        manager.fork(fork_name)
-
-        logger.info(f"Created compacted conversation: '{fork_name}'")
-    except Exception as e:
-        logger.error(f"Failed to fork conversation: {e}")
-        yield Message(
-            "system",
-            f"⚠️ Auto-compact: Failed to fork conversation: {e}\n"
-            "Skipping auto-compact to preserve safety.",
-            hide=False,
-        )
-        return
-
-    # Apply auto-compacting with comprehensive error handling
+    # Apply auto-compacting to get compacted messages
     try:
         compacted_msgs = list(auto_compact_log(messages, logdir=manager.logdir))
 
@@ -830,9 +813,11 @@ def autocompact_hook(
         original_tokens = len_tokens(messages, m.model) if m else 0
         compacted_tokens = len_tokens(compacted_msgs, m.model) if m else 0
 
-        # Replace the log with compacted version
-        manager.log = Log(compacted_msgs)
-        manager.write()
+        # Create a view branch with compacted content
+        # Master branch (main) stays intact with full history
+        view_name = manager.get_next_view_name()
+        manager.create_view(view_name, compacted_msgs)
+        manager.switch_view(view_name)
 
         reduction_pct = (
             ((original_tokens - compacted_tokens) / original_tokens * 100)
@@ -842,11 +827,11 @@ def autocompact_hook(
         # Yield a message indicating what happened
         yield Message(
             "system",
-            f"🔄 Auto-compacted conversation due to massive tool results:\n"
+            f"🔄 Auto-compacted conversation to view branch:\n"
             f"• Messages: {original_count} → {compacted_count}\n"
             f"• Tokens: {original_tokens:,} → {compacted_tokens:,} "
             f"({reduction_pct:.1f}% reduction)\n"
-            f"Original state preserved in '{fork_name}'.",
+            f"• View: {view_name} (master branch preserved with full history)",
             hide=True,  # Hide to prevent triggering responses
         )
     except Exception as e:
