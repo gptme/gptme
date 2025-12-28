@@ -235,9 +235,8 @@ class LogManager:
             if "main" in self._branches:
                 self._branches["main"] = self._branches["main"].append(msg)
             # Also append to the current view
+            # (log getter returns view when current_view is set, no setter needed)
             self._views[self.current_view] = self._views[self.current_view].append(msg)
-            # Update self.log to reflect the view (what the agent sees)
-            self.log = self._views[self.current_view]
         else:
             # Not on a view, append to current branch normally (no dual-write)
             self.log = self.log.append(msg)
@@ -472,13 +471,6 @@ class LogManager:
         ]
         next_num = max(existing, default=0) + 1
         return f"compacted-{next_num:03d}"
-
-    @property
-    def active_log(self) -> Log:
-        """Get the currently active log (view or master)."""
-        if self.current_view and self.current_view in self._views:
-            return self._views[self.current_view]
-        return self._branches[self.current_branch]
 
     @property
     def master_log(self) -> Log:
