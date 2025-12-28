@@ -24,6 +24,40 @@ INSTRUCTIONS = (
 )
 
 
+def _validate_screenshot_path(path: Path) -> Path:
+    """Validate that screenshot path is within allowed directory.
+
+    Security: Prevents arbitrary file writes via path traversal.
+    See: https://github.com/gptme/gptme/issues/1021
+
+    Args:
+        path: User-provided path for screenshot
+
+    Returns:
+        Resolved path within OUTPUT_DIR
+
+    Raises:
+        ValueError: If path would escape OUTPUT_DIR
+    """
+    # Ensure OUTPUT_DIR exists for path resolution
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Resolve both paths to handle .. and symlinks
+    resolved_output_dir = OUTPUT_DIR.resolve()
+    resolved_path = path.resolve()
+
+    # Check if resolved path is within OUTPUT_DIR
+    try:
+        resolved_path.relative_to(resolved_output_dir)
+    except ValueError:
+        raise ValueError(
+            f"Screenshot path must be within {OUTPUT_DIR}. "
+            f"Got: {path} (resolves to {resolved_path})"
+        ) from None
+
+    return resolved_path
+
+
 def screenshot(path: Path | None = None) -> Path:
     """
     Take a screenshot and save it to a file.
@@ -32,9 +66,14 @@ def screenshot(path: Path | None = None) -> Path:
     if path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = OUTPUT_DIR / f"screenshot_{timestamp}.png"
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path = path.resolve()
+        # Ensure OUTPUT_DIR exists
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path = path.resolve()
+    else:
+        # Validate user-provided path stays within OUTPUT_DIR
+        path = _validate_screenshot_path(path)
+        # Ensure parent directory exists within OUTPUT_DIR
+        path.parent.mkdir(parents=True, exist_ok=True)
 
     if IS_MACOS:
         subprocess.run(["screencapture", str(path)], check=True)
@@ -53,6 +92,31 @@ def screenshot(path: Path | None = None) -> Path:
         raise NotImplementedError(
             "Screenshot functionality is only available on macOS and Linux."
         )
+
+
+def test_screenshot_path_validation():
+    """Test that path traversal attempts are blocked."""
+    import pytest
+
+    # Valid paths within OUTPUT_DIR should work
+    valid_path = OUTPUT_DIR / "test.png"
+    result = _validate_screenshot_path(valid_path)
+    assert result == valid_path.resolve()
+
+    # Subdirectory within OUTPUT_DIR should work
+    subdir_path = OUTPUT_DIR / "subdir" / "test.png"
+    result = _validate_screenshot_path(subdir_path)
+    # Note: parent may not exist yet, but the path should still validate
+
+    # Path traversal attempts should be blocked
+    with pytest.raises(ValueError, match="must be within"):
+        _validate_screenshot_path(Path("/etc/passwd"))
+
+    with pytest.raises(ValueError, match="must be within"):
+        _validate_screenshot_path(OUTPUT_DIR / ".." / "etc" / "passwd")
+
+    with pytest.raises(ValueError, match="must be within"):
+        _validate_screenshot_path(Path("/tmp/outputs/../evil.png"))
 
 
 tool = ToolSpec(
