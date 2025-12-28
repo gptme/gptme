@@ -23,6 +23,7 @@
 - [ACP (Agent Client Protocol)](https://gptme.org/docs/acp.html)
 - [Commands](https://gptme.org/docs/commands.html)
 - [CLI Reference](https://gptme.org/docs/cli.html)
+- [Security Considerations](https://gptme.org/docs/security.html)
 - [Contributing](https://gptme.org/docs/contributing.html)
 - [Building Executables](https://gptme.org/docs/building.html)
 - [Prompts](https://gptme.org/docs/prompts.html)

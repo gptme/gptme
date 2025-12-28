@@ -174,6 +174,7 @@
 <li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
 <ul class="nav bd-sidenav">
@@ -494,20 +495,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     267829 |       gptme.mcp.client
-     268132 |     gptme.tools.mcp_adapter
-     282209 |               openai.types
-     354051 |             openai
-     441907 |           gptme.llm.llm_openai
-     692959 |         gptme.llm
-     733969 |       gptme.commands
-     743117 |     gptme.chat
-    1177322 |   gptme.cli
-    1230749 | gptme
+     259134 |       gptme.mcp.client
+     259390 |     gptme.tools.mcp_adapter
+     278759 |               openai.types
+     348442 |             openai
+     433850 |           gptme.llm.llm_openai
+     684264 |         gptme.llm
+     724843 |       gptme.commands
+     733645 |     gptme.chat
+    1157718 |   gptme.cli
+    1210734 | gptme
 
-real	0m1.926s
-user	0m1.686s
-sys	0m0.259s
+real	0m1.898s
+user	0m1.653s
+sys	0m0.262s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -516,8 +517,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      1.884 s ±  0.013 s    [User: 1.633 s, System: 0.248 s]
-  Range (min … max):    1.863 s …  1.896 s    5 runs
+  Time (mean ± σ):      1.894 s ±  0.010 s    [User: 1.658 s, System: 0.232 s]
+  Range (min … max):    1.879 s …  1.906 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1422,7 +1423,7 @@ Clone found (python):
 │ Total:     │ 201            │ 49904       │ 320897       │ 25           │ 347 (0.7%)       │ 2835 (0.88%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 25 clones.
-Detection time:: 3.007s
+Detection time:: 3.186s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
