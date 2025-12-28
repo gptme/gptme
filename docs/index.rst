@@ -41,6 +41,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    acp
    commands
    cli
+   security
 
 .. toctree::
    :maxdepth: 2
