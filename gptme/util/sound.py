@@ -358,12 +358,14 @@ def get_input_devices() -> list[dict[str, Any]]:
     try:
         for i, d in enumerate(sd.query_devices()):
             if d["max_input_channels"] > 0:
-                devices.append({
-                    "index": i,
-                    "name": d["name"],
-                    "channels": d["max_input_channels"],
-                    "sample_rate": int(d["default_samplerate"]),
-                })
+                devices.append(
+                    {
+                        "index": i,
+                        "name": d["name"],
+                        "channels": d["max_input_channels"],
+                        "sample_rate": int(d["default_samplerate"]),
+                    }
+                )
     except Exception as e:
         log.error(f"Failed to query input devices: {e}")
 
@@ -475,7 +477,9 @@ def record_audio(
         log.warning(f"No audio recorded (callback count: {chunk_count})")
         return None
 
-    log.debug(f"Recording complete: {chunk_count} callbacks, {len(audio_chunks)} chunks")
+    log.debug(
+        f"Recording complete: {chunk_count} callbacks, {len(audio_chunks)} chunks"
+    )
 
     # Concatenate and convert to WAV bytes
     try:
@@ -496,6 +500,7 @@ def record_audio_interactive(
     sample_rate: int = 16000,
     channels: int = 1,
     device: int | None = None,
+    max_duration: float = 300.0,
 ) -> bytes | None:
     """Record audio interactively with Enter to start/stop.
 
@@ -508,6 +513,7 @@ def record_audio_interactive(
         sample_rate: Sample rate for recording (default 16000 for speech).
         channels: Number of channels (default 1 for mono).
         device: Optional device index. Uses default if None.
+        max_duration: Maximum recording duration in seconds (default 300).
 
     Returns:
         WAV file bytes, or None if recording failed/cancelled.
@@ -517,6 +523,8 @@ def record_audio_interactive(
         return None
 
     import io
+    import select
+    import sys
     import threading
 
     import numpy as np
@@ -544,12 +552,38 @@ def record_audio_interactive(
     audio_chunks: list[Any] = []
     stop_flag = threading.Event()
     recording_started = threading.Event()
+    input_error: list[Exception] = []
 
     def callback(indata, frames, time_info, status):
         if status:
             log.warning(f"Recording status: {status}")
         if recording_started.is_set() and not stop_flag.is_set():
             audio_chunks.append(indata.copy())
+
+    def wait_for_input():
+        """Thread function to wait for input without blocking audio."""
+        try:
+            # Use select for non-blocking input check on POSIX
+            if hasattr(select, "select") and sys.stdin.isatty():
+                while not stop_flag.is_set():
+                    # Check if input is available (0.1s timeout)
+                    readable, _, _ = select.select([sys.stdin], [], [], 0.1)
+                    if readable:
+                        try:
+                            sys.stdin.readline()
+                        except Exception:
+                            pass
+                        stop_flag.set()
+                        break
+            else:
+                # Fallback: blocking input in thread
+                input()
+                stop_flag.set()
+        except EOFError:
+            stop_flag.set()
+        except Exception as e:
+            input_error.append(e)
+            stop_flag.set()
 
     try:
         with sd.InputStream(
@@ -563,16 +597,24 @@ def record_audio_interactive(
             recording_started.set()
             log.info("Recording started - press Enter to stop")
 
-            # Wait for Enter or interrupt
-            try:
-                input()
-            except EOFError:
-                pass
+            # Start input thread
+            input_thread = threading.Thread(target=wait_for_input, daemon=True)
+            input_thread.start()
 
-            stop_flag.set()
+            # Wait for stop signal with timeout
+            start_time = time.time()
+            while not stop_flag.is_set():
+                if time.time() - start_time > max_duration:
+                    log.warning(
+                        f"Recording stopped: max duration ({max_duration}s) reached"
+                    )
+                    stop_flag.set()
+                    break
+                time.sleep(0.1)
 
     except KeyboardInterrupt:
         log.debug("Recording cancelled by user")
+        stop_flag.set()
         return None
     except Exception as e:
         log.error(f"Recording failed: {e}")
