@@ -103,13 +103,27 @@ def recover_from_master_context(logfile: Path, byte_range: MessageByteRange) -> 
 
     Returns:
         Original content from master log
+
+    Raises:
+        FileNotFoundError: If master log doesn't exist
+        ValueError: If byte range contains invalid JSON or missing content
     """
-    with open(logfile, "rb") as f:
-        f.seek(byte_range.byte_start)
-        data = f.read(byte_range.byte_end - byte_range.byte_start)
+    try:
+        with open(logfile, "rb") as f:
+            f.seek(byte_range.byte_start)
+            data = f.read(byte_range.byte_end - byte_range.byte_start)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"Master log not found: {logfile}") from e
 
     # Parse the JSON line to get the message content
-    json_data = json.loads(data.decode("utf-8"))
+    # Use errors="replace" to handle invalid UTF-8 sequences gracefully
+    try:
+        json_data = json.loads(data.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Invalid JSON at byte range {byte_range.byte_start}-{byte_range.byte_end}: {e}"
+        ) from e
+
     if "content" not in json_data:
         raise ValueError(
             f"Message at byte range {byte_range.byte_start}-{byte_range.byte_end} "
