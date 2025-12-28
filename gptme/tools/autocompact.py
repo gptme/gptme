@@ -19,6 +19,11 @@ from ..hooks import HookType, StopPropagation
 from ..llm.models import get_default_model, get_model
 from ..logmanager import Log, prepare_messages
 from ..message import Message, len_tokens
+from ..util.master_context import (
+    MessageByteRange,
+    build_master_context_index,
+    create_master_context_reference,
+)
 from ..util.output_storage import create_tool_result_summary
 from ..util.reduce import reduce_log
 from .base import ToolSpec
@@ -201,6 +206,12 @@ def auto_compact_log(
     achieve target token reduction with minimal information loss by prioritizing
     the largest outputs for truncation.
 
+    Master Context Architecture:
+    The original conversation.jsonl serves as the master context - an append-only
+    log that is never compacted. When truncating content, we include byte range
+    references to the master context for exact recovery. This allows aggressive
+    compaction while preserving full context accessibility.
+
     Args:
         log: List of messages to compact
         limit: Token limit (defaults to 80% of model context)
@@ -208,6 +219,17 @@ def auto_compact_log(
         reasoning_strip_age_threshold: Strip reasoning from messages >N positions back
         logdir: Path to conversation directory for saving removed outputs
     """
+
+    # Build master context index for byte-range references
+    master_context_index: list[MessageByteRange] = []
+    master_logfile: Path | None = None
+    if logdir:
+        master_logfile = logdir / "conversation.jsonl"
+        if master_logfile.exists():
+            master_context_index = build_master_context_index(master_logfile)
+            logger.debug(
+                f"Built master context index with {len(master_context_index)} entries"
+            )
 
     # get the token limit
     model = get_default_model() or get_model("gpt-4")
@@ -318,6 +340,24 @@ def auto_compact_log(
                 logdir=logdir,
                 tool_name="autocompact",
             )
+
+            # Add master context reference for exact recovery
+            if master_logfile and idx < len(master_context_index):
+                byte_range = master_context_index[idx]
+                # Get first line as preview
+                preview = msg.content.split("\n")[0] if msg.content else None
+                master_ref = create_master_context_reference(
+                    logfile=master_logfile,
+                    byte_range=byte_range,
+                    original_tokens=msg_tokens,
+                    preview=preview,
+                )
+                summary_content += f"\n\n{master_ref}"
+                logger.debug(
+                    f"Added master context reference for idx {idx}: "
+                    f"bytes {byte_range.byte_start}-{byte_range.byte_end}"
+                )
+
             summary_msg = msg.replace(content=summary_content)
             compacted_log[idx] = summary_msg
             truncated_indices.add(idx)
@@ -350,6 +390,22 @@ def auto_compact_log(
             compressed_tokens = len_tokens(compressed_content, model.model)
 
             if compressed_tokens < msg_tokens:
+                # Add master context reference for exact recovery
+                if master_logfile and idx < len(master_context_index):
+                    byte_range = master_context_index[idx]
+                    # Get first line as preview
+                    preview = msg.content.split("\n")[0] if msg.content else None
+                    master_ref = create_master_context_reference(
+                        logfile=master_logfile,
+                        byte_range=byte_range,
+                        original_tokens=msg_tokens,
+                        preview=preview,
+                    )
+                    compressed_content += f"\n\n{master_ref}"
+                    logger.debug(
+                        f"Added master context reference for compressed idx {idx}"
+                    )
+
                 compacted_log[idx] = msg.replace(content=compressed_content)
                 compression_saved = msg_tokens - compressed_tokens
                 tokens_saved += compression_saved
