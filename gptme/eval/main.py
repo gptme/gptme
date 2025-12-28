@@ -106,10 +106,15 @@ def docker_reexec(argv: list[str]) -> None:
         "AZURE_OPENAI_ENDPOINT",
     ]
 
+    # Get config to also check config.toml for API keys
+    config = get_config()
+
     env_args = []
     for var in env_vars_to_pass:
-        if var in os.environ:
-            env_args.extend(["-e", f"{var}={os.environ[var]}"])
+        # Check both environment variables and config.toml
+        value = config.get_env(var)
+        if value:
+            env_args.extend(["-e", f"{var}={value}"])
 
     # Construct docker run command
     docker_cmd = [
