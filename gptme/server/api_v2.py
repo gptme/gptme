@@ -28,6 +28,20 @@ from ..dirs import get_logs_dir
 from ..logmanager import LogManager, get_user_conversations
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
+
+
+def _validate_conversation_id(
+    conversation_id: str,
+) -> tuple[flask.Response, int] | None:
+    """Validate conversation_id to prevent path traversal attacks.
+
+    Returns None if valid, or (error_response, status_code) if invalid.
+    """
+    if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
+        return flask.jsonify({"error": "Invalid conversation_id"}), 400
+    return None
+
+
 from .api import _abs_to_rel_workspace
 from .api_v2_agents import agents_api
 from .api_v2_common import msg2dict
@@ -104,6 +118,10 @@ def api_conversation(conversation_id: str):
 
     Retrieve a conversation with all its messages and metadata using the V2 API.
     """
+    # Validate conversation_id to prevent path traversal
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
     # Create and set config
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig()).save()
@@ -140,6 +158,10 @@ def api_conversation(conversation_id: str):
 )
 def api_conversation_put(conversation_id: str):
     """Create a new conversation."""
+    # Validate conversation_id to prevent path traversal
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
     logdir = get_logs_dir() / conversation_id
     if logdir.exists():
         return (
@@ -278,8 +300,8 @@ def api_conversation_delete(conversation_id: str):
     """Delete a conversation."""
 
     # Validate conversation_id to prevent path traversal
-    if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
-        return flask.jsonify({"error": "Invalid conversation_id"}), 400
+    if error := _validate_conversation_id(conversation_id):
+        return error
 
     logdir = get_logs_dir() / conversation_id
     assert logdir.parent == get_logs_dir()
@@ -363,6 +385,10 @@ def api_models():
 @require_auth
 def api_conversation_config(conversation_id: str):
     """Get the chat config for a conversation."""
+    # Validate conversation_id to prevent path traversal
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
     logdir = get_logs_dir() / conversation_id
     chat_config_path = logdir / "config.toml"
     if chat_config_path.exists():
@@ -381,6 +407,10 @@ def api_conversation_config(conversation_id: str):
 @require_auth
 def api_conversation_config_patch(conversation_id: str):
     """Update the chat config for a conversation."""
+    # Validate conversation_id to prevent path traversal
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
     req_json = flask.request.json
     if not req_json:
         return flask.jsonify({"error": "No JSON data provided"}), 400
