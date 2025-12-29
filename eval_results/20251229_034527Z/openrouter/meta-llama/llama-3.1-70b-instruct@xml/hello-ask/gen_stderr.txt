@@ -1,0 +1,1 @@
+bash: line 26: find.: command not found
