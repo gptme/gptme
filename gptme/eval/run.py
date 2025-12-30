@@ -51,6 +51,26 @@ class ProcessError(TypedDict):
 ProcessResult = ProcessSuccess | ProcessError
 
 
+def _graceful_killpg(pgrp: int, grace_period: float = 2.0) -> None:
+    """Terminate process group gracefully with SIGTERM, then SIGKILL after grace period."""
+    try:
+        # First, try graceful termination
+        os.killpg(pgrp, signal.SIGTERM)
+        # Wait for processes to terminate gracefully
+        deadline = time.time() + grace_period
+        while time.time() < deadline:
+            try:
+                # Check if process group still exists
+                os.killpg(pgrp, 0)  # Signal 0 = check existence
+                time.sleep(0.1)
+            except ProcessLookupError:
+                return  # Process group terminated
+        # Grace period expired, force kill
+        os.killpg(pgrp, signal.SIGKILL)
+    except ProcessLookupError:
+        pass  # Process group already terminated
+
+
 class SyncedDict(TypedDict):
     result: ProcessResult
 
@@ -383,8 +403,8 @@ def act_process(
         }
         sync_dict["result"] = result_error
 
-        # kill child processes
-        os.killpg(pgrp, signal.SIGKILL)
+        # kill child processes gracefully
+        _graceful_killpg(pgrp)
 
     # handle SIGTERM
     def sigterm_handler(*_):
@@ -419,5 +439,5 @@ def act_process(
     sync_dict["result"] = result_success
     subprocess_logger.info("Success")
 
-    # kill child processes
-    os.killpg(pgrp, signal.SIGKILL)
+    # kill child processes gracefully
+    _graceful_killpg(pgrp)
