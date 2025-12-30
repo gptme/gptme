@@ -288,3 +288,72 @@ def test_apply_with_differing_whitespace_reverse():
 """
     result2 = apply(codeblock, content_without_spaces)
     assert result2 == content_without_spaces.replace("world", "world3")
+
+
+def test_patch_path_traversal_relative(tmp_path):
+    """Test that path traversal via relative paths is blocked for patch."""
+    import os
+
+    original_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        # Create a file outside the working directory
+        parent_file = tmp_path / "outside.txt"
+        parent_file.write_text("original lines")
+
+        subdir = tmp_path / "work"
+        subdir.mkdir()
+        os.chdir(subdir)
+
+        patch_content = """
+<<<<<<< ORIGINAL
+original lines
+=======
+modified lines
+>>>>>>> UPDATED
+"""
+
+        messages = list(execute_patch(patch_content, ["../outside.txt"], None))
+        assert len(messages) == 1
+        assert messages[0].role == "system"
+        assert "Path traversal detected" in messages[0].content
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_patch_path_traversal_symlink(tmp_path):
+    """Test that symlink-based path traversal is blocked for patch."""
+    import os
+
+    original_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        # Create a directory and file outside the cwd
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        target_file = outside_dir / "target.txt"
+        target_file.write_text("original lines")
+
+        # Create work directory
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        os.chdir(work_dir)
+
+        # Create a symlink in work_dir pointing to outside_dir
+        symlink = work_dir / "escape_link"
+        symlink.symlink_to(outside_dir)
+
+        patch_content = """
+<<<<<<< ORIGINAL
+original lines
+=======
+modified lines
+>>>>>>> UPDATED
+"""
+
+        messages = list(execute_patch(patch_content, ["escape_link/target.txt"], None))
+        assert len(messages) == 1
+        assert messages[0].role == "system"
+        assert "Path traversal detected" in messages[0].content
+    finally:
+        os.chdir(original_cwd)
