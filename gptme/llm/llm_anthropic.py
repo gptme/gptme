@@ -630,7 +630,10 @@ def _transform_system_messages(
     Returns:
         tuple[list[Message], list[TextBlockParam]]: Transformed messages and system messages
     """
-    assert messages[0].role == "system"
+    if not messages or messages[0].role != "system":
+        raise ValueError(
+            f"First message must be a system message, got {messages[0].role if messages else 'empty list'}"
+        )
     system_prompt = messages[0].content
     messages = messages.copy()
     messages.pop(0)
