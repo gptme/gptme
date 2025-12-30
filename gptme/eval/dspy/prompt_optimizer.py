@@ -7,9 +7,13 @@ optimization techniques to automatically improve gptme system prompts.
 
 import logging
 import os
+import threading
 from typing import Any
 
 import dspy
+
+# Lock for thread-safe environment variable modifications
+_env_lock = threading.Lock()
 from dspy import GEPA
 from dspy.teleprompt import BootstrapFewShot, MIPROv2
 
@@ -139,17 +143,19 @@ class GptmeModule(dspy.Module):
 
             # Fix #130: Enable output suppression during GEPA optimization
             # This prevents verbose gptme trajectories from cluttering logs
-            os.environ["GPTME_EVAL_SUPPRESS_OUTPUT"] = "true"
-            try:
-                eval_result = execute(
-                    test=eval_spec,
-                    agent=agent,
-                    timeout=30,
-                    parallel=False,
-                )
-            finally:
-                # Restore normal output after execution (guaranteed cleanup)
-                os.environ.pop("GPTME_EVAL_SUPPRESS_OUTPUT", None)
+            # Use lock for thread-safe environment modification in parallel code
+            with _env_lock:
+                os.environ["GPTME_EVAL_SUPPRESS_OUTPUT"] = "true"
+                try:
+                    eval_result = execute(
+                        test=eval_spec,
+                        agent=agent,
+                        timeout=30,
+                        parallel=False,
+                    )
+                finally:
+                    # Restore normal output after execution (guaranteed cleanup)
+                    os.environ.pop("GPTME_EVAL_SUPPRESS_OUTPUT", None)
             messages = []
             if hasattr(agent, "log_dir") and agent.log_dir:
                 try:
