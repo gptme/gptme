@@ -495,20 +495,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     272931 |       gptme.mcp.client
-     273199 |     gptme.tools.mcp_adapter
-     280216 |               openai.types
-     349929 |             openai
-     438730 |           gptme.llm.llm_openai
-     687586 |         gptme.llm
-     728485 |       gptme.commands
-     737260 |     gptme.chat
-    1181682 |   gptme.cli
-    1234918 | gptme
+     265841 |       gptme.mcp.client
+     266122 |     gptme.tools.mcp_adapter
+     282374 |               openai.types
+     352914 |             openai
+     441809 |           gptme.llm.llm_openai
+     701250 |         gptme.llm
+     742686 |       gptme.commands
+     751633 |     gptme.chat
+    1186723 |   gptme.cli
+    1241131 | gptme
 
-real	0m1.935s
-user	0m1.657s
-sys	0m0.295s
+real	0m1.960s
+user	0m1.703s
+sys	0m0.273s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -517,8 +517,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      1.946 s ±  0.027 s    [User: 1.691 s, System: 0.238 s]
-  Range (min … max):    1.927 s …  1.992 s    5 runs
+  Time (mean ± σ):      1.954 s ±  0.020 s    [User: 1.690 s, System: 0.253 s]
+  Range (min … max):    1.934 s …  1.983 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1417,7 +1417,7 @@ Clone found (python):
 ┌────────────┬────────────────┬─────────────┬──────────────┬──────────────┬──────────────────┬───────────────────┐
 │ Format     │ Files analyzed │ Total lines │ Total tokens │ Clones found │ Duplicated lines │ Duplicated tokens │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 182            │ 48050       │ 307512       │ 26           │ 356 (0.74%)      │ 2922 (0.95%)      │
+│ python     │ 182            │ 48050       │ 307514       │ 26           │ 356 (0.74%)      │ 2922 (0.95%)      │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ css        │ 1              │ 173         │ 1045         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -1431,10 +1431,10 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ url        │ 1              │ 2           │ 16           │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 202            │ 50375       │ 323606       │ 26           │ 356 (0.71%)      │ 2922 (0.9%)       │
+│ Total:     │ 202            │ 50375       │ 323608       │ 26           │ 356 (0.71%)      │ 2922 (0.9%)       │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 26 clones.
-Detection time:: 3.156s
+Detection time:: 3.218s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
