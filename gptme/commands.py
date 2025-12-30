@@ -394,8 +394,16 @@ def cmd_clear(ctx: CommandContext) -> None:
 @command("exit")
 def cmd_exit(ctx: CommandContext) -> None:
     """Exit the program."""
+    from .hooks import HookType, trigger_hook
+
     ctx.manager.undo(1, quiet=True)
     ctx.manager.write()
+
+    # Trigger session end hooks before exiting
+    logdir = ctx.manager.logdir
+    for msg in trigger_hook(HookType.SESSION_END, logdir=logdir, manager=ctx.manager):
+        ctx.manager.append(msg)
+
     sys.exit(0)
 
 
