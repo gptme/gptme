@@ -37,7 +37,7 @@ patch
             "patch",
             None,
             """<tool-use>
-<patch args='test.txt'>
+<patch args="test.txt">
 patch
 </patch>
 </tool-use>""",
