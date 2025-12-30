@@ -246,6 +246,10 @@ def execute(
             if p.is_alive():
                 p.terminate()
                 p.join(timeout=1)
+                # Force kill if still alive to prevent race condition on sync_dict
+                if p.is_alive():
+                    p.kill()
+                    p.join()  # Wait for forced termination
 
         if "result" in sync_dict:
             result = sync_dict["result"]
