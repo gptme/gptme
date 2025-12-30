@@ -262,6 +262,8 @@ def create_tool_usage_metric() -> Callable[[Any, Any, Any | None], float]:
     Returns:
         A metric function that evaluates tool usage patterns
     """
+    # Initialize tools once when metric is created, not on every evaluation
+    init_tools(["save", "shell", "patch", "read", "ipython"])
 
     def tool_usage_metric(gold: Any, pred: Any, trace: Any | None = None) -> float:
         """
@@ -282,9 +284,6 @@ def create_tool_usage_metric() -> Callable[[Any, Any, Any | None], float]:
         # Count tool calls
         tool_calls = []
         used_tools = set()
-
-        # Initialize tools first (they're not loaded in this context)
-        init_tools(["save", "shell", "patch", "read", "ipython"])
 
         for msg in messages:
             if msg.role == "assistant":
