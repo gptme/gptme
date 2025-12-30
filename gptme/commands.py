@@ -403,6 +403,7 @@ def cmd_exit(ctx: CommandContext) -> None:
     logdir = ctx.manager.logdir
     for msg in trigger_hook(HookType.SESSION_END, logdir=logdir, manager=ctx.manager):
         ctx.manager.append(msg)
+    ctx.manager.write()
 
     sys.exit(0)
 
