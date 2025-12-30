@@ -443,5 +443,9 @@ def act_process(
     sync_dict["result"] = result_success
     subprocess_logger.info("Success")
 
+    # Reset SIGTERM handler before cleanup to prevent self-termination
+    # from overwriting the success result
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
     # kill child processes gracefully
     _graceful_killpg(pgrp)
