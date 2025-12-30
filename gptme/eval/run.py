@@ -276,7 +276,7 @@ def execute(
                 time_run = time.time() - run_start
                 files = env.download()
             finally:
-                if use_docker and hasattr(env, "cleanup"):
+                if hasattr(env, "cleanup"):
                     env.cleanup()
 
             ctx = ResultContext(files, stdout_run, stderr_run, exit_code)
