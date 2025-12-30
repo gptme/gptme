@@ -725,7 +725,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
 
     except Exception as e:
         # Include exception type for better debugging when message is empty
-        error_msg = str(e) or f"({type(e).__name__})"
+        error_msg = str(e).strip() or f"({type(e).__name__})"
         yield Message("system", f"❌ Failed to generate resume: {error_msg}")
 
 
