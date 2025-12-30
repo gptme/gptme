@@ -90,6 +90,7 @@ class LogManager:
     """Manages a conversation log."""
 
     _lock_fd: TextIO | None = None
+    _tmpdir: TemporaryDirectory | None = None  # Store to prevent premature GC
 
     @classmethod
     def get_current_log(cls) -> "LogManager | None":
@@ -111,10 +112,13 @@ class LogManager:
         if logdir:
             self.logdir = Path(logdir)
         else:
-            # generate tmpfile
-            fpath = TemporaryDirectory().name
-            logger.warning(f"No logfile specified, using tmpfile at {fpath}")
-            self.logdir = Path(fpath)
+            # generate tmpfile - store TemporaryDirectory instance to prevent
+            # premature garbage collection and ensure proper cleanup
+            self._tmpdir = TemporaryDirectory()
+            logger.warning(
+                f"No logfile specified, using tmpfile at {self._tmpdir.name}"
+            )
+            self.logdir = Path(self._tmpdir.name)
         self.chat_id = self.logdir.name
 
         # Set as current log for tools to access (context-local)
