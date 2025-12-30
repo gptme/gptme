@@ -108,13 +108,17 @@ class LogManager:
         # View branch support: compacted views stored separately from user branches
         # When current_view is set, new messages go to BOTH master AND the view
         self.current_view: str | None = view
+        # Store TemporaryDirectory instance to prevent premature cleanup
+        self._tmpdir: TemporaryDirectory | None = None
         if logdir:
             self.logdir = Path(logdir)
         else:
-            # generate tmpfile
-            fpath = TemporaryDirectory().name
-            logger.warning(f"No logfile specified, using tmpfile at {fpath}")
-            self.logdir = Path(fpath)
+            # generate tmpfile - store instance to prevent GC cleanup
+            self._tmpdir = TemporaryDirectory()
+            logger.warning(
+                f"No logfile specified, using tmpfile at {self._tmpdir.name}"
+            )
+            self.logdir = Path(self._tmpdir.name)
         self.chat_id = self.logdir.name
 
         # Set as current log for tools to access (context-local)

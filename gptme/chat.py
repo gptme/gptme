@@ -36,8 +36,9 @@ from .util.terminal import set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
 
-# Global flag to track if we were recently interrupted
-_recently_interrupted = False
+# Thread-safe flag to track if we were recently interrupted
+# Using threading.Event() for safe access from signal handlers and threads
+_recently_interrupted = threading.Event()
 
 
 @trace_function(name="chat.main", attributes={"component": "chat"})
@@ -64,8 +65,8 @@ def chat(
 
     Callable from other modules.
     """
-    global _recently_interrupted
-    _recently_interrupted = False
+    # Clear interrupt flag at start of chat
+    _recently_interrupted.clear()
 
     # Set initial terminal title with conversation name
     conv_name = logdir.name
@@ -294,8 +295,7 @@ def _process_message_conversation(
             )
         except KeyboardInterrupt:
             console.log("Interrupted during response generation.")
-            global _recently_interrupted
-            _recently_interrupted = True
+            _recently_interrupted.set()
             manager.append(Message("system", INTERRUPT_CONTENT))
             break
         finally:
@@ -439,8 +439,6 @@ def step(
     output_schema: type | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
-    global _recently_interrupted
-
     default_model = get_default_model()
     assert default_model is not None, "No model loaded and no model specified"
     model = model or default_model.full
@@ -481,7 +479,7 @@ def step(
             yield from execute_msg(msg_response, confirm, log, workspace)
 
         # Reset interrupt flag after successful completion
-        _recently_interrupted = False
+        _recently_interrupted.clear()
 
     finally:
         clear_interruptible()
