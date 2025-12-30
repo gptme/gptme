@@ -131,18 +131,23 @@ class LogManager:
             # Try to acquire an exclusive lock
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                # logger.debug(f"Acquired lock on {self.logdir}")
-
-                # Register cleanup handler to release lock on exit
-                import atexit
-
-                atexit.register(self._release_lock)
             except BlockingIOError:
                 self._lock_fd.close()
                 self._lock_fd = None
                 raise RuntimeError(
                     f"Another gptme instance is using {self.logdir}"
                 ) from None
+
+            # Lock acquired successfully - register cleanup handler
+            # Use try/except to ensure lock is released if registration fails
+            try:
+                import atexit
+
+                atexit.register(self._release_lock)
+            except Exception:
+                # Release lock if atexit registration fails
+                self._release_lock()
+                raise
 
         # load branches from adjacent files
         self._branches = {self.current_branch: Log(log or [])}
