@@ -340,6 +340,9 @@ def _reply_stream(
             "assistant", output + "... ^C Interrupted", metadata=stream.metadata
         )
     finally:
+        # Explicitly close the underlying generator to release resources
+        # This handles all exit paths: normal completion, KeyboardInterrupt, and tool break
+        stream.gen.close()
         print_clear()
         if first_token_time:
             end_time = time.time()
