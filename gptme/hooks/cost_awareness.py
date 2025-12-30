@@ -158,6 +158,38 @@ def inject_pending_warning(
     yield from ()
 
 
+def session_end_cost_summary(
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
+    """Display brief cost summary at session end.
+
+    Args:
+        manager: The LogManager for the session
+
+    Yields:
+        Nothing - just prints to console
+    """
+    from ..util import console
+
+    costs = CostTracker.get_session_costs()
+    if not costs or not costs.entries:
+        return
+
+    total = costs.total_cost
+    if total == 0:
+        return
+
+    # Brief summary on exit
+    cache_hit_pct = costs.cache_hit_rate * 100
+    console.log(
+        f"[dim]Session cost: ${total:.4f} "
+        f"({costs.total_input_tokens:,} in / {costs.total_output_tokens:,} out, "
+        f"cache: {cache_hit_pct:.0f}%)[/dim]"
+    )
+
+    yield from ()
+
+
 def register() -> None:
     """Register the cost awareness hooks with the hook system."""
     register_hook(
@@ -177,5 +209,11 @@ def register() -> None:
         HookType.GENERATION_PRE,
         inject_pending_warning,
         priority=5,  # Run early but after critical pre-processing
+    )
+    register_hook(
+        "cost_awareness.session_end",
+        HookType.SESSION_END,
+        session_end_cost_summary,
+        priority=-10,  # Low priority to run last
     )
     logger.debug("Registered cost awareness hooks")
