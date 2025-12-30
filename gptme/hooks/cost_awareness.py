@@ -159,12 +159,13 @@ def inject_pending_warning(
 
 
 def session_end_cost_summary(
-    manager: "LogManager",
+    manager: "LogManager", **kwargs
 ) -> Generator[Message | StopPropagation, None, None]:
     """Display brief cost summary at session end.
 
     Args:
         manager: The LogManager for the session
+        **kwargs: Additional arguments (e.g., logdir)
 
     Yields:
         Nothing - just prints to console
