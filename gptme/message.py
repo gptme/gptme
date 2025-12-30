@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, TypedDict
+from xml.sax.saxutils import escape as xml_escape
+from xml.sax.saxutils import quoteattr
 
 import tomlkit
 from dateutil.parser import isoparse
@@ -153,9 +155,10 @@ class Message:
         return d
 
     def to_xml(self) -> str:
-        """Converts a message to an XML string."""
-        attrs = f"role='{self.role}'"
-        return f"<message {attrs}>\n{self.content}\n</message>"
+        """Converts a message to an XML string with proper escaping."""
+        # Use quoteattr for role to handle quotes and special chars safely
+        # Use xml_escape for content to handle <, >, & characters
+        return f"<message role={quoteattr(self.role)}>\n{xml_escape(self.content)}\n</message>"
 
     def format(
         self,
