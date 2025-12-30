@@ -113,7 +113,9 @@ def execute_choice(
     # Strip out 1., 2., 3., etc numbers from options if they are present
     options = [
         opt
-        if not (opt[0].isdigit() and "." in opt.split()[0])
+        if not opt
+        or not opt.strip()
+        or not (opt[0].isdigit() and opt.split() and "." in opt.split()[0])
         else " ".join(opt.split()[1:])
         for opt in options
     ]

@@ -592,6 +592,8 @@ def computer(
                 raise RuntimeError(f"Failed to get cursor position: {e}") from e
         else:
             output = _run_xdotool("getmouselocation --shell", display)
+            if "X=" not in output or "Y=" not in output:
+                raise RuntimeError(f"Unexpected xdotool output format: {output}")
             x = int(output.split("X=")[1].split("\n")[0])
             y = int(output.split("Y=")[1].split("\n")[0])
 
