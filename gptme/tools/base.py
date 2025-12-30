@@ -22,6 +22,8 @@ from typing import (
     get_args,
     get_origin,
 )
+from xml.sax.saxutils import escape as xml_escape
+from xml.sax.saxutils import quoteattr
 
 import json_repair
 from lxml import etree
@@ -674,18 +676,22 @@ class ToolUse:
         return f"```{self.tool}{' ' if args else ''}{args}\n{self.content}\n```"
 
     def _to_xml(self) -> str:
+        """Converts ToolUse to XML with proper escaping."""
         assert self.args is not None
         wrapper_tag = "tool-use"
+        # Use quoteattr for args attribute to handle quotes and special chars safely
         args = " ".join(self.args)
-        args_str = "" if not args else f" args='{args}'"
+        args_str = "" if not args else f" args={quoteattr(args)}"
+        # Use xml_escape for content to handle <, >, & characters
+        escaped_content = xml_escape(self.content) if self.content else ""
         # Special case for Haiku format (testing purposes)
         haiku_adapted = False
         if haiku_adapted:
             wrapper_tag = "function_calls"
-            args_str = f' name="{self.tool}"' + args_str
-            call = f'<invoke name="{self.tool}"{args_str}>\n{self.content}\n</invoke>'
+            args_str = f" name={quoteattr(self.tool)}" + args_str
+            call = f"<invoke name={quoteattr(self.tool)}{args_str}>\n{escaped_content}\n</invoke>"
         else:
-            call = f"<{self.tool}{args_str}>\n{self.content}\n</{self.tool}>"
+            call = f"<{self.tool}{args_str}>\n{escaped_content}\n</{self.tool}>"
         return f"<{wrapper_tag}>\n{call}\n</{wrapper_tag}>"
 
     def _to_params(self) -> dict:

@@ -1,6 +1,8 @@
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
+from xml.sax.saxutils import escape as xml_escape
+from xml.sax.saxutils import quoteattr
 
 from .telemetry import trace_function
 
@@ -21,7 +23,10 @@ class Codeblock:
         return f"```{self.lang}\n{self.content}\n```"
 
     def to_xml(self) -> str:
-        return f'<codeblock lang="{self.lang}" path="{self.path}">\n{self.content}\n</codeblock>'
+        """Converts codeblock to XML with proper escaping."""
+        # Use quoteattr for attributes to handle quotes and special chars safely
+        # Use xml_escape for content to handle <, >, & characters
+        return f"<codeblock lang={quoteattr(self.lang)} path={quoteattr(str(self.path))}>\n{xml_escape(self.content)}\n</codeblock>"
 
     @classmethod
     @trace_function(name="codeblock.from_markdown", attributes={"component": "parser"})
