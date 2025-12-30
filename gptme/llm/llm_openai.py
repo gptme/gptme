@@ -159,9 +159,10 @@ def init(provider: Provider, config: Config):
     timeout_str = config.get_env("LLM_API_TIMEOUT")
     try:
         timeout = float(timeout_str) if timeout_str else NOT_GIVEN
-    except ValueError:
-        logger.warning(f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}, using default")
-        timeout = NOT_GIVEN
+    except ValueError as parse_err:
+        raise ValueError(
+            f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
+        ) from parse_err
 
     if provider == "openai":
         api_key = proxy_key or config.get_env_required("OPENAI_API_KEY")

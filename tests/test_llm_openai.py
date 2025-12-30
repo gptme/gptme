@@ -380,10 +380,11 @@ def test_timeout_all_providers(monkeypatch):
                 ), f"Provider {provider} didn't receive correct timeout"
 
 
-def test_timeout_invalid_value(monkeypatch, caplog):
-    """Test that invalid timeout values log a warning and use default."""
-    import logging
+def test_timeout_invalid_value(monkeypatch):
+    """Test that invalid timeout values raise ValueError with clear message."""
     from unittest.mock import patch
+
+    import pytest
 
     import gptme.llm.llm_openai as llm_openai
     from gptme.config import get_config
@@ -398,13 +399,10 @@ def test_timeout_invalid_value(monkeypatch, caplog):
     # Get config instance
     config = get_config()
 
-    with caplog.at_level(logging.WARNING):
-        with patch("openai.OpenAI"):
-            # Should NOT raise - instead logs warning and uses default
+    with patch("openai.OpenAI"):
+        # Should raise ValueError on invalid config
+        with pytest.raises(ValueError, match="Invalid LLM_API_TIMEOUT"):
             llm_openai.init("openai", config)
-
-    # Verify warning was logged about invalid timeout
-    assert any("Invalid LLM_API_TIMEOUT" in record.message for record in caplog.records)
 
 
 def test_message_conversion_gpt5_with_tool_results():
