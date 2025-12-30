@@ -127,7 +127,11 @@ def _load_page(browser: Browser, url: str) -> str:
     # Store logs globally
     _last_logs = {"logs": logs, "errors": page_errors, "url": url}
 
-    return page.inner_html("body")
+    try:
+        return page.inner_html("body")
+    finally:
+        page.close()
+        context.close()
 
 
 def read_url(url: str) -> str:
@@ -171,21 +175,25 @@ def _search_google(browser: Browser, query: str) -> str:
         permissions=["geolocation"],
     )
     page = context.new_page()
-    page.goto(url)
+    try:
+        page.goto(url)
 
-    els = _list_clickable_elements(page)
-    for el in els:
-        if "Accept all" in el.text:
-            el.element.click()
-            logger.debug("Accepted Google terms")
-            break
+        els = _list_clickable_elements(page)
+        for el in els:
+            if "Accept all" in el.text:
+                el.element.click()
+                logger.debug("Accepted Google terms")
+                break
 
-    # Check for CAPTCHA/bot detection before parsing results
-    body_text = page.inner_text("body")
-    if "unusual traffic" in body_text.lower() or "not a robot" in body_text.lower():
-        logger.error("Google CAPTCHA detected")
-        return "Error: Google detected automated access and is showing a CAPTCHA. Try using 'perplexity' as the search engine instead: search(query, 'perplexity')"
-    return _list_results_google(page, body_text)
+        # Check for CAPTCHA/bot detection before parsing results
+        body_text = page.inner_text("body")
+        if "unusual traffic" in body_text.lower() or "not a robot" in body_text.lower():
+            logger.error("Google CAPTCHA detected")
+            return "Error: Google detected automated access and is showing a CAPTCHA. Try using 'perplexity' as the search engine instead: search(query, 'perplexity')"
+        return _list_results_google(page, body_text)
+    finally:
+        page.close()
+        context.close()
 
 
 def search_google(query: str) -> str:
@@ -201,9 +209,12 @@ def _search_duckduckgo(browser: Browser, query: str) -> str:
         permissions=["geolocation"],
     )
     page = context.new_page()
-    page.goto(url)
-
-    return _list_results_duckduckgo(page)
+    try:
+        page.goto(url)
+        return _list_results_duckduckgo(page)
+    finally:
+        page.close()
+        context.close()
 
 
 def search_duckduckgo(query: str) -> str:
@@ -336,10 +347,13 @@ def _take_screenshot(
 
     context = browser.new_context()
     page = context.new_page()
-    page.goto(url)
-    page.screenshot(path=path)
-
-    return Path(path)
+    try:
+        page.goto(url)
+        page.screenshot(path=path)
+        return Path(path)
+    finally:
+        page.close()
+        context.close()
 
 
 def screenshot_url(url: str, path: Path | str | None = None) -> Path:
