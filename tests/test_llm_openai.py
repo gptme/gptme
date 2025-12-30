@@ -388,8 +388,9 @@ def test_timeout_invalid_value(monkeypatch, caplog):
     import gptme.llm.llm_openai as llm_openai
     from gptme.config import get_config
 
-    # Set invalid timeout
+    # Set invalid timeout and dummy API key for test environment
     monkeypatch.setenv("LLM_API_TIMEOUT", "not-a-number")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-invalid-timeout-test")
 
     # Clear the clients cache
     llm_openai.clients.clear()
