@@ -179,12 +179,26 @@ def session_end_cost_summary(
     if total == 0:
         return
 
+    # Count turns (assistant responses)
+    turns = len(costs.entries)
+
+    # Final context size from last request (input + cache tokens)
+    last = costs.entries[-1]
+    final_context = (
+        last.input_tokens + last.cache_read_tokens + last.cache_creation_tokens
+    )
+
+    # Format context size (use k suffix for readability)
+    if final_context >= 1000:
+        context_str = f"{final_context / 1000:.0f}k"
+    else:
+        context_str = str(final_context)
+
     # Brief summary on exit
-    cache_hit_pct = costs.cache_hit_rate * 100
+    cache_pct = costs.cache_hit_rate * 100
     console.log(
-        f"[dim]Session cost: ${total:.4f} "
-        f"({costs.total_input_tokens:,} in / {costs.total_output_tokens:,} out, "
-        f"cache: {cache_hit_pct:.0f}%)[/dim]"
+        f"[dim]Session: ${total:.2f} | {turns} turns | "
+        f"{context_str} context | {cache_pct:.0f}% cached[/dim]"
     )
 
     yield from ()
