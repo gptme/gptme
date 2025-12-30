@@ -16,6 +16,11 @@ class FileStore:
     def upload(self, files: Files):
         for name, content in files.items():
             path = self.working_dir / name
+            # Validate path stays within working_dir to prevent path traversal
+            try:
+                path.resolve().relative_to(self.working_dir.resolve())
+            except ValueError as err:
+                raise ValueError(f"Path traversal detected: {name}") from err
             path.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(content, str):
                 with open(path, "w") as f:
