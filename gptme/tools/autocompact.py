@@ -676,7 +676,13 @@ Format the response as a structured document that could serve as a RESUME.md fil
     try:
         # Generate the resume using LLM
         m = get_default_model()
-        assert m
+        if not m:
+            yield Message(
+                "system",
+                "❌ Failed to generate resume: No default model configured. "
+                "Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable.",
+            )
+            return
         resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
         resume_content = resume_response.content
 
@@ -718,7 +724,9 @@ Format the response as a structured document that could serve as a RESUME.md fil
         )
 
     except Exception as e:
-        yield Message("system", f"❌ Failed to generate resume: {e}")
+        # Include exception type for better debugging when message is empty
+        error_msg = str(e) or f"({type(e).__name__})"
+        yield Message("system", f"❌ Failed to generate resume: {error_msg}")
 
 
 def _get_compacted_name(conversation_name: str) -> str:
