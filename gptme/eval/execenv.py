@@ -44,14 +44,15 @@ class SimpleExecutionEnv(FileStore, ExecutionEnv):
         start = time.time()
         if not silent:
             print("\n--- Start of run ---")
-        # while running, also print the stdout and stderr
+        # Use explicit shell invocation with list-based arguments for security.
+        # This avoids shell=True which can be vulnerable to shell injection.
+        # The command is passed to bash -c, similar to DockerExecutionEnv.
         p = subprocess.Popen(
-            command,
+            ["/bin/bash", "-c", command],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=self.working_dir,
             text=True,
-            shell=True,
         )
         if not silent:
             print("$", command)
