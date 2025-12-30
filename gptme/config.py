@@ -622,8 +622,11 @@ class ChatConfig:
             temp_path = Path(f.name)
             # TODO: load and update this properly as TOMLDocument to preserve formatting
             tomlkit.dump(config_dict, f)
+            # Ensure data is flushed to disk before rename
+            f.flush()
+            os.fsync(f.fileno())
 
-        # Atomic rename (on POSIX systems)
+        # Atomic rename (POSIX guarantees atomicity, Windows may not)
         temp_path.replace(chat_config_path)
 
         # Set the workspace symlink in the logdir
