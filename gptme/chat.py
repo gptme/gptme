@@ -36,9 +36,8 @@ from .util.terminal import set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
 
-# Thread-safe flag to track if we were recently interrupted
-# Using threading.Event() for safe access from signal handlers and threads
-_recently_interrupted = threading.Event()
+# Flag to track if we were recently interrupted
+_recently_interrupted = False
 
 
 @trace_function(name="chat.main", attributes={"component": "chat"})
@@ -66,7 +65,8 @@ def chat(
     Callable from other modules.
     """
     # Clear interrupt flag at start of chat
-    _recently_interrupted.clear()
+    global _recently_interrupted
+    _recently_interrupted = False
 
     # Set initial terminal title with conversation name
     conv_name = logdir.name
@@ -295,7 +295,8 @@ def _process_message_conversation(
             )
         except KeyboardInterrupt:
             console.log("Interrupted during response generation.")
-            _recently_interrupted.set()
+            global _recently_interrupted
+            _recently_interrupted = True
             manager.append(Message("system", INTERRUPT_CONTENT))
             break
         finally:
@@ -479,7 +480,8 @@ def step(
             yield from execute_msg(msg_response, confirm, log, workspace)
 
         # Reset interrupt flag after successful completion
-        _recently_interrupted.clear()
+        global _recently_interrupted
+        _recently_interrupted = False
 
     finally:
         clear_interruptible()
