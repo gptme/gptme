@@ -649,10 +649,8 @@ def _compact_resume(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
 
     # Prepare messages for summarization
     prepared_msgs = prepare_messages(msgs)
-    # Use full context for prompt caching friendliness
-    visible_msgs = [m for m in prepared_msgs if not m.hide]
 
-    if len(visible_msgs) < 3:
+    if len(prepared_msgs) < 3:
         yield Message(
             "system", "Not enough conversation history to create a meaningful resume."
         )
@@ -719,7 +717,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
         yield Message(
             "system",
             f"✅ LLM-powered resume completed:\n"
-            f"• Original conversation ({len(visible_msgs)} messages) compressed to resume\n"
+            f"• Original conversation ({len(prepared_msgs)} messages) compressed to resume\n"
             f"• Resume saved to: {resume_path.absolute()}\n"
             f"• Conversation history replaced with resume\n"
             f"• Review the RESUME.md file for suggested context files",
