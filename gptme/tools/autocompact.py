@@ -649,9 +649,8 @@ def _compact_resume(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
 
     # Prepare messages for summarization
     prepared_msgs = prepare_messages(msgs)
-    # Keep system messages (required by LLM APIs) and non-hidden messages
-    system_msgs = [m for m in prepared_msgs if m.role == "system"]
-    visible_msgs = [m for m in prepared_msgs if not m.hide and m.role != "system"]
+    # Use full context for prompt caching friendliness
+    visible_msgs = [m for m in prepared_msgs if not m.hide]
 
     if len(visible_msgs) < 3:
         yield Message(
@@ -673,8 +672,8 @@ Format the response as a structured document that could serve as a RESUME.md fil
 
     # Create a temporary message for the LLM prompt
     resume_request = Message("user", resume_prompt)
-    # Include system messages first (required by Anthropic), then visible conversation
-    llm_msgs = system_msgs + visible_msgs + [resume_request]
+    # Use full prepared messages for prompt caching friendliness
+    llm_msgs = prepared_msgs + [resume_request]
 
     try:
         # Generate the resume using LLM
