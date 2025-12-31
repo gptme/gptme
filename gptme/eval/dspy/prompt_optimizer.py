@@ -146,15 +146,16 @@ class GptmeModule(dspy.Module):
             # Use lock for thread-safe environment modification in parallel code
             with _env_lock:
                 os.environ["GPTME_EVAL_SUPPRESS_OUTPUT"] = "true"
-                try:
-                    eval_result = execute(
-                        test=eval_spec,
-                        agent=agent,
-                        timeout=30,
-                        parallel=False,
-                    )
-                finally:
-                    # Restore normal output after execution (guaranteed cleanup)
+            try:
+                eval_result = execute(
+                    test=eval_spec,
+                    agent=agent,
+                    timeout=30,
+                    parallel=False,
+                )
+            finally:
+                # Restore normal output after execution (guaranteed cleanup)
+                with _env_lock:
                     os.environ.pop("GPTME_EVAL_SUPPRESS_OUTPUT", None)
             messages = []
             if hasattr(agent, "log_dir") and agent.log_dir:
