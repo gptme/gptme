@@ -350,7 +350,10 @@ def chat(
         if choice.message.content:
             result.append(choice.message.content)
 
-    assert result
+    if not result:
+        raise ValueError(
+            f"LLM returned empty response (finish_reason={choice.finish_reason})"
+        )
     return "\n".join(result), metadata
 
 

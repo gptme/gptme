@@ -1,5 +1,5 @@
 import logging
-import random
+import uuid
 from abc import abstractmethod
 from pathlib import Path
 
@@ -40,7 +40,7 @@ class Agent:
         self.system_prompt = system_prompt
         self.use_docker = use_docker
 
-        _id = random.randint(10000, 99999)
+        _id = uuid.uuid4().hex[:8]
         model_fmt = f"{self.model.replace('/', '--')}-{self.tool_format}"
         name = generate_conversation_id(
             f"gptme-evals-{model_fmt}-{_id}", get_logs_dir()

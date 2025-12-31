@@ -606,3 +606,98 @@ def test_should_auto_compact_triggers_with_high_savings():
     assert (
         result is True
     ), "should_auto_compact should return True when savings exceed threshold"
+
+
+def test_compact_resume_error_handling():
+    """Test that _compact_resume provides useful error messages when LLM fails."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact import _compact_resume
+
+    # Create a mock context with a mock log manager
+    mock_manager = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.manager = mock_manager
+
+    # Create enough messages to pass the minimum check
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "User message 1"),
+        Message("assistant", "Assistant response 1"),
+        Message("user", "User message 2"),
+        Message("assistant", "Assistant response 2"),
+    ]
+
+    # Mock the LLM to raise an exception with an empty message
+    with patch("gptme.tools.autocompact.llm") as mock_llm:
+        # Exception with empty string (the bug we're fixing)
+        mock_llm.reply.side_effect = Exception("")
+
+        results = list(_compact_resume(mock_ctx, messages))
+
+        # Should have the progress message and error message
+        assert len(results) >= 2
+        error_msg = results[-1]
+        assert error_msg.role == "system"
+        assert "Failed to generate resume" in error_msg.content
+        # Should include exception type when message is empty
+        assert "Exception" in error_msg.content
+
+
+def test_compact_resume_error_with_message():
+    """Test that _compact_resume shows actual error message when provided."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact import _compact_resume
+
+    mock_manager = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.manager = mock_manager
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "User message 1"),
+        Message("assistant", "Assistant response 1"),
+        Message("user", "User message 2"),
+        Message("assistant", "Assistant response 2"),
+    ]
+
+    with patch("gptme.tools.autocompact.llm") as mock_llm:
+        # Exception with actual message
+        mock_llm.reply.side_effect = Exception("API rate limit exceeded")
+
+        results = list(_compact_resume(mock_ctx, messages))
+
+        error_msg = results[-1]
+        assert "API rate limit exceeded" in error_msg.content
+
+
+def test_compact_resume_no_model():
+    """Test that _compact_resume handles missing model gracefully."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact import _compact_resume
+
+    mock_manager = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.manager = mock_manager
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "User message 1"),
+        Message("assistant", "Assistant response 1"),
+        Message("user", "User message 2"),
+        Message("assistant", "Assistant response 2"),
+    ]
+
+    with patch("gptme.tools.autocompact.get_default_model") as mock_get_model:
+        # No model configured
+        mock_get_model.return_value = None
+
+        results = list(_compact_resume(mock_ctx, messages))
+
+        # Should have progress message and error about missing model
+        assert len(results) >= 2
+        error_msg = results[-1]
+        assert error_msg.role == "system"
+        assert "No default model configured" in error_msg.content

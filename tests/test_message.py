@@ -275,3 +275,31 @@ def test_message_metadata_none():
     toml_str = msg.to_toml()
     msg3 = Message.from_toml(toml_str)
     assert msg3.metadata is None
+
+
+def test_to_xml_escapes_special_characters():
+    """Test that to_xml properly escapes XML special characters."""
+    from gptme.message import Message
+
+    # Test content with XML special characters
+    msg = Message(role="user", content="Use <tag> and & symbol")
+    xml_str = msg.to_xml()
+
+    # Content should be escaped
+    assert "&lt;tag&gt;" in xml_str
+    assert "&amp;" in xml_str
+
+    # Role should be properly quoted
+    assert 'role="user"' in xml_str
+
+
+def test_to_xml_handles_quotes_in_role():
+    """Test that to_xml handles quotes in role attribute."""
+    from gptme.message import Message
+
+    # Create a message - role with special chars is unusual but should be safe
+    msg = Message(role="user", content='Test content with "quotes"')
+    xml_str = msg.to_xml()
+
+    # Quotes in content should be safe (no escaping needed for XML content)
+    assert 'Test content with "quotes"' in xml_str

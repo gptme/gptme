@@ -107,6 +107,18 @@ def execute_save_impl(
     # Print full path to give agent feedback about where exactly the file is saved
     path = path.expanduser().resolve()
 
+    # Path traversal protection: validate relative paths stay within cwd
+    # Absolute paths are intentional and allowed, relative paths should not escape cwd
+    if not path_display.is_absolute():
+        cwd = Path.cwd().resolve()
+        try:
+            path.relative_to(cwd)
+        except ValueError as err:
+            raise ValueError(
+                f"Path traversal detected: {path_display} resolves to {path} "
+                f"which is outside current directory {cwd}"
+            ) from err
+
     # Trigger pre-save hooks
     if pre_save_msgs := trigger_hook(
         HookType.FILE_PRE_SAVE,

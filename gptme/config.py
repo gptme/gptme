@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+import tempfile
 from contextvars import ContextVar
 from dataclasses import (
     asdict,
@@ -609,9 +610,24 @@ class ChatConfig:
 
         config_dict = self.to_dict()
 
-        # TODO: load and update this properly as TOMLDocument to preserve formatting
-        with open(chat_config_path, "w") as f:
+        # Use atomic write: write to temp file, then rename
+        # This prevents corruption if process is interrupted during write
+        # (e.g., daemon thread killed on exit while saving)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=self._logdir,
+            suffix=".toml.tmp",
+            delete=False,
+        ) as f:
+            temp_path = Path(f.name)
+            # TODO: load and update this properly as TOMLDocument to preserve formatting
             tomlkit.dump(config_dict, f)
+            # Ensure data is flushed to disk before rename
+            f.flush()
+            os.fsync(f.fileno())
+
+        # Atomic rename (POSIX guarantees atomicity, Windows may not)
+        temp_path.replace(chat_config_path)
 
         # Set the workspace symlink in the logdir
         workspace_path = self._logdir / "workspace"

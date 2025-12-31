@@ -10,6 +10,7 @@ import textwrap
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 from rich import print
 from rich.console import Console
@@ -68,10 +69,10 @@ def example_to_xml(s: str) -> str:
         role_match = re.match(r"([A-Za-z]+):\s*(.*)", line)
         if role_match:
             if current_role and current_message:
-                # Close previous role block
+                # Close previous role block - escape content for XML safety
                 result.append(
                     f"<{current_role}>\n"
-                    + "\n".join(current_message)
+                    + xml_escape("\n".join(current_message))
                     + f"\n</{current_role}>"
                 )
                 current_message = []
@@ -80,10 +81,10 @@ def example_to_xml(s: str) -> str:
         else:
             if current_role:
                 if line.strip() == "":
-                    # Blank line indicates end of message
+                    # Blank line indicates end of message - escape content for XML safety
                     result.append(
                         f"<{current_role}>\n"
-                        + "\n".join(current_message)
+                        + xml_escape("\n".join(current_message))
                         + f"\n</{current_role}>\n"
                     )
                     current_role = None
@@ -93,11 +94,11 @@ def example_to_xml(s: str) -> str:
             else:
                 result.append(line)
 
-    # Close any remaining role block
+    # Close any remaining role block - escape content for XML safety
     if current_role and current_message:
         result.append(
             f"<{current_role}>\n"
-            + "\n".join(current_message)
+            + xml_escape("\n".join(current_message))
             + f"\n</{current_role}>\n"
         )
 

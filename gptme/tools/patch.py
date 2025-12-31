@@ -279,7 +279,20 @@ def execute_patch_impl(
     assert path is not None
 
     # Print full path to give agent feedback about exactly which file is being patched
+    path_display = path
     path = path.expanduser().resolve()
+
+    # Path traversal protection: validate relative paths stay within cwd
+    # Absolute paths are intentional and allowed, relative paths should not escape cwd
+    if not path_display.is_absolute():
+        cwd = Path.cwd().resolve()
+        try:
+            path.relative_to(cwd)
+        except ValueError as err:
+            raise ValueError(
+                f"Path traversal detected: {path_display} resolves to {path} "
+                f"which is outside current directory {cwd}"
+            ) from err
 
     try:
         with open(path) as f:

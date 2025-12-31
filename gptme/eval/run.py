@@ -51,6 +51,26 @@ class ProcessError(TypedDict):
 ProcessResult = ProcessSuccess | ProcessError
 
 
+def _graceful_killpg(pgrp: int, grace_period: float = 2.0) -> None:
+    """Terminate process group gracefully with SIGTERM, then SIGKILL after grace period."""
+    try:
+        # First, try graceful termination
+        os.killpg(pgrp, signal.SIGTERM)
+        # Wait for processes to terminate gracefully
+        deadline = time.time() + grace_period
+        while time.time() < deadline:
+            try:
+                # Check if process group still exists
+                os.killpg(pgrp, 0)  # Signal 0 = check existence
+                time.sleep(0.1)
+            except ProcessLookupError:
+                return  # Process group terminated
+        # Grace period expired, force kill
+        os.killpg(pgrp, signal.SIGKILL)
+    except ProcessLookupError:
+        pass  # Process group already terminated
+
+
 class SyncedDict(TypedDict):
     result: ProcessResult
 
@@ -226,6 +246,10 @@ def execute(
             if p.is_alive():
                 p.terminate()
                 p.join(timeout=1)
+                # Force kill if still alive to prevent race condition on sync_dict
+                if p.is_alive():
+                    p.kill()
+                    p.join()  # Wait for forced termination
 
         if "result" in sync_dict:
             result = sync_dict["result"]
@@ -272,7 +296,7 @@ def execute(
                 time_run = time.time() - run_start
                 files = env.download()
             finally:
-                if use_docker and hasattr(env, "cleanup"):
+                if hasattr(env, "cleanup"):
                     env.cleanup()
 
             ctx = ResultContext(files, stdout_run, stderr_run, exit_code)
@@ -383,8 +407,8 @@ def act_process(
         }
         sync_dict["result"] = result_error
 
-        # kill child processes
-        os.killpg(pgrp, signal.SIGKILL)
+        # kill child processes gracefully
+        _graceful_killpg(pgrp)
 
     # handle SIGTERM
     def sigterm_handler(*_):
@@ -419,5 +443,9 @@ def act_process(
     sync_dict["result"] = result_success
     subprocess_logger.info("Success")
 
-    # kill child processes
-    os.killpg(pgrp, signal.SIGKILL)
+    # Reset SIGTERM handler before cleanup to prevent self-termination
+    # from overwriting the success result
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+    # kill child processes gracefully
+    _graceful_killpg(pgrp)
