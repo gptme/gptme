@@ -185,7 +185,13 @@ def _handle_anthropic_transient_error(e, attempt, max_retries, base_delay):
 
     test_max_retries_str = os.environ.get("GPTME_TEST_MAX_RETRIES")
     if test_max_retries_str:
-        test_max_retries = int(test_max_retries_str)
+        try:
+            test_max_retries = int(test_max_retries_str)
+        except ValueError as parse_err:
+            raise ValueError(
+                f"Invalid GPTME_TEST_MAX_RETRIES value: {test_max_retries_str!r}. "
+                "Must be a valid integer."
+            ) from parse_err
         if attempt >= test_max_retries - 1:
             logger.warning(
                 f"Test max_retries={test_max_retries} reached (attempt {attempt + 1}), not retrying"
@@ -286,7 +292,12 @@ def init(config):
     # client use its own default behavior, which handles streaming vs non-streaming
     # requests differently and may evolve with future client versions.
     timeout_str = config.get_env("LLM_API_TIMEOUT")
-    timeout = float(timeout_str) if timeout_str else NOT_GIVEN
+    try:
+        timeout = float(timeout_str) if timeout_str else NOT_GIVEN
+    except ValueError as parse_err:
+        raise ValueError(
+            f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
+        ) from parse_err
 
     _anthropic = Anthropic(
         api_key=api_key,
@@ -368,7 +379,14 @@ def chat(
 
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
-    thinking_budget = int(os.environ.get(ENV_REASONING_BUDGET, "16000"))
+    thinking_budget_str = os.environ.get(ENV_REASONING_BUDGET, "16000")
+    try:
+        thinking_budget = int(thinking_budget_str)
+    except ValueError as parse_err:
+        raise ValueError(
+            f"Invalid {ENV_REASONING_BUDGET} value: {thinking_budget_str!r}. "
+            "Must be a valid integer."
+        ) from parse_err
     max_tokens = model_meta.max_output or 4096
 
     response = _anthropic.messages.create(
@@ -451,7 +469,14 @@ def stream(
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
     # Use the same configurable thinking budget as chat()
-    thinking_budget = int(os.environ.get(ENV_REASONING_BUDGET, "16000"))
+    thinking_budget_str = os.environ.get(ENV_REASONING_BUDGET, "16000")
+    try:
+        thinking_budget = int(thinking_budget_str)
+    except ValueError as parse_err:
+        raise ValueError(
+            f"Invalid {ENV_REASONING_BUDGET} value: {thinking_budget_str!r}. "
+            "Must be a valid integer."
+        ) from parse_err
     max_tokens = model_meta.max_output or 4096
 
     with _anthropic.messages.stream(

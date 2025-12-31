@@ -381,14 +381,17 @@ def test_timeout_all_providers(monkeypatch):
 
 
 def test_timeout_invalid_value(monkeypatch):
-    """Test that invalid timeout values raise appropriate errors."""
+    """Test that invalid timeout values raise ValueError with clear message."""
     from unittest.mock import patch
+
+    import pytest
 
     import gptme.llm.llm_openai as llm_openai
     from gptme.config import get_config
 
-    # Set invalid timeout
+    # Set invalid timeout and dummy API key for test environment
     monkeypatch.setenv("LLM_API_TIMEOUT", "not-a-number")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-invalid-timeout-test")
 
     # Clear the clients cache
     llm_openai.clients.clear()
@@ -397,8 +400,8 @@ def test_timeout_invalid_value(monkeypatch):
     config = get_config()
 
     with patch("openai.OpenAI"):
-        # Should raise ValueError when trying to convert invalid string to float
-        with pytest.raises(ValueError):
+        # Should raise ValueError on invalid config
+        with pytest.raises(ValueError, match="Invalid LLM_API_TIMEOUT"):
             llm_openai.init("openai", config)
 
 
