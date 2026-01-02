@@ -394,3 +394,52 @@ class TestSkillMatching:
                 # If matched by description, should have matched by name too
                 # or multiple description words
                 assert result.score > 0.5
+
+    def test_deduplication_by_resolved_path(self, tmp_path):
+        """Test that duplicate lessons (same resolved path) are deduplicated.
+
+        This tests the fix for issue #1059 where lessons matching multiple
+        keywords could appear multiple times in results.
+        """
+        # Create a lesson file
+        lesson_dir = tmp_path / "lessons"
+        lesson_dir.mkdir()
+        lesson_file = lesson_dir / "test-lesson.md"
+        lesson_file.write_text(
+            """---
+match:
+  keywords:
+    - "keyword one"
+    - "keyword two"
+status: active
+---
+# Test Lesson
+
+Test content.
+"""
+        )
+
+        # Parse the lesson twice (simulating duplicate entries in index)
+        from gptme.lessons.parser import parse_lesson
+
+        lesson1 = parse_lesson(lesson_file)
+        lesson2 = parse_lesson(lesson_file)
+
+        # Both should have the same resolved path
+        assert lesson1.path == lesson2.path
+
+        # Create list with duplicates (simulating a bug in indexing)
+        lessons_with_duplicates = [lesson1, lesson2]
+
+        # Match should deduplicate
+        matcher = LessonMatcher()
+        context = MatchContext(message="This contains keyword one and keyword two")
+
+        results = matcher.match(lessons_with_duplicates, context)
+
+        # Should only return ONE result despite two entries in input
+        assert len(results) == 1
+        assert results[0].lesson.title == "Test Lesson"
+        # Should have both keywords in matched_by
+        assert "keyword:keyword one" in results[0].matched_by
+        assert "keyword:keyword two" in results[0].matched_by

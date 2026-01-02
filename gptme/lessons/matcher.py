@@ -1,6 +1,7 @@
 """Lesson matching based on context."""
 
 import logging
+import os
 from dataclasses import dataclass
 
 from .parser import Lesson
@@ -38,18 +39,35 @@ class LessonMatcher:
         - Lessons: match by `keywords` in frontmatter
         - Skills (Anthropic format): match by `name` and `description` in frontmatter
 
+        Deduplication: Lessons are deduplicated by resolved path (realpath) to handle:
+        - Symlinks pointing to the same file
+        - Same directory appearing multiple times in lesson_dirs
+        - Multiple paths resolving to the same physical file
+
         Args:
             lessons: List of lessons/skills to match against
             context: Context to match (message, tools, etc.)
             threshold: Minimum score threshold
 
         Returns:
-            List of match results, sorted by score (descending)
+            List of match results, sorted by score (descending), deduplicated by path
         """
         results = []
         message_lower = context.message.lower()
+        # Track seen lesson paths for deduplication (handles symlinks and duplicate dirs)
+        seen_paths: set[str] = set()
 
         for lesson in lessons:
+            # Deduplicate by resolved path to handle symlinks and duplicate directories
+            resolved_path = os.path.realpath(lesson.path)
+            if resolved_path in seen_paths:
+                logger.debug(
+                    f"Skipping duplicate lesson in matcher: {lesson.title} "
+                    f"(resolves to already processed file)"
+                )
+                continue
+            seen_paths.add(resolved_path)
+
             score = 0.0
             matched_by = []
 
