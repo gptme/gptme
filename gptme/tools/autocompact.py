@@ -45,56 +45,68 @@ MIN_SAVINGS_RATIO = 0.10  # Require at least 10% savings to justify compaction
 # --- Enhanced Scoring Patterns (Issue #149) ---
 # Semantic patterns for value-aware retention
 # These patterns identify high-value content that should be preserved during compression
+# Pre-compiled at module level for performance
 
 # Decision patterns - highest value (+2.0)
-DECISION_PATTERNS = [
-    r"\bwe('ll| will) use\b",
-    r"\bdecided to\b",
-    r"\bgoing with\b",
-    r"\bchoosing\b",
-    r"\bsolution is\b",
-    r"\bapproach is\b",
-    r"\bwe chose\b",
+_DECISION_PATTERNS = [
+    re.compile(r"\bwe('ll| will) use\b", re.IGNORECASE),
+    re.compile(r"\bdecided to\b", re.IGNORECASE),
+    re.compile(r"\bgoing with\b", re.IGNORECASE),
+    re.compile(r"\bchoosing\b", re.IGNORECASE),
+    re.compile(r"\bsolution is\b", re.IGNORECASE),
+    re.compile(r"\bapproach is\b", re.IGNORECASE),
+    re.compile(r"\bwe chose\b", re.IGNORECASE),
 ]
 
 # Conclusion patterns (+1.5)
-CONCLUSION_PATTERNS = [
-    r"\btherefore\b",
-    r"\bin summary\b",
-    r"\bthe result is\b",
-    r"\bthis means\b",
-    r"\bconfirmed that\b",
-    r"\bin conclusion\b",
-    r"\bkey finding\b",
+_CONCLUSION_PATTERNS = [
+    re.compile(r"\btherefore\b", re.IGNORECASE),
+    re.compile(r"\bin summary\b", re.IGNORECASE),
+    re.compile(r"\bthe result is\b", re.IGNORECASE),
+    re.compile(r"\bthis means\b", re.IGNORECASE),
+    re.compile(r"\bconfirmed that\b", re.IGNORECASE),
+    re.compile(r"\bin conclusion\b", re.IGNORECASE),
+    re.compile(r"\bkey finding\b", re.IGNORECASE),
 ]
 
 # Commitment patterns (+1.5)
-COMMITMENT_PATTERNS = [
-    r"\bi('ll| will)\b",
-    r"\bnext steps?:",
-    r"\baction items?:",
-    r"\btodo:",
-    r"\bwill implement\b",
-    r"\bplan to\b",
+# NOTE: More specific patterns to reduce false positives from generic "i will" usage
+_COMMITMENT_PATTERNS = [
+    re.compile(r"\bi'll\b", re.IGNORECASE),  # Contraction is usually commitment
+    re.compile(
+        r"\bi will (implement|create|fix|add|update|write|build)\b", re.IGNORECASE
+    ),
+    re.compile(r"\bnext steps?:", re.IGNORECASE),
+    re.compile(r"\baction items?:", re.IGNORECASE),
+    re.compile(r"\btodo:", re.IGNORECASE),
+    re.compile(r"\bwill implement\b", re.IGNORECASE),
+    re.compile(r"\bplan to\b", re.IGNORECASE),
+    re.compile(
+        r"\bgoing to (implement|create|fix|add|update|write|build)\b", re.IGNORECASE
+    ),
 ]
 
 # Action result patterns (+1.0)
-ACTION_RESULT_PATTERNS = [
-    r"\bcreated file\b",
-    r"\bfixed\b",
-    r"\bupdated\b",
-    r"\bimplemented\b",
-    r"\bcompleted\b",
-    r"\bmerged\b",
+_ACTION_RESULT_PATTERNS = [
+    re.compile(r"\bcreated file\b", re.IGNORECASE),
+    re.compile(r"\bfixed\b", re.IGNORECASE),
+    re.compile(r"\bupdated\b", re.IGNORECASE),
+    re.compile(r"\bimplemented\b", re.IGNORECASE),
+    re.compile(r"\bcompleted\b", re.IGNORECASE),
+    re.compile(r"\bmerged\b", re.IGNORECASE),
 ]
 
 # Reference patterns - content likely to be referenced later
-FILE_PATH_PATTERN = r"[/~][a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+"
-URL_PATTERN = r'https?://[^\s<>"\')]+'
-ERROR_INDICATOR_PATTERNS = [
-    r"\b(error|exception|traceback)\b",
-    r"\bfailed\b",
-    r"\bfailure\b",
+# Unix paths: /path/to/file.ext or ~/path/to/file.ext
+# Windows paths: C:\path\to\file.ext or C:/path/to/file.ext
+_FILE_PATH_PATTERN = re.compile(
+    r"(?:[/~][a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+|[A-Za-z]:[/\\][a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)"
+)
+_URL_PATTERN = re.compile(r'https?://[^\s<>"\')]+')
+_ERROR_INDICATOR_PATTERNS = [
+    re.compile(r"\b(error|exception|traceback)\b", re.IGNORECASE),
+    re.compile(r"\bfailed\b", re.IGNORECASE),
+    re.compile(r"\bfailure\b", re.IGNORECASE),
 ]
 
 
@@ -109,29 +121,29 @@ def _score_semantic_importance(sentence: str) -> float:
     - Action results: +1.0
     """
     score = 0.0
-    lower = sentence.lower()
 
     # Decision patterns (highest value)
-    for pattern in DECISION_PATTERNS:
-        if re.search(pattern, lower):
+    # Patterns are pre-compiled with IGNORECASE, so no need to lowercase
+    for pattern in _DECISION_PATTERNS:
+        if pattern.search(sentence):
             score += 2.0
             break  # Don't double-count
 
     # Conclusion patterns
-    for pattern in CONCLUSION_PATTERNS:
-        if re.search(pattern, lower):
+    for pattern in _CONCLUSION_PATTERNS:
+        if pattern.search(sentence):
             score += 1.5
             break
 
     # Commitment patterns
-    for pattern in COMMITMENT_PATTERNS:
-        if re.search(pattern, lower):
+    for pattern in _COMMITMENT_PATTERNS:
+        if pattern.search(sentence):
             score += 1.5
             break
 
     # Action result patterns
-    for pattern in ACTION_RESULT_PATTERNS:
-        if re.search(pattern, lower):
+    for pattern in _ACTION_RESULT_PATTERNS:
+        if pattern.search(sentence):
             score += 1.0
             break
 
@@ -143,24 +155,23 @@ def _score_reference_potential(sentence: str) -> float:
     Score sentence based on likelihood of being referenced later.
 
     High-reference content:
-    - File paths: +1.0
+    - File paths (Unix and Windows): +1.0
     - URLs: +0.5
     - Error messages: +1.5
     """
     score = 0.0
 
-    # File paths
-    if re.search(FILE_PATH_PATTERN, sentence):
+    # File paths (Unix: /path/file.ext, ~/path, Windows: C:\path\file.ext)
+    if _FILE_PATH_PATTERN.search(sentence):
         score += 1.0
 
     # URLs
-    if re.search(URL_PATTERN, sentence):
+    if _URL_PATTERN.search(sentence):
         score += 0.5
 
-    # Error indicators
-    lower = sentence.lower()
-    for pattern in ERROR_INDICATOR_PATTERNS:
-        if re.search(pattern, lower):
+    # Error indicators (pre-compiled with IGNORECASE)
+    for pattern in _ERROR_INDICATOR_PATTERNS:
+        if pattern.search(sentence):
             score += 1.5
             break
 
