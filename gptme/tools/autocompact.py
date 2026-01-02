@@ -76,8 +76,8 @@ _COMMITMENT_PATTERNS = [
     re.compile(
         r"\bi will (implement|create|fix|add|update|write|build)\b", re.IGNORECASE
     ),
-    re.compile(r"\bnext steps?:", re.IGNORECASE),
-    re.compile(r"\baction items?:", re.IGNORECASE),
+    re.compile(r"\bnext steps?:?", re.IGNORECASE),  # Colon optional
+    re.compile(r"\baction items?:?", re.IGNORECASE),  # Colon optional
     re.compile(r"\btodo:", re.IGNORECASE),
     re.compile(r"\bwill implement\b", re.IGNORECASE),
     re.compile(r"\bplan to\b", re.IGNORECASE),
@@ -97,10 +97,10 @@ _ACTION_RESULT_PATTERNS = [
 ]
 
 # Reference patterns - content likely to be referenced later
-# Unix paths: /path/to/file.ext or ~/path/to/file.ext
-# Windows paths: C:\path\to\file.ext or C:/path/to/file.ext
+# Unix paths: /path/to/file.ext, ~/path/to/file, /usr/bin/script (extension optional)
+# Windows paths: C:\path\to\file.ext, C:/path/to/file (extension optional)
 _FILE_PATH_PATTERN = re.compile(
-    r"(?:[/~][a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+|[A-Za-z]:[/\\][a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)"
+    r"(?:[/~][a-zA-Z0-9_\-./]+(?:\.[a-zA-Z0-9]+)?|[A-Za-z]:[/\\][a-zA-Z0-9_\-./\\]+(?:\.[a-zA-Z0-9]+)?)"
 )
 _URL_PATTERN = re.compile(r'https?://[^\s<>"\')]+')
 _ERROR_INDICATOR_PATTERNS = [
