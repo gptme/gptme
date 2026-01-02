@@ -42,6 +42,131 @@ _autocompact_min_interval = 60  # Minimum 60 seconds between autocompact attempt
 MIN_SAVINGS_RATIO = 0.10  # Require at least 10% savings to justify compaction
 
 
+# --- Enhanced Scoring Patterns (Issue #149) ---
+# Semantic patterns for value-aware retention
+# These patterns identify high-value content that should be preserved during compression
+
+# Decision patterns - highest value (+2.0)
+DECISION_PATTERNS = [
+    r"\bwe('ll| will) use\b",
+    r"\bdecided to\b",
+    r"\bgoing with\b",
+    r"\bchoosing\b",
+    r"\bsolution is\b",
+    r"\bapproach is\b",
+    r"\bwe chose\b",
+]
+
+# Conclusion patterns (+1.5)
+CONCLUSION_PATTERNS = [
+    r"\btherefore\b",
+    r"\bin summary\b",
+    r"\bthe result is\b",
+    r"\bthis means\b",
+    r"\bconfirmed that\b",
+    r"\bin conclusion\b",
+    r"\bkey finding\b",
+]
+
+# Commitment patterns (+1.5)
+COMMITMENT_PATTERNS = [
+    r"\bi('ll| will)\b",
+    r"\bnext steps?:",
+    r"\baction items?:",
+    r"\btodo:",
+    r"\bwill implement\b",
+    r"\bplan to\b",
+]
+
+# Action result patterns (+1.0)
+ACTION_RESULT_PATTERNS = [
+    r"\bcreated file\b",
+    r"\bfixed\b",
+    r"\bupdated\b",
+    r"\bimplemented\b",
+    r"\bcompleted\b",
+    r"\bmerged\b",
+]
+
+# Reference patterns - content likely to be referenced later
+FILE_PATH_PATTERN = r"[/~][a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+"
+URL_PATTERN = r'https?://[^\s<>"\')]+'
+ERROR_INDICATOR_PATTERNS = [
+    r"\b(error|exception|traceback)\b",
+    r"\bfailed\b",
+    r"\bfailure\b",
+]
+
+
+def _score_semantic_importance(sentence: str) -> float:
+    """
+    Score sentence based on semantic content type.
+
+    High-value content types:
+    - Decisions: +2.0
+    - Conclusions: +1.5
+    - Commitments: +1.5
+    - Action results: +1.0
+    """
+    score = 0.0
+    lower = sentence.lower()
+
+    # Decision patterns (highest value)
+    for pattern in DECISION_PATTERNS:
+        if re.search(pattern, lower):
+            score += 2.0
+            break  # Don't double-count
+
+    # Conclusion patterns
+    for pattern in CONCLUSION_PATTERNS:
+        if re.search(pattern, lower):
+            score += 1.5
+            break
+
+    # Commitment patterns
+    for pattern in COMMITMENT_PATTERNS:
+        if re.search(pattern, lower):
+            score += 1.5
+            break
+
+    # Action result patterns
+    for pattern in ACTION_RESULT_PATTERNS:
+        if re.search(pattern, lower):
+            score += 1.0
+            break
+
+    return score
+
+
+def _score_reference_potential(sentence: str) -> float:
+    """
+    Score sentence based on likelihood of being referenced later.
+
+    High-reference content:
+    - File paths: +1.0
+    - URLs: +0.5
+    - Error messages: +1.5
+    """
+    score = 0.0
+
+    # File paths
+    if re.search(FILE_PATH_PATTERN, sentence):
+        score += 1.0
+
+    # URLs
+    if re.search(URL_PATTERN, sentence):
+        score += 0.5
+
+    # Error indicators
+    lower = sentence.lower()
+    for pattern in ERROR_INDICATOR_PATTERNS:
+        if re.search(pattern, lower):
+            score += 1.5
+            break
+
+    return score
+
+
 def extract_code_blocks(content: str) -> tuple[str, list[tuple[str, str]]]:
     """
     Extract code blocks from content, returning cleaned content and blocks.
@@ -66,12 +191,14 @@ def extract_code_blocks(content: str) -> tuple[str, list[tuple[str, str]]]:
 
 def score_sentence(sentence: str, position: int, total: int) -> float:
     """
-    Score sentence importance using simple heuristics.
+    Score sentence importance using heuristics and semantic patterns.
 
     Higher scores for:
     - Sentences at beginning/end (positional bias)
     - Sentences with key terms
     - Shorter sentences (more information-dense)
+    - Decisions, conclusions, and commitments (semantic patterns)
+    - File paths, URLs, and error messages (reference potential)
 
     Args:
         sentence: The sentence to score
@@ -122,6 +249,11 @@ def score_sentence(sentence: str, position: int, total: int) -> float:
         score += 0.3
     elif length > 200:
         score -= 0.2
+
+    # Enhanced scoring: semantic importance and reference potential (Issue #149)
+    # These patterns help preserve decisions, conclusions, file paths, etc.
+    score += _score_semantic_importance(sentence)
+    score += _score_reference_potential(sentence)
 
     return score
 
