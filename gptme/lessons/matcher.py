@@ -194,16 +194,30 @@ class LessonMatcher:
     ) -> list[MatchResult]:
         """Match lessons by explicit keywords.
 
+        Deduplication: Lessons are deduplicated by resolved path (realpath) to handle
+        symlinks and duplicate directories, consistent with match().
+
         Args:
             lessons: List of lessons to match against
             keywords: Keywords to match
 
         Returns:
-            List of match results
+            List of match results, deduplicated by path
         """
         results = []
+        # Track seen lesson paths for deduplication (consistent with match())
+        seen_paths: set[str] = set()
 
         for lesson in lessons:
+            # Deduplicate by resolved path to handle symlinks and duplicate directories
+            resolved_path = os.path.realpath(lesson.path)
+            if resolved_path in seen_paths:
+                logger.debug(
+                    f"Skipping duplicate lesson in match_keywords: {lesson.title}"
+                )
+                continue
+            seen_paths.add(resolved_path)
+
             matched_keywords = [kw for kw in keywords if kw in lesson.metadata.keywords]
 
             if matched_keywords:

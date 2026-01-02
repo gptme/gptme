@@ -443,3 +443,45 @@ Test content.
         # Should have both keywords in matched_by
         assert "keyword:keyword one" in results[0].matched_by
         assert "keyword:keyword two" in results[0].matched_by
+
+    def test_match_keywords_deduplication(self, tmp_path):
+        """Test that match_keywords also deduplicates by resolved path.
+
+        Ensures consistency between match() and match_keywords() methods.
+        """
+        # Create a lesson file
+        lesson_dir = tmp_path / "lessons"
+        lesson_dir.mkdir()
+        lesson_file = lesson_dir / "test-lesson.md"
+        lesson_file.write_text(
+            """---
+match:
+  keywords:
+    - "keyword one"
+    - "keyword two"
+status: active
+---
+# Test Lesson
+
+Test content.
+"""
+        )
+
+        # Parse the lesson twice (simulating duplicate entries)
+        from gptme.lessons.parser import parse_lesson
+
+        lesson1 = parse_lesson(lesson_file)
+        lesson2 = parse_lesson(lesson_file)
+
+        # Create list with duplicates
+        lessons_with_duplicates = [lesson1, lesson2]
+
+        # match_keywords should also deduplicate
+        matcher = LessonMatcher()
+        results = matcher.match_keywords(
+            lessons_with_duplicates, ["keyword one", "keyword two"]
+        )
+
+        # Should only return ONE result despite two entries in input
+        assert len(results) == 1
+        assert results[0].lesson.title == "Test Lesson"
