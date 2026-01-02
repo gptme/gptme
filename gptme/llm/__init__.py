@@ -346,11 +346,14 @@ def _reply_stream(
         print_clear()
         if first_token_time:
             end_time = time.time()
+            gen_time = max(
+                end_time - first_token_time, 0.001
+            )  # Prevent division by zero
             logger.debug(
                 f"Generation finished in {end_time - start_time:.1f}s "
                 f"(ttft: {first_token_time - start_time:.2f}s, "
-                f"gen: {end_time - first_token_time:.2f}s, "
-                f"tok/s: {len_tokens(output, model)/(end_time - first_token_time):.1f})"
+                f"gen: {gen_time:.2f}s, "
+                f"tok/s: {len_tokens(output, model) / gen_time:.1f})"
             )
 
     return Message("assistant", output, metadata=stream.metadata)
