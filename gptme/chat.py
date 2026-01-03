@@ -36,7 +36,7 @@ from .util.terminal import set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
 
-# Global flag to track if we were recently interrupted
+# Flag to track if we were recently interrupted
 _recently_interrupted = False
 
 
@@ -64,6 +64,7 @@ def chat(
 
     Callable from other modules.
     """
+    # Clear interrupt flag at start of chat
     global _recently_interrupted
     _recently_interrupted = False
 
@@ -439,8 +440,6 @@ def step(
     output_schema: type | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
-    global _recently_interrupted
-
     default_model = get_default_model()
     assert default_model is not None, "No model loaded and no model specified"
     model = model or default_model.full
@@ -481,6 +480,7 @@ def step(
             yield from execute_msg(msg_response, confirm, log, workspace)
 
         # Reset interrupt flag after successful completion
+        global _recently_interrupted
         _recently_interrupted = False
 
     finally:

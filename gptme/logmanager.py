@@ -109,6 +109,8 @@ class LogManager:
         # View branch support: compacted views stored separately from user branches
         # When current_view is set, new messages go to BOTH master AND the view
         self.current_view: str | None = view
+        # Store TemporaryDirectory instance to prevent premature cleanup
+        self._tmpdir: TemporaryDirectory | None = None
         if logdir:
             self.logdir = Path(logdir)
         else:
