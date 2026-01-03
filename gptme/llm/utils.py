@@ -173,11 +173,9 @@ def process_image_file(
         )
         return None
 
-    data = base64.b64encode(data_bytes).decode("utf-8")
-
-    # check that the file is not too large
+    # check that the file is not too large (check raw bytes before encoding)
     max_size_bytes = max_size_mb * 1_024 * 1_024
-    if len(data) > max_size_bytes:
+    if len(data_bytes) > max_size_bytes:
         content_parts.append(
             {
                 "type": "text",
@@ -186,6 +184,7 @@ def process_image_file(
         )
         return None
 
+    data = base64.b64encode(data_bytes).decode("utf-8")
     return data, media_type
 
 
