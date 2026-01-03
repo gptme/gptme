@@ -304,7 +304,11 @@ def api_conversation_delete(conversation_id: str):
         return error
 
     logdir = get_logs_dir() / conversation_id
-    assert logdir.parent == get_logs_dir()
+    # Defense-in-depth: verify path is within logs directory
+    # (cannot use assert as it can be disabled with python -O)
+    if logdir.parent != get_logs_dir():
+        logger.warning(f"Path traversal attempt blocked: {conversation_id}")
+        return flask.jsonify({"error": "Invalid conversation_id"}), 400
     if not logdir.exists():
         return (
             flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
