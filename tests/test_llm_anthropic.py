@@ -245,3 +245,93 @@ def test_message_conversion_with_tool_and_non_tool():
             ],
         },
     ]
+
+
+# Updated tests for generator retry behavior
+
+
+def test_retry_generator_only_retries_before_yield():
+    """Test that retry_generator_on_overloaded only retries if no content has been yielded.
+
+    This prevents duplicate output when an error occurs mid-stream.
+    Issue: https://github.com/gptme/gptme/issues/1030 (Finding 4)
+    """
+    import os
+
+    from gptme.llm.llm_anthropic import retry_generator_on_overloaded
+
+    # Create a mock that looks like an Anthropic API 500 error
+    def make_api_error():
+        from anthropic import APIStatusError
+        from httpx import Request, Response
+
+        request = Request("POST", "https://api.anthropic.com/v1/messages")
+        response = Response(500, request=request)
+        return APIStatusError("Internal server error", response=response, body=None)
+
+    # Clear the test max retries env var for this test
+    old_val = os.environ.pop("GPTME_TEST_MAX_RETRIES", None)
+    try:
+        # Track call count to verify retry behavior
+        call_count = 0
+
+        @retry_generator_on_overloaded(max_retries=3, base_delay=0.01)
+        def gen_fails_before_yield():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise make_api_error()
+            yield "success"
+
+        @retry_generator_on_overloaded(max_retries=3, base_delay=0.01)
+        def gen_fails_after_yield():
+            yield "chunk1"
+            yield "chunk2"
+            raise make_api_error()
+
+        # Test 1: Should retry when error occurs before any yield
+        call_count = 0
+        result = list(gen_fails_before_yield())
+        assert result == ["success"], f"Expected ['success'], got {result}"
+        assert call_count == 3, f"Expected 3 calls (2 retries), got {call_count}"
+
+        # Test 2: Should NOT retry when error occurs after yielding
+        # (would cause duplicate output)
+        collected = []
+        try:
+            for chunk in gen_fails_after_yield():
+                collected.append(chunk)
+        except Exception:
+            pass  # Expected to raise
+
+        # Should have received chunks before error, and NOT duplicated
+        assert collected == [
+            "chunk1",
+            "chunk2",
+        ], f"Expected ['chunk1', 'chunk2'], got {collected}"
+    finally:
+        if old_val is not None:
+            os.environ["GPTME_TEST_MAX_RETRIES"] = old_val
+
+
+def test_retry_generator_preserves_return_value():
+    """Test that retry_generator_on_overloaded preserves generator return values."""
+    from gptme.llm.llm_anthropic import retry_generator_on_overloaded
+
+    @retry_generator_on_overloaded(max_retries=3, base_delay=0.01)
+    def gen_with_return():
+        yield "chunk1"
+        yield "chunk2"
+        return {"metadata": "value"}
+
+    gen = gen_with_return()
+    chunks = []
+    return_value = None
+    try:
+        while True:
+            chunks.append(next(gen))
+    except StopIteration as e:
+        return_value = e.value
+
+    assert chunks == ["chunk1", "chunk2"]
+    assert return_value == {"metadata": "value"}
