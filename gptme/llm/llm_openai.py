@@ -374,17 +374,32 @@ def retry_generator_on_openai_error(max_retries: int = 5, base_delay: float = 1.
     """Decorator to retry generator functions on OpenAI API transient errors with exponential backoff.
 
     Handles 5xx server errors, rate limits, and other transient API issues.
+
+    Note: Retries only happen if no content has been yielded yet. Once streaming
+    has started, errors are raised immediately to prevent duplicate output.
     """
 
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             for attempt in range(max_retries):
+                has_yielded = False
                 try:
-                    # Use 'return (yield from ...)' to propagate the generator's return value
-                    # Without 'return', the metadata returned by stream() would be lost
-                    return (yield from func(*args, **kwargs))
+                    gen = func(*args, **kwargs)
+                    while True:
+                        try:
+                            value = next(gen)
+                        except StopIteration as e:
+                            # Generator finished normally, return its value
+                            return e.value
+                        # Mark as yielded BEFORE yielding to consumer
+                        # This ensures we don't retry if consumer throws
+                        has_yielded = True
+                        yield value
                 except Exception as e:
+                    if has_yielded:
+                        # Can't retry after streaming has started - would cause duplicates
+                        raise
                     _handle_openai_transient_error(e, attempt, max_retries, base_delay)
 
         return wrapper
