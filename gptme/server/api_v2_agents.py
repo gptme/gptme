@@ -108,19 +108,34 @@ def api_agents_put():
     command.append(template_repo)
     command.append(str(temp_dir))
 
-    clone_result = subprocess.run(command, capture_output=True, check=False)
+    try:
+        clone_result = subprocess.run(
+            command, capture_output=True, check=False, timeout=300
+        )
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return flask.jsonify(
+            {"error": "Git clone operation timed out (5 minute limit)"}
+        ), 504
     if clone_result.returncode != 0:
         return flask.jsonify(
             {"error": f"Failed to clone template repo: {clone_result.stderr.decode()}"}
         ), 500
 
     # Pull in any git submodules
-    submodule_result = subprocess.run(
-        ["git", "submodule", "update", "--init", "--recursive"],
-        capture_output=True,
-        check=False,
-        cwd=temp_dir,
-    )
+    try:
+        submodule_result = subprocess.run(
+            ["git", "submodule", "update", "--init", "--recursive"],
+            capture_output=True,
+            check=False,
+            cwd=temp_dir,
+            timeout=300,  # 5 minute timeout for submodule operations
+        )
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return flask.jsonify(
+            {"error": "Submodule update timed out (5 minute limit)"}
+        ), 504
     if submodule_result.returncode != 0:
         # Delete the temp dir if the submodule update failed
         shutil.rmtree(temp_dir)
@@ -134,7 +149,11 @@ def api_agents_put():
     # Run the post-fork command
     try:
         post_fork_result = subprocess.run(
-            shlex.split(fork_command), capture_output=True, check=False, cwd=temp_dir
+            shlex.split(fork_command),
+            capture_output=True,
+            check=False,
+            cwd=temp_dir,
+            timeout=120,  # 2 minute timeout for post-fork commands
         )
         logger.debug(f"Post-fork command result: {post_fork_result}")
         if post_fork_result.returncode != 0:
