@@ -252,15 +252,9 @@ call_id = "{self.call_id}"
         if "metadata" in msg and msg["metadata"]:
             metadata = MessageMetadata(**msg["metadata"])
 
-        # Remove exactly one trailing newline that TOML multiline format adds
-        # (the newline before closing """), but preserve other whitespace
-        content = msg["content"]
-        if content.endswith("\n"):
-            content = content[:-1]
-
         return cls(
             msg["role"],
-            content,
+            _fix_toml_content(msg["content"]),
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
             files=[Path(f) for f in msg.get("files", [])],
@@ -400,6 +394,19 @@ def msgs_to_toml(msgs: list[Message]) -> str:
     return t
 
 
+def _fix_toml_content(content: str) -> str:
+    """
+    Remove exactly one trailing newline that TOML multiline format adds.
+
+    TOML multiline strings (using triple quotes) add a newline before the
+    closing delimiter. This function removes that artifact while preserving
+    all other whitespace.
+    """
+    if content.endswith("\n"):
+        content = content[:-1]
+    return content
+
+
 def toml_to_msgs(toml: str) -> list[Message]:
     """
     Converts a TOML string to a list of messages.
@@ -409,12 +416,6 @@ def toml_to_msgs(toml: str) -> list[Message]:
     t = tomlkit.parse(toml)
     assert "messages" in t and isinstance(t["messages"], list)
     msgs: list[dict] = t["messages"]  # type: ignore
-
-    def _fix_toml_content(content: str) -> str:
-        """Remove trailing newline added by TOML multiline format."""
-        if content.endswith("\n"):
-            content = content[:-1]
-        return content
 
     return [
         Message(
