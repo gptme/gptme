@@ -223,7 +223,7 @@ class Message:
         # content = self.content.replace('"', '\\"')
         content = escape_string(self.content)
         content = content.replace("\\n", "\n")
-        content = content.strip()
+        # Don't strip - preserve whitespace for data integrity
 
         return f'''[message]
 role = "{self.role}"
@@ -252,9 +252,15 @@ call_id = "{self.call_id}"
         if "metadata" in msg and msg["metadata"]:
             metadata = MessageMetadata(**msg["metadata"])
 
+        # Remove exactly one trailing newline that TOML multiline format adds
+        # (the newline before closing """), but preserve other whitespace
+        content = msg["content"]
+        if content.endswith("\n"):
+            content = content[:-1]
+
         return cls(
             msg["role"],
-            msg["content"].strip(),
+            content,
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
             files=[Path(f) for f in msg.get("files", [])],
@@ -404,10 +410,16 @@ def toml_to_msgs(toml: str) -> list[Message]:
     assert "messages" in t and isinstance(t["messages"], list)
     msgs: list[dict] = t["messages"]  # type: ignore
 
+    def _fix_toml_content(content: str) -> str:
+        """Remove trailing newline added by TOML multiline format."""
+        if content.endswith("\n"):
+            content = content[:-1]
+        return content
+
     return [
         Message(
             msg["role"],
-            msg["content"].strip(),
+            _fix_toml_content(msg["content"]),
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
             timestamp=isoparse(msg["timestamp"]),
