@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from gptme.message import Message, msgs_to_toml, toml_to_msgs
 
 
@@ -303,3 +305,32 @@ def test_to_xml_handles_quotes_in_role():
 
     # Quotes in content should be safe (no escaping needed for XML content)
     assert 'Test content with "quotes"' in xml_str
+
+
+def test_toml_preserves_whitespace():
+    """Test that from_toml preserves leading/trailing whitespace in content.
+
+    Note: TOML multiline strings add a trailing newline due to format:
+        content = '''
+        {content}
+        '''
+    So we test that leading whitespace and internal structure is preserved.
+    """
+    # Content with intentional leading whitespace
+    content_with_whitespace = "  \n  code with indentation  \n"
+    msg = Message(
+        "user",
+        content_with_whitespace,
+        timestamp=datetime.now(tz=timezone.utc),
+    )
+
+    # Roundtrip through TOML
+    toml_str = msg.to_toml()
+    restored = Message.from_toml(toml_str)
+
+    # Leading whitespace should be preserved
+    assert restored.content.startswith("  \n")
+    # Internal structure preserved
+    assert "  code with indentation" in restored.content
+    # Should not be fully stripped to just the words
+    assert restored.content != "code with indentation"
