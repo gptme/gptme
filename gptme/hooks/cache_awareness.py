@@ -10,6 +10,21 @@ This module:
 - Provides query functions for plugins to check cache state
 - Emits events on cache invalidation for reactive plugins
 
+Terminology:
+    "turns" - The number of MESSAGE_POST_PROCESS hook invocations since
+    the last cache invalidation. This represents assistant responses,
+    not individual messages. See: https://github.com/gptme/gptme/issues/1075
+    for discussion on standardizing "turns" vs "steps" terminology.
+
+Limitations:
+    Currently only tracks *explicit* cache invalidations triggered by
+    auto-compact (via CACHE_INVALIDATED hook). Does NOT detect:
+    - Cache expiry due to time (e.g., Anthropic's 5-minute TTL)
+    - Cache misses from view regeneration/switching
+    - Other implicit invalidation scenarios
+    Future work may add heuristics for these cases (e.g., detecting
+    >5min gaps between messages as probable cache misses).
+
 Usage by other plugins:
     from gptme.hooks.cache_awareness import (
         get_cache_state,
@@ -24,7 +39,7 @@ from collections.abc import Callable, Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 
 from ..hooks import HookType, StopPropagation, register_hook
 from ..message import Message
@@ -33,6 +48,21 @@ if TYPE_CHECKING:
     from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
+
+
+class CacheStatusSummary(TypedDict):
+    """Type-safe return structure for get_status_summary().
+
+    All fields are Optional because they may be None before first invalidation.
+    """
+
+    invalidation_count: int
+    turns_since_invalidation: int
+    tokens_since_invalidation: int
+    last_invalidation: str | None
+    last_invalidation_reason: str | None
+    tokens_before: int | None
+    tokens_after: int | None
 
 
 @dataclass
@@ -248,8 +278,7 @@ def _handle_cache_invalidated(
             logger.warning(f"Cache change callback failed: {e}")
 
     # Yield nothing - this is a tracking hook, not a message-producing hook
-    return
-    yield  # Generator protocol
+    yield from ()
 
 
 def _handle_message_post_process(
@@ -264,13 +293,17 @@ def _handle_message_post_process(
         Nothing (tracking only)
     """
     notify_turn_complete()
-    return
-    yield  # Generator protocol
+    yield from ()
 
 
 def register() -> None:
     """Register cache awareness hooks with the hook system."""
-    # Listen for cache invalidation events
+    # Listen for cache invalidation events.
+    # NOTE: This only captures EXPLICIT invalidations from auto-compact.
+    # It does NOT detect implicit invalidations like:
+    # - Cache expiry (e.g., Anthropic's 5-minute TTL)
+    # - View regeneration/switching
+    # Future work may add time-based heuristics for implicit invalidation.
     register_hook(
         "cache_awareness.invalidated",
         HookType.CACHE_INVALIDATED,
@@ -278,7 +311,8 @@ def register() -> None:
         priority=100,  # High priority - update state before other handlers
     )
 
-    # Track turns for invalidation counting
+    # Track turns (MESSAGE_POST_PROCESS invocations) for invalidation counting.
+    # See module docstring for "turns" vs "steps" terminology discussion.
     register_hook(
         "cache_awareness.turn_tracking",
         HookType.MESSAGE_POST_PROCESS,
@@ -307,11 +341,11 @@ def should_batch_updates(threshold: int = 10) -> bool:
     return get_turns_since_invalidation() >= threshold
 
 
-def get_status_summary() -> dict[str, Any]:
+def get_status_summary() -> CacheStatusSummary:
     """Get a summary of cache state for logging/debugging.
 
     Returns:
-        Dictionary with key cache metrics.
+        Type-safe dictionary with key cache metrics.
     """
     state = _get_state()
     return {
