@@ -351,7 +351,8 @@ def chat(
 ) -> tuple[str, MessageMetadata | None]:
     from anthropic import NOT_GIVEN  # fmt: skip
 
-    assert _anthropic, "LLM not initialized"
+    if not _anthropic:
+        raise RuntimeError("LLM not initialized")
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
     )
@@ -433,7 +434,8 @@ def stream(
     # Variable to capture metadata from usage recording
     captured_metadata: MessageMetadata | None = None
 
-    assert _anthropic, "LLM not initialized"
+    if not _anthropic:
+        raise RuntimeError("LLM not initialized")
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
     )

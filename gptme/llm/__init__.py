@@ -327,7 +327,8 @@ def _summarize_str(content: str) -> str:
     ]
 
     model = get_default_model_summary()
-    assert model, "No default model set"
+    if not model:
+        raise RuntimeError("No default model set")
 
     if len_tokens(messages, model.model) > model.context:
         raise ValueError(
@@ -335,7 +336,8 @@ def _summarize_str(content: str) -> str:
         )
 
     summary, _metadata = _chat_complete(messages, model.full, None)
-    assert summary
+    if not summary:
+        raise RuntimeError("Summarization produced no output")
     logger.debug(
         f"Summarized long output ({len_tokens(content, model.model)} -> {len_tokens(summary, model.model)} tokens): "
         + summary
