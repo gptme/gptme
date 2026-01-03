@@ -454,12 +454,21 @@ def prompt_workspace(
 
     # Process file patterns
     files: list[Path] = []
+    workspace_resolved = workspace.resolve()
     for fileglob in file_patterns:
         # expand user
         fileglob = str(Path(fileglob).expanduser())
         # expand with glob
         if new_files := workspace.glob(fileglob):
-            files.extend(new_files)
+            for f in new_files:
+                # Validate file is within workspace (prevent path traversal)
+                try:
+                    f.resolve().relative_to(workspace_resolved)
+                    files.append(f)
+                except ValueError:
+                    logger.warning(
+                        f"Skipping file outside workspace: {f} (from glob '{fileglob}')"
+                    )
         else:
             # Only warn for explicitly configured files, not defaults
             if project and project.files is not None:

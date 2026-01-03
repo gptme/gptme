@@ -103,3 +103,38 @@ def test_get_prompt_selective_components():
     # Full mode should have more content
     full_mode = get_prompt(get_tools(), prompt="full", context_mode="full")
     assert len(full_mode) >= len(empty_selective)
+
+
+def test_glob_path_traversal_protection(tmp_path):
+    """Test that glob patterns cannot traverse outside the workspace.
+
+    Issue #1036 Finding #2: Glob patterns like '../../etc/passwd' should be
+    rejected to prevent path traversal attacks via gptme.toml configuration.
+    """
+    from gptme.prompts import prompt_workspace
+
+    # Create a temp workspace with a file
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("# Test")
+
+    # Create a file outside workspace
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("secret data")
+
+    # Create a gptme.toml with path traversal attempt
+    (workspace / "gptme.toml").write_text(
+        """
+[prompt]
+files = ["../outside/secret.txt", "README.md"]
+"""
+    )
+
+    # Get workspace content
+    msgs = list(prompt_workspace(workspace))
+    content = "\n".join(msg.content for msg in msgs)
+
+    # Should include README but NOT secret file
+    assert "# Test" in content, "README.md should be included"
+    assert "secret data" not in content, "secret.txt should be blocked (path traversal)"
