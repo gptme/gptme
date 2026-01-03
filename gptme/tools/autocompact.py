@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from .. import llm
 from ..context import strip_reasoning
-from ..hooks import HookType, StopPropagation
+from ..hooks import HookType, StopPropagation, trigger_hook
 from ..llm.models import get_default_model, get_model
 from ..logmanager import Log, prepare_messages
 from ..message import Message, len_tokens
@@ -969,6 +969,16 @@ def autocompact_hook(
         view_name = manager.get_next_view_name()
         manager.create_view(view_name, compacted_msgs)
         manager.switch_view(view_name)
+
+        # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
+        # (e.g., attention-router can batch-apply decay and re-evaluate tiers)
+        yield from trigger_hook(
+            HookType.CACHE_INVALIDATED,
+            manager=manager,
+            reason="compact",
+            tokens_before=original_tokens,
+            tokens_after=compacted_tokens,
+        )
 
         reduction_pct = (
             ((original_tokens - compacted_tokens) / original_tokens * 100)

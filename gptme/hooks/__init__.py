@@ -69,6 +69,9 @@ class HookType(str, Enum):
     # Loop control
     LOOP_CONTINUE = "loop_continue"  # Decide whether/how to continue the chat loop
 
+    # Cache events
+    CACHE_INVALIDATED = "cache_invalidated"  # Prompt cache was invalidated
+
 
 # Protocol classes for different hook signatures
 class SessionStartHook(Protocol):
@@ -169,6 +172,29 @@ class GenerationPostHook(Protocol):
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
+class CacheInvalidatedHook(Protocol):
+    """Hook called when prompt cache is invalidated.
+
+    This is triggered after operations that invalidate the prompt cache,
+    such as auto-compaction. Plugins can use this hook to update their
+    state (e.g., re-evaluate attention tiers) at the optimal time.
+
+    Args:
+        manager: Conversation manager with log and workspace
+        reason: Reason for cache invalidation (e.g., "compact", "edit")
+        tokens_before: Token count before the operation (optional)
+        tokens_after: Token count after the operation (optional)
+    """
+
+    def __call__(
+        self,
+        manager: "LogManager",
+        reason: str,
+        tokens_before: int | None = None,
+        tokens_after: int | None = None,
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
 class FilePreSaveHook(Protocol):
     """Hook called before saving a file.
 
@@ -220,6 +246,7 @@ HookFunc = (
     | GenerationPostHook
     | FilePreSaveHook
     | FilePostSaveHook
+    | CacheInvalidatedHook
 )
 
 
@@ -519,6 +546,16 @@ def register_hook(
         HookType.MESSAGE_TRANSFORM,
     ],
     func: MessageProcessHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.CACHE_INVALIDATED],
+    func: CacheInvalidatedHook,
     priority: int = 0,
     enabled: bool = True,
 ) -> None: ...
