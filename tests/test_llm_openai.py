@@ -630,3 +630,254 @@ def test_transform_msgs_for_deepseek_tool_results():
 
     # Tool messages should pass through unchanged
     assert result[0] == messages[0]
+
+
+# Tests for OpenAI retry logic
+class TestOpenAIRetryLogic:
+    """Tests for OpenAI API retry logic."""
+
+    def test_handle_openai_transient_error_rate_limit(self):
+        """Test that rate limit errors trigger retry."""
+        from unittest.mock import MagicMock, patch
+
+        from openai import RateLimitError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        # Create a mock RateLimitError
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        error = RateLimitError("Rate limit exceeded", response=mock_response, body=None)
+
+        # Should not raise on first attempts (will sleep and return)
+        with patch("time.sleep"):
+            # On attempt 0 (not last attempt), should just sleep
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+
+    def test_handle_openai_transient_error_server_error(self):
+        """Test that 5xx server errors trigger retry."""
+        from unittest.mock import MagicMock, patch
+
+        from openai import APIStatusError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        # Create a mock 500 error
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        error = APIStatusError(
+            "Internal server error", response=mock_response, body=None
+        )
+
+        with patch("time.sleep"):
+            # Should retry on 500 error
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+
+    def test_handle_openai_transient_error_raises_on_client_error(self):
+        """Test that client errors (4xx except 429) are raised immediately."""
+        from unittest.mock import MagicMock
+
+        from openai import APIStatusError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        # Create a mock 400 error (client error, not transient)
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        error = APIStatusError("Bad request", response=mock_response, body=None)
+
+        # Should raise immediately on 400 error (not transient)
+        with pytest.raises(APIStatusError):
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+
+    def test_handle_openai_transient_error_raises_on_max_retries(self):
+        """Test that error is raised after max retries."""
+        from unittest.mock import MagicMock
+
+        from openai import RateLimitError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        error = RateLimitError("Rate limit exceeded", response=mock_response, body=None)
+
+        # On final attempt, should raise
+        with pytest.raises(RateLimitError):
+            _handle_openai_transient_error(
+                error, attempt=2, max_retries=3, base_delay=0.1
+            )
+
+    def test_retry_decorator_retries_on_transient_error(self, monkeypatch):
+        """Test that the retry decorator properly retries on transient errors."""
+        from unittest.mock import MagicMock, patch
+
+        from openai import RateLimitError
+
+        from gptme.llm.llm_openai import retry_on_openai_error
+
+        # Clear test max_retries override to test actual retry behavior
+        monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+
+        call_count = 0
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+
+        @retry_on_openai_error(max_retries=3, base_delay=0.01)
+        def flaky_function():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise RateLimitError(
+                    "Rate limit exceeded", response=mock_response, body=None
+                )
+            return "success"
+
+        with patch("time.sleep"):
+            result = flaky_function()
+
+        assert result == "success"
+        assert call_count == 3
+
+    def test_retry_generator_decorator_retries_on_transient_error(self, monkeypatch):
+        """Test that the generator retry decorator properly retries on transient errors."""
+        from unittest.mock import MagicMock, patch
+
+        from openai import RateLimitError
+
+        from gptme.llm.llm_openai import retry_generator_on_openai_error
+
+        # Clear test max_retries override to test actual retry behavior
+        monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+
+        call_count = 0
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+
+        @retry_generator_on_openai_error(max_retries=3, base_delay=0.01)
+        def flaky_generator():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise RateLimitError(
+                    "Rate limit exceeded", response=mock_response, body=None
+                )
+            yield "chunk1"
+            yield "chunk2"
+            return "metadata"
+
+        with patch("time.sleep"):
+            results = list(flaky_generator())
+
+        assert results == ["chunk1", "chunk2"]
+        assert call_count == 2
+
+    def test_retry_generator_only_retries_before_yield(self, monkeypatch):
+        """Test that retry_generator_on_openai_error only retries if no content has been yielded.
+
+        This prevents duplicate output when an error occurs mid-stream.
+        Issue: https://github.com/gptme/gptme/issues/1030 (Finding 6)
+        """
+        from unittest.mock import MagicMock, patch
+
+        from openai import RateLimitError
+
+        from gptme.llm.llm_openai import retry_generator_on_openai_error
+
+        # Clear test max_retries override to test actual retry behavior
+        monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+
+        def make_rate_limit_error():
+            return RateLimitError(
+                "Rate limit exceeded", response=mock_response, body=None
+            )
+
+        # Test 1: Should retry when error occurs before any yield
+        call_count = 0
+
+        @retry_generator_on_openai_error(max_retries=3, base_delay=0.01)
+        def gen_fails_before_yield():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise make_rate_limit_error()
+            yield "success"
+
+        with patch("time.sleep"):
+            result = list(gen_fails_before_yield())
+
+        assert result == ["success"], f"Expected ['success'], got {result}"
+        assert call_count == 3, f"Expected 3 calls (2 retries), got {call_count}"
+
+    def test_retry_generator_no_retry_after_yield(self, monkeypatch):
+        """Test that retry_generator_on_openai_error does NOT retry after content has been yielded.
+
+        This prevents duplicate output when an error occurs mid-stream.
+        Issue: https://github.com/gptme/gptme/issues/1030 (Finding 6)
+        """
+        from unittest.mock import MagicMock, patch
+
+        from openai import RateLimitError
+
+        from gptme.llm.llm_openai import retry_generator_on_openai_error
+
+        # Clear test max_retries override to test actual retry behavior
+        monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+
+        @retry_generator_on_openai_error(max_retries=3, base_delay=0.01)
+        def gen_fails_after_yield():
+            yield "chunk1"
+            yield "chunk2"
+            raise RateLimitError(
+                "Rate limit exceeded", response=mock_response, body=None
+            )
+
+        # Should NOT retry when error occurs after yielding (would cause duplicates)
+        collected = []
+        with pytest.raises(RateLimitError):
+            with patch("time.sleep"):
+                for chunk in gen_fails_after_yield():
+                    collected.append(chunk)
+
+        # Should have received chunks before error, and NOT duplicated
+        assert collected == [
+            "chunk1",
+            "chunk2",
+        ], f"Expected ['chunk1', 'chunk2'], got {collected}"
+
+    def test_retry_generator_preserves_return_value(self, monkeypatch):
+        """Test that retry_generator_on_openai_error preserves generator return values."""
+        from gptme.llm.llm_openai import retry_generator_on_openai_error
+
+        # Clear test max_retries override
+        monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+
+        @retry_generator_on_openai_error(max_retries=3, base_delay=0.01)
+        def gen_with_return():
+            yield "chunk1"
+            yield "chunk2"
+            return {"metadata": "value"}
+
+        gen = gen_with_return()
+        chunks = []
+        return_value = None
+        try:
+            while True:
+                chunks.append(next(gen))
+        except StopIteration as e:
+            return_value = e.value
+
+        assert chunks == ["chunk1", "chunk2"]
+        assert return_value == {"metadata": "value"}

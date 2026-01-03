@@ -1,7 +1,9 @@
 import json
 import logging
+import os
+import time
 from collections.abc import Generator, Iterable
-from functools import lru_cache
+from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, cast
 
 import requests
@@ -293,6 +295,119 @@ def _is_proxy(client: "OpenAI") -> bool:
     return str(client.base_url).rstrip("/") == proxy_url.rstrip("/")
 
 
+def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
+    """Handle OpenAI API transient errors with exponential backoff.
+
+    Retries on:
+    - 5xx server errors (500-599): Internal errors, bad gateway, service unavailable, etc.
+    - 429 rate limit errors: Should back off and retry
+    - Connection errors: Network issues, timeouts
+    """
+    from openai import APIConnectionError, APIStatusError, RateLimitError  # fmt: skip
+
+    # Allow tests to override max_retries via environment variable
+    # This breaks out of the retry loop early to prevent test timeouts
+    test_max_retries_str = os.environ.get("GPTME_TEST_MAX_RETRIES")
+    if test_max_retries_str:
+        test_max_retries = int(test_max_retries_str)
+        if attempt >= test_max_retries - 1:
+            logger.warning(
+                f"Test max_retries={test_max_retries} reached (attempt {attempt + 1}), not retrying"
+            )
+            raise e
+
+    # Check if this is a transient error we should retry
+    should_retry = False
+
+    if isinstance(e, RateLimitError):
+        # 429 rate limit - should back off and retry
+        should_retry = True
+    elif isinstance(e, APIConnectionError):
+        # Connection errors are transient
+        should_retry = True
+    elif isinstance(e, APIStatusError):
+        # Retry on all 5xx server errors (transient)
+        if 500 <= e.status_code < 600:
+            should_retry = True
+        # Also check error message for known transient issues
+        elif hasattr(e, "message"):
+            error_msg = str(e.message).lower()
+            if any(
+                keyword in error_msg for keyword in ["overload", "internal", "timeout"]
+            ):
+                should_retry = True
+
+    # Re-raise if not transient or max retries reached
+    if not should_retry or attempt == max_retries - 1:
+        raise e
+
+    delay = base_delay * (2**attempt)
+    status_code = getattr(e, "status_code", "unknown")
+    logger.warning(
+        f"OpenAI API transient error (status {status_code}), "
+        f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+    )
+    time.sleep(delay)
+
+
+def retry_on_openai_error(max_retries: int = 5, base_delay: float = 1.0):
+    """Decorator to retry functions on OpenAI API transient errors with exponential backoff.
+
+    Handles 5xx server errors, rate limits, and other transient API issues.
+    """
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    _handle_openai_transient_error(e, attempt, max_retries, base_delay)
+
+        return wrapper
+
+    return decorator
+
+
+def retry_generator_on_openai_error(max_retries: int = 5, base_delay: float = 1.0):
+    """Decorator to retry generator functions on OpenAI API transient errors with exponential backoff.
+
+    Handles 5xx server errors, rate limits, and other transient API issues.
+
+    Note: Retries only happen if no content has been yielded yet. Once streaming
+    has started, errors are raised immediately to prevent duplicate output.
+    """
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                has_yielded = False
+                try:
+                    gen = func(*args, **kwargs)
+                    while True:
+                        try:
+                            value = next(gen)
+                        except StopIteration as e:
+                            # Generator finished normally, return its value
+                            return e.value
+                        # Mark as yielded BEFORE yielding to consumer
+                        # This ensures we don't retry if consumer throws
+                        has_yielded = True
+                        yield value
+                except Exception as e:
+                    if has_yielded:
+                        # Can't retry after streaming has started - would cause duplicates
+                        raise
+                    _handle_openai_transient_error(e, attempt, max_retries, base_delay)
+
+        return wrapper
+
+    return decorator
+
+
+@retry_on_openai_error()
 def chat(
     messages: list[Message],
     model: str,
@@ -384,6 +499,7 @@ def extra_body(provider: Provider, model_meta: ModelMeta) -> dict[str, Any]:
     return body
 
 
+@retry_generator_on_openai_error()
 def stream(
     messages: list[Message],
     model: str,
