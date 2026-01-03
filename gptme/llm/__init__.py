@@ -140,10 +140,7 @@ def _chat_complete(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema: type | None = None,
-    max_retries: int = 3,
 ) -> tuple[str, MessageMetadata | None]:
-    from pydantic import BaseModel, ValidationError
-
     provider = get_provider_from_model(model)
 
     # Providers with native constrained decoding support
@@ -155,54 +152,8 @@ def _chat_complete(
             messages, _get_base_model(model), tools, output_schema=output_schema
         )
 
-    # Validation-only fallback for unsupported providers
-    metadata: MessageMetadata | None = None
-    if output_schema is not None:
-        logger = logging.getLogger(__name__)
-        for attempt in range(max_retries):
-            # Generate without constraints
-            if provider in PROVIDERS_OPENAI:
-                response, metadata = chat_openai(messages, model, tools)
-            elif provider == "anthropic":
-                response, metadata = chat_anthropic(
-                    messages, _get_base_model(model), tools
-                )
-            else:
-                raise ValueError(f"Unsupported provider: {provider}")
-
-            # Validate response
-            try:
-                if isinstance(output_schema, type) and issubclass(
-                    output_schema, BaseModel
-                ):
-                    output_schema.model_validate_json(response)
-                return response, metadata  # Validation succeeded
-            except ValidationError as e:
-                if attempt < max_retries - 1:
-                    # Add validation error to context for retry
-                    messages = messages + [
-                        Message(
-                            "user",
-                            f"Validation error: {e}. Please ensure your response follows the required schema and try again.",
-                        )
-                    ]
-                    logger.warning(
-                        f"Validation attempt {attempt + 1}/{max_retries} failed: {e}"
-                    )
-                else:
-                    # Out of retries, return response anyway with warning
-                    logger.warning(
-                        f"Failed to validate response after {max_retries} attempts: {e}"
-                    )
-                    return response, metadata
-
-    # No schema requested, generate normally
-    if provider in PROVIDERS_OPENAI:
-        return chat_openai(messages, model, tools)
-    elif provider == "anthropic":
-        return chat_anthropic(messages, _get_base_model(model), tools)
-    else:
-        raise ValueError(f"Unsupported provider: {provider}")
+    # Unsupported provider - OpenAI and Anthropic are handled above
+    raise ValueError(f"Unsupported provider: {provider}")
 
 
 class _StreamWithMetadata:
