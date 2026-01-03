@@ -519,9 +519,13 @@ def get_model(model: str) -> ModelMeta:
                     for model_meta in models:
                         if model_meta.model == model_name:
                             return model_meta
-                except Exception:
+                except Exception as e:
                     # Fall back to unknown model metadata
-                    pass
+                    logger.debug(
+                        "Failed to fetch OpenRouter models for %s: %s",
+                        model_name,
+                        e,
+                    )
 
             # Unknown model, use fallback metadata
             if provider not in ["openrouter", "local"]:
@@ -547,8 +551,8 @@ def get_model(model: str) -> ModelMeta:
             for model_meta in openrouter_models:
                 if model_meta.model == model:
                     return model_meta
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to fetch OpenRouter models for %s: %s", model, e)
 
         logger.warning(f"Unknown model {model}, using fallback metadata")
         return ModelMeta(provider="unknown", model=model, context=128_000)
@@ -611,8 +615,13 @@ def _get_models_for_provider(
         try:
             dynamic_models = get_available_models(provider)
             models_to_show = dynamic_models
-        except Exception:
+        except Exception as e:
             # Fall back to static models (only for built-in providers)
+            logger.debug(
+                "Failed to fetch dynamic models for %s, falling back to static: %s",
+                provider,
+                e,
+            )
             if provider in MODELS:
                 static_models = [
                     get_model(f"{provider}/{name}") for name in MODELS[provider]
