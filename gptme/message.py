@@ -209,6 +209,8 @@ class Message:
             metadata_toml = _format_metadata_toml(self.metadata)
         else:
             metadata_toml = ""
+        # Serialize call_id only if present (avoid serializing "None" as string)
+        call_id_toml = f'call_id = "{self.call_id}"' if self.call_id else ""
         extra = (
             flags_toml
             + "\n"
@@ -217,6 +219,8 @@ class Message:
             + file_hashes_toml
             + "\n"
             + metadata_toml
+            + "\n"
+            + call_id_toml
         ).strip()
 
         # doublequotes need to be escaped
@@ -231,7 +235,6 @@ content = """
 {content}
 """
 timestamp = "{self.timestamp.isoformat()}"
-call_id = "{self.call_id}"
 {extra}
 '''
 

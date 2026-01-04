@@ -334,3 +334,40 @@ def test_toml_preserves_whitespace():
     assert "  code with indentation" in restored.content
     # Should not be fully stripped to just the words
     assert restored.content != "code with indentation"
+
+
+def test_call_id_serialization():
+    """Test that call_id=None doesn't serialize as literal string 'None'.
+
+    Issue #1035: call_id=None was being serialized as 'call_id = "None"'
+    which then gets parsed back as the string "None" instead of None.
+    """
+    # Message without call_id (default None)
+    msg_no_callid = Message(
+        "assistant",
+        "Hello",
+        timestamp=datetime.now(tz=timezone.utc),
+    )
+
+    # Verify call_id = "None" is NOT in the TOML output
+    toml_str = msg_no_callid.to_toml()
+    assert 'call_id = "None"' not in toml_str
+    assert "call_id" not in toml_str  # Should not appear at all
+
+    # Roundtrip should preserve None
+    restored = Message.from_toml(toml_str)
+    assert restored.call_id is None
+
+    # Message with call_id should serialize and roundtrip correctly
+    msg_with_callid = Message(
+        "assistant",
+        "Tool response",
+        timestamp=datetime.now(tz=timezone.utc),
+        call_id="call_abc123",
+    )
+
+    toml_str_with = msg_with_callid.to_toml()
+    assert 'call_id = "call_abc123"' in toml_str_with
+
+    restored_with = Message.from_toml(toml_str_with)
+    assert restored_with.call_id == "call_abc123"
