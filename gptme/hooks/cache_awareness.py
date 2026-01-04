@@ -1,5 +1,5 @@
 """
-Cache turn awareness hook.
+Cache awareness hook.
 
 Provides centralized cache state tracking that other hooks/plugins/tools
 can rely on to get current cache usage or detect cache invalidation.
@@ -26,7 +26,7 @@ Limitations:
     >5min gaps between messages as probable cache misses).
 
 Usage by other plugins:
-    from gptme.hooks.cache_turn_awareness import (
+    from gptme.hooks.cache_awareness import (
         get_cache_state,
         is_cache_valid,
         get_tokens_since_invalidation,
@@ -305,7 +305,7 @@ def register() -> None:
     # - View regeneration/switching
     # Future work may add time-based heuristics for implicit invalidation.
     register_hook(
-        "cache_turn_awareness.invalidated",
+        "cache_awareness.invalidated",
         HookType.CACHE_INVALIDATED,
         _handle_cache_invalidated,
         priority=100,  # High priority - update state before other handlers
@@ -314,7 +314,7 @@ def register() -> None:
     # Track turns (MESSAGE_POST_PROCESS invocations) for invalidation counting.
     # See module docstring for "turns" vs "steps" terminology discussion.
     register_hook(
-        "cache_turn_awareness.turn_tracking",
+        "cache_awareness.turn_tracking",
         HookType.MESSAGE_POST_PROCESS,
         _handle_message_post_process,
         priority=0,  # Normal priority

@@ -1,8 +1,8 @@
-"""Tests for cache_turn_awareness hook."""
+"""Tests for cache_awareness hook."""
 
 import pytest
 
-from gptme.hooks.cache_turn_awareness import (
+from gptme.hooks.cache_awareness import (
     CacheState,
     get_cache_state,
     get_invalidation_count,
