@@ -1,5 +1,5 @@
 prompt = "This is gptme"
-files = ["README.md", "Makefile"]
+files = ["README.md", "Makefile", "docs/glossary.md"]
 #files = ["README.md", "Makefile", "gptme/cli.py", "docs/*.rst", "docs/*.md"]
 
 [lessons]

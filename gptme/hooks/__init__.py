@@ -39,11 +39,18 @@ class StopPropagation:
 
 
 class HookType(str, Enum):
-    """Types of hooks that can be registered."""
+    """Types of hooks that can be registered.
 
-    # Message lifecycle
-    MESSAGE_PRE_PROCESS = "message_pre_process"  # Before processing a message
-    MESSAGE_POST_PROCESS = "message_post_process"  # After processing a message
+    Terminology (see docs/glossary.md for details):
+    - Turn: Complete user-assistant exchange (may contain multiple steps)
+    - Step: Single LLM generation + tool execution cycle
+    """
+
+    # Message lifecycle (per-turn hooks)
+    MESSAGE_PRE_PROCESS = "message_pre_process"  # Before each step in a turn
+    MESSAGE_POST_PROCESS = (
+        "message_post_process"  # After all steps complete (once per turn)
+    )
     MESSAGE_TRANSFORM = "message_transform"  # Transform message content
 
     # Tool lifecycle
