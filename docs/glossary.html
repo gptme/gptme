@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Projects &#8212; gptme</title>
+    <title>Glossary &#8212; gptme</title>
   
   
   
@@ -46,13 +46,13 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.6.3.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'projects';</script>
-    <link rel="canonical" href="https://gptme.org/docs/projects.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'glossary';</script>
+    <link rel="canonical" href="https://gptme.org/docs/glossary.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Tools" href="tools.html" />
-    <link rel="prev" title="Automation" href="automation.html" />
+    <link rel="next" title="Examples" href="examples.html" />
+    <link rel="prev" title="Core Concepts" href="concepts.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -154,11 +154,11 @@
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
-<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="examples.html">Examples</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Glossary</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
 <li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Projects</a></li>
+<li class="toctree-l2"><a class="reference internal" href="projects.html">Projects</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
@@ -332,7 +332,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/projects.rst" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/glossary.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -362,7 +362,7 @@
       
       
       
-      <li><a href="_sources/projects.rst" target="_blank"
+      <li><a href="_sources/glossary.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -372,7 +372,7 @@
 <span class="btn__icon-container">
   <i class="fas fa-file"></i>
   </span>
-<span class="btn__text-container">.rst</span>
+<span class="btn__text-container">.md</span>
 </a>
 </li>
       
@@ -438,7 +438,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Projects</h1>
+    <h1>Glossary</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -448,8 +448,34 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#official-projects">Official Projects</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-projects">Community Projects</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conversational-concepts">Conversational Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn">Turn</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step">Step</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-processing">Message Processing</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-and-memory">Context and Memory</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#context-window">Context Window</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prompt-cache">Prompt Cache</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#token">Token</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-concepts">Tool Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool">Tool</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tooluse">ToolUse</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runnable-tool">Runnable Tool</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#session-concepts">Session Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#log-logmanager">Log / LogManager</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model">Model</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-format">Tool Format</a></li>
+</ul>
+</li>
 </ul>
             </nav>
         </div>
@@ -461,82 +487,97 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="projects">
-<h1>Projects<a class="headerlink" href="#projects" title="Link to this heading">#</a></h1>
-<p>This page lists projects that are powered by or built using gptme.</p>
-<section id="official-projects">
-<h2>Official Projects<a class="headerlink" href="#official-projects" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><dl class="simple">
-<dt><a class="reference external" href="https://github.com/gptme/gptme">gptme</a></dt><dd><p>gptme itself, of course!</p>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt><a class="reference external" href="https://github.com/gptme/gptme-agent-template">gptme-agent-template</a></dt><dd><p>Template for creating new <a class="reference internal" href="agents.html"><span class="doc">Agents</span></a> powered by gptme.</p>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt><a class="reference external" href="https://github.com/TimeToBuildBob">Bob</a></dt><dd><p>The first agent built using the gptme agent architecture.</p>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt><a class="reference external" href="https://github.com/gptme/gptme-rag">gptme-rag</a></dt><dd><p>RAG (Retrieval-Augmented Generation) implementation for gptme context management.</p>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt><a class="reference external" href="https://github.com/gptme/gptme-webui">gptme-webui</a></dt><dd><p>Fancy web-based user interface for gptme, built with the help of <a class="reference external" href="https://lovable.dev/">Lovable</a>.</p>
-</dd>
-</dl>
-</li>
-<li><dl class="simple">
-<dt><a class="reference external" href="https://github.com/gptme/gptme.vim">gptme.vim</a></dt><dd><p>Vim plugin for gptme integration.</p>
-</dd>
-</dl>
-</li>
-</ul>
-</section>
-<section id="community-projects">
-<h2>Community Projects<a class="headerlink" href="#community-projects" title="Link to this heading">#</a></h2>
-<p><em>Your project could be here! Add it by creating a PR.</em></p>
-<ul class="simple">
-<li><dl class="simple">
-<dt><a class="reference external" href="https://github.com/ErikBjare/nbody-sim">ErikBjare/nbody-sim</a></dt><dd><p>Simple but performant n-body simulation in Rust built with gptme using only a few prompts.</p>
-</dd>
-</dl>
-</li>
-</ul>
-<p class="rubric">Adding Your Project</p>
-<p>If you’ve built something using gptme, we’d love to feature it here!</p>
-<ol class="arabic">
-<li><p>Add the “Built with gptme” or “Powered by gptme” badge to your README:</p>
-<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>  [<span class="nt">![built using gptme</span>](<span class="na">https://img.shields.io/badge/built%20using-gptme%20%F0%9F%A4%96-5151f5?style=flat</span>)](https://github.com/gptme/gptme)
-
-.. code-block:: markdown
-
-  [<span class="nt">![Powered by gptme</span>](<span class="na">https://img.shields.io/badge/powered%20by-gptme%20%F0%9F%A4%96-5151f5?style=flat</span>)](https://github.com/gptme/gptme)
-</pre></div>
-</div>
-</li>
-<li><p>Create a PR adding your project to this list:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="m">*</span> <span class="s">`Project Name </span><span class="si">&lt;https://github.com/username/project&gt;</span><span class="s">`_</span>
-    Brief description of your project.
-</pre></div>
-</div>
-</li>
+  <section id="glossary">
+<h1>Glossary<a class="headerlink" href="#glossary" title="Link to this heading">#</a></h1>
+<p>This document defines key terminology used throughout the gptme codebase.</p>
+<section id="conversational-concepts">
+<h2>Conversational Concepts<a class="headerlink" href="#conversational-concepts" title="Link to this heading">#</a></h2>
+<section id="turn">
+<span id="id1"></span><h3>Turn<a class="headerlink" href="#turn" title="Link to this heading">#</a></h3>
+<p>A complete conversational exchange between the user and the assistant.</p>
+<p>A turn consists of:</p>
+<ol class="arabic simple">
+<li><p>A user message (input)</p></li>
+<li><p>All assistant responses and tool executions until no more tools are runnable</p></li>
+<li><p>Any system messages generated during processing</p></li>
 </ol>
-<p class="rubric">Built with gptme Badge</p>
-<p>The “Built with gptme” badge helps showcase your project’s use of gptme and connects it to the broader ecosystem.</p>
-<p>Standard Badge (for projects built using gptme):</p>
-<a class="reference external image-reference" href="https://github.com/gptme/gptme"><img alt="Built using gptme" src="https://img.shields.io/badge/built%20using-gptme%20%F0%9F%A4%96-5151f5?style=flat" />
-</a>
-<p>“Powered by” Variant (for tools/services running on gptme):</p>
-<a class="reference external image-reference" href="https://github.com/gptme/gptme"><img alt="Powered by gptme" src="https://img.shields.io/badge/powered%20by-gptme%20%F0%9F%A4%96-5151f5?style=flat" />
-</a>
-<p>Use the standard badge for projects created with gptme’s assistance, and the “powered by” variant for tools or services that run on gptme.</p>
+<p>In the context of LLMs, “turns” denote the explicit conversational exchanges between a user and the model. A single turn may contain multiple <a class="reference internal" href="#step">steps</a>.</p>
+<p><strong>Code reference</strong>: The <code class="docutils literal notranslate"><span class="pre">_process_user_msg()</span></code> function in <code class="docutils literal notranslate"><span class="pre">gptme/chat.py</span></code> processes a complete turn.</p>
+</section>
+<section id="step">
+<span id="id2"></span><h3>Step<a class="headerlink" href="#step" title="Link to this heading">#</a></h3>
+<p>A single cycle of LLM generation and tool execution within a turn.</p>
+<p>A step consists of:</p>
+<ol class="arabic simple">
+<li><p>Pre-process hooks execution</p></li>
+<li><p>LLM response generation</p></li>
+<li><p>Tool execution (if tools are present in the response)</p></li>
+</ol>
+<p>In the context of LLMs, “steps” generally refer to an internal reasoning process or a sequence of actions an agent takes to solve a problem. Multiple steps may occur within a single <a class="reference internal" href="#turn">turn</a>.</p>
+<p><strong>Code reference</strong>: The <code class="docutils literal notranslate"><span class="pre">step()</span></code> function in <code class="docutils literal notranslate"><span class="pre">gptme/chat.py</span></code> performs one step.</p>
+</section>
+<section id="message-processing">
+<h3>Message Processing<a class="headerlink" href="#message-processing" title="Link to this heading">#</a></h3>
+<p>The complete handling of a user message, including all steps until no more tools need to run.</p>
+<p><strong>Hooks behavior</strong>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_PRE_PROCESS</span></code>: Fires before each <a class="reference internal" href="#step">step</a></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_POST_PROCESS</span></code>: Fires once after all steps complete (i.e., once per <a class="reference internal" href="#turn">turn</a>)</p></li>
+</ul>
+<p>For the complete list of hook types and their lifecycle, see the <a class="reference internal" href="hooks.html"><span class="std std-doc">Hooks documentation</span></a>.</p>
+</section>
+</section>
+<section id="context-and-memory">
+<h2>Context and Memory<a class="headerlink" href="#context-and-memory" title="Link to this heading">#</a></h2>
+<section id="context-window">
+<h3>Context Window<a class="headerlink" href="#context-window" title="Link to this heading">#</a></h3>
+<p>The maximum number of tokens a model can process in a single request. This includes all messages, tool definitions, and system prompts.</p>
+</section>
+<section id="prompt-cache">
+<h3>Prompt Cache<a class="headerlink" href="#prompt-cache" title="Link to this heading">#</a></h3>
+<p>A mechanism to cache and reuse previously processed context, reducing token costs for repeated prefixes. Cache invalidation occurs when the cached portion changes.</p>
+</section>
+<section id="token">
+<h3>Token<a class="headerlink" href="#token" title="Link to this heading">#</a></h3>
+<p>A unit of text processed by the model. Tokens are typically sub-word units (e.g., “unhappy” → “un” + “happy”).</p>
+</section>
+</section>
+<section id="tool-concepts">
+<h2>Tool Concepts<a class="headerlink" href="#tool-concepts" title="Link to this heading">#</a></h2>
+<section id="tool">
+<h3>Tool<a class="headerlink" href="#tool" title="Link to this heading">#</a></h3>
+<p>A function that the assistant can execute to perform actions like reading files, running commands, or making API calls.</p>
+</section>
+<section id="tooluse">
+<h3>ToolUse<a class="headerlink" href="#tooluse" title="Link to this heading">#</a></h3>
+<p>A parsed representation of a tool invocation found in an assistant’s response.</p>
+</section>
+<section id="runnable-tool">
+<h3>Runnable Tool<a class="headerlink" href="#runnable-tool" title="Link to this heading">#</a></h3>
+<p>A tool that can be executed in the current context. Some tools may be defined but not runnable (e.g., disabled or context-restricted).</p>
+</section>
+</section>
+<section id="session-concepts">
+<h2>Session Concepts<a class="headerlink" href="#session-concepts" title="Link to this heading">#</a></h2>
+<section id="log-logmanager">
+<h3>Log / LogManager<a class="headerlink" href="#log-logmanager" title="Link to this heading">#</a></h3>
+<p>The conversation history and its management system. Stores all messages exchanged in a session.</p>
+</section>
+<section id="workspace">
+<h3>Workspace<a class="headerlink" href="#workspace" title="Link to this heading">#</a></h3>
+<p>The directory context in which gptme operates. Tools like file operations are scoped to the workspace.</p>
+</section>
+</section>
+<section id="configuration">
+<h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
+<section id="model">
+<h3>Model<a class="headerlink" href="#model" title="Link to this heading">#</a></h3>
+<p>The LLM backend used for generation (e.g., <code class="docutils literal notranslate"><span class="pre">openai/gpt-4</span></code>, <code class="docutils literal notranslate"><span class="pre">anthropic/claude-3</span></code>).</p>
+</section>
+<section id="tool-format">
+<h3>Tool Format<a class="headerlink" href="#tool-format" title="Link to this heading">#</a></h3>
+<p>How tools are presented to the model: <code class="docutils literal notranslate"><span class="pre">&quot;markdown&quot;</span></code> (tool blocks in markdown) or <code class="docutils literal notranslate"><span class="pre">&quot;tool&quot;</span></code> (native function calling).</p>
+</section>
 </section>
 </section>
 
@@ -552,20 +593,20 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="automation.html"
+       href="concepts.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Automation</p>
+        <p class="prev-next-title">Core Concepts</p>
       </div>
     </a>
     <a class="right-next"
-       href="tools.html"
+       href="examples.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Tools</p>
+        <p class="prev-next-title">Examples</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -586,8 +627,34 @@
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#official-projects">Official Projects</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-projects">Community Projects</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conversational-concepts">Conversational Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn">Turn</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step">Step</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-processing">Message Processing</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#context-and-memory">Context and Memory</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#context-window">Context Window</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prompt-cache">Prompt Cache</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#token">Token</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-concepts">Tool Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool">Tool</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tooluse">ToolUse</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runnable-tool">Runnable Tool</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#session-concepts">Session Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#log-logmanager">Log / LogManager</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model">Model</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-format">Tool Format</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 

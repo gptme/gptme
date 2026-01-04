@@ -7,6 +7,7 @@
 - [System Dependencies](https://gptme.org/docs/system-dependencies.html)
 - [Usage](https://gptme.org/docs/usage.html)
 - [Core Concepts](https://gptme.org/docs/concepts.html)
+- [Glossary](https://gptme.org/docs/glossary.html)
 - [Examples](https://gptme.org/docs/examples.html)
 - [Demos](https://gptme.org/docs/demos.html)
 - [Automation](https://gptme.org/docs/automation.html)

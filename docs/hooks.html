@@ -154,6 +154,7 @@
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
 <li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
@@ -1138,6 +1139,9 @@ state (e.g., re-evaluate attention tiers) at the optimal time.</p>
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.hooks.</span></span><span class="sig-name descname"><span class="pre">HookType</span></span><a class="headerlink" href="#gptme.hooks.HookType" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/enum.html#enum.Enum" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></a></p>
 <p>Types of hooks that can be registered.</p>
+<p>Terminology (see docs/glossary.md for details):
+- Turn: Complete user-assistant exchange (may contain multiple steps)
+- Step: Single LLM generation + tool execution cycle</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="gptme.hooks.HookType.CACHE_INVALIDATED">
 <span class="sig-name descname"><span class="pre">CACHE_INVALIDATED</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'cache_invalidated'</span></em><a class="headerlink" href="#gptme.hooks.HookType.CACHE_INVALIDATED" title="Link to this definition">#</a></dt>
