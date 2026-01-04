@@ -37,36 +37,7 @@ The complete handling of a user message, including all steps until no more tools
 - `MESSAGE_PRE_PROCESS`: Fires before each [step](#step)
 - `MESSAGE_POST_PROCESS`: Fires once after all steps complete (i.e., once per [turn](#turn))
 
-## Hook Lifecycle
-
-### Session Lifecycle
-- `SESSION_START`: Fires when a session begins
-- `SESSION_END`: Fires when a session ends
-
-### Message Lifecycle
-- `MESSAGE_PRE_PROCESS`: Before each step (runs multiple times per turn)
-- `MESSAGE_POST_PROCESS`: After message processing completes (once per turn)
-- `MESSAGE_TRANSFORM`: Transform message content
-
-### Generation Lifecycle
-- `GENERATION_PRE`: Before generating an LLM response
-- `GENERATION_POST`: After generating an LLM response
-
-### Tool Lifecycle
-- `TOOL_PRE_EXECUTE`: Before executing any tool
-- `TOOL_POST_EXECUTE`: After executing any tool
-- `TOOL_TRANSFORM`: Transform tool execution
-
-### File Operations
-- `FILE_PRE_SAVE`: Before saving a file
-- `FILE_POST_SAVE`: After saving a file
-- `FILE_PRE_PATCH`: Before patching a file
-- `FILE_POST_PATCH`: After patching a file
-
-### Other Events
-- `LOOP_CONTINUE`: Decide whether/how to continue the chat loop
-- `GENERATION_INTERRUPT`: Interrupt generation
-- `CACHE_INVALIDATED`: Prompt cache was invalidated
+For the complete list of hook types and their lifecycle, see the [Hooks documentation](hooks.rst).
 
 ## Context and Memory
 
