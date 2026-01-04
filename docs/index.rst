@@ -29,6 +29,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    system-dependencies
    usage
    concepts
+   glossary
    examples
    tools
    lessons
