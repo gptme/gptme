@@ -8,7 +8,12 @@ from pathlib import Path
 
 from .commands import execute_cmd
 from .config import ChatConfig, get_config
-from .constants import INTERRUPT_CONTENT, PROMPT_USER
+from .constants import (
+    INTERRUPT_CONTENT,
+    MAX_MESSAGE_LENGTH,
+    MAX_PROMPT_QUEUE_SIZE,
+    PROMPT_USER,
+)
 from .hooks import HookType, trigger_hook
 from .init import init
 from .llm import reply
@@ -239,7 +244,13 @@ def _run_chat_loop(
                 prompt_queue=prompt_queue,
             ):
                 for msg in loop_msgs:
-                    # Add hook-generated messages to prompt queue
+                    # Add hook-generated messages to prompt queue with size limit
+                    if len(prompt_queue) >= MAX_PROMPT_QUEUE_SIZE:
+                        logger.warning(
+                            f"Prompt queue limit ({MAX_PROMPT_QUEUE_SIZE}) reached, "
+                            "dropping message from hook"
+                        )
+                        break
                     prompt_queue.append(msg)
                     console.log(f"[Loop control] {msg.content[:100]}...")
                 continue  # Process the queued messages
@@ -421,6 +432,14 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
 
     try:
         inquiry = prompt_user()
+        # Validate message length to prevent unbounded memory usage
+        if len(inquiry) > MAX_MESSAGE_LENGTH:
+            logger.warning(
+                f"Message truncated from {len(inquiry)} to {MAX_MESSAGE_LENGTH} chars"
+            )
+            inquiry = (
+                inquiry[:MAX_MESSAGE_LENGTH] + "\n\n[Message truncated due to length]"
+            )
         msg = Message("user", inquiry, quiet=True)
         msg = include_paths(msg, workspace)
         return msg

@@ -33,3 +33,11 @@ def prompt_assistant(name: str | None) -> str:
 
 
 INTERRUPT_CONTENT = "Interrupted by user"
+
+# Maximum length for user message content (characters)
+# This prevents unbounded memory usage and context window overflow
+# 100k characters ≈ 25k tokens for typical English text
+MAX_MESSAGE_LENGTH = 100_000
+
+# Maximum size for prompt queue to prevent unbounded growth from misbehaving hooks
+MAX_PROMPT_QUEUE_SIZE = 100
