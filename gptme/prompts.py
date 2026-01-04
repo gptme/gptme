@@ -570,9 +570,10 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
             # so LLM can see what worked and what failed for self-recovery
             # Truncate stderr to avoid leaking sensitive info (paths, env vars)
             output = result.stdout
-            if result.stderr.strip():
-                stderr_preview = result.stderr.strip()[:500]
-                if len(result.stderr.strip()) > 500:
+            stderr_stripped = result.stderr.strip()
+            if stderr_stripped:
+                stderr_preview = stderr_stripped[:500]
+                if len(stderr_stripped) > 500:
                     stderr_preview += "\n... (truncated)"
                 output += f"\n\n## Context Generation Error (exit {result.returncode})\n\n{stderr_preview}"
             return md_codeblock(cmd, output)
