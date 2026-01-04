@@ -4,6 +4,7 @@ This document defines key terminology used throughout the gptme codebase.
 
 ## Conversational Concepts
 
+(turn)=
 ### Turn
 A complete conversational exchange between the user and the assistant.
 
@@ -16,6 +17,7 @@ In the context of LLMs, "turns" denote the explicit conversational exchanges bet
 
 **Code reference**: The `_process_user_msg()` function in `gptme/chat.py` processes a complete turn.
 
+(step)=
 ### Step
 A single cycle of LLM generation and tool execution within a turn.
 
