@@ -188,7 +188,12 @@ def run_evals(
 
 # TODO: rewrite to run in Docker? Would help with capturing output + process management.
 def execute(
-    test: EvalSpec, agent: Agent, timeout: int, parallel: bool, use_docker: bool = False
+    test: EvalSpec,
+    agent: Agent,
+    timeout: int,
+    parallel: bool,
+    use_docker: bool = False,
+    suppress_output: bool = False,
 ) -> EvalResult:
     """
     Executes the code for a specific model with a timeout.
@@ -209,6 +214,7 @@ def execute(
                 test["files"],
                 sync_dict,
                 parallel,
+                suppress_output,
             ),
         )
 
@@ -338,6 +344,7 @@ def act_process(
     files: dict[str, str | bytes],
     sync_dict: SyncedDict,
     parallel: bool,
+    suppress_output: bool = False,
 ):
     # Configure logging for this subprocess
     subprocess_logger = logging.getLogger(f"gptme.eval:{agent.model}@{test_name}")
@@ -351,9 +358,7 @@ def act_process(
     # Fix #130: Suppress verbose gptme output during optimization
     # Only keep output if not in parallel mode (i.e., interactive testing)
     # During GEPA optimization, suppress full trajectories
-    suppress_output = (
-        os.environ.get("GPTME_EVAL_SUPPRESS_OUTPUT", "false").lower() == "true"
-    )
+    # Note: suppress_output is passed directly to avoid os.environ race conditions
     if suppress_output:
         # Redirect to null during optimization
         import io
