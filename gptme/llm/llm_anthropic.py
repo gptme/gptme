@@ -802,7 +802,13 @@ def _prepare_messages_for_api(
                 filtered_parts.append(part)
         content_parts = filtered_parts
 
-        messages_dicts_new.append({"role": msg["role"], "content": content_parts})
+        # Only add message if it has content (prevents Anthropic API error)
+        if content_parts:
+            messages_dicts_new.append({"role": msg["role"], "content": content_parts})
+        else:
+            logger.warning(
+                f"Skipping message with role '{msg['role']}' - all content was filtered out"
+            )
 
     # Apply cache control for Anthropic prompt caching
     # See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
