@@ -29,7 +29,6 @@ from ..logmanager import LogManager, get_user_conversations, prepare_messages
 from ..message import Message
 from ..tools import ToolUse, execute_msg, init_tools
 from .auth import require_auth
-from .rate_limiting import get_generate_limit, limiter
 from .openapi_docs import (
     ConversationCreateRequest,
     ConversationListResponse,
@@ -42,6 +41,7 @@ from .openapi_docs import (
     api_doc,
     api_doc_simple,
 )
+from .rate_limiting import get_generate_limit, limiter
 
 logger = logging.getLogger(__name__)
 

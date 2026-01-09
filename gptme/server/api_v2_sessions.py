@@ -40,7 +40,6 @@ from .api_v2_common import (
 )
 from .auth import require_auth
 from .constants import DEFAULT_FALLBACK_MODEL
-from .rate_limiting import get_generate_limit, limiter
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
     ErrorResponse,
@@ -50,6 +49,7 @@ from .openapi_docs import (
     ToolConfirmRequest,
     api_doc,
 )
+from .rate_limiting import get_generate_limit, limiter
 
 logger = logging.getLogger(__name__)
 
