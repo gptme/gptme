@@ -12,6 +12,7 @@ Configuration:
 import atexit
 import logging
 import os
+import pty
 import re
 import select
 import shlex
@@ -20,8 +21,10 @@ import signal
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
+import tty
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -454,6 +457,7 @@ class ShellSession:
     process: subprocess.Popen
     stdout_fd: int
     stderr_fd: int
+    master_fd: int  # PTY master for stdin/stdout
     delimiter: str
     start_marker: str  # Fix for Issue #408: Add start marker to prevent output mixing
 
@@ -464,16 +468,34 @@ class ShellSession:
         atexit.register(self.close)
 
     def _init(self):
+        # Create a pseudo-terminal pair for stdin/stdout
+        # This gives us a controlling TTY, enabling interactive programs like sudo
+        # while maintaining process group control via start_new_session
+        # Issue #1095: Restore TTY support that was lost with start_new_session=True
+        master_fd, slave_fd = pty.openpty()
+
+        # Set master to raw mode to prevent input echoing and line buffering
+        try:
+            tty.setraw(master_fd, when=termios.TCSANOW)
+        except termios.error:
+            pass  # May fail in some environments, continue anyway
+
         self.process = subprocess.Popen(
             ["bash"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=subprocess.PIPE,  # Keep stderr separate for better error handling
             bufsize=0,  # Unbuffered
-            universal_newlines=True,
+            close_fds=True,
             start_new_session=True,  # Create new process group for proper signal handling
         )
-        self.stdout_fd = self.process.stdout.fileno()  # type: ignore
+
+        # Close slave in parent - child has it
+        os.close(slave_fd)
+
+        # Store master fd for communication
+        self.master_fd = master_fd
+        self.stdout_fd = master_fd  # Read stdout from master
         self.stderr_fd = self.process.stderr.fileno()  # type: ignore
         self.delimiter = "END_OF_COMMAND_OUTPUT"
         self.start_marker = "START_OF_COMMAND_OUTPUT"
@@ -508,8 +530,6 @@ class ShellSession:
     def _run(
         self, command: str, output=True, tries=0, timeout: float | None = None
     ) -> tuple[int | None, str, str]:
-        assert self.process.stdin
-
         # Diagnostic logging for Issue #408: Log command start
         logger.debug(f"Shell: Running command: {command[:200]}")
 
@@ -568,9 +588,10 @@ class ShellSession:
         full_command += f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
         try:
-            self.process.stdin.write(full_command)
-        except BrokenPipeError:
-            # process has died
+            # Write to PTY master fd (Issue #1095: use pty for TTY support)
+            os.write(self.master_fd, full_command.encode())
+        except OSError:
+            # process has died (master fd closed or broken)
             if tries == 0:
                 # log warning and restart, once
                 logger.warning("Warning: shell process died, restarting")
@@ -580,8 +601,6 @@ class ShellSession:
                 )
             else:
                 raise
-
-        self.process.stdin.flush()
 
         # Issue #408: Track whether we've seen the start marker for this command
         seen_start_marker = False
@@ -728,8 +747,11 @@ class ShellSession:
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
     def close(self):
-        assert self.process.stdin
-        self.process.stdin.close()
+        # Close the PTY master fd (Issue #1095: use pty for TTY support)
+        try:
+            os.close(self.master_fd)
+        except OSError:
+            pass  # Already closed or invalid
         try:
             pgid = os.getpgid(self.process.pid)
             os.killpg(pgid, signal.SIGTERM)
