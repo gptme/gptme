@@ -14,6 +14,7 @@ from flask import request
 from pydantic import BaseModel, Field
 
 from ..logmanager import LogManager
+from .auth import require_auth
 from .openapi_docs import ErrorResponse, api_doc_simple
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,7 @@ def list_directory(
 @workspace_api.route(
     "/api/v2/conversations/<string:conversation_id>/workspace/<path:subpath>"
 )
+@require_auth
 @api_doc_simple(
     responses={
         200: FileMetadata,
@@ -228,6 +230,7 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
 @workspace_api.route(
     "/api/v2/conversations/<string:conversation_id>/workspace/<path:filepath>/preview"
 )
+@require_auth
 @api_doc_simple(
     responses={
         200: FilePreviewResponse,

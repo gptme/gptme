@@ -23,6 +23,7 @@ from ..logmanager import LogManager
 from ..message import Message
 from ..prompts import get_prompt
 from ..tools import get_toolchain
+from .auth import require_auth
 from .openapi_docs import ErrorResponse, StatusResponse, api_doc_simple
 
 logger = logging.getLogger(__name__)
@@ -642,6 +643,7 @@ def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
 
 
 @tasks_api.route("/api/v2/tasks")
+@require_auth
 @api_doc_simple(
     responses={200: TaskListResponse, 500: ErrorResponse},
     tags=["tasks"],
@@ -664,6 +666,7 @@ def api_tasks_list():
 
 
 @tasks_api.route("/api/v2/tasks", methods=["POST"])
+@require_auth
 @api_doc_simple(
     request_body=TaskCreateRequest,
     responses={201: TaskResponse, 400: ErrorResponse, 500: ErrorResponse},
@@ -715,6 +718,7 @@ def api_tasks_create():
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>")
+@require_auth
 @api_doc_simple(
     responses={200: TaskResponse, 404: ErrorResponse, 500: ErrorResponse},
     tags=["tasks"],
@@ -747,6 +751,7 @@ def api_tasks_get(task_id: str):
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>", methods=["PUT"])
+@require_auth
 @api_doc_simple(
     request_body=TaskUpdateRequest,
     responses={
@@ -792,6 +797,7 @@ def api_tasks_update(task_id: str):
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>/archive", methods=["POST"])
+@require_auth
 @api_doc_simple(
     responses={
         200: StatusResponse,
@@ -827,6 +833,7 @@ def api_tasks_archive(task_id: str):
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>/unarchive", methods=["POST"])
+@require_auth
 @api_doc_simple(
     responses={
         200: StatusResponse,
