@@ -215,3 +215,159 @@ class TestLessonMatcherWildcards:
         context2 = MatchContext(message="timeout error")
         results2 = matcher.match([lesson], context2)
         assert len(results2) == 1  # Matches because timeout* matches "timeout"
+
+
+class TestParsePatternsFromYAML:
+    """Tests for parsing patterns field from YAML frontmatter."""
+
+    def test_parse_patterns_from_yaml(self, tmp_path):
+        """Patterns should be correctly parsed from lesson YAML frontmatter."""
+        from gptme.lessons.parser import parse_lesson
+
+        lesson_content = """---
+match:
+  keywords:
+    - "error handling"
+  patterns:
+    - "error\\\\s+code\\\\s+\\\\d{3,4}"
+    - "fatal.*exception"
+---
+# Test Lesson
+
+Example lesson with patterns.
+"""
+        lesson_file = tmp_path / "test-lesson.md"
+        lesson_file.write_text(lesson_content)
+
+        lesson = parse_lesson(lesson_file)
+
+        assert lesson is not None
+        assert lesson.metadata.patterns is not None
+        assert len(lesson.metadata.patterns) == 2
+        assert r"error\s+code\s+\d{3,4}" in lesson.metadata.patterns
+        assert "fatal.*exception" in lesson.metadata.patterns
+
+    def test_parse_lesson_without_patterns(self, tmp_path):
+        """Lessons without patterns field should have empty patterns list."""
+        from gptme.lessons.parser import parse_lesson
+
+        lesson_content = """---
+match:
+  keywords:
+    - "simple keyword"
+---
+# Test Lesson
+
+Example lesson without patterns.
+"""
+        lesson_file = tmp_path / "no-patterns.md"
+        lesson_file.write_text(lesson_content)
+
+        lesson = parse_lesson(lesson_file)
+
+        assert lesson is not None
+        assert lesson.metadata.patterns is not None
+        assert len(lesson.metadata.patterns) == 0
+
+    def test_patterns_match_after_parsing(self, tmp_path):
+        """Parsed patterns should work correctly in matching."""
+        from gptme.lessons.matcher import LessonMatcher, MatchContext
+        from gptme.lessons.parser import parse_lesson
+
+        lesson_content = """---
+match:
+  keywords:
+    - "test lesson"
+  patterns:
+    - "status\\\\s+code\\\\s+\\\\d+"
+---
+# Pattern Matching Test
+
+Test lesson for pattern matching.
+"""
+        lesson_file = tmp_path / "pattern-test.md"
+        lesson_file.write_text(lesson_content)
+
+        lesson = parse_lesson(lesson_file)
+        assert lesson is not None
+
+        matcher = LessonMatcher()
+        context = MatchContext(message="Got status code 404 from API")
+        results = matcher.match([lesson], context)
+
+        assert len(results) == 1
+        assert any("pattern:" in m for m in results[0].matched_by)
+
+
+class TestMatchKeywordsWildcardSupport:
+    """Tests for match_keywords method with wildcard support."""
+
+    def create_lesson(self, keywords: list[str], name: str = "test"):
+        """Helper to create a lesson with specified keywords."""
+        from pathlib import Path
+
+        from gptme.lessons.parser import Lesson, LessonMetadata
+
+        return Lesson(
+            path=Path(f"/fake/path/{name}.md"),
+            title=f"Test Lesson: {name}",
+            description="Test lesson",
+            category="test",
+            body="# Test\nTest body",
+            metadata=LessonMetadata(
+                keywords=keywords,
+                patterns=[],
+            ),
+        )
+
+    def test_match_keywords_exact_match(self):
+        """Exact keyword matches should work."""
+        from gptme.lessons.matcher import LessonMatcher
+
+        matcher = LessonMatcher()
+        lesson = self.create_lesson(keywords=["git workflow", "branching"])
+
+        results = matcher.match_keywords([lesson], ["git workflow"])
+        assert len(results) == 1
+        assert results[0].lesson.title == "Test Lesson: test"
+
+    def test_match_keywords_with_wildcards(self):
+        """Input keywords should match wildcard patterns in lesson keywords."""
+        from gptme.lessons.matcher import LessonMatcher
+
+        matcher = LessonMatcher()
+        # Lesson has wildcard keyword "git*" which should match "github", "gitlab", etc.
+        lesson = self.create_lesson(keywords=["git*", "version control"])
+
+        # "github" should match the "git*" pattern
+        results = matcher.match_keywords([lesson], ["github"])
+        assert len(results) == 1
+
+        # "gitlab" should also match
+        results2 = matcher.match_keywords([lesson], ["gitlab"])
+        assert len(results2) == 1
+
+        # "svn" should not match
+        results3 = matcher.match_keywords([lesson], ["svn"])
+        assert len(results3) == 0
+
+    def test_match_keywords_wildcard_phrase(self):
+        """Wildcard phrases in lesson keywords should match."""
+        from gptme.lessons.matcher import LessonMatcher
+
+        matcher = LessonMatcher()
+        lesson = self.create_lesson(
+            keywords=["process killed at * seconds"], name="timeout-lesson"
+        )
+
+        # Should match the wildcard phrase
+        results = matcher.match_keywords([lesson], ["process killed at 120 seconds"])
+        assert len(results) == 1
+
+        # Should match with different number
+        results2 = matcher.match_keywords([lesson], ["process killed at 5 seconds"])
+        assert len(results2) == 1
+
+        # Should not match different phrase
+        results3 = matcher.match_keywords([lesson], ["server crashed"])
+        assert len(results3) == 0

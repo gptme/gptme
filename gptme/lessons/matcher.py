@@ -308,7 +308,13 @@ class LessonMatcher:
                 continue
             seen_paths.add(resolved_path)
 
-            matched_keywords = [kw for kw in keywords if kw in lesson.metadata.keywords]
+            # Check if input keywords match lesson's keyword patterns (with wildcard support)
+            matched_keywords = []
+            for input_kw in keywords:
+                for lesson_kw in lesson.metadata.keywords:
+                    if _match_keyword(lesson_kw, input_kw):
+                        matched_keywords.append(input_kw)
+                        break  # Found a match for this input keyword
 
             if matched_keywords:
                 score = float(len(matched_keywords))

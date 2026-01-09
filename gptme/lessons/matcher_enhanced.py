@@ -7,7 +7,7 @@ from ..context.selector.config import ContextSelectorConfig
 from ..context.selector.hybrid import HybridSelector
 from ..context.selector.llm_based import LLMSelector
 from ..context.selector.rule_based import RuleBasedSelector
-from .matcher import LessonMatcher, MatchContext, MatchResult
+from .matcher import LessonMatcher, MatchContext, MatchResult, _match_keyword
 from .parser import Lesson
 from .selector_config import LessonSelectorConfig
 from .selector_integration import LessonItem
@@ -100,9 +100,10 @@ class EnhancedLessonMatcher(LessonMatcher):
             # Determine what matched
             matched_by = []
             if self.selector_config.strategy == "rule":
-                # For rule-based, show keyword matches
+                # For rule-based, show keyword matches (with wildcard support)
+                message_lower = context.message.lower()
                 for keyword in item.lesson.metadata.keywords:
-                    if keyword.lower() in context.message.lower():
+                    if _match_keyword(keyword, message_lower):
                         matched_by.append(f"keyword:{keyword}")
             elif self.selector_config.strategy == "llm":
                 matched_by.append("llm:semantic-match")

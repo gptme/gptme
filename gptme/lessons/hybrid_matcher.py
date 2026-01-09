@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from .matcher import LessonMatcher, MatchContext, MatchResult
+from .matcher import LessonMatcher, MatchContext, MatchResult, _match_keyword
 from .parser import Lesson
 
 logger = logging.getLogger(__name__)
@@ -192,10 +192,14 @@ class HybridLessonMatcher(LessonMatcher):
         return hybrid_results
 
     def _keyword_score(self, lesson: Lesson, context: MatchContext) -> float:
-        """Normalized keyword relevance score (0.0-1.0)."""
+        """Normalized keyword relevance score (0.0-1.0).
+
+        Uses wildcard-aware matching via _match_keyword for consistency
+        with the main matcher.
+        """
         message_lower = context.message.lower()
         matches = sum(
-            1 for kw in lesson.metadata.keywords if kw.lower() in message_lower
+            1 for kw in lesson.metadata.keywords if _match_keyword(kw, message_lower)
         )
         total_keywords = (
             len(lesson.metadata.keywords) if lesson.metadata.keywords else 1
