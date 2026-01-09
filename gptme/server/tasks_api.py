@@ -371,6 +371,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
 
         if result.returncode != 0:
@@ -384,6 +385,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
 
         current_branch = (
@@ -398,6 +400,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
 
         files = []
@@ -413,6 +416,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=30,
             )
             if check_result.returncode == 0:
                 upstream_branch = candidate
@@ -427,6 +431,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=60,
             )
 
             # Parse diff stats
@@ -465,6 +470,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=30,
             )
 
             if log_result.returncode == 0 and log_result.stdout.strip():
@@ -477,6 +483,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=30,
             )
 
             if log_result.returncode == 0 and log_result.stdout.strip():
@@ -489,6 +496,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
 
         remote_url = (
@@ -514,6 +522,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=60,
             )
             if pr_result.returncode == 0 and pr_result.stdout.strip():
                 parts = pr_result.stdout.strip().split("|")
@@ -623,6 +632,7 @@ def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
                         str(repo_path),
                     ],
                     check=True,
+                    timeout=300,  # 5 minute timeout for clone operations
                 )
                 logger.info(f"Cloned {target_repo} to {repo_path}")
                 return repo_path
