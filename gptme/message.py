@@ -56,9 +56,9 @@ class MessageMetadata(TypedDict, total=False):
 
 
 def _format_toml_value(value: object) -> str:
-    """Format a value for TOML inline table."""
+    """Format a value for TOML inline table, properly escaping strings."""
     if isinstance(value, str):
-        return f'"{value}"'
+        return f'"{escape_string(value)}"'
     elif isinstance(value, float):
         return f"{value:.6f}"
     else:
@@ -197,10 +197,18 @@ class Message:
         if self.hide:
             flags.append("hide")
         flags_toml = "\n".join(f"{flag} = true" for flag in flags)
-        files_toml = f"files = {[str(f) for f in self.files]}" if self.files else ""
-        # Serialize file_hashes as TOML inline table
+        # Use proper TOML array syntax with escaped strings (not Python repr)
+        if self.files:
+            escaped_files = ", ".join(f'"{escape_string(str(f))}"' for f in self.files)
+            files_toml = f"files = [{escaped_files}]"
+        else:
+            files_toml = ""
+        # Serialize file_hashes as TOML inline table with proper escaping
         if self.file_hashes:
-            items = ", ".join(f'"{k}" = "{v}"' for k, v in self.file_hashes.items())
+            items = ", ".join(
+                f'"{escape_string(k)}" = "{escape_string(v)}"'
+                for k, v in self.file_hashes.items()
+            )
             file_hashes_toml = f"file_hashes = {{ {items} }}"
         else:
             file_hashes_toml = ""
@@ -427,6 +435,9 @@ def toml_to_msgs(toml: str) -> list[Message]:
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
             timestamp=isoparse(msg["timestamp"]),
+            files=[Path(f) for f in msg.get("files", [])],
+            file_hashes=dict(msg.get("file_hashes", {})),
+            call_id=msg.get("call_id"),
             metadata=MessageMetadata(**msg["metadata"])
             if msg.get("metadata")
             else None,
