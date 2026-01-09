@@ -29,6 +29,7 @@ from ..logmanager import LogManager, get_user_conversations, prepare_messages
 from ..message import Message
 from ..tools import ToolUse, execute_msg, init_tools
 from .auth import require_auth
+from .rate_limiting import get_generate_limit, limiter
 from .openapi_docs import (
     ConversationCreateRequest,
     ConversationListResponse,
@@ -290,6 +291,7 @@ def confirm_func(msg: str) -> bool:
     request_body=GenerateRequest,
     responses={200: GenerateResponse, 400: ErrorResponse, 500: ErrorResponse},
 )
+@limiter.limit(get_generate_limit)
 @require_auth
 def api_conversation_generate(logfile: str):
     """Generate response.
@@ -553,5 +555,10 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
     from .auth import init_auth  # fmt: skip
 
     init_auth(host=host, display=False)
+
+    # Initialize rate limiting
+    from .rate_limiting import init_rate_limiting  # fmt: skip
+
+    init_rate_limiting(app)
 
     return app

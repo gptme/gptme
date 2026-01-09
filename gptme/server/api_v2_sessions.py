@@ -40,6 +40,7 @@ from .api_v2_common import (
 )
 from .auth import require_auth
 from .constants import DEFAULT_FALLBACK_MODEL
+from .rate_limiting import get_generate_limit, limiter
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
     ErrorResponse,
@@ -692,6 +693,7 @@ def api_conversation_events(conversation_id: str):
 @sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/step", methods=["POST"]
 )
+@limiter.limit(get_generate_limit)
 @require_auth
 @api_doc(
     summary="Take conversation step (V2)",
