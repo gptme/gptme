@@ -233,6 +233,17 @@ def api_conversation_post(logfile: str):
     assert req_json
     assert "role" in req_json
     assert "content" in req_json
+
+    # Validate role against allowed values
+    valid_roles = ("system", "user", "assistant")
+    if req_json["role"] not in valid_roles:
+        return (
+            flask.jsonify(
+                {"error": f"Invalid role: {req_json['role']}. Must be one of: {valid_roles}"}
+            ),
+            400,
+        )
+
     msg = Message(
         req_json["role"], req_json["content"], files=req_json.get("files", [])
     )
