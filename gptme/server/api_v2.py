@@ -191,7 +191,15 @@ def api_conversation_put(conversation_id: str):
         agent_path=chat_config.agent,
     )
 
+    valid_roles = ("system", "user", "assistant")
     for msg in req_json.get("messages", []):
+        if msg.get("role") not in valid_roles:
+            return (
+                flask.jsonify(
+                    {"error": f"Invalid role: {msg.get('role')}. Must be one of: {valid_roles}"}
+                ),
+                400,
+            )
         timestamp: datetime = (
             isoparse(msg["timestamp"]) if "timestamp" in msg else datetime.now()
         )
