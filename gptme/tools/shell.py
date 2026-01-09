@@ -1074,6 +1074,12 @@ def execute_bg_command(command: str) -> Generator[Message, None, None]:
         yield Message("system", "Usage: `bg <command>`\n\nExample: `bg npm run dev`")
         return
 
+    # Check if command is denylisted - blocked even for background jobs
+    is_denied, deny_reason, matched_cmd = is_denylisted(command)
+    if is_denied:
+        yield Message("system", f"Background command denied: `{matched_cmd}`\n\n{deny_reason}")
+        return
+
     job = start_background_job(command)
     yield Message(
         "system",
