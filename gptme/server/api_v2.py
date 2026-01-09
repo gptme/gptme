@@ -244,6 +244,16 @@ def api_conversation_post(conversation_id: str):
     if "role" not in req_json or "content" not in req_json:
         return flask.jsonify({"error": "Missing required fields (role, content)"}), 400
 
+    # Validate role against allowed values
+    valid_roles = ("system", "user", "assistant")
+    if req_json["role"] not in valid_roles:
+        return (
+            flask.jsonify(
+                {"error": f"Invalid role: {req_json['role']}. Must be one of: {valid_roles}"}
+            ),
+            400,
+        )
+
     branch = req_json.get("branch", "main")
     tool_allowlist = req_json.get("tools", None)
 
