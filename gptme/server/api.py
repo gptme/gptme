@@ -236,7 +236,7 @@ def api_conversation_post(logfile: str):
     req_json = flask.request.json
     # Validate request body (use proper checks, not assert which can be disabled with -O)
     if not req_json:
-        return flask.jsonify({"error": "Request body required"}), 400
+        return flask.jsonify({"error": "No JSON data provided"}), 400
     if "role" not in req_json or "content" not in req_json:
         return flask.jsonify({"error": "Missing required fields (role, content)"}), 400
 
