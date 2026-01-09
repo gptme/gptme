@@ -1,14 +1,14 @@
 """Tests for rate limiting functionality in gptme server."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 flask = pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
 from flask import Flask
-from flask.testing import FlaskClient
 
 
 class TestRateLimitingModule:
@@ -41,9 +41,9 @@ class TestRateLimitingModule:
     def test_get_rate_limit_default(self):
         """Test default rate limit values."""
         from gptme.server.rate_limiting import (
+            AUTH_RATE_LIMIT,
             DEFAULT_RATE_LIMIT,
             GENERATE_RATE_LIMIT,
-            AUTH_RATE_LIMIT,
             _get_rate_limit,
         )
 
@@ -61,7 +61,7 @@ class TestRateLimitingModule:
 
     def test_get_generate_limit(self):
         """Test get_generate_limit function."""
-        from gptme.server.rate_limiting import get_generate_limit, GENERATE_RATE_LIMIT
+        from gptme.server.rate_limiting import GENERATE_RATE_LIMIT, get_generate_limit
 
         # Default value
         assert get_generate_limit() == GENERATE_RATE_LIMIT
@@ -72,7 +72,7 @@ class TestRateLimitingModule:
 
     def test_get_auth_limit(self):
         """Test get_auth_limit function."""
-        from gptme.server.rate_limiting import get_auth_limit, AUTH_RATE_LIMIT
+        from gptme.server.rate_limiting import AUTH_RATE_LIMIT, get_auth_limit
 
         # Default value
         assert get_auth_limit() == AUTH_RATE_LIMIT
