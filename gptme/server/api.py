@@ -237,10 +237,8 @@ def api_conversation_post(logfile: str):
     # Validate request body (use proper checks, not assert which can be disabled with -O)
     if not req_json:
         return flask.jsonify({"error": "Request body required"}), 400
-    if "role" not in req_json:
-        return flask.jsonify({"error": "Missing required field: role"}), 400
-    if "content" not in req_json:
-        return flask.jsonify({"error": "Missing required field: content"}), 400
+    if "role" not in req_json or "content" not in req_json:
+        return flask.jsonify({"error": "Missing required fields (role, content)"}), 400
 
     # Validate role against allowed values
     valid_roles = ("system", "user", "assistant")
@@ -285,10 +283,13 @@ def api_conversation_generate(logfile: str):
     req_json = flask.request.json or {}
     stream = req_json.get("stream", False)  # Default to no streaming (backward compat)
     default_model = get_default_model()
-    # Use proper check instead of assert (can be disabled with -O)
-    if default_model is None:
-        return flask.jsonify({"error": "No model loaded and no model specified in request"}), 500
-    model = req_json.get("model", default_model.full)
+    # Get model from request first, fall back to default
+    model = req_json.get("model")
+    if model is None:
+        # No model in request, use default
+        if default_model is None:
+            return flask.jsonify({"error": "No model available (none loaded and none specified in request)"}), 500
+        model = default_model.full
 
     # load conversation
     # NOTE: we load without lock since otherwise we have issues with
