@@ -17,7 +17,7 @@ class LessonMetadata:
     """Metadata from lesson frontmatter.
 
     Supports:
-    - Lessons: keywords, tools, status
+    - Lessons: keywords, tools, status, patterns
     - Skills (Anthropic format): name, description
     - Cursor rules (.mdc): globs, priority, triggers, alwaysApply
     """
@@ -28,12 +28,13 @@ class LessonMetadata:
 
     # Lesson format fields
     keywords: list[str] = field(default_factory=list)
+    """Keywords for literal/wildcard matching. Supports * as wildcard."""
+
+    patterns: list[str] = field(default_factory=list)
+    """Regex patterns for flexible matching."""
+
     tools: list[str] = field(default_factory=list)
     status: str = "active"  # active, automated, deprecated, or archived
-
-    # Future extensions:
-    # globs: list[str] = field(default_factory=list)
-    # semantic: list[str] = field(default_factory=list)
 
     # Cursor .mdc format fields (Issue #686 Phase 5)
     globs: list[str] = field(default_factory=list)
@@ -330,6 +331,7 @@ def parse_lesson(path: Path) -> Lesson:
                             name=name,
                             description=description,
                             keywords=match_data.get("keywords", []),
+                            patterns=match_data.get("patterns", []),
                             tools=match_data.get("tools", []),
                             status=status,
                         )

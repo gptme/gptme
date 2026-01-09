@@ -664,3 +664,76 @@ This is a standard gptme lesson.
             assert lesson.metadata.keywords == ["patch", "editing"]
             assert lesson.metadata.status == "active"
             assert lesson.metadata.globs == []  # Should not have globs
+
+
+class TestPatternsField:
+    """Tests for parsing the patterns field from lesson frontmatter."""
+
+    def test_parse_lesson_with_patterns(self, tmp_path):
+        """Test parsing a lesson with patterns field."""
+        lesson_file = tmp_path / "lesson.md"
+        # Use single quotes in YAML to avoid escape interpretation
+        lesson_file.write_text("""---
+match:
+  keywords:
+    - timeout
+  patterns:
+    - 'process killed at \\d+ seconds'
+    - 'timeout after \\d+s'
+status: active
+---
+# Timeout Lesson
+
+Handle timeouts.
+""")
+        from gptme.lessons.parser import parse_lesson
+
+        lesson = parse_lesson(lesson_file)
+
+        assert lesson.metadata.keywords == ["timeout"]
+        assert len(lesson.metadata.patterns) == 2
+        assert r"process killed at \d+ seconds" in lesson.metadata.patterns
+        assert r"timeout after \d+s" in lesson.metadata.patterns
+
+    def test_parse_lesson_patterns_only(self, tmp_path):
+        """Test parsing a lesson with only patterns, no keywords."""
+        lesson_file = tmp_path / "lesson.md"
+        # Use single quotes in YAML to avoid escape interpretation
+        lesson_file.write_text("""---
+match:
+  patterns:
+    - 'error code \\d+'
+status: active
+---
+# Error Lesson
+
+Handle errors.
+""")
+        from gptme.lessons.parser import parse_lesson
+
+        lesson = parse_lesson(lesson_file)
+
+        assert lesson.metadata.keywords == []
+        assert len(lesson.metadata.patterns) == 1
+        assert r"error code \d+" in lesson.metadata.patterns
+
+    def test_parse_lesson_empty_patterns(self, tmp_path):
+        """Test parsing a lesson with empty patterns field."""
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text("""---
+match:
+  keywords:
+    - test
+  patterns: []
+status: active
+---
+# Test Lesson
+
+Test content.
+""")
+        from gptme.lessons.parser import parse_lesson
+
+        lesson = parse_lesson(lesson_file)
+
+        assert lesson.metadata.keywords == ["test"]
+        assert lesson.metadata.patterns == []

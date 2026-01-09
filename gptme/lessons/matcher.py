@@ -1,12 +1,59 @@
 """Lesson matching based on context."""
 
+import fnmatch
 import logging
 import os
+import re
 from dataclasses import dataclass
 
 from .parser import Lesson
 
 logger = logging.getLogger(__name__)
+
+# Cache for compiled patterns
+_pattern_cache: dict[str, re.Pattern | None] = {}
+
+
+def _compile_pattern(pattern: str) -> re.Pattern | None:
+    """Compile a regex pattern with caching and error handling.
+
+    Args:
+        pattern: Regex pattern string
+
+    Returns:
+        Compiled pattern or None if invalid
+    """
+    if pattern not in _pattern_cache:
+        try:
+            _pattern_cache[pattern] = re.compile(pattern, re.IGNORECASE)
+        except re.error as e:
+            logger.warning(f"Invalid regex pattern '{pattern}': {e}")
+            _pattern_cache[pattern] = None
+    return _pattern_cache[pattern]
+
+
+def _match_keyword(keyword: str, text: str) -> bool:
+    """Match a keyword against text, supporting wildcards.
+
+    Wildcards:
+    - * matches any number of characters
+    - ? matches a single character
+
+    Args:
+        keyword: Keyword to match (may contain wildcards)
+        text: Text to match against
+
+    Returns:
+        True if keyword matches text
+    """
+    keyword_lower = keyword.lower()
+
+    # If keyword contains wildcards, use fnmatch (glob-style matching)
+    if "*" in keyword or "?" in keyword:
+        return fnmatch.fnmatch(text.lower(), f"*{keyword_lower}*")
+
+    # Otherwise, simple substring match
+    return keyword_lower in text.lower()
 
 
 @dataclass
@@ -71,11 +118,20 @@ class LessonMatcher:
             score = 0.0
             matched_by = []
 
-            # Keyword matching (lesson format)
+            # Keyword matching (lesson format) - supports wildcards
             for keyword in lesson.metadata.keywords:
-                if keyword.lower() in message_lower:
+                if _match_keyword(keyword, context.message):
                     score += 1.0
-                    matched_by.append(f"keyword:{keyword}")
+                    # Indicate if wildcard was used
+                    match_type = "wildcard" if ("*" in keyword or "?" in keyword) else "keyword"
+                    matched_by.append(f"{match_type}:{keyword}")
+
+            # Pattern matching (regex)
+            for pattern in lesson.metadata.patterns:
+                compiled = _compile_pattern(pattern)
+                if compiled and compiled.search(context.message):
+                    score += 1.0
+                    matched_by.append(f"pattern:{pattern}")
 
             # Skill name matching (Anthropic format)
             # Match if skill name appears in message

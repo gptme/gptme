@@ -485,3 +485,240 @@ Test content.
         # Should only return ONE result despite two entries in input
         assert len(results) == 1
         assert results[0].lesson.title == "Test Lesson"
+
+
+class TestWildcardMatching:
+    """Tests for wildcard keyword matching."""
+
+    def test_wildcard_asterisk_match(self):
+        """Test matching with * wildcard."""
+        lessons = [
+            Lesson(
+                title="Timeout Lesson",
+                category="tools",
+                description="Handle timeouts",
+                body="# Timeout Lesson\n\nContent",
+                metadata=LessonMetadata(keywords=["process killed at * seconds"]),
+                path=Path("/lessons/timeout.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+        context = MatchContext(message="Error: process killed at 120 seconds")
+
+        results = matcher.match(lessons, context)
+
+        assert len(results) == 1
+        assert results[0].lesson.title == "Timeout Lesson"
+        assert "wildcard:process killed at * seconds" in results[0].matched_by
+
+    def test_wildcard_asterisk_multiple_values(self):
+        """Test that * wildcard matches various values."""
+        lessons = [
+            Lesson(
+                title="Timeout Lesson",
+                category="tools",
+                description="Handle timeouts",
+                body="# Timeout Lesson\n\nContent",
+                metadata=LessonMetadata(keywords=["timeout after * seconds"]),
+                path=Path("/lessons/timeout.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+
+        # Should match various numbers
+        for seconds in ["30", "60", "120", "3600"]:
+            context = MatchContext(message=f"Error: timeout after {seconds} seconds")
+            results = matcher.match(lessons, context)
+            assert len(results) == 1, f"Failed for {seconds} seconds"
+
+    def test_wildcard_question_mark(self):
+        """Test matching with ? wildcard (single character)."""
+        lessons = [
+            Lesson(
+                title="Version Lesson",
+                category="tools",
+                description="Version handling",
+                body="# Version Lesson\n\nContent",
+                metadata=LessonMetadata(keywords=["version ?.?"]),
+                path=Path("/lessons/version.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+
+        # Should match single digit versions
+        context = MatchContext(message="Upgrading to version 2.0")
+        results = matcher.match(lessons, context)
+        assert len(results) == 1
+
+        # Should NOT match multi-digit versions
+        context = MatchContext(message="Upgrading to version 10.5")
+        results = matcher.match(lessons, context)
+        assert len(results) == 0
+
+    def test_literal_keyword_without_wildcard(self):
+        """Test that keywords without wildcards still work."""
+        lessons = [
+            Lesson(
+                title="Git Lesson",
+                category="tools",
+                description="Git commands",
+                body="# Git Lesson\n\nContent",
+                metadata=LessonMetadata(keywords=["git commit"]),
+                path=Path("/lessons/git.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+        context = MatchContext(message="I need to git commit my changes")
+
+        results = matcher.match(lessons, context)
+
+        assert len(results) == 1
+        assert "keyword:git commit" in results[0].matched_by
+
+
+class TestPatternMatching:
+    """Tests for regex pattern matching."""
+
+    def test_pattern_basic_regex(self):
+        """Test matching with basic regex pattern."""
+        lessons = [
+            Lesson(
+                title="Timeout Lesson",
+                category="tools",
+                description="Handle timeouts",
+                body="# Timeout Lesson\n\nContent",
+                metadata=LessonMetadata(patterns=[r"timeout after \d+ seconds"]),
+                path=Path("/lessons/timeout.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+        context = MatchContext(message="Error: timeout after 120 seconds")
+
+        results = matcher.match(lessons, context)
+
+        assert len(results) == 1
+        assert results[0].lesson.title == "Timeout Lesson"
+        assert r"pattern:timeout after \d+ seconds" in results[0].matched_by
+
+    def test_pattern_case_insensitive(self):
+        """Test that pattern matching is case insensitive."""
+        lessons = [
+            Lesson(
+                title="Error Lesson",
+                category="tools",
+                description="Handle errors",
+                body="# Error Lesson\n\nContent",
+                metadata=LessonMetadata(patterns=[r"error: \w+"]),
+                path=Path("/lessons/error.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+
+        # Should match regardless of case
+        for msg in ["Error: something", "ERROR: SOMETHING", "error: whatever"]:
+            context = MatchContext(message=msg)
+            results = matcher.match(lessons, context)
+            assert len(results) == 1, f"Failed for: {msg}"
+
+    def test_pattern_no_match(self):
+        """Test that non-matching patterns don't match."""
+        lessons = [
+            Lesson(
+                title="Number Lesson",
+                category="tools",
+                description="Handle numbers",
+                body="# Number Lesson\n\nContent",
+                metadata=LessonMetadata(patterns=[r"exactly \d{4} items"]),
+                path=Path("/lessons/number.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+
+        # Should NOT match wrong number of digits
+        context = MatchContext(message="Found exactly 12 items")
+        results = matcher.match(lessons, context)
+        assert len(results) == 0
+
+    def test_pattern_invalid_regex_ignored(self):
+        """Test that invalid regex patterns are ignored with warning."""
+        lessons = [
+            Lesson(
+                title="Bad Pattern Lesson",
+                category="tools",
+                description="Invalid pattern",
+                body="# Bad Pattern Lesson\n\nContent",
+                metadata=LessonMetadata(patterns=[r"[invalid regex"]),  # Missing ]
+                path=Path("/lessons/bad.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+        context = MatchContext(message="[invalid regex example")
+
+        # Should not crash, just skip the invalid pattern
+        results = matcher.match(lessons, context)
+        assert len(results) == 0
+
+    def test_combined_keywords_and_patterns(self):
+        """Test matching with both keywords and patterns."""
+        lessons = [
+            Lesson(
+                title="Timeout Lesson",
+                category="tools",
+                description="Handle timeouts",
+                body="# Timeout Lesson\n\nContent",
+                metadata=LessonMetadata(
+                    keywords=["timeout", "process killed"],
+                    patterns=[r"killed at \d+ seconds"],
+                ),
+                path=Path("/lessons/timeout.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+        context = MatchContext(message="Error: process killed at 60 seconds")
+
+        results = matcher.match(lessons, context)
+
+        assert len(results) == 1
+        assert results[0].score == 2.0  # keyword + pattern
+        matched_types = [m.split(":")[0] for m in results[0].matched_by]
+        assert "keyword" in matched_types
+        assert "pattern" in matched_types
+
+    def test_multiple_patterns(self):
+        """Test matching with multiple patterns."""
+        lessons = [
+            Lesson(
+                title="Error Lesson",
+                category="tools",
+                description="Handle errors",
+                body="# Error Lesson\n\nContent",
+                metadata=LessonMetadata(
+                    patterns=[
+                        r"error code \d+",
+                        r"failed with status \d+",
+                    ]
+                ),
+                path=Path("/lessons/error.md"),
+            ),
+        ]
+
+        matcher = LessonMatcher()
+
+        # Should match first pattern
+        context = MatchContext(message="Received error code 500")
+        results = matcher.match(lessons, context)
+        assert len(results) == 1
+
+        # Should match second pattern
+        context = MatchContext(message="Request failed with status 404")
+        results = matcher.match(lessons, context)
+        assert len(results) == 1
