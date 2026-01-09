@@ -209,12 +209,12 @@ class TestLessonMatcherWildcards:
         results1 = matcher.match([lesson], context1)
         assert len(results1) == 1
 
-        # Should NOT match - non-word boundary would need .* not \w*
-        # Actually, * matches zero or more word chars, so "timeout error"
-        # would match "timeout" + "" (zero word chars) at that position
+        # "timeout*" matches "timeout" followed by zero or more word chars
+        # In "timeout error", it matches "timeout" + "" (zero word chars at space boundary)
+        # This is correct behavior - the space acts as a natural boundary
         context2 = MatchContext(message="timeout error")
         results2 = matcher.match([lesson], context2)
-        assert len(results2) == 1  # Matches because timeout* matches "timeout"
+        assert len(results2) == 1  # Matches "timeout" portion successfully
 
 
 class TestParsePatternsFromYAML:

@@ -18,7 +18,8 @@ def _keyword_to_pattern(keyword: str) -> re.Pattern[str]:
     Wildcards:
     - '*' matches zero or more word characters (\\w*)
 
-    All matching is case-insensitive.
+    All matching is case-insensitive. Input is normalized to lowercase
+    for cache efficiency (different cases map to the same pattern).
 
     Args:
         keyword: Keyword string, optionally containing * wildcards
@@ -31,6 +32,8 @@ def _keyword_to_pattern(keyword: str) -> re.Pattern[str]:
         "process killed at * seconds" -> matches "process killed at 120 seconds"
         "timeout*" -> matches "timeout", "timeout30s", "timeouts"
     """
+    # Normalize to lowercase for consistent caching
+    keyword = keyword.lower()
     if "*" in keyword:
         # Escape special regex chars except *, then replace * with \w*
         # First escape everything, then un-escape \* and replace with \w*
@@ -73,7 +76,7 @@ def _match_keyword(keyword: str, text: str) -> bool:
     Returns:
         True if keyword matches somewhere in text
     """
-    pattern = _keyword_to_pattern(keyword.lower())
+    pattern = _keyword_to_pattern(keyword)
     return pattern.search(text) is not None
 
 

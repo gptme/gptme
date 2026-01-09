@@ -16,8 +16,9 @@ def _keyword_to_pattern(keyword: str) -> re.Pattern[str]:
     Wildcards:
     - '*' matches zero or more word characters (\\w*)
 
-    All matching is case-insensitive.
+    All matching is case-insensitive. Input normalized to lowercase for cache.
     """
+    keyword = keyword.lower()
     if "*" in keyword:
         escaped = re.escape(keyword)
         pattern_str = escaped.replace(r"\*", r"\w*")
@@ -28,7 +29,7 @@ def _keyword_to_pattern(keyword: str) -> re.Pattern[str]:
 
 def _match_keyword(keyword: str, text: str) -> bool:
     """Check if a keyword matches the text. Supports wildcards (*)."""
-    pattern = _keyword_to_pattern(keyword.lower())
+    pattern = _keyword_to_pattern(keyword)
     return pattern.search(text) is not None
 
 
