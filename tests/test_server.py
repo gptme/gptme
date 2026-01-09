@@ -120,3 +120,27 @@ def test_api_conversation_generate_stream(conv: str, client: FlaskClient):
             continue
         data = chunk_str.replace("data: ", "").strip()
         assert data  # Non-empty data
+
+
+def test_debug_errors_disabled(monkeypatch):
+    """Test that debug errors are disabled by default."""
+    from gptme.server.api import _is_debug_errors_enabled
+
+    # Clear the env var to test default behavior
+    monkeypatch.delenv("GPTME_DEBUG_ERRORS", raising=False)
+    assert _is_debug_errors_enabled() is False
+
+
+def test_debug_errors_enabled(monkeypatch):
+    """Test that debug errors can be enabled via environment variable."""
+    from gptme.server.api import _is_debug_errors_enabled
+
+    # Test various truthy values
+    for value in ["1", "true", "TRUE", "yes", "YES"]:
+        monkeypatch.setenv("GPTME_DEBUG_ERRORS", value)
+        assert _is_debug_errors_enabled() is True, f"Failed for value: {value}"
+
+    # Test falsy values
+    for value in ["0", "false", "no", ""]:
+        monkeypatch.setenv("GPTME_DEBUG_ERRORS", value)
+        assert _is_debug_errors_enabled() is False, f"Should be False for value: {value}"

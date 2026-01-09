@@ -44,6 +44,21 @@ from .openapi_docs import (
 
 logger = logging.getLogger(__name__)
 
+
+def _is_debug_errors_enabled() -> bool:
+    """Check if detailed error messages should be shown.
+
+    When GPTME_DEBUG_ERRORS is set to '1', 'true', or 'yes' (case-insensitive),
+    detailed error messages with exception information will be returned to clients.
+    This is useful for development, testing, CI, and staging environments.
+
+    In production, this should be disabled (default) to prevent information leakage.
+    """
+    import os
+
+    return os.environ.get("GPTME_DEBUG_ERRORS", "").lower() in ("1", "true", "yes")
+
+
 api = flask.Blueprint("api", __name__)
 
 
@@ -139,9 +154,10 @@ def api_conversation_file(logfile: str, filename: str):
             return flask.send_file(path)
         else:
             return flask.jsonify({"error": "File not found"}), 404
-    except (ValueError, RuntimeError):
+    except (ValueError, RuntimeError) as e:
         logger.exception("Error accessing conversation file")
-        return flask.jsonify({"error": "Access denied"}), 403
+        error_msg = str(e) if _is_debug_errors_enabled() else "Access denied"
+        return flask.jsonify({"error": error_msg}), 403
 
 
 @api.route("/api/conversations/<string:logfile>", methods=["PUT"])
@@ -332,9 +348,10 @@ def api_conversation_generate(logfile: str):
             )
             return flask.jsonify(response)
 
-        except Exception:
+        except Exception as e:
             logger.exception("Error during generation")
-            return flask.jsonify({"error": "An internal error occurred during generation"}), 500
+            error_msg = str(e) if _is_debug_errors_enabled() else "An internal error occurred during generation"
+            return flask.jsonify({"error": error_msg}), 500
 
     # Streaming response
     def generate() -> Generator[str, None, None]:
@@ -447,9 +464,10 @@ def api_conversation_generate(logfile: str):
                 msg = msg.replace(quiet=True)
                 manager.append(msg)
             raise
-        except Exception:
+        except Exception as e:
             logger.exception("Error during generation")
-            yield f"data: {flask.json.dumps({'error': 'An internal error occurred during generation'})}\n\n"
+            error_msg = str(e) if _is_debug_errors_enabled() else "An internal error occurred during generation"
+            yield f"data: {flask.json.dumps({'error': error_msg})}\n\n"
         finally:
             logger.info("Generation completed")
 
