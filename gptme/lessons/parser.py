@@ -28,6 +28,8 @@ class LessonMetadata:
 
     # Lesson format fields
     keywords: list[str] = field(default_factory=list)
+    patterns: list[str] = field(default_factory=list)
+    """Regex patterns for advanced matching (full regex, no escaping needed)"""
     tools: list[str] = field(default_factory=list)
     status: str = "active"  # active, automated, deprecated, or archived
 
@@ -330,6 +332,7 @@ def parse_lesson(path: Path) -> Lesson:
                             name=name,
                             description=description,
                             keywords=match_data.get("keywords", []),
+                            patterns=match_data.get("patterns", []),
                             tools=match_data.get("tools", []),
                             status=status,
                         )

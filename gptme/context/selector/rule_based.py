@@ -1,10 +1,36 @@
 """Rule-based context selection using keyword/pattern matching."""
 
 import logging
+import re
 from collections.abc import Sequence
+from functools import lru_cache
 
 from .base import ContextItem, ContextSelector
 from .config import ContextSelectorConfig
+
+
+@lru_cache(maxsize=256)
+def _keyword_to_pattern(keyword: str) -> re.Pattern[str]:
+    """Convert a keyword (possibly with wildcards) to a compiled regex pattern.
+
+    Wildcards:
+    - '*' matches zero or more word characters (\\w*)
+
+    All matching is case-insensitive.
+    """
+    if "*" in keyword:
+        escaped = re.escape(keyword)
+        pattern_str = escaped.replace(r"\*", r"\w*")
+    else:
+        pattern_str = re.escape(keyword)
+    return re.compile(pattern_str, re.IGNORECASE)
+
+
+def _match_keyword(keyword: str, text: str) -> bool:
+    """Check if a keyword matches the text. Supports wildcards (*)."""
+    pattern = _keyword_to_pattern(keyword.lower())
+    return pattern.search(text) is not None
+
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +65,24 @@ class RuleBasedSelector(ContextSelector):
             if isinstance(keywords, str):
                 keywords = [keywords]
 
-            # Match keywords
+            # Match keywords (supports wildcards)
             for keyword in keywords:
-                if isinstance(keyword, str) and keyword.lower() in query_lower:
+                if isinstance(keyword, str) and _match_keyword(keyword, query_lower):
                     score += 1.0
                     matched_by.append(f"keyword:{keyword}")
+
+            # Match patterns (full regex)
+            patterns = metadata.get("patterns", [])
+            if isinstance(patterns, str):
+                patterns = [patterns]
+            for pattern in patterns:
+                if isinstance(pattern, str):
+                    try:
+                        if re.search(pattern, query_lower, re.IGNORECASE):
+                            score += 1.0
+                            matched_by.append(f"pattern:{pattern[:30]}...")
+                    except re.error:
+                        pass  # Skip invalid patterns
 
             # Priority boost (for lessons/tasks)
             priority = metadata.get("priority")
