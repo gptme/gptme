@@ -135,7 +135,7 @@ class TestRateLimitingIntegration:
         # Limiter should be initialized (not NoOpLimiter if flask-limiter is installed)
         from flask_limiter import Limiter
 
-        assert isinstance(limiter, (Limiter, type(limiter)))
+        assert isinstance(limiter, Limiter | type(limiter))
 
     def test_rate_limit_headers_in_response(self):
         """Test that rate limit headers are included in responses."""
