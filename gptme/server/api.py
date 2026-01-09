@@ -99,7 +99,7 @@ def api_conversation(logfile: str):
 
     Retrieve a conversation with all its messages and metadata.
     """
-    init_tools(None)  # FIXME: this is not thread-safe
+    init_tools(None)
     log = LogManager.load(logfile, lock=False)
     log_dict = log.to_dict(branches=True)
     # add workspace to response
@@ -228,7 +228,7 @@ def api_conversation_post(logfile: str):
     req_json = flask.request.json
     branch = (req_json or {}).get("branch", "main")
     tool_allowlist = (req_json or {}).get("tools", None)
-    init_tools(tool_allowlist)  # FIXME: this is not thread-safe
+    init_tools(tool_allowlist)
     log = LogManager.load(logfile, branch=branch)
     assert req_json
     assert "role" in req_json
