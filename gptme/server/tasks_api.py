@@ -296,13 +296,13 @@ def get_task_info(task: Task) -> dict[str, Any]:
 
                 except Exception as e:
                     logger.error(f"Error getting git status for {task.id}: {e}")
-                    result["git"] = {"error": f"Could not get git status: {str(e)}"}
+                    result["git"] = {"error": "Could not get git status"}
             else:
                 result["git"] = {"error": "Workspace does not exist"}
 
         except Exception as e:
             logger.error(f"Error getting task info for {task.id}: {e}")
-            result["error"] = str(e)
+            result["error"] = "Error getting task info"
 
     return result
 
@@ -545,7 +545,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Error getting git status for {workspace_path}: {e}")
-        return {"error": str(e)}
+        return {"error": "Could not get git status"}
 
 
 def create_task_conversation(task: Task) -> str:
@@ -662,7 +662,7 @@ def api_tasks_list():
 
     except Exception as e:
         logger.error(f"Error listing tasks: {e}")
-        return flask.jsonify({"error": str(e)}), 500
+        return flask.jsonify({"error": "Error listing tasks"}), 500
 
 
 @tasks_api.route("/api/v2/tasks", methods=["POST"])
@@ -714,7 +714,7 @@ def api_tasks_create():
 
     except Exception as e:
         logger.error(f"Error creating task: {e}")
-        return flask.jsonify({"error": str(e)}), 500
+        return flask.jsonify({"error": "Error creating task"}), 500
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>")
@@ -747,7 +747,7 @@ def api_tasks_get(task_id: str):
         return flask.jsonify(task_info)
     except Exception as e:
         logger.error(f"Error getting task {task_id}: {e}")
-        return flask.jsonify({"error": str(e)}), 500
+        return flask.jsonify({"error": "Error getting task"}), 500
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>", methods=["PUT"])
@@ -793,7 +793,7 @@ def api_tasks_update(task_id: str):
 
     except Exception as e:
         logger.error(f"Error updating task {task_id}: {e}")
-        return flask.jsonify({"error": str(e)}), 500
+        return flask.jsonify({"error": "Error updating task"}), 500
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>/archive", methods=["POST"])
@@ -829,7 +829,7 @@ def api_tasks_archive(task_id: str):
 
     except Exception as e:
         logger.error(f"Error archiving task {task_id}: {e}")
-        return flask.jsonify({"error": str(e)}), 500
+        return flask.jsonify({"error": "Error archiving task"}), 500
 
 
 @tasks_api.route("/api/v2/tasks/<string:task_id>/unarchive", methods=["POST"])
@@ -865,4 +865,4 @@ def api_tasks_unarchive(task_id: str):
 
     except Exception as e:
         logger.error(f"Error unarchiving task {task_id}: {e}")
-        return flask.jsonify({"error": str(e)}), 500
+        return flask.jsonify({"error": "Error unarchiving task"}), 500

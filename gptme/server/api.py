@@ -307,9 +307,9 @@ def api_conversation_generate(logfile: str):
             )
             return flask.jsonify(response)
 
-        except Exception as e:
+        except Exception:
             logger.exception("Error during generation")
-            return flask.jsonify({"error": str(e)})
+            return flask.jsonify({"error": "An internal error occurred during generation"}), 500
 
     # Streaming response
     def generate() -> Generator[str, None, None]:

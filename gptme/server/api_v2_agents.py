@@ -118,8 +118,9 @@ def api_agents_put():
             {"error": "Git clone operation timed out (5 minute limit)"}
         ), 504
     if clone_result.returncode != 0:
+        logger.error(f"Git clone failed: {clone_result.stderr.decode()}")
         return flask.jsonify(
-            {"error": f"Failed to clone template repo: {clone_result.stderr.decode()}"}
+            {"error": "Failed to clone template repository"}
         ), 500
 
     # Pull in any git submodules
@@ -138,11 +139,10 @@ def api_agents_put():
         ), 504
     if submodule_result.returncode != 0:
         # Delete the temp dir if the submodule update failed
+        logger.error(f"Submodule update failed: {submodule_result.stderr.decode()}")
         shutil.rmtree(temp_dir)
         return flask.jsonify(
-            {
-                "error": f"Failed to update submodules: {submodule_result.stderr.decode()}"
-            }
+            {"error": "Failed to update submodules"}
         ), 500
     logger.info(f"Cloned template repo to {temp_dir}")
 
@@ -160,6 +160,7 @@ def api_agents_put():
             error_msg = post_fork_result.stderr.decode()
             if not error_msg:
                 error_msg = post_fork_result.stdout.decode()
+            logger.error(f"Post-fork command failed: {error_msg}")
 
             # Delete the temp dir and workspace if the post-fork command failed
             shutil.rmtree(temp_dir)
@@ -167,14 +168,15 @@ def api_agents_put():
                 shutil.rmtree(path)
 
             return flask.jsonify(
-                {"error": f"Failed to run post-fork command: {error_msg}"}
+                {"error": "Failed to run post-fork command"}
             ), 500
     except Exception as e:
         # Delete the temp dir and workspace if the post-fork command failed
+        logger.exception(f"Post-fork command exception: {e}")
         shutil.rmtree(temp_dir)
         if path.exists():
             shutil.rmtree(path)
-        return flask.jsonify({"error": f"Failed to run post-fork command: {e}"}), 500
+        return flask.jsonify({"error": "Failed to run post-fork command"}), 500
     logger.info(f"Post-fork command executed successfully: {fork_command}")
 
     # Merge in the project config
