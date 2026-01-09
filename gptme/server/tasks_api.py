@@ -636,7 +636,7 @@ def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
                 )
                 logger.info(f"Cloned {target_repo} to {repo_path}")
                 return repo_path
-            except subprocess.CalledProcessError as e:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 logger.error(f"Failed to clone {target_repo}: {e}")
                 # Fallback to empty workspace
                 return workspace
