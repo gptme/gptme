@@ -295,7 +295,7 @@ This tool is disabled by default and must be explicitly enabled with `--tools re
     disabled_by_default=True,
     hooks={
         "restart": (
-            "generation_pre",  # HookType.GENERATION_PRE.value
+            "generation.pre",  # HookType.GENERATION_PRE.value
             restart_hook,
             1000,  # High priority - restart before next generation
         ),

@@ -1009,7 +1009,7 @@ tool = ToolSpec(
     instructions="",  # No user-facing instructions, runs automatically
     hooks={
         "autocompact": (
-            HookType.MESSAGE_POST_PROCESS,
+            HookType.TURN_POST,
             autocompact_hook,
             100,
         ),  # Low priority, runs after other hooks

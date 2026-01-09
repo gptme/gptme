@@ -273,9 +273,9 @@ def _process_message_conversation(
         try:
             set_interruptible()
 
-            # Trigger pre-process hooks
+            # Trigger pre-process hooks (step.pre - before each step in a turn)
             if pre_msgs := trigger_hook(
-                HookType.MESSAGE_PRE_PROCESS,
+                HookType.STEP_PRE,
                 manager=manager,
             ):
                 for msg in pre_msgs:
@@ -358,10 +358,10 @@ def _process_message_conversation(
         if not has_runnable:
             break
 
-    # Trigger post-process hooks after message processing completes
+    # Trigger post-process hooks after message processing completes (turn.post)
     # Note: pre-commit checks and autocommit are now handled by hooks
     if post_msgs := trigger_hook(
-        HookType.MESSAGE_POST_PROCESS,
+        HookType.TURN_POST,
         manager=manager,
     ):
         for msg in post_msgs:

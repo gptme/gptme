@@ -27,7 +27,7 @@ def register() -> None:
     """Setup function to register the markdown validation hook."""
     register_hook(
         "markdown_validation",
-        HookType.MESSAGE_POST_PROCESS,
+        HookType.TURN_POST,
         validate_markdown_on_message_complete,
         priority=1,  # Low priority to run after most other hooks
     )

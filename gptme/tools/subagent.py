@@ -1055,7 +1055,7 @@ tool = ToolSpec(
     disabled_by_default=True,
     hooks={
         "completion": (
-            "loop_continue",  # HookType.LOOP_CONTINUE.value
+            "loop.continue",  # HookType.LOOP_CONTINUE.value
             _subagent_completion_hook,
             50,  # High priority to ensure timely delivery
         )

@@ -90,7 +90,7 @@ def test_session_start_hook(client: FlaskClient, monkeypatch):
 
 
 def test_message_pre_process_hook(client: FlaskClient, monkeypatch):
-    """Test that MESSAGE_PRE_PROCESS hooks work."""
+    """Test that STEP_PRE hooks work."""
     # Set hook allowlist to include test hooks
     monkeypatch.setenv("HOOK_ALLOWLIST", "test")
 
@@ -104,7 +104,7 @@ def test_message_pre_process_hook(client: FlaskClient, monkeypatch):
     )
     assert response.status_code == 200
 
-    # Call step to generate response (should trigger MESSAGE_PRE_PROCESS hooks)
+    # Call step to generate response (should trigger STEP_PRE hooks)
     response = client.post(
         f"/api/v2/conversations/{conv['conversation_id']}/step",
         json={
@@ -118,26 +118,26 @@ def test_message_pre_process_hook(client: FlaskClient, monkeypatch):
     # Wait for step to complete
     time.sleep(2)
 
-    # Verify that MESSAGE_PRE_PROCESS hook was triggered
+    # Verify that STEP_PRE hook was triggered
     response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
     assert response.status_code == 200
     data = response.get_json()
 
     messages = data.get("log", [])
 
-    # Check if test MESSAGE_PRE_PROCESS hook message is in the log
+    # Check if test STEP_PRE hook message is in the log
     test_hook_messages = [
         m
         for m in messages
-        if "TEST_MESSAGE_PRE_PROCESS hook triggered" in m.get("content", "")
+        if "TEST_STEP_PRE hook triggered" in m.get("content", "")
     ]
     assert (
         len(test_hook_messages) > 0
-    ), f"TEST_MESSAGE_PRE_PROCESS hook message should be in log. Found {len(messages)} messages total"
+    ), f"TEST_STEP_PRE hook message should be in log. Found {len(messages)} messages total"
 
 
 def test_message_post_process_hook(client: FlaskClient, monkeypatch):
-    """Test that MESSAGE_POST_PROCESS hooks work."""
+    """Test that TURN_POST hooks work."""
     import unittest.mock
 
     # Set hook allowlist to include test hooks
@@ -161,7 +161,7 @@ def test_message_post_process_hook(client: FlaskClient, monkeypatch):
     with unittest.mock.patch(
         "gptme.server.api_v2_sessions._chat_complete", mock_chat_complete
     ):
-        # Call step to generate response (should trigger MESSAGE_POST_PROCESS hooks)
+        # Call step to generate response (should trigger TURN_POST hooks)
         response = client.post(
             f"/api/v2/conversations/{conv['conversation_id']}/step",
             json={
@@ -175,22 +175,22 @@ def test_message_post_process_hook(client: FlaskClient, monkeypatch):
         # Wait for step to complete (keep mock active)
         time.sleep(2)
 
-    # Verify that MESSAGE_POST_PROCESS hook was triggered
+    # Verify that TURN_POST hook was triggered
     response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
     assert response.status_code == 200
     data = response.get_json()
 
     messages = data.get("log", [])
 
-    # Check if test MESSAGE_POST_PROCESS hook message is in the log
+    # Check if test TURN_POST hook message is in the log
     test_hook_messages = [
         m
         for m in messages
-        if "TEST_MESSAGE_POST_PROCESS hook triggered" in m.get("content", "")
+        if "TEST_TURN_POST hook triggered" in m.get("content", "")
     ]
     assert (
         len(test_hook_messages) > 0
-    ), f"TEST_MESSAGE_POST_PROCESS hook message should be in log. Found {len(messages)} messages total"
+    ), f"TEST_TURN_POST hook message should be in log. Found {len(messages)} messages total"
 
 
 def test_session_end_hook(client: FlaskClient):
@@ -288,7 +288,7 @@ def test_hooks_work_with_tools(client: FlaskClient, monkeypatch):
 
     messages = data.get("log", [])
 
-    # Verify both SESSION_START and MESSAGE_PRE_PROCESS hooks were triggered
+    # Verify both SESSION_START and STEP_PRE hooks were triggered
     session_start_messages = [
         m
         for m in messages
@@ -297,8 +297,8 @@ def test_hooks_work_with_tools(client: FlaskClient, monkeypatch):
     pre_process_messages = [
         m
         for m in messages
-        if "TEST_MESSAGE_PRE_PROCESS hook triggered" in m.get("content", "")
+        if "TEST_STEP_PRE hook triggered" in m.get("content", "")
     ]
 
     assert len(session_start_messages) > 0, "Should have SESSION_START hook message"
-    assert len(pre_process_messages) > 0, "Should have MESSAGE_PRE_PROCESS hook message"
+    assert len(pre_process_messages) > 0, "Should have STEP_PRE hook message"

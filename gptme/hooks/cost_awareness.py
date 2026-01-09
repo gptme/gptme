@@ -215,7 +215,7 @@ def register() -> None:
     )
     register_hook(
         "cost_awareness.cost_warning",
-        HookType.MESSAGE_POST_PROCESS,
+        HookType.TURN_POST,
         cost_warning_hook,
         priority=0,  # Normal priority
     )

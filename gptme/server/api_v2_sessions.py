@@ -320,17 +320,17 @@ def step(
         )
         os.chdir(workspace)
 
-    # Trigger MESSAGE_PRE_PROCESS hook BEFORE preparing messages
+    # Trigger STEP_PRE hook BEFORE preparing messages
     # This ensures hook messages are included in the LLM input
     if pre_msgs := trigger_hook(
-        HookType.MESSAGE_PRE_PROCESS,
+        HookType.STEP_PRE,
         manager=manager,
     ):
         for msg in pre_msgs:
             _append_and_notify(manager, session, msg)
         # Write messages to disk to ensure they're persisted
         manager.write()
-        logger.debug("Wrote MESSAGE_PRE_PROCESS hook messages to disk")
+        logger.debug("Wrote step.pre hook messages to disk")
 
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages)
@@ -390,9 +390,9 @@ def step(
         manager.write()
         logger.debug("Persisted assistant message and wrote to disk")
 
-        # Trigger MESSAGE_POST_PROCESS hook
+        # Trigger TURN_POST hook (turn.post - after message processing completes)
         if post_msgs := trigger_hook(
-            HookType.MESSAGE_POST_PROCESS,
+            HookType.TURN_POST,
             manager=manager,
         ):
             for msg in post_msgs:

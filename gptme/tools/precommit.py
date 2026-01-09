@@ -3,11 +3,11 @@ Pre-commit hook tool that automatically runs pre-commit checks after file saves.
 
 This tool automatically runs pre-commit checks in two scenarios:
 
-1. **Per-file checks (FILE_POST_SAVE)**: After each file is saved
+1. **Per-file checks (FILE_SAVE_AFTER (file.save.after))**: After each file is saved
    - Runs pre-commit on the specific saved file
    - Provides immediate feedback on formatting/linting issues
 
-2. **Full checks (MESSAGE_POST_PROCESS)**: After message processing completes
+2. **Full checks (TURN_POST (turn.post))**: After message processing completes
    - Runs pre-commit on all modified files
    - Ensures all changes pass checks before auto-commit
 
@@ -320,12 +320,12 @@ tool = ToolSpec(
     available=check_precommit_available,
     hooks={
         "precommit_file": (
-            HookType.FILE_POST_SAVE.value,
+            HookType.FILE_SAVE_AFTER.value,
             run_precommit_on_file,
             5,  # Priority: run after other hooks but before commits
         ),
         "precommit_full": (
-            HookType.MESSAGE_POST_PROCESS.value,
+            HookType.TURN_POST.value,
             run_full_precommit_checks,
             5,  # Priority: run before autocommit (priority 1)
         ),

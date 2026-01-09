@@ -29,9 +29,9 @@ def test_register_hook():
     def my_hook(manager):
         yield Message("system", "Hook called")
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
+    register_hook("test_hook", HookType.STEP_PRE, my_hook)
 
-    hooks = get_hooks(HookType.MESSAGE_PRE_PROCESS)
+    hooks = get_hooks(HookType.STEP_PRE)
     assert len(hooks) == 1
     assert hooks[0].name == "test_hook"
 
@@ -44,9 +44,9 @@ def test_trigger_hook():
         messages.append("called")
         yield Message("system", "Hook result")
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
+    register_hook("test_hook", HookType.STEP_PRE, my_hook)
 
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    results = list(trigger_hook(HookType.STEP_PRE, manager=None))
 
     assert len(messages) == 1
     assert messages[0] == "called"
@@ -73,11 +73,11 @@ def test_hook_priority():
         return
         yield  # Make it a generator
 
-    register_hook("low", HookType.MESSAGE_PRE_PROCESS, hook_low, priority=1)
-    register_hook("high", HookType.MESSAGE_PRE_PROCESS, hook_high, priority=10)
-    register_hook("medium", HookType.MESSAGE_PRE_PROCESS, hook_medium, priority=5)
+    register_hook("low", HookType.STEP_PRE, hook_low, priority=1)
+    register_hook("high", HookType.STEP_PRE, hook_high, priority=10)
+    register_hook("medium", HookType.STEP_PRE, hook_medium, priority=5)
 
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    list(trigger_hook(HookType.STEP_PRE, manager=None))
 
     assert call_order == ["high", "medium", "low"]
 
@@ -91,20 +91,20 @@ def test_hook_enable_disable():
         if False:
             yield
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
+    register_hook("test_hook", HookType.STEP_PRE, my_hook)
 
     # Hook should be enabled by default
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    list(trigger_hook(HookType.STEP_PRE, manager=None))
     assert len(messages) == 1
 
     # Disable hook
     disable_hook("test_hook")
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    list(trigger_hook(HookType.STEP_PRE, manager=None))
     assert len(messages) == 1  # Still 1, hook didn't run
 
     # Re-enable hook
     enable_hook("test_hook")
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    list(trigger_hook(HookType.STEP_PRE, manager=None))
     assert len(messages) == 2  # Hook ran again
 
 
@@ -115,11 +115,11 @@ def test_unregister_hook():
         if False:
             yield
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
-    assert len(get_hooks(HookType.MESSAGE_PRE_PROCESS)) == 1
+    register_hook("test_hook", HookType.STEP_PRE, my_hook)
+    assert len(get_hooks(HookType.STEP_PRE)) == 1
 
-    unregister_hook("test_hook", HookType.MESSAGE_PRE_PROCESS)
-    assert len(get_hooks(HookType.MESSAGE_PRE_PROCESS)) == 0
+    unregister_hook("test_hook", HookType.STEP_PRE)
+    assert len(get_hooks(HookType.STEP_PRE)) == 0
 
 
 def test_unregister_from_all_types():
@@ -129,16 +129,16 @@ def test_unregister_from_all_types():
         if False:
             yield
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
-    register_hook("test_hook", HookType.MESSAGE_POST_PROCESS, my_hook)
+    register_hook("test_hook", HookType.STEP_PRE, my_hook)
+    register_hook("test_hook", HookType.TURN_POST, my_hook)
 
-    assert len(get_hooks(HookType.MESSAGE_PRE_PROCESS)) == 1
-    assert len(get_hooks(HookType.MESSAGE_POST_PROCESS)) == 1
+    assert len(get_hooks(HookType.STEP_PRE)) == 1
+    assert len(get_hooks(HookType.TURN_POST)) == 1
 
     unregister_hook("test_hook")  # Remove from all types
 
-    assert len(get_hooks(HookType.MESSAGE_PRE_PROCESS)) == 0
-    assert len(get_hooks(HookType.MESSAGE_POST_PROCESS)) == 0
+    assert len(get_hooks(HookType.STEP_PRE)) == 0
+    assert len(get_hooks(HookType.TURN_POST)) == 0
 
 
 def test_hook_with_arguments():
@@ -150,7 +150,7 @@ def test_hook_with_arguments():
         if False:
             yield
 
-    register_hook("test_hook", HookType.TOOL_PRE_EXECUTE, my_hook)
+    register_hook("test_hook", HookType.TOOL_EXECUTE_BEFORE, my_hook)
 
     # Create a mock ToolUse for testing
     from gptme.tools.base import ToolUse
@@ -158,7 +158,7 @@ def test_hook_with_arguments():
     tool_use = ToolUse(tool="save", args=[], content=None)
     list(
         trigger_hook(
-            HookType.TOOL_PRE_EXECUTE, log=None, workspace=None, tool_use=tool_use
+            HookType.TOOL_EXECUTE_BEFORE, log=None, workspace=None, tool_use=tool_use
         )
     )
 
@@ -175,9 +175,9 @@ def test_hook_generator():
         yield Message("system", "Second")
         yield Message("system", "Third")
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
+    register_hook("test_hook", HookType.STEP_PRE, my_hook)
 
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    results = list(trigger_hook(HookType.STEP_PRE, manager=None))
 
     assert len(results) == 3
     assert results[0].content == "First"
@@ -196,10 +196,10 @@ def test_hook_error_handling():
     def working_hook(manager):
         yield Message("system", "Success")
 
-    register_hook("failing", HookType.MESSAGE_PRE_PROCESS, failing_hook, priority=10)
-    register_hook("working", HookType.MESSAGE_PRE_PROCESS, working_hook, priority=5)
+    register_hook("failing", HookType.STEP_PRE, failing_hook, priority=10)
+    register_hook("working", HookType.STEP_PRE, working_hook, priority=5)
 
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    results = list(trigger_hook(HookType.STEP_PRE, manager=None))
 
     # Should have 1 message: the success message from working hook
     # Error messages are not yielded to prevent infinite loops
@@ -221,10 +221,10 @@ def test_multiple_hooks_same_type():
         if False:
             yield
 
-    register_hook("hook1", HookType.MESSAGE_PRE_PROCESS, hook1)
-    register_hook("hook2", HookType.MESSAGE_PRE_PROCESS, hook2)
+    register_hook("hook1", HookType.STEP_PRE, hook1)
+    register_hook("hook2", HookType.STEP_PRE, hook2)
 
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    list(trigger_hook(HookType.STEP_PRE, manager=None))
 
     assert "hook1" in messages
     assert "hook2" in messages
@@ -245,10 +245,10 @@ def test_replace_existing_hook():
         if False:
             yield
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, old_hook)
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, new_hook)
+    register_hook("test_hook", HookType.STEP_PRE, old_hook)
+    register_hook("test_hook", HookType.STEP_PRE, new_hook)
 
-    list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    list(trigger_hook(HookType.STEP_PRE, manager=None))
 
     assert messages == ["new"]  # Only new hook should run
 
@@ -263,9 +263,9 @@ def test_hook_no_return():
         if False:
             yield
 
-    register_hook("test_hook", HookType.MESSAGE_PRE_PROCESS, my_hook)
+    register_hook("test_hook", HookType.STEP_PRE, my_hook)
 
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    results = list(trigger_hook(HookType.STEP_PRE, manager=None))
 
     assert len(called) == 1
     assert len(results) == 0  # No messages returned
@@ -286,10 +286,10 @@ def test_hook_stop_propagation():
         execution_order.append("low")
         yield Message("system", "Low priority")
 
-    register_hook("high", HookType.MESSAGE_PRE_PROCESS, high_priority_hook, priority=10)
-    register_hook("low", HookType.MESSAGE_PRE_PROCESS, low_priority_hook, priority=1)
+    register_hook("high", HookType.STEP_PRE, high_priority_hook, priority=10)
+    register_hook("low", HookType.STEP_PRE, low_priority_hook, priority=1)
 
-    results = list(trigger_hook(HookType.MESSAGE_PRE_PROCESS, manager=None))
+    results = list(trigger_hook(HookType.STEP_PRE, manager=None))
 
     # Only high priority hook should have run
     assert execution_order == ["high"]

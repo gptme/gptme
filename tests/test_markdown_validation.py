@@ -30,7 +30,7 @@ def setup_hooks(init_):
     # Re-register the markdown validation hook that was cleared
     register_hook(
         "markdown_validation",
-        HookType.MESSAGE_POST_PROCESS,
+        HookType.TURN_POST,
         validate_markdown_on_message_complete,
         priority=1,
     )

@@ -331,7 +331,7 @@ Leverage lessons for self-improvement:
     functions=[],
     hooks={
         "auto_include_lessons": (
-            HookType.MESSAGE_PRE_PROCESS.value,
+            HookType.STEP_PRE.value,
             auto_include_lessons_hook,
             5,  # Medium priority
         )

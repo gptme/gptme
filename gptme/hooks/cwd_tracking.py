@@ -81,13 +81,13 @@ def register() -> None:
     """Register the cwd tracking hooks with the hook system."""
     register_hook(
         "cwd_tracking.pre_execute",
-        HookType.TOOL_PRE_EXECUTE,
+        HookType.TOOL_EXECUTE_BEFORE,
         track_cwd_pre_execute,
         priority=0,  # Normal priority
     )
     register_hook(
         "cwd_tracking.post_execute",
-        HookType.TOOL_POST_EXECUTE,
+        HookType.TOOL_EXECUTE_AFTER,
         track_cwd_post_execute,
         priority=0,  # Normal priority
     )

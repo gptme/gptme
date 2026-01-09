@@ -41,43 +41,61 @@ class StopPropagation:
 class HookType(str, Enum):
     """Types of hooks that can be registered.
 
+    Hook names follow OpenCode-style dot-notation for namespacing:
+    - <category>.<subcategory>.<event> or <category>.<event>
+
     Terminology (see docs/glossary.md for details):
     - Turn: Complete user-assistant exchange (may contain multiple steps)
     - Step: Single LLM generation + tool execution cycle
+
+    Examples:
+    - step.pre: Before each step in a turn
+    - turn.post: After all steps complete (once per turn)
+    - tool.execute.before: Before executing any tool
+    - session.start: At session start
     """
 
-    # Message lifecycle (per-turn hooks)
-    MESSAGE_PRE_PROCESS = "message_pre_process"  # Before each step in a turn
-    MESSAGE_POST_PROCESS = (
-        "message_post_process"  # After all steps complete (once per turn)
-    )
-    MESSAGE_TRANSFORM = "message_transform"  # Transform message content
+    # Step/Turn lifecycle (formerly MESSAGE_* hooks)
+    STEP_PRE = "step.pre"  # Before each step in a turn
+    TURN_POST = "turn.post"  # After all steps complete (once per turn)
+    MESSAGE_TRANSFORM = "message.transform"  # Transform message content
 
     # Tool lifecycle
-    TOOL_PRE_EXECUTE = "tool_pre_execute"  # Before executing any tool
-    TOOL_POST_EXECUTE = "tool_post_execute"  # After executing any tool
-    TOOL_TRANSFORM = "tool_transform"  # Transform tool execution
+    TOOL_EXECUTE_BEFORE = "tool.execute.before"  # Before executing any tool
+    TOOL_EXECUTE_AFTER = "tool.execute.after"  # After executing any tool
+    TOOL_TRANSFORM = "tool.transform"  # Transform tool execution
 
     # File operations
-    FILE_PRE_SAVE = "file_pre_save"  # Before saving a file
-    FILE_POST_SAVE = "file_post_save"  # After saving a file
-    FILE_PRE_PATCH = "file_pre_patch"  # Before patching a file
-    FILE_POST_PATCH = "file_post_patch"  # After patching a file
+    FILE_SAVE_BEFORE = "file.save.before"  # Before saving a file
+    FILE_SAVE_AFTER = "file.save.after"  # After saving a file
+    FILE_PATCH_BEFORE = "file.patch.before"  # Before patching a file
+    FILE_PATCH_AFTER = "file.patch.after"  # After patching a file
 
     # Session lifecycle
-    SESSION_START = "session_start"  # At session start
-    SESSION_END = "session_end"  # At session end
+    SESSION_START = "session.start"  # At session start
+    SESSION_END = "session.end"  # At session end
 
     # Generation
-    GENERATION_PRE = "generation_pre"  # Before generating response
-    GENERATION_POST = "generation_post"  # After generating response
-    GENERATION_INTERRUPT = "generation_interrupt"  # Interrupt generation
+    GENERATION_PRE = "generation.pre"  # Before generating response
+    GENERATION_POST = "generation.post"  # After generating response
+    GENERATION_INTERRUPT = "generation.interrupt"  # Interrupt generation
 
     # Loop control
-    LOOP_CONTINUE = "loop_continue"  # Decide whether/how to continue the chat loop
+    LOOP_CONTINUE = "loop.continue"  # Decide whether/how to continue the chat loop
 
     # Cache events
-    CACHE_INVALIDATED = "cache_invalidated"  # Prompt cache was invalidated
+    CACHE_INVALIDATED = "cache.invalidated"  # Prompt cache was invalidated
+
+    # === Backward compatibility aliases (DEPRECATED) ===
+    # These will be removed in a future version. Use the new names above.
+    MESSAGE_PRE_PROCESS = STEP_PRE  # Deprecated: use STEP_PRE
+    MESSAGE_POST_PROCESS = TURN_POST  # Deprecated: use TURN_POST
+    TOOL_PRE_EXECUTE = TOOL_EXECUTE_BEFORE  # Deprecated: use TOOL_EXECUTE_BEFORE
+    TOOL_POST_EXECUTE = TOOL_EXECUTE_AFTER  # Deprecated: use TOOL_EXECUTE_AFTER
+    FILE_PRE_SAVE = FILE_SAVE_BEFORE  # Deprecated: use FILE_SAVE_BEFORE
+    FILE_POST_SAVE = FILE_SAVE_AFTER  # Deprecated: use FILE_SAVE_AFTER
+    FILE_PRE_PATCH = FILE_PATCH_BEFORE  # Deprecated: use FILE_PATCH_BEFORE
+    FILE_POST_PATCH = FILE_PATCH_AFTER  # Deprecated: use FILE_PATCH_AFTER
 
 
 # Protocol classes for different hook signatures
@@ -485,8 +503,8 @@ def register_hook(
 def register_hook(
     name: str,
     hook_type: Literal[
-        HookType.TOOL_PRE_EXECUTE,
-        HookType.TOOL_POST_EXECUTE,
+        HookType.TOOL_EXECUTE_BEFORE,
+        HookType.TOOL_EXECUTE_AFTER,
     ],
     func: ToolExecuteHook,
     priority: int = 0,
@@ -497,7 +515,7 @@ def register_hook(
 @overload
 def register_hook(
     name: str,
-    hook_type: Literal[HookType.FILE_PRE_SAVE],
+    hook_type: Literal[HookType.FILE_SAVE_BEFORE],
     func: FilePreSaveHook,
     priority: int = 0,
     enabled: bool = True,
@@ -507,7 +525,7 @@ def register_hook(
 @overload
 def register_hook(
     name: str,
-    hook_type: Literal[HookType.FILE_POST_SAVE],
+    hook_type: Literal[HookType.FILE_SAVE_AFTER],
     func: FilePostSaveHook,
     priority: int = 0,
     enabled: bool = True,
@@ -548,8 +566,8 @@ def register_hook(
 def register_hook(
     name: str,
     hook_type: Literal[
-        HookType.MESSAGE_PRE_PROCESS,
-        HookType.MESSAGE_POST_PROCESS,
+        HookType.STEP_PRE,
+        HookType.TURN_POST,
         HookType.MESSAGE_TRANSFORM,
     ],
     func: MessageProcessHook,

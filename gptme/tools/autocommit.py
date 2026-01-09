@@ -5,7 +5,7 @@ When GPTME_AUTOCOMMIT=true is set, after each message is processed:
 1. Checks if there are file modifications
 2. If modifications exist, returns a message asking the LLM to review and commit
 
-The tool hooks into MESSAGE_POST_PROCESS and runs with low priority
+The tool hooks into TURN_POST (turn.post) and runs with low priority
 (after pre-commit checks and other validation).
 
 To enable autocommit:
@@ -156,7 +156,7 @@ tool = ToolSpec(
     available=True,
     hooks={
         "autocommit": (
-            HookType.MESSAGE_POST_PROCESS.value,
+            HookType.TURN_POST.value,
             autocommit_on_message_complete,
             # Low priority (1) ensures this runs after pre-commit checks (priority 5)
             # If pre-commit fails, it yields StopPropagation() to prevent autocommit from running

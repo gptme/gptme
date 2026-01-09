@@ -11,7 +11,7 @@ This module:
 - Emits events on cache invalidation for reactive plugins
 
 Terminology:
-    "turns" - The number of MESSAGE_POST_PROCESS hook invocations since
+    "turns" - The number of TURN_POST (turn.post) hook invocations since
     the last cache invalidation. This represents assistant responses,
     not individual messages. See: https://github.com/gptme/gptme/issues/1075
     for discussion on standardizing "turns" vs "steps" terminology.
@@ -311,11 +311,11 @@ def register() -> None:
         priority=100,  # High priority - update state before other handlers
     )
 
-    # Track turns (MESSAGE_POST_PROCESS invocations) for invalidation counting.
+    # Track turns (TURN_POST invocations) for invalidation counting.
     # See module docstring for "turns" vs "steps" terminology discussion.
     register_hook(
         "cache_awareness.turn_tracking",
-        HookType.MESSAGE_POST_PROCESS,
+        HookType.TURN_POST,
         _handle_message_post_process,
         priority=0,  # Normal priority
     )
