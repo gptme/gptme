@@ -12,7 +12,7 @@ Configuration:
 import atexit
 import logging
 import os
-import pty
+import platform
 import re
 import select
 import shlex
@@ -21,11 +21,22 @@ import signal
 import subprocess
 import sys
 import tempfile
-import termios
 import threading
 import time
-import tty
 from collections.abc import Generator
+
+# PTY support is Unix-only (Issue #1095, #1097)
+# Windows doesn't have pty/termios/tty modules
+_PTY_AVAILABLE = False
+if platform.system() != "Windows":
+    try:
+        import pty
+        import termios
+        import tty
+
+        _PTY_AVAILABLE = True
+    except ImportError:
+        pass  # PTY not available on this platform
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -457,7 +468,7 @@ class ShellSession:
     process: subprocess.Popen
     stdout_fd: int
     stderr_fd: int
-    master_fd: int  # PTY master for stdin/stdout
+    master_fd: int | None  # PTY master for stdin/stdout (None on Windows)
     delimiter: str
     start_marker: str  # Fix for Issue #408: Add start marker to prevent output mixing
 
@@ -468,35 +479,58 @@ class ShellSession:
         atexit.register(self.close)
 
     def _init(self):
-        # Create a pseudo-terminal pair for stdin/stdout
-        # This gives us a controlling TTY, enabling interactive programs like sudo
-        # while maintaining process group control via start_new_session
-        # Issue #1095: Restore TTY support that was lost with start_new_session=True
-        master_fd, slave_fd = pty.openpty()
+        # Issue #1095, #1097: PTY support for interactive programs like sudo
+        # PTY is Unix-only; Windows falls back to pipes
+        self.master_fd: int | None = None
 
-        # Set master to raw mode to prevent input echoing and line buffering
-        try:
-            tty.setraw(master_fd, when=termios.TCSANOW)
-        except termios.error:
-            pass  # May fail in some environments, continue anyway
+        if _PTY_AVAILABLE:
+            # Create a pseudo-terminal pair for stdin/stdout
+            # This gives us a controlling TTY, enabling interactive programs like sudo
+            # while maintaining process group control via start_new_session
+            master_fd, slave_fd = pty.openpty()
 
-        self.process = subprocess.Popen(
-            ["bash"],
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=subprocess.PIPE,  # Keep stderr separate for better error handling
-            bufsize=0,  # Unbuffered
-            close_fds=True,
-            start_new_session=True,  # Create new process group for proper signal handling
-        )
+            # Set master to raw mode to prevent input echoing and line buffering
+            try:
+                tty.setraw(master_fd, when=termios.TCSANOW)
+            except termios.error as e:
+                logger.warning(f"Failed to set PTY to raw mode: {e}")
+                # Continue anyway - may have echo issues but will still work
 
-        # Close slave in parent - child has it
-        os.close(slave_fd)
+            try:
+                self.process = subprocess.Popen(
+                    ["bash"],
+                    stdin=slave_fd,
+                    stdout=slave_fd,
+                    stderr=subprocess.PIPE,  # Keep stderr separate for better error handling
+                    bufsize=0,  # Unbuffered
+                    close_fds=True,
+                    start_new_session=True,  # Create new process group for proper signal handling
+                )
+            except Exception:
+                # Clean up master_fd if Popen fails (Issue #1097: resource leak fix)
+                os.close(master_fd)
+                os.close(slave_fd)
+                raise
 
-        # Store master fd for communication
-        self.master_fd = master_fd
-        self.stdout_fd = master_fd  # Read stdout from master
-        self.stderr_fd = self.process.stderr.fileno()  # type: ignore
+            # Close slave in parent - child has it
+            os.close(slave_fd)
+
+            # Store master fd for communication
+            self.master_fd = master_fd
+            self.stdout_fd = master_fd  # Read stdout from master
+            self.stderr_fd = self.process.stderr.fileno()  # type: ignore
+        else:
+            # Windows fallback: use pipes (no TTY support for sudo, etc.)
+            self.process = subprocess.Popen(
+                ["bash"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+                close_fds=False,  # Windows doesn't support close_fds with pipes
+            )
+            self.stdout_fd = self.process.stdout.fileno()  # type: ignore
+            self.stderr_fd = self.process.stderr.fileno()  # type: ignore
         self.delimiter = "END_OF_COMMAND_OUTPUT"
         self.start_marker = "START_OF_COMMAND_OUTPUT"
 
@@ -588,9 +622,14 @@ class ShellSession:
         full_command += f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
         try:
-            # Write to PTY master fd (Issue #1095: use pty for TTY support)
-            os.write(self.master_fd, full_command.encode())
-        except OSError:
+            # Write command to shell (Issue #1095, #1097: PTY or pipe fallback)
+            if self.master_fd is not None:
+                os.write(self.master_fd, full_command.encode())
+            else:
+                # Windows fallback: write to stdin pipe
+                self.process.stdin.write(full_command.encode())  # type: ignore
+                self.process.stdin.flush()  # type: ignore
+        except (OSError, BrokenPipeError):
             # process has died (master fd closed or broken)
             if tries == 0:
                 # log warning and restart, once
@@ -747,11 +786,8 @@ class ShellSession:
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
     def close(self):
-        # Close the PTY master fd (Issue #1095: use pty for TTY support)
-        try:
-            os.close(self.master_fd)
-        except OSError:
-            pass  # Already closed or invalid
+        # Issue #1097: Fix close order - terminate process first, then close fd
+        # Closing master_fd while bash is still running could cause issues
         try:
             pgid = os.getpgid(self.process.pid)
             os.killpg(pgid, signal.SIGTERM)
@@ -763,6 +799,13 @@ class ShellSession:
             pass
         except Exception as e:
             logger.warning(f"Error terminating process during close: {e}")
+
+        # Close the PTY master fd after process is terminated (Issue #1095, #1097)
+        if self.master_fd is not None:
+            try:
+                os.close(self.master_fd)
+            except OSError:
+                pass  # Already closed or invalid
 
     def restart(self):
         self.close()
