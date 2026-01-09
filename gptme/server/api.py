@@ -139,8 +139,9 @@ def api_conversation_file(logfile: str, filename: str):
             return flask.send_file(path)
         else:
             return flask.jsonify({"error": "File not found"}), 404
-    except (ValueError, RuntimeError) as e:
-        return flask.jsonify({"error": str(e)}), 403
+    except (ValueError, RuntimeError):
+        logger.exception("Error accessing conversation file")
+        return flask.jsonify({"error": "Access denied"}), 403
 
 
 @api.route("/api/conversations/<string:logfile>", methods=["PUT"])
@@ -422,9 +423,9 @@ def api_conversation_generate(logfile: str):
                 msg = msg.replace(quiet=True)
                 manager.append(msg)
             raise
-        except Exception as e:
+        except Exception:
             logger.exception("Error during generation")
-            yield f"data: {flask.json.dumps({'error': str(e)})}\n\n"
+            yield f"data: {flask.json.dumps({'error': 'An internal error occurred during generation'})}\n\n"
         finally:
             logger.info("Generation completed")
 
