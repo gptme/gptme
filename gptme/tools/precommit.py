@@ -3,7 +3,7 @@ Pre-commit hook tool that automatically runs pre-commit checks after file saves.
 
 This tool automatically runs pre-commit checks in two scenarios:
 
-1. **Per-file checks (FILE_SAVE_AFTER (file.save.after))**: After each file is saved
+1. **Per-file checks (FILE_SAVE_POST (file.save.post))**: After each file is saved
    - Runs pre-commit on the specific saved file
    - Provides immediate feedback on formatting/linting issues
 
@@ -320,7 +320,7 @@ tool = ToolSpec(
     available=check_precommit_available,
     hooks={
         "precommit_file": (
-            HookType.FILE_SAVE_AFTER.value,
+            HookType.FILE_SAVE_POST.value,
             run_precommit_on_file,
             5,  # Priority: run after other hooks but before commits
         ),

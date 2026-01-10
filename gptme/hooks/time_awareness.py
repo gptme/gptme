@@ -136,7 +136,7 @@ def register() -> None:
     """Register the time awareness hook with the hook system."""
     register_hook(
         "time_awareness.time_message",
-        HookType.TOOL_EXECUTE_AFTER,
+        HookType.TOOL_EXECUTE_POST,
         add_time_message,
         priority=0,  # Normal priority
     )

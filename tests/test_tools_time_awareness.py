@@ -33,9 +33,9 @@ def test_time_awareness_hook_exists():
 
 def test_time_awareness_hooks_registered(load_time_awareness_tool):
     """Test that time-awareness hooks are registered."""
-    tool_post_hooks = get_hooks(HookType.TOOL_EXECUTE_AFTER)
+    tool_post_hooks = get_hooks(HookType.TOOL_EXECUTE_POST)
 
-    # Should have at least one TOOL_EXECUTE_AFTER (tool.execute.after) hook (time_message)
+    # Should have at least one TOOL_EXECUTE_POST (tool.execute.post) hook (time_message)
     assert len(tool_post_hooks) >= 1
     assert any("time_awareness.time_message" in h.name for h in tool_post_hooks)
 
@@ -92,10 +92,10 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
         )
         _conversation_start_times_var.set(conversation_start_times)
 
-        # Trigger TOOL_EXECUTE_AFTER (tool.execute.after) hook
+        # Trigger TOOL_EXECUTE_POST (tool.execute.post) hook
         messages = list(
             trigger_hook(
-                HookType.TOOL_EXECUTE_AFTER, log=log, workspace=workspace, tool_use=None
+                HookType.TOOL_EXECUTE_POST, log=log, workspace=workspace, tool_use=None
             )
         )
 
@@ -138,7 +138,7 @@ def test_milestone_progression(load_time_awareness_tool, tmp_path):
     for i in range(3):
         messages = list(
             trigger_hook(
-                HookType.TOOL_EXECUTE_AFTER, log=log, workspace=workspace, tool_use=None
+                HookType.TOOL_EXECUTE_POST, log=log, workspace=workspace, tool_use=None
             )
         )
 
@@ -158,7 +158,7 @@ def test_no_workspace_graceful_handling(
 
     # Trigger hook without workspace
     messages = list(
-        trigger_hook(HookType.TOOL_EXECUTE_AFTER, log=log, workspace=None, tool_use=None)
+        trigger_hook(HookType.TOOL_EXECUTE_POST, log=log, workspace=None, tool_use=None)
     )
 
     # Should not crash, should not produce messages
@@ -193,7 +193,7 @@ def test_time_format_hours(load_time_awareness_tool, tmp_path):
     # Trigger hook
     messages = list(
         trigger_hook(
-            HookType.TOOL_EXECUTE_AFTER, log=log, workspace=workspace, tool_use=None
+            HookType.TOOL_EXECUTE_POST, log=log, workspace=workspace, tool_use=None
         )
     )
 
@@ -233,7 +233,7 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
 
         messages = list(
             trigger_hook(
-                HookType.TOOL_EXECUTE_AFTER, log=log, workspace=workspace, tool_use=None
+                HookType.TOOL_EXECUTE_POST, log=log, workspace=workspace, tool_use=None
             )
         )
 

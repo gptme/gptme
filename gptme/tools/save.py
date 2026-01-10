@@ -119,9 +119,9 @@ def execute_save_impl(
                 f"which is outside current directory {cwd}"
             ) from err
 
-    # Trigger pre-save hooks (file.save.before)
+    # Trigger pre-save hooks (file.save.pre)
     if pre_save_msgs := trigger_hook(
-        HookType.FILE_SAVE_BEFORE,
+        HookType.FILE_SAVE_PRE,
         log=None,
         workspace=None,
         path=path,
@@ -158,9 +158,9 @@ def execute_save_impl(
     with open(path, "w") as f:
         f.write(content)
 
-    # Trigger post-save hooks (file.save.after)
+    # Trigger post-save hooks (file.save.post)
     if post_save_msgs := trigger_hook(
-        HookType.FILE_SAVE_AFTER,
+        HookType.FILE_SAVE_POST,
         log=None,
         workspace=None,
         path=path,

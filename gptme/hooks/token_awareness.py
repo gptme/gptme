@@ -229,7 +229,7 @@ def register() -> None:
     )
     register_hook(
         "token_awareness.token_usage",
-        HookType.TOOL_EXECUTE_AFTER,
+        HookType.TOOL_EXECUTE_POST,
         add_token_usage_warning,
         priority=0,  # Normal priority
     )

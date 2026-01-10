@@ -150,7 +150,7 @@ def test_hook_with_arguments():
         if False:
             yield
 
-    register_hook("test_hook", HookType.TOOL_EXECUTE_BEFORE, my_hook)
+    register_hook("test_hook", HookType.TOOL_EXECUTE_PRE, my_hook)
 
     # Create a mock ToolUse for testing
     from gptme.tools.base import ToolUse
@@ -158,7 +158,7 @@ def test_hook_with_arguments():
     tool_use = ToolUse(tool="save", args=[], content=None)
     list(
         trigger_hook(
-            HookType.TOOL_EXECUTE_BEFORE, log=None, workspace=None, tool_use=tool_use
+            HookType.TOOL_EXECUTE_PRE, log=None, workspace=None, tool_use=tool_use
         )
     )
 
