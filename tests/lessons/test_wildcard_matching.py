@@ -390,17 +390,18 @@ class TestEdgeCases:
         assert _keyword_to_pattern("") is None
         assert _keyword_to_pattern("   ") is None
 
-    def test_single_wildcard_matches_word_chars(self):
-        """Single wildcard '*' should match zero or more word characters."""
+    def test_single_wildcard_returns_none(self):
+        """Single wildcard '*' returns None to prevent over-matching all text."""
         from gptme._keyword_matching import _keyword_to_pattern, _match_keyword
 
+        # Single wildcard returns None to prevent matching everything
         pattern = _keyword_to_pattern("*")
-        assert pattern is not None
+        assert pattern is None
 
-        # Should match any word characters
-        assert _match_keyword("*", "hello")
-        assert _match_keyword("*", "test123")
-        assert _match_keyword("*", "")  # \w* matches empty string
+        # Single wildcard should not match (returns False via None pattern)
+        assert not _match_keyword("*", "hello")
+        assert not _match_keyword("*", "test123")
+        assert not _match_keyword("*", "")
 
     def test_empty_keyword_no_match(self):
         """Empty keyword should not match anything."""

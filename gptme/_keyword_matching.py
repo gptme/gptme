@@ -2,6 +2,11 @@
 
 This module contains the core keyword/pattern matching logic used by both
 the lesson matcher and context selector systems.
+
+Security Note: Regex patterns in lessons come from trusted sources (lesson files
+in the codebase or user-configured directories). While custom regex patterns
+could theoretically cause ReDoS if maliciously crafted, the risk is mitigated
+by the trust model - users control which lessons are loaded.
 """
 
 import logging
@@ -11,7 +16,6 @@ from functools import lru_cache
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=256)
 def _keyword_to_pattern(keyword: str) -> re.Pattern[str] | None:
     """Convert a keyword (possibly with wildcards) to a compiled regex pattern.
 
@@ -38,9 +42,17 @@ def _keyword_to_pattern(keyword: str) -> re.Pattern[str] | None:
     if not keyword or not keyword.strip():
         return None
 
-    # Normalize to lowercase for consistent caching
-    keyword = keyword.lower().strip()
+    # Single wildcard matches everything - return None to avoid over-matching
+    if keyword.strip() == "*":
+        return None
 
+    # Normalize before caching for efficiency
+    return _keyword_to_pattern_cached(keyword.lower().strip())
+
+
+@lru_cache(maxsize=256)
+def _keyword_to_pattern_cached(keyword: str) -> re.Pattern[str]:
+    """Internal cached implementation - receives normalized keyword."""
     if "*" in keyword:
         # Escape special regex chars except *, then replace * with \w*
         # First escape everything, then un-escape \* and replace with \w*
@@ -54,9 +66,11 @@ def _keyword_to_pattern(keyword: str) -> re.Pattern[str] | None:
     return re.compile(pattern_str, re.IGNORECASE)
 
 
-@lru_cache(maxsize=128)
 def _compile_pattern(pattern: str) -> re.Pattern[str] | None:
     """Compile a regex pattern string with error handling.
+
+    Security Note: Patterns come from lesson files which should be trusted.
+    Users adding custom lessons are responsible for safe pattern design.
 
     Args:
         pattern: Raw regex pattern string
@@ -68,6 +82,13 @@ def _compile_pattern(pattern: str) -> re.Pattern[str] | None:
     if not pattern or not pattern.strip():
         return None
 
+    # Normalize before caching
+    return _compile_pattern_cached(pattern.strip())
+
+
+@lru_cache(maxsize=128)
+def _compile_pattern_cached(pattern: str) -> re.Pattern[str] | None:
+    """Internal cached implementation - receives normalized pattern."""
     try:
         return re.compile(pattern, re.IGNORECASE)
     except re.error as e:
@@ -78,14 +99,15 @@ def _compile_pattern(pattern: str) -> re.Pattern[str] | None:
 def _match_keyword(keyword: str, text: str) -> bool:
     """Check if a keyword matches the text.
 
-    Supports wildcard (*) in keywords.
+    Uses word boundary matching to prevent partial word matches.
+    Case-insensitive matching via compiled pattern.
 
     Args:
-        keyword: Keyword to match (may contain * wildcards)
+        keyword: Keyword to search for (may contain wildcards)
         text: Text to search in
 
     Returns:
-        True if keyword matches somewhere in text, False if no match or empty keyword
+        True if keyword is found in text
     """
     pattern = _keyword_to_pattern(keyword)
     if pattern is None:
@@ -101,7 +123,7 @@ def _match_pattern(pattern_str: str, text: str) -> bool:
         text: Text to search in
 
     Returns:
-        True if pattern matches somewhere in text, False if no match or invalid pattern
+        True if pattern matches text
     """
     pattern = _compile_pattern(pattern_str)
     if pattern is None:
