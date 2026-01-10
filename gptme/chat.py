@@ -88,6 +88,13 @@ def chat(
     # init
     init(model, interactive, tool_allowlist, tool_format)
 
+    # Register CLI confirmation hook for interactive mode
+    # This must be after init_hooks() to avoid being overwritten
+    if interactive and not no_confirm:
+        from .hooks.cli_confirm import register as register_cli_confirm
+
+        register_cli_confirm()
+
     # Trigger session start hooks
     if session_start_msgs := trigger_hook(
         HookType.SESSION_START,
