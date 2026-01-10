@@ -433,12 +433,15 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
     try:
         inquiry = prompt_user()
         # Validate message length to prevent unbounded memory usage
+        truncation_suffix = "\n\n[Message truncated due to length]"
         if len(inquiry) > MAX_MESSAGE_LENGTH:
             logger.warning(
                 f"Message truncated from {len(inquiry)} to {MAX_MESSAGE_LENGTH} chars"
             )
+            # Account for suffix length to stay within MAX_MESSAGE_LENGTH
             inquiry = (
-                inquiry[:MAX_MESSAGE_LENGTH] + "\n\n[Message truncated due to length]"
+                inquiry[: MAX_MESSAGE_LENGTH - len(truncation_suffix)]
+                + truncation_suffix
             )
         msg = Message("user", inquiry, quiet=True)
         msg = include_paths(msg, workspace)
