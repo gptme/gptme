@@ -657,3 +657,76 @@ def test_truncation_in_pr_content():
     assert "@verbose-bot" in content
     # Full body should not be present
     assert long_body not in content
+
+
+def test_suggestion_preserved_from_truncated_comment(monkeypatch):
+    """Test that code suggestions are extracted from original body before truncation.
+
+    When a long comment containing a suggestion is truncated, the suggestion
+    should still be extracted from the original body, not lost in the truncation.
+    """
+    from gptme.util import gh
+
+    # Create a long comment with a suggestion in the middle (where truncation would remove it)
+    padding = "x" * 3000  # Enough to trigger truncation (>4000 chars)
+    suggestion_body = f"""Some initial analysis text.
+
+{padding}
+
+Here's a suggested fix:
+```suggestion
+fixed_code = True
+```
+
+{padding}
+
+More analysis at the end."""
+
+    mock_review_comments = [
+        {
+            "user": {"login": "reviewer"},
+            "body": suggestion_body,
+            "path": "test.py",
+            "id": 12345,
+            "line": 10,
+        }
+    ]
+
+    def mock_run(cmd, **kwargs):
+        class MockResult:
+            returncode = 0
+            stdout = ""
+
+        if "api" in cmd and "/pulls/" in str(cmd) and "/comments" in str(cmd):
+            MockResult.stdout = json.dumps(mock_review_comments)
+        elif "pr" in cmd and "view" in cmd and "--json" in cmd:
+            MockResult.stdout = json.dumps({"head": {"sha": "abc123"}})
+        elif "pr" in cmd and "view" in cmd:
+            MockResult.stdout = "PR Title\nPR Body"
+        elif "api" in cmd and "graphql" in cmd:
+            MockResult.stdout = json.dumps(
+                {
+                    "data": {
+                        "repository": {"pullRequest": {"reviewThreads": {"nodes": []}}}
+                    }
+                }
+            )
+        elif "api" in cmd and "check-runs" in cmd:
+            MockResult.stdout = json.dumps({"check_runs": []})
+
+        return MockResult()
+
+    import json
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = gh.get_github_pr_content("https://github.com/test/repo/pull/1")
+    assert result is not None
+
+    # Verify the body was truncated (indicator present)
+    assert "[... truncated" in result
+
+    # Most importantly: verify the suggestion was STILL extracted
+    # even though it was in the middle of the truncated content
+    assert "Suggested change:" in result
+    assert "fixed_code = True" in result

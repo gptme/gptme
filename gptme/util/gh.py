@@ -368,7 +368,8 @@ def get_github_pr_content(url: str) -> str | None:
                     content += "\n\n## Review Comments (Unresolved)\n"
                     for comment in unresolved_comments:
                         user = comment.get("user", {}).get("login", "unknown")
-                        body = _truncate_body(comment.get("body", ""))
+                        original_body = comment.get("body", "")
+                        body = _truncate_body(original_body)
                         path = comment.get("path", "")
                         comment_id = comment.get("id")
                         # Get line numbers (prefer current, fallback to original)
@@ -410,10 +411,11 @@ def get_github_pr_content(url: str) -> str | None:
                             content += "\n".join(context_lines)
                             content += "\n```\n"
 
-                        # Extract and display code suggestions
-                        if "```suggestion" in body:
-                            # Find suggestion blocks in the body
-                            lines = body.split("\n")
+                        # Extract and display code suggestions from ORIGINAL body
+                        # (truncation may remove suggestions in the middle)
+                        if "```suggestion" in original_body:
+                            # Find suggestion blocks in the original body
+                            lines = original_body.split("\n")
                             in_suggestion = False
                             suggestion_lines: list[str] = []
 
