@@ -323,6 +323,7 @@ def get_github_pr_content(url: str) -> str | None:
                         user = comment.get("user", {}).get("login", "unknown")
                         body = comment.get("body", "")
                         path = comment.get("path", "")
+                        comment_id = comment.get("id")
                         # Get line numbers (prefer current, fallback to original)
                         line = comment.get("line") or comment.get("original_line")
                         start_line = comment.get("start_line") or comment.get(
@@ -339,7 +340,9 @@ def get_github_pr_content(url: str) -> str | None:
                             # No line information available (e.g., file-level comment)
                             line_ref = path
 
-                        content += f"\n**@{user}** on {line_ref}:\n{body}\n"
+                        # Include comment ID to enable replies via: gh api repos/.../pulls/.../comments/{id}/replies
+                        id_suffix = f" (ID: {comment_id})" if comment_id else ""
+                        content += f"\n**@{user}** on {line_ref}{id_suffix}:\n{body}\n"
 
                         # Add code context if available
                         if diff_hunk:
