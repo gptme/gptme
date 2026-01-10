@@ -1,0 +1,245 @@
+"""CLI confirmation hook for terminal-based tool confirmation.
+
+This hook provides the interactive terminal confirmation experience
+that was previously implemented in ask_execute.py.
+"""
+
+import logging
+import sys
+import termios
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from rich import print
+from rich.console import Console
+from rich.syntax import Syntax
+
+from ..util.clipboard import copy, set_copytext
+from ..util.prompt import get_prompt_session
+from ..util.sound import print_bell
+from ..util.terminal import terminal_state_title
+from ..util.useredit import edit_text_with_editor
+from .confirm import ConfirmationResult
+
+if TYPE_CHECKING:
+    from ..tools.base import ToolUse
+
+logger = logging.getLogger(__name__)
+console = Console(log_path=False)
+
+# Global state for auto-confirm
+_override_auto = False
+_auto_confirm_count = 0
+
+
+def reset_auto_confirm():
+    """Reset auto-confirm state."""
+    global _override_auto, _auto_confirm_count
+    _override_auto = False
+    _auto_confirm_count = 0
+
+
+def set_auto_confirm(count: int | None = None):
+    """Set auto-confirm mode.
+
+    Args:
+        count: Number of auto-confirms, or None for infinite
+    """
+    global _override_auto, _auto_confirm_count
+    if count is None:
+        _override_auto = True
+    else:
+        _auto_confirm_count = count
+
+
+def cli_confirm_hook(
+    tool_use: "ToolUse",
+    preview: str | None = None,
+    workspace: Path | None = None,
+) -> ConfirmationResult:
+    """CLI confirmation hook for terminal-based confirmation.
+
+    This provides the interactive terminal confirmation experience:
+    - Shows a preview of the tool execution
+    - Asks for user confirmation (y/n/e/c)
+    - Supports auto-confirm mode
+    - Supports editing content before execution
+    - Supports copying content to clipboard
+    """
+    global _override_auto, _auto_confirm_count
+
+    # Check auto-confirm first
+    if _override_auto or _auto_confirm_count > 0:
+        if _auto_confirm_count > 0:
+            _auto_confirm_count -= 1
+            console.log(f"Auto-confirmed, {_auto_confirm_count} left")
+        return ConfirmationResult.confirm()
+
+    # Get preview content - use provided preview or generate from tool_use
+    content = preview or tool_use.content
+    lang = _get_lang_for_tool(tool_use.tool)
+
+    # Determine if content is editable/copiable
+    editable = bool(content)
+    copiable = bool(content)
+
+    # Show preview if we have content
+    if content:
+        _print_preview(content, lang, copy=copiable)
+        if copiable:
+            set_copytext(content)
+
+    # Build the confirmation prompt
+    print_bell()  # Ring the bell before asking
+    termios.tcflush(sys.stdin, termios.TCIFLUSH)
+
+    # Build choice string with available options
+    choicestr = "[Y/n"
+    if copiable:
+        choicestr += "/c"
+    if editable:
+        choicestr += "/e"
+    choicestr += "/?]"
+
+    question = f"Execute {tool_use.tool}?"
+
+    with terminal_state_title("❓ waiting for confirmation"):
+        session = get_prompt_session()
+        prompt = f"{question} {choicestr}"
+
+        style_prompt_toolkit = "bold fg:ansiyellow bg:ansired"
+        answer = (
+            session.prompt(
+                [
+                    (style_prompt_toolkit, " " + prompt + " "),
+                    ("", " "),
+                ]
+            )
+            .lower()
+            .strip()
+        )
+
+    # Handle the response
+    return _handle_response(answer, content, editable, copiable, tool_use)
+
+
+def _handle_response(
+    answer: str,
+    content: str | None,
+    editable: bool,
+    copiable: bool,
+    tool_use: "ToolUse",
+) -> ConfirmationResult:
+    """Handle user response to confirmation prompt."""
+    global _override_auto, _auto_confirm_count
+
+    # Copy option
+    if copiable and answer == "c":
+        if copy():
+            print("Copied to clipboard.")
+        return ConfirmationResult.skip("Copied to clipboard, execution skipped")
+
+    # Edit option
+    if editable and answer == "e" and content:
+        ext = _get_ext_for_tool(tool_use)
+        edited = edit_text_with_editor(content, ext=ext)
+        if edited != content:
+            print("Content updated.")
+            return ConfirmationResult.edit(edited)
+        return ConfirmationResult.skip("No changes made, execution skipped")
+
+    # Auto-confirm options
+    import re
+
+    re_auto = r"auto(?:\s+(\d+))?"
+    match = re.match(re_auto, answer)
+    if match:
+        if num := match.group(1):
+            _auto_confirm_count = int(num)
+        else:
+            _override_auto = True
+        return ConfirmationResult.confirm()
+
+    # Help option
+    if answer in ["help", "h", "?"]:
+        _print_help(copiable, editable)
+        # Re-prompt (recursive call via hook system would be complex, so we skip for now)
+        return ConfirmationResult.skip("Help shown, please re-run")
+
+    # Yes/No options
+    if answer in ["y", "yes", ""]:
+        return ConfirmationResult.confirm()
+
+    if answer in ["n", "no"]:
+        return ConfirmationResult.skip("Declined by user")
+
+    # Unknown - treat as no
+    return ConfirmationResult.skip(f"Unknown response: {answer}")
+
+
+def _print_preview(code: str, lang: str, copy: bool = False):
+    """Print a preview of the code to be executed."""
+    print()
+    print("[bold white]Preview[/bold white]")
+    print(Syntax(code.strip("\n"), lang))
+    print()
+
+
+def _print_help(copiable: bool, editable: bool):
+    """Print help for confirmation options."""
+    lines = [
+        "Options:",
+        " y - execute the code",
+        " n - do not execute the code",
+    ]
+    if copiable:
+        lines.append(" c - copy the code to the clipboard")
+    if editable:
+        lines.append(" e - edit the code before executing")
+    lines.extend(
+        [
+            " auto - stop asking for the rest of the session",
+            " auto N - auto-confirm next N operations",
+            "Default is 'y' if answer is empty.",
+        ]
+    )
+    print("\n".join(lines))
+
+
+def _get_lang_for_tool(tool: str) -> str:
+    """Get the syntax highlighting language for a tool."""
+    lang_map = {
+        "python": "python",
+        "ipython": "python",
+        "shell": "bash",
+        "save": "text",
+        "append": "text",
+        "patch": "diff",
+    }
+    return lang_map.get(tool, "text")
+
+
+def _get_ext_for_tool(tool_use: "ToolUse") -> str | None:
+    """Get file extension for editing based on tool."""
+    if tool_use.tool in ("save", "append", "patch") and tool_use.args:
+        path = Path(tool_use.args[0])
+        return path.suffix.lstrip(".") or None
+    elif tool_use.tool in ("python", "ipython"):
+        return "py"
+    elif tool_use.tool == "shell":
+        return "sh"
+    return None
+
+
+def register():
+    """Register the CLI confirmation hook."""
+    from . import HookType, register_hook
+
+    register_hook(
+        name="cli_confirm",
+        hook_type=HookType.TOOL_CONFIRM,
+        func=cli_confirm_hook,
+        priority=0,
+        enabled=True,
+    )
+    logger.debug("Registered CLI confirmation hook")
