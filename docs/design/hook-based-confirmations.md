@@ -17,8 +17,8 @@
 | 2 | auto_confirm_hook | ✅ Complete |
 | 2 | Hook registration in chat.py | ✅ Complete |
 | 2 | confirm_bridge utilities | ✅ Complete |
-| 3 | Tests (13 passing) | ✅ Complete |
-| 4 | Server hook implementation | ⏳ Pending |
+| 3 | Tests (16 passing) | ✅ Complete |
+| 4 | Server hook implementation | ✅ Complete |
 | 5 | Full tool execution integration | ⏳ Pending |
 
 ## Problem Statement
