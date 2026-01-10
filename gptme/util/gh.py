@@ -40,9 +40,19 @@ def _truncate_body(body: str, max_tokens: int = DEFAULT_TRUNCATE_TOKENS) -> str:
     if len(body) <= max_chars:
         return body
 
-    # Keep beginning and end, truncate middle
-    keep_chars = max_chars // 2
-    truncated_chars = len(body) - max_chars
+    # Reserve space for indicator message (format: "\n\n[... truncated X chars (Y tokens) ...]\n\n")
+    # Max indicator length: ~70 chars (accounts for large numbers)
+    indicator_overhead = 70
+
+    # Calculate how much content we can keep within budget
+    available_for_content = max_chars - indicator_overhead
+    if available_for_content <= 0:
+        # Edge case: max_chars too small for meaningful truncation
+        return body[:max_chars]
+
+    keep_chars = available_for_content // 2
+    truncated_chars = len(body) - (keep_chars * 2)
+
     return (
         f"{body[:keep_chars]}\n\n"
         f"[... truncated {truncated_chars} chars ({truncated_chars // 4} tokens) ...]\n\n"

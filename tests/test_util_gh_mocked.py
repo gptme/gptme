@@ -575,6 +575,40 @@ class TestTruncateBody:
         # Middle X's should be truncated
         assert "[... truncated" in result
 
+    def test_truncated_output_within_limit(self):
+        """Verify truncated output stays within max_chars limit."""
+        # Test various body sizes
+        test_cases = [
+            ("A" * 5000, 1000),  # default 1000 tokens = 4000 chars
+            ("B" * 10000, 500),  # 500 tokens = 2000 chars
+            ("C" * 3000, 200),  # 200 tokens = 800 chars
+        ]
+
+        for body, max_tokens in test_cases:
+            result = _truncate_body(body, max_tokens=max_tokens)
+            max_chars = max_tokens * 4
+
+            # Output should not exceed max_chars
+            assert len(result) <= max_chars, (
+                f"Truncated output ({len(result)} chars) exceeds "
+                f"max_chars ({max_chars}) for max_tokens={max_tokens}"
+            )
+            # Should still have truncation indicator
+            assert "[... truncated" in result
+
+    def test_edge_case_small_overage(self):
+        """Edge case: body just slightly over limit shouldn't grow."""
+        max_tokens = 100  # 400 chars
+        # Body is just 10 chars over limit
+        body = "X" * 410
+
+        result = _truncate_body(body, max_tokens=max_tokens)
+
+        # Result should be truncated AND shorter than original
+        assert len(result) <= len(body), "Truncation made output longer!"
+        # Should also stay within the limit
+        assert len(result) <= 400, f"Result ({len(result)}) exceeds 400 chars"
+
 
 def test_truncation_in_pr_content():
     """Test that truncation is applied to review comments in PR content."""
