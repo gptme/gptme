@@ -513,3 +513,113 @@ def test_malformed_suggestion_block():
     # Should handle gracefully - unclosed blocks shouldn't cause extraction
     # The raw body will still contain the suggestion marker
     assert "```suggestion" in content or "unclosed block" in content
+
+
+# Tests for the truncation helper function
+from gptme.util.gh import _truncate_body
+
+
+class TestTruncateBody:
+    """Tests for comment body truncation."""
+
+    def test_short_body_unchanged(self):
+        """Short bodies should pass through unchanged."""
+        body = "This is a short comment."
+        result = _truncate_body(body)
+        assert result == body
+
+    def test_empty_body(self):
+        """Empty body should return empty."""
+        assert _truncate_body("") == ""
+
+    def test_long_body_truncated(self):
+        """Long bodies should be truncated from middle."""
+        # Create a body that exceeds 1000 tokens (4000 chars)
+        body = "A" * 5000  # 5000 chars = ~1250 tokens
+
+        result = _truncate_body(body)
+
+        # Should be truncated
+        assert len(result) < len(body)
+        # Should have truncation indicator
+        assert "[... truncated" in result
+        assert "chars" in result
+        # Should preserve beginning and end
+        assert result.startswith("A" * 100)
+        assert result.endswith("A" * 100)
+
+    def test_custom_max_tokens(self):
+        """Custom max_tokens should be respected."""
+        body = "B" * 2000  # 2000 chars = ~500 tokens
+
+        # With default (1000 tokens), this should NOT be truncated
+        result_default = _truncate_body(body)
+        assert result_default == body
+
+        # With 200 tokens (800 chars), this SHOULD be truncated
+        result_custom = _truncate_body(body, max_tokens=200)
+        assert "[... truncated" in result_custom
+        assert len(result_custom) < len(body)
+
+    def test_truncation_preserves_structure(self):
+        """Truncation should preserve beginning and end content."""
+        # Create a body with identifiable start and end
+        body = "START_MARKER" + ("X" * 5000) + "END_MARKER"
+
+        result = _truncate_body(body)
+
+        # Beginning should be preserved
+        assert "START_MARKER" in result
+        # End should be preserved
+        assert "END_MARKER" in result
+        # Middle X's should be truncated
+        assert "[... truncated" in result
+
+
+def test_truncation_in_pr_content():
+    """Test that truncation is applied to review comments in PR content."""
+    # Create a mock response with a very long review comment
+    long_body = "Long comment: " + ("X" * 5000)  # Exceeds 1000 tokens
+
+    mock_response = {
+        "pr_view": "Test PR #123\nOpen\n@testuser\n\nTest",
+        "pr_comments": "",
+        "pr_details": {"number": 123, "title": "Test PR"},
+        "review_comments": [
+            {
+                "id": 1009,
+                "user": {"login": "verbose-bot"},
+                "body": long_body,
+                "path": "test.py",
+                "line": 10,
+                "diff_hunk": "",
+            }
+        ],
+        "graphql_threads": {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {
+                                    "isResolved": False,
+                                    "comments": {"nodes": [{"databaseId": 1009}]},
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    }
+
+    with patch("subprocess.run", side_effect=mock_subprocess_run(mock_response)):
+        content = get_github_pr_content("https://github.com/owner/repo/pull/123")
+
+    assert content is not None
+    # Should have truncation indicator
+    assert "[... truncated" in content
+    # Should still have the comment metadata
+    assert "@verbose-bot" in content
+    # Full body should not be present
+    assert long_body not in content

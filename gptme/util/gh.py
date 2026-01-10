@@ -12,6 +12,43 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 
+# Default threshold for truncating long comment bodies
+# Based on empirical sampling: human comments typically <500 tokens,
+# verbose bot comments (Greptile, Ellipsis) can reach 900+ tokens
+DEFAULT_TRUNCATE_TOKENS = 1000
+
+
+def _truncate_body(body: str, max_tokens: int = DEFAULT_TRUNCATE_TOKENS) -> str:
+    """
+    Truncate comment body if it exceeds token threshold.
+
+    Preserves beginning and end of content, truncating the middle.
+    Uses chars/4 as token estimate (conservative for most content).
+
+    Args:
+        body: Comment body text
+        max_tokens: Maximum tokens to allow (default: 1000)
+
+    Returns:
+        Original body if within limit, or truncated with indicator
+    """
+    if not body:
+        return body
+
+    # Estimate tokens (chars/4 is conservative estimate)
+    max_chars = max_tokens * 4
+    if len(body) <= max_chars:
+        return body
+
+    # Keep beginning and end, truncate middle
+    keep_chars = max_chars // 2
+    truncated_chars = len(body) - max_chars
+    return (
+        f"{body[:keep_chars]}\n\n"
+        f"[... truncated {truncated_chars} chars ({truncated_chars // 4} tokens) ...]\n\n"
+        f"{body[-keep_chars:]}"
+    )
+
 
 def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
     """Get GitHub Actions status for a commit SHA."""
@@ -321,7 +358,7 @@ def get_github_pr_content(url: str) -> str | None:
                     content += "\n\n## Review Comments (Unresolved)\n"
                     for comment in unresolved_comments:
                         user = comment.get("user", {}).get("login", "unknown")
-                        body = comment.get("body", "")
+                        body = _truncate_body(comment.get("body", ""))
                         path = comment.get("path", "")
                         comment_id = comment.get("id")
                         # Get line numbers (prefer current, fallback to original)
