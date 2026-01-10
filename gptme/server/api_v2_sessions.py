@@ -25,6 +25,7 @@ from gptme.config import ChatConfig, Config
 from ..dirs import get_logs_dir
 from ..executor import prepare_execution_environment
 from ..hooks import HookType, trigger_hook
+from ..hooks.confirm import ConfirmationResult
 from ..llm import _chat_complete, _stream
 from ..llm.models import get_default_model
 from ..logmanager import LogManager, prepare_messages
@@ -794,6 +795,43 @@ def api_conversation_step(conversation_id: str):
     )
 
 
+def _resolve_hook_confirmation(
+    tool_id: str,
+    action: str,
+    edited_content: str | None = None,
+) -> None:
+    """Resolve a pending hook-based confirmation.
+
+    This is called when the HTTP endpoint receives a tool confirmation response.
+    It converts the HTTP action to a ConfirmationResult and signals any waiting hooks.
+
+    Args:
+        tool_id: The tool ID being confirmed
+        action: The action (confirm, skip, edit, auto)
+        edited_content: Content for edit action
+    """
+    try:
+        from ..hooks.server_confirm import resolve_pending
+    except ImportError:
+        return  # Hook module not available
+
+    # Convert HTTP action to ConfirmationResult
+    if action == "confirm" or action == "auto":
+        result = ConfirmationResult.confirm()
+    elif action == "skip":
+        result = ConfirmationResult.skip("Skipped by user")
+    elif action == "edit":
+        if edited_content:
+            result = ConfirmationResult.edit(edited_content)
+        else:
+            result = ConfirmationResult.confirm()
+    else:
+        return  # Unknown action
+
+    # Try to resolve - this will signal any waiting hooks
+    resolve_pending(tool_id, result)
+
+
 @sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/tool/confirm", methods=["POST"]
 )
@@ -860,6 +898,10 @@ def api_conversation_tool_confirm(conversation_id: str):
     # Get model from session config, default model, or fallback to "anthropic"
     default_model = get_default_model()
     model = chat_config.model or (default_model.full if default_model else "anthropic")
+
+    # Try to resolve via hook system (for hook-based confirmation flow)
+    # This enables future integration where tools use hooks for confirmation
+    _resolve_hook_confirmation(tool_id, action, req_json.get("content"))
 
     if action == "confirm":
         # Execute the tool

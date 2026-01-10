@@ -843,6 +843,9 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
         "auto_confirm": lambda: __import__(
             "gptme.hooks.auto_confirm", fromlist=["register"]
         ).register(),
+        "server_confirm": lambda: __import__(
+            "gptme.hooks.server_confirm", fromlist=["register"]
+        ).register(),
         # NOTE: subagent_completion is now registered via ToolSpec in tools/subagent.py
         "test": lambda: __import__(
             "gptme.hooks.test", fromlist=["register_test_hooks"]
@@ -854,9 +857,9 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
         hooks_to_register = allowlist
     else:
         # Register all default hooks except test and mode-specific confirmation hooks
-        # Confirmation hooks (cli_confirm, auto_confirm) should be registered
-        # explicitly based on the mode (CLI, server, autonomous)
-        mode_specific_hooks = {"test", "cli_confirm", "auto_confirm"}
+        # Confirmation hooks (cli_confirm, auto_confirm, server_confirm) should be
+        # registered explicitly based on the mode (CLI, server, autonomous)
+        mode_specific_hooks = {"test", "cli_confirm", "auto_confirm", "server_confirm"}
         hooks_to_register = [h for h in available_hooks if h not in mode_specific_hooks]
 
     # Register the hooks
