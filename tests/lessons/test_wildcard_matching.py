@@ -1,6 +1,6 @@
 """Tests for wildcard and pattern matching in lessons."""
 
-from gptme.lessons.matcher import (
+from gptme._keyword_matching import (
     _compile_pattern,
     _keyword_to_pattern,
     _match_keyword,
