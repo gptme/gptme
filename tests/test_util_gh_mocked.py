@@ -230,7 +230,7 @@ def test_code_context_extraction(mock_pr_with_context_response):
     assert content is not None
 
     # Should have review comment
-    assert "**@reviewer** on test.py:10:" in content
+    assert "**@reviewer** on test.py:10 (ID: 1001):" in content
     assert "Please fix this" in content
 
     # Should have code context section
@@ -272,7 +272,7 @@ def test_code_suggestion_extraction(mock_pr_with_suggestion_response):
     assert content is not None
 
     # Should have review comment
-    assert "**@reviewer** on test.py:15:" in content
+    assert "**@reviewer** on test.py:15 (ID: 1002):" in content
     assert "Consider this change:" in content
 
     # Should have extracted suggestion
@@ -292,7 +292,7 @@ def test_both_context_and_suggestion(mock_pr_with_both_response):
     assert content is not None
 
     # Should have review comment
-    assert "**@reviewer** on module.py:20:" in content
+    assert "**@reviewer** on module.py:20 (ID: 1003):" in content
 
     # Should have code context
     assert "Referenced code in module.py:20:" in content
@@ -313,7 +313,7 @@ def test_multiple_suggestions(mock_pr_multiple_suggestions):
     assert content is not None
 
     # Should have review comment
-    assert "**@reviewer** on test.py:25:" in content
+    assert "**@reviewer** on test.py:25 (ID: 1004):" in content
 
     # Should have both suggestions
     assert content.count("Suggested change:") == 2
@@ -359,7 +359,7 @@ def test_no_context_or_suggestion(mock_pr_basic_response):
     assert content is not None
 
     # Should have review comment
-    assert "**@reviewer** on test.py:5:" in content
+    assert "**@reviewer** on test.py:5 (ID: 1005):" in content
     assert "Looks good!" in content
 
     # Should NOT have context or suggestion sections
