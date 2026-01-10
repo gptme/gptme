@@ -31,11 +31,16 @@ def _keyword_to_pattern(keyword: str) -> re.Pattern[str] | None:
     Returns:
         Compiled regex pattern for matching, or None if keyword is empty
 
+    Note: Wildcards use \\w* which matches zero or more word characters
+    (a-z, A-Z, 0-9, underscore). This means * will NOT match across
+    spaces, hyphens, or punctuation. For example, "error*message" will
+    NOT match "error - message" or "error: message".
+
     Examples:
         "error" -> matches "error" literally
         "process killed at * seconds" -> matches "process killed at 120 seconds"
         "timeout*" -> matches "timeout", "timeout30s", "timeouts"
-        "*" -> matches any word characters (including empty)
+        "*" -> returns None (single wildcard disabled to prevent over-matching)
         "" -> returns None (empty keyword)
     """
     # Handle empty keyword
@@ -99,8 +104,12 @@ def _compile_pattern_cached(pattern: str) -> re.Pattern[str] | None:
 def _match_keyword(keyword: str, text: str) -> bool:
     """Check if a keyword matches the text.
 
-    Uses word boundary matching to prevent partial word matches.
+    Performs substring matching - the keyword pattern may match anywhere
+    in the text. This means "err" will match "error" and "berry".
     Case-insensitive matching via compiled pattern.
+
+    Note: Wildcards use \\w* which matches zero or more word characters
+    (a-z, A-Z, 0-9, underscore) but NOT spaces, hyphens, or punctuation.
 
     Args:
         keyword: Keyword to search for (may contain wildcards)
