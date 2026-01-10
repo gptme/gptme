@@ -137,6 +137,20 @@ def chat(
     def confirm_func(msg) -> bool:
         if no_confirm:
             return True
+        # Use hook-based confirmation if a TOOL_CONFIRM hook is registered
+        from .hooks import HookType, get_hooks
+
+        hooks = get_hooks(HookType.TOOL_CONFIRM)
+        enabled_hooks = [h for h in hooks if h.enabled]
+        if enabled_hooks:
+            # Use the bridge to get confirmation via hooks
+            from .hooks.confirm_bridge import make_confirm_func_from_hooks
+
+            hook_confirm = make_confirm_func_from_hooks(
+                workspace=workspace, default_confirm=True
+            )
+            return hook_confirm(msg)
+        # Fall back to legacy ask_execute
         return ask_execute(msg)
 
     # Convert prompt_msgs to a queue for unified handling
