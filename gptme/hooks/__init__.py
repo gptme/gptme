@@ -18,6 +18,9 @@ from typing import (
 
 from ..message import Message
 from ..plugins import register_plugin_hooks
+from .confirm import ConfirmAction as ConfirmAction
+from .confirm import ConfirmationResult as ConfirmationResult
+from .confirm import ToolConfirmHook as ToolConfirmHook
 
 if TYPE_CHECKING:
     from ..logmanager import Log, LogManager  # fmt: skip
@@ -99,6 +102,9 @@ class HookType(str, Enum):
 
     # Cache events
     CACHE_INVALIDATED = "cache.invalidated"  # Prompt cache was invalidated
+
+    # Tool confirmation (different from other hooks - returns data, not yields Messages)
+    TOOL_CONFIRM = "tool.confirm"  # Confirm tool execution before running
 
     # === Backward compatibility aliases (DEPRECATED) ===
     # These will be removed in a future version. Use the new names above.
@@ -292,6 +298,7 @@ HookFunc = (
     | FilePreSaveHook
     | FilePostSaveHook
     | CacheInvalidatedHook
+    | ToolConfirmHook
 )
 
 
@@ -601,6 +608,16 @@ def register_hook(
     name: str,
     hook_type: Literal[HookType.CACHE_INVALIDATED],
     func: CacheInvalidatedHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.TOOL_CONFIRM],
+    func: ToolConfirmHook,
     priority: int = 0,
     enabled: bool = True,
 ) -> None: ...
