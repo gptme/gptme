@@ -61,6 +61,12 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
 
 .. toctree::
    :maxdepth: 2
+   :caption: Design Documents
+
+   design/hook-based-confirmations
+
+.. toctree::
+   :maxdepth: 2
    :caption: About
 
    alternatives
