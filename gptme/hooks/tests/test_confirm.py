@@ -207,3 +207,77 @@ class TestAutoConfirmHook:
 
         hooks = get_hooks(HookType.TOOL_CONFIRM)
         assert any(h.name == "auto_confirm" for h in hooks)
+
+
+class TestServerConfirmHook:
+    """Tests for server confirmation hook."""
+
+    def test_server_confirm_pending_registration(self):
+        """Test that pending confirmations can be registered and resolved."""
+        from gptme.hooks.confirm import ConfirmationResult
+        from gptme.hooks.server_confirm import (
+            get_pending,
+            register_pending,
+            remove_pending,
+            resolve_pending,
+        )
+
+        # Create a mock tool use
+        from gptme.tools.base import ToolUse
+
+        tooluse = ToolUse("shell", ["echo", "test"], "echo test")
+
+        # Register a pending confirmation
+        tool_id = "test-tool-123"
+        pending = register_pending(tool_id, tooluse, "preview content")
+
+        assert pending is not None
+        assert pending.tool_use == tooluse
+        assert pending.preview == "preview content"
+        assert pending.result is None
+        assert not pending.event.is_set()
+
+        # Verify we can retrieve it
+        retrieved = get_pending(tool_id)
+        assert retrieved == pending
+
+        # Resolve the pending confirmation
+        result = ConfirmationResult.confirm()
+        success = resolve_pending(tool_id, result)
+        assert success
+
+        # Event should be set
+        assert pending.event.is_set()
+        assert pending.result == result
+
+        # Cleanup
+        remove_pending(tool_id)
+        assert get_pending(tool_id) is None
+
+    def test_resolve_nonexistent_pending(self):
+        """Test resolving a non-existent pending confirmation returns False."""
+        from gptme.hooks.confirm import ConfirmationResult
+        from gptme.hooks.server_confirm import resolve_pending
+
+        success = resolve_pending("nonexistent-id", ConfirmationResult.confirm())
+        assert not success
+
+    def test_server_confirm_registration(self):
+        """Test that server_confirm hook can be registered."""
+        from gptme.hooks import HookType, clear_hooks, get_hooks
+        from gptme.hooks.server_confirm import register, unregister
+
+        # Clear any existing hooks
+        clear_hooks(HookType.TOOL_CONFIRM)
+
+        # Register server confirm hook
+        register()
+
+        # Verify registration
+        hooks = get_hooks(HookType.TOOL_CONFIRM)
+        assert len(hooks) == 1
+        assert hooks[0].name == "server_confirm"
+
+        # Cleanup
+        unregister()
+        assert len(get_hooks(HookType.TOOL_CONFIRM)) == 0
