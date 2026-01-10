@@ -1,37 +1,15 @@
 """Rule-based context selection using keyword/pattern matching."""
 
 import logging
-import re
 from collections.abc import Sequence
-from functools import lru_cache
+
+from gptme._keyword_matching import (
+    _match_keyword,
+    _match_pattern,
+)
 
 from .base import ContextItem, ContextSelector
 from .config import ContextSelectorConfig
-
-
-@lru_cache(maxsize=256)
-def _keyword_to_pattern(keyword: str) -> re.Pattern[str]:
-    """Convert a keyword (possibly with wildcards) to a compiled regex pattern.
-
-    Wildcards:
-    - '*' matches zero or more word characters (\\w*)
-
-    All matching is case-insensitive. Input normalized to lowercase for cache.
-    """
-    keyword = keyword.lower()
-    if "*" in keyword:
-        escaped = re.escape(keyword)
-        pattern_str = escaped.replace(r"\*", r"\w*")
-    else:
-        pattern_str = re.escape(keyword)
-    return re.compile(pattern_str, re.IGNORECASE)
-
-
-def _match_keyword(keyword: str, text: str) -> bool:
-    """Check if a keyword matches the text. Supports wildcards (*)."""
-    pattern = _keyword_to_pattern(keyword)
-    return pattern.search(text) is not None
-
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +55,10 @@ class RuleBasedSelector(ContextSelector):
             if isinstance(patterns, str):
                 patterns = [patterns]
             for pattern in patterns:
-                if isinstance(pattern, str):
-                    try:
-                        if re.search(pattern, query_lower, re.IGNORECASE):
-                            score += 1.0
-                            matched_by.append(f"pattern:{pattern[:30]}...")
-                    except re.error:
-                        pass  # Skip invalid patterns
+                if isinstance(pattern, str) and pattern.strip():
+                    if _match_pattern(pattern, query_lower):
+                        score += 1.0
+                        matched_by.append(f"pattern:{pattern[:30]}...")
 
             # Priority boost (for lessons/tasks)
             priority = metadata.get("priority")

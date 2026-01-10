@@ -14,6 +14,7 @@ class TestKeywordToPattern:
     def test_literal_keyword(self):
         """Literal keywords should match exactly."""
         pattern = _keyword_to_pattern("error")
+        assert pattern is not None
         assert pattern.search("there was an error") is not None
         assert pattern.search("ERROR message") is not None  # case insensitive
         assert pattern.search("no issue here") is None
@@ -21,6 +22,7 @@ class TestKeywordToPattern:
     def test_wildcard_matches_word_chars(self):
         """Wildcard * should match word characters."""
         pattern = _keyword_to_pattern("process killed at * seconds")
+        assert pattern is not None
         assert pattern.search("process killed at 120 seconds") is not None
         assert pattern.search("process killed at 5 seconds") is not None
         assert pattern.search("process killed at abc seconds") is not None
@@ -28,6 +30,7 @@ class TestKeywordToPattern:
     def test_wildcard_matches_empty(self):
         """Wildcard * should match empty string (zero chars)."""
         pattern = _keyword_to_pattern("timeout*")
+        assert pattern is not None
         assert pattern.search("timeout") is not None
         assert pattern.search("timeout30s") is not None
         assert pattern.search("timeouts") is not None
@@ -35,6 +38,7 @@ class TestKeywordToPattern:
     def test_wildcard_at_start(self):
         """Wildcard at start of keyword."""
         pattern = _keyword_to_pattern("*error")
+        assert pattern is not None
         assert pattern.search("fatal error") is not None
         assert pattern.search("FatalError") is not None
         assert pattern.search("error") is not None
@@ -42,18 +46,21 @@ class TestKeywordToPattern:
     def test_multiple_wildcards(self):
         """Multiple wildcards in same keyword."""
         pattern = _keyword_to_pattern("* failed with *")
+        assert pattern is not None
         assert pattern.search("build failed with error") is not None
         assert pattern.search("test failed with exception") is not None
 
     def test_special_chars_escaped(self):
         """Special regex chars should be escaped."""
         pattern = _keyword_to_pattern("file.txt")
+        assert pattern is not None
         assert pattern.search("file.txt") is not None
         assert pattern.search("fileatxt") is None  # . should not match any char
 
     def test_case_insensitive(self):
         """Matching should be case insensitive."""
         pattern = _keyword_to_pattern("ERROR")
+        assert pattern is not None
         assert pattern.search("error") is not None
         assert pattern.search("Error") is not None
         assert pattern.search("ERROR") is not None
@@ -371,3 +378,148 @@ class TestMatchKeywordsWildcardSupport:
         # Should not match different phrase
         results3 = matcher.match_keywords([lesson], ["server crashed"])
         assert len(results3) == 0
+
+
+class TestEdgeCases:
+    """Tests for edge cases with empty strings, single wildcards, etc."""
+
+    def test_empty_keyword_returns_none_pattern(self):
+        """Empty keyword should return None pattern (no match)."""
+        from gptme._keyword_matching import _keyword_to_pattern
+
+        assert _keyword_to_pattern("") is None
+        assert _keyword_to_pattern("   ") is None
+
+    def test_single_wildcard_matches_word_chars(self):
+        """Single wildcard '*' should match zero or more word characters."""
+        from gptme._keyword_matching import _keyword_to_pattern, _match_keyword
+
+        pattern = _keyword_to_pattern("*")
+        assert pattern is not None
+
+        # Should match any word characters
+        assert _match_keyword("*", "hello")
+        assert _match_keyword("*", "test123")
+        assert _match_keyword("*", "")  # \w* matches empty string
+
+    def test_empty_keyword_no_match(self):
+        """Empty keyword should not match anything."""
+        from gptme._keyword_matching import _match_keyword
+
+        assert not _match_keyword("", "some text")
+        assert not _match_keyword("   ", "some text")
+
+    def test_empty_pattern_returns_none(self):
+        """Empty pattern should return None (no match)."""
+        from gptme._keyword_matching import _compile_pattern, _match_pattern
+
+        assert _compile_pattern("") is None
+        assert _compile_pattern("   ") is None
+        assert not _match_pattern("", "some text")
+        assert not _match_pattern("   ", "some text")
+
+    def test_whitespace_only_keyword(self):
+        """Whitespace-only keyword should be treated as empty."""
+        from gptme._keyword_matching import _keyword_to_pattern
+
+        assert _keyword_to_pattern("   ") is None
+        assert _keyword_to_pattern("\t\n") is None
+
+
+class TestParserValidation:
+    """Tests for parser validation of patterns and keywords."""
+
+    def test_parse_non_string_patterns_filtered(self, tmp_path):
+        """Non-string patterns should be filtered out during parsing."""
+        from gptme.lessons.parser import parse_lesson
+
+        # Create lesson with mixed patterns (including non-strings)
+        lesson_file = tmp_path / "test.md"
+        # Note: In YAML, numbers are parsed as numbers, not strings
+        lesson_content = """---
+match:
+  patterns:
+    - "valid_pattern"
+    - 123  # This is a number, not a string
+    - ""   # Empty string
+    - "another_valid"
+---
+
+# Test Lesson
+
+Content here.
+"""
+        lesson_file.write_text(lesson_content)
+
+        lesson = parse_lesson(lesson_file)
+        # Only valid string patterns should remain
+        assert len(lesson.metadata.patterns) == 2
+        assert "valid_pattern" in lesson.metadata.patterns
+        assert "another_valid" in lesson.metadata.patterns
+
+    def test_parse_non_string_keywords_filtered(self, tmp_path):
+        """Non-string keywords should be filtered out during parsing."""
+        from gptme.lessons.parser import parse_lesson
+
+        lesson_file = tmp_path / "test.md"
+        lesson_content = """---
+match:
+  keywords:
+    - "valid keyword"
+    - 456  # Number, not string
+    - ""   # Empty
+    - "  "  # Whitespace only
+    - "another valid"
+---
+
+# Test Lesson
+
+Content here.
+"""
+        lesson_file.write_text(lesson_content)
+
+        lesson = parse_lesson(lesson_file)
+        # Only valid non-empty string keywords should remain
+        assert len(lesson.metadata.keywords) == 2
+        assert "valid keyword" in lesson.metadata.keywords
+        assert "another valid" in lesson.metadata.keywords
+
+    def test_parse_single_pattern_as_string(self, tmp_path):
+        """Single pattern can be specified as a string instead of list."""
+        from gptme.lessons.parser import parse_lesson
+
+        lesson_file = tmp_path / "test.md"
+        lesson_content = """---
+match:
+  patterns: "single_pattern"
+---
+
+# Test Lesson
+
+Content here.
+"""
+        lesson_file.write_text(lesson_content)
+
+        lesson = parse_lesson(lesson_file)
+        assert len(lesson.metadata.patterns) == 1
+        assert "single_pattern" in lesson.metadata.patterns
+
+    def test_parse_single_keyword_as_string(self, tmp_path):
+        """Single keyword can be specified as a string instead of list."""
+        from gptme.lessons.parser import parse_lesson
+
+        lesson_file = tmp_path / "test.md"
+        lesson_content = """---
+match:
+  keywords: "single keyword"
+---
+
+# Test Lesson
+
+Content here.
+"""
+        lesson_file.write_text(lesson_content)
+
+        lesson = parse_lesson(lesson_file)
+        assert len(lesson.metadata.keywords) == 1
+        assert "single keyword" in lesson.metadata.keywords

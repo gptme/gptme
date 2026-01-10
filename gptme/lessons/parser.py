@@ -328,11 +328,27 @@ def parse_lesson(path: Path) -> Lesson:
                         match_data = frontmatter.get("match", {})
                         status = frontmatter.get("status", "active")
 
+                        # Validate and filter patterns (must be non-empty strings)
+                        raw_patterns = match_data.get("patterns", [])
+                        if isinstance(raw_patterns, str):
+                            raw_patterns = [raw_patterns]
+                        patterns = [
+                            p for p in raw_patterns if isinstance(p, str) and p.strip()
+                        ]
+
+                        # Validate and filter keywords (must be non-empty strings)
+                        raw_keywords = match_data.get("keywords", [])
+                        if isinstance(raw_keywords, str):
+                            raw_keywords = [raw_keywords]
+                        keywords = [
+                            k for k in raw_keywords if isinstance(k, str) and k.strip()
+                        ]
+
                         metadata = LessonMetadata(
                             name=name,
                             description=description,
-                            keywords=match_data.get("keywords", []),
-                            patterns=match_data.get("patterns", []),
+                            keywords=keywords,
+                            patterns=patterns,
                             tools=match_data.get("tools", []),
                             status=status,
                         )
