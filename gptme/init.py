@@ -29,7 +29,7 @@ def init(
     interactive: bool,
     tool_allowlist: list[str] | None,
     tool_format: ToolFormat,
-    extra_hooks: list[str] | None = None,
+    no_confirm: bool = False,
 ):
     """Initialize gptme.
 
@@ -38,7 +38,7 @@ def init(
         interactive: Whether running in interactive mode
         tool_allowlist: List of tools to enable, or None for all
         tool_format: Format for tool output
-        extra_hooks: Additional hooks to add to defaults (e.g., 'cli_confirm')
+        no_confirm: Whether to skip tool confirmations
     """
     global _init_done
     if _init_done:
@@ -49,7 +49,7 @@ def init(
     load_dotenv()
     init_model(model, interactive)
     init_tools(tool_allowlist)
-    init_hooks(extra_hooks=extra_hooks)
+    init_hooks(interactive=interactive, no_confirm=no_confirm)
     init_commands()
 
     set_tool_format(tool_format)
