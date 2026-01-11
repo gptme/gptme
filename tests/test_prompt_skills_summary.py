@@ -31,8 +31,6 @@ This is a test skill.
     # Mock LessonIndex to use our test directory
     from gptme.lessons.index import LessonIndex
 
-    original_default_dirs = LessonIndex._default_dirs
-
     def mock_default_dirs():
         return [tmp_path / "skills"]
 
