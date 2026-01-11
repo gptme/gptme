@@ -19,11 +19,21 @@ Usage:
 import logging
 import threading
 import uuid
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .confirm import ConfirmationResult
+
+# Context variables for accessing session info during hook execution
+# Set by the server before starting tool execution
+current_conversation_id: ContextVar[str | None] = ContextVar(
+    "current_conversation_id", default=None
+)
+current_session_id: ContextVar[str | None] = ContextVar(
+    "current_session_id", default=None
+)
 
 if TYPE_CHECKING:
     from ..tools.base import ToolUse
@@ -117,39 +127,53 @@ def server_confirm_hook(
 ) -> ConfirmationResult:
     """Server-based confirmation hook using SSE events.
 
-    This hook integrates with the server's pending_tools system:
+    This hook integrates with the server's SSE event system:
     1. Creates a pending confirmation with a unique ID
-    2. Emits SSE event (handled by the server)
+    2. Emits SSE event to notify clients
     3. Waits for HTTP endpoint to signal completion
     4. Returns the result
 
-    Note: This hook expects to be called from within a server request context
-    where the session is available. If called outside that context, it will
-    auto-confirm to avoid blocking.
+    The hook reads session context from contextvars set by the server
+    before starting tool execution. If no context is set, it auto-confirms.
     """
     # Generate unique tool ID
     tool_id = str(uuid.uuid4())
 
-    # Try to get the current session from the server context
+    # Get session context from contextvars
+    conversation_id = current_conversation_id.get()
+    session_id = current_session_id.get()
+
+    if not conversation_id or not session_id:
+        # Not in a server session context - auto-confirm
+        logger.debug("No session context available, auto-confirming")
+        return ConfirmationResult.confirm()
+
     try:
-        # Import to verify we're in a server context
-        from ..server.api_v2_sessions import SessionManager  # noqa: F401
-
-        # We need to find the session - this is a bit tricky since we're
-        # called from the tool execution context. The session ID should be
-        # available via the request context or thread local storage.
-
-        # For now, we'll use a different approach: register our pending
-        # confirmation in our own registry, and the HTTP endpoint will
-        # look it up here and also update the session's pending_tools.
+        # Import SessionManager and event types for SSE events
+        from ..server.api_v2_common import ToolPendingEvent
+        from ..server.api_v2_sessions import SessionManager
 
         # Create pending confirmation
         pending = register_pending(tool_id, tool_use, preview)
 
-        logger.debug(f"Server confirmation hook: waiting for tool {tool_id}")
+        # Emit SSE event to notify client
+        SessionManager.add_event(
+            conversation_id,
+            ToolPendingEvent(
+                type="tool_pending",
+                tool_id=tool_id,
+                tooluse={
+                    "tool": tool_use.tool,
+                    "args": tool_use.args or [],
+                    "content": tool_use.content or "",
+                },
+                auto_confirm=False,
+            ),
+        )
+
+        logger.debug(f"Server confirmation hook: emitted SSE event for tool {tool_id}")
 
         # Wait for resolution (with timeout to prevent infinite blocking)
-        # In practice, the client should respond or the session will timeout
         if not pending.event.wait(timeout=3600):  # 1 hour timeout
             logger.warning(f"Server confirmation timed out for tool {tool_id}")
             remove_pending(tool_id)
