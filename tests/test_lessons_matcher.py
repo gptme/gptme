@@ -309,7 +309,12 @@ class TestSkillMatching:
         assert results[0].lesson.title == "Python REPL Skill"
 
     def test_skill_description_match(self, sample_skills):
-        """Test matching skill by description keywords."""
+        """Test that description matching is disabled.
+
+        Description-based word matching was removed because common words
+        (e.g., "context", "agent", "model") caused 100% trigger rates.
+        See: https://github.com/gptme/gptme-contrib/issues/139
+        """
         matcher = LessonMatcher()
         # Use words from description: "token efficiency"
         context = MatchContext(
@@ -318,10 +323,9 @@ class TestSkillMatching:
 
         results = matcher.match(sample_skills, context)
 
-        assert len(results) >= 1
-        # Should match context-optimization based on description
-        skill_names = [r.lesson.title for r in results]
-        assert "Context Optimization" in skill_names
+        # Description matching is disabled - no results expected
+        # Skills should use explicit keywords: in frontmatter
+        assert len(results) == 0
 
     def test_skill_name_preferred_over_description(self, sample_skills):
         """Test that name match is preferred over description match."""

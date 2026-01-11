@@ -114,18 +114,11 @@ class LessonMatcher:
                         matched_by.append(f"skill:{lesson.metadata.name}")
                         break
 
-            # Skill description matching (Anthropic format)
-            # Extract significant words from description and match
-            if lesson.metadata.description and not matched_by:
-                # Only use description matching if not already matched
-                # (avoids duplicate matching from keywords, name, or tools)
-                desc_words = self._extract_description_keywords(
-                    lesson.metadata.description
-                )
-                matched_desc_words = [w for w in desc_words if w in message_lower]
-                if len(matched_desc_words) >= 2:  # Require at least 2 matches
-                    score += 0.5 * len(matched_desc_words)
-                    matched_by.append(f"description:{','.join(matched_desc_words[:3])}")
+            # NOTE: Description-based word matching has been removed.
+            # It caused 100% trigger rates for skills with common words
+            # (e.g., "context", "agent", "model") in descriptions.
+            # Skills should use explicit `keywords:` in frontmatter for matching.
+            # See: https://github.com/gptme/gptme-contrib/issues/139
 
             # Tool matching
             if context.tools_used and lesson.metadata.tools:
