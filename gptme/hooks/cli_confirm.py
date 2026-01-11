@@ -19,7 +19,16 @@ from ..util.prompt import get_prompt_session
 from ..util.sound import print_bell
 from ..util.terminal import terminal_state_title
 from ..util.useredit import edit_text_with_editor
-from .confirm import ConfirmationResult
+from .confirm import (
+    ConfirmationResult,
+    check_auto_confirm,
+)
+from .confirm import (
+    reset_auto_confirm as _reset_auto_confirm,
+)
+from .confirm import (
+    set_auto_confirm as _set_auto_confirm,
+)
 
 if TYPE_CHECKING:
     from ..tools.base import ToolUse
@@ -27,16 +36,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 console = Console(log_path=False)
 
-# Global state for auto-confirm
-_override_auto = False
-_auto_confirm_count = 0
 
-
+# Re-export centralized auto-confirm functions for backward compatibility
 def reset_auto_confirm():
     """Reset auto-confirm state."""
-    global _override_auto, _auto_confirm_count
-    _override_auto = False
-    _auto_confirm_count = 0
+    _reset_auto_confirm()
 
 
 def set_auto_confirm(count: int | None = None):
@@ -45,11 +49,7 @@ def set_auto_confirm(count: int | None = None):
     Args:
         count: Number of auto-confirms, or None for infinite
     """
-    global _override_auto, _auto_confirm_count
-    if count is None:
-        _override_auto = True
-    else:
-        _auto_confirm_count = count
+    _set_auto_confirm(count)
 
 
 def cli_confirm_hook(
@@ -66,13 +66,11 @@ def cli_confirm_hook(
     - Supports editing content before execution
     - Supports copying content to clipboard
     """
-    global _override_auto, _auto_confirm_count
-
-    # Check auto-confirm first
-    if _override_auto or _auto_confirm_count > 0:
-        if _auto_confirm_count > 0:
-            _auto_confirm_count -= 1
-            console.log(f"Auto-confirmed, {_auto_confirm_count} left")
+    # Check auto-confirm first (using centralized state)
+    should_auto, message = check_auto_confirm()
+    if should_auto:
+        if message:
+            console.log(message)
         return ConfirmationResult.confirm()
 
     # Get preview content - use provided preview or generate from tool_use
@@ -129,7 +127,6 @@ def _handle_response(
     tool_use: "ToolUse",
 ) -> ConfirmationResult:
     """Handle user response to confirmation prompt."""
-    global _override_auto, _auto_confirm_count
 
     # Copy option
     if copiable and answer == "c":
@@ -153,9 +150,9 @@ def _handle_response(
     match = re.match(re_auto, answer)
     if match:
         if num := match.group(1):
-            _auto_confirm_count = int(num)
+            _set_auto_confirm(int(num))
         else:
-            _override_auto = True
+            _set_auto_confirm(None)  # Infinite auto-confirm
         return ConfirmationResult.confirm()
 
     # Help option

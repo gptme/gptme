@@ -15,6 +15,11 @@ from rich.style import Style
 from rich.syntax import Syntax
 
 from ..constants import DECLINED_CONTENT
+from ..hooks.confirm import (
+    check_auto_confirm,
+    is_auto_confirm_active,
+    set_auto_confirm,
+)
 from ..message import Message
 from ..tools import ConfirmFunc
 from .clipboard import copy, set_copytext
@@ -26,9 +31,7 @@ from .useredit import edit_text_with_editor
 console = Console(log_path=False)
 
 
-# Global state
-override_auto = False
-auto_confirm_count = 0
+# Global state for copiable/editable (NOT auto-confirm - that's in hooks/confirm.py)
 copiable = False
 editable = False
 
@@ -95,12 +98,13 @@ def ask_execute(question="Execute code?", default=True) -> bool:
     Returns:
         bool: True if user confirms execution, False otherwise
     """
-    global override_auto, auto_confirm_count, copiable, editable
+    global copiable, editable
 
-    if override_auto or auto_confirm_count > 0:
-        if auto_confirm_count > 0:
-            auto_confirm_count -= 1
-            console.log(f"Auto-confirmed, {auto_confirm_count} left")
+    # Check auto-confirm (using centralized state from hooks/confirm.py)
+    should_auto, message = check_auto_confirm()
+    if should_auto:
+        if message:
+            console.log(message)
         return True
 
     print_bell()  # Ring the bell just before asking for input
@@ -143,7 +147,7 @@ def ask_execute(question="Execute code?", default=True) -> bool:
             .strip()
         )
 
-    if not override_auto:
+    if not is_auto_confirm_active():
         if copiable and answer == "c":
             if copy():
                 print("Copied to clipboard.")
@@ -161,10 +165,10 @@ def ask_execute(question="Execute code?", default=True) -> bool:
     match = re.match(re_auto, answer)
     if match:
         if num := match.group(1):
-            auto_confirm_count = int(num)
-            return True
+            set_auto_confirm(int(num))
         else:
-            return (override_auto := True)
+            set_auto_confirm(None)  # Infinite auto-confirm
+        return True
 
     # secret option to ask for help
     if answer in ["help", "h", "?"]:
