@@ -87,6 +87,30 @@ def clear_editable_text():
     editable = False
 
 
+def print_confirmation_help(copiable: bool, editable: bool, default: bool = True):
+    """Print help text for confirmation options.
+
+    This is shared between ask_execute and cli_confirm_hook.
+    """
+    lines = [
+        "Options:",
+        " y - execute the code",
+        " n - do not execute the code",
+    ]
+    if copiable:
+        lines.append(" c - copy the code to the clipboard")
+    if editable:
+        lines.append(" e - edit the code before executing")
+    lines.extend(
+        [
+            " auto - stop asking for the rest of the session",
+            " auto N - auto-confirm next N operations",
+            f"Default is '{'y' if default else 'n'}' if answer is empty.",
+        ]
+    )
+    print("\n".join(lines))
+
+
 def ask_execute(question="Execute code?", default=True) -> bool:
     """Ask user for confirmation before executing code.
 
@@ -170,23 +194,7 @@ def ask_execute(question="Execute code?", default=True) -> bool:
 
     # secret option to ask for help
     if answer in ["help", "h", "?"]:
-        lines = [
-            "Options:",
-            " y - execute the code",
-            " n - do not execute the code",
-        ]
-        if copiable:
-            lines.append(" c - copy the code to the clipboard")
-        if editable:
-            lines.append(" e - edit the code before executing")
-        lines.extend(
-            [
-                " auto - stop asking for the rest of the session",
-                f"Default is '{'y' if default else 'n'}' if answer is empty.",
-            ]
-        )
-        helptext = "\n".join(lines)
-        print(helptext)
+        print_confirmation_help(copiable, editable, default)
         return ask_execute(question, default)
 
     return answer in (["y", "yes"] + [""] if default else [])
