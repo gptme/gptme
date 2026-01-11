@@ -281,3 +281,44 @@ class TestServerConfirmHook:
         # Cleanup
         unregister()
         assert len(get_hooks(HookType.TOOL_CONFIRM)) == 0
+
+    def test_context_vars_default_none(self):
+        """Test that context vars default to None."""
+        from gptme.hooks.server_confirm import (
+            current_conversation_id,
+            current_session_id,
+        )
+
+        # In a new context, vars should be None
+        assert current_conversation_id.get() is None
+        assert current_session_id.get() is None
+
+    def test_context_vars_can_be_set(self):
+        """Test that context vars can be set and retrieved."""
+        from gptme.hooks.server_confirm import (
+            current_conversation_id,
+            current_session_id,
+        )
+
+        # Set values
+        token1 = current_conversation_id.set("test-conversation")
+        token2 = current_session_id.set("test-session")
+
+        try:
+            assert current_conversation_id.get() == "test-conversation"
+            assert current_session_id.get() == "test-session"
+        finally:
+            # Reset to avoid affecting other tests
+            current_conversation_id.reset(token1)
+            current_session_id.reset(token2)
+
+    def test_server_hook_auto_confirms_without_context(self):
+        """Test that server hook auto-confirms when no context is set."""
+        from gptme.hooks.server_confirm import server_confirm_hook
+        from gptme.tools.base import ToolUse
+
+        tool_use = ToolUse(tool="shell", args=[], content="echo test")
+
+        # Without context vars set, should auto-confirm
+        result = server_confirm_hook(tool_use)
+        assert result.action == ConfirmAction.CONFIRM

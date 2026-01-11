@@ -21,6 +21,8 @@ from ..plugins import register_plugin_hooks
 from .confirm import ConfirmAction as ConfirmAction
 from .confirm import ConfirmationResult as ConfirmationResult
 from .confirm import ToolConfirmHook as ToolConfirmHook
+from .server_confirm import current_conversation_id as current_conversation_id
+from .server_confirm import current_session_id as current_session_id
 
 if TYPE_CHECKING:
     from ..logmanager import Log, LogManager  # fmt: skip

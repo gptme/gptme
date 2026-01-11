@@ -505,6 +505,12 @@ def start_tool_execution(
     # For simplicity, we'll run it in a thread
     @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
     def execute_tool_thread() -> None:
+        # Set context vars for hook-based confirmation
+        from ..hooks import current_conversation_id, current_session_id
+
+        current_conversation_id.set(conversation_id)
+        current_session_id.set(session.id)
+
         # Prepare execution environment (config, tools, hooks, .env)
         prepare_execution_environment(
             workspace=chat_config.workspace,
