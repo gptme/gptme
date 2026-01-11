@@ -291,8 +291,20 @@ def api_conversation_post(logfile: str):
     return {"status": "ok"}
 
 
-# TODO: add support for confirmation
 def confirm_func(msg: str) -> bool:
+    """Get confirmation for tool execution via hooks if available."""
+    from ..hooks import HookType, get_hooks
+    from ..hooks.confirm_bridge import make_confirm_func_from_hooks
+
+    hooks = get_hooks(HookType.TOOL_CONFIRM)
+    enabled_hooks = [h for h in hooks if h.enabled]
+    if enabled_hooks:
+        # Use hook-based confirmation (routes through server_confirm_hook)
+        hook_confirm = make_confirm_func_from_hooks(
+            workspace=None, default_confirm=True
+        )
+        return hook_confirm(msg)
+    # No hooks registered - auto-confirm
     return True
 
 
