@@ -84,15 +84,9 @@ def chat(
         tool_format is not None
     ), "tool_format should be resolved before calling chat()"
 
-    # Build extra hooks list based on mode
-    # Default hooks are registered automatically, we add mode-specific ones
-    extra_hooks = None
-    if interactive and not no_confirm:
-        # Include CLI confirmation hook for interactive mode with confirmation enabled
-        extra_hooks = ["cli_confirm"]
-
     # init
-    init(model, interactive, tool_allowlist, tool_format, extra_hooks)
+    # Mode detection for confirmation hooks is now handled inside init_hooks()
+    init(model, interactive, tool_allowlist, tool_format, no_confirm)
 
     # Trigger session start hooks
     if session_start_msgs := trigger_hook(
