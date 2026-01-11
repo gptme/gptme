@@ -114,6 +114,7 @@ def get_prompt(
             core_msgs.extend(prompt_project())
             core_msgs.extend(prompt_systeminfo())
             core_msgs.extend(prompt_timeinfo())
+            core_msgs.extend(prompt_skills_summary())
     elif prompt == "short":
         if include_tools:
             core_msgs = list(
