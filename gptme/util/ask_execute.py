@@ -1,63 +1,36 @@
 """
-Utilities for asking user confirmation and handling editable/copiable content.
+Utilities for tool execution and preview display.
+
+Note: The ask_execute() function and related globals (copiable, editable)
+were removed after migration to the hook-based confirmation system.
+Confirmation is now handled by cli_confirm_hook and server_confirm_hook.
 """
 
-import re
-import sys
-import termios
 from collections.abc import Callable, Generator
 from pathlib import Path
-from textwrap import wrap
 
 from rich import print
 from rich.console import Console
-from rich.style import Style
 from rich.syntax import Syntax
 
 from ..constants import DECLINED_CONTENT
-from ..hooks.confirm import (
-    check_auto_confirm,
-    is_auto_confirm_active,
-    set_auto_confirm,
-)
 from ..message import Message
 from ..tools import ConfirmFunc
-from .clipboard import copy, set_copytext
-from .prompt import get_prompt_session
-from .sound import print_bell
-from .terminal import terminal_state_title
-from .useredit import edit_text_with_editor
+from .clipboard import set_copytext
 
 console = Console(log_path=False)
 
 
-# Global state for copiable/editable (NOT auto-confirm - that's in hooks/confirm.py)
-copiable = False
-editable = False
-
-# Editable text state
+# Editable text state for execute_with_confirmation
 _editable_text = None
 _editable_ext = None
 
 
-def set_copiable():
-    """Mark content as copiable."""
-    global copiable
-    copiable = True
-
-
-def clear_copiable():
-    """Clear copiable state."""
-    global copiable
-    copiable = False
-
-
 def set_editable_text(text: str, ext: str | None = None):
     """Set the text that can be edited and optionally its file extension."""
-    global _editable_text, _editable_ext, editable
+    global _editable_text, _editable_ext
     _editable_text = text
     _editable_ext = ext
-    editable = True
 
 
 def get_editable_text() -> str:
@@ -74,24 +47,17 @@ def get_editable_ext() -> str | None:
     return _editable_ext
 
 
-def set_edited_text(text: str):
-    """Update the editable text after editing."""
-    global _editable_text
-    _editable_text = text
-
-
 def clear_editable_text():
     """Clear the editable text and extension."""
-    global _editable_text, _editable_ext, editable
+    global _editable_text, _editable_ext
     _editable_text = None
     _editable_ext = None
-    editable = False
 
 
 def print_confirmation_help(copiable: bool, editable: bool, default: bool = True):
     """Print help text for confirmation options.
 
-    This is shared between ask_execute and cli_confirm_hook.
+    This is shared with cli_confirm_hook.
     """
     lines = [
         "Options:",
@@ -112,104 +78,22 @@ def print_confirmation_help(copiable: bool, editable: bool, default: bool = True
     print("\n".join(lines))
 
 
-def ask_execute(question="Execute code?", default=True) -> bool:
-    """Ask user for confirmation before executing code.
-
-    Args:
-        question: The question to ask
-        default: The default answer if user just presses enter
-
-    Returns:
-        bool: True if user confirms execution, False otherwise
-    """
-    global copiable, editable
-
-    # Check auto-confirm (using centralized state from hooks/confirm.py)
-    should_auto, message = check_auto_confirm()
-    if should_auto:
-        if message:
-            console.log(message)
-        return True
-
-    print_bell()  # Ring the bell just before asking for input
-    termios.tcflush(sys.stdin, termios.TCIFLUSH)  # flush stdin
-
-    # Build choice string with available options
-    choicestr = f"[{'Y' if default else 'y'}/{'n' if default else 'N'}"
-    choicestr += "/auto"
-    if copiable:
-        choicestr += "/c"
-    if editable:
-        choicestr += "/e"
-    choicestr += "/?"
-    choicestr += "]"
-
-    with terminal_state_title("❓ waiting for confirmation"):
-        session = get_prompt_session()
-
-        prompt = f"{question} {choicestr}"
-
-        style_rich = "bold yellow on red"
-        style_prompt_toolkit = "bold fg:ansiyellow bg:ansired"
-
-        lines = wrap(prompt, width=console.width - 2)
-
-        # print pre-prompt lines
-        # we do this because of https://github.com/gptme/gptme/issues/498
-        if len(lines) > 1:
-            for line in lines[:-1]:
-                console.print(" " + line.strip() + " ", style=Style.parse(style_rich))
-
-        answer = (
-            session.prompt(
-                [
-                    (style_prompt_toolkit, " " + lines[-1].strip() + " "),
-                    ("", " "),
-                ]
-            )
-            .lower()
-            .strip()
-        )
-
-    if not is_auto_confirm_active():
-        if copiable and answer == "c":
-            if copy():
-                print("Copied to clipboard.")
-                return False
-            clear_copiable()
-        elif editable and answer == "e":
-            edited = edit_text_with_editor(get_editable_text(), ext=get_editable_ext())
-            if edited != get_editable_text():
-                set_edited_text(edited)
-                print("Content updated.")
-                return ask_execute("Execute with changes?", default)
-            return False
-
-    re_auto = r"auto(?:\s+(\d+))?"
-    match = re.match(re_auto, answer)
-    if match:
-        if num := match.group(1):
-            set_auto_confirm(int(num))
-        else:
-            set_auto_confirm(None)  # Infinite auto-confirm
-        return True
-
-    # secret option to ask for help
-    if answer in ["help", "h", "?"]:
-        print_confirmation_help(copiable, editable, default)
-        return ask_execute(question, default)
-
-    return answer in (["y", "yes"] + [""] if default else [])
-
 
 def print_preview(
     code: str, lang: str, copy: bool = False, header: str | None = None
 ):  # pragma: no cover
+    """Print a preview of code with syntax highlighting.
+
+    Args:
+        code: The code to preview
+        lang: Language for syntax highlighting
+        copy: Whether to set up code for clipboard copying
+        header: Optional header to display above the preview
+    """
     print()
     print(f"[bold white]{header or 'Preview'}[/bold white]")
 
     if copy:
-        set_copiable()
         set_copytext(code)
 
     # NOTE: we can set background_color="default" to remove background
