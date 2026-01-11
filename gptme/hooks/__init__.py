@@ -694,11 +694,18 @@ def clear_hooks(hook_type: HookType | None = None) -> None:
 
 
 @_thread_safe_init
-def init_hooks(allowlist: list[str] | None = None) -> None:
+def init_hooks(
+    allowlist: list[str] | None = None,
+    extra_hooks: list[str] | None = None,
+) -> None:
     """Initialize and register hooks in a thread-safe manner.
 
-    If allowlist is not provided, it will be loaded from the environment variable
-    HOOK_ALLOWLIST or the chat config (if set).
+    Args:
+        allowlist: Explicit list of hooks to register (replaces defaults).
+                   If not provided, defaults will be loaded from env/config.
+        extra_hooks: Additional hooks to add to defaults (e.g., mode-specific
+                     confirmation hooks like 'cli_confirm'). Only used when
+                     allowlist is None.
     """
     from ..config import get_config  # fmt: skip
 
@@ -764,6 +771,12 @@ def init_hooks(allowlist: list[str] | None = None) -> None:
         # registered explicitly based on the mode (CLI, server, autonomous)
         mode_specific_hooks = {"test", "cli_confirm", "auto_confirm", "server_confirm"}
         hooks_to_register = [h for h in available_hooks if h not in mode_specific_hooks]
+
+        # Add any extra hooks requested (typically mode-specific confirmation hooks)
+        if extra_hooks:
+            hooks_to_register = hooks_to_register + [
+                h for h in extra_hooks if h not in hooks_to_register
+            ]
 
     # Register the hooks
     for hook_name in hooks_to_register:

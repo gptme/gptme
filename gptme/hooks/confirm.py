@@ -11,6 +11,7 @@ Usage:
 """
 
 import logging
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -23,14 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# Centralized Auto-Confirm State
+# Centralized Auto-Confirm State (Thread-Safe via ContextVars)
 # ============================================================================
-# These globals are shared between CLI and other confirmation mechanisms.
-# This eliminates duplicate state that was previously in both ask_execute.py
-# and cli_confirm.py.
+# Using ContextVars for thread safety in server mode where multiple
+# requests may be processed concurrently. Each thread/context gets
+# its own auto-confirm state.
 
-_auto_override: bool = False  # When True, auto-confirm all operations
-_auto_count: int = 0  # When > 0, auto-confirm this many operations
+_auto_override: ContextVar[bool] = ContextVar("auto_override", default=False)
+_auto_count: ContextVar[int] = ContextVar("auto_count", default=0)
 
 
 def set_auto_confirm(count: int | None = None) -> None:
@@ -39,18 +40,16 @@ def set_auto_confirm(count: int | None = None) -> None:
     Args:
         count: Number of operations to auto-confirm, or None for infinite
     """
-    global _auto_override, _auto_count
     if count is None:
-        _auto_override = True
+        _auto_override.set(True)
     else:
-        _auto_count = count
+        _auto_count.set(count)
 
 
 def reset_auto_confirm() -> None:
     """Reset auto-confirm state to defaults."""
-    global _auto_override, _auto_count
-    _auto_override = False
-    _auto_count = 0
+    _auto_override.set(False)
+    _auto_count.set(0)
 
 
 def check_auto_confirm() -> tuple[bool, str | None]:
@@ -59,18 +58,18 @@ def check_auto_confirm() -> tuple[bool, str | None]:
     Returns:
         Tuple of (should_auto_confirm, message_or_none)
     """
-    global _auto_count
-    if _auto_override:
+    if _auto_override.get():
         return True, None
-    if _auto_count > 0:
-        _auto_count -= 1
-        return True, f"Auto-confirmed, {_auto_count} left"
+    count = _auto_count.get()
+    if count > 0:
+        _auto_count.set(count - 1)
+        return True, f"Auto-confirmed, {count - 1} left"
     return False, None
 
 
 def is_auto_confirm_active() -> bool:
     """Check if auto-confirm mode is active (without decrementing)."""
-    return _auto_override or _auto_count > 0
+    return _auto_override.get() or _auto_count.get() > 0
 
 
 class ConfirmAction(str, Enum):
