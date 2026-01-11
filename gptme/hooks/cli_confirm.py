@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from rich import print
 from rich.console import Console
 
-from ..util.ask_execute import print_preview
+from ..util.ask_execute import print_confirmation_help, print_preview
 from ..util.clipboard import copy
 from ..util.prompt import get_prompt_session
 from ..util.sound import print_bell
@@ -157,7 +157,7 @@ def _handle_response(
 
     # Help option
     if answer in ["help", "h", "?"]:
-        _print_help(copiable, editable)
+        print_confirmation_help(copiable, editable, default=True)
         # Re-prompt (recursive call via hook system would be complex, so we skip for now)
         return ConfirmationResult.skip("Help shown, please re-run")
 
@@ -170,27 +170,6 @@ def _handle_response(
 
     # Unknown - treat as no
     return ConfirmationResult.skip(f"Unknown response: {answer}")
-
-
-def _print_help(copiable: bool, editable: bool):
-    """Print help for confirmation options."""
-    lines = [
-        "Options:",
-        " y - execute the code",
-        " n - do not execute the code",
-    ]
-    if copiable:
-        lines.append(" c - copy the code to the clipboard")
-    if editable:
-        lines.append(" e - edit the code before executing")
-    lines.extend(
-        [
-            " auto - stop asking for the rest of the session",
-            " auto N - auto-confirm next N operations",
-            "Default is 'y' if answer is empty.",
-        ]
-    )
-    print("\n".join(lines))
 
 
 def _get_lang_for_tool(tool: str) -> str:
