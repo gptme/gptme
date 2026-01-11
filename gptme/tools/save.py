@@ -288,14 +288,6 @@ def _validate_and_execute(
     execute_fn = execute_save_impl if operation == "save" else execute_append_impl
     preview_fn = preview_save if operation == "save" else preview_append
 
-    # Phase 5: Create ToolUse for direct hook integration
-    tool_use = ToolUse(
-        tool=operation,  # "save" or "append"
-        args=args or [],
-        content=code,
-        kwargs=kwargs,
-    )
-
     yield from execute_with_confirmation(
         code,
         args,
@@ -307,7 +299,6 @@ def _validate_and_execute(
         preview_lang=preview_lang,
         confirm_msg=confirm_msg,
         allow_edit=True,
-        tool_use=tool_use,  # Phase 5: Direct hook integration
     )
 
 
