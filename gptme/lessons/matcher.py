@@ -52,7 +52,7 @@ class LessonMatcher:
 
         Supports two formats:
         - Lessons: match by `keywords` in frontmatter
-        - Skills (Anthropic format): match by `name` and `description` in frontmatter
+        - Skills (Anthropic format): match by `name` in frontmatter
 
         Deduplication: Lessons are deduplicated by resolved path (realpath) to handle:
         - Symlinks pointing to the same file
@@ -135,73 +135,6 @@ class LessonMatcher:
         # Sort by score, descending
         results.sort(key=lambda r: r.score, reverse=True)
         return results
-
-    def _extract_description_keywords(self, description: str) -> list[str]:
-        """Extract significant keywords from skill description.
-
-        Args:
-            description: Skill description text
-
-        Returns:
-            List of significant keywords (lowercase)
-        """
-        # Common stop words to exclude
-        stop_words = {
-            "a",
-            "an",
-            "the",
-            "and",
-            "or",
-            "but",
-            "in",
-            "on",
-            "at",
-            "to",
-            "for",
-            "of",
-            "with",
-            "by",
-            "from",
-            "as",
-            "is",
-            "was",
-            "are",
-            "were",
-            "been",
-            "be",
-            "have",
-            "has",
-            "had",
-            "do",
-            "does",
-            "did",
-            "will",
-            "would",
-            "could",
-            "should",
-            "may",
-            "might",
-            "must",
-            "can",
-            "this",
-            "that",
-            "these",
-            "those",
-            "it",
-            "its",
-        }
-
-        # Split on non-word characters and filter
-        import re
-
-        words = re.split(r"\W+", description.lower())
-        keywords = [
-            w
-            for w in words
-            if len(w) > 2 and w not in stop_words  # Min 3 chars
-        ]
-
-        return keywords
 
     def match_keywords(
         self, lessons: list[Lesson], keywords: list[str]

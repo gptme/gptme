@@ -327,17 +327,17 @@ class TestSkillMatching:
         # Skills should use explicit keywords: in frontmatter
         assert len(results) == 0
 
-    def test_skill_name_preferred_over_description(self, sample_skills):
-        """Test that name match is preferred over description match."""
+    def test_skill_matches_by_name_only(self, sample_skills):
+        """Test that skills match by name (description matching is disabled)."""
         matcher = LessonMatcher()
         context = MatchContext(message="python-repl usage")
 
         results = matcher.match(sample_skills, context)
 
-        # Name match should take precedence
+        # Name match should work
         assert len(results) >= 1
         assert results[0].lesson.title == "Python REPL Skill"
-        # Should have skill: match, not description: match
+        # Should only match by skill name
         matched_types = [m.split(":")[0] for m in results[0].matched_by]
         assert "skill" in matched_types
 
@@ -364,40 +364,6 @@ class TestSkillMatching:
 
         # Should have no matches
         assert len(results) == 0
-
-    def test_extract_description_keywords(self):
-        """Test the _extract_description_keywords helper method."""
-        matcher = LessonMatcher()
-
-        keywords = matcher._extract_description_keywords(
-            "Interactive Python REPL automation with common helpers"
-        )
-
-        # Should extract meaningful words, not stop words
-        assert "interactive" in keywords
-        assert "python" in keywords
-        assert "repl" in keywords
-        assert "automation" in keywords
-        assert "helpers" in keywords
-        # Stop words should be excluded
-        assert "with" not in keywords
-
-    def test_description_requires_multiple_matches(self, sample_skills):
-        """Test that description matching requires at least 2 keyword matches."""
-        matcher = LessonMatcher()
-        # Only one word from description
-        context = MatchContext(message="Something about efficiency")
-
-        results = matcher.match(sample_skills, context)
-
-        # Should not match based on single description word
-        # (unless also matched by name)
-        for result in results:
-            matched_types = [m.split(":")[0] for m in result.matched_by]
-            if "description" in matched_types:
-                # If matched by description, should have matched by name too
-                # or multiple description words
-                assert result.score > 0.5
 
     def test_deduplication_by_resolved_path(self, tmp_path):
         """Test that duplicate lessons (same resolved path) are deduplicated.
