@@ -197,6 +197,7 @@ def prompt_full(
     yield from prompt_project()
     yield from prompt_systeminfo()
     yield from prompt_timeinfo()
+    yield from prompt_skills_summary()
 
 
 def prompt_short(
@@ -737,3 +738,49 @@ document_prompt_function(tools=lambda: get_available_tools(), tool_format="markd
 # document_prompt_function(tool_format="tool")(prompt_tools)
 document_prompt_function()(prompt_systeminfo)
 document_prompt_function()(prompt_chat_history)
+
+
+def prompt_skills_summary() -> Generator[Message, None, None]:
+    """Generate a compact skills summary for the system prompt.
+
+    Lists available skills (lessons with name/description metadata) so the agent
+    knows what skills are available without loading full content. Skills can be
+    read on-demand using `cat <path>`.
+    """
+    try:
+        from .lessons.index import LessonIndex
+
+        index = LessonIndex()
+
+        if not index.lessons:
+            return
+
+        # Filter to skills only (have metadata.name)
+        skills = [item for item in index.lessons if item.metadata.name]
+
+        if not skills:
+            return
+
+        # Sort by name
+        skills = sorted(skills, key=lambda s: s.metadata.name or "")
+
+        lines = ["## Available Skills\n"]
+        lines.append("Load on-demand with `cat <path>`:\n")
+
+        for skill in skills:
+            name = skill.metadata.name
+            desc = skill.metadata.description or ""
+            # Truncate description to keep it compact
+            if len(desc) > 80:
+                desc = desc[:77] + "..."
+            path = skill.path
+            lines.append(f"- **{name}**: {desc}")
+            lines.append(f"  `{path}`")
+
+        lines.append(f"\n*{len(skills)} skills available*")
+
+        yield Message("system", "\n".join(lines))
+
+    except Exception as e:
+        logger.warning(f"Failed to generate skills summary: {e}")
+        return
