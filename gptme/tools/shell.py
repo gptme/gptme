@@ -521,13 +521,16 @@ class ShellSession:
             self.stderr_fd = self.process.stderr.fileno()  # type: ignore
         else:
             # Windows fallback: use pipes (no TTY support for sudo, etc.)
+            # Note: Interactive programs like sudo won't work without PTY
             self.process = subprocess.Popen(
                 ["bash"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 bufsize=0,
+                text=False,  # Binary mode - we encode/decode explicitly
                 close_fds=False,  # Windows doesn't support close_fds with pipes
+                start_new_session=True,  # Process group for proper timeout handling
             )
             self.stdout_fd = self.process.stdout.fileno()  # type: ignore
             self.stderr_fd = self.process.stderr.fileno()  # type: ignore
