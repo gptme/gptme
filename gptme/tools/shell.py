@@ -691,12 +691,17 @@ class ShellSession:
                 if not rlist and timeout and start_time:
                     continue  # Will be caught by timeout check above
 
+                eof_detected = False
                 for fd in rlist:
                     assert fd in [self.stdout_fd, self.stderr_fd]
                     # We use a higher value, because there is a bug which leads to spaces at the boundary
                     # 2**12 = 4096
                     # 2**16 = 65536
                     data = os.read(fd, 2**16).decode("utf-8", errors="replace")
+                    if not data:  # EOF - subprocess exited unexpectedly
+                        logger.warning("Subprocess exited without return code marker")
+                        eof_detected = True
+                        break
                     lines = data.splitlines(keepends=True)
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
                     for line in lines:
@@ -777,6 +782,14 @@ class ShellSession:
                             stderr.append(line)
                             if output:
                                 print(line, end="", file=sys.stderr)
+                if eof_detected:
+                    break  # Break outer while loop on EOF
+            # EOF detected - subprocess exited without return code marker
+            return (
+                -1,  # Error code indicating unexpected subprocess exit
+                "".join(stdout).strip(),
+                "".join(stderr).strip(),
+            )
         except KeyboardInterrupt:
             # Clear line after ^C to avoid leaving a hanging line
             print()
