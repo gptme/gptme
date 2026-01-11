@@ -231,3 +231,81 @@ class MCPClient:
             return str(result)
 
         return self._run_async(_call_tool())
+
+    def list_resources(self) -> types.ListResourcesResult:
+        """List available resources from the connected MCP server.
+
+        Returns:
+            ListResourcesResult containing available resources.
+
+        Raises:
+            RuntimeError: If not connected to an MCP server.
+        """
+        if not self.session:
+            raise RuntimeError("Not connected to MCP server")
+
+        async def _list_resources():
+            session = self.session
+            if session is None:
+                raise RuntimeError("Should not be None")
+
+            result = await asyncio.wait_for(session.list_resources(), timeout=10.0)
+            logger.debug(f"Resources: {result}")
+            return result
+
+        return self._run_async(_list_resources())
+
+    def read_resource(self, uri: str) -> types.ReadResourceResult:
+        """Read a specific resource by URI.
+
+        Args:
+            uri: The URI of the resource to read.
+
+        Returns:
+            ReadResourceResult containing the resource contents.
+
+        Raises:
+            RuntimeError: If not connected to an MCP server.
+        """
+        if not self.session:
+            raise RuntimeError("Not connected to MCP server")
+
+        async def _read_resource():
+            session = self.session
+            if session is None:
+                raise RuntimeError("Should not be None")
+
+            result = await asyncio.wait_for(
+                session.read_resource(types.AnyUrl(uri)), timeout=30.0
+            )
+            logger.debug(f"Resource content: {result}")
+            return result
+
+        return self._run_async(_read_resource())
+
+    def list_resource_templates(self) -> types.ListResourceTemplatesResult:
+        """List available resource templates from the connected MCP server.
+
+        Resource templates are parameterized resources like `db://table/{name}`.
+
+        Returns:
+            ListResourceTemplatesResult containing available templates.
+
+        Raises:
+            RuntimeError: If not connected to an MCP server.
+        """
+        if not self.session:
+            raise RuntimeError("Not connected to MCP server")
+
+        async def _list_templates():
+            session = self.session
+            if session is None:
+                raise RuntimeError("Should not be None")
+
+            result = await asyncio.wait_for(
+                session.list_resource_templates(), timeout=10.0
+            )
+            logger.debug(f"Resource templates: {result}")
+            return result
+
+        return self._run_async(_list_templates())

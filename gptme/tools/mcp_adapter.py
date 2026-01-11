@@ -461,3 +461,125 @@ def list_loaded_servers() -> str:
         output.append("")
 
     return "\n".join(output)
+
+
+def list_mcp_resources(server_name: str) -> str:
+    """
+    List available resources from an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+
+    Returns:
+        Formatted list of available resources
+    """
+    client = _mcp_clients.get(server_name)
+    if not client:
+        return (
+            f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+        )
+
+    try:
+        result = client.list_resources()
+        resources = result.resources if hasattr(result, "resources") else []
+
+        if not resources:
+            return f"No resources available from server '{server_name}'."
+
+        output = [f"# Resources from {server_name}\n"]
+        for resource in resources:
+            output.append(f"## {resource.name}")
+            output.append(f"**URI:** `{resource.uri}`")
+            if hasattr(resource, "description") and resource.description:
+                output.append(f"**Description:** {resource.description}")
+            if hasattr(resource, "mimeType") and resource.mimeType:
+                output.append(f"**MIME Type:** {resource.mimeType}")
+            output.append("")
+
+        return "\n".join(output)
+    except Exception as e:
+        logger.error(f"Failed to list resources from {server_name}: {e}")
+        return f"Error listing resources: {e}"
+
+
+def read_mcp_resource(server_name: str, uri: str) -> str:
+    """
+    Read a specific resource from an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+        uri: URI of the resource to read
+
+    Returns:
+        Resource content as string
+    """
+    client = _mcp_clients.get(server_name)
+    if not client:
+        return (
+            f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+        )
+
+    try:
+        result = client.read_resource(uri)
+        contents = result.contents if hasattr(result, "contents") else []
+
+        if not contents:
+            return f"No content returned for resource '{uri}'."
+
+        output = []
+        for content in contents:
+            if hasattr(content, "text"):
+                output.append(content.text)
+            elif hasattr(content, "blob"):
+                # For binary content, indicate it's binary
+                output.append(f"[Binary content: {len(content.blob)} bytes]")
+            else:
+                output.append(str(content))
+
+        return "\n".join(output)
+    except Exception as e:
+        logger.error(f"Failed to read resource {uri} from {server_name}: {e}")
+        return f"Error reading resource: {e}"
+
+
+def list_mcp_resource_templates(server_name: str) -> str:
+    """
+    List available resource templates from an MCP server.
+
+    Resource templates are parameterized resources like `db://table/{name}`.
+
+    Args:
+        server_name: Name of the loaded MCP server
+
+    Returns:
+        Formatted list of available resource templates
+    """
+    client = _mcp_clients.get(server_name)
+    if not client:
+        return (
+            f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+        )
+
+    try:
+        result = client.list_resource_templates()
+        templates = (
+            result.resourceTemplates if hasattr(result, "resourceTemplates") else []
+        )
+
+        if not templates:
+            return f"No resource templates available from server '{server_name}'."
+
+        output = [f"# Resource Templates from {server_name}\n"]
+        for template in templates:
+            output.append(f"## {template.name}")
+            output.append(f"**URI Template:** `{template.uriTemplate}`")
+            if hasattr(template, "description") and template.description:
+                output.append(f"**Description:** {template.description}")
+            if hasattr(template, "mimeType") and template.mimeType:
+                output.append(f"**MIME Type:** {template.mimeType}")
+            output.append("")
+
+        return "\n".join(output)
+    except Exception as e:
+        logger.error(f"Failed to list resource templates from {server_name}: {e}")
+        return f"Error listing resource templates: {e}"

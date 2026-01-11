@@ -29,7 +29,10 @@ from .base import (
 from .mcp_adapter import (
     get_mcp_server_info,
     list_loaded_servers,
+    list_mcp_resource_templates,
+    list_mcp_resources,
     load_mcp_server,
+    read_mcp_resource,
     search_mcp_servers,
     unload_mcp_server,
 )
@@ -162,6 +165,40 @@ def execute_mcp(
             result = list_loaded_servers()
             yield Message("system", result)
 
+        elif command.startswith("resources list"):
+            # resources list <server-name>
+            parts = command.split()
+            if len(parts) < 3:
+                yield Message("system", "Usage: resources list <server-name>")
+                return
+
+            server_name = parts[2]
+            result = list_mcp_resources(server_name)
+            yield Message("system", result)
+
+        elif command.startswith("resources read"):
+            # resources read <server-name> <uri>
+            parts = command.split(maxsplit=3)
+            if len(parts) < 4:
+                yield Message("system", "Usage: resources read <server-name> <uri>")
+                return
+
+            server_name = parts[2]
+            uri = parts[3]
+            result = read_mcp_resource(server_name, uri)
+            yield Message("system", result)
+
+        elif command.startswith("templates list"):
+            # templates list <server-name>
+            parts = command.split()
+            if len(parts) < 3:
+                yield Message("system", "Usage: templates list <server-name>")
+                return
+
+            server_name = parts[2]
+            result = list_mcp_resource_templates(server_name)
+            yield Message("system", result)
+
         else:
             yield Message(
                 "system",
@@ -171,7 +208,10 @@ def execute_mcp(
                 "  info <name> - Get detailed server information\n"
                 "  load <name> - Dynamically load a server\n"
                 "  unload <name> - Unload a server\n"
-                "  list - List loaded servers",
+                "  list - List loaded servers\n"
+                "  resources list <server> - List resources from a server\n"
+                "  resources read <server> <uri> - Read a resource\n"
+                "  templates list <server> - List resource templates",
             )
 
     except Exception as e:
@@ -196,6 +236,9 @@ def examples(tool_format: str) -> str:
                 [],
                 'load my-server\n{"command": "uvx", "args": ["my-mcp-server", "--option"]}',
             ).to_output(fmt),
+            ToolUse("mcp", [], "resources list sqlite").to_output(fmt),
+            ToolUse("mcp", [], "resources read sqlite db://main/users").to_output(fmt),
+            ToolUse("mcp", [], "templates list sqlite").to_output(fmt),
         ]
     )
 
@@ -246,6 +289,34 @@ def _cmd_mcp_unload(name: str) -> str:
     return unload_mcp_server(name)
 
 
+def _cmd_mcp_resources_list(server_name: str) -> str:
+    """List resources from an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+    """
+    return list_mcp_resources(server_name)
+
+
+def _cmd_mcp_resources_read(server_name: str, uri: str) -> str:
+    """Read a resource from an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+        uri: URI of the resource to read
+    """
+    return read_mcp_resource(server_name, uri)
+
+
+def _cmd_mcp_templates_list(server_name: str) -> str:
+    """List resource templates from an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+    """
+    return list_mcp_resource_templates(server_name)
+
+
 tool = ToolSpec(
     name="mcp",
     desc="Search, discover, and manage MCP servers",
@@ -255,6 +326,11 @@ This tool allows you to search for MCP servers in various registries and dynamic
 Once loaded, server tools are available as `<server-name>.<tool-name>`.
 
 Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
+
+**Resource Commands** (for servers that expose resources):
+- `resources list <server>` - List available resources from a loaded server
+- `resources read <server> <uri>` - Read a specific resource by URI
+- `templates list <server>` - List resource templates (parameterized resources)
 """.strip(),
     examples=examples,
     execute=execute_mcp,
@@ -265,12 +341,15 @@ Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
         "mcp list": _cmd_mcp_list,
         "mcp load": _cmd_mcp_load,
         "mcp unload": _cmd_mcp_unload,
+        "mcp resources list": _cmd_mcp_resources_list,
+        "mcp resources read": _cmd_mcp_resources_read,
+        "mcp templates list": _cmd_mcp_templates_list,
     },
     parameters=[
         Parameter(
             name="command",
             type="string",
-            description="MCP management command (search, info, load, unload, list)",
+            description="MCP management command (search, info, load, unload, list, resources list, resources read, templates list)",
             required=True,
         ),
     ],
