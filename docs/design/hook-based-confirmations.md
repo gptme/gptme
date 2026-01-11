@@ -27,8 +27,10 @@
 | 5 | Tool migration | ❌ Reverted (see notes) |
 | 6 | Simplification & cleanup | ⏳ In Progress |
 | 6.1 | Consolidate preview printing | ✅ Complete |
+| 6.2 | Centralize auto-confirm state | ✅ Complete |
+| 6.3 | Unify server auto-confirm | ✅ Complete |
 
-**Current state**: Phases 1-4 complete. Phase 5 was reverted. Phase 6.1 (preview consolidation) complete.
+**Current state**: Phases 1-4 complete. Phase 5 was reverted. Phase 6.1-6.3 complete.
 
 **Implemented**:
 - `confirm_func` in `chat.py` uses hooks when available, falling back to legacy `ask_execute`
@@ -56,11 +58,24 @@ Consolidated duplicate `_print_preview` in cli_confirm.py by importing shared `p
 from ask_execute.py. This reduced cli_confirm.py by 10 lines (245 → 235) and eliminates
 duplicate preview logic.
 
+**Phase 6.2-6.3 Notes** (Completed):
+Centralized auto-confirm state in `confirm.py` with unified functions:
+- `set_auto_confirm(count)` - Set auto-confirm (count or infinite)
+- `reset_auto_confirm()` - Reset to defaults
+- `check_auto_confirm()` - Check and decrement (returns tuple)
+- `is_auto_confirm_active()` - Check without decrementing
+
+Both `cli_confirm.py` and `ask_execute.py` now use this centralized state instead of
+maintaining their own duplicate globals. Server auto-confirm is also unified -
+`server_confirm_hook` now checks centralized state first before checking session context.
+
 **Next steps** (Phase 6 - Simplification & Cleanup):
 - ✅ Phase 6.1: Consolidate preview printing (-10 lines)
-- Phase 6.2: Consider consolidating auto-confirm state (both files have their own)
-- Phase 6.3: Document hook API for custom confirmation backends
-- Phase 6.4: Add examples for new backends (GUI, Discord bot)
+- ✅ Phase 6.2: Centralize auto-confirm state (single source of truth)
+- ✅ Phase 6.3: Unify server auto-confirm with CLI (checks centralized state first)
+- Phase 6.4: Document hook API for custom confirmation backends
+- Phase 6.5: Add examples for new backends (GUI, Discord bot)
+- Phase 6.6: Consider extracting shared response handling logic
 - Future: Consider moving confirmation to ToolUse.execute() where ToolUse already exists
 
 ## Problem Statement
