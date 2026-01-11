@@ -23,17 +23,26 @@
 | 3 | Tests (16 passing) | ✅ Complete |
 | 4 | Server context vars for SSE | ✅ Complete |
 | 4 | Server hook registration | ✅ Complete |
+| 4 | V1 API hook-aware confirm_func | ✅ Complete |
 | 5 | Tool migration | ⏳ Future PR |
 | 6 | Documentation & cleanup | ⏳ Future PR |
 
 **Current state**: Phases 1-4 complete. Hook system is fully functional for CLI and Server.
-The `confirm_func` in `chat.py` uses hooks when available, falling back to legacy `ask_execute`.
-Server's HTTP endpoint resolves hook-based confirmations via `_resolve_hook_confirmation`.
-Server hook now emits SSE events and blocks until client responds via HTTP endpoint.
-Context vars (`current_conversation_id`, `current_session_id`) provide session context to hooks.
 
-**Next steps** (Phase 4): Migrate tools to use hooks natively, potentially simplifying
-`execute_with_confirmation` and reducing duplicate confirmation logic.
+**Implemented**:
+- `confirm_func` in `chat.py` uses hooks when available, falling back to legacy `ask_execute`
+- `confirm_func` in `api.py` (v1) uses hooks when available, falling back to auto-confirm
+- Server's HTTP endpoint resolves hook-based confirmations via `_resolve_hook_confirmation`
+- Server hook now emits SSE events and blocks until client responds via HTTP endpoint
+- Context vars (`current_conversation_id`, `current_session_id`) provide session context to hooks
+
+**Architecture notes**:
+- V1 API: Uses hook-aware confirm_func, auto-confirms when no context vars set (legacy behavior)
+- V2 API: Uses separate `pending_tools` mechanism + hook resolution for HTTP confirmations
+- CLI: Uses hook-aware confirm_func, routes through cli_confirm_hook when registered
+
+**Next steps** (Phase 5 - Tool Migration): Migrate tools to use hooks natively, potentially
+simplifying `execute_with_confirmation` and reducing duplicate confirmation logic.
 
 ## Problem Statement
 
