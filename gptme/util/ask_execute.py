@@ -8,6 +8,7 @@ import termios
 from collections.abc import Callable, Generator
 from pathlib import Path
 from textwrap import wrap
+from typing import TYPE_CHECKING
 
 from rich import print
 from rich.console import Console
@@ -17,6 +18,9 @@ from rich.syntax import Syntax
 from ..constants import DECLINED_CONTENT
 from ..message import Message
 from ..tools import ConfirmFunc
+
+if TYPE_CHECKING:
+    from ..tools.base import ToolUse
 from .clipboard import copy, set_copytext
 from .prompt import get_prompt_session
 from .sound import print_bell
@@ -224,6 +228,7 @@ def execute_with_confirmation(
     preview_lang: str | None = None,
     confirm_msg: str | None = None,
     allow_edit: bool = True,
+    tool_use: "ToolUse | None" = None,  # Phase 5: Direct hook integration
 ) -> Generator[Message, None, None]:
     """Helper function to handle common patterns in tool execution.
 
@@ -231,13 +236,14 @@ def execute_with_confirmation(
         code: The code/content to execute
         args: List of arguments
         kwargs: Dictionary of keyword arguments
-        confirm_fn: Function to get user confirmation
+        confirm_fn: Function to get user confirmation (legacy, used if no hook)
         execute_fn: Function that performs the actual execution
         get_path_fn: Function to get the path from args/kwargs
         preview_fn: Optional function to prepare preview content
         preview_lang: Language for syntax highlighting
         confirm_msg: Custom confirmation message
         allow_edit: Whether to allow editing the content
+        tool_use: Optional ToolUse for direct hook integration (Phase 5)
     """
     try:
         # Get the path and content
@@ -247,6 +253,21 @@ def execute_with_confirmation(
         )
         file_ext = path.suffix.lstrip(".") or "txt" if path else "txt"
 
+        # Phase 5: Use hooks directly when tool_use is provided
+        if tool_use is not None:
+            yield from _execute_with_hook_confirmation(
+                content=content,
+                path=path,
+                tool_use=tool_use,
+                execute_fn=execute_fn,
+                confirm_fn=confirm_fn,
+                preview_fn=preview_fn,
+                preview_lang=preview_lang or file_ext,
+                preview_header=preview_header,
+            )
+            return
+
+        # Legacy path: Use confirm_fn with global editable state
         # Show preview if preview function is provided
         if preview_fn and content:
             preview_content = preview_fn(content, path)
@@ -300,3 +321,70 @@ def execute_with_confirmation(
         if "pytest" in globals():
             raise
         yield Message("system", f"Error during execution: {e}")
+
+
+def _execute_with_hook_confirmation(
+    content: str,
+    path: Path | None,
+    tool_use: "ToolUse",
+    execute_fn: Callable[
+        [str, Path | None, ConfirmFunc], Generator[Message, None, None]
+    ],
+    confirm_fn: ConfirmFunc,
+    preview_fn: Callable[[str, Path | None], str | None] | None = None,
+    preview_lang: str = "text",
+    preview_header: str | None = None,
+) -> Generator[Message, None, None]:
+    """Execute with direct hook-based confirmation (Phase 5).
+
+    This function uses the hook system directly instead of the legacy
+    confirm_fn + global editable state pattern.
+
+    Args:
+        content: The content to execute
+        path: Path for the operation
+        tool_use: The ToolUse object for hook context
+        execute_fn: Function that performs the actual execution
+        confirm_fn: Fallback confirm function (passed to execute_fn)
+        preview_fn: Optional function to prepare preview content
+        preview_lang: Language for syntax highlighting
+        preview_header: Header for preview display
+    """
+    from ..hooks.confirm import ConfirmAction
+    from ..hooks.confirm_bridge import confirm_tool_use
+
+    # Generate preview for the hook
+    preview = None
+    if preview_fn and content:
+        preview = preview_fn(content, path)
+
+    # Get confirmation via hook system
+    result = confirm_tool_use(
+        tool_use=tool_use,
+        workspace=path.parent if path else None,
+        default_confirm=True,
+        preview=preview,
+    )
+
+    # Handle the result
+    if result.action == ConfirmAction.SKIP:
+        msg = result.message or "Operation skipped by user"
+        yield Message("system", f"Operation aborted: {msg}")
+        return
+
+    # Handle edited content
+    was_edited = False
+    if result.action == ConfirmAction.EDIT and result.edited_content is not None:
+        content = result.edited_content
+        was_edited = True
+
+    # Execute
+    exec_result = execute_fn(content, path, confirm_fn)
+    if isinstance(exec_result, Generator):
+        yield from exec_result
+    else:
+        yield exec_result
+
+    # Add edit notification if content was edited
+    if was_edited:
+        yield Message("system", "(content was edited by user)")

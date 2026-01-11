@@ -64,6 +64,7 @@ def confirm_tool_use(
     tool_use: "ToolUse",
     workspace: Path | None = None,
     default_confirm: bool = True,
+    preview: str | None = None,
 ) -> ConfirmationResult:
     """Get confirmation for a specific ToolUse via the hook system.
 
@@ -75,12 +76,14 @@ def confirm_tool_use(
         tool_use: The tool use to confirm
         workspace: Workspace directory for context
         default_confirm: Whether to auto-confirm if no hook is registered
+        preview: Optional custom preview (if not provided, generated from tool_use)
 
     Returns:
         ConfirmationResult with action and optional edited content
     """
-    # Generate preview from tool use
-    preview = _generate_preview(tool_use)
+    # Use provided preview or generate from tool use
+    if preview is None:
+        preview = _generate_preview(tool_use)
 
     return get_confirmation(
         tool_use=tool_use,
