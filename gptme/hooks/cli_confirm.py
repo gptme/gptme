@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING
 
 from rich import print
 from rich.console import Console
-from rich.syntax import Syntax
 
-from ..util.clipboard import copy, set_copytext
+from ..util.ask_execute import print_preview
+from ..util.clipboard import copy
 from ..util.prompt import get_prompt_session
 from ..util.sound import print_bell
 from ..util.terminal import terminal_state_title
@@ -83,11 +83,9 @@ def cli_confirm_hook(
     editable = bool(content)
     copiable = bool(content)
 
-    # Show preview if we have content
+    # Show preview if we have content (using shared utility from ask_execute)
     if content:
-        _print_preview(content, lang, copy=copiable)
-        if copiable:
-            set_copytext(content)
+        print_preview(content, lang, copy=copiable)
 
     # Build the confirmation prompt
     print_bell()  # Ring the bell before asking
@@ -175,14 +173,6 @@ def _handle_response(
 
     # Unknown - treat as no
     return ConfirmationResult.skip(f"Unknown response: {answer}")
-
-
-def _print_preview(code: str, lang: str, copy: bool = False):
-    """Print a preview of the code to be executed."""
-    print()
-    print("[bold white]Preview[/bold white]")
-    print(Syntax(code.strip("\n"), lang))
-    print()
 
 
 def _print_help(copiable: bool, editable: bool):
