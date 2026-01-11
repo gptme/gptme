@@ -150,14 +150,6 @@ def execute_morph(
     ) -> Generator[Message, None, None]:
         yield from execute_morph_impl(content, path, confirm_fn, original_content)
 
-    # Phase 5: Create ToolUse for direct hook integration
-    tool_use = ToolUse(
-        tool="morph",
-        args=args or [],
-        content=edited_content,
-        kwargs=kwargs,
-    )
-
     # Use execute_with_confirmation with the edited content
     yield from execute_with_confirmation(
         edited_content,
@@ -170,7 +162,6 @@ def execute_morph(
         preview_lang="diff",
         confirm_msg=f"Apply edit to {file_path}?",
         allow_edit=False,  # Don't allow editing the computed result
-        tool_use=tool_use,  # Phase 5: Direct hook integration
     )
 
 
