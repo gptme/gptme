@@ -132,18 +132,8 @@ def chat(
     console.print("--- ^^^ past messages ^^^ ---")
 
     # Note: todowrite replay is now handled by the todo_replay tool via SESSION_START hook
-
-    def confirm_func(msg) -> bool:
-        # Use hook-based confirmation system
-        # - If cli_confirm hook registered (interactive mode): prompts user
-        # - If no hook registered (no_confirm mode): auto-confirms
-        # - Hooks check centralized auto-confirm state internally
-        from .hooks.confirm_bridge import make_confirm_func_from_hooks
-
-        hook_confirm = make_confirm_func_from_hooks(
-            workspace=workspace, default_confirm=True
-        )
-        return hook_confirm(msg)
+    # Note: Confirmation is now handled within ToolUse.execute() using the hook system,
+    # so we no longer need to create and pass confirm_func.
 
     # Convert prompt_msgs to a queue for unified handling
     prompt_queue = list(prompt_msgs)
@@ -156,12 +146,11 @@ def chat(
             manager,
             prompt_queue,
             stream,
-            confirm_func,
-            tool_format,
-            None,  # Pass None to allow dynamic model switching via /model command
-            interactive,
-            logdir,
-            output_schema,
+            tool_format=tool_format,
+            model=None,  # Pass None to allow dynamic model switching via /model command
+            interactive=interactive,
+            logdir=logdir,
+            output_schema=output_schema,
         )
     except SessionCompleteException as e:
         console.log(f"Autonomous mode: {e}. Exiting.")
@@ -179,14 +168,18 @@ def _run_chat_loop(
     manager,
     prompt_queue,
     stream,
-    confirm_func,
-    tool_format,
-    model,
-    interactive,
-    logdir,
+    confirm_func=None,  # deprecated, kept for backward compat
+    tool_format=None,
+    model=None,
+    interactive=True,
+    logdir=None,
     output_schema=None,
 ):
-    """Main chat loop - extracted to allow clean exception handling."""
+    """Main chat loop - extracted to allow clean exception handling.
+
+    Note: The `confirm_func` parameter is deprecated. Confirmation now uses the
+    hook system directly within ToolUse.execute().
+    """
 
     while True:
         msg: Message | None = None
@@ -199,12 +192,12 @@ def _run_chat_loop(
                 manager.append(msg)
 
                 # Handle user commands
-                if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
+                if msg.role == "user" and execute_cmd(msg, manager):
                     continue
 
                 # Process the message and get response
                 _process_message_conversation(
-                    manager, stream, confirm_func, tool_format, model, output_schema
+                    manager, stream, tool_format, model, output_schema
                 )
             else:
                 # Get user input or exit if non-interactive
@@ -224,7 +217,6 @@ def _run_chat_loop(
                         _process_message_conversation(
                             manager,
                             stream,
-                            confirm_func,
                             tool_format,
                             model,
                             output_schema,
@@ -237,14 +229,13 @@ def _run_chat_loop(
                     # Reset interrupt flag since user provided new input
 
                     # Handle user commands
-                    if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
+                    if msg.role == "user" and execute_cmd(msg, manager):
                         continue
 
                     # Process the message and get response
                     _process_message_conversation(
                         manager,
                         stream,
-                        confirm_func,
                         tool_format,
                         model,
                         output_schema,
@@ -288,12 +279,14 @@ def _run_chat_loop(
 def _process_message_conversation(
     manager: LogManager,
     stream: bool,
-    confirm_func: ConfirmFunc,
     tool_format: ToolFormat,
     model: str | None,
     output_schema: type | None = None,
 ) -> None:
-    """Process a message and generate responses until no more tools to run."""
+    """Process a message and generate responses until no more tools to run.
+
+    Note: Confirmation is now handled within ToolUse.execute() using the hook system.
+    """
 
     while True:
         try:
@@ -311,7 +304,6 @@ def _process_message_conversation(
                 step(
                     manager.log,
                     stream,
-                    confirm_func,
                     tool_format=tool_format,
                     workspace=manager.workspace,
                     model=model,
@@ -328,9 +320,7 @@ def _process_message_conversation(
         for response_msg in response_msgs:
             manager.append(response_msg)
             # run any user-commands, if msg is from user
-            if response_msg.role == "user" and execute_cmd(
-                response_msg, manager, confirm_func
-            ):
+            if response_msg.role == "user" and execute_cmd(response_msg, manager):
                 return
 
         # Check if user declined execution - return to prompt without generating response
@@ -475,7 +465,7 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
 def step(
     log: Log | list[Message],
     stream: bool,
-    confirm: ConfirmFunc,
+    confirm: ConfirmFunc | None = None,  # deprecated, kept for backward compat
     tool_format: ToolFormat = "markdown",
     workspace: Path | None = None,
     model: str | None = None,
@@ -523,7 +513,7 @@ def step(
         # log response and run tools
         if msg_response:
             yield msg_response.replace(quiet=True)
-            yield from execute_msg(msg_response, confirm, log, workspace)
+            yield from execute_msg(msg_response, log=log, workspace=workspace)
 
     finally:
         clear_interruptible()

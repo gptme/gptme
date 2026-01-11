@@ -17,7 +17,7 @@ from ..util.terminal import terminal_state_title
 
 if TYPE_CHECKING:
     from ..logmanager import Log
-    from . import ConfirmFunc, ToolUse
+    from . import ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +48,13 @@ def is_parallel_enabled() -> bool:
 
 def execute_tooluse_in_thread(
     tooluse: "ToolUse",
-    confirm: "ConfirmFunc",
     log: "Log | None",
     workspace: Path | None,
 ) -> list[Message]:
     """Execute a single tool use in a thread-safe manner.
 
     Copies the current context to preserve ContextVars like config, loaded_tools, etc.
+    Note: Confirmation is now handled within ToolUse.execute() using the hook system.
     """
     from . import init_tools
 
@@ -65,7 +65,7 @@ def execute_tooluse_in_thread(
     results: list[Message] = []
     try:
         with terminal_state_title(f"🛠️ running {tooluse.tool}"):
-            for tool_response in tooluse.execute(confirm, log, workspace):
+            for tool_response in tooluse.execute(log=log, workspace=workspace):
                 results.append(tool_response.replace(call_id=tooluse.call_id))
     except Exception as e:
         logger.exception(f"Error executing tool {tooluse.tool}: {e}")
@@ -81,7 +81,6 @@ def execute_tooluse_in_thread(
 
 def execute_tools_parallel(
     tooluses: "Sequence[ToolUse]",
-    confirm: "ConfirmFunc",
     log: "Log | None",
     workspace: Path | None,
     max_workers: int | None = None,
@@ -90,13 +89,14 @@ def execute_tools_parallel(
 
     Args:
         tooluses: List of ToolUse objects to execute
-        confirm: Confirmation function for tool execution
         log: Log manager instance
         workspace: Workspace path
         max_workers: Maximum number of parallel workers (default: min(4, len(tooluses)))
 
     Returns:
         List of Message results, maintaining original order
+
+    Note: Confirmation is now handled within ToolUse.execute() using the hook system.
     """
     if not tooluses:
         return []
@@ -119,7 +119,7 @@ def execute_tools_parallel(
         def execute_with_context() -> list[Message]:
             # Set config in this thread's context
             set_config(config)
-            return execute_tooluse_in_thread(tooluse, confirm, log, workspace)
+            return execute_tooluse_in_thread(tooluse, log, workspace)
 
         # Run within the copied context
         return index, ctx.run(execute_with_context)
