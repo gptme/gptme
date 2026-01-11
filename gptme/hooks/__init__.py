@@ -416,7 +416,12 @@ class HookRegistry:
                     )
 
                 # If hook returns a generator, yield from it
-                if hasattr(result, "__iter__") and not isinstance(result, str | bytes):
+                # Note: ToolConfirmHooks may return None (fall-through) or ConfirmationResult
+                if (
+                    result is not None
+                    and hasattr(result, "__iter__")
+                    and not isinstance(result, str | bytes)
+                ):
                     try:
                         for msg in result:
                             if isinstance(msg, StopPropagation):
