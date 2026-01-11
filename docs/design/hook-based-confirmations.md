@@ -26,8 +26,9 @@
 | 4 | V1 API hook-aware confirm_func | ✅ Complete |
 | 5 | Tool migration | ❌ Reverted (see notes) |
 | 6 | Simplification & cleanup | ⏳ In Progress |
+| 6.1 | Consolidate preview printing | ✅ Complete |
 
-**Current state**: Phases 1-4 complete. Phase 5 was reverted as it added complexity without removing lines.
+**Current state**: Phases 1-4 complete. Phase 5 was reverted. Phase 6.1 (preview consolidation) complete.
 
 **Implemented**:
 - `confirm_func` in `chat.py` uses hooks when available, falling back to legacy `ask_execute`
@@ -50,11 +51,17 @@ The hook system works correctly through the `confirm_func` bridge without requir
 - CLI: Uses hook-aware confirm_func, routes through cli_confirm_hook when registered
 - Hooks receive confirmation requests via `make_confirm_func_from_hooks()` bridge
 
+**Phase 6.1 Notes** (Completed):
+Consolidated duplicate `_print_preview` in cli_confirm.py by importing shared `print_preview`
+from ask_execute.py. This reduced cli_confirm.py by 10 lines (245 → 235) and eliminates
+duplicate preview logic.
+
 **Next steps** (Phase 6 - Simplification & Cleanup):
-- Unify CLI confirmation (cli_confirm_hook vs ask_execute duplication)
-- Consider moving confirmation to ToolUse.execute() where ToolUse already exists
-- Document hook API for custom confirmation backends
-- Add examples for new confirmation backends (GUI, Discord bot)
+- ✅ Phase 6.1: Consolidate preview printing (-10 lines)
+- Phase 6.2: Consider consolidating auto-confirm state (both files have their own)
+- Phase 6.3: Document hook API for custom confirmation backends
+- Phase 6.4: Add examples for new backends (GUI, Discord bot)
+- Future: Consider moving confirmation to ToolUse.execute() where ToolUse already exists
 
 ## Problem Statement
 
