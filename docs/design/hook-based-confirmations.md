@@ -20,14 +20,14 @@
 | 2 | confirm_func integration | ✅ Complete |
 | 3 | server_confirm_hook | ✅ Complete |
 | 3 | HTTP endpoint integration | ✅ Complete |
-| 3 | Tests (16 passing) | ✅ Complete |
+| 3 | Tests (32 passing) | ✅ Complete |
 | 4 | Server context vars for SSE | ✅ Complete |
 | 4 | Server hook registration | ✅ Complete |
 | 4 | V1 API hook-aware confirm_func | ✅ Complete |
-| 5 | Tool migration (save, patch, shell, morph, mcp) | ✅ Complete |
-| 6 | Documentation & cleanup | ⏳ Future PR |
+| 5 | Tool migration | ❌ Reverted (see notes) |
+| 6 | Simplification & cleanup | ⏳ In Progress |
 
-**Current state**: Phases 1-5 complete. Hook system is fully functional for CLI and Server with tool migration done.
+**Current state**: Phases 1-4 complete. Phase 5 was reverted as it added complexity without removing lines.
 
 **Implemented**:
 - `confirm_func` in `chat.py` uses hooks when available, falling back to legacy `ask_execute`
@@ -35,21 +35,26 @@
 - Server's HTTP endpoint resolves hook-based confirmations via `_resolve_hook_confirmation`
 - Server hook now emits SSE events and blocks until client responds via HTTP endpoint
 - Context vars (`current_conversation_id`, `current_session_id`) provide session context to hooks
-- **Phase 5**: `execute_with_confirmation()` now accepts optional `tool_use` parameter for direct hook integration
-- **Phase 5**: Tools (save, patch, shell, morph, mcp_adapter) pass `tool_use` to `execute_with_confirmation()`
-- **Phase 5**: `_execute_with_hook_confirmation()` helper handles hook-based confirmation flow with full `ConfirmationResult` support
+
+**Phase 5 Reversion Notes**:
+The Phase 5 "tool migration" was reverted because:
+1. It added ~88 lines without removing any (violated simplification goal)
+2. Tools were creating ToolUse objects just to pass to confirmation - this is redundant since ToolUse already exists at the `ToolUse.execute()` level
+3. The `_execute_with_hook_confirmation()` helper duplicated logic from `execute_with_confirmation()`
+
+The hook system works correctly through the `confirm_func` bridge without requiring tools to create ToolUse objects.
 
 **Architecture notes**:
 - V1 API: Uses hook-aware confirm_func, auto-confirms when no context vars set (legacy behavior)
 - V2 API: Uses separate `pending_tools` mechanism + hook resolution for HTTP confirmations
 - CLI: Uses hook-aware confirm_func, routes through cli_confirm_hook when registered
-- Tools: Pass `tool_use` for direct hook integration, preserving edited content from `ConfirmationResult`
+- Hooks receive confirmation requests via `make_confirm_func_from_hooks()` bridge
 
-**Next steps** (Phase 6 - Documentation & Cleanup):
-- Add deprecation warnings for direct `ask_execute` usage
+**Next steps** (Phase 6 - Simplification & Cleanup):
+- Unify CLI confirmation (cli_confirm_hook vs ask_execute duplication)
+- Consider moving confirmation to ToolUse.execute() where ToolUse already exists
 - Document hook API for custom confirmation backends
 - Add examples for new confirmation backends (GUI, Discord bot)
-- Clean up any remaining duplicate confirmation logic
 
 ## Problem Statement
 

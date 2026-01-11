@@ -343,14 +343,6 @@ def execute_patch(
         yield Message("system", "Error: No patch provided by the assistant")
         return
 
-    # Phase 5: Create ToolUse for direct hook integration
-    tool_use = ToolUse(
-        tool="patch",
-        args=args or [],
-        content=code,
-        kwargs=kwargs,
-    )
-
     yield from execute_with_confirmation(
         code,
         args,
@@ -362,7 +354,6 @@ def execute_patch(
         preview_lang="diff",
         confirm_msg=f"Apply patch to {get_path(code, args, kwargs)}?",
         allow_edit=True,
-        tool_use=tool_use,  # Phase 5: Direct hook integration
     )
 
 

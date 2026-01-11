@@ -1521,14 +1521,6 @@ def execute_shell(
         ) -> Generator[Message, None, None]:
             return execute_shell_impl(cmd, path, confirm, timeout=timeout)
 
-        # Phase 5: Create ToolUse for direct hook integration
-        tool_use = ToolUse(
-            tool="shell",
-            args=args or [],
-            content=cmd,
-            kwargs=kwargs,
-        )
-
         yield from execute_with_confirmation(
             cmd,
             args,
@@ -1540,7 +1532,6 @@ def execute_shell(
             preview_lang="bash",
             confirm_msg="Run command?",
             allow_edit=True,
-            tool_use=tool_use,  # Phase 5: Direct hook integration
         )
 
 

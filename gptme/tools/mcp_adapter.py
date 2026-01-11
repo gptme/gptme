@@ -283,14 +283,6 @@ def create_mcp_execute_function(
             yield Message("system", "No parameters provided")
             return
 
-        # Phase 5: Create ToolUse for direct hook integration
-        tool_use = ToolUse(
-            tool=tool_name,
-            args=args or [],
-            content=code,
-            kwargs=kwargs,
-        )
-
         # Use execute_with_confirmation like save tool does
         yield from execute_with_confirmation(
             code,
@@ -305,7 +297,6 @@ def create_mcp_execute_function(
             preview_lang="json",
             confirm_msg=f"Execute MCP tool '{tool_name}'?",
             allow_edit=True,
-            tool_use=tool_use,  # Phase 5: Direct hook integration
         )
 
     return execute
