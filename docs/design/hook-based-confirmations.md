@@ -17,9 +17,19 @@
 | 2 | auto_confirm_hook | ✅ Complete |
 | 2 | Hook registration in chat.py | ✅ Complete |
 | 2 | confirm_bridge utilities | ✅ Complete |
+| 2 | confirm_func integration | ✅ Complete |
+| 3 | server_confirm_hook | ✅ Complete |
+| 3 | HTTP endpoint integration | ✅ Complete |
 | 3 | Tests (16 passing) | ✅ Complete |
-| 4 | Server hook implementation | ✅ Complete |
-| 5 | Full tool execution integration | ⏳ Pending |
+| 4 | Tool migration | ⏳ Pending |
+| 5 | Documentation & cleanup | ⏳ Pending |
+
+**Current state**: Phases 1-3 complete. Hook system is fully functional for CLI and Server.
+The `confirm_func` in `chat.py` uses hooks when available, falling back to legacy `ask_execute`.
+Server's HTTP endpoint now resolves hook-based confirmations via `_resolve_hook_confirmation`.
+
+**Next steps** (Phase 4): Migrate tools to use hooks natively, potentially simplifying
+`execute_with_confirmation` and reducing duplicate confirmation logic.
 
 ## Problem Statement
 
