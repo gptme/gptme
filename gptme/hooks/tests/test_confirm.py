@@ -322,3 +322,147 @@ class TestServerConfirmHook:
         # Without context vars set, should auto-confirm
         result = server_confirm_hook(tool_use)
         assert result.action == ConfirmAction.CONFIRM
+
+
+class TestHookFallthrough:
+    """Tests for hook fall-through behavior when hooks return None."""
+
+    def test_fallthrough_to_next_hook(self):
+        """Test that returning None falls through to the next hook."""
+        from gptme.hooks import HookType, get_registry
+        from gptme.tools.base import ToolUse
+
+        registry = get_registry()
+        original_hooks = registry.hooks.copy()
+        registry.hooks.clear()
+
+        # First hook (high priority) returns None
+        def high_priority_hook(tool_use, preview=None, workspace=None):
+            return None  # Fall through
+
+        # Second hook (low priority) confirms
+        def low_priority_hook(tool_use, preview=None, workspace=None):
+            return ConfirmationResult.confirm()
+
+        registry.register(
+            "high", HookType.TOOL_CONFIRM, high_priority_hook, priority=10
+        )
+        registry.register("low", HookType.TOOL_CONFIRM, low_priority_hook, priority=0)
+
+        try:
+            tool_use = ToolUse(tool="test", args=[], content="test")
+            result = get_confirmation(tool_use)
+            assert result.action == ConfirmAction.CONFIRM
+        finally:
+            registry.hooks.clear()
+            registry.hooks.update(original_hooks)
+
+    def test_first_non_none_wins(self):
+        """Test that the first non-None result is used."""
+        from gptme.hooks import HookType, get_registry
+        from gptme.tools.base import ToolUse
+
+        registry = get_registry()
+        original_hooks = registry.hooks.copy()
+        registry.hooks.clear()
+
+        # First hook skips
+        def first_hook(tool_use, preview=None, workspace=None):
+            return ConfirmationResult.skip("First hook skipped")
+
+        # Second hook would confirm but should never be called
+        def second_hook(tool_use, preview=None, workspace=None):
+            return ConfirmationResult.confirm()
+
+        registry.register("first", HookType.TOOL_CONFIRM, first_hook, priority=10)
+        registry.register("second", HookType.TOOL_CONFIRM, second_hook, priority=0)
+
+        try:
+            tool_use = ToolUse(tool="test", args=[], content="test")
+            result = get_confirmation(tool_use)
+            assert result.action == ConfirmAction.SKIP
+            assert result.message == "First hook skipped"
+        finally:
+            registry.hooks.clear()
+            registry.hooks.update(original_hooks)
+
+    def test_all_hooks_return_none_uses_default(self):
+        """Test that when all hooks return None, default behavior is used."""
+        from gptme.hooks import HookType, get_registry
+        from gptme.tools.base import ToolUse
+
+        registry = get_registry()
+        original_hooks = registry.hooks.copy()
+        registry.hooks.clear()
+
+        def null_hook(tool_use, preview=None, workspace=None):
+            return None
+
+        registry.register("null", HookType.TOOL_CONFIRM, null_hook, priority=0)
+
+        try:
+            tool_use = ToolUse(tool="test", args=[], content="test")
+            # default_confirm=True should auto-confirm
+            result = get_confirmation(tool_use, default_confirm=True)
+            assert result.action == ConfirmAction.CONFIRM
+
+            # default_confirm=False should skip
+            result = get_confirmation(tool_use, default_confirm=False)
+            assert result.action == ConfirmAction.SKIP
+        finally:
+            registry.hooks.clear()
+            registry.hooks.update(original_hooks)
+
+
+class TestShellAllowlistHook:
+    """Tests for the shell tool's allowlist confirmation hook."""
+
+    def test_allowlisted_command_auto_confirms(self):
+        """Test that allowlisted commands are auto-confirmed."""
+        from gptme.tools.base import ToolUse
+        from gptme.tools.shell import shell_allowlist_hook
+
+        # 'ls' is an allowlisted command
+        tool_use = ToolUse(tool="shell", args=[], content="ls -la")
+        result = shell_allowlist_hook(tool_use)
+        assert result is not None
+        assert result.action == ConfirmAction.CONFIRM
+
+    def test_non_allowlisted_command_falls_through(self):
+        """Test that non-allowlisted commands return None to fall through."""
+        from gptme.tools.base import ToolUse
+        from gptme.tools.shell import shell_allowlist_hook
+
+        # 'rm' is not allowlisted
+        tool_use = ToolUse(tool="shell", args=[], content="rm -rf /")
+        result = shell_allowlist_hook(tool_use)
+        assert result is None  # Falls through to next hook
+
+    def test_non_shell_tool_falls_through(self):
+        """Test that non-shell tools are ignored."""
+        from gptme.tools.base import ToolUse
+        from gptme.tools.shell import shell_allowlist_hook
+
+        tool_use = ToolUse(tool="python", args=[], content="print('hello')")
+        result = shell_allowlist_hook(tool_use)
+        assert result is None
+
+    def test_command_with_pipe_allowlisted(self):
+        """Test that piped commands are checked correctly."""
+        from gptme.tools.base import ToolUse
+        from gptme.tools.shell import shell_allowlist_hook
+
+        # ls | grep - both should be allowlisted
+        tool_use = ToolUse(tool="shell", args=[], content="ls | grep foo")
+        result = shell_allowlist_hook(tool_use)
+        assert result is not None
+        assert result.action == ConfirmAction.CONFIRM
+
+    def test_hook_registered_on_toolspec(self):
+        """Test that the allowlist hook is registered on the shell ToolSpec."""
+        from gptme.tools.shell import tool
+
+        assert "allowlist" in tool.hooks
+        hook_type, hook_func, priority = tool.hooks["allowlist"]
+        assert hook_type == "tool_confirm"
+        assert priority == 10  # Higher than CLI hook (0)

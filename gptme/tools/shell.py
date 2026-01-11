@@ -843,6 +843,40 @@ def is_allowlisted(cmd: str) -> bool:
     return True
 
 
+def shell_allowlist_hook(
+    tool_use: "ToolUse",
+    preview: str | None = None,
+    workspace: "Path | None" = None,
+):
+    """Auto-approve hook for allowlisted shell commands.
+
+    This hook is registered with high priority (10) to check allowlisted
+    commands before falling through to CLI/server confirmation hooks.
+
+    Returns:
+        ConfirmationResult.confirm() for allowlisted commands,
+        None to fall through to the next hook for non-allowlisted commands.
+    """
+    from ..hooks.confirm import ConfirmationResult
+
+    # Only handle shell tool
+    if tool_use.tool != "shell":
+        return None
+
+    # Get the command from the tool use
+    cmd = tool_use.content.strip() if tool_use.content else ""
+    if not cmd:
+        return None
+
+    # Check if command is allowlisted
+    if is_allowlisted(cmd):
+        logger.debug(f"Shell command allowlisted, auto-confirming: {cmd[:50]}...")
+        return ConfirmationResult.confirm()
+
+    # Not allowlisted - fall through to next hook (CLI/server)
+    return None
+
+
 def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     """Find all quoted regions in a command string.
 
@@ -1766,5 +1800,10 @@ tool = ToolSpec(
             required=True,
         ),
     ],
+    # Register shell allowlist hook with high priority (10)
+    # This auto-confirms allowlisted commands before CLI/server hooks (priority 0)
+    hooks={
+        "allowlist": ("tool_confirm", shell_allowlist_hook, 10),
+    },
 )
 __doc__ = tool.get_doc(__doc__)

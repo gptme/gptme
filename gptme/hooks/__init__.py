@@ -445,14 +445,23 @@ class HookRegistry:
                         f"Hook '{hook.name}' is taking a long time ({t_delta:.4f}s)"
                     )
 
-                # If hook returns an iterable (but not string/bytes), yield from it
-                if isinstance(result, Iterable) and not isinstance(result, str | bytes):
-                    for msg in result:
-                        if isinstance(msg, StopPropagation):
-                            logger.debug(f"Hook '{hook.name}' stopped propagation")
-                            return  # Stop processing remaining hooks
-                        elif isinstance(msg, Message):
-                            yield msg
+                # If hook returns a generator, yield from it
+                # Note: ToolConfirmHooks may return None (fall-through) or ConfirmationResult
+                if (
+                    result is not None
+                    and hasattr(result, "__iter__")
+                    and not isinstance(result, str | bytes)
+                ):
+                    try:
+                        for msg in result:
+                            if isinstance(msg, StopPropagation):
+                                logger.debug(f"Hook '{hook.name}' stopped propagation")
+                                return  # Stop processing remaining hooks
+                            elif isinstance(msg, Message):
+                                yield msg
+                    except TypeError:
+                        # Not actually iterable, continue
+                        pass
                 # If hook returns a Message, yield it
                 elif isinstance(result, Message):
                     yield result
