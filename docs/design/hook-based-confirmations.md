@@ -25,16 +25,21 @@
 | 4 | Server hook registration | ✅ Complete |
 | 4 | V1 API hook-aware confirm_func | ✅ Complete |
 | 5 | Tool migration | ❌ Reverted (see notes) |
-| 6 | Simplification & cleanup | ⏳ In Progress |
+| 6 | Simplification & cleanup | ✅ Complete |
 | 6.1 | Consolidate preview printing | ✅ Complete |
 | 6.2 | Centralize auto-confirm state | ✅ Complete |
 | 6.3 | Unify server auto-confirm | ✅ Complete |
 | 6.4 | Consolidate help text | ✅ Complete |
+| 7 | Remove ask_execute fallback | ✅ Complete |
+| 7.1 | Simplify confirm_func | ✅ Complete |
+| 7.2 | Move CLI hook to init_hooks | ✅ Complete |
+| 7.3 | Use contextvars for auto-confirm | ✅ Complete |
+| Future | Tool auto-approve checkers | 📋 Proposed |
 
-**Current state**: Phases 1-4 complete. Phase 5 was reverted. Phase 6.1-6.4 complete.
+**Current state**: Phases 1-4, 6, 7 complete. Phase 5 was reverted.
 
 **Implemented**:
-- `confirm_func` in `chat.py` uses hooks when available, falling back to legacy `ask_execute`
+- `confirm_func` in `chat.py` always uses hooks (no `ask_execute` fallback)
 - `confirm_func` in `api.py` (v1) uses hooks when available, falling back to auto-confirm
 - Server's HTTP endpoint resolves hook-based confirmations via `_resolve_hook_confirmation`
 - Server hook now emits SSE events and blocks until client responds via HTTP endpoint
@@ -75,15 +80,20 @@ Both `cli_confirm.py` and `ask_execute.py` now use this centralized state instea
 maintaining their own duplicate globals. Server auto-confirm is also unified -
 `server_confirm_hook` now checks centralized state first before checking session context.
 
-**Next steps** (Phase 6 - Simplification & Cleanup):
-- ✅ Phase 6.1: Consolidate preview printing
-- ✅ Phase 6.2: Centralize auto-confirm state (single source of truth)
-- ✅ Phase 6.3: Unify server auto-confirm with CLI (checks centralized state first)
-- ✅ Phase 6.4: Consolidate help text
+**Phase 7 Notes** (Completed):
+Removed ask_execute fallback from chat.py per Erik's suggestion:
+- confirm_func now always uses hooks via make_confirm_func_from_hooks()
+- CLI hook registration moved into init_hooks() via hook_allowlist parameter
+- Auto-confirm state converted to ContextVars for thread safety in server mode
+- When no_confirm=True, no CLI hook is registered, so get_confirmation() auto-confirms
+
+**Next steps**:
+- ✅ Phase 6.1-6.4: Consolidation complete
+- ✅ Phase 7: Remove ask_execute fallback
 - Phase 6.5: Document hook API for custom confirmation backends
 - Phase 6.6: Add examples for new backends (GUI, Discord bot)
-- Future: Consider extracting shared response handling (y/n/e/c parsing)
-- Future: Consider moving confirmation to ToolUse.execute() where ToolUse already exists
+- Future: Tool auto-approve checkers (tools expose optional auto-approve functions)
+- Future: Consider moving confirmation to ToolUse.execute()
 
 ## Problem Statement
 
