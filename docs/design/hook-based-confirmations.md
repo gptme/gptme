@@ -29,8 +29,9 @@
 | 6.1 | Consolidate preview printing | ✅ Complete |
 | 6.2 | Centralize auto-confirm state | ✅ Complete |
 | 6.3 | Unify server auto-confirm | ✅ Complete |
+| 6.4 | Consolidate help text | ✅ Complete |
 
-**Current state**: Phases 1-4 complete. Phase 5 was reverted. Phase 6.1-6.3 complete.
+**Current state**: Phases 1-4 complete. Phase 5 was reverted. Phase 6.1-6.4 complete.
 
 **Implemented**:
 - `confirm_func` in `chat.py` uses hooks when available, falling back to legacy `ask_execute`
@@ -58,6 +59,11 @@ Consolidated duplicate `_print_preview` in cli_confirm.py by importing shared `p
 from ask_execute.py. This reduced cli_confirm.py by 10 lines (245 → 235) and eliminates
 duplicate preview logic.
 
+**Phase 6.4 Notes** (Completed):
+Extracted shared `print_confirmation_help()` function in ask_execute.py. Both
+ask_execute and cli_confirm_hook now use this shared function instead of
+maintaining duplicate help text. Reduced cli_confirm.py by 19 lines.
+
 **Phase 6.2-6.3 Notes** (Completed):
 Centralized auto-confirm state in `confirm.py` with unified functions:
 - `set_auto_confirm(count)` - Set auto-confirm (count or infinite)
@@ -70,12 +76,13 @@ maintaining their own duplicate globals. Server auto-confirm is also unified -
 `server_confirm_hook` now checks centralized state first before checking session context.
 
 **Next steps** (Phase 6 - Simplification & Cleanup):
-- ✅ Phase 6.1: Consolidate preview printing (-10 lines)
+- ✅ Phase 6.1: Consolidate preview printing
 - ✅ Phase 6.2: Centralize auto-confirm state (single source of truth)
 - ✅ Phase 6.3: Unify server auto-confirm with CLI (checks centralized state first)
-- Phase 6.4: Document hook API for custom confirmation backends
-- Phase 6.5: Add examples for new backends (GUI, Discord bot)
-- Phase 6.6: Consider extracting shared response handling logic
+- ✅ Phase 6.4: Consolidate help text
+- Phase 6.5: Document hook API for custom confirmation backends
+- Phase 6.6: Add examples for new backends (GUI, Discord bot)
+- Future: Consider extracting shared response handling (y/n/e/c parsing)
 - Future: Consider moving confirmation to ToolUse.execute() where ToolUse already exists
 
 ## Problem Statement
