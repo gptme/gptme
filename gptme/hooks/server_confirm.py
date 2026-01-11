@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .confirm import ConfirmationResult
+from .confirm import ConfirmationResult, check_auto_confirm
 
 # Context variables for accessing session info during hook execution
 # Set by the server before starting tool execution
@@ -133,9 +133,17 @@ def server_confirm_hook(
     3. Waits for HTTP endpoint to signal completion
     4. Returns the result
 
-    The hook reads session context from contextvars set by the server
-    before starting tool execution. If no context is set, it auto-confirms.
+    Auto-confirm triggers in these cases (unified with CLI):
+    1. Centralized auto-confirm is active (user requested via CLI or API)
+    2. No server session context is set (not in a server request)
     """
+    # Check centralized auto-confirm first (unified with CLI)
+    should_auto, message = check_auto_confirm()
+    if should_auto:
+        if message:
+            logger.debug(f"Auto-confirm via centralized state: {message}")
+        return ConfirmationResult.confirm()
+
     # Generate unique tool ID
     tool_id = str(uuid.uuid4())
 
