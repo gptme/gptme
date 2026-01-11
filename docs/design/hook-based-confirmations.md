@@ -34,9 +34,12 @@
 | 7.1 | Simplify confirm_func | ✅ Complete |
 | 7.2 | Move CLI hook to init_hooks | ✅ Complete |
 | 7.3 | Use contextvars for auto-confirm | ✅ Complete |
-| Future | Tool auto-approve checkers | 📋 Proposed |
+| 8 | Tool auto-approve via ToolSpec hooks | ✅ Complete |
+| 8.1 | Hook fall-through support | ✅ Complete |
+| 8.2 | Shell allowlist hook | ✅ Complete |
+| 8.3 | Tests for fall-through & allowlist | ✅ Complete |
 
-**Current state**: Phases 1-4, 6, 7 complete. Phase 5 was reverted.
+**Current state**: Phases 1-4, 6, 7, 8 complete. Phase 5 was reverted.
 
 **Implemented**:
 - `confirm_func` in `chat.py` always uses hooks (no `ask_execute` fallback)
@@ -87,12 +90,39 @@ Removed ask_execute fallback from chat.py per Erik's suggestion:
 - Auto-confirm state converted to ContextVars for thread safety in server mode
 - When no_confirm=True, no CLI hook is registered, so get_confirmation() auto-confirms
 
+**Phase 8 Notes** (Completed):
+Tools register their own auto-approve hooks via ToolSpec.hooks per Erik's suggestion:
+- Modified `get_confirmation()` to support fall-through: hooks returning None pass to next hook
+- Hooks are tried in priority order (highest first), first non-None result wins
+- Updated `ToolConfirmHook` protocol: now returns `ConfirmationResult | None`
+- Shell tool registers `shell_allowlist_hook` with priority 10 (higher than CLI hook at 0)
+- Shell allowlist hook auto-confirms allowlisted commands, returns None for others
+- This keeps ToolSpec clean (no new fields) while enabling tool-specific auto-approve
+- Tests added: 3 fall-through tests + 5 shell allowlist tests (27 total passing)
+
+Example usage for other tools:
+```python
+def my_tool_auto_approve(tool_use, preview=None, workspace=None):
+    """Auto-approve safe operations, fall through for others."""
+    if is_safe(tool_use):
+        return ConfirmationResult.confirm()
+    return None  # Fall through to CLI/server hook
+
+tool = ToolSpec(
+    name="my_tool",
+    hooks={
+        "auto_approve": ("tool_confirm", my_tool_auto_approve, 10),
+    },
+    ...
+)
+```
+
 **Next steps**:
 - ✅ Phase 6.1-6.4: Consolidation complete
 - ✅ Phase 7: Remove ask_execute fallback
+- ✅ Phase 8: Tool auto-approve via ToolSpec hooks
 - Phase 6.5: Document hook API for custom confirmation backends
 - Phase 6.6: Add examples for new backends (GUI, Discord bot)
-- Future: Tool auto-approve checkers (tools expose optional auto-approve functions)
 - Future: Consider moving confirmation to ToolUse.execute()
 
 ## Problem Statement

@@ -116,12 +116,23 @@ class ToolConfirmHook(Protocol):
     Tool confirmation hooks are different from other hooks:
     - They RETURN a ConfirmationResult instead of yielding Messages
     - They are blocking (wait for user/client decision)
-    - Only ONE should be registered at a time
+    - Multiple hooks can be registered with different priorities
+    - Hooks are tried in priority order (highest first)
+    - Returning None falls through to the next hook
+    - First non-None result is used
+
+    This enables tool-specific auto-approve hooks (high priority) to
+    confirm allowlisted operations before falling through to CLI/server
+    hooks for user confirmation.
 
     Args:
         tool_use: The tool execution to confirm
         preview: Optional preview of what will be executed
         workspace: Workspace directory (optional)
+
+    Returns:
+        ConfirmationResult to handle the confirmation, or None to fall through
+        to the next hook in priority order.
     """
 
     def __call__(
@@ -129,7 +140,7 @@ class ToolConfirmHook(Protocol):
         tool_use: "ToolUse",
         preview: str | None = None,
         workspace: Path | None = None,
-    ) -> ConfirmationResult: ...
+    ) -> ConfirmationResult | None: ...
 
 
 def get_confirmation(
@@ -168,34 +179,47 @@ def get_confirmation(
             logger.debug("No confirmation hook registered, auto-skipping")
             return ConfirmationResult.skip("No confirmation hook registered")
 
-    # Use the first (highest priority) enabled hook
-    hook = enabled_hooks[0]
+    # Try hooks in priority order, falling through if a hook returns None
+    from typing import cast
 
-    try:
-        logger.debug(f"Calling confirmation hook '{hook.name}'")
-        # Cast to ToolConfirmHook - we know it's this type because we only
-        # get hooks registered for TOOL_CONFIRM
-        from typing import cast
+    for hook in enabled_hooks:
+        try:
+            logger.debug(f"Calling confirmation hook '{hook.name}'")
+            # Cast to ToolConfirmHook - we know it's this type because we only
+            # get hooks registered for TOOL_CONFIRM
+            confirm_func = cast(ToolConfirmHook, hook.func)
+            result = confirm_func(tool_use, preview, workspace)
 
-        confirm_func = cast(ToolConfirmHook, hook.func)
-        result = confirm_func(tool_use, preview, workspace)
+            if result is None:
+                # Hook declined to handle this confirmation, try next hook
+                logger.debug(f"Hook '{hook.name}' returned None, trying next hook")
+                continue
 
-        if isinstance(result, ConfirmationResult):
-            return result
-        elif isinstance(result, bool):
-            # Backward compatibility: simple boolean return
-            return (
-                ConfirmationResult.confirm()
-                if result
-                else ConfirmationResult.skip("Declined by user")
-            )
-        else:
-            logger.warning(
-                f"Confirmation hook '{hook.name}' returned unexpected type: {type(result)}"
-            )
-            return ConfirmationResult.confirm()
+            if isinstance(result, ConfirmationResult):
+                return result
+            elif isinstance(result, bool):
+                # Backward compatibility: simple boolean return
+                return (
+                    ConfirmationResult.confirm()
+                    if result
+                    else ConfirmationResult.skip("Declined by user")
+                )
+            else:
+                logger.warning(
+                    f"Confirmation hook '{hook.name}' returned unexpected type: {type(result)}"
+                )
+                # Treat unexpected types as "pass through"
+                continue
 
-    except Exception as e:
-        logger.exception(f"Error in confirmation hook '{hook.name}'")
-        # On error, skip to be safe
-        return ConfirmationResult.skip(f"Error: {e}")
+        except Exception as e:
+            logger.exception(f"Error in confirmation hook '{hook.name}'")
+            # On error, skip to be safe
+            return ConfirmationResult.skip(f"Error: {e}")
+
+    # No hook handled the confirmation - apply default behavior
+    if default_confirm:
+        logger.debug("No hook handled confirmation, auto-confirming")
+        return ConfirmationResult.confirm()
+    else:
+        logger.debug("No hook handled confirmation, auto-skipping")
+        return ConfirmationResult.skip("No confirmation hook handled the request")
