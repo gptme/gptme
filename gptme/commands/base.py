@@ -18,12 +18,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CommandContext:
-    """Context object containing all command handler parameters."""
+    """Context object containing all command handler parameters.
+
+    Note: The `confirm` field is deprecated. Confirmation now uses the
+    hook system directly within ToolUse.execute().
+    """
 
     args: list[str]
     full_args: str
     manager: "LogManager"
-    confirm: "ConfirmFunc"
+    confirm: "ConfirmFunc | None" = None  # deprecated
 
 
 # Original handler type (before decoration)
@@ -146,8 +150,14 @@ def get_command_completer(name: str) -> CommandCompleter | None:
     return _command_completers.get(name)
 
 
-def execute_cmd(msg: "Message", log: "LogManager", confirm: "ConfirmFunc") -> bool:
-    """Executes any user-command, returns True if command was executed."""
+def execute_cmd(
+    msg: "Message", log: "LogManager", confirm: "ConfirmFunc | None" = None
+) -> bool:
+    """Executes any user-command, returns True if command was executed.
+
+    Note: The `confirm` parameter is deprecated. Confirmation now uses the
+    hook system directly within ToolUse.execute().
+    """
     from ..util.content import is_message_command  # fmt: skip
 
     assert msg.role == "user"
@@ -155,7 +165,7 @@ def execute_cmd(msg: "Message", log: "LogManager", confirm: "ConfirmFunc") -> bo
     # if message starts with / treat as command
     # absolute paths dont trigger false positives by checking for single /
     if is_message_command(msg.content):
-        for resp in handle_cmd(msg.content, log, confirm):
+        for resp in handle_cmd(msg.content, log):
             log.append(resp)
         return True
     return False
@@ -164,9 +174,13 @@ def execute_cmd(msg: "Message", log: "LogManager", confirm: "ConfirmFunc") -> bo
 def handle_cmd(
     cmd: str,
     manager: "LogManager",
-    confirm: "ConfirmFunc",
+    confirm: "ConfirmFunc | None" = None,  # deprecated
 ) -> Generator["Message", None, None]:
-    """Handles a command."""
+    """Handles a command.
+
+    Note: The `confirm` parameter is deprecated. Confirmation now uses the
+    hook system directly within ToolUse.execute().
+    """
     cmd = cmd.lstrip("/")
     logger.debug(f"Executing command: {cmd}")
     name, *args = re.split(r"[\n\s]", cmd)
@@ -185,7 +199,7 @@ def handle_cmd(
 
     tooluse = ToolUse(name, [], full_args)
     if tooluse.is_runnable:
-        yield from tooluse.execute(confirm, manager.log, manager.workspace)
+        yield from tooluse.execute(log=manager.log, workspace=manager.workspace)
     else:
         manager.undo(1, quiet=True)
         print("Unknown command")
