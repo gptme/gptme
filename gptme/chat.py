@@ -31,7 +31,6 @@ from .tools import (
 )
 from .tools.complete import SessionCompleteException
 from .util import console, path_with_tilde
-from .util.ask_execute import ask_execute
 from .util.auto_naming import auto_generate_display_name
 from .util.context import include_paths
 from .util.cost import log_costs
@@ -80,15 +79,15 @@ def chat(
         tool_format is not None
     ), "tool_format should be resolved before calling chat()"
 
-    # init
-    init(model, interactive, tool_allowlist, tool_format)
-
-    # Register CLI confirmation hook for interactive mode
-    # This must be after init_hooks() to avoid being overwritten
+    # Build extra hooks list based on mode
+    # Default hooks are registered automatically, we add mode-specific ones
+    extra_hooks = None
     if interactive and not no_confirm:
-        from .hooks.cli_confirm import register as register_cli_confirm
+        # Include CLI confirmation hook for interactive mode with confirmation enabled
+        extra_hooks = ["cli_confirm"]
 
-        register_cli_confirm()
+    # init
+    init(model, interactive, tool_allowlist, tool_format, extra_hooks)
 
     # Trigger session start hooks
     if session_start_msgs := trigger_hook(
@@ -135,23 +134,16 @@ def chat(
     # Note: todowrite replay is now handled by the todo_replay tool via SESSION_START hook
 
     def confirm_func(msg) -> bool:
-        if no_confirm:
-            return True
-        # Use hook-based confirmation if a TOOL_CONFIRM hook is registered
-        from .hooks import HookType, get_hooks
+        # Use hook-based confirmation system
+        # - If cli_confirm hook registered (interactive mode): prompts user
+        # - If no hook registered (no_confirm mode): auto-confirms
+        # - Hooks check centralized auto-confirm state internally
+        from .hooks.confirm_bridge import make_confirm_func_from_hooks
 
-        hooks = get_hooks(HookType.TOOL_CONFIRM)
-        enabled_hooks = [h for h in hooks if h.enabled]
-        if enabled_hooks:
-            # Use the bridge to get confirmation via hooks
-            from .hooks.confirm_bridge import make_confirm_func_from_hooks
-
-            hook_confirm = make_confirm_func_from_hooks(
-                workspace=workspace, default_confirm=True
-            )
-            return hook_confirm(msg)
-        # Fall back to legacy ask_execute
-        return ask_execute(msg)
+        hook_confirm = make_confirm_func_from_hooks(
+            workspace=workspace, default_confirm=True
+        )
+        return hook_confirm(msg)
 
     # Convert prompt_msgs to a queue for unified handling
     prompt_queue = list(prompt_msgs)

@@ -29,7 +29,17 @@ def init(
     interactive: bool,
     tool_allowlist: list[str] | None,
     tool_format: ToolFormat,
+    extra_hooks: list[str] | None = None,
 ):
+    """Initialize gptme.
+
+    Args:
+        model: Model to use, or None for auto-detection
+        interactive: Whether running in interactive mode
+        tool_allowlist: List of tools to enable, or None for all
+        tool_format: Format for tool output
+        extra_hooks: Additional hooks to add to defaults (e.g., 'cli_confirm')
+    """
     global _init_done
     if _init_done:
         logger.warning("init() called twice, ignoring")
@@ -39,7 +49,7 @@ def init(
     load_dotenv()
     init_model(model, interactive)
     init_tools(tool_allowlist)
-    init_hooks()
+    init_hooks(extra_hooks=extra_hooks)
     init_commands()
 
     set_tool_format(tool_format)
