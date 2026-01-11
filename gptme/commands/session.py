@@ -279,7 +279,15 @@ def _rename(manager: "LogManager", new_name: str, confirm) -> None:
         new_name = generate_llm_name(msgs)
         assert " " not in new_name, f"Invalid name: {new_name}"
         print(f"Generated name: {new_name}")
-        if not confirm("Confirm?"):
+        if confirm is not None:
+            confirmed = confirm("Confirm?")
+        elif sys.stdin.isatty():
+            response = input("Confirm? [y/N] ")
+            confirmed = response.lower().strip() in ("y", "yes")
+        else:
+            # Non-interactive mode (no_confirm=True typically) - auto-approve
+            confirmed = True
+        if not confirmed:
             print("Aborting")
             return
 
