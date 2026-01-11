@@ -141,7 +141,17 @@ def cmd_delete(ctx: CommandContext) -> None:
 
     # Confirm deletion unless --force
     if not force:
-        if not ctx.confirm(f"Delete conversation '{conv_id}'? This cannot be undone."):
+        # Use ctx.confirm if available, otherwise use simple input-based confirmation
+        if ctx.confirm is not None:
+            confirmed = ctx.confirm(
+                f"Delete conversation '{conv_id}'? This cannot be undone."
+            )
+        else:
+            response = input(
+                f"Delete conversation '{conv_id}'? This cannot be undone. [y/N] "
+            )
+            confirmed = response.lower().strip() in ("y", "yes")
+        if not confirmed:
             print("Cancelled.")
             return
 
@@ -208,7 +218,17 @@ def cmd_restart(ctx: CommandContext) -> None:
 
     ctx.manager.undo(1, quiet=True)
 
-    if not ctx.confirm("Restart gptme? This will exit and restart the process."):
+    # Use ctx.confirm if available, otherwise use simple input-based confirmation
+    if ctx.confirm is not None:
+        confirmed = ctx.confirm(
+            "Restart gptme? This will exit and restart the process."
+        )
+    else:
+        response = input(
+            "Restart gptme? This will exit and restart the process. [y/N] "
+        )
+        confirmed = response.lower().strip() in ("y", "yes")
+    if not confirmed:
         print("Restart cancelled.")
         return
 

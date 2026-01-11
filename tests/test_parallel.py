@@ -38,7 +38,7 @@ class TestExecuteToolsParallel:
 
     def test_empty_tooluses(self):
         """Empty list should return empty results."""
-        results = execute_tools_parallel([], lambda _: True, None, None)
+        results = execute_tools_parallel([], None, None)
         assert results == []
 
     def test_single_tool(self):
@@ -50,9 +50,7 @@ class TestExecuteToolsParallel:
 
         with patch("gptme.tools.parallel.set_config"):
             with patch("gptme.tools.init_tools"):
-                results = execute_tools_parallel(
-                    [mock_tooluse], lambda _: True, None, None
-                )
+                results = execute_tools_parallel([mock_tooluse], None, None)
 
         assert len(results) == 1
         assert results[0].content == "result"
@@ -78,9 +76,7 @@ class TestExecuteToolsParallel:
         with patch("gptme.tools.parallel.set_config"):
             with patch("gptme.tools.init_tools"):
                 start_time = time.time()
-                results = execute_tools_parallel(
-                    mock_tools, lambda _: True, None, None, max_workers=3
-                )
+                results = execute_tools_parallel(mock_tools, None, None, max_workers=3)
                 total_time = time.time() - start_time
 
         # Should have 3 results
@@ -102,7 +98,7 @@ class TestExecuteToolsParallel:
 
         with patch("gptme.tools.parallel.set_config"):
             with patch("gptme.tools.init_tools"):
-                results = execute_tools_parallel(mock_tools, lambda _: True, None, None)
+                results = execute_tools_parallel(mock_tools, None, None)
 
         assert len(results) == 3
         assert results[0].content == "result_0"
@@ -129,7 +125,7 @@ class TestExecuteToolsParallel:
 
         with patch("gptme.tools.parallel.set_config"):
             with patch("gptme.tools.init_tools"):
-                results = execute_tools_parallel(mock_tools, lambda _: True, None, None)
+                results = execute_tools_parallel(mock_tools, None, None)
 
         # Both tools should have results
         assert len(results) == 2
