@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 import importlib
 import json
 import logging
@@ -365,23 +364,39 @@ class ToolUse:
 
     def execute(
         self,
-        confirm: ConfirmFunc,
+        confirm: ConfirmFunc | None = None,  # deprecated, kept for backward compat
         log: Log | None = None,
         workspace: Path | None = None,
     ) -> Generator[Message, None, None]:
-        """Executes a tool-use tag and returns the output."""
+        """Executes a tool-use tag and returns the output.
+
+        Note: The `confirm` parameter is deprecated. Confirmation now uses the
+        hook system directly with the actual ToolUse object, eliminating the
+        need for the confirm_bridge module.
+        """
         # noreorder
         from ..hooks import HookType, trigger_hook  # fmt: skip
+        from ..hooks.confirm import ConfirmAction, get_confirmation  # fmt: skip
         from ..telemetry import record_tool_call, trace_function  # fmt: skip
         from . import get_tool  # fmt: skip
 
-        # wrap confirm in trace_function
-        @functools.wraps(confirm)
+        # Create confirm function using hook system directly with actual ToolUse
+        # This eliminates the need for confirm_bridge.py and provides hooks
+        # with the real ToolUse object instead of a placeholder
+        def _confirm_impl(content: str) -> bool:
+            result = get_confirmation(
+                tool_use=self,
+                preview=content,
+                workspace=workspace,
+                default_confirm=True,
+            )
+            return result.action == ConfirmAction.CONFIRM
+
         def _confirm(content: str) -> bool:
             return trace_function(
                 name=f"tool.{self.tool}.confirm",
                 attributes={"tool_name": self.tool},
-            )(confirm)(content)
+            )(_confirm_impl)(content)
 
         @trace_function(name=f"tool.{self.tool}", attributes={"tool_name": self.tool})
         def _execute_tool():

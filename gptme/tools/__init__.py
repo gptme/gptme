@@ -201,7 +201,7 @@ def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
 @trace_function(name="tools.execute_msg", attributes={"component": "tools"})
 def execute_msg(
     msg: Message,
-    confirm: ConfirmFunc,
+    confirm: ConfirmFunc | None = None,  # deprecated, kept for backward compat
     log: Log | None = None,
     workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
@@ -209,6 +209,9 @@ def execute_msg(
 
     If GPTME_TOOLUSE_PARALLEL is enabled, executes independent tool calls
     in parallel using threads.
+
+    Note: The `confirm` parameter is deprecated. Confirmation now uses the
+    hook system directly within ToolUse.execute().
     """
     from .parallel import execute_tools_parallel, is_parallel_enabled
 
@@ -226,7 +229,7 @@ def execute_msg(
     if is_parallel_enabled() and len(runnable_tools) > 1:
         logger.info(f"Executing {len(runnable_tools)} tools in parallel")
         try:
-            results = execute_tools_parallel(runnable_tools, confirm, log, workspace)
+            results = execute_tools_parallel(runnable_tools, log, workspace)
             yield from results
         except KeyboardInterrupt:
             clear_interruptible()
@@ -236,7 +239,7 @@ def execute_msg(
         for tooluse in runnable_tools:
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 try:
-                    for tool_response in tooluse.execute(confirm, log, workspace):
+                    for tool_response in tooluse.execute(log=log, workspace=workspace):
                         yield tool_response.replace(call_id=tooluse.call_id)
                 except KeyboardInterrupt:
                     clear_interruptible()
