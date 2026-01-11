@@ -1798,7 +1798,7 @@ tool = ToolSpec(
     # Register shell allowlist hook with high priority (10)
     # This auto-confirms allowlisted commands before CLI/server hooks (priority 0)
     hooks={
-        "allowlist": ("tool_confirm", shell_allowlist_hook, 10),
+        "allowlist": ("tool.confirm", shell_allowlist_hook, 10),
     },
 )
 __doc__ = tool.get_doc(__doc__)

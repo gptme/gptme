@@ -464,5 +464,5 @@ class TestShellAllowlistHook:
 
         assert "allowlist" in tool.hooks
         hook_type, hook_func, priority = tool.hooks["allowlist"]
-        assert hook_type == "tool_confirm"
+        assert hook_type == "tool.confirm"
         assert priority == 10  # Higher than CLI hook (0)
