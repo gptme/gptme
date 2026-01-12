@@ -453,7 +453,6 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
 def step(
     log: Log | list[Message],
     stream: bool,
-    _confirm=None,  # deprecated, confirmation now via hooks
     tool_format: ToolFormat = "markdown",
     workspace: Path | None = None,
     model: str | None = None,

@@ -519,16 +519,13 @@ class GptmeAgent:
             # Run gptme chat step in executor to not block event loop
             loop = asyncio.get_running_loop()
 
-            # Phase 2: Create confirm callback that reports tool calls
-            confirm_callback = self._create_confirm_with_tools(session_id, loop)
-
             def run_chat_step() -> list[Message]:
                 """Run chat step synchronously."""
+                # Note: confirmation is now handled via the hook system
                 return list(
                     chat_step(
                         log=log.log,
                         stream=False,
-                        confirm=confirm_callback,  # Phase 2: Tool call reporting
                         tool_format="markdown",
                         model=self._model,
                     )

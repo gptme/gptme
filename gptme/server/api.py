@@ -291,19 +291,6 @@ def api_conversation_post(logfile: str):
     return {"status": "ok"}
 
 
-def confirm_func(msg: str) -> bool:
-    """Legacy confirmation function.
-
-    Note: This function is deprecated. Confirmation is now handled directly
-    within ToolUse.execute() using the hook system, which provides the
-    actual ToolUse object to hooks instead of a placeholder.
-
-    This function remains for backward compatibility but simply returns True
-    since actual confirmation happens in ToolUse.execute.
-    """
-    return True
-
-
 # generate response
 @api.route("/api/conversations/<string:logfile>/generate", methods=["POST"])
 @api_doc_simple(
