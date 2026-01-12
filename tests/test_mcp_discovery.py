@@ -127,10 +127,8 @@ def test_execute_mcp_list():
 
     with patch("gptme.tools.mcp_adapter.get_config", return_value=config):
         # Execute list command
-        def confirm(x):
-            return True
 
-        messages = list(execute_mcp("list", None, None, confirm))
+        messages = list(execute_mcp("list", None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -152,11 +150,7 @@ def test_execute_mcp_search():
         "gptme.tools.mcp.search_mcp_servers",
         return_value=format_server_list(mock_servers),
     ):
-
-        def confirm(x):
-            return True
-
-        messages = list(execute_mcp("search database", None, None, confirm))
+        messages = list(execute_mcp("search database", None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -178,11 +172,7 @@ def test_execute_mcp_info():
         "gptme.tools.mcp.get_mcp_server_info",
         return_value=format_server_details(mock_server),
     ):
-
-        def confirm(x):
-            return True
-
-        messages = list(execute_mcp("info sqlite", None, None, confirm))
+        messages = list(execute_mcp("info sqlite", None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -192,10 +182,7 @@ def test_execute_mcp_info():
 def test_execute_mcp_unknown_command():
     """Test handling of unknown MCP commands."""
 
-    def confirm(x):
-        return True
-
-    messages = list(execute_mcp("unknown-command", None, None, confirm))
+    messages = list(execute_mcp("unknown-command", None, None))
 
     assert len(messages) == 1
     assert messages[0].role == "system"
@@ -205,10 +192,7 @@ def test_execute_mcp_unknown_command():
 def test_execute_mcp_no_command():
     """Test handling when no command is provided."""
 
-    def confirm(x):
-        return True
-
-    messages = list(execute_mcp(None, None, None, confirm))
+    messages = list(execute_mcp(None, None, None))
 
     assert len(messages) == 1
     assert messages[0].role == "system"
@@ -229,13 +213,9 @@ def test_execute_mcp_search_with_json_args():
         "gptme.tools.mcp.search_mcp_servers",
         return_value=format_server_list(mock_servers),
     ):
-
-        def confirm(x):
-            return True
-
         # Test with valid JSON for registry and limit
         code = 'search database\n{"registry": "official", "limit": "5"}'
-        messages = list(execute_mcp(code, None, None, confirm))
+        messages = list(execute_mcp(code, None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -256,13 +236,9 @@ def test_execute_mcp_search_with_invalid_json():
         "gptme.tools.mcp.search_mcp_servers",
         return_value=format_server_list(mock_servers),
     ):
-
-        def confirm(x):
-            return True
-
         # Test with invalid JSON - should use defaults
         code = "search database\n{invalid json"
-        messages = list(execute_mcp(code, None, None, confirm))
+        messages = list(execute_mcp(code, None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -272,10 +248,7 @@ def test_execute_mcp_search_with_invalid_json():
 def test_execute_mcp_info_no_server_name():
     """Test info command without server name."""
 
-    def confirm(x):
-        return True
-
-    messages = list(execute_mcp("info", None, None, confirm))
+    messages = list(execute_mcp("info", None, None))
 
     assert len(messages) == 1
     assert messages[0].role == "system"
@@ -300,11 +273,7 @@ def test_execute_mcp_info_local_http_server():
     )
 
     with patch("gptme.config.get_config", return_value=config):
-
-        def confirm(x):
-            return True
-
-        messages = list(execute_mcp("info test-http-server", None, None, confirm))
+        messages = list(execute_mcp("info test-http-server", None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -334,11 +303,7 @@ def test_execute_mcp_info_local_stdio_server():
     )
 
     with patch("gptme.config.get_config", return_value=config):
-
-        def confirm(x):
-            return True
-
-        messages = list(execute_mcp("info test-stdio-server", None, None, confirm))
+        messages = list(execute_mcp("info test-stdio-server", None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -371,11 +336,7 @@ def test_execute_mcp_info_not_found_locally():
             return_value=format_server_details(mock_server),
         ),
     ):
-
-        def confirm(x):
-            return True
-
-        messages = list(execute_mcp("info remote-server", None, None, confirm))
+        messages = list(execute_mcp("info remote-server", None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -389,10 +350,7 @@ def test_execute_mcp_info_not_found_locally():
 def test_execute_mcp_load_no_server_name():
     """Test load command without server name."""
 
-    def confirm(x):
-        return True
-
-    messages = list(execute_mcp("load", None, None, confirm))
+    messages = list(execute_mcp("load", None, None))
 
     assert len(messages) == 1
     assert messages[0].role == "system"
@@ -401,26 +359,20 @@ def test_execute_mcp_load_no_server_name():
 
 def test_execute_mcp_load_cancelled():
     """Test load command when user cancels confirmation."""
+    # Patch the hook-based confirm function to return False (user cancels)
+    with patch("gptme.tools.mcp.confirm", return_value=False):
+        messages = list(execute_mcp("load test-server", None, None))
 
-    def confirm(x):
-        return False  # User cancels
-
-    messages = list(execute_mcp("load test-server", None, None, confirm))
-
-    assert len(messages) == 1
-    assert messages[0].role == "system"
-    assert "Cancelled" in messages[0].content
+        assert len(messages) == 1
+        assert messages[0].role == "system"
+        assert "Cancelled" in messages[0].content
 
 
 def test_execute_mcp_load_with_config_override():
     """Test load command with config override (JSON args)."""
     with patch("gptme.tools.mcp.load_mcp_server", return_value="Server loaded"):
-
-        def confirm(x):
-            return True
-
         code = 'load test-server\n{"enabled": true}'
-        messages = list(execute_mcp(code, None, None, confirm))
+        messages = list(execute_mcp(code, None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -430,10 +382,7 @@ def test_execute_mcp_load_with_config_override():
 def test_execute_mcp_unload_no_server_name():
     """Test unload command without server name."""
 
-    def confirm(x):
-        return True
-
-    messages = list(execute_mcp("unload", None, None, confirm))
+    messages = list(execute_mcp("unload", None, None))
 
     assert len(messages) == 1
     assert messages[0].role == "system"
@@ -442,15 +391,13 @@ def test_execute_mcp_unload_no_server_name():
 
 def test_execute_mcp_unload_cancelled():
     """Test unload command when user cancels confirmation."""
+    # Patch the hook-based confirm function to return False (user cancels)
+    with patch("gptme.tools.mcp.confirm", return_value=False):
+        messages = list(execute_mcp("unload test-server", None, None))
 
-    def confirm(x):
-        return False  # User cancels
-
-    messages = list(execute_mcp("unload test-server", None, None, confirm))
-
-    assert len(messages) == 1
-    assert messages[0].role == "system"
-    assert "Cancelled" in messages[0].content
+        assert len(messages) == 1
+        assert messages[0].role == "system"
+        assert "Cancelled" in messages[0].content
 
 
 def test_execute_mcp_exception_handling():
@@ -459,11 +406,7 @@ def test_execute_mcp_exception_handling():
         "gptme.tools.mcp.search_mcp_servers",
         side_effect=RuntimeError("Test error"),
     ):
-
-        def confirm(x):
-            return True
-
-        messages = list(execute_mcp("search test", None, None, confirm))
+        messages = list(execute_mcp("search test", None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -488,11 +431,7 @@ def test_execute_mcp_info_server_not_in_registry():
             return_value=not_found_message,
         ),
     ):
-
-        def confirm(x):
-            return True
-
-        messages = list(execute_mcp("info unknown-server", None, None, confirm))
+        messages = list(execute_mcp("info unknown-server", None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
@@ -505,11 +444,7 @@ def test_execute_mcp_info_server_not_in_registry():
 def test_execute_mcp_unload_success():
     """Test successful unload command."""
     with patch("gptme.tools.mcp.unload_mcp_server", return_value="Server unloaded"):
-
-        def confirm(x):
-            return True
-
-        messages = list(execute_mcp("unload test-server", None, None, confirm))
+        messages = list(execute_mcp("unload test-server", None, None))
 
         assert len(messages) == 1
         assert messages[0].role == "system"
