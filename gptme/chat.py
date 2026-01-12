@@ -22,7 +22,6 @@ from .logmanager import Log, LogManager, prepare_messages
 from .message import Message
 from .telemetry import set_conversation_context, trace_function
 from .tools import (
-    ConfirmFunc,
     ToolFormat,
     ToolUse,
     execute_msg,
@@ -446,17 +445,13 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
 def step(
     log: Log | list[Message],
     stream: bool,
-    confirm: ConfirmFunc | None = None,  # deprecated, kept for backward compat
+    _confirm=None,  # deprecated, confirmation now via hooks
     tool_format: ToolFormat = "markdown",
     workspace: Path | None = None,
     model: str | None = None,
     output_schema: type | None = None,
 ) -> Generator[Message, None, None]:
-    """Runs a single pass of the chat - generates response and executes tools.
-
-    Note: The `confirm` parameter is deprecated. Confirmation now uses the
-    hook system directly within ToolUse.execute().
-    """
+    """Runs a single pass of the chat - generates response and executes tools."""
     global _recently_interrupted
 
     default_model = get_default_model()

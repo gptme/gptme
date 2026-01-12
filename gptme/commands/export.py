@@ -103,7 +103,7 @@ def cmd_replay(ctx: CommandContext) -> None:
         print(f"Replaying all {len(assistant_messages)} assistant messages...")
 
     for msg in messages_to_replay:
-        for reply_msg in execute_msg(msg, ctx.confirm):
+        for reply_msg in execute_msg(msg):
             print_msg(reply_msg, oneline=False)
 
 

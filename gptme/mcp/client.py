@@ -122,7 +122,9 @@ class MCPClient:
             if not self.session:
                 raise RuntimeError("Failed to initialize session")
 
-            await asyncio.wait_for(self.session.initialize(), timeout=5.0)
+            # Some MCP servers require initialization (e.g. OAuth flows)
+            # So we give some leeway for user to have time to complete that
+            await asyncio.wait_for(self.session.initialize(), timeout=60.0)
             tools = await asyncio.wait_for(self.session.list_tools(), timeout=10.0)
             self.tools = tools  # Assign after await
 

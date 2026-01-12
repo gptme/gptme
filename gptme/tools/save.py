@@ -7,10 +7,10 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Literal
 
+from ..hooks import confirm
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolSpec,
     ToolUse,
@@ -96,7 +96,7 @@ def check_for_placeholders(content: str) -> bool:
 
 
 def execute_save_impl(
-    content: str, path: Path | None, confirm: ConfirmFunc
+    content: str, path: Path | None
 ) -> Generator[Message, None, None]:
     """Actual save implementation."""
     from ..hooks import HookType, trigger_hook
@@ -203,7 +203,7 @@ def execute_save_impl(
 
 
 def execute_append_impl(
-    content: str, path: Path | None, confirm: ConfirmFunc
+    content: str, path: Path | None
 ) -> Generator[Message, None, None]:
     """Actual append implementation."""
     assert path
@@ -247,7 +247,6 @@ def _validate_and_execute(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
     operation: Literal["save", "append"],
 ) -> Generator[Message, None, None]:
     """Common validation and execution logic for save and append operations."""
@@ -292,7 +291,6 @@ def _validate_and_execute(
         code,
         args,
         kwargs,
-        confirm,
         execute_fn=execute_fn,
         get_path_fn=get_path,
         preview_fn=preview_fn,
@@ -306,20 +304,20 @@ def execute_save(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Save code to a file."""
-    yield from _validate_and_execute(code, args, kwargs, confirm, "save")
+    yield from _validate_and_execute(code, args, kwargs, "save")
 
 
 def execute_append(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Append code to a file."""
-    yield from _validate_and_execute(code, args, kwargs, confirm, "append")
+    yield from _validate_and_execute(code, args, kwargs, "append")
 
 
 tool_save = ToolSpec(

@@ -6,28 +6,23 @@ import logging
 import re
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..logmanager import LogManager
     from ..message import Message
-    from ..tools import ConfirmFunc
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class CommandContext:
-    """Context object containing all command handler parameters.
-
-    Note: The `confirm` field is deprecated. Confirmation now uses the
-    hook system directly within ToolUse.execute().
-    """
+    """Context object containing all command handler parameters."""
 
     args: list[str]
     full_args: str
     manager: "LogManager"
-    confirm: "ConfirmFunc | None" = None  # deprecated
+    _confirm: Any = None  # deprecated - confirmation now via hooks
 
 
 # Original handler type (before decoration)
@@ -150,14 +145,8 @@ def get_command_completer(name: str) -> CommandCompleter | None:
     return _command_completers.get(name)
 
 
-def execute_cmd(
-    msg: "Message", log: "LogManager", confirm: "ConfirmFunc | None" = None
-) -> bool:
-    """Executes any user-command, returns True if command was executed.
-
-    Note: The `confirm` parameter is deprecated. Confirmation now uses the
-    hook system directly within ToolUse.execute().
-    """
+def execute_cmd(msg: "Message", log: "LogManager", _confirm=None) -> bool:
+    """Executes any user-command, returns True if command was executed."""
     from ..util.content import is_message_command  # fmt: skip
 
     assert msg.role == "user"
@@ -174,13 +163,9 @@ def execute_cmd(
 def handle_cmd(
     cmd: str,
     manager: "LogManager",
-    confirm: "ConfirmFunc | None" = None,  # deprecated
+    _confirm=None,  # deprecated
 ) -> Generator["Message", None, None]:
-    """Handles a command.
-
-    Note: The `confirm` parameter is deprecated. Confirmation now uses the
-    hook system directly within ToolUse.execute().
-    """
+    """Handles a command."""
     cmd = cmd.lstrip("/")
     logger.debug(f"Executing command: {cmd}")
     name, *args = re.split(r"[\n\s]", cmd)
@@ -188,9 +173,7 @@ def handle_cmd(
 
     # Check if command is registered
     if name in _command_registry:
-        ctx = CommandContext(
-            args=args, full_args=full_args, manager=manager, confirm=confirm
-        )
+        ctx = CommandContext(args=args, full_args=full_args, manager=manager)
         yield from _command_registry[name](ctx)
         return
 
