@@ -21,7 +21,6 @@ from ..message import Message
 from ..util.ask_execute import print_preview
 from ..util.output_storage import save_large_output
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolSpec,
     ToolUse,
@@ -368,7 +367,7 @@ def execute_tmux(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Executes a command in tmux and returns the output."""
 

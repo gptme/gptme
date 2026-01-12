@@ -7,6 +7,7 @@ import re
 import sys
 import types
 from collections.abc import Callable, Generator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import indent
@@ -84,7 +85,19 @@ def extract_json(content: str, match: re.Match) -> str | None:
     return content[json_start:json_end]
 
 
+# deprecated - confirmation now uses hook system via get_confirmation()
 ConfirmFunc = Callable[[str], bool]
+
+# Context var to track the current ToolUse being executed
+# This allows get_confirmation() to work without explicit tool_use parameter
+_current_tool_use: ContextVar[ToolUse | None] = ContextVar(
+    "current_tool_use", default=None
+)
+
+
+def get_current_tool_use() -> ToolUse | None:
+    """Get the currently executing ToolUse from context."""
+    return _current_tool_use.get()
 
 
 def set_tool_format(new_format: ToolFormat):
@@ -102,7 +115,6 @@ class ExecuteFuncGen(Protocol):
         code: str | None,
         args: list[str] | None,
         kwargs: dict[str, str] | None,
-        confirm: ConfirmFunc,
     ) -> Generator[Message, None, None]: ...
 
 
@@ -112,7 +124,6 @@ class ExecuteFuncMsg(Protocol):
         code: str | None,
         args: list[str] | None,
         kwargs: dict[str, str] | None,
-        confirm: ConfirmFunc,
     ) -> Message: ...
 
 
@@ -376,27 +387,8 @@ class ToolUse:
         """
         # noreorder
         from ..hooks import HookType, trigger_hook  # fmt: skip
-        from ..hooks.confirm import ConfirmAction, get_confirmation  # fmt: skip
         from ..telemetry import record_tool_call, trace_function  # fmt: skip
         from . import get_tool  # fmt: skip
-
-        # Create confirm function using hook system directly with actual ToolUse
-        # This eliminates the need for confirm_bridge.py and provides hooks
-        # with the real ToolUse object instead of a placeholder
-        def _confirm_impl(content: str) -> bool:
-            result = get_confirmation(
-                tool_use=self,
-                preview=content,
-                workspace=workspace,
-                default_confirm=True,
-            )
-            return result.action == ConfirmAction.CONFIRM
-
-        def _confirm(content: str) -> bool:
-            return trace_function(
-                name=f"tool.{self.tool}.confirm",
-                attributes={"tool_name": self.tool},
-            )(_confirm_impl)(content)
 
         @trace_function(name=f"tool.{self.tool}", attributes={"tool_name": self.tool})
         def _execute_tool():
@@ -423,18 +415,23 @@ class ToolUse:
 
                     start_time = time.time()
 
-                    ex = tool.execute(
-                        self.content,
-                        self.args,
-                        self.kwargs,
-                        _confirm,
-                    )
-                    if isinstance(ex, Generator):
-                        # Convert generator to list to measure execution time properly
-                        results = list(ex)
-                        yield from results
-                    else:
-                        yield ex
+                    # Set context var so tools can access current ToolUse
+                    # via get_current_tool_use() or implicitly in get_confirmation()
+                    token = _current_tool_use.set(self)
+                    try:
+                        ex = tool.execute(
+                            self.content,
+                            self.args,
+                            self.kwargs,
+                        )
+                        if isinstance(ex, Generator):
+                            # Convert generator to list to measure execution time properly
+                            results = list(ex)
+                            yield from results
+                        else:
+                            yield ex
+                    finally:
+                        _current_tool_use.reset(token)
 
                     # Calculate duration
                     duration = time.time() - start_time

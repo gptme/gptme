@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..hooks import HookType, StopPropagation
 from ..message import Message
-from .base import ConfirmFunc, ToolSpec, ToolUse
+from .base import ToolSpec, ToolUse
 from .todo import get_incomplete_todos_summary, has_incomplete_todos
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ def execute_complete(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
+    _confirm=None,  # deprecated
 ) -> Message:
     """Signal that the autonomous session is complete and ready to exit."""
     return Message(

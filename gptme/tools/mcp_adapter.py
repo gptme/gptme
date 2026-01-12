@@ -16,8 +16,7 @@ from .base import (
     ToolUse,
 )
 
-# Define ConfirmFunc type directly to avoid circular imports
-ConfirmFunc = Callable[[str], bool]
+# ConfirmFunc type removed - confirmation now uses hook system
 
 logger = getLogger(__name__)
 
@@ -207,7 +206,7 @@ def create_mcp_execute_function(
             return content  # Return as-is if not valid JSON
 
     def execute_mcp_impl(
-        content: str, tool_name: str, confirm: ConfirmFunc
+        content: str, tool_name: str
     ) -> Generator[Message, None, None]:
         """Actual MCP tool implementation."""
         try:
@@ -276,7 +275,7 @@ def create_mcp_execute_function(
         code: str | None,
         args: list[str] | None,
         kwargs: dict[str, str] | None,
-        confirm: ConfirmFunc,
+        _confirm=None,  # deprecated
     ):
         """Execute an MCP tool with confirmation"""
         if not code:
@@ -288,10 +287,7 @@ def create_mcp_execute_function(
             code,
             args,
             kwargs,
-            confirm,
-            execute_fn=lambda content, *_: execute_mcp_impl(
-                content, tool_name, confirm
-            ),
+            execute_fn=lambda content, *_: execute_mcp_impl(content, tool_name),
             get_path_fn=lambda *_: None,  # MCP tools don't have paths
             preview_fn=lambda content, *_: preview_mcp(content),
             preview_lang="json",

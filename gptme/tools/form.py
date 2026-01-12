@@ -11,7 +11,6 @@ from collections.abc import Generator
 
 from ..message import Message
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolSpec,
     ToolUse,
@@ -131,7 +130,7 @@ def execute_form(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Present a form to the user and collect their responses."""
     if not code:

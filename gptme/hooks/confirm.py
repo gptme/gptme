@@ -143,8 +143,26 @@ class ToolConfirmHook(Protocol):
     ) -> ConfirmationResult | None: ...
 
 
+def confirm(msg: str, default: bool = True) -> bool:
+    """Simple confirmation helper for tools.
+
+    This is a convenience wrapper around get_confirmation() for tools that
+    need to ask yes/no questions during execution. The current ToolUse is
+    obtained from context.
+
+    Args:
+        msg: The confirmation message to show
+        default: Default action if no hooks registered (True=confirm)
+
+    Returns:
+        True if confirmed, False otherwise
+    """
+    result = get_confirmation(preview=msg, default_confirm=default)
+    return result.action == ConfirmAction.CONFIRM
+
+
 def get_confirmation(
-    tool_use: "ToolUse",
+    tool_use: "ToolUse | None" = None,
     preview: str | None = None,
     workspace: Path | None = None,
     default_confirm: bool = True,
@@ -155,7 +173,7 @@ def get_confirmation(
     If no hook is registered, returns auto-confirm (for autonomous mode).
 
     Args:
-        tool_use: The tool to confirm
+        tool_use: The tool to confirm. If None, uses current ToolUse from context.
         preview: Optional preview content
         workspace: Workspace directory
         default_confirm: Whether to auto-confirm if no hook is registered
@@ -163,7 +181,20 @@ def get_confirmation(
     Returns:
         ConfirmationResult indicating the action to take
     """
+    from ..tools.base import get_current_tool_use
     from . import HookType, get_hooks
+
+    # Get tool_use from context if not provided
+    if tool_use is None:
+        tool_use = get_current_tool_use()
+        if tool_use is None:
+            # No tool context available - auto-confirm or skip based on default
+            if default_confirm:
+                logger.debug("No tool_use in context, auto-confirming")
+                return ConfirmationResult.confirm()
+            else:
+                logger.debug("No tool_use in context, auto-skipping")
+                return ConfirmationResult.skip("No tool context available")
 
     # Get registered TOOL_CONFIRM hooks
     hooks = get_hooks(HookType.TOOL_CONFIRM)

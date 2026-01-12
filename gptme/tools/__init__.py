@@ -17,7 +17,6 @@ from ..telemetry import trace_function
 from ..util.interrupt import clear_interruptible
 from ..util.terminal import terminal_state_title
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolFormat,
     ToolSpec,
@@ -38,7 +37,6 @@ __all__ = [
     "ToolUse",
     "ToolFormat",
     "Parameter",
-    "ConfirmFunc",
     # functions
     "get_tool_format",
     "set_tool_format",
@@ -201,19 +199,16 @@ def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
 @trace_function(name="tools.execute_msg", attributes={"component": "tools"})
 def execute_msg(
     msg: Message,
-    confirm: ConfirmFunc | None = None,  # deprecated, kept for backward compat
     log: Log | None = None,
     workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
-    """Uses any tools called in a message and returns the response.
+    """
+    Uses any tools called in a message and returns the response.
 
     If GPTME_TOOLUSE_PARALLEL is enabled, executes independent tool calls
     in parallel using threads.
-
-    Note: The `confirm` parameter is deprecated. Confirmation now uses the
-    hook system directly within ToolUse.execute().
     """
-    from .parallel import execute_tools_parallel, is_parallel_enabled
+    from .parallel import execute_tools_parallel, is_parallel_enabled  # fmt: skip
 
     assert msg.role == "assistant", "Only assistant messages can be executed"
 

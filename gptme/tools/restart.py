@@ -10,8 +10,9 @@ import os
 import sys
 from collections.abc import Generator
 
+from ..hooks import confirm
 from ..message import Message
-from .base import ConfirmFunc, ToolSpec
+from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,7 @@ def execute_restart(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Execute restart by confirming intent.
 

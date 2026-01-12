@@ -22,3 +22,25 @@ dirs = ["docs/lessons"]
 #    # Add your local plugin paths here
 #    # Example: "../gptme-contrib/plugins/consortium"
 #]
+
+[mcp]
+enabled = true
+auto_start = true
+
+#[[mcp.servers]]
+#name = "notion"
+#command = "npx"
+#args = [
+#    "-y",
+#    "mcp-remote",
+#    "https://mcp.notion.com/mcp"
+#]
+
+#[[mcp.servers]]
+#name = "linear"
+#command = "npx"
+#args = [
+#    "-y",
+#    "mcp-remote",
+#    "https://mcp.linear.app/mcp"
+#]

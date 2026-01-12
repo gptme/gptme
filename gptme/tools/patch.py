@@ -17,7 +17,6 @@ from ..config import get_config
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolSpec,
     ToolUse,
@@ -273,7 +272,7 @@ def preview_patch(content: str, path: Path | None) -> str | None:
 
 
 def execute_patch_impl(
-    content: str, path: Path | None, confirm: ConfirmFunc
+    content: str, path: Path | None
 ) -> Generator[Message, None, None]:
     """Actual patch implementation."""
     assert path is not None
@@ -333,7 +332,7 @@ def execute_patch(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc = lambda _: True,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Applies the patch."""
     if code is None and kwargs is not None:
@@ -347,7 +346,6 @@ def execute_patch(
         code,
         args,
         kwargs,
-        confirm,
         execute_fn=execute_patch_impl,
         get_path_fn=get_path,
         preview_fn=preview_patch,

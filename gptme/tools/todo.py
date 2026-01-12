@@ -23,7 +23,7 @@ from dateutil.parser import isoparse
 from ..hooks import HookType
 from ..logmanager import Log
 from ..message import Message
-from .base import ConfirmFunc, ToolSpec, ToolUse
+from .base import ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +277,7 @@ def execute_todoread(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Execute todoread command."""
     result = _todoread()
@@ -288,7 +288,7 @@ def execute_todowrite(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Execute todowrite command."""
     if not code:
