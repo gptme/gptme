@@ -124,10 +124,7 @@ def test_create_mcp_execute_function(mock_config):
     assert callable(execute_fn)
 
     # Test execution with valid JSON
-    def confirm(x: str) -> bool:
-        return True
-
-    result = execute_fn('{"param1": "value"}', None, None, confirm)
+    result = execute_fn('{"param1": "value"}', None, None)
     # Handle both generator and list returns
     messages = list(result) if hasattr(result, "__iter__") else [result]
     assert len(messages) > 0
