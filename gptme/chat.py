@@ -160,18 +160,13 @@ def _run_chat_loop(
     manager,
     prompt_queue,
     stream,
-    confirm_func=None,  # deprecated, kept for backward compat
     tool_format=None,
     model=None,
     interactive=True,
     logdir=None,
     output_schema=None,
 ):
-    """Main chat loop - extracted to allow clean exception handling.
-
-    Note: The `confirm_func` parameter is deprecated. Confirmation now uses the
-    hook system directly within ToolUse.execute().
-    """
+    """Main chat loop - extracted to allow clean exception handling."""
 
     while True:
         msg: Message | None = None
