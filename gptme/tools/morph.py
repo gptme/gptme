@@ -16,7 +16,6 @@ from ..llm import _chat_complete, list_available_providers
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolSpec,
     ToolUse,
@@ -95,7 +94,7 @@ def execute_morph(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc = lambda _: True,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Applies the morph edit."""
     if code is None and kwargs is not None:
@@ -146,16 +145,15 @@ def execute_morph(
 
     # Create a closure that captures the original content for verification
     def execute_morph_with_verification(
-        content: str, path: Path | None, confirm_fn: ConfirmFunc
+        content: str, path: Path | None
     ) -> Generator[Message, None, None]:
-        yield from execute_morph_impl(content, path, confirm_fn, original_content)
+        yield from execute_morph_impl(content, path, original_content)
 
     # Use execute_with_confirmation with the edited content
     yield from execute_with_confirmation(
         edited_content,
         args,
         kwargs,
-        confirm,
         execute_fn=execute_morph_with_verification,
         get_path_fn=lambda *_: file_path,
         preview_fn=preview_morph,
@@ -168,7 +166,6 @@ def execute_morph(
 def execute_morph_impl(
     content: str,
     path: Path | None,
-    confirm: ConfirmFunc,
     expected_original_content: str,
 ) -> Generator[Message, None, None]:
     """Actual morph implementation - writes the edited content to file."""

@@ -74,7 +74,7 @@ def cmd_impersonate(ctx: CommandContext) -> Generator["Message", None, None]:
     content = ctx.full_args if ctx.full_args else input("[impersonate] Assistant: ")
     msg = Message("assistant", content)
     yield msg
-    yield from execute_msg(msg, confirm=lambda _: True)
+    yield from execute_msg(msg)
 
 
 @command("setup")

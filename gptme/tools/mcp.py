@@ -18,9 +18,9 @@ import json
 from collections.abc import Generator
 from logging import getLogger
 
+from ..hooks import confirm
 from ..message import Message
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolFormat,
     ToolSpec,
@@ -78,7 +78,7 @@ def execute_mcp(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
+    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Execute MCP management commands."""
     if not code:
