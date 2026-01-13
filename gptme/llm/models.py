@@ -1,4 +1,5 @@
 import logging
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,6 +19,9 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+# Pattern to match date suffixes like -20250929 or -20250514
+_DATE_SUFFIX_PATTERN = re.compile(r"-\d{8}$")
 
 # Built-in providers (static list)
 BuiltinProvider = Literal[
@@ -474,6 +478,35 @@ def _get_custom_provider_config(provider_name: str):
     return None
 
 
+def _find_base_model_properties(
+    provider: "Provider", model_name: str
+) -> "_ModelDictMeta | None":
+    """Find properties from a base model when model_name might be a variant.
+
+    Handles models with date suffixes like claude-sonnet-4-5-20250929 by looking up
+    the base model (claude-sonnet-4-5) and returning its properties.
+
+    Returns:
+        Model properties dict if base model found, None otherwise.
+    """
+    if provider not in MODELS:
+        return None
+
+    provider_models = MODELS[provider]
+
+    # First try exact match
+    if model_name in provider_models:
+        return provider_models[model_name]
+
+    # Try stripping date suffix (e.g., -20250929)
+    base_name = _DATE_SUFFIX_PATTERN.sub("", model_name)
+    if base_name != model_name and base_name in provider_models:
+        logger.debug(f"Using base model properties from {base_name} for {model_name}")
+        return provider_models[base_name]
+
+    return None
+
+
 def get_model(model: str) -> ModelMeta:
     # if only provider is given, get recommended model
     if model in PROVIDERS:
@@ -527,7 +560,12 @@ def get_model(model: str) -> ModelMeta:
                         e,
                     )
 
-            # Unknown model, use fallback metadata
+            # Unknown model, try to find base model properties (for variants with date suffixes)
+            base_props = _find_base_model_properties(provider, model_name)
+            if base_props:
+                return ModelMeta(provider, model_name, **base_props)
+
+            # Fallback metadata
             if provider not in ["openrouter", "local"]:
                 log_warn_once(
                     f"Unknown model: using fallback metadata for {provider}/{model_name}"
