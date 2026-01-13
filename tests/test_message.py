@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 from gptme.message import Message, msgs_to_toml, toml_to_msgs
+from gptme.util.uri import FilePath
 
 
 def test_toml():
@@ -117,7 +119,6 @@ def test_message_files_resolve_to_absolute(tmp_path, monkeypatch):
     files to a message. See issue #262.
     """
     import os
-    from pathlib import Path
 
     from gptme.message import Message
 
@@ -145,21 +146,21 @@ def test_message_files_resolve_to_absolute(tmp_path, monkeypatch):
 
         # Deserialize and verify the path still works
         # (simulating what logmanager._gen_read_jsonl does)
-        loaded_files = [Path(f) for f in d.get("files", [])]
+        loaded_files: list[FilePath] = [Path(f) for f in d.get("files", [])]
         loaded_msg = Message(
             d["role"],
             d["content"],
             files=loaded_files,
         )
         assert len(loaded_msg.files) == 1
-        assert loaded_msg.files[0].exists()
+        file_ref = loaded_msg.files[0]
+        assert isinstance(file_ref, Path) and file_ref.exists()
     finally:
         os.chdir(original_cwd)
 
 
 def test_toml_file_hashes():
     """Test that file_hashes survive TOML round-trip."""
-    from pathlib import Path
 
     # Use full path as key (not just basename) to avoid collisions
     msg = Message(
@@ -180,7 +181,6 @@ def test_toml_file_hashes():
 
 def test_file_hashes_no_collision_same_basename():
     """Test that files with same basename but different paths don't collide."""
-    from pathlib import Path
 
     # Two files with the same basename but different paths
     msg = Message(
