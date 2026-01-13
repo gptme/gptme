@@ -21,7 +21,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
 
-# Common URI schemes
+# Common URI schemes (for documentation - not used for validation)
+# MCP servers can register arbitrary schemes per the spec, so validation
+# uses RFC3986-compliant pattern detection (scheme://) instead of a whitelist.
 # file:// is intentionally excluded - use Path for local files
 URI_SCHEMES = frozenset(
     [
@@ -29,9 +31,10 @@ URI_SCHEMES = frozenset(
         "https",
         "ftp",
         "ftps",
-        "memo",  # MCP resources
-        "mcp",  # MCP resources
+        "memo",  # MCP resources (example custom scheme)
+        "mcp",  # MCP resources (example custom scheme)
         "data",  # data URIs
+        "git",  # Git resources
         "ws",  # WebSocket
         "wss",  # WebSocket Secure
     ]
@@ -52,6 +55,10 @@ def is_uri(s: str | Path) -> bool:
 class URI:
     """
     A URI reference (not a filesystem path).
+
+    Accepts any RFC3986-compliant URI with a scheme:// prefix. This includes
+    standard schemes (http, https, ftp) and custom schemes that MCP servers
+    may register (memo, mcp, or any arbitrary scheme).
 
     Unlike Path, URI does not support filesystem operations like exists(),
     read_text(), etc. URIs must be handled separately through appropriate
