@@ -24,32 +24,76 @@ _session_id: ContextVar[str | None] = ContextVar("session_id", default=None)
 
 
 class TelemetryConnectionErrorFilter(logging.Filter):
-    """Filter to truncate verbose connection error stack traces from OpenTelemetry."""
+    """Filter to truncate and rate-limit connection error logs from OpenTelemetry.
+
+    Prevents console spam when telemetry endpoint is unreachable by:
+    1. Truncating verbose stack traces to single line messages
+    2. Rate-limiting repeated errors (only log once per 60 seconds)
+    3. Tracking suppressed error count for periodic summary
+    """
+
+    # Rate limiting: minimum seconds between logged errors
+    RATE_LIMIT_SECONDS = 60
+
+    def __init__(self, name: str = "") -> None:
+        super().__init__(name)
+        self._last_error_time: float = 0
+        self._suppressed_count: int = 0
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Truncate connection error messages to a single line.
+        """Truncate and rate-limit connection error messages.
 
-        Note: Returns True to allow the modified record to pass through.
-        We want to show the error but without the verbose stack trace.
+        Returns True to pass the record through, False to suppress it.
         """
+        import time
+
         # Check if this is a connection error from OpenTelemetry exporters
-        if (
-            record.name.startswith("opentelemetry.")
-            and record.levelno == logging.ERROR
-            and hasattr(record, "exc_info")
-            and record.exc_info
+        if not (
+            record.name.startswith("opentelemetry.") and record.levelno == logging.ERROR
         ):
+            return True
+
+        # Check for connection errors with exception info
+        is_connection_error = False
+        if hasattr(record, "exc_info") and record.exc_info:
             exc_type, exc_value, _ = record.exc_info
-            # Check if it's a connection-related error
             if exc_type and (
                 "ConnectionError" in exc_type.__name__
                 or "NewConnectionError" in exc_type.__name__
                 or "MaxRetryError" in exc_type.__name__
             ):
-                # Replace the full stack trace with a simple message
+                is_connection_error = True
+                # Clear the stack trace
                 record.exc_info = None
                 record.exc_text = None
                 record.msg = f"Telemetry connection failed: {exc_value}"
+
+        # Also check message content for connection errors without exc_info
+        if not is_connection_error and "connection" in record.getMessage().lower():
+            is_connection_error = True
+
+        if not is_connection_error:
+            return True
+
+        # Rate limiting: suppress if we logged recently
+        current_time = time.time()
+        time_since_last = current_time - self._last_error_time
+
+        if self._last_error_time > 0 and time_since_last < self.RATE_LIMIT_SECONDS:
+            # Suppress this error, track the count
+            self._suppressed_count += 1
+            return False
+
+        # Log this error (first one or rate limit expired)
+        self._last_error_time = current_time
+
+        # If we suppressed errors, add a note about it
+        if self._suppressed_count > 0:
+            record.msg = (
+                f"{record.msg} (suppressed {self._suppressed_count} similar errors)"
+            )
+            self._suppressed_count = 0
+
         return True
 
 
