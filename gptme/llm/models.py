@@ -565,12 +565,28 @@ def get_model(model: str) -> ModelMeta:
             if base_props:
                 return ModelMeta(provider, model_name, **base_props)
 
-            # Fallback metadata
-            if provider not in ["openrouter", "local"]:
-                log_warn_once(
-                    f"Unknown model: using fallback metadata for {provider}/{model_name}"
+            # Provider-specific intelligent fallbacks
+            # These defaults reflect modern baselines for each provider
+            if provider == "anthropic":
+                # Anthropic modern baseline: 200k context, reasoning support
+                # This prevents API errors for unknown Anthropic models
+                if provider not in ["openrouter", "local"]:
+                    log_warn_once(
+                        f"Unknown model: using Anthropic fallback metadata for {model_name}"
+                    )
+                return ModelMeta(
+                    provider,
+                    model_name,
+                    context=200_000,
+                    supports_reasoning=True,
                 )
-            return ModelMeta(provider, model_name, context=128_000)
+            else:
+                # Generic fallback for other providers
+                if provider not in ["openrouter", "local"]:
+                    log_warn_once(
+                        f"Unknown model: using fallback metadata for {provider}/{model_name}"
+                    )
+                return ModelMeta(provider, model_name, context=128_000)
         else:
             # Unknown provider
             logger.warning(f"Unknown model {model}, using fallback metadata")
