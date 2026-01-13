@@ -218,6 +218,7 @@ def test_invalid_title_detection():
         "Install dependencies",
         "Fix login bug",
         "Update database schema",
+        "Exactly eight words to test the boundary here",  # 8 words (boundary case)
     ]
 
     for title in valid_titles:
