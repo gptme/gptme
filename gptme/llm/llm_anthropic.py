@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import time
 from collections.abc import Generator, Iterable
 from functools import wraps
@@ -19,7 +20,7 @@ from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, MessageMetadata, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec
-from .models import ModelMeta, get_model
+from .models import MODELS, ModelMeta, get_model
 from .utils import (
     apply_cache_control,
     extract_tool_uses_from_assistant_message,
@@ -151,6 +152,63 @@ def _record_usage(
     if cost > 0:
         metadata["cost"] = cost
     return metadata
+
+
+def _supports_dual_sampling(model: str, model_meta: ModelMeta) -> bool:
+    """Check if a model supports both temperature and top_p parameters.
+
+    Some Anthropic models cannot have both temperature and top_p specified
+    simultaneously. This function determines whether it's safe to send both.
+
+    Logic:
+    1. If model has supports_reasoning=True, it requires temperature=1 and don't accept top_p
+    2. If model is known in MODELS dict, it's been tested and supports dual sampling
+    3. If model is unknown but matches a known base model, use that model's config
+    4. If model is completely unknown, default to conservative (no top_p)
+
+    Args:
+        model: The model name (without provider prefix)
+        model_meta: The model metadata
+
+    Returns:
+        True if the model supports both temperature and top_p, False otherwise
+    """
+    # Reasoning models require temperature=1 and don't accept top_p
+    if model_meta.supports_reasoning:
+        return False
+
+    # Check if this is a known model in the MODELS dict
+    anthropic_models = MODELS.get("anthropic", {})
+    if model in anthropic_models:
+        # Known model - we've tested it and it supports dual sampling
+        return True
+
+    # Try to match unknown model to a known base model
+    # Strip date suffix (YYYYMMDD pattern) and try again
+    base_model = re.sub(r"-\d{8}$", "", model)
+    if base_model != model and base_model in anthropic_models:
+        # Found matching base model
+        base_config = anthropic_models[base_model]
+        # If base model supports reasoning, this variant likely does too
+        if base_config.get("supports_reasoning", False):
+            return False
+        return True
+
+    # Try matching by model family patterns (e.g., "claude-3-5-sonnet" variants)
+    # Look for the closest matching known model
+    for known_model, config in anthropic_models.items():
+        # Check if the unknown model starts with a known model's base name
+        # e.g., "claude-3-5-sonnet-custom" matches "claude-3-5-sonnet-20241022"
+        known_base = re.sub(r"-\d{8}$", "", known_model)
+        if model.startswith(known_base) or base_model.startswith(known_base):
+            if config.get("supports_reasoning", False):
+                return False
+            return True
+
+    # Unknown Anthropic model - default to conservative behavior (no top_p)
+    # This prevents "temperature and top_p cannot both be specified" errors
+    logger.debug(f"Unknown Anthropic model '{model}', defaulting to no top_p")
+    return False
 
 
 def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) -> bool:
@@ -385,6 +443,8 @@ def chat(
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
     thinking_budget = int(os.environ.get(ENV_REASONING_BUDGET, "16000"))
+    # Check if model supports both temperature and top_p
+    use_top_p = _supports_dual_sampling(model, model_meta)
     max_tokens = model_meta.max_output or 4096
 
     response = _anthropic.messages.create(
@@ -392,7 +452,7 @@ def chat(
         messages=messages_dicts,
         system=system_messages,
         temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
-        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
+        top_p=TOP_P if use_top_p else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         thinking=(
@@ -469,6 +529,8 @@ def stream(
     use_thinking = _should_use_thinking(model_meta, tools)
     # Use the same configurable thinking budget as chat()
     thinking_budget = int(os.environ.get(ENV_REASONING_BUDGET, "16000"))
+    # Check if model supports both temperature and top_p
+    use_top_p = _supports_dual_sampling(model, model_meta)
     max_tokens = model_meta.max_output or 4096
 
     with _anthropic.messages.stream(
@@ -476,7 +538,7 @@ def stream(
         messages=messages_dicts,
         system=system_messages,
         temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
-        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
+        top_p=TOP_P if use_top_p else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         thinking=(
