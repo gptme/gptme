@@ -120,10 +120,17 @@ def init_logging(verbose):
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-    # Suppress OpenTelemetry error spam when endpoint is unreachable
-    # These are non-critical errors from auto-instrumentation that shouldn't
-    # pollute the console when telemetry collectors are unavailable
-    logging.getLogger("opentelemetry").setLevel(logging.CRITICAL)
+    # Apply debouncing filter for OpenTelemetry connection errors
+    # This shows the first error, then suppresses duplicates for 5 minutes
+    # Prevents spam while still alerting users to telemetry issues
+    try:
+        from .util._telemetry import TelemetryConnectionErrorFilter
+
+        otel_filter = TelemetryConnectionErrorFilter(cooldown_seconds=300.0)
+        logging.getLogger("opentelemetry").addFilter(otel_filter)
+    except ImportError:
+        # OpenTelemetry not installed, no need for filter
+        pass
 
     # Register cleanup handler
 
