@@ -119,6 +119,19 @@ def _generate_llm_name(
             logger.warning("no context for auto-name")
             return None
 
+        # Check if context has enough substance for meaningful naming
+        # Strip role prefixes and check actual content length
+        content_only = context.replace("User:", "").replace("Assistant:", "").strip()
+        min_context_length = (
+            50  # Minimum characters needed for LLM to generate meaningful title
+        )
+        if len(content_only) < min_context_length:
+            logger.info(
+                f"Context too short for LLM naming ({len(content_only)} chars < {min_context_length}), "
+                "using random name fallback"
+            )
+            return None
+
         # Create prompt based on format
         if dash_separated:
             prompt = f"""Generate a descriptive name for this conversation.
@@ -130,31 +143,33 @@ The name should be 3-6 words describing the conversation, separated by dashes. E
 
 Focus on the main and/or initial topic of the conversation. Avoid using names that are too generic or too specific.
 
-IMPORTANT: output only the name, no preamble or postamble.
+CRITICAL RULES:
+- Output ONLY the name itself, nothing else
+- NEVER say "I cannot", "conversation content missing", "not enough context", etc.
+- NEVER explain or apologize
+- If context is brief, create a simple descriptive name based on what IS there
 
 Conversation:
-{context}
-
-Name:"""
+{context}"""
         else:
             prompt = f"""Your task: Create a 2-4 word title for this conversation.
 
 Rules:
-- Respond with ONLY the title
-- No explanations or extra text
+- Respond with ONLY the title, nothing else
 - Maximum 4 words
 - Capture the main topic
+- NEVER return error messages, apologies, or explanations
+- NEVER say "I cannot", "content missing", "not enough", etc.
+- If context is minimal, create a simple title based on what IS there
 
-Examples:
+Examples of GOOD titles:
 - "Python debugging help"
 - "Website creation task"
-- "CSS layout issue"
-- "API integration guide"
+- "Quick greeting"
+- "General assistance"
 
 Conversation:
-{context}
-
-Title:"""
+{context}"""
 
         # Use summary model directly (no fallback)
         response, _metadata = _chat_complete(

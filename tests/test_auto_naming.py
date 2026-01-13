@@ -167,6 +167,32 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
 
 
 # Unit tests for validation function
+def test_minimum_context_threshold():
+    """Test that LLM naming returns None when context is too short."""
+    from gptme.message import Message
+    from gptme.util.auto_naming import _generate_llm_name
+
+    # Very short conversation - should skip LLM naming due to minimum threshold
+    short_messages = [
+        Message("system", "You are a helpful assistant."),
+        Message("user", "hi"),
+        Message("assistant", "Hello!"),
+    ]
+
+    # This should return None because context is too short (< 50 chars)
+    # without even attempting an LLM call
+    result = _generate_llm_name(short_messages, "test/model")
+    assert result is None, "Expected None for short context"
+
+    # Slightly longer but still under threshold
+    borderline_messages = [
+        Message("user", "Hello there"),
+        Message("assistant", "Hi! How can I help?"),
+    ]
+    result = _generate_llm_name(borderline_messages, "test/model")
+    assert result is None, "Expected None for borderline short context"
+
+
 def test_invalid_title_detection():
     """Test that error-like title responses are correctly identified."""
     from gptme.util.auto_naming import _is_invalid_title
