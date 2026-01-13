@@ -28,6 +28,7 @@ from ..llm.models import get_default_model
 from ..logmanager import LogManager, get_user_conversations, prepare_messages
 from ..message import Message
 from ..tools import ToolUse, execute_msg, init_tools
+from ..util.uri import URI
 from .auth import require_auth
 from .openapi_docs import (
     ConversationCreateRequest,
@@ -96,8 +97,15 @@ def api_conversations():
     return flask.jsonify(conversations)
 
 
-def _abs_to_rel_workspace(path: str | Path, workspace: Path) -> str:
-    """Convert an absolute path to a relative path."""
+def _abs_to_rel_workspace(path: str | Path | URI, workspace: Path) -> str:
+    """Convert an absolute path to a relative path.
+
+    URIs are returned as-is since they are not workspace-relative.
+    """
+    # URIs should be returned as-is (they're not workspace-relative)
+    if isinstance(path, URI):
+        return str(path)
+
     path = Path(path).resolve()
     if path.is_relative_to(workspace):
         return str(path.relative_to(workspace))
@@ -206,7 +214,9 @@ def api_conversation_put(logfile: str):
         if msg.get("role") not in valid_roles:
             return (
                 flask.jsonify(
-                    {"error": f"Invalid role: {msg.get('role')}. Must be one of: {valid_roles}"}
+                    {
+                        "error": f"Invalid role: {msg.get('role')}. Must be one of: {valid_roles}"
+                    }
                 ),
                 400,
             )
@@ -262,7 +272,9 @@ def api_conversation_post(logfile: str):
     if req_json["role"] not in valid_roles:
         return (
             flask.jsonify(
-                {"error": f"Invalid role: {req_json['role']}. Must be one of: {valid_roles}"}
+                {
+                    "error": f"Invalid role: {req_json['role']}. Must be one of: {valid_roles}"
+                }
             ),
             400,
         )
@@ -305,7 +317,11 @@ def api_conversation_generate(logfile: str):
     if model is None:
         # No model in request, use default
         if default_model is None:
-            return flask.jsonify({"error": "No model available (none loaded and none specified in request)"}), 500
+            return flask.jsonify(
+                {
+                    "error": "No model available (none loaded and none specified in request)"
+                }
+            ), 500
         model = default_model.full
 
     # load conversation
@@ -350,7 +366,11 @@ def api_conversation_generate(logfile: str):
 
         except Exception as e:
             logger.exception("Error during generation")
-            error_msg = str(e) if _is_debug_errors_enabled() else "An internal error occurred during generation"
+            error_msg = (
+                str(e)
+                if _is_debug_errors_enabled()
+                else "An internal error occurred during generation"
+            )
             return flask.jsonify({"error": error_msg}), 500
 
     # Streaming response
@@ -466,7 +486,11 @@ def api_conversation_generate(logfile: str):
             raise
         except Exception as e:
             logger.exception("Error during generation")
-            error_msg = str(e) if _is_debug_errors_enabled() else "An internal error occurred during generation"
+            error_msg = (
+                str(e)
+                if _is_debug_errors_enabled()
+                else "An internal error occurred during generation"
+            )
             yield f"data: {flask.json.dumps({'error': error_msg})}\n\n"
         finally:
             logger.info("Generation completed")
