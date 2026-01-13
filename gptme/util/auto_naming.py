@@ -179,12 +179,76 @@ Title:"""
 
         name = response.strip().strip('"').strip("'").split("\n")[0][:50]
         if name:
+            # Validate that the response is a proper title, not an error message
+            if _is_invalid_title(name):
+                logger.warning(f"LLM returned invalid title: {name}")
+                return None
             return name
 
     except Exception as e:
         logger.warning(f"LLM naming failed: {e}")
 
     return None
+
+
+def _is_invalid_title(name: str) -> bool:
+    """Check if the generated title looks like an error message or explanation.
+
+    Returns True if the title should be rejected.
+    """
+    name_lower = name.lower()
+
+    # Reject error-like patterns
+    error_patterns = [
+        "conversation content missing",
+        "missing conversation",
+        "content missing",
+        "no conversation",
+        "unable to",
+        "cannot generate",
+        "i don't have",
+        "i cannot",
+        "i'm sorry",
+        "sorry,",
+        "unfortunately",
+        "not enough",
+        "insufficient",
+        "no information",
+        "no context",
+        "empty conversation",
+        "missing details",
+        "details missing",
+        "conversation details",
+        "n/a",
+        "not applicable",
+        "not available",
+        "title:",  # Model repeating the prompt
+        "name:",  # Model repeating the prompt
+    ]
+
+    for pattern in error_patterns:
+        if pattern in name_lower:
+            return True
+
+    # Reject if it starts with common explanation prefixes
+    explanation_prefixes = [
+        "i ",
+        "the conversation ",
+        "this conversation ",
+        "based on ",
+        "here is ",
+        "here's ",
+    ]
+
+    for prefix in explanation_prefixes:
+        if name_lower.startswith(prefix):
+            return True
+
+    # Reject if it's too long to be a proper title (likely an explanation)
+    if len(name.split()) > 8:
+        return True
+
+    return False
 
 
 def _starts_with_date(name: str) -> bool:

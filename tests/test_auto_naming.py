@@ -164,3 +164,56 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
     ]
     has_relevant_content = any(keyword in name for keyword in relevant_keywords)
     assert has_relevant_content, f"Generated name '{chat_config.name}' doesn't seem contextually relevant. Expected keywords: {relevant_keywords}"
+
+
+# Unit tests for validation function
+def test_invalid_title_detection():
+    """Test that error-like title responses are correctly identified."""
+    from gptme.util.auto_naming import _is_invalid_title
+
+    # These should be detected as invalid
+    invalid_titles = [
+        "Conversation content missing",
+        "Missing Conversation Details",
+        "content missing",
+        "Unable to generate title",
+        "I cannot determine the topic",
+        "I don't have enough information",
+        "I'm sorry, but I can't",
+        "Sorry, cannot generate",
+        "Unfortunately there's not enough context",
+        "Not enough information",
+        "Insufficient context",
+        "No information available",
+        "No context provided",
+        "Empty conversation",
+        "Missing details here",
+        "Details missing from context",
+        "N/A",
+        "Not applicable",
+        "Not available",
+        "Title: Python Help",  # Model repeating prompt
+        "Name: Debug Session",  # Model repeating prompt
+        "I think this is about debugging Python code and it seems to be related to web development",  # Too long
+        "The conversation appears to be about Python",  # Starts with explanation
+        "Based on the context provided",  # Explanation prefix
+        "Here is a title for this conversation",  # Explanation prefix
+    ]
+
+    for title in invalid_titles:
+        assert _is_invalid_title(title), f"Expected '{title}' to be invalid"
+
+    # These should be valid titles
+    valid_titles = [
+        "Python debugging help",
+        "CSS layout issue",
+        "API integration guide",
+        "Website creation task",
+        "Debug script error",
+        "Install dependencies",
+        "Fix login bug",
+        "Update database schema",
+    ]
+
+    for title in valid_titles:
+        assert not _is_invalid_title(title), f"Expected '{title}' to be valid"
