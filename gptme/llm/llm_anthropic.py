@@ -15,7 +15,7 @@ from typing import (
 from httpx import RemoteProtocolError
 from pydantic import BaseModel  # fmt: skip
 
-from ..constants import TEMPERATURE, TOP_P
+from ..constants import TEMPERATURE
 from ..message import Message, MessageMetadata, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec
@@ -392,7 +392,6 @@ def chat(
         messages=messages_dicts,
         system=system_messages,
         temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
-        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         thinking=(
@@ -476,7 +475,6 @@ def stream(
         messages=messages_dicts,
         system=system_messages,
         temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
-        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict if tools_dict else NOT_GIVEN,
         thinking=(
