@@ -486,6 +486,9 @@ def _find_base_model_properties(
     Handles models with date suffixes like claude-sonnet-4-5-20250929 by looking up
     the base model (claude-sonnet-4-5) and returning its properties.
 
+    Note: This function is called after verifying the exact model name doesn't exist
+    in MODELS[provider], so we only need to check for base model variants.
+
     Returns:
         Model properties dict if base model found, None otherwise.
     """
@@ -494,11 +497,7 @@ def _find_base_model_properties(
 
     provider_models = MODELS[provider]
 
-    # First try exact match
-    if model_name in provider_models:
-        return provider_models[model_name]
-
-    # Try stripping date suffix (e.g., -20250929)
+    # Try stripping date suffix (e.g., -20250929) to find base model
     base_name = _DATE_SUFFIX_PATTERN.sub("", model_name)
     if base_name != model_name and base_name in provider_models:
         logger.debug(f"Using base model properties from {base_name} for {model_name}")
@@ -567,13 +566,20 @@ def get_model(model: str) -> ModelMeta:
 
             # Provider-specific intelligent fallbacks
             # These defaults reflect modern baselines for each provider
-            if provider == "anthropic":
-                # Anthropic modern baseline: 200k context, reasoning support
-                # This prevents API errors for unknown Anthropic models
-                if provider not in ["openrouter", "local"]:
+            # Suppress warnings for dynamic providers (openrouter, local)
+            if provider not in ["openrouter", "local"]:
+                if provider == "anthropic":
                     log_warn_once(
                         f"Unknown model: using Anthropic fallback metadata for {model_name}"
                     )
+                else:
+                    log_warn_once(
+                        f"Unknown model: using fallback metadata for {provider}/{model_name}"
+                    )
+
+            if provider == "anthropic":
+                # Anthropic modern baseline: 200k context, reasoning support
+                # This prevents API errors for unknown Anthropic models
                 return ModelMeta(
                     provider,
                     model_name,
@@ -582,10 +588,6 @@ def get_model(model: str) -> ModelMeta:
                 )
             else:
                 # Generic fallback for other providers
-                if provider not in ["openrouter", "local"]:
-                    log_warn_once(
-                        f"Unknown model: using fallback metadata for {provider}/{model_name}"
-                    )
                 return ModelMeta(provider, model_name, context=128_000)
         else:
             # Unknown provider
