@@ -590,10 +590,7 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
 
     init_auth(host=host, display=False)
 
-    # Register server confirmation hook for tool confirmations
-    from ..hooks.server_confirm import register as register_server_confirm
-
-    register_server_confirm()
-    logger.info("Registered server confirmation hook")
+    # Server confirmation hook is now registered via init_hooks(server=True)
+    # in server/cli.py
 
     return app

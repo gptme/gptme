@@ -81,6 +81,7 @@ def serve(
             interactive=False,
             tool_allowlist=None if tools is None else tools.split(","),
             tool_format="markdown",
+            server=True,
         )
     except (ValueError, KeyError) as e:
         # Detect model configuration errors and wrap in custom exception
@@ -112,6 +113,7 @@ def serve(
             interactive=False,
             tool_allowlist=None if tools is None else tools.split(","),
             tool_format="markdown",
+            server=True,
         )
 
     # Initialize telemetry (server is API/WebUI driven, not CLI interactive)

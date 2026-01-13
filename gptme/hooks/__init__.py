@@ -808,19 +808,21 @@ def init_hooks(
     allowlist: list[str] | None = None,
     interactive: bool = False,
     no_confirm: bool = False,
+    server: bool = False,
 ) -> None:
     """Initialize and register hooks in a thread-safe manner.
 
     Mode detection for confirmation hooks:
-    - Interactive mode with confirmation: Registers cli_confirm hook
+    - Interactive CLI mode with confirmation: Registers cli_confirm hook
+    - Server mode with confirmation: Registers server_confirm hook
     - Non-interactive mode: No confirmation hook (autonomous/auto-confirm)
-    - Server mode: Registers server_confirm separately in server/api.py
 
     Args:
         allowlist: Explicit list of hooks to register (replaces defaults).
                    If not provided, defaults will be loaded from env/config.
         interactive: Whether running in interactive mode (CLI).
         no_confirm: Whether to skip tool confirmations.
+        server: Whether running in server mode (API/WebUI).
     """
     from ..config import get_config  # fmt: skip
 
@@ -888,10 +890,12 @@ def init_hooks(
         hooks_to_register = [h for h in available_hooks if h not in mode_specific_hooks]
 
         # Mode-based confirmation hook selection:
+        # - Server mode with confirmation: server_confirm
         # - CLI interactive with confirmation enabled: cli_confirm
         # - Non-interactive (autonomous): no confirmation hook (auto-confirm behavior)
-        # - Server mode: server_confirm is registered separately in server/api.py
-        if interactive and not no_confirm:
+        if server and not no_confirm:
+            hooks_to_register.append("server_confirm")
+        elif interactive and not no_confirm:
             hooks_to_register.append("cli_confirm")
 
     # Register the hooks
