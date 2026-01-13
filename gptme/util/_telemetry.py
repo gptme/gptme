@@ -9,6 +9,7 @@ unless explicitly needed.
 import logging
 import os
 import socket
+import threading
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
@@ -39,6 +40,7 @@ class TelemetryConnectionErrorFilter(logging.Filter):
         super().__init__(name)
         self._last_error_time: float = 0
         self._suppressed_count: int = 0
+        self._lock = threading.Lock()
 
     def filter(self, record: logging.LogRecord) -> bool:
         """Truncate and rate-limit connection error messages.
@@ -71,28 +73,37 @@ class TelemetryConnectionErrorFilter(logging.Filter):
         # Also check message content for connection errors without exc_info
         if not is_connection_error and "connection" in record.getMessage().lower():
             is_connection_error = True
+            # Normalize message to prevent format string issues when appending
+            record.msg = record.getMessage()
+            record.args = ()
 
         if not is_connection_error:
             return True
 
-        # Rate limiting: suppress if we logged recently
-        current_time = time.time()
-        time_since_last = current_time - self._last_error_time
+        # Rate limiting with thread safety (filter shared across multiple loggers)
+        with self._lock:
+            current_time = time.time()
+            time_since_last = current_time - self._last_error_time
 
-        if self._last_error_time > 0 and time_since_last < self.RATE_LIMIT_SECONDS:
-            # Suppress this error, track the count
-            self._suppressed_count += 1
-            return False
+            # Handle time going backwards (NTP adjustments, clock changes)
+            if time_since_last < 0:
+                self._last_error_time = 0
+                time_since_last = current_time
 
-        # Log this error (first one or rate limit expired)
-        self._last_error_time = current_time
+            if self._last_error_time > 0 and time_since_last < self.RATE_LIMIT_SECONDS:
+                # Suppress this error, track the count
+                self._suppressed_count += 1
+                return False
 
-        # If we suppressed errors, add a note about it
-        if self._suppressed_count > 0:
-            record.msg = (
-                f"{record.msg} (suppressed {self._suppressed_count} similar errors)"
-            )
-            self._suppressed_count = 0
+            # Log this error (first one or rate limit expired)
+            self._last_error_time = current_time
+
+            # If we suppressed errors, add a note about it
+            if self._suppressed_count > 0:
+                record.msg = (
+                    f"{record.msg} (suppressed {self._suppressed_count} similar errors)"
+                )
+                self._suppressed_count = 0
 
         return True
 
