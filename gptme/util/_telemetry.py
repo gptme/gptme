@@ -9,6 +9,7 @@ unless explicitly needed.
 import logging
 import os
 import socket
+import time
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
@@ -40,9 +41,6 @@ class TelemetryConnectionErrorFilter(logging.Filter):
         self._error_counts: dict[str, int] = {}
         self._last_logged: dict[str, float] = {}
         self._cooldown_seconds = cooldown_seconds  # 5 minutes between repeated errors
-        import time
-
-        self._time = time
 
     def filter(self, record: logging.LogRecord) -> bool:
         """Filter and debounce connection error messages.
@@ -50,8 +48,10 @@ class TelemetryConnectionErrorFilter(logging.Filter):
         Returns True to allow the (possibly modified) record through.
         Returns False to suppress duplicate errors within cooldown period.
         """
-        # Only filter opentelemetry loggers
-        if not record.name.startswith("opentelemetry."):
+        # Only filter opentelemetry loggers (root logger or children)
+        if not (
+            record.name == "opentelemetry" or record.name.startswith("opentelemetry.")
+        ):
             return True
 
         # Check if this is a connection error
@@ -71,7 +71,7 @@ class TelemetryConnectionErrorFilter(logging.Filter):
                 error_key = f"{exc_type.__name__}"
 
                 # Track occurrence count
-                now = self._time.time()
+                now = time.time()
                 count = self._error_counts.get(error_key, 0) + 1
                 self._error_counts[error_key] = count
 
