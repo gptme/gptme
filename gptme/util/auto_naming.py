@@ -132,6 +132,9 @@ def _generate_llm_name(
             )
             return None
 
+        # Sentinel string for when LLM cannot generate a meaningful title
+        no_name_sentinel = "NO_NAME"
+
         # Create prompt based on format
         if dash_separated:
             prompt = f"""Generate a descriptive name for this conversation.
@@ -145,9 +148,8 @@ Focus on the main and/or initial topic of the conversation. Avoid using names th
 
 CRITICAL RULES:
 - Output ONLY the name itself, nothing else
-- NEVER say "I cannot", "conversation content missing", "not enough context", etc.
-- NEVER explain or apologize
-- If context is brief, create a simple descriptive name based on what IS there
+- If there is truly insufficient context to generate a meaningful name, return exactly "{no_name_sentinel}" (nothing else)
+- NEVER explain, apologize, or return error messages
 
 Conversation:
 {context}"""
@@ -158,9 +160,8 @@ Rules:
 - Respond with ONLY the title, nothing else
 - Maximum 4 words
 - Capture the main topic
-- NEVER return error messages, apologies, or explanations
-- NEVER say "I cannot", "content missing", "not enough", etc.
-- If context is minimal, create a simple title based on what IS there
+- If there is truly insufficient context to generate a meaningful title, return exactly "{no_name_sentinel}" (nothing else)
+- NEVER explain, apologize, or return error messages
 
 Examples of GOOD titles:
 - "Python debugging help"
@@ -194,7 +195,12 @@ Conversation:
 
         name = response.strip().strip('"').strip("'").split("\n")[0][:50]
         if name:
+            # Check for explicit sentinel indicating LLM couldn't generate name
+            if name.upper() == no_name_sentinel:
+                logger.info("LLM indicated insufficient context for naming (NO_NAME)")
+                return None
             # Validate that the response is a proper title, not an error message
+            # (fallback safety net for models that don't follow sentinel instruction)
             if _is_invalid_title(name):
                 logger.warning(f"LLM returned invalid title: {name}")
                 return None
