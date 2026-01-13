@@ -123,10 +123,11 @@ def init_logging(verbose):
     # Apply debouncing filter for OpenTelemetry connection errors
     # This shows the first error, then suppresses duplicates for 5 minutes
     # Prevents spam while still alerting users to telemetry issues
+    # Uses singleton filter to share state with setup_telemetry() filters
     try:
-        from .util._telemetry import TelemetryConnectionErrorFilter
+        from .util._telemetry import get_connection_error_filter
 
-        otel_filter = TelemetryConnectionErrorFilter(cooldown_seconds=300.0)
+        otel_filter = get_connection_error_filter(cooldown_seconds=300.0)
         logging.getLogger("opentelemetry").addFilter(otel_filter)
     except ImportError:
         # OpenTelemetry not installed, no need for filter

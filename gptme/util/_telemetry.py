@@ -132,6 +132,32 @@ class NotGivenAttributeFilter(logging.Filter):
 _telemetry_enabled = False
 _tracer = None
 _meter = None
+
+# Singleton filter instance for consistent debouncing across all loggers
+# Used by both setup_telemetry() and init_logging() in init.py
+_connection_error_filter: "TelemetryConnectionErrorFilter | None" = None
+
+
+def get_connection_error_filter(
+    cooldown_seconds: float = 300.0,
+) -> "TelemetryConnectionErrorFilter":
+    """Get or create the singleton TelemetryConnectionErrorFilter instance.
+
+    This ensures consistent debouncing state across all OpenTelemetry loggers,
+    whether filters are applied in setup_telemetry() or init_logging().
+
+    Args:
+        cooldown_seconds: Time between repeated error messages (default: 5 minutes)
+
+    Returns:
+        The singleton filter instance
+    """
+    global _connection_error_filter
+    if _connection_error_filter is None:
+        _connection_error_filter = TelemetryConnectionErrorFilter(cooldown_seconds)
+    return _connection_error_filter
+
+
 _token_counter = None
 _request_histogram = None
 _tool_counter = None
@@ -498,7 +524,8 @@ def init_telemetry(
         _telemetry_enabled = True
 
         # Apply filters to OpenTelemetry loggers
-        connection_filter = TelemetryConnectionErrorFilter()
+        # Use singleton to ensure consistent debouncing state
+        connection_filter = get_connection_error_filter()
         notgiven_filter = NotGivenAttributeFilter()
 
         # Connection error filter truncates verbose stack traces to single lines
