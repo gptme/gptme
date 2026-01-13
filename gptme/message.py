@@ -5,7 +5,6 @@ import sys
 import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import Literal, TypedDict
 from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
@@ -24,6 +23,7 @@ from .constants import ROLE_COLOR
 from .util import console
 from .util.prompt import rich_to_str
 from .util.tokens import len_tokens
+from .util.uri import URI, FilePath, parse_file_reference
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class Message:
     role: Literal["system", "user", "assistant"]
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
-    files: list[Path] = field(default_factory=list)
+    files: list[FilePath] = field(default_factory=list)
     file_hashes: dict[str, str] = field(default_factory=dict)  # {filepath: hash}
     call_id: str | None = None
 
@@ -137,8 +137,10 @@ class Message:
             "timestamp": self.timestamp.isoformat(),
         }
         if self.files:
-            # Resolve to absolute paths to prevent issues when working directory changes
-            d["files"] = [str(f.resolve()) for f in self.files]
+            # Resolve Paths to absolute paths, keep URIs as-is
+            d["files"] = [
+                str(f) if isinstance(f, URI) else str(f.resolve()) for f in self.files
+            ]
         if self.file_hashes:
             d["file_hashes"] = self.file_hashes
         if self.pinned:
@@ -268,7 +270,7 @@ timestamp = "{self.timestamp.isoformat()}"
             _fix_toml_content(msg["content"]),
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
-            files=[Path(f) for f in msg.get("files", [])],
+            files=[parse_file_reference(f) for f in msg.get("files", [])],
             file_hashes=msg.get("file_hashes", {}),
             timestamp=isoparse(msg["timestamp"]),
             call_id=msg.get("call_id", None),
@@ -435,7 +437,7 @@ def toml_to_msgs(toml: str) -> list[Message]:
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
             timestamp=isoparse(msg["timestamp"]),
-            files=[Path(f) for f in msg.get("files", [])],
+            files=[parse_file_reference(f) for f in msg.get("files", [])],
             file_hashes=dict(msg.get("file_hashes", {})),
             call_id=msg.get("call_id"),
             metadata=MessageMetadata(**msg["metadata"])

@@ -23,6 +23,7 @@ from .gh import (
     parse_github_url,
     transform_github_url,
 )
+from .uri import URI
 
 logger = logging.getLogger(__name__)
 
@@ -118,9 +119,11 @@ def embed_attached_file_content(
     from .file_storage import read_stored_content
 
     # Keep original paths for hash lookup, transform for display
+    # Skip URIs - they cannot be read as local files
     files_with_originals = [
         (orig_f, file_to_display_path(orig_f, workspace).expanduser())
         for orig_f in msg.files
+        if not isinstance(orig_f, URI)
     ]
     files_text = {}
 
@@ -250,6 +253,9 @@ def get_mentioned_files(msgs: list[Message], workspace: Path | None) -> list[Pat
     files: Counter[Path] = Counter()
     for msg in msgs:
         for f in msg.files:
+            # Skip URIs - they're not local files
+            if isinstance(f, URI):
+                continue
             # If path is relative and we have a workspace, make it absolute relative to workspace
             if workspace_abs and not f.is_absolute():
                 f = (workspace_abs / f).resolve()

@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ...message import Message
+from ...util.uri import URI
 from .base import ContextSelector
 from .file_config import FileSelectorConfig
 from .file_integration import FileItem
@@ -149,8 +150,12 @@ def select_relevant_files(
     # TODO: get_mentioned_files should probably return counts
     mention_counts: dict[Path, int] = {}
     for msg in msgs:
-        for f in msg.files:
-            path = (workspace / f).resolve() if workspace else f.resolve()
+        for file_ref in msg.files:
+            # Skip URIs - they're not local files
+            if isinstance(file_ref, URI):
+                continue
+            # file_ref is now guaranteed to be Path after the isinstance check
+            path = (workspace / file_ref).resolve() if workspace else file_ref.resolve()
             mention_counts[path] = mention_counts.get(path, 0) + 1
 
     for f in candidates.keys():

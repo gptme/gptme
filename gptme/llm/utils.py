@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..tools import ToolUse
 from ..tools.base import Parameter, ToolFormat
+from ..util.uri import is_uri
 
 
 def extract_tool_uses_from_assistant_message(
@@ -122,7 +123,7 @@ def process_image_file(
     base64 encoding, and size checking.
 
     Args:
-        file_path: Path to the image file
+        file_path: Path to the image file (or URI - URIs are skipped)
         content_parts: List to append content parts to
         max_size_mb: Maximum file size in MB
         expand_user: Whether to expand user path (~)
@@ -131,6 +132,11 @@ def process_image_file(
     Returns:
         tuple: (data, media_type) if successful processing, None if skipped
     """
+
+    # Skip URIs - they're not local files
+    # TODO: In future, could fetch HTTP URLs and process them
+    if is_uri(str(file_path)):
+        return None
 
     logger = logging.getLogger(__name__)
 
