@@ -196,6 +196,10 @@ def _is_invalid_title(name: str) -> bool:
 
     Returns True if the title should be rejected.
     """
+    # Reject empty or whitespace-only titles
+    if not name or not name.strip():
+        return True
+
     name_lower = name.lower()
 
     # Reject error-like patterns

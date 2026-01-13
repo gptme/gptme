@@ -173,6 +173,11 @@ def test_invalid_title_detection():
 
     # These should be detected as invalid
     invalid_titles = [
+        # Edge cases
+        "",  # Empty string
+        "   ",  # Whitespace only
+        "\t\n",  # Tab and newline only
+        # Error patterns
         "Conversation content missing",
         "Missing Conversation Details",
         "content missing",
