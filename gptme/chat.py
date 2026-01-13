@@ -324,8 +324,10 @@ def _process_message_conversation(
         # Runs in background thread to avoid blocking the chat loop
         # TODO: Consider implementing via hook system to streamline with server implementation
         # See: gptme/server/api_v2_sessions.py for server's implementation
+        # Try auto-naming on first few assistant messages until we get a name
+        # This allows retry when initial context is insufficient
         assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
-        if len(assistant_messages) == 1:
+        if len(assistant_messages) <= 3:
             chat_config = ChatConfig.from_logdir(manager.logdir)
             if not chat_config.name:
 

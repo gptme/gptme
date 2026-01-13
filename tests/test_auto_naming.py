@@ -249,3 +249,33 @@ def test_invalid_title_detection():
 
     for title in valid_titles:
         assert not _is_invalid_title(title), f"Expected '{title}' to be valid"
+
+
+def test_generate_conversation_name_returns_none_on_llm_failure():
+    """Test that generate_conversation_name returns None (not random) when LLM strategy fails.
+
+    This allows callers to retry on subsequent turns when more context is available,
+    rather than immediately falling back to a random name.
+    """
+    from gptme.message import Message
+    from gptme.util.auto_naming import generate_conversation_name
+
+    # Short conversation that will cause LLM naming to fail
+    short_messages = [
+        Message("user", "hi"),
+        Message("assistant", "Hello!"),
+    ]
+
+    # With LLM strategy, should return None (not a random name) when context is insufficient
+    result = generate_conversation_name(
+        strategy="llm",
+        messages=short_messages,
+        model="test/model",
+    )
+
+    # Should be None to allow retry, not a random name
+    assert result is None, (
+        f"Expected None when LLM naming fails, got '{result}'. "
+        "generate_conversation_name should not fall back to random names when "
+        "LLM strategy is explicitly requested."
+    )

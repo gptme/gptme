@@ -406,8 +406,10 @@ def step(
         # Auto-generate display name for first assistant response if not already set
         # TODO: Consider implementing via hook system to streamline with CLI implementation
         # See: gptme/chat.py for CLI's implementation
+        # Try auto-naming on first few assistant messages until we get a name
+        # This allows retry when initial context is insufficient
         assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
-        if len(assistant_messages) == 1 and not chat_config.name:
+        if len(assistant_messages) <= 3 and not chat_config.name:
             try:
                 display_name = auto_generate_display_name(manager.log.messages, model)
                 if display_name:

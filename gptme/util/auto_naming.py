@@ -21,8 +21,13 @@ def generate_conversation_name(
     dash_separated: bool = False,
     existing_names: set[str] | None = None,
     max_attempts: int = 3,
-) -> str:
-    """Generate a conversation name using the specified strategy."""
+) -> str | None:
+    """Generate a conversation name using the specified strategy.
+
+    Returns None if strategy is "llm" and LLM fails to generate a name
+    (insufficient context, etc.). This allows callers to retry on subsequent
+    turns when more context is available.
+    """
     # Determine strategy
     if strategy == "auto":
         strategy = "llm" if messages and model and len(messages) > 1 else "random"
@@ -31,9 +36,14 @@ def generate_conversation_name(
         if strategy == "random":
             name = generate_name()
         elif strategy == "llm":
-            name = (
-                _generate_llm_name(messages, model, dash_separated) or generate_name()
-            )
+            # Don't fall back to random - return None so caller can retry
+            # on subsequent turns when more context is available
+            name = _generate_llm_name(messages, model, dash_separated)
+            if not name:
+                logger.info(
+                    "LLM naming failed, returning None to allow retry on next turn"
+                )
+                return None
         else:
             raise ValueError(f"Unknown strategy: {strategy}")
 
@@ -295,16 +305,24 @@ def auto_generate_display_name(messages: list[Message], model: str) -> str | Non
     name="auto_naming.generate_llm_name", attributes={"component": "auto_naming"}
 )
 def generate_llm_name(messages: list[Message]) -> str:
-    """Generate a dash-separated LLM name for conversation renaming."""
+    """Generate a dash-separated LLM name for conversation renaming.
+
+    Unlike auto_generate_display_name, this function always returns a string
+    because it's used for explicit renaming where a name is required.
+    Falls back to random name if LLM naming fails.
+    """
     try:
         from ..llm.models import get_default_model_summary
 
         model = get_default_model_summary()
         if model:
-            return generate_conversation_name(
+            name = generate_conversation_name(
                 strategy="llm", messages=messages, model=model.full, dash_separated=True
             )
+            if name:
+                return name
     except Exception:
         pass
 
-    return generate_conversation_name(strategy="random")
+    # Fallback to random name - always returns a string
+    return generate_name()
