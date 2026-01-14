@@ -34,6 +34,11 @@ _registry = MCPRegistry()
 _dynamic_servers: dict[str, MCPClient] = {}
 
 
+def _get_mcp_client(server_name: str) -> MCPClient | None:
+    """Get MCP client from either pre-configured or dynamically loaded servers."""
+    return _mcp_clients.get(server_name) or _dynamic_servers.get(server_name)
+
+
 def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
     """Restart an MCP client by reconnecting to the server"""
     logger.info(f"Restarting MCP client for server: {server_name}")
@@ -389,6 +394,13 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         if "env" in config_override:
             server_config.env = config_override["env"]
 
+    # Add to config BEFORE connecting (connect() looks up server by name in config)
+    config_added = False
+    if server_config not in config.mcp.servers:
+        config.mcp.servers.append(server_config)
+        set_config(config)
+        config_added = True
+
     try:
         # Create client and connect
         client = MCPClient(config=config)
@@ -397,15 +409,14 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # Store in dynamic servers
         _dynamic_servers[name] = client
 
-        # Add to config
-        if server_config not in config.mcp.servers:
-            config.mcp.servers.append(server_config)
-            set_config(config)
-
         tool_names = [tool.name for tool in tools.tools]
         return f"Successfully loaded server '{name}' with {len(tool_names)} tools: {', '.join(tool_names)}"
 
     except Exception as e:
+        # If connection failed and we added the config, remove it to maintain consistency
+        if config_added:
+            config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
+            set_config(config)
         logger.error(f"Failed to load server '{name}': {e}")
         return f"Failed to load server '{name}': {e}"
 
@@ -473,7 +484,7 @@ def list_mcp_resources(server_name: str) -> str:
     Returns:
         Formatted list of available resources
     """
-    client = _mcp_clients.get(server_name)
+    client = _get_mcp_client(server_name)
     if not client:
         return (
             f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
@@ -513,7 +524,7 @@ def read_mcp_resource(server_name: str, uri: str) -> str:
     Returns:
         Resource content as string
     """
-    client = _mcp_clients.get(server_name)
+    client = _get_mcp_client(server_name)
     if not client:
         return (
             f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
@@ -554,7 +565,7 @@ def list_mcp_resource_templates(server_name: str) -> str:
     Returns:
         Formatted list of available resource templates
     """
-    client = _mcp_clients.get(server_name)
+    client = _get_mcp_client(server_name)
     if not client:
         return (
             f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
