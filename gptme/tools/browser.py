@@ -4,6 +4,7 @@ Tools to let the assistant control a browser, including:
  - reading their contents
  - searching the web
  - taking screenshots (Playwright only)
+ - reading PDFs
 
 Two backends are available:
 
@@ -53,11 +54,20 @@ import importlib.util
 import logging
 import shutil
 from functools import lru_cache
+from io import BytesIO
 from pathlib import Path
 from typing import Literal
 
+import requests
+
 from ..util import console
 from .base import ToolSpec, ToolUse
+
+try:
+    import pypdf
+    has_pypdf = True
+except ImportError:
+    has_pypdf = False
 
 has_playwright = lambda: importlib.util.find_spec("playwright") is not None  # noqa
 has_lynx = lambda: shutil.which("lynx")  # noqa
@@ -146,6 +156,14 @@ Assistant: Now let me check the browser console logs:
 {ToolUse("ipython", [], "read_logs()").to_output(tool_format)}
 System:
 {ToolUse("result", [], "No logs or errors captured.").to_output()}
+
+### Read PDF document
+User: read this research paper from arxiv
+Assistant: I'll read the PDF and extract its text content.
+{ToolUse("ipython", [], "read_url('https://arxiv.org/pdf/2410.12361v2')").to_output(tool_format)}
+System:
+{ToolUse("result", [], "--- Page 1 ---\\n[PDF text content...]\\n\\n--- Page 2 ---\\n[More content...]").to_output()}
+Assistant: I've extracted the text from the PDF. The paper discusses [summary of key points]...
 """.strip()
 
 
@@ -162,8 +180,63 @@ def has_browser_tool():
     return browser is not None
 
 
+def _is_pdf_url(url: str) -> bool:
+    """Check if URL points to a PDF file."""
+    # Check URL extension
+    if url.lower().endswith('.pdf'):
+        return True
+    
+    # Check Content-Type header
+    try:
+        response = requests.head(url, allow_redirects=True, timeout=10)
+        content_type = response.headers.get('Content-Type', '').lower()
+        return 'application/pdf' in content_type
+    except Exception:
+        # If we can't check headers, rely on URL extension
+        return False
+
+
+def _read_pdf_url(url: str) -> str:
+    """Read PDF content from URL using pypdf."""
+    if not has_pypdf:
+        return "Error: PDF support requires pypdf. Install with: pip install pypdf"
+    
+    try:
+        # Download PDF content
+        logger.info(f"Downloading PDF from: {url}")
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        # Read PDF
+        pdf_file = BytesIO(response.content)
+        reader = pypdf.PdfReader(pdf_file)
+        
+        # Extract text from all pages
+        text_parts = []
+        for i, page in enumerate(reader.pages):
+            page_text = page.extract_text()
+            if page_text.strip():  # Only add non-empty pages
+                text_parts.append(f"--- Page {i+1} ---\n{page_text}")
+        
+        if not text_parts:
+            return "Error: PDF appears to be empty or contains only images"
+        
+        result = "\n\n".join(text_parts)
+        logger.info(f"Successfully extracted text from {len(reader.pages)} pages")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error reading PDF: {e}")
+        return f"Error reading PDF: {str(e)}"
+
+
 def read_url(url: str) -> str:
-    """Read a webpage in a text format."""
+    """Read a webpage or PDF in a text format."""
+    # Check if it's a PDF first
+    if _is_pdf_url(url):
+        return _read_pdf_url(url)
+    
+    # Otherwise use normal browser reading
     assert browser
     if browser == "playwright":
         return read_url_playwright(url)  # type: ignore

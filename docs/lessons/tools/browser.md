@@ -6,7 +6,7 @@ match:
 
 # Web Browsing and Automation
 
-Use browser capabilities to read web pages, search, and take screenshots.
+Use browser capabilities to read web pages, PDFs, search, and take screenshots.
 
 ## Available Functions
 
@@ -59,6 +59,19 @@ If both keys are available, PERPLEXITY_API_KEY takes precedence.
 # Screenshot and view
 screenshot_url("https://gptme.org")
 ```
+
+### Reading PDFs
+```python
+# Read academic papers from arXiv
+read_url("https://arxiv.org/pdf/2410.12361v2")
+
+# Read any PDF document
+read_url("https://example.com/document.pdf")
+```
+
+**Note**: PDF support uses pypdf library for text extraction. PDFs are automatically detected by:
+- URL ending in `.pdf`
+- Content-Type header containing `application/pdf`
 
 ### Debugging Web Pages
 ```python

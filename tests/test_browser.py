@@ -43,9 +43,38 @@ def test_read_url_arxiv_html():
 
 @pytest.mark.slow
 def test_read_url_arxiv_pdf():
-    # TODO: test that we can read it
-    # url = "https://arxiv.org/pdf/2410.12361v2"
-    pass
+    """Test reading PDF content from arxiv."""
+    url = "https://arxiv.org/pdf/2410.12361v2"
+    content = read_url(url)
+    
+    # Verify we got text content (not an error message)
+    assert not content.startswith("Error:"), f"PDF reading failed: {content}"
+    
+    # Verify we got substantial content
+    assert len(content) > 1000, f"PDF content too short: {len(content)} chars"
+    
+    # Verify page markers are present
+    assert "--- Page" in content, "Missing page markers in PDF content"
+    
+    # Should contain typical academic paper content
+    # (avoid being too specific about content as papers may change)
+    assert any(word in content.lower() for word in ["abstract", "introduction", "method", "result"]), \
+        "PDF doesn't contain typical academic paper structure"
+
+
+def test_pdf_url_detection():
+    """Test PDF URL detection."""
+    # noreorder
+    from gptme.tools.browser import _is_pdf_url  # fmt: skip
+    
+    # Should detect PDFs by extension
+    assert _is_pdf_url("https://example.com/document.pdf")
+    assert _is_pdf_url("https://example.com/paper.PDF")
+    assert _is_pdf_url("https://arxiv.org/pdf/2410.12361v2.pdf")
+    
+    # Should not detect non-PDFs
+    assert not _is_pdf_url("https://example.com/page.html")
+    assert not _is_pdf_url("https://example.com/")
 
 
 @pytest.mark.slow

@@ -43,6 +43,7 @@ tomlkit = "*"
 typing-extensions = "*"
 platformdirs = "^4.3"
 lxml = "*"
+pypdf = "^5.1.0"  # For PDF text extraction in browser tool
 json-repair = "^0.32.0"
 mcp = "^1.13.0"
 questionary = "^2.1.0"
