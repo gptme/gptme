@@ -7,6 +7,7 @@ prompts being queued for execution after the current work completes.
 
 import logging
 import queue
+import select
 import sys
 import threading
 from collections.abc import Callable
@@ -56,11 +57,15 @@ def _background_input_reader() -> None:
                 continue
 
             # Use select to check if input is available (non-blocking)
-            import select
-
-            # Wait for input with timeout
-            ready, _, _ = select.select([sys.stdin], [], [], 0.1)
-            if not ready:
+            # Note: select.select() on stdin is not supported on Windows
+            try:
+                ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+                if not ready:
+                    continue
+            except (OSError, ValueError):
+                # Windows or invalid file descriptor - fall back to blocking with timeout
+                # On Windows, this feature is effectively disabled
+                _stop_background_input.wait(0.1)
                 continue
 
             # Read a line of input
@@ -155,4 +160,5 @@ def clear_queue() -> None:
 
 def is_background_input_active() -> bool:
     """Check if background input is currently active."""
-    return _input_thread is not None and _input_thread.is_alive()
+    with _input_lock:
+        return _input_thread is not None and _input_thread.is_alive()
