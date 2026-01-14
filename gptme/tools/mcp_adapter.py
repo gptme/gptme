@@ -508,6 +508,8 @@ def list_mcp_resources(server_name: str) -> str:
             output.append("")
 
         return "\n".join(output)
+    except MCPInterruptedError:
+        return "MCP operation interrupted. The server is still running."
     except Exception as e:
         logger.error(f"Failed to list resources from {server_name}: {e}")
         return f"Error listing resources: {e}"
@@ -548,6 +550,8 @@ def read_mcp_resource(server_name: str, uri: str) -> str:
                 output.append(str(content))
 
         return "\n".join(output)
+    except MCPInterruptedError:
+        return "MCP operation interrupted. The server is still running."
     except Exception as e:
         logger.error(f"Failed to read resource {uri} from {server_name}: {e}")
         return f"Error reading resource: {e}"
@@ -591,6 +595,8 @@ def list_mcp_resource_templates(server_name: str) -> str:
             output.append("")
 
         return "\n".join(output)
+    except MCPInterruptedError:
+        return "MCP operation interrupted. The server is still running."
     except Exception as e:
         logger.error(f"Failed to list resource templates from {server_name}: {e}")
         return f"Error listing resource templates: {e}"
