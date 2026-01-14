@@ -34,6 +34,12 @@ from .util.ask_execute import ask_execute
 from .util.auto_naming import auto_generate_display_name
 from .util.context import include_paths
 from .util.cost import log_costs
+from .util.input_queue import (
+    get_queued_input,
+    queue_size,
+    start_background_input,
+    stop_background_input,
+)
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
 from .util.sound import print_bell
@@ -279,7 +285,30 @@ def _process_message_conversation(
     output_schema: type | None = None,
 ) -> None:
     """Process a message and generate responses until no more tools to run."""
+    # Start background input collection if enabled and interactive
+    background_input_enabled = get_config().get_env_bool("GPTME_INPUT_QUEUE", False)
+    if background_input_enabled and sys.stdin.isatty():
+        start_background_input()
 
+    try:
+        _process_message_loop(
+            manager, stream, confirm_func, tool_format, model, output_schema
+        )
+    finally:
+        # Stop background input when processing completes
+        if background_input_enabled:
+            stop_background_input()
+
+
+def _process_message_loop(
+    manager: LogManager,
+    stream: bool,
+    confirm_func: ConfirmFunc,
+    tool_format: ToolFormat,
+    model: str | None,
+    output_schema: type | None = None,
+) -> None:
+    """Inner loop for message processing - extracted for clean try/finally."""
     while True:
         try:
             set_interruptible()
@@ -414,7 +443,11 @@ def _should_prompt_for_input(log: Log) -> bool:
 
 
 def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
-    """Get user input, returning None if user wants to exit."""
+    """Get user input, returning None if user wants to exit.
+
+    If input queueing is enabled and there are queued inputs, returns the next
+    queued input without prompting the user.
+    """
     clear_interruptible()  # Don't interrupt during user input
 
     # Check if we should prompt for input or generate response directly
@@ -422,6 +455,18 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
         # Last message was from user (crash recovery, edited log, etc.)
         # Don't ask for input, let the system generate a response
         return None
+
+    # Check for queued inputs first (from background input during processing)
+    queued = get_queued_input()
+    if queued is not None:
+        remaining = queue_size()
+        if remaining > 0:
+            console.log(f"[dim]Processing queued input ({remaining} more in queue)[/dim]")
+        else:
+            console.log("[dim]Processing queued input[/dim]")
+        msg = Message("user", queued, quiet=True)
+        msg = include_paths(msg, workspace)
+        return msg
 
     # print diff between now and last user message timestamp
     if get_config().get_env_bool("GPTME_SHOW_WORKED"):
