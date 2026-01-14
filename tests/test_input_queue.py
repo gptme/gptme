@@ -2,8 +2,6 @@
 
 import time
 
-import pytest
-
 from gptme.util.input_queue import (
     clear_queue,
     get_all_queued_inputs,

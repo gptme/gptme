@@ -87,9 +87,9 @@ def chat(
     set_conversation_context(conversation_id=conv_name)
 
     # tool_format should already be resolved by this point
-    assert (
-        tool_format is not None
-    ), "tool_format should be resolved before calling chat()"
+    assert tool_format is not None, (
+        "tool_format should be resolved before calling chat()"
+    )
 
     # init
     init(model, interactive, tool_allowlist, tool_format)
@@ -461,7 +461,9 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
     if queued is not None:
         remaining = queue_size()
         if remaining > 0:
-            console.log(f"[dim]Processing queued input ({remaining} more in queue)[/dim]")
+            console.log(
+                f"[dim]Processing queued input ({remaining} more in queue)[/dim]"
+            )
         else:
             console.log("[dim]Processing queued input[/dim]")
         msg = Message("user", queued, quiet=True)
