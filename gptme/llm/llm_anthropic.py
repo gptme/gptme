@@ -525,6 +525,12 @@ def stream(
                     elif isinstance(block, anthropic.types.TextBlock):
                         if block.text:
                             logger.warning("unexpected text block: %s", block.text)
+                    elif isinstance(block, anthropic.types.ServerToolUseBlock):
+                        # Server-side tool use (e.g., web search) in progress
+                        yield "\n🔍 Searching...\n"
+                    elif isinstance(block, anthropic.types.WebSearchToolResultBlock):
+                        # Web search results block
+                        pass  # Results will come through deltas
                     else:
                         print(f"Unknown block type: {block}")
                 case "content_block_delta":
@@ -542,6 +548,12 @@ def stream(
                     elif isinstance(delta, anthropic.types.SignatureDelta):
                         # delta.signature
                         pass
+                    elif isinstance(delta, anthropic.types.CitationsDelta):
+                        # Citation from web search results
+                        if hasattr(delta, "citation") and hasattr(
+                            delta.citation, "url"
+                        ):
+                            yield f"\n📎 Source: {delta.citation.url}\n"
                     else:
                         logger.warning("Unknown delta type: %s", delta)
                 case "content_block_stop":
@@ -555,6 +567,9 @@ def stream(
                         yield "\n</think>\n\n"
                     elif isinstance(stop_block, anthropic.types.RedactedThinkingBlock):
                         yield "\n</think redacted>\n\n"
+                    elif isinstance(stop_block, anthropic.types.ServerToolUseBlock):
+                        # Server-side tool (web search) completed
+                        yield f"\n✅ {stop_block.name}: {stop_block.input}\n"
                     else:
                         logger.warning("Unknown stop block: %s", stop_block)
                 case "text":
