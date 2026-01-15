@@ -108,13 +108,14 @@ def get_prompt(
             )
         else:
             # Full mode without tools
+            # Note: skills summary is intentionally excluded here since skills
+            # require tool access (e.g., `cat <path>`) to load on-demand
             core_msgs = list(prompt_gptme(interactive, model, agent_name))
             if interactive:
                 core_msgs.extend(prompt_user())
             core_msgs.extend(prompt_project())
             core_msgs.extend(prompt_systeminfo())
             core_msgs.extend(prompt_timeinfo())
-            core_msgs.extend(prompt_skills_summary())
     elif prompt == "short":
         if include_tools:
             core_msgs = list(
@@ -747,6 +748,9 @@ def prompt_skills_summary() -> Generator[Message, None, None]:
     Lists available skills (lessons with name/description metadata) so the agent
     knows what skills are available without loading full content. Skills can be
     read on-demand using `cat <path>`.
+
+    Note: This should only be included when tools are enabled, since loading
+    skills on-demand requires tool access (e.g., the shell tool to run `cat`).
     """
     try:
         from .lessons.index import LessonIndex
