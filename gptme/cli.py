@@ -489,6 +489,18 @@ def main(
         except (ImportError, AttributeError) as e:
             logger.warning(f"Could not load output_schema {output_schema}: {e}")
 
+    # Validate non-interactive mode requires a prompt or existing conversation
+    if not interactive and not prompt_msgs and not is_existing_conversation:
+        logger.error(
+            "Non-interactive mode requires a prompt. Provide a prompt as an argument, "
+            "use --resume to continue an existing conversation, or pipe input via stdin.\n\n"
+            "Examples:\n"
+            "  gptme --non-interactive 'hello world'\n"
+            "  gptme --non-interactive --resume\n"
+            "  echo 'hello' | gptme --non-interactive"
+        )
+        sys.exit(1)
+
     try:
         chat(
             prompt_msgs,
