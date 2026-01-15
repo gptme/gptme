@@ -546,8 +546,10 @@ def stream(
                         pass
                     elif isinstance(delta, anthropic.types.CitationsDelta):
                         # Citation from web search results
-                        if hasattr(delta, "citation") and hasattr(
-                            delta.citation, "url"
+                        if (
+                            hasattr(delta, "citation")
+                            and delta.citation
+                            and hasattr(delta.citation, "url")
                         ):
                             yield f"\n📎 Source: {delta.citation.url}\n"
                     else:
