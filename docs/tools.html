@@ -2108,6 +2108,18 @@ brew<span class="w"> </span>install<span class="w"> </span>lynx
 </li>
 </ul>
 </dd>
+<dt>Provider Native Search:</dt><dd><ul>
+<li><p>When using Anthropic Claude models, native web search can be enabled</p></li>
+<li><p>This uses Anthropic’s built-in web search instead of web scraping</p></li>
+<li><p>More reliable than Google/DuckDuckGo scraping (which is blocked by bot detection)</p></li>
+<li><p>Configuration:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_ANTHROPIC_WEB_SEARCH</span><span class="o">=</span><span class="nb">true</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES</span><span class="o">=</span><span class="m">5</span><span class="w">  </span><span class="c1"># Optional, default is 5</span>
+</pre></div>
+</div>
+</li>
+</ul>
+</dd>
 </dl>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
