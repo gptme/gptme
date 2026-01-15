@@ -506,11 +506,14 @@ def stream(
                     chunk = cast(anthropic.types.RawContentBlockDeltaEvent, chunk)
                     delta = chunk.delta
                     if isinstance(delta, anthropic.types.TextDelta):
-                        yield delta.text
+                        if delta.text is not None:
+                            yield delta.text
                     elif isinstance(delta, anthropic.types.ThinkingDelta):
-                        yield delta.thinking
+                        if delta.thinking is not None:
+                            yield delta.thinking
                     elif isinstance(delta, anthropic.types.InputJSONDelta):
-                        yield delta.partial_json
+                        if delta.partial_json is not None:
+                            yield delta.partial_json
                     elif isinstance(delta, anthropic.types.SignatureDelta):
                         # delta.signature
                         pass
