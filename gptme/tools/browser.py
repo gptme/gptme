@@ -101,6 +101,8 @@ EngineType = Literal["google", "duckduckgo", "perplexity"]
 
 
 def examples(tool_format):
+    # Define example output with newlines outside f-string (backslashes not allowed in f-string expressions)
+    pdf_example_result = "--- Page 1 ---\n[PDF text content...]\n\n--- Page 2 ---\n[More content...]"
     return f"""
 ### Reading docs
 User: how does gptme work?
@@ -162,7 +164,7 @@ User: read this research paper from arxiv
 Assistant: I'll read the PDF and extract its text content.
 {ToolUse("ipython", [], "read_url('https://arxiv.org/pdf/2410.12361v2')").to_output(tool_format)}
 System:
-{ToolUse("result", [], "--- Page 1 ---\\n[PDF text content...]\\n\\n--- Page 2 ---\\n[More content...]").to_output()}
+{ToolUse("result", [], pdf_example_result).to_output()}
 Assistant: I've extracted the text from the PDF. The paper discusses [summary of key points]...
 """.strip()
 
