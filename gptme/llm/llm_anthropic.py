@@ -525,12 +525,8 @@ def stream(
                     elif isinstance(block, anthropic.types.TextBlock):
                         if block.text:
                             logger.warning("unexpected text block: %s", block.text)
-                    elif isinstance(block, anthropic.types.ServerToolUseBlock):
-                        # Server-side tool use (e.g., web search) in progress
-                        yield "\n🔍 Searching...\n"
-                    elif isinstance(block, anthropic.types.WebSearchToolResultBlock):
-                        # Web search results block
-                        pass  # Results will come through deltas
+                    # Note: Server-side tool use (e.g., web search) comes through as
+                    # regular ToolUseBlock with specific tool names, not special types
                     else:
                         print(f"Unknown block type: {block}")
                 case "content_block_delta":
@@ -567,9 +563,8 @@ def stream(
                         yield "\n</think>\n\n"
                     elif isinstance(stop_block, anthropic.types.RedactedThinkingBlock):
                         yield "\n</think redacted>\n\n"
-                    elif isinstance(stop_block, anthropic.types.ServerToolUseBlock):
-                        # Server-side tool (web search) completed
-                        yield f"\n✅ {stop_block.name}: {stop_block.input}\n"
+                    # Note: Server-side tool completion comes through as regular
+                    # ToolUseBlock in the stop event, already handled above
                     else:
                         logger.warning("Unknown stop block: %s", stop_block)
                 case "text":
