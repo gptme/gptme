@@ -397,26 +397,26 @@ def _should_prompt_for_input(log: Log) -> bool:
     """
     last_msg = log[-1] if log else None
 
-    # Check if there's an interrupt message after the last assistant message
-    # This handles cases where hooks (like cost_awareness) add messages after the interrupt
-    has_recent_interrupt = False
+    # Check if there's an interrupt or decline message after the last assistant message
+    # This handles cases where hooks (like cost_awareness) add messages after the interrupt/decline
+    has_recent_interrupt_or_decline = False
     for msg in reversed(log):
         if msg.role == "assistant":
             break
-        if msg.content == INTERRUPT_CONTENT:
-            has_recent_interrupt = True
+        if msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT):
+            has_recent_interrupt_or_decline = True
             break
 
     # Ask for input when:
     # - No messages at all
     # - Last message was from assistant (normal flow)
-    # - There was an interrupt after the last assistant message
+    # - There was an interrupt or decline after the last assistant message
     # - Last message was pinned
     # - No user messages exist in the entire log
     return (
         not last_msg
         or (last_msg.role in ["assistant"])
-        or has_recent_interrupt
+        or has_recent_interrupt_or_decline
         or last_msg.pinned
         or not any(role == "user" for role in [m.role for m in log])
     )
