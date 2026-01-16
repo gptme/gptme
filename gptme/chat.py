@@ -9,6 +9,7 @@ from pathlib import Path
 from .commands import execute_cmd
 from .config import ChatConfig, get_config
 from .constants import (
+    DECLINED_CONTENT,
     INTERRUPT_CONTENT,
     MAX_MESSAGE_LENGTH,
     MAX_PROMPT_QUEUE_SIZE,
@@ -319,6 +320,12 @@ def _process_message_conversation(
                 response_msg, manager, confirm_func
             ):
                 return
+
+        # Check if user declined execution - return to prompt without generating response
+        # This makes "n" at confirm prompt behave like Ctrl+C (return to user prompt)
+        if any(msg.content == DECLINED_CONTENT for msg in response_msgs):
+            console.log("Execution declined, returning to prompt.")
+            break
 
         # Auto-generate display name after first assistant response if not already set
         # Runs in background thread to avoid blocking the chat loop

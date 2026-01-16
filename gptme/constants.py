@@ -34,6 +34,9 @@ def prompt_assistant(name: str | None) -> str:
 
 INTERRUPT_CONTENT = "Interrupted by user"
 
+# Content for when user declines execution (behaves like interrupt - returns to prompt)
+DECLINED_CONTENT = "Execution declined by user"
+
 # Maximum length for user message content (characters)
 # This prevents unbounded memory usage and context window overflow
 # 100k characters ≈ 25k tokens for typical English text

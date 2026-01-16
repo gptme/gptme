@@ -268,9 +268,9 @@ def execute_with_confirmation(
         try:
             # Get confirmation
             if not confirm_fn(confirm_msg or f"Execute on {path}?"):
-                yield Message(
-                    "system", "Operation aborted: user chose not to run the operation."
-                )
+                from ..constants import DECLINED_CONTENT
+
+                yield Message("system", DECLINED_CONTENT)
                 return
 
             # Get potentially edited content
