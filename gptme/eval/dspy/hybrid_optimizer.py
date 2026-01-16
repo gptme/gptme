@@ -119,7 +119,7 @@ Integration Examples
     )
 
     optimized = optimizer.compile(
-        student=my_reasoning_program,
+        student=my_module,  # GptmeModule instance
         trainset=my_trainset
     )
 

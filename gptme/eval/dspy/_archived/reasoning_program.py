@@ -1,4 +1,22 @@
 """
+ARCHIVED: Multi-stage reasoning program for GEPA optimization.
+
+⚠️ DEPRECATED (2026-01-16): This module has been archived as part of the
+GEPA Phase 3.2 cleanup. The 5-stage reasoning pipeline (Analyze → Plan →
+Execute → Monitor → Recover) adds unnecessary complexity without demonstrated
+benefit over the simpler GptmeModule approach.
+
+The core issue: gptme already handles task analysis, planning, and execution
+internally. Adding DSPy predictors for each stage duplicates this reasoning
+at a meta-level, which increases cost and latency without improving eval scores.
+
+For prompt optimization, use GptmeModule in prompt_optimizer.py directly.
+This archived code is preserved for historical reference only.
+
+Original discussion: https://github.com/gptme/gptme/issues/790
+"""
+
+"""
 Multi-stage reasoning program for GEPA optimization.
 
 This module implements a structured reasoning program that breaks down

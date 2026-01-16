@@ -7,6 +7,7 @@ optimization techniques to automatically improve gptme system prompts.
 
 import logging
 import os
+import warnings
 from typing import Any
 
 import dspy
@@ -24,8 +25,17 @@ from .metrics import (
     create_composite_metric,
     create_trajectory_feedback_metric,
 )
-from .reasoning_program import GptmeReasoningProgram
 from .signatures import GptmeTaskSignature, PromptImprovementSignature
+
+# DEPRECATED: GptmeReasoningProgram has been archived (2026-01-16)
+# See https://github.com/gptme/gptme/issues/790 for rationale
+try:
+    from ._archived.reasoning_program import GptmeReasoningProgram
+
+    _HAS_REASONING_PROGRAM = True
+except ImportError:
+    _HAS_REASONING_PROGRAM = False
+    GptmeReasoningProgram = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -233,36 +243,21 @@ class PromptOptimizer:
     """
     Main class for optimizing gptme system prompts using DSPy.
 
-    This class provides two execution modes for prompt optimization:
+    Uses GptmeModule for direct prompt execution and optimization.
 
-    1. **Standard Mode** (use_reasoning_program=False, default):
-       - Direct prompt execution using GptmeModule
-       - Faster iteration with simpler traces
-       - Best for: Well-defined tasks, quick experiments, baseline evaluation
-       - Trade-offs: Less structured reasoning, may struggle with complex tasks
+    Usage Example:
 
-    2. **Reasoning Program Mode** (use_reasoning_program=True):
-       - Multi-stage reasoning with GptmeReasoningProgram
-       - Structured pipeline: analyze → plan → execute → monitor → recover
-       - Best for: Complex tasks, debugging, research-heavy workflows
-       - Trade-offs: Slower execution, more token usage, richer feedback for optimization
-
-    Usage Examples:
-
-        # Standard mode for quick baseline optimization
         optimizer = PromptOptimizer(
             model="anthropic/claude-sonnet-4-5",
             optimizer_type="miprov2",
-            use_reasoning_program=False  # default
         )
 
-        # Reasoning program mode for complex task optimization
-        optimizer = PromptOptimizer(
-            model="anthropic/claude-sonnet-4-5",
-            optimizer_type="gepa",
-            use_reasoning_program=True,  # enable structured reasoning
-            reflection_minibatch_size=3
-        )
+    .. deprecated:: 2026-01-16
+        The ``use_reasoning_program=True`` mode has been deprecated and will be
+        removed in a future version. The multi-stage reasoning program was
+        archived as it adds complexity without demonstrated benefit over the
+        simpler GptmeModule approach. See `issue #790
+        <https://github.com/gptme/gptme/issues/790>`_ for rationale.
 
     Args:
         model: Base model for prompt execution (e.g., "anthropic/claude-sonnet-4-5")
@@ -343,7 +338,20 @@ class PromptOptimizer:
         # Create module and optimizer
         # Create module based on configuration
         if self.use_reasoning_program:
-            # Multi-stage reasoning for GEPA optimization (Phase 1.3)
+            # DEPRECATED: Multi-stage reasoning has been archived (2026-01-16)
+            # See https://github.com/gptme/gptme/issues/790
+            warnings.warn(
+                "use_reasoning_program=True is deprecated and will be removed in a future version. "
+                "The multi-stage reasoning program adds complexity without demonstrated benefit. "
+                "Use the default GptmeModule instead. See issue #790 for details.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if not _HAS_REASONING_PROGRAM:
+                raise ImportError(
+                    "GptmeReasoningProgram is no longer available. "
+                    "It was archived as part of GEPA cleanup. Use use_reasoning_program=False."
+                )
             module = GptmeReasoningProgram(base_prompt)
         else:
             module = GptmeModule(base_prompt, self.model)

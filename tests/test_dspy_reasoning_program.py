@@ -1,11 +1,25 @@
 """
 Unit tests for the DSPy multi-stage reasoning program.
 
+⚠️ DEPRECATED (2026-01-16): These tests cover the archived GptmeReasoningProgram.
+The reasoning program was archived as part of GEPA Phase 3.2 cleanup because
+it adds complexity without demonstrated benefit. See issue #790 for details.
+
 These tests verify the reasoning program's signature classes, multi-stage flow,
-error handling, and recovery logic.
+error handling, and recovery logic - kept for historical reference.
 """
 
+import warnings
+
 import pytest
+
+# Emit deprecation warning when running these tests
+warnings.warn(
+    "test_dspy_reasoning_program.py tests deprecated GptmeReasoningProgram. "
+    "These tests are kept for historical reference only. See issue #790.",
+    DeprecationWarning,
+    stacklevel=1,
+)
 
 # Check if DSPy is available and handle import errors gracefully
 try:
@@ -16,11 +30,11 @@ try:
 except (ImportError, ModuleNotFoundError):
     pytest.skip("DSPy module not available", allow_module_level=True)
 
-# Try to import reasoning program components
+# Try to import reasoning program components from archived location
 try:
     import dspy
 
-    from gptme.eval.dspy.reasoning_program import (
+    from gptme.eval.dspy._archived.reasoning_program import (
         ExecutionSignature,
         GptmeReasoningProgram,
         MonitoringSignature,
