@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from logging import getLogger
 from typing import TYPE_CHECKING, TypeVar
 
+from ..constants import DECLINED_CONTENT
 from ..message import Message
 from ..util.ask_execute import print_preview
 from . import get_tools
@@ -115,8 +116,8 @@ def execute_python(
 
     print_preview(code, "python")
     if not confirm("Execute this code?"):
-        # early return
-        yield Message("system", "Execution aborted: user chose not to run this code.")
+        # early return - use DECLINED_CONTENT so chat loop detects declined execution
+        yield Message("system", DECLINED_CONTENT)
         return
 
     # Create an IPython instance if it doesn't exist yet

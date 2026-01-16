@@ -16,6 +16,7 @@ from collections.abc import Generator
 from pathlib import Path
 from time import sleep
 
+from ..constants import DECLINED_CONTENT
 from ..message import Message
 from ..util.ask_execute import print_preview
 from ..util.output_storage import save_large_output
@@ -412,9 +413,8 @@ def execute_tmux(
     preview = "\n".join(commands)
     print_preview(preview, "bash", copy=True)
     if not confirm("Execute commands?"):
-        yield Message(
-            "system", "Execution aborted: user chose not to run the commands."
-        )
+        # Use DECLINED_CONTENT so chat loop detects declined execution
+        yield Message("system", DECLINED_CONTENT)
         return
 
     # Execute each command
