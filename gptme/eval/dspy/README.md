@@ -23,9 +23,7 @@ gptme/eval/dspy/
 ├── experiments.py        # High-level experiment management
 ├── tasks.py              # Specialized evaluation tasks
 ├── cli.py                # Command-line interface
-├── README.md             # Comprehensive documentation
-└── _archived/            # Deprecated modules (historical reference only)
-    └── reasoning_program.py  # Archived: Multi-stage reasoning (see issue #790)
+└── README.md             # Comprehensive documentation
 ```
 
 ## Key Features

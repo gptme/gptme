@@ -7,7 +7,6 @@ optimization techniques to automatically improve gptme system prompts.
 
 import logging
 import os
-import warnings
 from typing import Any
 
 import dspy
@@ -26,16 +25,6 @@ from .metrics import (
     create_trajectory_feedback_metric,
 )
 from .signatures import GptmeTaskSignature, PromptImprovementSignature
-
-# DEPRECATED: GptmeReasoningProgram has been archived (2026-01-16)
-# See https://github.com/gptme/gptme/issues/790 for rationale
-try:
-    from ._archived.reasoning_program import GptmeReasoningProgram
-
-    _HAS_REASONING_PROGRAM = True
-except ImportError:
-    _HAS_REASONING_PROGRAM = False
-    GptmeReasoningProgram = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -252,13 +241,6 @@ class PromptOptimizer:
             optimizer_type="miprov2",
         )
 
-    .. deprecated:: 2026-01-16
-        The ``use_reasoning_program=True`` mode has been deprecated and will be
-        removed in a future version. The multi-stage reasoning program was
-        archived as it adds complexity without demonstrated benefit over the
-        simpler GptmeModule approach. See `issue #790
-        <https://github.com/gptme/gptme/issues/790>`_ for rationale.
-
     Args:
         model: Base model for prompt execution (e.g., "anthropic/claude-sonnet-4-5")
         optimizer_type: Optimization algorithm ("miprov2" or "gepa")
@@ -269,15 +251,10 @@ class PromptOptimizer:
         max_metric_calls: Maximum number of metric calls for GEPA
         reflection_minibatch_size: Batch size for reflection in GEPA
         num_threads: Number of parallel threads for optimization
-        use_reasoning_program: Enable multi-stage reasoning program instead of direct execution.
-            When True, uses GptmeReasoningProgram for structured task breakdown.
-            When False (default), uses GptmeModule for direct execution.
-            Reasoning program provides richer optimization signals but requires more tokens.
 
     Related:
-        - GptmeReasoningProgram: Multi-stage reasoning implementation (reasoning_program.py)
         - GptmeModule: Standard direct execution module
-        - GEPA: Optimization algorithm that benefits most from reasoning traces
+        - GEPA: Optimization algorithm for prompt optimization
     """
 
     def __init__(
@@ -292,7 +269,6 @@ class PromptOptimizer:
         max_metric_calls: int | None = None,
         reflection_minibatch_size: int = 3,
         num_threads: int = 4,
-        use_reasoning_program: bool = False,
     ):
         self.model = model
         self.optimizer_type = optimizer_type
@@ -304,7 +280,6 @@ class PromptOptimizer:
         self.max_metric_calls = max_metric_calls
         self.reflection_minibatch_size = reflection_minibatch_size
         self.num_threads = num_threads
-        self.use_reasoning_program = use_reasoning_program
         self._setup_dspy()
 
     def _setup_dspy(self):
@@ -336,25 +311,7 @@ class PromptOptimizer:
         val_data = PromptDataset(eval_specs[train_size : train_size + val_size])
 
         # Create module and optimizer
-        # Create module based on configuration
-        if self.use_reasoning_program:
-            # DEPRECATED: Multi-stage reasoning has been archived (2026-01-16)
-            # See https://github.com/gptme/gptme/issues/790
-            warnings.warn(
-                "use_reasoning_program=True is deprecated and will be removed in a future version. "
-                "The multi-stage reasoning program adds complexity without demonstrated benefit. "
-                "Use the default GptmeModule instead. See issue #790 for details.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if not _HAS_REASONING_PROGRAM:
-                raise ImportError(
-                    "GptmeReasoningProgram is no longer available. "
-                    "It was archived as part of GEPA cleanup. Use use_reasoning_program=False."
-                )
-            module = GptmeReasoningProgram(base_prompt)
-        else:
-            module = GptmeModule(base_prompt, self.model)
+        module = GptmeModule(base_prompt, self.model)
         optimizer = self._create_optimizer(eval_specs)
 
         try:
