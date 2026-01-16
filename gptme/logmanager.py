@@ -87,7 +87,13 @@ _current_log_var: ContextVar["LogManager | None"] = ContextVar(
 
 
 class LogManager:
-    """Manages a conversation log."""
+    """Manages a conversation log.
+
+    Can be used as a context manager to ensure locks are properly released:
+        with LogManager.load(logdir) as manager:
+            # use manager
+            pass
+    """
 
     _lock_fd: TextIO | None = None
     _tmpdir: TemporaryDirectory | None = None  # Store to prevent premature GC
@@ -96,6 +102,15 @@ class LogManager:
     def get_current_log(cls) -> "LogManager | None":
         """Get the current LogManager instance for this context."""
         return _current_log_var.get()
+
+    def __enter__(self) -> "LogManager":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit context manager, ensuring lock is released."""
+        self._release_lock()
+        return None
 
     def __init__(
         self,
@@ -130,17 +145,72 @@ class LogManager:
         if lock and not is_pytest:
             self._lockfile = self.logdir / ".lock"
             self._lockfile.touch(exist_ok=True)
-            self._lock_fd = self._lockfile.open("w")
+            self._lock_fd = self._lockfile.open("r+")
 
             # Try to acquire an exclusive lock
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # Write our PID to the lock file for debugging
+                self._lock_fd.write(str(os.getpid()))
+                self._lock_fd.flush()
+                # logger.debug(f"Acquired lock on {self.logdir}")
+
+                # Register cleanup handler to release lock on exit
+                import atexit
+
+                atexit.register(self._release_lock)
             except BlockingIOError:
+                # Lock is held by another process, check if it's still alive
                 self._lock_fd.close()
                 self._lock_fd = None
-                raise RuntimeError(
-                    f"Another gptme instance is using {self.logdir}"
-                ) from None
+
+                # Try to read the PID from the lock file
+                same_pid_detected = False
+                try:
+                    with open(self._lockfile) as f:
+                        lock_pid_str = f.read().strip()
+                        if lock_pid_str.isdigit():
+                            lock_pid = int(lock_pid_str)
+                            # Same process - we already hold this lock
+                            if lock_pid == os.getpid():
+                                same_pid_detected = True  # Continue initialization without error
+                            else:
+                                # Check if that process is still running
+                                try:
+                                    os.kill(
+                                        lock_pid, 0
+                                    )  # Signal 0 just checks if process exists
+                                    # Process is alive
+                                    raise RuntimeError(
+                                        f"Another gptme instance (PID {lock_pid}) is using {self.logdir}"
+                                    ) from None
+                                except ProcessLookupError:
+                                    # Process is dead, remove stale lock and retry once
+                                    logger.warning(
+                                        f"Removing stale lock from dead process {lock_pid}"
+                                    )
+                                    self._lockfile.unlink()
+                                    # Retry lock acquisition once
+                                    self._lockfile.touch(exist_ok=True)
+                                    self._lock_fd = open(self._lockfile, "r+")
+                                    fcntl.flock(
+                                        self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB
+                                    )
+                                    self._lock_fd.seek(0)
+                                    self._lock_fd.truncate()
+                                    self._lock_fd.write(str(os.getpid()))
+                                    self._lock_fd.flush()
+                                    import atexit
+
+                                    atexit.register(self._release_lock)
+                                    return  # Successfully acquired lock after cleanup
+                except (OSError, ValueError) as e:
+                    logger.warning(f"Could not check lock holder: {e}")
+
+                if not same_pid_detected:
+                    raise RuntimeError(
+                        f"Another gptme instance is using {self.logdir}"
+                    ) from None
 
             # Lock acquired successfully - register cleanup handler
             # Use try/except to ensure lock is released if registration fails
@@ -191,7 +261,7 @@ class LogManager:
                 self._lock_fd.close()
                 self._lock_fd = None
                 # logger.debug(f"Released lock on {self.logdir}")
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 logger.warning(f"Error releasing lock: {e}")
 
     def __del__(self):
