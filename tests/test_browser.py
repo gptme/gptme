@@ -129,11 +129,16 @@ def test_pdf_max_pages_custom():
     # Read only first 2 pages
     content = read_url(url, max_pages=2)
 
-    # Should not have Page 3 or higher
-    assert "--- Page 1 ---" in content
+    # Should have Page 1 (required)
+    assert "--- Page 1 ---" in content, "Page 1 should be present"
+
+    # Should NOT have Page 3 or higher (the key test for max_pages)
     assert (
-        "--- Page 2 ---" in content or "--- Page 1 ---" in content
-    )  # May only have 1 if page 2 is empty
+        "--- Page 3 ---" not in content
+    ), "Page 3 should NOT be present with max_pages=2"
+    assert (
+        "--- Page 4 ---" not in content
+    ), "Page 4 should NOT be present with max_pages=2"
 
     # Should have truncation note
     assert "pages. Showing first" in content, "Missing truncation note"
