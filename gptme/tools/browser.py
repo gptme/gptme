@@ -4,7 +4,7 @@ Tools to let the assistant control a browser, including:
  - reading their contents
  - searching the web
  - taking screenshots (Playwright only)
- - reading PDFs
+ - reading PDFs (with page limits and vision fallback hints)
 
 Two backends are available:
 
@@ -104,7 +104,12 @@ EngineType = Literal["google", "duckduckgo", "perplexity"]
 def examples(tool_format):
     # Define example output with newlines outside f-string (backslashes not allowed in f-string expressions)
     pdf_example_result = (
-        "--- Page 1 ---\n[PDF text content...]\n\n--- Page 2 ---\n[More content...]"
+        "--- Page 1 ---\n[PDF text content...]\n\n--- Page 2 ---\n[More content...]\n\n---\n"
+        "**Note**: This PDF has 42 pages. Showing first 10 pages.\n"
+        "To read more pages, use: `read_url('...', max_pages=N)` where N is the desired count, or 0 for all pages.\n\n"
+        "**Tip**: If this text extraction seems incomplete or garbled (common with scanned documents, "
+        "complex layouts, or image-heavy PDFs), try vision-based reading: convert pages to images "
+        "using a PDF-to-image tool, then use the vision tool to analyze them."
     )
     return f"""
 ### Reading docs
@@ -201,10 +206,24 @@ def _is_pdf_url(url: str) -> bool:
         return False
 
 
-def _read_pdf_url(url: str) -> str:
-    """Read PDF content from URL using pypdf."""
+# Default max pages for PDF reading
+DEFAULT_PDF_MAX_PAGES = 10
+
+
+def _read_pdf_url(url: str, max_pages: int | None = None) -> str:
+    """Read PDF content from URL using pypdf.
+
+    Args:
+        url: URL of the PDF to read
+        max_pages: Maximum number of pages to read (default: 10).
+                   Set to None or 0 to read all pages.
+    """
     if not has_pypdf:
         return "Error: PDF support requires pypdf. Install with: pip install pypdf"
+
+    # Use default if not specified
+    if max_pages is None:
+        max_pages = DEFAULT_PDF_MAX_PAGES
 
     try:
         # Download PDF content
@@ -215,19 +234,52 @@ def _read_pdf_url(url: str) -> str:
         # Read PDF
         pdf_file = BytesIO(response.content)
         reader = pypdf.PdfReader(pdf_file)
+        total_pages = len(reader.pages)
 
-        # Extract text from all pages
+        # Determine how many pages to read
+        pages_to_read = total_pages if max_pages == 0 else min(max_pages, total_pages)
+        truncated = pages_to_read < total_pages
+
+        # Extract text from pages
         text_parts = []
-        for i, page in enumerate(reader.pages):
+        for i, page in enumerate(reader.pages[:pages_to_read]):
             page_text = page.extract_text()
             if page_text.strip():  # Only add non-empty pages
                 text_parts.append(f"--- Page {i+1} ---\n{page_text}")
 
         if not text_parts:
-            return "Error: PDF appears to be empty or contains only images"
+            return (
+                "Error: PDF appears to be empty or contains only images.\n\n"
+                "**Tip**: For image-based or complex PDFs, try vision-based reading:\n"
+                "1. Use `screenshot_url()` to capture pages as images\n"
+                "2. Use the vision tool to analyze the images"
+            )
 
         result = "\n\n".join(text_parts)
-        logger.info(f"Successfully extracted text from {len(reader.pages)} pages")
+
+        # Add footer with hints
+        footer_parts = []
+
+        # Truncation notice
+        if truncated:
+            footer_parts.append(
+                f"**Note**: This PDF has {total_pages} pages. Showing first {pages_to_read} pages.\n"
+                f"To read more pages, use: `read_url('{url}', max_pages=N)` where N is the desired count, or 0 for all pages."
+            )
+
+        # Vision alternative hint
+        footer_parts.append(
+            "**Tip**: If this text extraction seems incomplete or garbled (common with scanned documents, "
+            "complex layouts, or image-heavy PDFs), try vision-based reading: convert pages to images "
+            "using a PDF-to-image tool, then use the vision tool to analyze them."
+        )
+
+        if footer_parts:
+            result += "\n\n---\n" + "\n\n".join(footer_parts)
+
+        logger.info(
+            f"Successfully extracted text from {pages_to_read}/{total_pages} pages"
+        )
         return result
 
     except Exception as e:
@@ -235,13 +287,19 @@ def _read_pdf_url(url: str) -> str:
         return f"Error reading PDF: {str(e)}"
 
 
-def read_url(url: str) -> str:
-    """Read a webpage or PDF in a text format."""
+def read_url(url: str, max_pages: int | None = None) -> str:
+    """Read a webpage or PDF in a text format.
+
+    Args:
+        url: URL to read
+        max_pages: For PDFs only - maximum pages to read (default: 10).
+                   Set to 0 to read all pages. Ignored for web pages.
+    """
     # Check if it's a PDF first
     if _is_pdf_url(url):
-        return _read_pdf_url(url)
+        return _read_pdf_url(url, max_pages)
 
-    # Otherwise use normal browser reading
+    # Otherwise use normal browser reading (max_pages ignored)
     assert browser
     if browser == "playwright":
         return read_url_playwright(url)  # type: ignore

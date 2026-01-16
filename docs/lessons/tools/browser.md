@@ -62,16 +62,29 @@ screenshot_url("https://gptme.org")
 
 ### Reading PDFs
 ```python
-# Read academic papers from arXiv
+# Read academic papers from arXiv (reads first 10 pages by default)
 read_url("https://arxiv.org/pdf/2410.12361v2")
 
-# Read any PDF document
-read_url("https://example.com/document.pdf")
+# Read more pages from a large PDF
+read_url("https://arxiv.org/pdf/2410.12361v2", max_pages=20)
+
+# Read all pages (no limit)
+read_url("https://example.com/document.pdf", max_pages=0)
 ```
 
 **Note**: PDF support uses pypdf library for text extraction. PDFs are automatically detected by:
 - URL ending in `.pdf`
 - Content-Type header containing `application/pdf`
+
+**Page Limits**: By default, only the first 10 pages are extracted to keep context manageable.
+For large documents, you can:
+- Increase the limit: `read_url(url, max_pages=N)`
+- Read all pages: `read_url(url, max_pages=0)`
+
+**Vision Alternative**: If text extraction produces garbled output (common with scanned documents,
+complex layouts, or image-heavy PDFs), consider using vision-based reading:
+1. Convert PDF pages to images using a PDF-to-image tool
+2. Use the vision tool to analyze the images
 
 ### Debugging Web Pages
 ```python
