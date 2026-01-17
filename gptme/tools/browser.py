@@ -413,7 +413,7 @@ def _read_pdf_url(url: str, max_pages: int | None = None) -> str:
     Args:
         url: URL of the PDF to read
         max_pages: Maximum number of pages to read (default: 10).
-                   Set to None or 0 to read all pages.
+                   Set to 0 to read all pages.
     """
     if not has_pypdf:
         return "Error: PDF support requires pypdf. Install with: pip install pypdf"
