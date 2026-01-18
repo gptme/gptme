@@ -1,0 +1,40 @@
+
+--- Start of generation ---
+[03:42:08] Using model: anthropic/claude-haiku-4-5                              
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-01-18-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-b60b7e5e                                                 
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-01-18-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-b60b7e5e/workspace                                       
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The user wants me to create a simple Python script that prints "Hello, world!". This is straightforward - I'll use the save tool to create a hello.py file with the appropriate content.
+</think>        </think>
+
+<function_calls>
+<tool-use>
+<save args="hello.py">
+print("Hello, world!")
+</save>
+</tool-use>
+                                                                                
+Preview
+print("Hello, world!")                                                          
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The file has been successfully saved. The user's request is complete. I should let them know it's ready and offer to help with anything else if needed.
+</think>        </think>
+
+Done! I've created `hello.py` with the print statement. You can run it with:
+
+```bash
+python hello.py
+```                                                                                [03:42:10] Session: $0.00 | 1 turns | 970 context | 0% cached                   
+--- Finished generation ---
+

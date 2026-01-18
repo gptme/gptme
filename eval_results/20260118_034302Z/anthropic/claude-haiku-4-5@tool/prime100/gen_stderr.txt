@@ -1,0 +1,1 @@
+bash: line 23: /app/prime.py: Permission denied
