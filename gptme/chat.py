@@ -42,9 +42,6 @@ from .util.terminal import set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
 
-# Global flag to track if we were recently interrupted
-_recently_interrupted = False
-
 
 @trace_function(name="chat.main", attributes={"component": "chat"})
 def chat(
@@ -70,9 +67,6 @@ def chat(
 
     Callable from other modules.
     """
-    global _recently_interrupted
-    _recently_interrupted = False
-
     # Set initial terminal title with conversation name
     conv_name = logdir.name
     set_current_conv_name(conv_name)
@@ -306,8 +300,6 @@ def _process_message_conversation(
             )
         except KeyboardInterrupt:
             console.log("Interrupted during response generation.")
-            global _recently_interrupted
-            _recently_interrupted = True
             manager.append(Message("system", INTERRUPT_CONTENT))
             break
         finally:
@@ -470,8 +462,6 @@ def step(
     output_schema: type | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
-    global _recently_interrupted
-
     default_model = get_default_model()
     assert default_model is not None, "No model loaded and no model specified"
     model = model or default_model.full
@@ -510,9 +500,6 @@ def step(
         if msg_response:
             yield msg_response.replace(quiet=True)
             yield from execute_msg(msg_response, confirm, log, workspace)
-
-        # Reset interrupt flag after successful completion
-        _recently_interrupted = False
 
     finally:
         clear_interruptible()
