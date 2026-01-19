@@ -800,32 +800,57 @@ def api_conversation_step(conversation_id: str):
 @require_auth
 @api_doc(
     summary="Confirm tool execution (V2)",
-    description="Confirm, edit, skip, or auto-confirm a pending tool execution",
+    description="Confirm, edit, skip, or auto-confirm a pending tool execution. "
+    "session_id is optional - if not provided, the tool will be found across all sessions for the conversation.",
     request_body=ToolConfirmRequest,
     responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
     parameters=[CONVERSATION_ID_PARAM],
     tags=["sessions"],
 )
 def api_conversation_tool_confirm(conversation_id: str):
-    """Confirm or modify a tool execution."""
+    """Confirm or modify a tool execution.
+
+    session_id is optional. If not provided, the tool will be found across all
+    sessions for this conversation. This handles the race condition where the
+    client may not have received the session_id yet when confirming a tool.
+    """
 
     req_json = flask.request.json or {}
     session_id = req_json.get("session_id")
     tool_id = req_json.get("tool_id")
     action = req_json.get("action")
 
-    if not session_id or not tool_id or not action:
+    if not tool_id or not action:
         return (
-            flask.jsonify({"error": "session_id, tool_id, and action are required"}),
+            flask.jsonify({"error": "tool_id and action are required"}),
             400,
         )
 
-    session = SessionManager.get_session(session_id)
-    if session is None:
-        return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+    session: ConversationSession | None = None
 
-    if tool_id not in session.pending_tools:
-        return flask.jsonify({"error": f"Tool not found: {tool_id}"}), 404
+    if session_id:
+        # If session_id provided, use it directly
+        session = SessionManager.get_session(session_id)
+        if session is None:
+            return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+        if tool_id not in session.pending_tools:
+            return flask.jsonify({"error": f"Tool not found: {tool_id}"}), 404
+    else:
+        # If no session_id, search for the tool across all sessions for this conversation
+        for sess in SessionManager.get_sessions_for_conversation(conversation_id):
+            if tool_id in sess.pending_tools:
+                session = sess
+                break
+
+        if session is None:
+            return (
+                flask.jsonify(
+                    {
+                        "error": f"Tool not found in any session for conversation: {tool_id}"
+                    }
+                ),
+                404,
+            )
 
     tool_exec = session.pending_tools[tool_id]
 

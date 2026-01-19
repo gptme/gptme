@@ -99,3 +99,73 @@ def test_tool_confirmation_flow(
 
     # Verify final assistant message
     assert messages[-1]["role"] == "assistant"
+
+
+@pytest.mark.timeout(20)
+def test_tool_confirmation_without_session_id(
+    init_, setup_conversation, event_listener, mock_generation, wait_for_event
+):
+    """Test that tool confirmation works without session_id (server finds tool across sessions)."""
+    port, conversation_id, session_id = setup_conversation
+
+    # Add a user message requesting a command
+    requests.post(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Echo hello world"},
+    )
+
+    # Define the tool we expect to be used
+    tool = ToolUse(
+        "shell",
+        args=[],
+        content="echo 'hello world'",
+    )
+
+    # Create mock response with the tool
+    mock_stream = mock_generation(
+        [
+            "I'll echo that for you:\n\n" + tool.to_output("markdown"),
+            "Done!",
+        ]
+    )
+
+    # Start generation with mocked response
+    with unittest.mock.patch("gptme.server.api_v2_sessions._stream", mock_stream):
+        # Request a step
+        requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id, "model": "openai/mock-model"},
+        )
+
+        # Wait for tool to be detected
+        assert wait_for_event(event_listener, "generation_started")
+        assert wait_for_event(event_listener, "generation_complete")
+        assert wait_for_event(event_listener, "tool_pending")
+        tool_id = event_listener["get_tool_id"]()
+
+        # Confirm the tool WITHOUT session_id - server should find it
+        resp = requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/tool/confirm",
+            json={"tool_id": tool_id, "action": "confirm"},  # No session_id!
+        )
+        assert (
+            resp.status_code == 200
+        ), f"Expected 200, got {resp.status_code}: {resp.text}"
+
+        # Wait for tool execution
+        assert wait_for_event(event_listener, "tool_executing")
+        assert wait_for_event(event_listener, "message_added")
+
+
+@pytest.mark.timeout(10)
+def test_tool_confirmation_without_session_id_tool_not_found(init_, setup_conversation):
+    """Test that confirming a non-existent tool without session_id returns 404."""
+    port, conversation_id, session_id = setup_conversation
+
+    # Try to confirm a non-existent tool without session_id
+    resp = requests.post(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}/tool/confirm",
+        json={"tool_id": "non-existent-tool-id", "action": "confirm"},  # No session_id
+    )
+    assert resp.status_code == 404
+    assert "Tool not found in any session" in resp.json()["error"]

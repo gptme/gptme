@@ -146,7 +146,10 @@ class StepRequest(BaseModel):
 class ToolConfirmRequest(BaseModel):
     """Request to confirm or modify tool execution."""
 
-    session_id: str = Field(..., description="Session ID")
+    session_id: str | None = Field(
+        None,
+        description="Session ID. Optional - if not provided, the tool will be found across all sessions for the conversation.",
+    )
     tool_id: str = Field(..., description="Tool ID")
     action: str = Field(..., description="Action: confirm, edit, skip, auto")
     content: str | None = Field(None, description="Modified content (for edit action)")
