@@ -867,7 +867,13 @@ def api_conversation_tool_confirm(conversation_id: str):
         tool_exec.status = ToolStatus.SKIPPED
         del session.pending_tools[tool_id]
 
-        msg = Message("system", f"Skipped tool {tool_id}")
+        # Provide meaningful message to prevent LLM from re-suggesting the same tool
+        tool_name = tool_exec.tooluse.tool
+        msg = Message(
+            "system",
+            f"User chose not to execute this {tool_name} tool. "
+            "Do not re-suggest the same action unless explicitly requested.",
+        )
         _append_and_notify(LogManager.load(conversation_id, lock=False), session, msg)
 
         # Resume generation
