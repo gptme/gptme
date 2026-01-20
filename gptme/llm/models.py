@@ -245,6 +245,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.15,
             "price_output": 0.60,
             "supports_vision": True,
+            "supports_reasoning": True,
         },
         "gemini-2.0-flash-lite": {
             "context": 1_048_576,
@@ -259,6 +260,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             # NOTE: $3.5/Mtok for thinking tokens
             "price_output": 0.60,
             "supports_vision": True,
+            "supports_reasoning": True,
         },
         "gemini-2.5-pro-preview-05-06": {
             "context": 1_048_576,
@@ -267,6 +269,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 1.25,
             "price_output": 10,
             "supports_vision": True,
+            "supports_reasoning": True,
         },
         "gemini-2.5-flash-lite": {
             "context": 1_000_000,
@@ -281,6 +284,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.3,
             "price_output": 2.5,
             "supports_vision": True,
+            "supports_reasoning": True,
         },
         "gemini-2.5-pro": {
             "context": 1_048_576,
@@ -289,6 +293,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 1.25,
             "price_output": 10,
             "supports_vision": True,
+            "supports_reasoning": True,
         },
     },
     # https://api-docs.deepseek.com/quick_start/pricing
