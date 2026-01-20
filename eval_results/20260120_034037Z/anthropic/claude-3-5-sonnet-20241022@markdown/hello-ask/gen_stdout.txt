@@ -1,0 +1,18 @@
+
+--- Start of generation ---
+[03:39:50] Using model: anthropic/claude-3-5-sonnet-20241022                    
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-01-20-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-markdown-e4a549ff                                  
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-01-20-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-markdown-e4a549ff/workspace                        
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: 
+modify hello.py to ask the user for their name and print 'Hello, <name>!'
+
+````hello.py
+print("Hello, world!")
+````
+Assistant: Thinking...                                                                                
