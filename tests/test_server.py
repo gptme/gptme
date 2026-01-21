@@ -154,12 +154,10 @@ def test_default_model_propagation():
     This tests the before_request hook that propagates the default model
     from the startup context to each request context (ContextVar fix).
     """
-    from gptme.llm.models import get_default_model, set_default_model
-    from gptme.server.api import create_app
-
     # Set a default model before creating the app (simulates server startup with --model)
     # Use a mock model object that matches what get_default_model returns
-    from gptme.llm.models import ModelMeta
+    from gptme.llm.models import ModelMeta, set_default_model
+    from gptme.server.api import create_app
 
     test_model = ModelMeta(
         provider="openai",
@@ -189,4 +187,5 @@ def test_default_model_propagation():
     finally:
         # Clean up - reset the default model by using the ContextVar directly
         from gptme.llm.models import _default_model_var
+
         _default_model_var.set(None)
