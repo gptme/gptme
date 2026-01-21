@@ -146,3 +146,47 @@ def test_debug_errors_enabled(monkeypatch):
         assert (
             _is_debug_errors_enabled() is False
         ), f"Should be False for value: {value}"
+
+
+def test_default_model_propagation():
+    """Test that the server's default model is propagated to request contexts.
+
+    This tests the before_request hook that propagates the default model
+    from the startup context to each request context (ContextVar fix).
+    """
+    from gptme.llm.models import get_default_model, set_default_model
+    from gptme.server.api import create_app
+
+    # Set a default model before creating the app (simulates server startup with --model)
+    # Use a mock model object that matches what get_default_model returns
+    from gptme.llm.models import ModelMeta
+
+    test_model = ModelMeta(
+        provider="openai",
+        model="gpt-4",
+        context=8192,
+        max_output=4096,
+    )
+    set_default_model(test_model)
+
+    try:
+        # Create the app - this should capture the default model
+        app = create_app()
+
+        # Verify the model was stored in app config
+        assert "SERVER_DEFAULT_MODEL" in app.config
+        assert app.config["SERVER_DEFAULT_MODEL"] == test_model
+
+        # Make a request - the before_request hook should propagate the model
+        with app.test_client() as client:
+            # The models endpoint returns the default model
+            response = client.get("/api/v2/models")
+            assert response.status_code == 200
+            data = response.get_json()
+            # Verify the default model is returned (not None)
+            assert data.get("default") is not None
+            assert "gpt-4" in data.get("default", "")
+    finally:
+        # Clean up - reset the default model by using the ContextVar directly
+        from gptme.llm.models import _default_model_var
+        _default_model_var.set(None)
