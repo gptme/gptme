@@ -78,7 +78,6 @@ def execute_choice(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Present multiple-choice options to the user and return their selection."""
     DEFAULT_QUESTION = "Please select an option:"

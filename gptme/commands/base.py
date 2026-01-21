@@ -6,7 +6,7 @@ import logging
 import re
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..logmanager import LogManager
@@ -22,7 +22,6 @@ class CommandContext:
     args: list[str]
     full_args: str
     manager: "LogManager"
-    _confirm: Any = None  # deprecated - confirmation now via hooks
 
 
 # Original handler type (before decoration)
@@ -145,7 +144,7 @@ def get_command_completer(name: str) -> CommandCompleter | None:
     return _command_completers.get(name)
 
 
-def execute_cmd(msg: "Message", log: "LogManager", _confirm=None) -> bool:
+def execute_cmd(msg: "Message", log: "LogManager") -> bool:
     """Executes any user-command, returns True if command was executed."""
     from ..util.content import is_message_command  # fmt: skip
 
@@ -163,7 +162,6 @@ def execute_cmd(msg: "Message", log: "LogManager", _confirm=None) -> bool:
 def handle_cmd(
     cmd: str,
     manager: "LogManager",
-    _confirm=None,  # deprecated
 ) -> Generator["Message", None, None]:
     """Handles a command."""
     cmd = cmd.lstrip("/")

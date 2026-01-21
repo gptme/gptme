@@ -25,7 +25,6 @@ def execute_complete(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Message:
     """Signal that the autonomous session is complete and ready to exit."""
     return Message(

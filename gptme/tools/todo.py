@@ -277,7 +277,6 @@ def execute_todoread(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Execute todoread command."""
     result = _todoread()
@@ -288,7 +287,6 @@ def execute_todowrite(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Execute todowrite command."""
     if not code:
