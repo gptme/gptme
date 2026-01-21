@@ -16,6 +16,7 @@ from logging import getLogger
 from typing import TYPE_CHECKING, TypeVar
 
 from ..constants import DECLINED_CONTENT
+from ..hooks import confirm
 from ..message import Message
 from ..util.ask_execute import print_preview
 from . import get_tools
