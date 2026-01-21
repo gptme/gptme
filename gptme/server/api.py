@@ -544,6 +544,21 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
     app = flask.Flask(__name__, static_folder=static_path)
     app.register_blueprint(api)
 
+    # Capture the server's default model from the startup context
+    # This is needed because ContextVar doesn't propagate across request contexts
+    from ..llm.models import get_default_model, set_default_model
+
+    server_default_model = get_default_model()
+    if server_default_model:
+        app.config["SERVER_DEFAULT_MODEL"] = server_default_model
+
+        @app.before_request
+        def propagate_default_model():
+            """Propagate the server's default model to each request's ContextVar."""
+            # Only set if not already set in this context
+            if get_default_model() is None:
+                set_default_model(server_default_model)
+
     # Register v2 API, workspace API, and tasks API
     # noreorder
     from .api_v2 import v2_api  # fmt: skip
