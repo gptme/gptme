@@ -1445,7 +1445,6 @@ def execute_shell(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Executes a shell command and returns the output."""
     cmd = get_shell_command(code, args, kwargs)

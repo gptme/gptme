@@ -78,7 +78,6 @@ def execute_mcp(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Execute MCP management commands."""
     if not code:

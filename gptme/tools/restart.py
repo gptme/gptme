@@ -176,7 +176,6 @@ def execute_restart(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Execute restart by confirming intent.
 

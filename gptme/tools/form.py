@@ -130,7 +130,6 @@ def execute_form(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Present a form to the user and collect their responses."""
     if not code:

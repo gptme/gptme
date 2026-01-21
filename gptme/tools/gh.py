@@ -221,7 +221,6 @@ def execute_gh(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Execute GitHub operations."""
     if args and len(args) >= 2 and args[0] == "pr" and args[1] == "status":

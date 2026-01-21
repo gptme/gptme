@@ -332,7 +332,6 @@ def execute_patch(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Applies the patch."""
     if code is None and kwargs is not None:

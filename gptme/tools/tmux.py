@@ -367,7 +367,6 @@ def execute_tmux(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Executes a command in tmux and returns the output."""
 

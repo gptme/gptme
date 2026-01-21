@@ -304,7 +304,6 @@ def execute_save(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Save code to a file."""
     yield from _validate_and_execute(code, args, kwargs, "save")
@@ -314,7 +313,6 @@ def execute_append(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _confirm=None,  # deprecated
 ) -> Generator[Message, None, None]:
     """Append code to a file."""
     yield from _validate_and_execute(code, args, kwargs, "append")

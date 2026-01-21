@@ -310,7 +310,6 @@ def create_mcp_execute_function(
         code: str | None,
         args: list[str] | None,
         kwargs: dict[str, str] | None,
-        _confirm=None,  # deprecated
     ):
         """Execute an MCP tool with confirmation"""
         if not code:
