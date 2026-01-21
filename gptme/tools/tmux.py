@@ -18,6 +18,7 @@ from pathlib import Path
 from time import sleep
 
 from ..constants import DECLINED_CONTENT
+from ..hooks import confirm
 from ..message import Message
 from ..util.ask_execute import print_preview
 from ..util.output_storage import save_large_output
