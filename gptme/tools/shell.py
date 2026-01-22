@@ -23,6 +23,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Generator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -747,21 +748,25 @@ class ShellSession:
         self._init()
 
 
-_shell: ShellSession | None = None
+_shell_var: ContextVar[ShellSession | None] = ContextVar("shell", default=None)
 
 
 def get_shell() -> ShellSession:
-    global _shell
-    if _shell is None:
-        # init shell
-        _shell = ShellSession()
-    return _shell
+    """Get the shell session for the current context, creating it if necessary.
+
+    Uses ContextVar to provide context-local state, allowing each conversation
+    to have its own shell session with independent working directory.
+    """
+    shell = _shell_var.get()
+    if shell is None:
+        shell = ShellSession()
+        _shell_var.set(shell)
+    return shell
 
 
-# used in testing
 def set_shell(shell: ShellSession) -> None:
-    global _shell
-    _shell = shell
+    """Set the shell session for the current context (for testing)."""
+    _shell_var.set(shell)
 
 
 # NOTE: This does not handle control flow words like if, for, while.

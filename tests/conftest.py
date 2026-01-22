@@ -118,13 +118,14 @@ def cleanup_shell_after():
     the test runner to hang during cleanup (Issue #910).
     """
     yield
-    # Close shell if it exists
-    if shell_module._shell is not None:
+    # Close shell if it exists (using ContextVar API)
+    shell = shell_module._shell_var.get()
+    if shell is not None:
         try:
-            shell_module._shell.close()
+            shell.close()
         except Exception as e:
             logger.warning(f"Error closing shell during test cleanup: {e}")
-        shell_module._shell = None
+        shell_module._shell_var.set(None)
 
 
 @pytest.fixture(autouse=True)
