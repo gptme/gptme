@@ -35,6 +35,7 @@ from .util.ask_execute import ask_execute
 from .util.auto_naming import auto_generate_display_name
 from .util.context import include_paths
 from .util.cost import log_costs
+from .util.input_collector import InputCollector
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
 from .util.sound import print_bell
@@ -168,6 +169,23 @@ def _run_chat_loop(
 ):
     """Main chat loop - extracted to allow clean exception handling."""
 
+    # Create input collector for type-ahead support
+    def on_input_queued(queue_size: int) -> None:
+        """Callback when input is queued."""
+        from .util import console
+
+        console.print(f"[dim][{queue_size} prompt(s) queued][/dim]", end="\r")
+
+    input_collector = (
+        InputCollector(
+            prompt_queue,
+            max_queue_size=MAX_PROMPT_QUEUE_SIZE,
+            on_input_queued=on_input_queued if interactive else None,
+        )
+        if interactive
+        else None
+    )
+
     while True:
         msg: Message | None = None
         try:
@@ -183,16 +201,28 @@ def _run_chat_loop(
                     continue
 
                 # Process the message and get response
+                if input_collector:
+                    input_collector.start()
                 _process_message_conversation(
                     manager, stream, confirm_func, tool_format, model, output_schema
                 )
+                if input_collector:
+                    input_collector.stop()
             else:
                 # Get user input or exit if non-interactive
                 if not interactive:
                     logger.debug("Non-interactive and exhausted prompts")
                     break
 
-                user_input = _get_user_input(manager.log, manager.workspace)
+                # Stop input collector before prompting
+                if input_collector:
+                    input_collector.stop()
+                # Don't flush stdin when using input collector - preserve typed-ahead input
+                user_input = _get_user_input(
+                    manager.log,
+                    manager.workspace,
+                    flush_stdin=input_collector is None,
+                )
                 if user_input is None:
                     # Either user wants to exit OR we should generate response directly
                     if _should_prompt_for_input(manager.log):
@@ -201,6 +231,8 @@ def _run_chat_loop(
                     else:
                         # Don't prompt for input, generate response directly (crash recovery, etc.)
                         # Process existing log without adding new message
+                        if input_collector:
+                            input_collector.start()
                         _process_message_conversation(
                             manager,
                             stream,
@@ -209,6 +241,8 @@ def _run_chat_loop(
                             model,
                             output_schema,
                         )
+                        if input_collector:
+                            input_collector.stop()
                 else:
                     # Normal case: user provided input
                     msg = user_input
@@ -221,6 +255,8 @@ def _run_chat_loop(
                         continue
 
                     # Process the message and get response
+                    if input_collector:
+                        input_collector.start()
                     _process_message_conversation(
                         manager,
                         stream,
@@ -229,6 +265,8 @@ def _run_chat_loop(
                         model,
                         output_schema,
                     )
+                    if input_collector:
+                        input_collector.stop()
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
             # This handles auto-reply mechanism and other loop control logic
@@ -414,8 +452,17 @@ def _should_prompt_for_input(log: Log) -> bool:
     )
 
 
-def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
-    """Get user input, returning None if user wants to exit."""
+def _get_user_input(
+    log: Log, workspace: Path | None, flush_stdin: bool = True
+) -> Message | None:
+    """Get user input, returning None if user wants to exit.
+
+    Args:
+        log: The conversation log
+        workspace: Path to workspace directory
+        flush_stdin: Whether to flush stdin before prompting. Set to False
+            when prompt queueing is enabled to preserve typed-ahead input.
+    """
     clear_interruptible()  # Don't interrupt during user input
 
     # Check if we should prompt for input or generate response directly
@@ -432,7 +479,7 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
             console.log(f"Worked for {diff.total_seconds():.2f} seconds")
 
     try:
-        inquiry = prompt_user()
+        inquiry = prompt_user(flush_stdin=flush_stdin)
         # Validate message length to prevent unbounded memory usage
         truncation_suffix = "\n\n[Message truncated due to length]"
         if len(inquiry) > MAX_MESSAGE_LENGTH:
@@ -505,10 +552,11 @@ def step(
         clear_interruptible()
 
 
-def prompt_user(value=None) -> str:  # pragma: no cover
+def prompt_user(value=None, flush_stdin: bool = True) -> str:  # pragma: no cover
     print_bell()
     # Flush stdin to clear any buffered input before prompting (only if stdin is a TTY)
-    if sys.stdin.isatty():
+    # When prompt queueing is enabled (flush_stdin=False), we preserve typed-ahead input
+    if flush_stdin and sys.stdin.isatty():
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
     response = ""
     with terminal_state_title("⌨️ waiting for input"):
