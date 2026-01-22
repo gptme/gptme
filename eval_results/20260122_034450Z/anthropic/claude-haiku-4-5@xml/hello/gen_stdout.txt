@@ -1,0 +1,35 @@
+
+--- Start of generation ---
+[03:43:54] Using model: anthropic/claude-haiku-4-5                              
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-01-22-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-290060bf                                                 
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-01-22-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-290060bf/workspace                                       
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The user wants me to write a simple Python script that prints "Hello, world!". This is straightforward - I'll use the save tool to create a file called hello.py in the current working directory (/app).
+</think>        </think>
+
+<tool-use>
+<save args="hello.py">
+print("Hello, world!")
+</save>
+</tool-use>
+                                                                                
+Preview
+print("Hello, world!")                                                          
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The file has been successfully saved. The user's task is complete. I should confirm this is done and maybe offer to help them run it or do something else with it.
+</think>        </think>
+
+Done! The script has been saved to `/app/hello.py`. You can run it with `python hello.py`.                                                                                [03:43:57] Session: $0.00 | 1 turns | 969 context | 0% cached                   
+--- Finished generation ---
+

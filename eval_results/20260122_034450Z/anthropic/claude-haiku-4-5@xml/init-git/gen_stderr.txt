@@ -1,0 +1,2 @@
+/app/.git: Permission denied
+/app/.git: Permission denied
