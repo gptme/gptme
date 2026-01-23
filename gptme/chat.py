@@ -171,55 +171,52 @@ def _run_chat_loop(
 
     # Create visible prompt collector for type-ahead input
     # Only active in interactive mode with TTY
+    # Start once and keep running throughout the session
     collector: VisiblePromptCollector | None = None
     if interactive and sys.stdin.isatty():
-        collector = VisiblePromptCollector(prompt_queue)
+        collector = VisiblePromptCollector()
+        collector.start()
 
-    while True:
-        msg: Message | None = None
-        try:
-            # Process next message (either from prompt queue or user input)
-            if prompt_queue:
-                msg = prompt_queue.pop(0)
-                assert msg is not None, "prompt_queue contained None"
-                msg = include_paths(msg, manager.workspace)
-                manager.append(msg)
+    try:
+        while True:
+            msg: Message | None = None
+            try:
+                # Process next message from: prompt queue, collector queue, or user input
+                # Check prompt_queue first (initial messages, hook-generated messages)
+                if prompt_queue:
+                    msg = prompt_queue.pop(0)
+                # Then check collector for type-ahead input
+                elif collector and collector.has_messages():
+                    msg = collector.get_message()
 
-                # Handle user commands
-                if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
-                    continue
+                if msg:
+                    assert msg is not None, "prompt_queue contained None"
+                    msg = include_paths(msg, manager.workspace)
+                    manager.append(msg)
 
-                # Start visible prompt collector for type-ahead during generation
-                if collector:
-                    collector.start()
+                    # Handle user commands
+                    if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
+                        continue
 
-                try:
                     # Process the message and get response
                     _process_message_conversation(
                         manager, stream, confirm_func, tool_format, model, output_schema
                     )
-                finally:
-                    # Stop collector before next iteration
-                    if collector:
-                        collector.stop()
-            else:
-                # Get user input or exit if non-interactive
-                if not interactive:
-                    logger.debug("Non-interactive and exhausted prompts")
-                    break
-
-                user_input = _get_user_input(manager.log, manager.workspace)
-                if user_input is None:
-                    # Either user wants to exit OR we should generate response directly
-                    if _should_prompt_for_input(manager.log):
-                        # User wants to exit
+                else:
+                    # Get user input or exit if non-interactive
+                    if not interactive:
+                        logger.debug("Non-interactive and exhausted prompts")
                         break
-                    else:
-                        # Don't prompt for input, generate response directly (crash recovery, etc.)
-                        # Process existing log without adding new message
-                        if collector:
-                            collector.start()
-                        try:
+
+                    user_input = _get_user_input(manager.log, manager.workspace)
+                    if user_input is None:
+                        # Either user wants to exit OR we should generate response directly
+                        if _should_prompt_for_input(manager.log):
+                            # User wants to exit
+                            break
+                        else:
+                            # Don't prompt for input, generate response directly (crash recovery, etc.)
+                            # Process existing log without adding new message
                             _process_message_conversation(
                                 manager,
                                 stream,
@@ -228,25 +225,19 @@ def _run_chat_loop(
                                 model,
                                 output_schema,
                             )
-                        finally:
-                            if collector:
-                                collector.stop()
-                else:
-                    # Normal case: user provided input
-                    msg = user_input
-                    manager.append(msg)
+                    else:
+                        # Normal case: user provided input
+                        msg = user_input
+                        manager.append(msg)
 
-                    # Reset interrupt flag since user provided new input
+                        # Reset interrupt flag since user provided new input
 
-                    # Handle user commands
-                    if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
-                        continue
+                        # Handle user commands
+                        if msg.role == "user" and execute_cmd(
+                            msg, manager, confirm_func
+                        ):
+                            continue
 
-                    # Start visible prompt collector for type-ahead during generation
-                    if collector:
-                        collector.start()
-
-                    try:
                         # Process the message and get response
                         _process_message_conversation(
                             manager,
@@ -256,44 +247,46 @@ def _run_chat_loop(
                             model,
                             output_schema,
                         )
-                    finally:
-                        # Stop collector before returning to user prompt
-                        if collector:
-                            collector.stop()
 
-            # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
-            # This handles auto-reply mechanism and other loop control logic
-            if loop_msgs := trigger_hook(
-                HookType.LOOP_CONTINUE,
-                manager=manager,
-                interactive=interactive,
-                prompt_queue=prompt_queue,
+                # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
+                # This handles auto-reply mechanism and other loop control logic
+                if loop_msgs := trigger_hook(
+                    HookType.LOOP_CONTINUE,
+                    manager=manager,
+                    interactive=interactive,
+                    prompt_queue=prompt_queue,
+                ):
+                    for msg in loop_msgs:
+                        # Add hook-generated messages to prompt queue with size limit
+                        if len(prompt_queue) >= MAX_PROMPT_QUEUE_SIZE:
+                            logger.warning(
+                                f"Prompt queue limit ({MAX_PROMPT_QUEUE_SIZE}) reached, "
+                                "dropping message from hook"
+                            )
+                            break
+                        prompt_queue.append(msg)
+                        console.log(f"[Loop control] {msg.content[:100]}...")
+                    continue  # Process the queued messages
+
+            except KeyboardInterrupt:
+                console.log("Interrupted.")
+                manager.append(Message("system", INTERRUPT_CONTENT))
+                # Clear any remaining prompts to avoid confusion
+                prompt_queue.clear()
+                if collector:
+                    collector.clear_queue()
+                continue
+
+            # Trigger session end hooks when exiting normally
+            if session_end_msgs := trigger_hook(
+                HookType.SESSION_END, logdir=logdir, manager=manager
             ):
-                for msg in loop_msgs:
-                    # Add hook-generated messages to prompt queue with size limit
-                    if len(prompt_queue) >= MAX_PROMPT_QUEUE_SIZE:
-                        logger.warning(
-                            f"Prompt queue limit ({MAX_PROMPT_QUEUE_SIZE}) reached, "
-                            "dropping message from hook"
-                        )
-                        break
-                    prompt_queue.append(msg)
-                    console.log(f"[Loop control] {msg.content[:100]}...")
-                continue  # Process the queued messages
-
-        except KeyboardInterrupt:
-            console.log("Interrupted.")
-            manager.append(Message("system", INTERRUPT_CONTENT))
-            # Clear any remaining prompts to avoid confusion
-            prompt_queue.clear()
-            continue
-
-    # Trigger session end hooks when exiting normally
-    if session_end_msgs := trigger_hook(
-        HookType.SESSION_END, logdir=logdir, manager=manager
-    ):
-        for msg in session_end_msgs:
-            manager.append(msg)
+                for msg in session_end_msgs:
+                    manager.append(msg)
+    finally:
+        # Stop visible prompt collector when exiting the loop
+        if collector:
+            collector.stop()
 
 
 def _process_message_conversation(
