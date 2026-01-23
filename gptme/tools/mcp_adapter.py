@@ -39,6 +39,36 @@ def _get_mcp_client(server_name: str) -> MCPClient | None:
     return _mcp_clients.get(server_name) or _dynamic_servers.get(server_name)
 
 
+def _extract_content_text(item) -> str:
+    """Extract text from a content item (TextContent, ImageContent, etc.).
+
+    Per MCP spec, content items can be TextContent, ImageContent, or EmbeddedResource.
+    This function handles all types gracefully.
+    """
+    if isinstance(item, str):
+        return item
+    elif hasattr(item, "text"):
+        # TextContent has a 'text' attribute
+        return item.text
+    elif hasattr(item, "type"):
+        if item.type == "text":
+            return getattr(item, "text", str(item))
+        elif item.type == "image":
+            # ImageContent - return placeholder with metadata
+            mime_type = getattr(item, "mimeType", "unknown")
+            return f"[Image: {mime_type}]"
+        elif item.type == "resource":
+            # EmbeddedResource - return URI or text content
+            resource = getattr(item, "resource", None)
+            if resource:
+                uri = getattr(resource, "uri", "")
+                text = getattr(resource, "text", None)
+                if text:
+                    return f"[Resource: {uri}]\n{text}"
+                return f"[Resource: {uri}]"
+    return str(item)
+
+
 def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
     """Restart an MCP client by reconnecting to the server"""
     logger.info(f"Restarting MCP client for server: {server_name}")
@@ -687,15 +717,12 @@ def get_mcp_prompt(
 
             content = getattr(msg, "content", None)
             if content:
-                # Handle different content types
-                if isinstance(content, str):
-                    output.append(content)
-                elif hasattr(content, "text"):
-                    output.append(content.text)
-                elif hasattr(content, "type") and content.type == "text":
-                    output.append(getattr(content, "text", str(content)))
-                else:
-                    output.append(str(content))
+                # Handle content as list or single item per MCP spec
+                content_items = content if isinstance(content, list) else [content]
+                for item in content_items:
+                    text = _extract_content_text(item)
+                    if text:
+                        output.append(text)
             output.append("")
 
         return "\n".join(output)
