@@ -731,3 +731,111 @@ def get_mcp_prompt(
     except Exception as e:
         logger.error(f"Failed to get prompt '{name}' from {server_name}: {e}")
         return f"Error getting prompt: {e}"
+
+
+# Roots functions - client-side configuration for MCP servers
+
+
+def list_mcp_roots(server_name: str | None = None) -> str:
+    """
+    List configured roots for MCP servers.
+
+    Roots define operational boundaries (directories, URIs) that servers can access.
+    They are advisory, helping servers understand the workspace context.
+
+    Args:
+        server_name: Optional server name. If provided, lists roots for that server only.
+                     If None, lists roots for all loaded servers.
+
+    Returns:
+        Formatted list of configured roots
+    """
+    if server_name:
+        client = _get_mcp_client(server_name)
+        if not client:
+            return f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+
+        roots = client.get_roots()
+        if not roots:
+            return f"No roots configured for server '{server_name}'."
+
+        output = [f"# Roots for {server_name}\n"]
+        for root in roots:
+            output.append(f"- **{root.name or '(unnamed)'}**: `{root.uri}`")
+        return "\n".join(output)
+    else:
+        # List roots for all loaded servers
+        all_clients = {**_mcp_clients, **_dynamic_servers}
+        if not all_clients:
+            return "No MCP servers loaded."
+
+        output = ["# Configured Roots\n"]
+        for name, client in all_clients.items():
+            roots = client.get_roots()
+            output.append(f"## {name}")
+            if roots:
+                for root in roots:
+                    output.append(f"- **{root.name or '(unnamed)'}**: `{root.uri}`")
+            else:
+                output.append("_No roots configured_")
+            output.append("")
+        return "\n".join(output)
+
+
+def add_mcp_root(server_name: str, uri: str, name: str | None = None) -> str:
+    """
+    Add a root to an MCP server.
+
+    Roots tell servers what directories or URIs they can operate on.
+    After adding, the server is notified of the change.
+
+    Args:
+        server_name: Name of the loaded MCP server
+        uri: URI of the root (e.g., 'file:///path/to/project')
+        name: Optional human-readable name for the root
+
+    Returns:
+        Success message or error
+    """
+    client = _get_mcp_client(server_name)
+    if not client:
+        return (
+            f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+        )
+
+    try:
+        client.add_root(uri, name)
+        return f"Added root '{name or uri}' to server '{server_name}'."
+    except Exception as e:
+        logger.error(f"Failed to add root to {server_name}: {e}")
+        return f"Error adding root: {e}"
+
+
+def remove_mcp_root(server_name: str, uri: str) -> str:
+    """
+    Remove a root from an MCP server.
+
+    After removing, the server is notified of the change.
+
+    Args:
+        server_name: Name of the loaded MCP server
+        uri: URI of the root to remove
+
+    Returns:
+        Success message or error
+    """
+    client = _get_mcp_client(server_name)
+    if not client:
+        return (
+            f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+        )
+
+    try:
+        removed = client.remove_root(uri)
+        if removed:
+            return f"Removed root '{uri}' from server '{server_name}'."
+        else:
+            return f"Root '{uri}' not found in server '{server_name}'."
+    except Exception as e:
+        logger.error(f"Failed to remove root from {server_name}: {e}")
+        return f"Error removing root: {e}"

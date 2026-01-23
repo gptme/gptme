@@ -232,3 +232,71 @@ def test_memory_operations(mcp_client):
     # Search nodes
     search_result = mcp_client.call_tool("search_nodes", {"query": "Python"})
     assert "test_user" in str(search_result)
+
+
+def test_mcp_roots_management():
+    """Test MCP roots management methods"""
+    import mcp.types as types
+
+    from gptme.mcp.client import MCPClient
+
+    # Create client without connecting to any server
+    client = MCPClient()
+
+    # Test initial state - no roots
+    assert client.get_roots() == []
+
+    # Test add_root (no session, so no notification sent)
+    client.add_root("file:///test/path", "Test Root")
+    roots = client.get_roots()
+    assert len(roots) == 1
+    assert str(roots[0].uri) == "file:///test/path"
+    assert roots[0].name == "Test Root"
+
+    # Test add another root
+    client.add_root("file:///another/path", "Another Root")
+    roots = client.get_roots()
+    assert len(roots) == 2
+
+    # Test remove_root
+    removed = client.remove_root("file:///test/path")
+    assert removed is True
+    roots = client.get_roots()
+    assert len(roots) == 1
+    assert str(roots[0].uri) == "file:///another/path"
+
+    # Test remove non-existent root
+    removed = client.remove_root("file:///nonexistent")
+    assert removed is False
+
+    # Test set_roots
+    new_roots = [
+        types.Root(uri=types.FileUrl("file:///new/path1"), name="New Root 1"),
+        types.Root(uri=types.FileUrl("file:///new/path2"), name="New Root 2"),
+    ]
+    client.set_roots(new_roots)
+    roots = client.get_roots()
+    assert len(roots) == 2
+    assert str(roots[0].uri) == "file:///new/path1"
+    assert roots[0].name == "New Root 1"
+
+
+def test_mcp_roots_adapter_functions():
+    """Test MCP roots adapter functions"""
+    from gptme.tools.mcp_adapter import add_mcp_root, list_mcp_roots, remove_mcp_root
+
+    # Test list_mcp_roots with no servers loaded
+    result = list_mcp_roots()
+    assert "No MCP servers loaded" in result
+
+    # Test list_mcp_roots for non-existent server
+    result = list_mcp_roots("nonexistent")
+    assert "not loaded" in result
+
+    # Test add_mcp_root for non-existent server
+    result = add_mcp_root("nonexistent", "file:///test", "Test")
+    assert "not loaded" in result
+
+    # Test remove_mcp_root for non-existent server
+    result = remove_mcp_root("nonexistent", "file:///test")
+    assert "not loaded" in result

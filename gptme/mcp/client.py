@@ -2,9 +2,11 @@ import asyncio
 import logging
 import os
 from contextlib import AsyncExitStack
+from typing import Any
 
 import mcp.types as types  # Import all types
 from mcp import ClientSession
+from mcp.client.session import RequestContext
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
@@ -55,6 +57,7 @@ class MCPClient:
         self.session: ClientSession | None = None
         self.tools: types.ListToolsResult | None = None
         self.stack: AsyncExitStack | None = None
+        self.roots: list[types.Root] = []
 
     def _run_async(self, coro):
         """Run a coroutine in the event loop.
@@ -102,6 +105,16 @@ class MCPClient:
         except Exception as e:
             logger.debug(f"Stderr reader stopped: {e}")
 
+    async def _list_roots_callback(
+        self, context: RequestContext["ClientSession", Any]
+    ) -> types.ListRootsResult:
+        """Callback for servers to request the list of roots.
+
+        This callback is invoked when an MCP server sends a roots/list request.
+        """
+        logger.debug(f"Server requested roots list, returning {len(self.roots)} roots")
+        return types.ListRootsResult(roots=self.roots)
+
     async def _setup_stdio_connection(
         self, server_params
     ) -> tuple[types.ListToolsResult, ClientSession]:
@@ -115,7 +128,9 @@ class MCPClient:
             )
             read, write = transport
 
-            csession = ClientSession(read, write)
+            csession = ClientSession(
+                read, write, list_roots_callback=self._list_roots_callback
+            )
             session = await self.stack.enter_async_context(csession)
             self.session = session  # Assign to self.session after the await
 
@@ -149,7 +164,9 @@ class MCPClient:
             )
             read, write, _ = transport
 
-            csession = ClientSession(read, write)
+            csession = ClientSession(
+                read, write, list_roots_callback=self._list_roots_callback
+            )
             session = await self.stack.enter_async_context(csession)
             self.session = session
 
@@ -363,3 +380,61 @@ class MCPClient:
             return result
 
         return self._run_async(_get_prompt())
+
+    # Roots management methods
+
+    def set_roots(self, roots: list[types.Root]) -> None:
+        """Set the list of roots and notify connected server.
+
+        Args:
+            roots: List of Root objects defining operational boundaries.
+        """
+        self.roots = roots
+        logger.debug(f"Set {len(roots)} roots")
+        if self.session:
+            self._run_async(self._send_roots_changed())
+
+    def get_roots(self) -> list[types.Root]:
+        """Get the current list of roots.
+
+        Returns:
+            List of configured Root objects.
+        """
+        return self.roots
+
+    def add_root(self, uri: str, name: str | None = None) -> None:
+        """Add a root and notify connected server.
+
+        Args:
+            uri: The URI of the root (e.g., 'file:///path/to/project')
+            name: Optional human-readable name for the root
+        """
+        root = types.Root(uri=types.FileUrl(uri), name=name)
+        self.roots.append(root)
+        logger.debug(f"Added root: {uri}")
+        if self.session:
+            self._run_async(self._send_roots_changed())
+
+    def remove_root(self, uri: str) -> bool:
+        """Remove a root by URI and notify connected server.
+
+        Args:
+            uri: The URI of the root to remove.
+
+        Returns:
+            True if the root was found and removed, False otherwise.
+        """
+        initial_count = len(self.roots)
+        self.roots = [r for r in self.roots if str(r.uri) != uri]
+        removed = len(self.roots) < initial_count
+        if removed:
+            logger.debug(f"Removed root: {uri}")
+            if self.session:
+                self._run_async(self._send_roots_changed())
+        return removed
+
+    async def _send_roots_changed(self) -> None:
+        """Send roots/list_changed notification to the server."""
+        if self.session:
+            await self.session.send_roots_list_changed()
+            logger.debug("Sent roots_list_changed notification")
