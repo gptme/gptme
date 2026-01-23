@@ -114,12 +114,21 @@ class InputCollector:
             logger.debug(f"Error reading input: {e}")
 
     def _collect_windows(self) -> None:
-        """Collect input on Windows systems."""
-        # Windows implementation would use msvcrt
-        # For now, just sleep to avoid busy loop
+        """Collect input on Windows systems using msvcrt."""
+        import msvcrt  # type: ignore[import-not-found]
         import time
 
-        time.sleep(0.1)
+        if msvcrt.kbhit():  # type: ignore[attr-defined]
+            char = msvcrt.getwch()  # type: ignore[attr-defined]
+            self._partial_input += char
+
+            if char == "\r":  # Enter key on Windows
+                line = self._partial_input.strip()
+                self._partial_input = ""
+                if line:
+                    self._queue_input(line)
+        else:
+            time.sleep(0.1)
 
     def _queue_input(self, text: str) -> None:
         """Queue a completed input line."""
