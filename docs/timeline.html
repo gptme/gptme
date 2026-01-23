@@ -448,9 +448,11 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">2025</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id2">2024</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id3">2023</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#unreleased">Unreleased</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">2026</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id2">2025</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id3">2024</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id4">2023</a></li>
 </ul>
             </nav>
         </div>
@@ -466,15 +468,88 @@
 <h1>Timeline<a class="headerlink" href="#timeline" title="Link to this heading">#</a></h1>
 <p>A brief timeline of the project.</p>
 <p>The idea is to later make this into a timeline similar to the one for <a class="reference external" href="https://activitywatch.net/timeline/">ActivityWatch</a>, including releases, features, etc.</p>
-<figure class="align-default" id="id4">
+<figure class="align-default" id="id5">
 <a class="reference external image-reference" href="https://starchart.cc/gptme/gptme"><img alt="Stargazers over time" src="https://starchart.cc/gptme/gptme.svg" />
 </a>
 <figcaption>
-<p><span class="caption-text">GitHub stargazers over time</span><a class="headerlink" href="#id4" title="Link to this image">#</a></p>
+<p><span class="caption-text">GitHub stargazers over time</span><a class="headerlink" href="#id5" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
+<section id="unreleased">
+<h2>Unreleased<a class="headerlink" href="#unreleased" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>MCP prompts and resources support</p></li>
+<li><p>Anthropic native web search</p></li>
+<li><p>PDF support in browser tool (using pypdf)</p></li>
+<li><p>Skills summary in system prompt</p></li>
+<li><p>Lesson keyword wildcard and regex pattern support</p></li>
+<li><p>Session cost summary on exit</p></li>
+<li><p>Master Context Architecture for autocompact</p></li>
+</ul>
+</section>
 <section id="id1">
-<h2>2025<a class="headerlink" href="#id1" title="Link to this heading">#</a></h2>
+<h2>2026<a class="headerlink" href="#id1" title="Link to this heading">#</a></h2>
+<p>January</p>
+<ul class="simple">
+<li><p>gptme-agent-template v0.4 release (2026-01-23)</p>
+<ul>
+<li><p>Autonomous agent run loops</p></li>
+<li><p>Enhanced context generation</p></li>
+<li><p>Bob reaches 1000+ autonomous sessions milestone</p></li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="id2">
+<h2>2025<a class="headerlink" href="#id2" title="Link to this heading">#</a></h2>
+<p>December</p>
+<ul class="simple">
+<li><p>v0.31.0 (2025-12-15)</p>
+<ul>
+<li><p>Background jobs for long-running shell commands</p></li>
+<li><p>Form tool for structured user input</p></li>
+<li><p>Cost tracking and token awareness hooks</p></li>
+<li><p>Content-addressable file storage</p></li>
+<li><p>Lessons caching and plugin auto-discovery</p></li>
+<li><p>Cursor .mdc rules support</p></li>
+</ul>
+</li>
+</ul>
+<p>November</p>
+<ul class="simple">
+<li><p>v0.30.0 (2025-11-18)</p>
+<ul>
+<li><p>Plugin system (tools, hooks, commands from plugins)</p></li>
+<li><p>Context selector infrastructure</p></li>
+<li><p>Subagent planner mode</p></li>
+<li><p>Improved support for custom OpenAI-compatible providers</p></li>
+</ul>
+</li>
+</ul>
+<p>October</p>
+<ul class="simple">
+<li><p>v0.29.0 (2025-10-21)</p>
+<ul>
+<li><p>Lessons system for contextual guidance (auto-included based on keywords/tools)</p></li>
+<li><p>MCP discovery and dynamic loading</p></li>
+<li><p>Token and time awareness hooks</p></li>
+<li><p>Shellcheck validation for shell commands</p></li>
+<li><p>Bob begins autonomous runs with GitHub monitoring</p></li>
+</ul>
+</li>
+</ul>
+<p>August</p>
+<ul class="simple">
+<li><p>v0.28.0 (2025-08-13)</p>
+<ul>
+<li><p>MCP (Model Context Protocol) support</p></li>
+<li><p>Morph tool for fast AI-powered edits</p></li>
+<li><p>Auto-commit feature</p></li>
+<li><p>Redesigned server API (v2)</p></li>
+<li><p>ChatConfig for per-conversation settings</p></li>
+</ul>
+</li>
+</ul>
 <p>March</p>
 <ul class="simple">
 <li><p>v0.27.0 (2025-03-11)</p>
@@ -509,8 +584,8 @@
 </li>
 </ul>
 </section>
-<section id="id2">
-<h2>2024<a class="headerlink" href="#id2" title="Link to this heading">#</a></h2>
+<section id="id3">
+<h2>2024<a class="headerlink" href="#id3" title="Link to this heading">#</a></h2>
 <p>December</p>
 <ul class="simple">
 <li><p>v0.25.0 (2024-12-20)</p>
@@ -531,6 +606,7 @@
 <li><p>v0.24.0 (2024-11-22)</p></li>
 <li><p>gptme-rag v0.3.0 release (2024-11-22)</p></li>
 <li><p>gptme-agent-template initial release v0.1 (2024-11-21)</p></li>
+<li><p><a class="reference external" href="https://github.com/TimeToBuildBob">Bob</a> created (2024-11-14) - first autonomous agent built on gptme</p></li>
 <li><p>gptme-rag initial release v0.1.0 (2024-11-15)</p></li>
 <li><p>v0.23.0 (2024-11-14)</p></li>
 <li><p>gptme-webui initial release (2024-11-03)</p></li>
@@ -583,8 +659,8 @@
 <li><p><a class="reference external" href="https://news.ycombinator.com/item?id=41204256">Show HN</a></p></li>
 </ul>
 </section>
-<section id="id3">
-<h2>2023<a class="headerlink" href="#id3" title="Link to this heading">#</a></h2>
+<section id="id4">
+<h2>2023<a class="headerlink" href="#id4" title="Link to this heading">#</a></h2>
 <p>November</p>
 <ul class="simple">
 <li><p>v0.11.0 (2023-11-29)</p>
@@ -698,9 +774,11 @@
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">2025</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id2">2024</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id3">2023</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#unreleased">Unreleased</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id1">2026</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id2">2025</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id3">2024</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#id4">2023</a></li>
 </ul>
   </nav></div>
 
