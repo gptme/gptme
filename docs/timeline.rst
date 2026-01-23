@@ -79,7 +79,9 @@ October
   - MCP discovery and dynamic loading
   - Token and time awareness hooks
   - Shellcheck validation for shell commands
-  - Bob begins autonomous runs with GitHub monitoring (CASCADE workflow)
+  - Bob begins autonomous runs with GitHub monitoring
+
+August
 
 - v0.28.0 (2025-08-13)
 
