@@ -61,7 +61,7 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 
 ## 📚 Table of Contents
 
-- News
+- 📢 [News](#news)
 - 🎥 [Demos](#-demos)
 - 🌟 [Features](#-features)
 - 🚀 [Getting Started](#-getting-started)
@@ -69,7 +69,7 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 - 📊 [Stats](#-stats)
 - 🔗 [Links](#-links)
 
-## News
+## 📢 News
 
 - **Coming soon** - [gptme.ai](https://gptme.ai) service for running agents in the cloud; [gptme desktop](https://github.com/gptme/gptme-tauri) app for easy local use.
 - **2026-01** - [gptme-agent-template](https://github.com/gptme/gptme-agent-template) v0.4: [Bob](https://github.com/TimeToBuildBob) reaches 1000+ autonomous sessions, autonomous run loops, enhanced context generation
