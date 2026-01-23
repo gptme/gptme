@@ -71,10 +71,8 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 
 ## News
 
-<!-- source of truth: docs/timeline.rst and docs/changelog.rst -->
-
-- **Coming soon** - [gptme.ai](https://gptme.ai) managed service for running agents in the cloud, and [gptme desktop](https://github.com/gptme/gptme-tauri) app for easy local use.
-- **2026-01** - [gptme-agent-template](https://github.com/gptme/gptme-agent-template) v0.4: [Bob](https://github.com/TimeToBuildBob) reaches 700+ autonomous sessions, autonomous run loops, enhanced context generation
+- **Coming soon** - [gptme.ai](https://gptme.ai) service for running agents in the cloud; [gptme desktop](https://github.com/gptme/gptme-tauri) app for easy local use.
+- **2026-01** - [gptme-agent-template](https://github.com/gptme/gptme-agent-template) v0.4: [Bob](https://github.com/TimeToBuildBob) reaches 1000+ autonomous sessions, autonomous run loops, enhanced context generation
 - **2025-12** - [v0.31.0](https://github.com/gptme/gptme/releases/tag/v0.31.0): Background jobs, form tool, cost tracking, content-addressable storage
 - **2025-11** - [v0.30.0](https://github.com/gptme/gptme/releases/tag/v0.30.0): Plugin system, context compression, subagent planner mode
 - **2025-10** - [v0.29.0](https://github.com/gptme/gptme/releases/tag/v0.29.0): Lessons system for contextual guidance, MCP discovery & dynamic loading, token awareness; [Bob](https://github.com/TimeToBuildBob) begins autonomous runs with GitHub monitoring
@@ -88,6 +86,8 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 - **2023-09** - [Initial public release](https://news.ycombinator.com/item?id=37394845) on HN, [Reddit](https://www.reddit.com/r/LocalLLaMA/comments/16atlia/), [Twitter](https://x.com/ErikBjare/status/1699097896451289115)
 - **2023-03** - [Initial commit](https://github.com/gptme/gptme/commit/d00e9aae68cbd6b89bbc474ed7721d08796dc) - one of the first agent CLIs
 
+
+<!-- source of truth: docs/timeline.rst and docs/changelog.rst -->
 For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [Changelog](https://gptme.org/docs/changelog.html).
 
 ## 🎥 Demos

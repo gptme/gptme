@@ -26,11 +26,8 @@ The idea is to later make this into a timeline similar to the one for `ActivityW
 
     This file can be automatically updated by gptme with the help of `gh release list` and `gh release view` commands.
 
-2026
-----
-
 Unreleased
-^^^^^^^^^^
+----------
 
 - MCP prompts and resources support
 - Anthropic native web search
@@ -39,6 +36,9 @@ Unreleased
 - Lesson keyword wildcard and regex pattern support
 - Session cost summary on exit
 - Master Context Architecture for autocompact
+
+2026
+----
 
 January
 
