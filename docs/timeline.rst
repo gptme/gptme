@@ -26,8 +26,68 @@ The idea is to later make this into a timeline similar to the one for `ActivityW
 
     This file can be automatically updated by gptme with the help of `gh release list` and `gh release view` commands.
 
+2026
+----
+
+Unreleased
+^^^^^^^^^^
+
+- MCP prompts and resources support
+- Anthropic native web search
+- PDF support in browser tool (using pypdf)
+- Skills summary in system prompt
+- Lesson keyword wildcard and regex pattern support
+- Session cost summary on exit
+- Master Context Architecture for autocompact
+
+January
+
+- gptme-agent-template v0.4 release (2026-01-23)
+
+  - Autonomous agent run loops
+  - Enhanced context generation
+  - Bob reaches 1000+ autonomous sessions milestone
+
 2025
 ----
+
+December
+
+- v0.31.0 (2025-12-15)
+
+  - Background jobs for long-running shell commands
+  - Form tool for structured user input
+  - Cost tracking and token awareness hooks
+  - Content-addressable file storage
+  - Lessons caching and plugin auto-discovery
+  - Cursor .mdc rules support
+
+November
+
+- v0.30.0 (2025-11-18)
+
+  - Plugin system (tools, hooks, commands from plugins)
+  - Context selector infrastructure
+  - Subagent planner mode
+  - Improved support for custom OpenAI-compatible providers
+
+October
+
+- v0.29.0 (2025-10-21)
+
+  - Lessons system for contextual guidance (auto-included based on keywords/tools)
+  - MCP discovery and dynamic loading
+  - Token and time awareness hooks
+  - Shellcheck validation for shell commands
+  - Bob begins autonomous runs with GitHub monitoring (CASCADE workflow)
+
+- v0.28.0 (2025-08-13)
+
+  - MCP (Model Context Protocol) support
+  - Morph tool for fast AI-powered edits
+  - Auto-commit feature
+  - Redesigned server API (v2)
+  - ChatConfig for per-conversation settings
 
 March
 
@@ -78,6 +138,7 @@ November
 - v0.24.0 (2024-11-22)
 - gptme-rag v0.3.0 release (2024-11-22)
 - gptme-agent-template initial release v0.1 (2024-11-21)
+- `Bob <https://github.com/TimeToBuildBob>`_ created (2024-11-14) - first autonomous agent built on gptme
 - gptme-rag initial release v0.1.0 (2024-11-15)
 - v0.23.0 (2024-11-14)
 - gptme-webui initial release (2024-11-03)

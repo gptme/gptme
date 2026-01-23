@@ -77,7 +77,7 @@ An unconstrained local <a href="https://gptme.org/docs/alternatives.html">altern
 - **2026-01** - [gptme-agent-template](https://github.com/gptme/gptme-agent-template) v0.4: [Bob](https://github.com/TimeToBuildBob) reaches 700+ autonomous sessions, autonomous run loops, enhanced context generation
 - **2025-12** - [v0.31.0](https://github.com/gptme/gptme/releases/tag/v0.31.0): Background jobs, form tool, cost tracking, content-addressable storage
 - **2025-11** - [v0.30.0](https://github.com/gptme/gptme/releases/tag/v0.30.0): Plugin system, context compression, subagent planner mode
-- **2025-10** - [v0.29.0](https://github.com/gptme/gptme/releases/tag/v0.29.0): MCP discovery & dynamic loading, token awareness, shellcheck validation; [Bob](https://github.com/TimeToBuildBob) begins autonomous runs with GitHub monitoring
+- **2025-10** - [v0.29.0](https://github.com/gptme/gptme/releases/tag/v0.29.0): Lessons system for contextual guidance, MCP discovery & dynamic loading, token awareness; [Bob](https://github.com/TimeToBuildBob) begins autonomous runs with GitHub monitoring
 - **2025-08** - [v0.28.0](https://github.com/gptme/gptme/releases/tag/v0.28.0): MCP support, morph tool for fast edits, auto-commit, redesigned server API
 - **2025-03** - [v0.27.0](https://github.com/gptme/gptme/releases/tag/v0.27.0): Pre-commit integration, macOS computer use, Claude 3.7 Sonnet, DeepSeek R1, local TTS with Kokoro
 - **2025-01** - [gptme-contrib](https://github.com/gptme/gptme-contrib) created: community plugins including Twitter/X, Discord bot, email tools, consortium (multi-agent)
