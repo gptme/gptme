@@ -309,3 +309,57 @@ class MCPClient:
             return result
 
         return self._run_async(_list_templates())
+
+    def list_prompts(self) -> types.ListPromptsResult:
+        """List available prompts from the connected MCP server.
+
+        Returns:
+            ListPromptsResult containing available prompts.
+
+        Raises:
+            RuntimeError: If not connected to an MCP server.
+        """
+        if not self.session:
+            raise RuntimeError("Not connected to MCP server")
+
+        async def _list_prompts():
+            session = self.session
+            if session is None:
+                raise RuntimeError("Should not be None")
+
+            result = await asyncio.wait_for(session.list_prompts(), timeout=10.0)
+            logger.debug(f"Prompts: {result}")
+            return result
+
+        return self._run_async(_list_prompts())
+
+    def get_prompt(
+        self, name: str, arguments: dict[str, str] | None = None
+    ) -> types.GetPromptResult:
+        """Get a specific prompt by name with optional arguments.
+
+        Args:
+            name: The name of the prompt to retrieve.
+            arguments: Optional arguments to pass to the prompt.
+
+        Returns:
+            GetPromptResult containing the prompt messages.
+
+        Raises:
+            RuntimeError: If not connected to an MCP server.
+        """
+        if not self.session:
+            raise RuntimeError("Not connected to MCP server")
+
+        async def _get_prompt():
+            session = self.session
+            if session is None:
+                raise RuntimeError("Should not be None")
+
+            result = await asyncio.wait_for(
+                session.get_prompt(name, arguments=arguments), timeout=30.0
+            )
+            logger.debug(f"Prompt content: {result}")
+            return result
+
+        return self._run_async(_get_prompt())

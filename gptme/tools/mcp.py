@@ -27,8 +27,10 @@ from .base import (
     ToolUse,
 )
 from .mcp_adapter import (
+    get_mcp_prompt,
     get_mcp_server_info,
     list_loaded_servers,
+    list_mcp_prompts,
     list_mcp_resource_templates,
     list_mcp_resources,
     load_mcp_server,
@@ -199,6 +201,40 @@ def execute_mcp(
             result = list_mcp_resource_templates(server_name)
             yield Message("system", result)
 
+        elif command.startswith("prompts list"):
+            # prompts list <server-name>
+            parts = command.split()
+            if len(parts) < 3:
+                yield Message("system", "Usage: prompts list <server-name>")
+                return
+
+            server_name = parts[2]
+            result = list_mcp_prompts(server_name)
+            yield Message("system", result)
+
+        elif command.startswith("prompts get"):
+            # prompts get <server-name> <prompt-name> [arguments-json]
+            parts = command.split(maxsplit=4)
+            if len(parts) < 4:
+                yield Message(
+                    "system",
+                    "Usage: prompts get <server-name> <prompt-name> [arguments-json]",
+                )
+                return
+
+            server_name = parts[2]
+            prompt_name = parts[3]
+            arguments = None
+            if len(parts) > 4:
+                try:
+                    arguments = json.loads(parts[4])
+                except json.JSONDecodeError as e:
+                    yield Message("system", f"Invalid JSON arguments: {e}")
+                    return
+
+            result = get_mcp_prompt(server_name, prompt_name, arguments)
+            yield Message("system", result)
+
         else:
             yield Message(
                 "system",
@@ -211,7 +247,9 @@ def execute_mcp(
                 "  list - List loaded servers\n"
                 "  resources list <server> - List resources from a server\n"
                 "  resources read <server> <uri> - Read a resource\n"
-                "  templates list <server> - List resource templates",
+                "  templates list <server> - List resource templates\n"
+                "  prompts list <server> - List prompts from a server\n"
+                "  prompts get <server> <name> [args] - Get a prompt",
             )
 
     except Exception as e:
@@ -239,6 +277,10 @@ def examples(tool_format: str) -> str:
             ToolUse("mcp", [], "resources list sqlite").to_output(fmt),
             ToolUse("mcp", [], "resources read sqlite db://main/users").to_output(fmt),
             ToolUse("mcp", [], "templates list sqlite").to_output(fmt),
+            ToolUse("mcp", [], "prompts list sqlite").to_output(fmt),
+            ToolUse(
+                "mcp", [], 'prompts get sqlite create-query {"table": "users"}'
+            ).to_output(fmt),
         ]
     )
 
@@ -317,6 +359,28 @@ def _cmd_mcp_templates_list(server_name: str) -> str:
     return list_mcp_resource_templates(server_name)
 
 
+def _cmd_mcp_prompts_list(server_name: str) -> str:
+    """List prompts from an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+    """
+    return list_mcp_prompts(server_name)
+
+
+def _cmd_mcp_prompts_get(
+    server_name: str, prompt_name: str, arguments: dict[str, str] | None = None
+) -> str:
+    """Get a specific prompt from an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+        prompt_name: Name of the prompt to retrieve
+        arguments: Optional arguments for the prompt
+    """
+    return get_mcp_prompt(server_name, prompt_name, arguments)
+
+
 tool = ToolSpec(
     name="mcp",
     desc="Search, discover, and manage MCP servers",
@@ -331,6 +395,10 @@ Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
 - `resources list <server>` - List available resources from a loaded server
 - `resources read <server> <uri>` - Read a specific resource by URI
 - `templates list <server>` - List resource templates (parameterized resources)
+
+**Prompt Commands** (for servers that expose prompts):
+- `prompts list <server>` - List available prompts from a loaded server
+- `prompts get <server> <name> [args]` - Get a specific prompt, optionally with JSON arguments
 """.strip(),
     examples=examples,
     execute=execute_mcp,
@@ -344,6 +412,8 @@ Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
         "mcp resources list": _cmd_mcp_resources_list,
         "mcp resources read": _cmd_mcp_resources_read,
         "mcp templates list": _cmd_mcp_templates_list,
+        "mcp prompts list": _cmd_mcp_prompts_list,
+        "mcp prompts get": _cmd_mcp_prompts_get,
     },
     parameters=[
         Parameter(

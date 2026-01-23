@@ -600,3 +600,107 @@ def list_mcp_resource_templates(server_name: str) -> str:
     except Exception as e:
         logger.error(f"Failed to list resource templates from {server_name}: {e}")
         return f"Error listing resource templates: {e}"
+
+
+def list_mcp_prompts(server_name: str) -> str:
+    """
+    List available prompts from an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+
+    Returns:
+        Formatted list of available prompts
+    """
+    client = _get_mcp_client(server_name)
+    if not client:
+        return (
+            f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+        )
+
+    try:
+        result = client.list_prompts()
+        prompts = result.prompts if hasattr(result, "prompts") else []
+
+        if not prompts:
+            return f"No prompts available from server '{server_name}'."
+
+        output = [f"# Prompts from {server_name}\n"]
+        for prompt in prompts:
+            output.append(f"## {prompt.name}")
+            if hasattr(prompt, "description") and prompt.description:
+                output.append(f"**Description:** {prompt.description}")
+            if hasattr(prompt, "arguments") and prompt.arguments:
+                output.append("**Arguments:**")
+                for arg in prompt.arguments:
+                    required = " (required)" if getattr(arg, "required", False) else ""
+                    desc = (
+                        f" - {arg.description}"
+                        if getattr(arg, "description", None)
+                        else ""
+                    )
+                    output.append(f"  - `{arg.name}`{required}{desc}")
+            output.append("")
+
+        return "\n".join(output)
+    except MCPInterruptedError:
+        return "MCP operation interrupted. The server is still running."
+    except Exception as e:
+        logger.error(f"Failed to list prompts from {server_name}: {e}")
+        return f"Error listing prompts: {e}"
+
+
+def get_mcp_prompt(
+    server_name: str, name: str, arguments: dict[str, str] | None = None
+) -> str:
+    """
+    Get a specific prompt from an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+        name: Name of the prompt to retrieve
+        arguments: Optional arguments for the prompt
+
+    Returns:
+        Formatted prompt content
+    """
+    client = _get_mcp_client(server_name)
+    if not client:
+        return (
+            f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+        )
+
+    try:
+        result = client.get_prompt(name, arguments)
+        messages = result.messages if hasattr(result, "messages") else []
+
+        if not messages:
+            return f"Prompt '{name}' returned no messages."
+
+        output = [f"# Prompt: {name}\n"]
+        if hasattr(result, "description") and result.description:
+            output.append(f"**Description:** {result.description}\n")
+
+        for i, msg in enumerate(messages):
+            role = getattr(msg, "role", "unknown")
+            output.append(f"## Message {i + 1} ({role})")
+
+            content = getattr(msg, "content", None)
+            if content:
+                # Handle different content types
+                if isinstance(content, str):
+                    output.append(content)
+                elif hasattr(content, "text"):
+                    output.append(content.text)
+                elif hasattr(content, "type") and content.type == "text":
+                    output.append(getattr(content, "text", str(content)))
+                else:
+                    output.append(str(content))
+            output.append("")
+
+        return "\n".join(output)
+    except MCPInterruptedError:
+        return "MCP operation interrupted. The server is still running."
+    except Exception as e:
+        logger.error(f"Failed to get prompt '{name}' from {server_name}: {e}")
+        return f"Error getting prompt: {e}"
