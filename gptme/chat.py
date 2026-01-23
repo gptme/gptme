@@ -32,6 +32,7 @@ from .tools import (
 from .tools.complete import SessionCompleteException
 from .util import console, path_with_tilde
 from .util.ask_execute import ask_execute
+from .util.async_input import VisiblePromptCollector
 from .util.auto_naming import auto_generate_display_name
 from .util.context import include_paths
 from .util.cost import log_costs
@@ -168,6 +169,12 @@ def _run_chat_loop(
 ):
     """Main chat loop - extracted to allow clean exception handling."""
 
+    # Create visible prompt collector for type-ahead input
+    # Only active in interactive mode with TTY
+    collector: VisiblePromptCollector | None = None
+    if interactive and sys.stdin.isatty():
+        collector = VisiblePromptCollector(prompt_queue)
+
     while True:
         msg: Message | None = None
         try:
@@ -182,10 +189,19 @@ def _run_chat_loop(
                 if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
                     continue
 
-                # Process the message and get response
-                _process_message_conversation(
-                    manager, stream, confirm_func, tool_format, model, output_schema
-                )
+                # Start visible prompt collector for type-ahead during generation
+                if collector:
+                    collector.start()
+
+                try:
+                    # Process the message and get response
+                    _process_message_conversation(
+                        manager, stream, confirm_func, tool_format, model, output_schema
+                    )
+                finally:
+                    # Stop collector before next iteration
+                    if collector:
+                        collector.stop()
             else:
                 # Get user input or exit if non-interactive
                 if not interactive:
@@ -201,14 +217,20 @@ def _run_chat_loop(
                     else:
                         # Don't prompt for input, generate response directly (crash recovery, etc.)
                         # Process existing log without adding new message
-                        _process_message_conversation(
-                            manager,
-                            stream,
-                            confirm_func,
-                            tool_format,
-                            model,
-                            output_schema,
-                        )
+                        if collector:
+                            collector.start()
+                        try:
+                            _process_message_conversation(
+                                manager,
+                                stream,
+                                confirm_func,
+                                tool_format,
+                                model,
+                                output_schema,
+                            )
+                        finally:
+                            if collector:
+                                collector.stop()
                 else:
                     # Normal case: user provided input
                     msg = user_input
@@ -220,15 +242,24 @@ def _run_chat_loop(
                     if msg.role == "user" and execute_cmd(msg, manager, confirm_func):
                         continue
 
-                    # Process the message and get response
-                    _process_message_conversation(
-                        manager,
-                        stream,
-                        confirm_func,
-                        tool_format,
-                        model,
-                        output_schema,
-                    )
+                    # Start visible prompt collector for type-ahead during generation
+                    if collector:
+                        collector.start()
+
+                    try:
+                        # Process the message and get response
+                        _process_message_conversation(
+                            manager,
+                            stream,
+                            confirm_func,
+                            tool_format,
+                            model,
+                            output_schema,
+                        )
+                    finally:
+                        # Stop collector before returning to user prompt
+                        if collector:
+                            collector.stop()
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
             # This handles auto-reply mechanism and other loop control logic
