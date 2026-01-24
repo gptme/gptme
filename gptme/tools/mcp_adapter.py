@@ -804,8 +804,11 @@ def add_mcp_root(server_name: str, uri: str, name: str | None = None) -> str:
         )
 
     try:
-        client.add_root(uri, name)
-        return f"Added root '{name or uri}' to server '{server_name}'."
+        added = client.add_root(uri, name)
+        if added:
+            return f"Added root '{name or uri}' to server '{server_name}'."
+        else:
+            return f"Root '{uri}' already exists for server '{server_name}'."
     except Exception as e:
         logger.error(f"Failed to add root to {server_name}: {e}")
         return f"Error adding root: {e}"

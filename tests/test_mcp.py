@@ -247,16 +247,24 @@ def test_mcp_roots_management():
     assert client.get_roots() == []
 
     # Test add_root (no session, so no notification sent)
-    client.add_root("file:///test/path", "Test Root")
+    result = client.add_root("file:///test/path", "Test Root")
+    assert result is True
     roots = client.get_roots()
     assert len(roots) == 1
     assert str(roots[0].uri) == "file:///test/path"
     assert roots[0].name == "Test Root"
 
     # Test add another root
-    client.add_root("file:///another/path", "Another Root")
+    result = client.add_root("file:///another/path", "Another Root")
+    assert result is True
     roots = client.get_roots()
     assert len(roots) == 2
+
+    # Test adding duplicate root returns False
+    result = client.add_root("file:///test/path", "Duplicate Root")
+    assert result is False
+    roots = client.get_roots()
+    assert len(roots) == 2  # Should not have added the duplicate
 
     # Test remove_root
     removed = client.remove_root("file:///test/path")

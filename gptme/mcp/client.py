@@ -402,18 +402,28 @@ class MCPClient:
         """
         return self.roots
 
-    def add_root(self, uri: str, name: str | None = None) -> None:
+    def add_root(self, uri: str, name: str | None = None) -> bool:
         """Add a root and notify connected server.
 
         Args:
             uri: The URI of the root (e.g., 'file:///path/to/project')
             name: Optional human-readable name for the root
+
+        Returns:
+            True if root was added, False if it already exists.
         """
+        # Check for duplicate roots by URI
+        for existing in self.roots:
+            if str(existing.uri) == uri:
+                logger.debug(f"Root already exists: {uri}")
+                return False
+
         root = types.Root(uri=types.FileUrl(uri), name=name)
         self.roots.append(root)
         logger.debug(f"Added root: {uri}")
         if self.session:
             self._run_async(self._send_roots_changed())
+        return True
 
     def remove_root(self, uri: str) -> bool:
         """Remove a root by URI and notify connected server.
