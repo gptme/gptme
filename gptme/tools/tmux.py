@@ -8,6 +8,7 @@ It allows for inspecting pane contents and sending input.
 
 import functools
 import logging
+import shlex
 import shutil
 import subprocess
 import threading
@@ -209,8 +210,6 @@ def new_session(command: str) -> Message:
 
 
 def send_keys(pane_id: str, keys: str) -> Message:
-    import shlex
-
     if not pane_id.startswith("gptme_"):
         pane_id = f"gptme_{pane_id}"
     # Parse keys into separate arguments to avoid shell injection
@@ -486,11 +485,24 @@ Available commands:
 def examples(tool_format):
     escaped_hello_world = "'print(\"Hello, world!\")'"
     all_examples = f"""
+#### Running subagents
+
+> User: start subagent to fix lints in parallel
+> Assistant: Let's start a subagent in a new tmux session:
+{ToolUse("tmux", [], '''new-session gptme --non-interactive "fix lint 1"
+new-session gptme --non-interactive "fix lint 2"''').to_output(tool_format)}
+
+#### Running specific agent
+
+> User: Ask Bob about his latest work
+> Assistant: Sure! Let's start a tmux session running Bob (~/bob/):
+{ToolUse("tmux", [], "new-session cd ~/bob && gptme --non-interactive 'What is your latest work?'").to_output(tool_format)}
+
 #### Managing a dev server
 
 > User: Start the dev server
 > Assistant: Certainly! To start the dev server we should use tmux:
-{ToolUse("tmux", [], "new-session 'npm run dev'").to_output(tool_format)}
+{ToolUse("tmux", [], "new-session npm run dev").to_output(tool_format)}
 > System: Running `npm run dev` in session gptme_1
 
 > User: Can you show me the current content of the pane?
@@ -508,7 +520,7 @@ def examples(tool_format):
 
 > User: start top and give me a summary
 > Assistant: Sure! Let's start the top command in a tmux session:
-{ToolUse("tmux", [], "new-session 'top'").to_output(tool_format)}
+{ToolUse("tmux", [], "new-session top").to_output(tool_format)}
 > System: Running `top` in session gptme_1.
 {ToolUse("output", [], "(output from top shown here)").to_output()}
 > Assistant: The load is...
@@ -517,7 +529,7 @@ def examples(tool_format):
 
 > User: start ipython
 > Assistant: Let's start an ipython session:
-{ToolUse("tmux", [], "new-session 'ipython'").to_output(tool_format)}
+{ToolUse("tmux", [], "new-session ipython").to_output(tool_format)}
 > System: Running `ipython` in session 2.
 {ToolUse("output", [], "(output from ipython shown here)").to_output()}
 > User: Run 'print("Hello, world!")' in the ipython session
@@ -533,7 +545,7 @@ def examples(tool_format):
 
 > User: Run a build and wait for it to finish
 > Assistant: I'll start the build in tmux and wait for it to complete:
-{ToolUse("tmux", [], "new-session 'npm run build'").to_output(tool_format)}
+{ToolUse("tmux", [], "new-session npm run build").to_output(tool_format)}
 > System: Running `npm run build` in session gptme_1.
 > Assistant: Now let's wait for the build to finish:
 {ToolUse("tmux", [], "wait gptme_1 120").to_output(tool_format)}
