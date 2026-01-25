@@ -627,7 +627,7 @@ skills on-demand requires tool access (e.g., the shell tool to run <cite>cat</ci
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f22569a4cc0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fb3a40accc0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1795,12 +1795,29 @@ Available commands:
 
 <span class="gu">### Examples</span>
 
+<span class="gu">#### Running subagents</span>
+
+<span class="k">&gt; </span><span class="ge">User: start subagent to fix lints in parallel</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let&#39;s start a subagent in a new tmux session:</span>
+<span class="sb">```tmux</span>
+<span class="s">new-session gptme --non-interactive &quot;fix lint 1&quot;</span>
+<span class="s">new-session gptme --non-interactive &quot;fix lint 2&quot;</span>
+<span class="sb">```</span>
+
+<span class="gu">#### Running specific agent</span>
+
+<span class="k">&gt; </span><span class="ge">User: Ask Bob about his latest work</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Sure! Let&#39;s start a tmux session running Bob (~/bob/):</span>
+<span class="sb">```tmux</span>
+<span class="s">new-session cd ~/bob &amp;&amp; gptme --non-interactive &#39;What is your latest work?&#39;</span>
+<span class="sb">```</span>
+
 <span class="gu">#### Managing a dev server</span>
 
 <span class="k">&gt; </span><span class="ge">User: Start the dev server</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Certainly! To start the dev server we should use tmux:</span>
 <span class="sb">```tmux</span>
-<span class="s">new-session &#39;npm run dev&#39;</span>
+<span class="s">new-session npm run dev</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: Running `npm run dev` in session gptme_1</span>
 
@@ -1826,7 +1843,7 @@ Available commands:
 <span class="k">&gt; </span><span class="ge">User: start top and give me a summary</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Sure! Let&#39;s start the top command in a tmux session:</span>
 <span class="sb">```tmux</span>
-<span class="s">new-session &#39;top&#39;</span>
+<span class="s">new-session top</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: Running `top` in session gptme_1.</span>
 <span class="sb">```output</span>
@@ -1839,7 +1856,7 @@ Available commands:
 <span class="k">&gt; </span><span class="ge">User: start ipython</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Let&#39;s start an ipython session:</span>
 <span class="sb">```tmux</span>
-<span class="s">new-session &#39;ipython&#39;</span>
+<span class="s">new-session ipython</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: Running `ipython` in session 2.</span>
 <span class="sb">```output</span>
@@ -2043,7 +2060,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 10474</p>
+<p>Tokens: 10615</p>
 </dd></dl>
 
 <dl class="py function">
