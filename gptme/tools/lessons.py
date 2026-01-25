@@ -15,6 +15,7 @@ Commands provided:
 import logging
 from collections.abc import Generator
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
@@ -53,6 +54,35 @@ def _get_ace_components() -> tuple[type | None, type | None]:
 _lesson_index_var: ContextVar[LessonIndex | None] = ContextVar(
     "lesson_index", default=None
 )
+
+
+@dataclass
+class LessonSessionStats:
+    """Statistics about lessons matched during a session."""
+
+    total_matched: int = 0
+    unique_lessons: set[str] = field(default_factory=set)
+    lesson_titles: dict[str, str] = field(default_factory=dict)  # path -> title
+
+
+# Context-local storage for session statistics
+_session_stats_var: ContextVar[LessonSessionStats | None] = ContextVar(
+    "lesson_session_stats", default=None
+)
+
+
+def _get_session_stats() -> LessonSessionStats:
+    """Get context-local session stats, creating if needed."""
+    stats = _session_stats_var.get()
+    if stats is None:
+        stats = LessonSessionStats()
+        _session_stats_var.set(stats)
+    return stats
+
+
+def _reset_session_stats() -> None:
+    """Reset session statistics for a new session."""
+    _session_stats_var.set(LessonSessionStats())
 
 
 def _get_lesson_index() -> LessonIndex:
@@ -180,10 +210,19 @@ def auto_include_lessons_hook(
     # Get hybrid matching configuration
     use_hybrid = config.get_env_bool("GPTME_LESSONS_USE_HYBRID", False)
 
+    # Session-wide limit (higher default, applies across entire session)
     try:
-        max_lessons = int(config.get_env("GPTME_LESSONS_MAX_INCLUDED") or "5")
+        max_lessons = int(config.get_env("GPTME_LESSONS_MAX_SESSION") or "20")
     except (ValueError, TypeError):
-        max_lessons = 5
+        max_lessons = 20
+
+    # Get session stats and check if we've hit the limit
+    stats = _get_session_stats()
+    if len(stats.unique_lessons) >= max_lessons:
+        logger.debug(
+            f"Session lesson limit reached ({len(stats.unique_lessons)}/{max_lessons})"
+        )
+        return
 
     # Get messages from log
     messages = manager.log.messages
@@ -271,12 +310,17 @@ def auto_include_lessons_hook(
             match
             for match in match_results
             if str(match.lesson.path) not in included_lessons
+            and str(match.lesson.path) not in stats.unique_lessons
         ]
 
-        # Limit number of lessons (matcher may already limit, but ensure it)
-        if len(new_matches) > max_lessons:
-            logger.debug(f"Limiting lessons from {len(new_matches)} to {max_lessons}")
-            new_matches = new_matches[:max_lessons]
+        # Limit to remaining session budget
+        remaining_budget = max_lessons - len(stats.unique_lessons)
+        if len(new_matches) > remaining_budget:
+            logger.debug(
+                f"Limiting lessons from {len(new_matches)} to {remaining_budget} "
+                f"(session: {len(stats.unique_lessons)}/{max_lessons})"
+            )
+            new_matches = new_matches[:remaining_budget]
 
         if not new_matches:
             logger.debug("No new lessons to include")
@@ -298,6 +342,13 @@ def auto_include_lessons_hook(
             hide=True,  # Hide from user-facing output
         )
 
+        # Update session statistics
+        for match in new_matches:
+            path_str = str(match.lesson.path)
+            stats.unique_lessons.add(path_str)
+            stats.lesson_titles[path_str] = match.lesson.title
+        stats.total_matched += len(new_matches)
+
         titles = [str(match.lesson.title) for match in new_matches]
         titles_list = "\n".join(f"- {title}" for title in titles)
         logger.info(f"Auto-included {len(new_matches)} lessons:\n{titles_list}")
@@ -307,6 +358,38 @@ def auto_include_lessons_hook(
     except Exception as e:
         logger.warning(f"Error during lesson auto-inclusion: {e}")
         return
+
+
+def session_end_lessons_hook(
+    manager: "LogManager", **kwargs
+) -> Generator[Message | StopPropagation, None, None]:
+    """Hook to print lesson statistics at end of session.
+
+    Args:
+        manager: Conversation manager with log and workspace
+        **kwargs: Additional arguments (e.g., logdir)
+
+    Yields:
+        Nothing (just logs statistics)
+    """
+    from ..util import console
+
+    stats = _session_stats_var.get()
+    if stats is None or stats.total_matched == 0:
+        return
+
+    # Print summary to console
+    console.print(
+        f"[dim]Lessons: {len(stats.unique_lessons)} unique lessons included "
+        f"({stats.total_matched} total matches)[/dim]"
+    )
+
+    # Reset stats for next session
+    _reset_session_stats()
+
+    # Don't yield any messages - just log
+    return
+    yield  # Make this a generator
 
 
 # Tool specification (for /tools command)
@@ -319,7 +402,7 @@ Use lessons to learn and remember skills/tools/workflows, improve your performan
 How lessons help you:
 - Automatically included when relevant keywords or tools match
 - Extracted from both user and assistant messages in the conversation
-- Limited to 5 most relevant lessons to conserve context
+- Session-wide limit (default 20) prevents context bloat
 
 Leverage lessons for self-improvement:
 - Pay attention to lessons included in context
@@ -334,7 +417,12 @@ Leverage lessons for self-improvement:
             HookType.STEP_PRE.value,
             auto_include_lessons_hook,
             5,  # Medium priority
-        )
+        ),
+        "session_end_lessons": (
+            HookType.SESSION_END.value,
+            session_end_lessons_hook,
+            5,  # Medium priority
+        ),
     },
     commands={
         "lesson": handle_lesson_command,
