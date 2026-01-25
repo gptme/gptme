@@ -515,9 +515,10 @@
 <li><p>Scans configured lesson directories</p></li>
 <li><p>Indexes lessons with their metadata</p></li>
 <li><p>Monitors the conversation for keywords and tool usage</p></li>
-<li><p>Automatically includes matching lessons</p></li>
-<li><p>Limits the number of included lessons to preserve context</p></li>
+<li><p>Automatically includes all matching lessons (no per-turn limit)</p></li>
+<li><p>Applies a session-wide limit (default: 20) to prevent context bloat</p></li>
 </ol>
+<p>When exiting, gptme displays a summary of lessons used in the session.</p>
 <p>Lessons appear in the conversation context but are hidden by default in the interface. Use <code class="docutils literal notranslate"><span class="pre">/log</span></code> to see which lessons are included.</p>
 </section>
 <section id="lesson-format">
@@ -657,8 +658,9 @@ Clear commit history, automated changelog generation.
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable/disable auto-include (default: true)</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_AUTO_INCLUDE</span><span class="o">=</span><span class="nb">false</span>
 
-<span class="c1"># Maximum lessons to include (default: 5)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_MAX_INCLUDED</span><span class="o">=</span><span class="m">3</span>
+<span class="c1"># Maximum lessons per session (default: 20)</span>
+<span class="c1"># This is a session-wide limit - once reached, no more lessons are included</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_MAX_SESSION</span><span class="o">=</span><span class="m">20</span>
 
 <span class="c1"># Refresh lessons each message (default: false)</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_REFRESH</span><span class="o">=</span><span class="nb">true</span>
@@ -779,8 +781,9 @@ When using the shell tool...
 <ol class="arabic simple">
 <li><p>Check indexing: Look for “Indexed n lessons” in logs</p></li>
 <li><p>Verify keywords: Use <code class="docutils literal notranslate"><span class="pre">/lesson</span> <span class="pre">search</span></code> to test matching</p></li>
-<li><p>Check limits: Ensure <code class="docutils literal notranslate"><span class="pre">GPTME_LESSONS_MAX_INCLUDED</span></code> isn’t too low</p></li>
+<li><p>Check limits: Ensure <code class="docutils literal notranslate"><span class="pre">GPTME_LESSONS_MAX_SESSION</span></code> isn’t too low (default: 20)</p></li>
 <li><p>Verify format: Ensure YAML frontmatter is valid</p></li>
+<li><p>Session limit: If resuming a conversation, the session limit may already be reached</p></li>
 </ol>
 </section>
 <section id="debug-lesson-matching">
