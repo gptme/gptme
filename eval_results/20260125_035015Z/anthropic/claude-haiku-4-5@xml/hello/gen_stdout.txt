@@ -1,0 +1,39 @@
+
+--- Start of generation ---
+[03:49:49] Using model: anthropic/claude-haiku-4-5                              
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-01-25-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-f212e687                                                 
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-01-25-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-f212e687/workspace                                       
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The user wants me to write a simple Python script that prints "Hello, world!". This is straightforward - I just need to use the save tool to create a file called hello.py in the current directory (/app) with the print statement.
+</think>        </think>
+
+<tool-use>
+<save args="hello.py">
+print("Hello, world!")
+</save>
+</tool-use>
+                                                                                
+Preview
+print("Hello, world!")                                                          
+
+System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The file has been successfully saved. The user's request is complete. I should confirm this to the user.
+</think>        </think>
+
+Done! I've created `hello.py` with the print statement. You can run it with:
+
+```bash
+python hello.py
+```                                                                                [03:49:51] Session: $0.00 | 1 turns | 975 context | 0% cached                   
+--- Finished generation ---
+
