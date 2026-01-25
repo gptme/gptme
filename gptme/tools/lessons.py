@@ -399,8 +399,7 @@ def session_end_lessons_hook(
     _reset_session_stats()
 
     # Don't yield any messages - just log
-    return
-    yield  # Make this a generator
+    yield from ()
 
 
 # Tool specification (for /tools command)
