@@ -21,8 +21,10 @@ When you start a conversation, gptme:
 1. Scans configured lesson directories
 2. Indexes lessons with their metadata
 3. Monitors the conversation for keywords and tool usage
-4. Automatically includes matching lessons
-5. Limits the number of included lessons to preserve context
+4. Automatically includes all matching lessons (no per-turn limit)
+5. Applies a session-wide limit (default: 20) to prevent context bloat
+
+When exiting, gptme displays a summary of lessons used in the session.
 
 Lessons appear in the conversation context but are hidden by default in the interface. Use ``/log`` to see which lessons are included.
 
@@ -168,8 +170,9 @@ Control lesson behavior with these variables:
     # Enable/disable auto-include (default: true)
     export GPTME_LESSONS_AUTO_INCLUDE=false
 
-    # Maximum lessons to include (default: 5)
-    export GPTME_LESSONS_MAX_INCLUDED=3
+    # Maximum lessons per session (default: 20)
+    # This is a session-wide limit - once reached, no more lessons are included
+    export GPTME_LESSONS_MAX_SESSION=20
 
     # Refresh lessons each message (default: false)
     export GPTME_LESSONS_REFRESH=true
@@ -302,8 +305,9 @@ If lessons aren't being included:
 
 1. Check indexing: Look for "Indexed n lessons" in logs
 2. Verify keywords: Use ``/lesson search`` to test matching
-3. Check limits: Ensure ``GPTME_LESSONS_MAX_INCLUDED`` isn't too low
+3. Check limits: Ensure ``GPTME_LESSONS_MAX_SESSION`` isn't too low (default: 20)
 4. Verify format: Ensure YAML frontmatter is valid
+5. Session limit: If resuming a conversation, the session limit may already be reached
 
 Debug Lesson Matching
 ~~~~~~~~~~~~~~~~~~~~~~
