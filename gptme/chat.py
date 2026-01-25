@@ -522,7 +522,7 @@ def prompt_user(value=None) -> str:  # pragma: no cover
                 print("\nInterrupted. Press Ctrl-D to exit.")
             except EOFError:
                 print("\nGoodbye!")
-                sys.exit(0)
+                raise  # Let _get_user_input handle the normal exit flow
     clear_interruptible()
     return response
 
