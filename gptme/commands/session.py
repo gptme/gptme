@@ -50,7 +50,7 @@ def cmd_rename(ctx: CommandContext) -> None:
     else:
         print("(enter empty name to auto-generate)")
         new_name = input("New name: ").strip()
-    _rename(ctx.manager, new_name, ctx.confirm)
+    _rename(ctx.manager, new_name)
 
 
 def _complete_fork(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
@@ -141,7 +141,11 @@ def cmd_delete(ctx: CommandContext) -> None:
 
     # Confirm deletion unless --force
     if not force:
-        if not ctx.confirm(f"Delete conversation '{conv_id}'? This cannot be undone."):
+        response = input(
+            f"Delete conversation '{conv_id}'? This cannot be undone. [y/N] "
+        )
+        confirmed = response.lower().strip() in ("y", "yes")
+        if not confirmed:
             print("Cancelled.")
             return
 
@@ -208,7 +212,9 @@ def cmd_restart(ctx: CommandContext) -> None:
 
     ctx.manager.undo(1, quiet=True)
 
-    if not ctx.confirm("Restart gptme? This will exit and restart the process."):
+    response = input("Restart gptme? This will exit and restart the process. [y/N] ")
+    confirmed = response.lower().strip() in ("y", "yes")
+    if not confirmed:
         print("Restart cancelled.")
         return
 
@@ -248,7 +254,7 @@ def _edit(
     print("Applied edited messages, write /log to see the result")
 
 
-def _rename(manager: "LogManager", new_name: str, confirm) -> None:
+def _rename(manager: "LogManager", new_name: str) -> None:
     """Rename a conversation."""
     from ..config import ChatConfig  # fmt: skip
     from ..logmanager import prepare_messages  # fmt: skip
@@ -259,7 +265,13 @@ def _rename(manager: "LogManager", new_name: str, confirm) -> None:
         new_name = generate_llm_name(msgs)
         assert " " not in new_name, f"Invalid name: {new_name}"
         print(f"Generated name: {new_name}")
-        if not confirm("Confirm?"):
+        if sys.stdin.isatty():
+            response = input("Confirm? [y/N] ")
+            confirmed = response.lower().strip() in ("y", "yes")
+        else:
+            # Non-interactive mode - auto-approve
+            confirmed = True
+        if not confirmed:
             print("Aborting")
             return
 

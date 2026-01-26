@@ -41,7 +41,8 @@ def llm_confirm(msg: str) -> bool:
 
 def step(log: Log) -> Log:
     # Steps the conversation forward
-    for msg in _step(log, stream=True, confirm=llm_confirm):
+    # Note: confirmation is now handled via the hook system
+    for msg in _step(log, stream=True):
         log = log.append(msg)
     return log
 

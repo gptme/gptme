@@ -6,7 +6,6 @@ from collections.abc import Generator
 
 from ..message import Message
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolSpec,
     ToolUse,
@@ -79,7 +78,6 @@ def execute_choice(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
 ) -> Generator[Message, None, None]:
     """Present multiple-choice options to the user and return their selection."""
     DEFAULT_QUESTION = "Please select an option:"

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..logmanager import LogManager
     from ..message import Message
-    from ..tools import ConfirmFunc
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,6 @@ class CommandContext:
     args: list[str]
     full_args: str
     manager: "LogManager"
-    confirm: "ConfirmFunc"
 
 
 # Original handler type (before decoration)
@@ -146,7 +144,7 @@ def get_command_completer(name: str) -> CommandCompleter | None:
     return _command_completers.get(name)
 
 
-def execute_cmd(msg: "Message", log: "LogManager", confirm: "ConfirmFunc") -> bool:
+def execute_cmd(msg: "Message", log: "LogManager") -> bool:
     """Executes any user-command, returns True if command was executed."""
     from ..util.content import is_message_command  # fmt: skip
 
@@ -155,7 +153,7 @@ def execute_cmd(msg: "Message", log: "LogManager", confirm: "ConfirmFunc") -> bo
     # if message starts with / treat as command
     # absolute paths dont trigger false positives by checking for single /
     if is_message_command(msg.content):
-        for resp in handle_cmd(msg.content, log, confirm):
+        for resp in handle_cmd(msg.content, log):
             log.append(resp)
         return True
     return False
@@ -164,7 +162,6 @@ def execute_cmd(msg: "Message", log: "LogManager", confirm: "ConfirmFunc") -> bo
 def handle_cmd(
     cmd: str,
     manager: "LogManager",
-    confirm: "ConfirmFunc",
 ) -> Generator["Message", None, None]:
     """Handles a command."""
     cmd = cmd.lstrip("/")
@@ -174,9 +171,7 @@ def handle_cmd(
 
     # Check if command is registered
     if name in _command_registry:
-        ctx = CommandContext(
-            args=args, full_args=full_args, manager=manager, confirm=confirm
-        )
+        ctx = CommandContext(args=args, full_args=full_args, manager=manager)
         yield from _command_registry[name](ctx)
         return
 
@@ -185,7 +180,7 @@ def handle_cmd(
 
     tooluse = ToolUse(name, [], full_args)
     if tooluse.is_runnable:
-        yield from tooluse.execute(confirm, manager.log, manager.workspace)
+        yield from tooluse.execute(log=manager.log, workspace=manager.workspace)
     else:
         manager.undo(1, quiet=True)
         print("Unknown command")

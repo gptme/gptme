@@ -17,7 +17,6 @@ from ..telemetry import trace_function
 from ..util.interrupt import clear_interruptible
 from ..util.terminal import terminal_state_title
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolFormat,
     ToolSpec,
@@ -38,7 +37,6 @@ __all__ = [
     "ToolUse",
     "ToolFormat",
     "Parameter",
-    "ConfirmFunc",
     # functions
     "get_tool_format",
     "set_tool_format",
@@ -201,16 +199,16 @@ def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
 @trace_function(name="tools.execute_msg", attributes={"component": "tools"})
 def execute_msg(
     msg: Message,
-    confirm: ConfirmFunc,
     log: Log | None = None,
     workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
-    """Uses any tools called in a message and returns the response.
+    """
+    Uses any tools called in a message and returns the response.
 
     If GPTME_TOOLUSE_PARALLEL is enabled, executes independent tool calls
     in parallel using threads.
     """
-    from .parallel import execute_tools_parallel, is_parallel_enabled
+    from .parallel import execute_tools_parallel, is_parallel_enabled  # fmt: skip
 
     assert msg.role == "assistant", "Only assistant messages can be executed"
 
@@ -226,7 +224,7 @@ def execute_msg(
     if is_parallel_enabled() and len(runnable_tools) > 1:
         logger.info(f"Executing {len(runnable_tools)} tools in parallel")
         try:
-            results = execute_tools_parallel(runnable_tools, confirm, log, workspace)
+            results = execute_tools_parallel(runnable_tools, log, workspace)
             yield from results
         except KeyboardInterrupt:
             clear_interruptible()
@@ -236,7 +234,7 @@ def execute_msg(
         for tooluse in runnable_tools:
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 try:
-                    for tool_response in tooluse.execute(confirm, log, workspace):
+                    for tool_response in tooluse.execute(log=log, workspace=workspace):
                         yield tool_response.replace(call_id=tooluse.call_id)
                 except KeyboardInterrupt:
                     clear_interruptible()

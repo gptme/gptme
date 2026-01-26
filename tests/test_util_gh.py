@@ -106,7 +106,6 @@ def test_gh_tool_read_pr():
         None,
         ["pr", "view", "https://github.com/gptme/gptme/pull/687"],
         None,
-        lambda x: True,  # confirm function
     )
     # Handle both Generator and Message return types
     from collections.abc import Generator as GenType
@@ -146,7 +145,6 @@ def test_gh_tool_read_pr_invalid_url():
         None,
         ["pr", "view", "https://invalid-url.com"],
         None,
-        lambda x: True,
     )
     from collections.abc import Generator as GenType
 

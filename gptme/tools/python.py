@@ -16,11 +16,11 @@ from logging import getLogger
 from typing import TYPE_CHECKING, TypeVar
 
 from ..constants import DECLINED_CONTENT
+from ..hooks import confirm
 from ..message import Message
 from ..util.ask_execute import print_preview
 from . import get_tools
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolSpec,
     ToolUse,
@@ -102,7 +102,6 @@ def execute_python(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc = lambda _: True,
 ) -> Generator[Message, None, None]:
     """Executes a python codeblock and returns the output."""
     from IPython.core.interactiveshell import ExecutionResult  # fmt: skip

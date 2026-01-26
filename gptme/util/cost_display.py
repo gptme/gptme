@@ -172,9 +172,14 @@ def display_costs(
     )
 
     if last_req:
+        last_req_total_in = (
+            last_req.input_tokens
+            + last_req.cache_read_tokens
+            + last_req.cache_creation_tokens
+        )
         console.log("[bold]Last Request:[/bold]")
         console.log(
-            f"  Tokens:  {last_req.input_tokens:,} in / {last_req.output_tokens:,} out"
+            f"  Tokens:  {last_req_total_in:,} in / {last_req.output_tokens:,} out"
         )
         console.log(
             f"  Cache:   {last_req.cache_read_tokens:,} read / {last_req.cache_creation_tokens:,} created"
@@ -198,7 +203,10 @@ def display_costs(
 
 def _display_total(total: TotalCosts) -> None:
     """Helper to display total costs."""
-    console.log(f"  Tokens:  {total.input_tokens:,} in / {total.output_tokens:,} out")
+    total_in = (
+        total.input_tokens + total.cache_read_tokens + total.cache_creation_tokens
+    )
+    console.log(f"  Tokens:  {total_in:,} in / {total.output_tokens:,} out")
     console.log(
         f"  Cache:   {total.cache_read_tokens:,} read / {total.cache_creation_tokens:,} created"
     )

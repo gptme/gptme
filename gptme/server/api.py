@@ -291,11 +291,6 @@ def api_conversation_post(logfile: str):
     return {"status": "ok"}
 
 
-# TODO: add support for confirmation
-def confirm_func(msg: str) -> bool:
-    return True
-
-
 # generate response
 @api.route("/api/conversations/<string:logfile>/generate", methods=["POST"])
 @api_doc_simple(
@@ -352,7 +347,8 @@ def api_conversation_generate(logfile: str):
             manager.append(msg)
 
             # Execute any tools
-            reply_msgs = list(execute_msg(msg, confirm_func))
+            # Note: confirmation is now handled within ToolUse.execute()
+            reply_msgs = list(execute_msg(msg))
             for reply_msg in reply_msgs:
                 manager.append(reply_msg)
 
@@ -392,7 +388,7 @@ def api_conversation_generate(logfile: str):
                 f = io.StringIO()
                 print("Begin capturing stdout, to pass along command output.")
                 with redirect_stdout(f):
-                    resp = execute_cmd(manager.log[-1], manager, confirm_func)
+                    resp = execute_cmd(manager.log[-1], manager)
                 print("Done capturing stdout.")
                 output = f.getvalue().strip()
                 if resp and output:
@@ -424,7 +420,8 @@ def api_conversation_generate(logfile: str):
             yield f"data: {flask.json.dumps({'role': 'assistant', 'content': output, 'stored': True})}\n\n"
 
             # Execute any tools and stream their output
-            tool_replies = list(execute_msg(msg, confirm_func))
+            # Note: confirmation is now handled within ToolUse.execute()
+            tool_replies = list(execute_msg(msg))
             for reply_msg in tool_replies:
                 logger.debug(
                     f"Tool output: {reply_msg.role} - {reply_msg.content[:100]}..."
@@ -592,5 +589,8 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
     from .auth import init_auth  # fmt: skip
 
     init_auth(host=host, display=False)
+
+    # Server confirmation hook is now registered via init_hooks(server=True)
+    # in server/cli.py
 
     return app

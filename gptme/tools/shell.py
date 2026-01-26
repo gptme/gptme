@@ -35,7 +35,6 @@ from ..util.ask_execute import execute_with_confirmation
 from ..util.output_storage import save_large_output
 from ..util.tokens import get_tokenizer
 from .base import (
-    ConfirmFunc,
     Parameter,
     ToolSpec,
     ToolUse,
@@ -843,6 +842,40 @@ def is_allowlisted(cmd: str) -> bool:
     return True
 
 
+def shell_allowlist_hook(
+    tool_use: "ToolUse",
+    preview: str | None = None,
+    workspace: "Path | None" = None,
+):
+    """Auto-approve hook for allowlisted shell commands.
+
+    This hook is registered with high priority (10) to check allowlisted
+    commands before falling through to CLI/server confirmation hooks.
+
+    Returns:
+        ConfirmationResult.confirm() for allowlisted commands,
+        None to fall through to the next hook for non-allowlisted commands.
+    """
+    from ..hooks.confirm import ConfirmationResult
+
+    # Only handle shell tool
+    if tool_use.tool != "shell":
+        return None
+
+    # Get the command from the tool use
+    cmd = tool_use.content.strip() if tool_use.content else ""
+    if not cmd:
+        return None
+
+    # Check if command is allowlisted
+    if is_allowlisted(cmd):
+        logger.debug(f"Shell command allowlisted, auto-confirming: {cmd[:50]}...")
+        return ConfirmationResult.confirm()
+
+    # Not allowlisted - fall through to next hook (CLI/server)
+    return None
+
+
 def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     """Find all quoted regions in a command string.
 
@@ -1196,7 +1229,7 @@ def execute_kill_command(job_id_str: str) -> Generator[Message, None, None]:
 
 
 def execute_shell_impl(
-    cmd: str, logdir: Path | None, confirm: ConfirmFunc, timeout: float | None = None
+    cmd: str, logdir: Path | None, timeout: float | None = None
 ) -> Generator[Message, None, None]:
     """Execute shell command and format output."""
     shell = get_shell()
@@ -1367,7 +1400,7 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
 
 
 def _execute_preceding_commands(
-    cmds: str, confirm: ConfirmFunc
+    cmds: str,
 ) -> Generator[Message, None, None]:
     """Execute commands that precede a bg command.
 
@@ -1412,7 +1445,6 @@ def execute_shell(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    confirm: ConfirmFunc,
 ) -> Generator[Message, None, None]:
     """Executes a shell command and returns the output."""
     cmd = get_shell_command(code, args, kwargs)
@@ -1444,7 +1476,7 @@ def execute_shell(
             preceding_cmds = "\n".join(lines[:bg_line_idx])
             if preceding_cmds.strip():
                 # Execute preceding commands (they modify shell state like cd)
-                yield from _execute_preceding_commands(preceding_cmds, confirm)
+                yield from _execute_preceding_commands(preceding_cmds)
             # Now execute the bg command
             bg_line = lines[bg_line_idx].strip()
             bg_cmd = bg_line[3:].strip()  # Remove "bg " prefix
@@ -1453,7 +1485,7 @@ def execute_shell(
             if bg_line_idx < len(lines) - 1:
                 remaining_cmds = "\n".join(lines[bg_line_idx + 1 :])
                 if remaining_cmds.strip():
-                    yield from execute_shell(remaining_cmds, None, None, confirm)
+                    yield from execute_shell(remaining_cmds, None, None)
             return
         else:
             # bg is first line but there are more lines after it
@@ -1463,7 +1495,7 @@ def execute_shell(
             yield from execute_bg_command(bg_cmd)
             remaining_cmds = "\n".join(lines[1:])
             if remaining_cmds.strip():
-                yield from execute_shell(remaining_cmds, None, None, confirm)
+                yield from execute_shell(remaining_cmds, None, None)
             return
 
     if cmd_lower == "jobs":
@@ -1518,19 +1550,16 @@ def execute_shell(
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
         logdir = get_path_fn()
-        yield from execute_shell_impl(cmd, logdir, lambda _: True, timeout=timeout)
+        yield from execute_shell_impl(cmd, logdir, timeout=timeout)
     else:
         # Create a wrapper function that passes timeout to execute_shell_impl
-        def execute_fn(
-            cmd: str, path: Path | None, confirm: ConfirmFunc
-        ) -> Generator[Message, None, None]:
-            return execute_shell_impl(cmd, path, confirm, timeout=timeout)
+        def execute_fn(cmd: str, path: Path | None) -> Generator[Message, None, None]:
+            return execute_shell_impl(cmd, path, timeout=timeout)
 
         yield from execute_with_confirmation(
             cmd,
             args,
             kwargs,
-            confirm,
             execute_fn=execute_fn,
             get_path_fn=get_path_fn,
             preview_fn=preview_shell,
@@ -1766,5 +1795,10 @@ tool = ToolSpec(
             required=True,
         ),
     ],
+    # Register shell allowlist hook with high priority (10)
+    # This auto-confirms allowlisted commands before CLI/server hooks (priority 0)
+    hooks={
+        "allowlist": ("tool.confirm", shell_allowlist_hook, 10),
+    },
 )
 __doc__ = tool.get_doc(__doc__)
