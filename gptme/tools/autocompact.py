@@ -865,8 +865,6 @@ def _load_context_files(
     Returns:
         List of (path, content) tuples for files that exist and are readable
     """
-    from ..util.tokens import len_tokens
-
     loaded_files: list[tuple[str, str]] = []
     workspace_path = workspace or Path.cwd()
 
