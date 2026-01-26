@@ -83,6 +83,11 @@ class ServiceManager(ABC):
         ...
 
     @abstractmethod
+    def run(self, name: str) -> bool:
+        """Trigger an immediate one-time run of the agent."""
+        ...
+
+    @abstractmethod
     def status(self, name: str) -> ServiceStatus | None:
         """Get status of the agent service."""
         ...
@@ -200,8 +205,8 @@ WantedBy=timers.target
         return True
 
     def start(self, name: str) -> bool:
-        """Start the agent service (trigger immediate run)."""
-        result = self._run_systemctl("start", f"gptme-agent-{name}.service")
+        """Start the agent timer (enable scheduled runs)."""
+        result = self._run_systemctl("start", f"gptme-agent-{name}.timer")
         return result.returncode == 0
 
     def stop(self, name: str) -> bool:
@@ -212,7 +217,11 @@ WantedBy=timers.target
     def restart(self, name: str) -> bool:
         """Restart the agent timer."""
         self.stop(name)
-        result = self._run_systemctl("start", f"gptme-agent-{name}.timer")
+        return self.start(name)
+
+    def run(self, name: str) -> bool:
+        """Trigger an immediate one-time run of the agent service."""
+        result = self._run_systemctl("start", f"gptme-agent-{name}.service")
         return result.returncode == 0
 
     def status(self, name: str) -> ServiceStatus | None:
@@ -427,19 +436,30 @@ class LaunchdManager(ServiceManager):
         return True
 
     def start(self, name: str) -> bool:
-        """Start the agent (trigger immediate run)."""
-        result = self._run_launchctl("start", f"org.gptme.agent.{name}")
+        """Start the agent (enable scheduled runs by loading plist)."""
+        plist_path = self._plist_path(name)
+        if not plist_path.exists():
+            return False
+        result = self._run_launchctl("load", str(plist_path))
         return result.returncode == 0
 
     def stop(self, name: str) -> bool:
-        """Stop the agent."""
-        result = self._run_launchctl("stop", f"org.gptme.agent.{name}")
+        """Stop the agent (disable scheduled runs by unloading plist)."""
+        plist_path = self._plist_path(name)
+        if not plist_path.exists():
+            return False
+        result = self._run_launchctl("unload", str(plist_path))
         return result.returncode == 0
 
     def restart(self, name: str) -> bool:
-        """Restart the agent."""
+        """Restart the agent (reload plist to pick up changes)."""
         self.stop(name)
         return self.start(name)
+
+    def run(self, name: str) -> bool:
+        """Trigger an immediate one-time run of the agent."""
+        result = self._run_launchctl("start", f"org.gptme.agent.{name}")
+        return result.returncode == 0
 
     def status(self, name: str) -> ServiceStatus | None:
         """Get status of the agent."""

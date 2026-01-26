@@ -424,7 +424,7 @@ def run_cmd(name: str | None):
     agent_name = name or Path.cwd().name
 
     click.echo(f"🚀 Triggering run for agent '{agent_name}'...")
-    if manager.start(agent_name):
+    if manager.run(agent_name):
         click.echo("✅ Run triggered")
         click.echo()
         click.echo(f"View logs: gptme-agent logs {agent_name} --follow")
