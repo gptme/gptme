@@ -21,6 +21,7 @@ gptme-server = "gptme.server.cli:main"
 gptme-acp = "gptme.acp.__main__:main"
 gptme-eval = "gptme.eval.main:main"
 gptme-util = "gptme.util.cli:main"
+gptme-agent = "gptme.agent.cli:main"
 gptme-wut = "gptme.wut:main"
 gptme-dspy = "gptme.eval.dspy:main"
 
