@@ -296,3 +296,97 @@ def test_hook_stop_propagation():
     # Only one message (from high priority hook)
     assert len(results) == 1
     assert results[0].content == "High priority"
+
+
+def test_async_hook():
+    """Test that async hooks run in background without blocking."""
+    import time
+
+    execution_log = []
+    sync_completed = []
+
+    def slow_async_hook(manager):
+        """Async hook that takes some time."""
+        time.sleep(0.1)  # Simulate slow operation
+        execution_log.append("async_completed")
+        # Messages from async hooks are logged, not yielded
+        yield Message("system", "Async hook done")
+
+    def fast_sync_hook(manager):
+        """Sync hook that completes quickly."""
+        sync_completed.append(True)
+        execution_log.append("sync_completed")
+        yield Message("system", "Sync hook done")
+
+    # Register async hook (runs in background)
+    register_hook("slow_async", HookType.STEP_PRE, slow_async_hook, async_mode=True)
+    # Register sync hook (runs normally)
+    register_hook("fast_sync", HookType.STEP_PRE, fast_sync_hook)
+
+    # Trigger hooks - sync should complete immediately
+    results = list(trigger_hook(HookType.STEP_PRE, manager=None))
+
+    # Sync hook should have completed
+    assert len(sync_completed) == 1
+    # Only sync hook's message should be yielded
+    assert len(results) == 1
+    assert results[0].content == "Sync hook done"
+    # At this point, sync completed but async might still be running
+    assert "sync_completed" in execution_log
+
+    # Wait a bit for async hook to complete
+    time.sleep(0.2)
+
+    # Now async should have completed too
+    assert "async_completed" in execution_log
+
+
+def test_async_hook_error_handling():
+    """Test that errors in async hooks don't crash the system."""
+    sync_completed = []
+
+    def failing_async_hook(manager):
+        """Async hook that raises an exception."""
+        raise ValueError("Async hook failed!")
+
+    def normal_sync_hook(manager):
+        """Normal sync hook."""
+        sync_completed.append(True)
+        yield Message("system", "Sync hook done")
+
+    # Register failing async hook
+    register_hook(
+        "failing_async", HookType.STEP_PRE, failing_async_hook, async_mode=True
+    )
+    # Register normal sync hook
+    register_hook("normal_sync", HookType.STEP_PRE, normal_sync_hook)
+
+    # Should not raise, async errors are caught and logged
+    results = list(trigger_hook(HookType.STEP_PRE, manager=None))
+
+    # Sync hook should still work
+    assert len(sync_completed) == 1
+    assert len(results) == 1
+
+
+def test_async_hook_registration():
+    """Test that async_mode is properly stored in hook registration."""
+
+    def my_hook(manager):
+        yield Message("system", "Test")
+
+    # Register with async_mode=True
+    register_hook("async_hook", HookType.STEP_PRE, my_hook, async_mode=True)
+
+    hooks = get_hooks(HookType.STEP_PRE)
+    assert len(hooks) == 1
+    assert hooks[0].name == "async_hook"
+    assert hooks[0].async_mode is True
+
+    # Register without async_mode (default False)
+    register_hook("sync_hook", HookType.STEP_POST, my_hook)
+
+    hooks = get_hooks(HookType.STEP_POST)
+    assert len(hooks) == 1
+    assert hooks[0].name == "sync_hook"
+    assert hooks[0].async_mode is False

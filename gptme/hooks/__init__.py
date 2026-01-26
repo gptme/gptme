@@ -304,6 +304,7 @@ class Hook:
     func: HookFunc
     priority: int = 0  # Higher priority runs first
     enabled: bool = True
+    async_mode: bool = False  # If True, run in background thread without blocking
 
     def __lt__(self, other: "Hook") -> bool:
         """Sort by priority (higher first), then name."""
@@ -324,8 +325,18 @@ class HookRegistry:
         func: HookFunc,
         priority: int = 0,
         enabled: bool = True,
+        async_mode: bool = False,
     ) -> None:
-        """Register a hook."""
+        """Register a hook.
+
+        Args:
+            name: Unique name for the hook
+            hook_type: Type of hook (when it should be triggered)
+            func: The hook function to call
+            priority: Higher priority runs first (default 0)
+            enabled: Whether the hook is enabled (default True)
+            async_mode: If True, run in background thread without blocking (default False)
+        """
         with self._lock:
             if hook_type not in self.hooks:
                 self.hooks[hook_type] = []
@@ -336,6 +347,7 @@ class HookRegistry:
                 func=func,
                 priority=priority,
                 enabled=enabled,
+                async_mode=async_mode,
             )
 
             # Check if hook with same name already exists
@@ -379,7 +391,7 @@ class HookRegistry:
             \\*\\*kwargs: Variable keyword arguments to pass to hook functions
 
         Yields:
-            Messages from hooks
+            Messages from sync hooks (async hooks run in background and don't yield)
         """
         if hook_type not in self.hooks:
             return
@@ -388,12 +400,28 @@ class HookRegistry:
         if not hooks:
             return
 
+        # Separate sync and async hooks
+        sync_hooks = [h for h in hooks if not h.async_mode]
+        async_hooks = [h for h in hooks if h.async_mode]
+
         logger.debug(
-            f"Triggering {len(hooks)} hooks for {hook_type}: {[h.name for h in hooks]}"
+            f"Triggering {len(hooks)} hooks for {hook_type}: "
+            f"{len(sync_hooks)} sync, {len(async_hooks)} async"
         )
 
-        # Collect all results
-        for hook in hooks:
+        # Start async hooks in background threads (fire-and-forget)
+        for hook in async_hooks:
+            thread = threading.Thread(
+                target=self._run_async_hook,
+                args=(hook, args, kwargs),
+                daemon=True,
+                name=f"async-hook-{hook.name}",
+            )
+            thread.start()
+            logger.debug(f"Started async hook '{hook.name}' in background thread")
+
+        # Process sync hooks as before (yielding messages)
+        for hook in sync_hooks:
             try:
                 # TODO: emit span for tracing
                 t_start = time()
@@ -435,6 +463,49 @@ class HookRegistry:
                 # Log other exceptions with full traceback for debugging
                 logger.exception(f"Error executing hook '{hook.name}'")
                 continue  # Skip this hook but continue with others
+
+    def _run_async_hook(self, hook: Hook, args: tuple, kwargs: dict) -> None:
+        """Run an async hook in the background.
+
+        Async hooks run without blocking and their results (messages) are logged
+        but not returned to the main execution flow. They're ideal for:
+        - Logging and telemetry
+        - Notifications
+        - External service calls
+        - Any non-blocking side effects
+        """
+        try:
+            t_start = time()
+            result = hook.func(*args, **kwargs)
+            t_end = time()
+            t_delta = t_end - t_start
+
+            # Process the result (log messages instead of yielding)
+            if hasattr(result, "__iter__") and not isinstance(result, str | bytes):
+                try:
+                    for msg in result:
+                        if isinstance(msg, Message):
+                            logger.debug(
+                                f"Async hook '{hook.name}' produced message: "
+                                f"{msg.content[:100]}..."
+                            )
+                        elif isinstance(msg, StopPropagation):
+                            logger.debug(
+                                f"Async hook '{hook.name}' signaled StopPropagation "
+                                "(ignored in async mode)"
+                            )
+                except TypeError:
+                    pass
+            elif isinstance(result, Message):
+                logger.debug(
+                    f"Async hook '{hook.name}' produced message: "
+                    f"{result.content[:100]}..."
+                )
+
+            logger.debug(f"Async hook '{hook.name}' completed in {t_delta:.4f}s")
+
+        except Exception:
+            logger.exception(f"Error in async hook '{hook.name}'")
 
     def get_hooks(self, hook_type: HookType | None = None) -> list[Hook]:
         """Get all registered hooks, optionally filtered by type."""
@@ -506,6 +577,7 @@ def register_hook(
     func: SessionStartHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -516,6 +588,7 @@ def register_hook(
     func: SessionEndHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -529,6 +602,7 @@ def register_hook(
     func: ToolExecuteHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -539,6 +613,7 @@ def register_hook(
     func: FilePreSaveHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -549,6 +624,7 @@ def register_hook(
     func: FilePostSaveHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -559,6 +635,7 @@ def register_hook(
     func: LoopContinueHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -569,6 +646,7 @@ def register_hook(
     func: GenerationPreHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -579,6 +657,7 @@ def register_hook(
     func: GenerationPostHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -593,6 +672,7 @@ def register_hook(
     func: MessageProcessHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -603,6 +683,7 @@ def register_hook(
     func: CacheInvalidatedHook,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -615,6 +696,7 @@ def register_hook(
     func: HookFunc,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None: ...
 
 
@@ -624,14 +706,24 @@ def register_hook(
     func: HookFunc,
     priority: int = 0,
     enabled: bool = True,
+    async_mode: bool = False,
 ) -> None:
     """Register a hook with the global registry.
 
     Type-safe overloads ensure that registered hooks match their expected Protocol signatures.
     Direct calls with Literal hook types get strict type checking.
     Dynamic calls (non-Literal types) use the generic HookFunc fallback.
+
+    Args:
+        name: Unique name for the hook
+        hook_type: Type of hook (when it should be triggered)
+        func: The hook function to call
+        priority: Higher priority runs first (default 0)
+        enabled: Whether the hook is enabled (default True)
+        async_mode: If True, run in background thread without blocking (default False).
+            Async hooks are ideal for logging, notifications, and external service calls.
     """
-    get_registry().register(name, hook_type, func, priority, enabled)
+    get_registry().register(name, hook_type, func, priority, enabled, async_mode)
 
 
 def unregister_hook(name: str, hook_type: HookType | None = None) -> None:
