@@ -410,6 +410,8 @@ class HookRegistry:
         )
 
         # Start async hooks in background threads (fire-and-forget)
+        # Note: daemon=True is intentional - async hooks are for non-blocking
+        # side effects (logging, telemetry) where completion on exit is not required
         for hook in async_hooks:
             thread = threading.Thread(
                 target=self._run_async_hook,
@@ -485,9 +487,12 @@ class HookRegistry:
                 try:
                     for msg in result:
                         if isinstance(msg, Message):
+                            content = str(msg.content) if msg.content else ""
+                            preview = (
+                                content[:100] + "..." if len(content) > 100 else content
+                            )
                             logger.debug(
-                                f"Async hook '{hook.name}' produced message: "
-                                f"{msg.content[:100]}..."
+                                f"Async hook '{hook.name}' produced message: {preview}"
                             )
                         elif isinstance(msg, StopPropagation):
                             logger.debug(
@@ -497,14 +502,20 @@ class HookRegistry:
                 except TypeError:
                     pass
             elif isinstance(result, Message):
-                logger.debug(
-                    f"Async hook '{hook.name}' produced message: "
-                    f"{result.content[:100]}..."
-                )
+                content = str(result.content) if result.content else ""
+                preview = content[:100] + "..." if len(content) > 100 else content
+                logger.debug(f"Async hook '{hook.name}' produced message: {preview}")
 
             logger.debug(f"Async hook '{hook.name}' completed in {t_delta:.4f}s")
 
-        except Exception:
+        except Exception as e:
+            # Special handling for session termination
+            if e.__class__.__name__ == "SessionCompleteException":
+                logger.info(
+                    f"Async hook '{hook.name}' signaled session completion "
+                    "(note: cannot propagate in async mode)"
+                )
+                return
             logger.exception(f"Error in async hook '{hook.name}'")
 
     def get_hooks(self, hook_type: HookType | None = None) -> list[Hook]:
