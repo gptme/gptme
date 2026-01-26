@@ -37,10 +37,24 @@ def sample_match(sample_lesson):
 
 @pytest.fixture
 def mock_config():
-    """Mock configuration."""
+    """Mock configuration.
+
+    Configures get_env_bool to:
+    - Return True for GPTME_LESSONS_AUTO_INCLUDE
+    - Return False for GPTME_LESSONS_USE_HYBRID (avoid ACE dependencies)
+    - Return default for other keys
+    """
+
+    def get_env_bool_side_effect(key, default=False):
+        if key == "GPTME_LESSONS_AUTO_INCLUDE":
+            return True
+        if key == "GPTME_LESSONS_USE_HYBRID":
+            return False  # Disable hybrid to avoid embedder issues in tests
+        return default
+
     with patch("gptme.tools.lessons.get_config") as mock:
         config = MagicMock()
-        config.get_env_bool = MagicMock(return_value=True)
+        config.get_env_bool = MagicMock(side_effect=get_env_bool_side_effect)
         config.get_env = MagicMock(return_value="5")
         mock.return_value = config
         yield config
@@ -64,6 +78,15 @@ def conversation_log(user_message):
 class TestAutoIncludeLessonsHook:
     """Tests for auto_include_lessons_hook."""
 
+    @pytest.fixture(autouse=True)
+    def reset_session_stats(self):
+        """Reset lesson session stats before each test to ensure isolation."""
+        from gptme.tools.lessons import _reset_session_stats
+
+        _reset_session_stats()
+        yield
+        _reset_session_stats()
+
     @staticmethod
     def _create_manager(messages):
         """Helper to create a mock manager from a list of messages."""
@@ -77,16 +100,26 @@ class TestAutoIncludeLessonsHook:
 
     def test_hook_disabled_by_config(self, conversation_log, mock_config):
         """Test that hook respects GPTME_LESSONS_AUTO_INCLUDE config."""
-        mock_config.get_env_bool.return_value = False
+
+        # Override side_effect to return False for AUTO_INCLUDE
+        def get_env_bool_disabled(key, default=False):
+            if key == "GPTME_LESSONS_AUTO_INCLUDE":
+                return False  # Disabled
+            if key == "GPTME_LESSONS_USE_HYBRID":
+                return False
+            return default
+
+        mock_config.get_env_bool.side_effect = get_env_bool_disabled
 
         messages = list(
             auto_include_lessons_hook(self._create_manager(conversation_log)) or []
         )
         assert len(messages) == 0
 
-        mock_config.get_env_bool.assert_called_once_with(
-            "GPTME_LESSONS_AUTO_INCLUDE", True
-        )
+        # Verify AUTO_INCLUDE was checked (it's the first call)
+        assert mock_config.get_env_bool.call_count >= 1
+        first_call = mock_config.get_env_bool.call_args_list[0]
+        assert first_call[0] == ("GPTME_LESSONS_AUTO_INCLUDE", True)
 
     def test_hook_no_user_message(self, mock_config):
         """Test hook with no user messages."""

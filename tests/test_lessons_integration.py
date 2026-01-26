@@ -201,6 +201,15 @@ class TestDocsLessonsMatching:
 class TestDocsLessonsAutoInclude:
     """Tests auto-include functionality with docs lessons."""
 
+    @pytest.fixture(autouse=True)
+    def reset_session_stats(self):
+        """Reset lesson session stats before each test to ensure isolation."""
+        from gptme.tools.lessons import _reset_session_stats
+
+        _reset_session_stats()
+        yield
+        _reset_session_stats()
+
     @staticmethod
     def _create_manager(messages):
         """Helper to create a mock manager from a list of messages."""
@@ -211,6 +220,25 @@ class TestDocsLessonsAutoInclude:
         manager = MagicMock()
         manager.log = Log(messages)
         return manager
+
+    @staticmethod
+    def _configure_mock_config(mock_cfg):
+        """Configure mock config to enable auto-include but disable hybrid matching.
+
+        This is needed because:
+        - GPTME_LESSONS_AUTO_INCLUDE should be True to test auto-inclusion
+        - GPTME_LESSONS_USE_HYBRID should be False to avoid ACE/embedding dependencies
+        """
+
+        def get_env_bool_side_effect(key, default=False):
+            if key == "GPTME_LESSONS_AUTO_INCLUDE":
+                return True
+            if key == "GPTME_LESSONS_USE_HYBRID":
+                return False  # Disable hybrid to avoid JSON serialization issues
+            return default
+
+        mock_cfg.get_env_bool.side_effect = get_env_bool_side_effect
+        mock_cfg.get_env.return_value = "5"
 
     def test_extract_recent_tools_from_log(self):
         """Test extracting recent tool usage from conversation log."""
@@ -236,9 +264,7 @@ class TestDocsLessonsAutoInclude:
             with patch("gptme.tools.lessons.get_config") as mock_config:
                 # Setup mocks
                 mock_get_index.return_value = docs_lesson_index
-                mock_cfg = mock_config.return_value
-                mock_cfg.get_env_bool.return_value = True
-                mock_cfg.get_env.return_value = "5"
+                self._configure_mock_config(mock_config.return_value)
 
                 messages = list(
                     auto_include_lessons_hook(self._create_manager(log)) or []
@@ -264,9 +290,7 @@ class TestDocsLessonsAutoInclude:
             with patch("gptme.tools.lessons.get_config") as mock_config:
                 # Setup mocks
                 mock_get_index.return_value = docs_lesson_index
-                mock_cfg = mock_config.return_value
-                mock_cfg.get_env_bool.return_value = True
-                mock_cfg.get_env.return_value = "5"
+                self._configure_mock_config(mock_config.return_value)
 
                 messages = list(
                     auto_include_lessons_hook(self._create_manager(log)) or []
@@ -296,9 +320,7 @@ class TestDocsLessonsAutoInclude:
             with patch("gptme.tools.lessons.get_config") as mock_config:
                 # Setup mocks
                 mock_get_index.return_value = docs_lesson_index
-                mock_cfg = mock_config.return_value
-                mock_cfg.get_env_bool.return_value = True
-                mock_cfg.get_env.return_value = "5"
+                self._configure_mock_config(mock_config.return_value)
 
                 messages = list(
                     auto_include_lessons_hook(self._create_manager(log)) or []
