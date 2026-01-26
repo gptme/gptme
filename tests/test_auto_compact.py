@@ -701,3 +701,118 @@ def test_compact_resume_no_model():
         error_msg = results[-1]
         assert error_msg.role == "system"
         assert "No default model configured" in error_msg.content
+
+
+# Tests for context file parsing and loading (Issue #1148)
+
+
+def test_parse_context_files_basic():
+    """Test parsing file paths from resume content."""
+    from gptme.tools.autocompact import _parse_context_files
+
+    content = """
+# Conversation Resume
+
+## Summary
+We worked on implementing a feature.
+
+## Context Files
+
+- `src/main.py` - Main entry point
+- `docs/spec.md` - Specification
+- `tests/test_feature.py` - Test file
+"""
+    files = _parse_context_files(content)
+    assert "src/main.py" in files
+    assert "docs/spec.md" in files
+    assert "tests/test_feature.py" in files
+
+
+def test_parse_context_files_absolute_paths():
+    """Test parsing absolute file paths."""
+    from gptme.tools.autocompact import _parse_context_files
+
+    content = """
+## Context Files
+
+- `/home/user/project/config.yaml` - Config file
+- `~/dotfiles/.bashrc` - Shell config
+"""
+    files = _parse_context_files(content)
+    assert "/home/user/project/config.yaml" in files
+    assert "~/dotfiles/.bashrc" in files
+
+
+def test_parse_context_files_no_section():
+    """Test parsing when no explicit Context Files section exists."""
+    from gptme.tools.autocompact import _parse_context_files
+
+    content = """
+# Resume
+
+Working on the following files:
+- `src/app.py` - Application code
+- `README.md` - Documentation
+"""
+    files = _parse_context_files(content)
+    # Should still find files from the whole content
+    assert len(files) >= 2
+
+
+def test_parse_context_files_filters_urls():
+    """Test that URLs are not parsed as files."""
+    from gptme.tools.autocompact import _parse_context_files
+
+    content = """
+## Context Files
+
+- `src/main.py` - Real file
+- https://github.com/example/repo - URL should be ignored
+- `#heading-link` - Anchor should be ignored
+"""
+    files = _parse_context_files(content)
+    assert "src/main.py" in files
+    assert not any("http" in f for f in files)
+    assert not any(f.startswith("#") for f in files)
+
+
+def test_load_context_files_existing(tmp_path):
+    """Test loading files that exist."""
+    from gptme.tools.autocompact import _load_context_files
+
+    # Create test files
+    test_file = tmp_path / "test.py"
+    test_file.write_text("print('hello')")
+
+    loaded = _load_context_files(["test.py"], workspace=tmp_path)
+    assert len(loaded) == 1
+    assert loaded[0][0] == "test.py"
+    assert "print('hello')" in loaded[0][1]
+
+
+def test_load_context_files_nonexistent(tmp_path):
+    """Test that nonexistent files are skipped gracefully."""
+    from gptme.tools.autocompact import _load_context_files
+
+    loaded = _load_context_files(
+        ["nonexistent.py", "also_missing.md"], workspace=tmp_path
+    )
+    assert len(loaded) == 0
+
+
+def test_load_context_files_truncates_long_files(tmp_path):
+    """Test that very long files are truncated."""
+    from gptme.tools.autocompact import _load_context_files
+
+    # Create a file with lots of content
+    long_content = "x" * 50000 + "\n" + "y" * 50000
+    test_file = tmp_path / "long.txt"
+    test_file.write_text(long_content)
+
+    loaded = _load_context_files(
+        ["long.txt"], workspace=tmp_path, max_tokens_per_file=500
+    )
+    assert len(loaded) == 1
+    # Should be truncated
+    assert len(loaded[0][1]) < len(long_content)
+    assert "truncated" in loaded[0][1].lower()
