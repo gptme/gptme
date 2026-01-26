@@ -627,7 +627,7 @@ skills on-demand requires tool access (e.g., the shell tool to run <cite>cat</ci
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fd6064b4cc0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fb4227c5440&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -665,10 +665,39 @@ to append the code block content to the file at the given path.
 <span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">read_url(url: str) -&gt; str: Read a webpage or PDF in a text format.</span>
+<span class="s">read_url(url: str, max_pages: Union[int, None]) -&gt; str: Read a webpage or PDF in a text format.</span>
+
+<span class="s">    Args:</span>
+<span class="s">        url: URL to read</span>
+<span class="s">        max_pages: For PDFs only - maximum pages to read (default: 10).</span>
+<span class="s">                   Set to 0 to read all pages. Ignored for web pages.</span>
+
 <span class="s">search(query: str, engine: Literal[&quot;google&quot;, &quot;duckduckgo&quot;, &quot;perplexity&quot;]) -&gt; str: Search for a query on a search engine.</span>
 <span class="s">screenshot_url(url: str, path: Union[Path, str, None]) -&gt; Path: Take a screenshot of a webpage.</span>
 <span class="s">read_logs() -&gt; str: Read browser console logs from the last read URL.</span>
+<span class="s">pdf_to_images(url_or_path: str, output_dir: Union[str, Path, None], pages: Union[tuple[int, int], None], dpi: int) -&gt; list[Path]: Convert PDF pages to images using auto-detected CLI tools.</span>
+
+<span class="s">    Auto-detects and uses the first available tool: pdftoppm, ImageMagick convert, or vips.</span>
+
+<span class="s">    Args:</span>
+<span class="s">        url_or_path: URL or local path to PDF file</span>
+<span class="s">        output_dir: Directory to save images (default: creates temp directory)</span>
+<span class="s">        pages: Optional tuple of (first_page, last_page) to convert (1-indexed).</span>
+<span class="s">               If None, converts all pages.</span>
+<span class="s">        dpi: Resolution for output images (default: 150)</span>
+
+<span class="s">    Returns:</span>
+<span class="s">        List of paths to generated PNG images</span>
+
+<span class="s">    Raises:</span>
+<span class="s">        RuntimeError: If no PDF-to-image tools are available</span>
+<span class="s">        subprocess.CalledProcessError: If conversion fails</span>
+
+<span class="s">    Example:</span>
+<span class="s">        &gt;&gt;&gt; images = pdf_to_images(&quot;https://example.com/doc.pdf&quot;)</span>
+<span class="s">        &gt;&gt;&gt; for img in images:</span>
+<span class="s">        ...     view_image(img)  # Analyze with vision tool</span>
+
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -781,6 +810,12 @@ This domain is for use in illustrative examples...
 
 <span class="s">--- Page 2 ---</span>
 <span class="s">[More content...]</span>
+
+<span class="s">---</span>
+<span class="s">**Note**: This PDF has 42 pages. Showing first 10 pages.</span>
+<span class="s">To read more pages, use: `read_url(&#39;...&#39;, max_pages=N)` where N is the desired count, or 0 for all pages.</span>
+
+<span class="s">**Tip**: If this text extraction seems incomplete or garbled (common with scanned documents, complex layouts, or image-heavy PDFs), try vision-based reading: convert pages to images using a PDF-to-image tool, then use the vision tool to analyze them.</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ve extracted the text from the PDF. The paper discusses [summary of key points]...</span>
 
@@ -2060,7 +2095,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 10617</p>
+<p>Tokens: 11001</p>
 </dd></dl>
 
 <dl class="py function">
