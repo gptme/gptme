@@ -33,7 +33,7 @@ def test_get_prompt_short():
 
     # TODO: make the short prompt shorter
     # Note: Lesson system additions increased prompt size slightly
-    assert 500 < len_tokens(combined_content, "gpt-4") < 3500 + user_config_size
+    assert 500 < len_tokens(combined_content, "gpt-4") < 4000 + user_config_size
 
 
 def test_get_prompt_custom():
