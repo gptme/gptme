@@ -32,6 +32,13 @@ class ExecutionEnv:
         """
         raise NotImplementedError
 
+    def cleanup(self) -> None:
+        """
+        Cleans up any resources used by the execution environment.
+        Default implementation does nothing; subclasses can override.
+        """
+        pass
+
 
 class SimpleExecutionEnv(FileStore, ExecutionEnv):
     """

@@ -3,6 +3,8 @@ import json
 from collections.abc import Callable, Generator
 from logging import getLogger
 
+import mcp.types as mcp_types
+
 from gptme.config import Config, MCPServerConfig, get_config, set_config
 
 from ..mcp.client import MCPClient, MCPInterruptedError
@@ -39,7 +41,9 @@ def _get_mcp_client(server_name: str) -> MCPClient | None:
     return _mcp_clients.get(server_name) or _dynamic_servers.get(server_name)
 
 
-def _extract_content_text(item) -> str:
+def _extract_content_text(
+    item: mcp_types.TextContent | mcp_types.ImageContent | mcp_types.EmbeddedResource | str,
+) -> str:
     """Extract text from a content item (TextContent, ImageContent, etc.).
 
     Per MCP spec, content items can be TextContent, ImageContent, or EmbeddedResource.
@@ -47,25 +51,17 @@ def _extract_content_text(item) -> str:
     """
     if isinstance(item, str):
         return item
-    elif hasattr(item, "text"):
-        # TextContent has a 'text' attribute
+    elif isinstance(item, mcp_types.TextContent):
         return item.text
-    elif hasattr(item, "type"):
-        if item.type == "text":
-            return getattr(item, "text", str(item))
-        elif item.type == "image":
-            # ImageContent - return placeholder with metadata
-            mime_type = getattr(item, "mimeType", "unknown")
-            return f"[Image: {mime_type}]"
-        elif item.type == "resource":
-            # EmbeddedResource - return URI or text content
-            resource = getattr(item, "resource", None)
-            if resource:
-                uri = getattr(resource, "uri", "")
-                text = getattr(resource, "text", None)
-                if text:
-                    return f"[Resource: {uri}]\n{text}"
-                return f"[Resource: {uri}]"
+    elif isinstance(item, mcp_types.ImageContent):
+        return f"[Image: {item.mimeType}]"
+    elif isinstance(item, mcp_types.EmbeddedResource):
+        resource = item.resource
+        uri = str(resource.uri)
+        # TextResourceContents has text, BlobResourceContents has blob
+        if isinstance(resource, mcp_types.TextResourceContents):
+            return f"[Resource: {uri}]\n{resource.text}"
+        return f"[Resource: {uri}]"
     return str(item)
 
 
@@ -163,15 +159,12 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
                 # Extract parameters
                 parameters = []
                 # Check if the tool has inputSchema with properties
+                input_schema = mcp_tool.inputSchema
                 if (
-                    hasattr(mcp_tool, "inputSchema")
-                    and isinstance(mcp_tool.inputSchema, dict)
-                    and "properties" in mcp_tool.inputSchema
+                    isinstance(input_schema, dict) and "properties" in input_schema
                 ):
-                    required_params = mcp_tool.inputSchema.get("required", [])
-                    for param_name, param_schema in mcp_tool.inputSchema[
-                        "properties"
-                    ].items():
+                    required_params = input_schema.get("required", [])
+                    for param_name, param_schema in input_schema["properties"].items():
                         parameters.append(
                             Parameter(
                                 name=param_name,
@@ -522,7 +515,7 @@ def list_mcp_resources(server_name: str) -> str:
 
     try:
         result = client.list_resources()
-        resources = result.resources if hasattr(result, "resources") else []
+        resources = result.resources
 
         if not resources:
             return f"No resources available from server '{server_name}'."
@@ -531,9 +524,9 @@ def list_mcp_resources(server_name: str) -> str:
         for resource in resources:
             output.append(f"## {resource.name}")
             output.append(f"**URI:** `{resource.uri}`")
-            if hasattr(resource, "description") and resource.description:
+            if resource.description:
                 output.append(f"**Description:** {resource.description}")
-            if hasattr(resource, "mimeType") and resource.mimeType:
+            if resource.mimeType:
                 output.append(f"**MIME Type:** {resource.mimeType}")
             output.append("")
 
@@ -564,16 +557,16 @@ def read_mcp_resource(server_name: str, uri: str) -> str:
 
     try:
         result = client.read_resource(uri)
-        contents = result.contents if hasattr(result, "contents") else []
+        contents = result.contents
 
         if not contents:
             return f"No content returned for resource '{uri}'."
 
         output = []
         for content in contents:
-            if hasattr(content, "text"):
+            if isinstance(content, mcp_types.TextResourceContents):
                 output.append(content.text)
-            elif hasattr(content, "blob"):
+            elif isinstance(content, mcp_types.BlobResourceContents):
                 # For binary content, indicate it's binary
                 output.append(f"[Binary content: {len(content.blob)} bytes]")
             else:
@@ -607,9 +600,7 @@ def list_mcp_resource_templates(server_name: str) -> str:
 
     try:
         result = client.list_resource_templates()
-        templates = (
-            result.resourceTemplates if hasattr(result, "resourceTemplates") else []
-        )
+        templates = result.resourceTemplates
 
         if not templates:
             return f"No resource templates available from server '{server_name}'."
@@ -618,9 +609,9 @@ def list_mcp_resource_templates(server_name: str) -> str:
         for template in templates:
             output.append(f"## {template.name}")
             output.append(f"**URI Template:** `{template.uriTemplate}`")
-            if hasattr(template, "description") and template.description:
+            if template.description:
                 output.append(f"**Description:** {template.description}")
-            if hasattr(template, "mimeType") and template.mimeType:
+            if template.mimeType:
                 output.append(f"**MIME Type:** {template.mimeType}")
             output.append("")
 
@@ -650,7 +641,7 @@ def list_mcp_prompts(server_name: str) -> str:
 
     try:
         result = client.list_prompts()
-        prompts = result.prompts if hasattr(result, "prompts") else []
+        prompts = result.prompts
 
         if not prompts:
             return f"No prompts available from server '{server_name}'."
@@ -658,17 +649,13 @@ def list_mcp_prompts(server_name: str) -> str:
         output = [f"# Prompts from {server_name}\n"]
         for prompt in prompts:
             output.append(f"## {prompt.name}")
-            if hasattr(prompt, "description") and prompt.description:
+            if prompt.description:
                 output.append(f"**Description:** {prompt.description}")
-            if hasattr(prompt, "arguments") and prompt.arguments:
+            if prompt.arguments:
                 output.append("**Arguments:**")
                 for arg in prompt.arguments:
-                    required = " (required)" if getattr(arg, "required", False) else ""
-                    desc = (
-                        f" - {arg.description}"
-                        if getattr(arg, "description", None)
-                        else ""
-                    )
+                    required = " (required)" if arg.required else ""
+                    desc = f" - {arg.description}" if arg.description else ""
                     output.append(f"  - `{arg.name}`{required}{desc}")
             output.append("")
 
@@ -702,27 +689,23 @@ def get_mcp_prompt(
 
     try:
         result = client.get_prompt(name, arguments)
-        messages = result.messages if hasattr(result, "messages") else []
+        messages = result.messages
 
         if not messages:
             return f"Prompt '{name}' returned no messages."
 
         output = [f"# Prompt: {name}\n"]
-        if hasattr(result, "description") and result.description:
+        if result.description:
             output.append(f"**Description:** {result.description}\n")
 
         for i, msg in enumerate(messages):
-            role = getattr(msg, "role", "unknown")
-            output.append(f"## Message {i + 1} ({role})")
+            output.append(f"## Message {i + 1} ({msg.role})")
 
-            content = getattr(msg, "content", None)
-            if content:
-                # Handle content as list or single item per MCP spec
-                content_items = content if isinstance(content, list) else [content]
-                for item in content_items:
-                    text = _extract_content_text(item)
-                    if text:
-                        output.append(text)
+            content = msg.content
+            # Handle content as TextContent or ImageContent per MCP spec
+            text = _extract_content_text(content)
+            if text:
+                output.append(text)
             output.append("")
 
         return "\n".join(output)

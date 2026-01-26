@@ -971,7 +971,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
 
         # Parse and load context files suggested by the LLM
         suggested_files = _parse_context_files(resume_content)
-        workspace = ctx.manager.workspace if hasattr(ctx.manager, "workspace") else None
+        workspace = ctx.manager.workspace
         loaded_files = _load_context_files(suggested_files, workspace=workspace)
 
         # Extract original system messages (before any user/assistant messages)

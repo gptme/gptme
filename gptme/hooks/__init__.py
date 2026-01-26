@@ -2,7 +2,7 @@
 
 import logging
 import threading
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
@@ -406,18 +406,14 @@ class HookRegistry:
                         f"Hook '{hook.name}' is taking a long time ({t_delta:.4f}s)"
                     )
 
-                # If hook returns a generator, yield from it
-                if hasattr(result, "__iter__") and not isinstance(result, str | bytes):
-                    try:
-                        for msg in result:
-                            if isinstance(msg, StopPropagation):
-                                logger.debug(f"Hook '{hook.name}' stopped propagation")
-                                return  # Stop processing remaining hooks
-                            elif isinstance(msg, Message):
-                                yield msg
-                    except TypeError:
-                        # Not actually iterable, continue
-                        pass
+                # If hook returns an iterable (but not string/bytes), yield from it
+                if isinstance(result, Iterable) and not isinstance(result, str | bytes):
+                    for msg in result:
+                        if isinstance(msg, StopPropagation):
+                            logger.debug(f"Hook '{hook.name}' stopped propagation")
+                            return  # Stop processing remaining hooks
+                        elif isinstance(msg, Message):
+                            yield msg
                 # If hook returns a Message, yield it
                 elif isinstance(result, Message):
                     yield result

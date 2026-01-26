@@ -55,11 +55,7 @@ class TelemetryConnectionErrorFilter(logging.Filter):
             return True
 
         # Check if this is a connection error
-        if (
-            record.levelno == logging.ERROR
-            and hasattr(record, "exc_info")
-            and record.exc_info
-        ):
+        if record.levelno == logging.ERROR and record.exc_info:
             exc_type, exc_value, _ = record.exc_info
             # Check if it's a connection-related error
             if exc_type and (

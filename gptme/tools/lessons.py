@@ -307,7 +307,7 @@ def auto_include_lessons_hook(
             matcher = LessonMatcher()
 
         # Generate session_id from chat_id for tracking (only for hybrid matcher)
-        session_id = manager.chat_id if hasattr(manager, "chat_id") else None
+        session_id = manager.chat_id
 
         # Call matcher with appropriate parameters
         # Only GptmeHybridMatcher supports session_id parameter
