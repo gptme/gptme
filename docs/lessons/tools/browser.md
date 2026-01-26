@@ -76,9 +76,7 @@ read_url("https://example.com/document.pdf", max_pages=0)
 - URL ending in `.pdf`
 - Content-Type header containing `application/pdf`
 
-**Page Limits**: Default extracts first 10 pages. Use `max_pages=N` for more, or `max_pages=0` for all.
-
-**Vision Alternative**: For garbled text (scanned/complex PDFs), convert to images and use vision tool.
+**Vision Alternative**: For scanned/complex PDFs with garbled text, convert to images and use vision.
 
 ### Debugging Web Pages
 ```python
