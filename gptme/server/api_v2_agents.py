@@ -6,22 +6,18 @@ Handles agent creation and management endpoints.
 
 import logging
 import re
-import shlex
-import shutil
-import subprocess
-import tempfile
-import uuid
 from pathlib import Path
 
 import flask
-import tomlkit
 
-from gptme.config import AgentConfig, ChatConfig, ProjectConfig, get_project_config
-from gptme.prompts import get_prompt
+from gptme.config import ProjectConfig
 
-from ..dirs import get_logs_dir
-from ..logmanager import LogManager
-from ..tools import get_toolchain
+# Import shared workspace functions
+from ..agent.workspace import (
+    WorkspaceError,
+    create_workspace_from_template,
+    init_conversation,
+)
 from .auth import require_auth
 from .openapi_docs import (
     AgentCreateRequest,
@@ -89,136 +85,39 @@ def api_agents_put():
     # Ensure path is a Path object and resolved
     path = Path(path).expanduser().resolve()
 
-    # Ensure the folder is empty
-    if path.exists():
-        return flask.jsonify({"error": f"Folder/path already exists: {path}"}), 400
-
+    # Parse project config if provided
     project_config = req_json.get("project_config")
     if project_config:
         project_config = ProjectConfig.from_dict(project_config, workspace=path)
 
-    # Clone the template repo into a temp dir
-    temp_base = tempfile.gettempdir()
-    temp_dir = Path(temp_base) / str(uuid.uuid4())
-    temp_dir.mkdir(parents=True, exist_ok=True)
-
-    command = ["git", "clone"]
-    if template_branch:
-        command.extend(["--branch", template_branch])
-    command.append(template_repo)
-    command.append(str(temp_dir))
-
+    # Create workspace using shared module
     try:
-        clone_result = subprocess.run(
-            command, capture_output=True, check=False, timeout=300
+        create_workspace_from_template(
+            path=path,
+            agent_name=agent_name,
+            template_repo=template_repo,
+            template_branch=template_branch,
+            fork_command=fork_command,
+            project_config=project_config,
         )
-    except subprocess.TimeoutExpired:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        return flask.jsonify(
-            {"error": "Git clone operation timed out (5 minute limit)"}
-        ), 504
-    if clone_result.returncode != 0:
-        logger.error(f"Git clone failed: {clone_result.stderr.decode()}")
-        return flask.jsonify({"error": "Failed to clone template repository"}), 500
+    except WorkspaceError as e:
+        error_msg = str(e)
+        logger.error(f"Workspace creation failed: {error_msg}")
 
-    # Pull in any git submodules
+        # Determine appropriate HTTP status code
+        if "already exists" in error_msg:
+            return flask.jsonify({"error": f"Folder/path already exists: {path}"}), 400
+        elif "timed out" in error_msg.lower():
+            return flask.jsonify({"error": error_msg}), 504
+        else:
+            return flask.jsonify({"error": error_msg}), 500
+
+    # Create initial conversation using shared module
     try:
-        submodule_result = subprocess.run(
-            ["git", "submodule", "update", "--init", "--recursive"],
-            capture_output=True,
-            check=False,
-            cwd=temp_dir,
-            timeout=300,  # 5 minute timeout for submodule operations
-        )
-    except subprocess.TimeoutExpired:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        return flask.jsonify(
-            {"error": "Submodule update timed out (5 minute limit)"}
-        ), 504
-    if submodule_result.returncode != 0:
-        # Delete the temp dir if the submodule update failed
-        logger.error(f"Submodule update failed: {submodule_result.stderr.decode()}")
-        shutil.rmtree(temp_dir)
-        return flask.jsonify({"error": "Failed to update submodules"}), 500
-    logger.info(f"Cloned template repo to {temp_dir}")
-
-    # Run the post-fork command
-    try:
-        post_fork_result = subprocess.run(
-            shlex.split(fork_command),
-            capture_output=True,
-            check=False,
-            cwd=temp_dir,
-            timeout=120,  # 2 minute timeout for post-fork commands
-        )
-        logger.debug(f"Post-fork command result: {post_fork_result}")
-        if post_fork_result.returncode != 0:
-            error_msg = post_fork_result.stderr.decode()
-            if not error_msg:
-                error_msg = post_fork_result.stdout.decode()
-            logger.error(f"Post-fork command failed: {error_msg}")
-
-            # Delete the temp dir and workspace if the post-fork command failed
-            shutil.rmtree(temp_dir)
-            if path.exists():
-                shutil.rmtree(path)
-
-            return flask.jsonify({"error": "Failed to run post-fork command"}), 500
+        conversation_id = init_conversation(workspace=path)
     except Exception as e:
-        # Delete the temp dir and workspace if the post-fork command failed
-        logger.exception(f"Post-fork command exception: {e}")
-        shutil.rmtree(temp_dir)
-        if path.exists():
-            shutil.rmtree(path)
-        return flask.jsonify({"error": "Failed to run post-fork command"}), 500
-    logger.info(f"Post-fork command executed successfully: {fork_command}")
-
-    # Merge in the project config
-    # TODO: with layered project configs (https://github.com/gptme/gptme/issues/584), this should be more sophisticated
-    current_project_config = get_project_config(path)
-    if not current_project_config and not project_config:
-        # No project config, just write the agent name to the config
-        project_config = ProjectConfig(agent=AgentConfig(name=agent_name))
-    elif current_project_config and project_config:
-        # Merge in the project config
-        project_config = current_project_config.merge(project_config)
-    elif current_project_config and not project_config:
-        # Use the current project config
-        project_config = current_project_config
-
-    # Set agent name if not set
-    if not project_config.agent or not project_config.agent.name:
-        project_config.agent = AgentConfig(name=agent_name)
-
-    # Write the project config
-    with open(path / "gptme.toml", "w") as f:
-        f.write(tomlkit.dumps(project_config.to_dict()))
-
-    # Delete the temp dir
-    shutil.rmtree(temp_dir)
-
-    # Create a new empty conversation in the workspace
-    conversation_id = str(uuid.uuid4())
-    logdir = get_logs_dir() / conversation_id
-
-    # Create the log directory
-    logdir.mkdir(parents=True)
-
-    # Load or create the chat config, overriding values from request config if provided
-    request_config = ChatConfig(workspace=path, agent=path)
-    chat_config = ChatConfig.load_or_create(logdir, request_config).save()
-
-    msgs = get_prompt(
-        tools=[t for t in get_toolchain(chat_config.tools)],
-        interactive=chat_config.interactive,
-        tool_format=chat_config.tool_format or "markdown",
-        model=chat_config.model,
-        workspace=path,
-        agent_path=chat_config.agent,
-    )
-
-    log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
-    log.write()
+        logger.exception(f"Failed to initialize conversation: {e}")
+        return flask.jsonify({"error": "Failed to initialize conversation"}), 500
 
     return flask.jsonify(
         {
