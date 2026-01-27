@@ -3,7 +3,7 @@ CLI module - isolates interface/UX from core logic.
 
 This module contains all CLI commands and related utilities:
 - main: The main `gptme` command
-- doctor: The `gptme-doctor` diagnostic command  
+- doctor: The `gptme-doctor` diagnostic command
 - onboard: The `gptme-onboard` setup wizard
 - setup: Setup utilities for shell completions, project config, etc.
 - util: The `gptme-util` utility command with subcommands
