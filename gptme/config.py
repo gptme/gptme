@@ -954,7 +954,7 @@ def setup_config_from_cli(
     elif existing_chat_config and existing_chat_config.tools:
         # When resuming, use saved conversation tools unless CLI override provided
         resolved_tool_allowlist = existing_chat_config.tools
-    elif tools_env := config.get_env("TOOLS"):
+    elif tools_env := config.get_env("TOOL_ALLOWLIST"):
         # Fall back to env/config for new conversations or when no saved tools
         resolved_tool_allowlist = [tool.strip() for tool in tools_env.split(",")]
 
