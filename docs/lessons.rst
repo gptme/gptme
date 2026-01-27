@@ -3,7 +3,7 @@ Lessons
 
 The lesson system provides contextual guidance and best practices that are automatically included in conversations when relevant. Lessons help users follow recommended patterns and avoid common pitfalls.
 
-The lesson system is the **core knowledge system** in gptme. :doc:`skills/README` are a special case of lessons that follow Anthropic's folder-style format.
+The lesson system is the **core knowledge system** in gptme. :doc:`skills` are a special case of lessons that follow Anthropic's folder-style format.
 
 Overview
 --------
@@ -46,7 +46,7 @@ The lesson system supports two formats:
 | Bundled scripts   | No                                 | Yes (optional)                     |
 +-------------------+------------------------------------+------------------------------------+
 
-See :doc:`skills/README` for details on the skills format.
+See :doc:`skills` for details on the skills format.
 
 How Lessons Work
 ----------------
@@ -358,7 +358,7 @@ This shows which lessons match and why.
 See Also
 --------
 
-- :doc:`skills/README` - Skills format (Anthropic-style knowledge bundles)
+- :doc:`skills` - Skills format (Anthropic-style knowledge bundles)
 - :doc:`tools` - Available tools that lessons can reference
 - :doc:`config` - Configuration options
 - :doc:`custom_tool` - Creating custom tools with lessons
