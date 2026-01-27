@@ -1,6 +1,6 @@
-# Skills System
+# Skills
 
-> **Note**: Skills are a **special case of lessons** using Anthropic's folder-style format. They follow different matching semantics: lessons auto-load by **keywords/patterns/tools**, while skills auto-load by **name only**. For deep runtime integration (hooks, custom tools, commands), use [plugins](../plugins.rst) instead.
+> **Note**: Skills are a **special case of lessons** using Anthropic's folder-style format. In gptme, skills auto-load when their **name appears in the message** (e.g., mentioning "python-repl" loads that skill). This differs from lessons which auto-load by keywords/patterns/tools. For deep runtime integration, use [plugins](../plugins.rst).
 
 The skills system extends gptme's [lesson system](../lessons.rst) to support bundled tools, scripts, and workflows inspired by Claude's Skills system and Cursor's rules system.
 
@@ -37,7 +37,7 @@ This means:
 | Dependencies | None | Explicit package requirements | Python package dependencies |
 | Hooks | No | No | Yes |
 | Custom Tools | No | No | Yes |
-| Format | Markdown with `match:` | Anthropic YAML | Python package |
+| Frontmatter | `match: {keywords, tools}` | `name:`, `description:` | N/A |
 
 **When to use**:
 - **Lesson**: Teaching patterns, best practices, tool usage
