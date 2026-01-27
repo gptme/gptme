@@ -69,6 +69,7 @@ def _test_provider(provider: str) -> tuple[bool, str]:
         "groq": "GROQ_API_KEY",
         "deepseek": "DEEPSEEK_API_KEY",
         "xai": "XAI_API_KEY",
+        "azure": "AZURE_OPENAI_API_KEY",
     }
 
     env_var = env_vars.get(provider)
@@ -117,8 +118,12 @@ def _select_provider(providers: dict[str, tuple[bool, str | None]]) -> str | Non
     for i, provider in enumerate(available, 1):
         # Cast to BuiltinProvider for type safety (we only support builtins here)
         if provider in PROVIDERS:
-            rec_model = get_recommended_model(cast(BuiltinProvider, provider))
-            console.print(f"  {i}. {provider} (recommended: {rec_model})")
+            try:
+                rec_model = get_recommended_model(cast(BuiltinProvider, provider))
+                console.print(f"  {i}. {provider} (recommended: {rec_model})")
+            except ValueError:
+                # Provider doesn't have a recommended model configured
+                console.print(f"  {i}. {provider}")
         else:
             console.print(f"  {i}. {provider}")
 
@@ -154,8 +159,12 @@ def _create_config(provider: str, model: str | None = None) -> Path:
 
     if model is None:
         if provider in PROVIDERS:
-            rec_model = get_recommended_model(cast(BuiltinProvider, provider))
-            model = f"{provider}/{rec_model}"
+            try:
+                rec_model = get_recommended_model(cast(BuiltinProvider, provider))
+                model = f"{provider}/{rec_model}"
+            except ValueError:
+                # Provider doesn't have a recommended model configured
+                model = provider
         else:
             model = provider
 
@@ -247,8 +256,12 @@ def _run_wizard(check_only: bool = False) -> int:
 
     # Ask for model preference
     if selected in PROVIDERS:
-        rec_model = get_recommended_model(cast(BuiltinProvider, selected))
-        default_model = f"{selected}/{rec_model}"
+        try:
+            rec_model = get_recommended_model(cast(BuiltinProvider, selected))
+            default_model = f"{selected}/{rec_model}"
+        except ValueError:
+            # Provider doesn't have a recommended model configured
+            default_model = selected
     else:
         default_model = selected
     model = Prompt.ask("Default model", default=default_model)
