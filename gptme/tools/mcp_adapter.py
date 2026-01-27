@@ -44,13 +44,15 @@ def _get_mcp_client(server_name: str) -> MCPClient | None:
 def _extract_content_text(
     item: mcp_types.TextContent
     | mcp_types.ImageContent
+    | mcp_types.AudioContent
+    | mcp_types.ResourceLink
     | mcp_types.EmbeddedResource
     | str,
 ) -> str:
     """Extract text from a content item (TextContent, ImageContent, etc.).
 
-    Per MCP spec, content items can be TextContent, ImageContent, or EmbeddedResource.
-    This function handles all types gracefully.
+    Per MCP spec, content items can be TextContent, ImageContent, AudioContent,
+    ResourceLink, or EmbeddedResource. This function handles all types gracefully.
     """
     if isinstance(item, str):
         return item
@@ -58,6 +60,10 @@ def _extract_content_text(
         return item.text
     elif isinstance(item, mcp_types.ImageContent):
         return f"[Image: {item.mimeType}]"
+    elif isinstance(item, mcp_types.AudioContent):
+        return f"[Audio: {item.mimeType}]"
+    elif isinstance(item, mcp_types.ResourceLink):
+        return f"[Resource Link: {item.uri}]"
     elif isinstance(item, mcp_types.EmbeddedResource):
         resource = item.resource
         uri = str(resource.uri)
