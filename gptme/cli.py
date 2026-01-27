@@ -24,6 +24,7 @@ from .message import Message
 from .prompts import get_prompt
 from .telemetry import init_telemetry, shutdown_telemetry
 from .tools import ToolFormat, get_available_tools, init_tools
+from .profiles import get_profile, list_profiles as list_available_profiles
 from .util import epoch_to_age
 from .util.auto_naming import generate_conversation_id
 from .util.interrupt import handle_keyboard_interrupt, set_interruptible
@@ -123,6 +124,18 @@ The interface provides user commands that can be used to interact with the syste
     help=f"Tools to allow. Can be specified multiple times or comma-separated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Available: {available_tool_names}.",
 )
 @click.option(
+    "--agent-profile",
+    "agent_profile",
+    default=None,
+    help="Agent profile to use. Profiles define system prompts, tool access, and behavior rules. See --list-profiles.",
+)
+@click.option(
+    "--list-profiles",
+    "list_profiles",
+    is_flag=True,
+    help="List available agent profiles and exit.",
+)
+@click.option(
     "--tool-format",
     "tool_format",
     default=None,
@@ -195,6 +208,8 @@ def main(
     name: str,
     model: str | None,
     tool_allowlist: tuple[str, ...],
+    agent_profile: str | None,
+    list_profiles: bool,
     tool_format: ToolFormat | None,
     stream: bool,
     verbose: bool,
@@ -322,6 +337,51 @@ def main(
         print(f"Logs dir: {get_logs_dir()}")
 
         exit(0)
+
+    # Handle --list-profiles
+    if list_profiles:
+        from rich.console import Console
+        from rich.table import Table
+
+        console = Console()
+        profiles = list_available_profiles()
+
+        table = Table(title="Available Agent Profiles")
+        table.add_column("Name", style="cyan")
+        table.add_column("Description", style="green")
+        table.add_column("Tools", style="yellow")
+        table.add_column("Behavior", style="magenta")
+
+        for name, profile in sorted(profiles.items()):
+            tools_str = ", ".join(profile.tools) if profile.tools else "all"
+            behavior_flags = []
+            if profile.behavior.read_only:
+                behavior_flags.append("read-only")
+            if profile.behavior.no_network:
+                behavior_flags.append("no-network")
+            if profile.behavior.confirm_writes:
+                behavior_flags.append("confirm-writes")
+            behavior_str = ", ".join(behavior_flags) if behavior_flags else "default"
+
+            table.add_row(name, profile.description, tools_str, behavior_str)
+
+        console.print(table)
+        exit(0)
+
+    # Apply agent profile if specified
+    selected_profile = None
+    if agent_profile:
+        selected_profile = get_profile(agent_profile)
+        if not selected_profile:
+            print(f"Unknown profile: {agent_profile}")
+            print("Use --list-profiles to see available profiles.")
+            exit(1)
+
+        logger.info(f"Using agent profile: {selected_profile.name}")
+
+        # Apply profile tools if no explicit tools specified
+        if not tool_allowlist and selected_profile.tools is not None:
+            tool_allowlist = tuple(selected_profile.tools)
 
     if "PYTEST_CURRENT_TEST" in os.environ:
         interactive = False
@@ -466,6 +526,16 @@ def main(
             context_mode=context_mode,  # type: ignore[arg-type]  # click returns str
             context_include=list(context_include) if context_include else None,
         )
+
+        # Append profile system prompt if using a profile
+        if selected_profile and selected_profile.system_prompt:
+            from .message import Message
+
+            profile_msg = Message(
+                "system",
+                f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
+            )
+            initial_msgs.append(profile_msg)
 
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready
