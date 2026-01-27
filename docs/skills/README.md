@@ -1,29 +1,43 @@
 # Skills System
 
-> **Note**: Skills are **lightweight knowledge bundles** using Anthropic's folder-style format. The core of it builds on gptme's native [lessons](../lessons.rst) system. For deep runtime integration (hooks, custom tools, commands), use [plugins](../plugins.rst) instead.
+> **Note**: Skills are a **special case of lessons** using Anthropic's folder-style format. They follow different matching semantics: lessons auto-load by **keywords/patterns/tools**, while skills auto-load by **name only**. For deep runtime integration (hooks, custom tools, commands), use [plugins](../plugins.rst) instead.
 
-The skills system extends gptme's lesson system to support bundled tools, scripts, and workflows inspired by Claude's Skills system and Cursor's rules system.
+The skills system extends gptme's [lesson system](../lessons.rst) to support bundled tools, scripts, and workflows inspired by Claude's Skills system and Cursor's rules system.
 
 ## Overview
 
-**Skills** are enhanced lessons that bundle:
+**Skills** are lessons that follow Anthropic's format and can bundle:
 - Instructional content (like lessons)
 - Executable scripts and utilities
 - Dependencies and setup requirements
 
 Skills complement lessons by providing **executable components** alongside guidance.
 
+## Key Difference: Matching Behavior
+
+The most important difference between lessons and skills is **how they are auto-loaded**:
+
+| Format | Auto-loading Trigger | Example |
+|--------|---------------------|---------|
+| **Lessons** | Keywords, patterns, tools in conversation | Mentioning "git commit" loads git lesson |
+| **Skills** | Skill name appears in message | Mentioning "python-repl" loads that skill |
+
+This means:
+- **Lessons** are proactive: they appear when relevant context is detected
+- **Skills** are explicit: they appear when specifically mentioned by name
+
 ## Skill vs. Lesson vs. Plugin
 
 | Feature | Lesson | Skill | Plugin |
 |---------|--------|-------|--------|
 | Purpose | Guidance and patterns | Executable workflows | Deep runtime integration |
+| Auto-loading | Keywords, patterns, tools | Name only | N/A (always loaded) |
 | Content | Instructions, examples | Instructions + scripts | Tools, hooks, commands |
 | Scripts | None | Bundled helper scripts | Via custom tools |
 | Dependencies | None | Explicit package requirements | Python package dependencies |
 | Hooks | No | No | Yes |
 | Custom Tools | No | No | Yes |
-| Format | Markdown | Anthropic YAML | Python package |
+| Format | Markdown with `match:` | Anthropic YAML | Python package |
 
 **When to use**:
 - **Lesson**: Teaching patterns, best practices, tool usage
