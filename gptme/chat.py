@@ -96,9 +96,13 @@ def chat(
 
     default_model = get_default_model()
     # Only require default_model if no explicit model was passed
-    if model is None and default_model is None:
-        raise AssertionError("No model loaded and no model specified")
-    model_to_use = model if model else default_model.full
+    # Use nested if/else for proper mypy type narrowing
+    if model is None:
+        if default_model is None:
+            raise AssertionError("No model loaded and no model specified")
+        model_to_use = default_model.full
+    else:
+        model_to_use = model
     modelmeta = get_model(model_to_use)
     if not modelmeta.supports_streaming and stream:
         logger.info(
@@ -467,9 +471,11 @@ def step(
     """Runs a single pass of the chat - generates response and executes tools."""
     default_model = get_default_model()
     # Only require default_model if no explicit model was passed
-    if model is None and default_model is None:
-        raise AssertionError("No model loaded and no model specified")
-    model = model if model else default_model.full
+    # Use nested if/else for proper mypy type narrowing
+    if model is None:
+        if default_model is None:
+            raise AssertionError("No model loaded and no model specified")
+        model = default_model.full
     if isinstance(log, list):
         log = Log(log)
 
