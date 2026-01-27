@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 import sys
@@ -346,18 +347,20 @@ def _process_message_conversation(
                             )
                         else:
                             logger.warning("Auto-naming failed")
-                    except Exception as e:
-                        logger.warning(f"Failed to auto-generate name: {e}")
+                    except Exception:
+                        logger.exception("Failed to auto-generate name")
 
                 # Start naming in background thread (daemon so it doesn't block exit)
                 # Get current model dynamically (model param may be None)
                 current_model = get_default_model()
-                thread = threading.Thread(
-                    target=_auto_name_thread,
-                    args=(chat_config, manager.log.messages.copy(), current_model),
-                    daemon=True,
-                )
-                thread.start()
+                if current_model:
+                    # deepcopy to prevent shared state with main thread
+                    thread = threading.Thread(
+                        target=_auto_name_thread,
+                        args=(chat_config, copy.deepcopy(manager.log.messages), current_model.full),
+                        daemon=True,
+                    )
+                    thread.start()
 
         # Check if there are any runnable tools left
         last_content = next(
