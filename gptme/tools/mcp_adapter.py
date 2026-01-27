@@ -42,7 +42,10 @@ def _get_mcp_client(server_name: str) -> MCPClient | None:
 
 
 def _extract_content_text(
-    item: mcp_types.TextContent | mcp_types.ImageContent | mcp_types.EmbeddedResource | str,
+    item: mcp_types.TextContent
+    | mcp_types.ImageContent
+    | mcp_types.EmbeddedResource
+    | str,
 ) -> str:
     """Extract text from a content item (TextContent, ImageContent, etc.).
 
@@ -160,9 +163,7 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
                 parameters = []
                 # Check if the tool has inputSchema with properties
                 input_schema = mcp_tool.inputSchema
-                if (
-                    isinstance(input_schema, dict) and "properties" in input_schema
-                ):
+                if isinstance(input_schema, dict) and "properties" in input_schema:
                     required_params = input_schema.get("required", [])
                     for param_name, param_schema in input_schema["properties"].items():
                         parameters.append(
