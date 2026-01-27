@@ -554,9 +554,8 @@ def _truncate_context_output(
     # Keep the first portion of output with truncation notice
     truncated = output[:max_chars]
     # Find a good break point (newline) to avoid cutting mid-line
-    last_newline = truncated.rfind("\n", max_chars - 1000, max_chars)
-    if last_newline > max_chars - 1000:
-        truncated = truncated[:last_newline]
+    last_newline = truncated.rfind("\n", max(0, max_chars - 1000), max_chars)
+    if last_newline > max(0, max_chars - 1000):
 
     original_chars = len(output)
     kept_chars = len(truncated)
