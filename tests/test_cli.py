@@ -108,6 +108,19 @@ def test_command_tools(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
 
 
+def test_command_doctor(args: list[str], runner: CliRunner):
+    args.append("/doctor")
+    result = runner.invoke(gptme.cli.main, args)
+    # The /doctor command runs diagnostics and outputs results
+    # Check for expected output elements from the doctor command
+    # Note: Exit code may be non-zero if there are warnings/errors in diagnostics
+    output_lower = result.output.lower()
+    assert any(
+        term in output_lower
+        for term in ["config", "api key", "tool", "doctor", "diagnostics"]
+    ), f"Expected diagnostic output, got: {result.output[:500]}"
+
+
 @pytest.mark.slow
 @pytest.mark.requires_api
 def test_command_summarize(args: list[str], runner: CliRunner, monkeypatch):

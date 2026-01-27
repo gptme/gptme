@@ -31,6 +31,7 @@ Actions = Literal[
     "clear",
     "plugin",
     "setup",
+    "doctor",
     "restart",
     "help",
     "exit",
@@ -56,6 +57,7 @@ action_descriptions: dict[Actions, str] = {
     "plugin": "Manage plugins",
     "clear": "Clear the terminal screen",
     "setup": "Setup gptme with completions and configuration",
+    "doctor": "Run system diagnostics",
     "restart": "Restart gptme process",
     "help": "Show this help message",
     "exit": "Exit the program",
@@ -83,6 +85,16 @@ def cmd_setup(ctx: CommandContext) -> None:
     ctx.manager.undo(1, quiet=True)
     ctx.manager.write()
     setup()
+
+
+@command("doctor")
+def cmd_doctor(ctx: CommandContext) -> None:
+    """Run system diagnostics to check gptme health."""
+    from ..doctor import main as doctor_main
+
+    ctx.manager.undo(1, quiet=True)
+    ctx.manager.write()
+    doctor_main()
 
 
 @command("help")
