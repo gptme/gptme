@@ -13,6 +13,7 @@ Usage:
 """
 
 import logging
+import shlex
 import sys
 from pathlib import Path
 
@@ -226,7 +227,9 @@ def setup_cmd(
             click.echo(f"   Branch: {template_branch}")
 
             # The fork.sh in gptme-agent-template expects: ./fork.sh <path> <name>
-            fork_command = f"./fork.sh {workspace} {agent_name}"
+            fork_command = (
+                f"./fork.sh {shlex.quote(str(workspace))} {shlex.quote(agent_name)}"
+            )
 
             create_workspace_from_template(
                 path=workspace,
