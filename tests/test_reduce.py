@@ -28,7 +28,7 @@ def test_truncate_msg():
     len_post = len_tokens(truncated, "gpt-4")
     assert len_pre > len_post
     assert "[...]" in truncated.content
-    assert "```cli.py" in truncated.content
+    assert "```main.py" in truncated.content
     assert "```index.html" in truncated.content
 
 

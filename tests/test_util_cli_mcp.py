@@ -14,7 +14,7 @@ def mock_config(mocker):
     config = Mock()
     config.mcp.enabled = True
     config.mcp.servers = []
-    mocker.patch("gptme.util.cli.get_config", return_value=config)
+    mocker.patch("gptme.cli.util.get_config", return_value=config)
     return config
 
 
@@ -22,7 +22,7 @@ def mock_config(mocker):
 def mock_mcp_client(mocker):
     """Mock MCPClient for connection testing."""
     client_mock = Mock()
-    mocker.patch("gptme.util.cli.MCPClient", return_value=client_mock)
+    mocker.patch("gptme.cli.util.MCPClient", return_value=client_mock)
     return client_mock
 
 
