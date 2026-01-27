@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Sequence
 
-from gptme._keyword_matching import (
+from gptme.util.keyword_matching import (
     _match_keyword,
     _match_pattern,
 )

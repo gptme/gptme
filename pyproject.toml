@@ -24,7 +24,7 @@ gptme-util = "gptme.cli.util:main"
 gptme-agent = "gptme.agent.cli:main"
 gptme-doctor = "gptme.cli.doctor:main"
 gptme-onboard = "gptme.cli.onboard:main"
-gptme-wut = "gptme.wut:main"
+gptme-wut = "gptme.cli.wut:main"
 gptme-dspy = "gptme.eval.dspy:main"
 
 [tool.poetry]

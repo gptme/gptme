@@ -4,7 +4,7 @@ import logging
 import os
 from dataclasses import dataclass
 
-from gptme._keyword_matching import (
+from gptme.util.keyword_matching import (
     _compile_pattern,
     _keyword_to_pattern,
     _match_keyword,

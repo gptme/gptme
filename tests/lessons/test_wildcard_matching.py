@@ -1,6 +1,6 @@
 """Tests for wildcard and pattern matching in lessons."""
 
-from gptme._keyword_matching import (
+from gptme.util.keyword_matching import (
     _compile_pattern,
     _keyword_to_pattern,
     _match_keyword,
@@ -385,14 +385,14 @@ class TestEdgeCases:
 
     def test_empty_keyword_returns_none_pattern(self):
         """Empty keyword should return None pattern (no match)."""
-        from gptme._keyword_matching import _keyword_to_pattern
+        from gptme.util.keyword_matching import _keyword_to_pattern
 
         assert _keyword_to_pattern("") is None
         assert _keyword_to_pattern("   ") is None
 
     def test_single_wildcard_returns_none(self):
         """Single wildcard '*' returns None to prevent over-matching all text."""
-        from gptme._keyword_matching import _keyword_to_pattern, _match_keyword
+        from gptme.util.keyword_matching import _keyword_to_pattern, _match_keyword
 
         # Single wildcard returns None to prevent matching everything
         pattern = _keyword_to_pattern("*")
@@ -405,14 +405,14 @@ class TestEdgeCases:
 
     def test_empty_keyword_no_match(self):
         """Empty keyword should not match anything."""
-        from gptme._keyword_matching import _match_keyword
+        from gptme.util.keyword_matching import _match_keyword
 
         assert not _match_keyword("", "some text")
         assert not _match_keyword("   ", "some text")
 
     def test_empty_pattern_returns_none(self):
         """Empty pattern should return None (no match)."""
-        from gptme._keyword_matching import _compile_pattern, _match_pattern
+        from gptme.util.keyword_matching import _compile_pattern, _match_pattern
 
         assert _compile_pattern("") is None
         assert _compile_pattern("   ") is None
@@ -421,7 +421,7 @@ class TestEdgeCases:
 
     def test_whitespace_only_keyword(self):
         """Whitespace-only keyword should be treated as empty."""
-        from gptme._keyword_matching import _keyword_to_pattern
+        from gptme.util.keyword_matching import _keyword_to_pattern
 
         assert _keyword_to_pattern("   ") is None
         assert _keyword_to_pattern("\t\n") is None
