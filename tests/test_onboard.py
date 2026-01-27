@@ -16,7 +16,7 @@ class TestDetectProviders:
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "OPENROUTER_API_KEY",
-            "GOOGLE_API_KEY",
+            "GEMINI_API_KEY",
         ]
         with patch.dict(os.environ, {k: "" for k in env_vars}, clear=False):
             # Explicitly delete the keys
@@ -26,7 +26,7 @@ class TestDetectProviders:
             providers = _detect_providers()
             # All should be not configured
             for provider, (has_key, _) in providers.items():
-                if provider in ["openai", "anthropic", "openrouter", "google"]:
+                if provider in ["openai", "anthropic", "openrouter", "gemini"]:
                     assert not has_key, f"{provider} should not be detected"
 
     def test_detect_with_keys(self):
