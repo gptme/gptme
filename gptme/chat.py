@@ -95,8 +95,11 @@ def chat(
             initial_msgs = initial_msgs + [hook_msg]
 
     default_model = get_default_model()
-    assert default_model is not None, "No model loaded and no model specified"
-    modelmeta = get_model(model or default_model.full)
+    # Only require default_model if no explicit model was passed
+    if model is None and default_model is None:
+        raise AssertionError("No model loaded and no model specified")
+    model_to_use = model if model else default_model.full
+    modelmeta = get_model(model_to_use)
     if not modelmeta.supports_streaming and stream:
         logger.info(
             "Disabled streaming for '%s/%s' model (not supported)",
@@ -463,8 +466,10 @@ def step(
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
     default_model = get_default_model()
-    assert default_model is not None, "No model loaded and no model specified"
-    model = model or default_model.full
+    # Only require default_model if no explicit model was passed
+    if model is None and default_model is None:
+        raise AssertionError("No model loaded and no model specified")
+    model = model if model else default_model.full
     if isinstance(log, list):
         log = Log(log)
 
