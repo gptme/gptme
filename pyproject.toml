@@ -23,6 +23,7 @@ gptme-eval = "gptme.eval.main:main"
 gptme-util = "gptme.util.cli:main"
 gptme-agent = "gptme.agent.cli:main"
 gptme-doctor = "gptme.doctor:main"
+gptme-onboard = "gptme.onboard:main"
 gptme-wut = "gptme.wut:main"
 gptme-dspy = "gptme.eval.dspy:main"
 
