@@ -275,6 +275,26 @@ Skills complement lessons:
 - **Lesson teaches** the pattern
 - **Skill provides** the tooling
 
+**Common pattern**: A lesson can suggest relevant skills. Since lessons auto-load by
+keywords while skills require explicit mention, a lesson can bridge this gap:
+
+.. code-block:: markdown
+
+    ---
+    match:
+      keywords: [data analysis, pandas, dataframe]
+    ---
+
+    # Data Analysis Best Practices
+
+    When analyzing data, follow these patterns...
+
+    ## Related Skills
+
+    For bundled utilities, mention "python-repl" to load helper functions.
+
+This allows keyword-triggered guidance to point users toward relevant skills.
+
 Example:
 
 - Lesson: ``lessons/patterns/testing.md`` - Testing best practices
