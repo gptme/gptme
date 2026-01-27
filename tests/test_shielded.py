@@ -24,7 +24,10 @@ class TestShieldedMode:
     def test_shielded_flag_alone(self, runner):
         """Test --shielded without value defaults to 'full'."""
         result = runner.invoke(main, ["--help"])
-        assert "shielded mode" in result.output.lower() or "untrusted" in result.output.lower()
+        assert (
+            "shielded mode" in result.output.lower()
+            or "untrusted" in result.output.lower()
+        )
 
     def test_list_profiles_includes_isolated(self, runner):
         """Test that --list-profiles shows isolated profile for untrusted content."""
@@ -39,7 +42,7 @@ class TestShieldedSecurity:
 
     def test_shielded_profile_no_save_tool(self):
         """Verify full shielded mode doesn't include save tool."""
-        from gptme.profiles import ProfileBehavior, Profile
+        from gptme.profiles import Profile, ProfileBehavior
 
         # Simulate the shielded-full profile
         shielded_full = Profile(
@@ -50,6 +53,7 @@ class TestShieldedSecurity:
             behavior=ProfileBehavior(read_only=True, no_network=True),
         )
 
+        assert shielded_full.tools is not None
         assert "save" not in shielded_full.tools
         assert "patch" not in shielded_full.tools
         assert "shell" not in shielded_full.tools
@@ -58,7 +62,7 @@ class TestShieldedSecurity:
 
     def test_shielded_network_no_browser(self):
         """Verify network shielded mode doesn't include browser."""
-        from gptme.profiles import ProfileBehavior, Profile
+        from gptme.profiles import Profile, ProfileBehavior
 
         shielded_network = Profile(
             name="shielded-network",
@@ -68,12 +72,13 @@ class TestShieldedSecurity:
             behavior=ProfileBehavior(no_network=True),
         )
 
+        assert shielded_network.tools is not None
         assert "browser" not in shielded_network.tools
         assert shielded_network.behavior.no_network is True
 
     def test_shielded_write_no_save(self):
         """Verify write shielded mode doesn't include save/patch."""
-        from gptme.profiles import ProfileBehavior, Profile
+        from gptme.profiles import Profile, ProfileBehavior
 
         shielded_write = Profile(
             name="shielded-write",
@@ -83,6 +88,7 @@ class TestShieldedSecurity:
             behavior=ProfileBehavior(read_only=True),
         )
 
+        assert shielded_write.tools is not None
         assert "save" not in shielded_write.tools
         assert "patch" not in shielded_write.tools
         assert shielded_write.behavior.read_only is True
