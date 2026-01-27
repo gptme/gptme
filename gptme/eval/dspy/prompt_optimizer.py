@@ -138,17 +138,14 @@ class GptmeModule(dspy.Module):
 
             # Fix #130: Enable output suppression during GEPA optimization
             # This prevents verbose gptme trajectories from cluttering logs
-            os.environ["GPTME_EVAL_SUPPRESS_OUTPUT"] = "true"
-            try:
-                eval_result = execute(
-                    test=eval_spec,
-                    agent=agent,
-                    timeout=30,
-                    parallel=False,
-                )
-            finally:
-                # Restore normal output after execution (guaranteed cleanup)
-                os.environ.pop("GPTME_EVAL_SUPPRESS_OUTPUT", None)
+            # Pass suppress_output directly to avoid os.environ race conditions
+            eval_result = execute(
+                test=eval_spec,
+                agent=agent,
+                timeout=30,
+                parallel=False,
+                suppress_output=True,
+            )
             messages = []
             if hasattr(agent, "log_dir") and agent.log_dir:
                 try:
