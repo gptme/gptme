@@ -5,6 +5,7 @@ from typing import cast
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 
+from .cli.setup import ask_for_api_key
 from .commands import init_commands
 from .config import get_config
 from .hooks import init_hooks
@@ -16,7 +17,6 @@ from .llm.models import (
     get_recommended_model,
     set_default_model,
 )
-from .setup import ask_for_api_key
 from .tools import ToolFormat, init_tools, set_tool_format
 from .util import console
 

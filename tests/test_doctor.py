@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from gptme.doctor import (
+from gptme.cli.doctor import (
     CheckResult,
     CheckStatus,
     _check_api_keys,

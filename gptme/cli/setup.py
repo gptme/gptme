@@ -13,10 +13,10 @@ from rich.text import Text
 
 import gptme
 
-from .config import config_path, get_config, set_config_value
-from .llm import get_model_from_api_key, list_available_providers
-from .llm.models import PROVIDERS, get_default_model
-from .util import console, path_with_tilde
+from ..config import config_path, get_config, set_config_value
+from ..llm import get_model_from_api_key, list_available_providers
+from ..llm.models import PROVIDERS, get_default_model
+from ..util import console, path_with_tilde
 
 
 def setup():

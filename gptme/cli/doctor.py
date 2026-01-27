@@ -22,10 +22,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .config import config_path, get_config
-from .llm import list_available_providers
-from .llm.models import PROVIDERS
-from .llm.validate import PROVIDER_DOCS, validate_api_key
+from ..config import config_path, get_config
+from ..llm import list_available_providers
+from ..llm.models import PROVIDERS
+from ..llm.validate import PROVIDER_DOCS, validate_api_key
 
 logger = logging.getLogger(__name__)
 console = Console()
