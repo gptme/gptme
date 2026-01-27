@@ -25,6 +25,18 @@ from .llm.validate import PROVIDER_DOCS, validate_api_key
 logger = logging.getLogger(__name__)
 console = Console()
 
+# Environment variable patterns for each provider (used by detection and testing)
+PROVIDER_ENV_VARS = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "xai": "XAI_API_KEY",
+    "azure": "AZURE_OPENAI_API_KEY",
+}
+
 
 def _detect_providers() -> dict[str, tuple[bool, str | None]]:
     """
@@ -35,19 +47,7 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
     """
     results: dict[str, tuple[bool, str | None]] = {}
 
-    # Environment variable patterns for each provider
-    env_vars = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-        "google": "GOOGLE_API_KEY",
-        "groq": "GROQ_API_KEY",
-        "deepseek": "DEEPSEEK_API_KEY",
-        "xai": "XAI_API_KEY",
-        "azure": "AZURE_OPENAI_API_KEY",
-    }
-
-    for provider, env_var in env_vars.items():
+    for provider, env_var in PROVIDER_ENV_VARS.items():
         key = os.environ.get(env_var)
         if key:
             # Preview: show first 4 and last 4 chars
@@ -61,18 +61,7 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
 
 def _test_provider(provider: str) -> tuple[bool, str]:
     """Test if a provider is working."""
-    env_vars = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-        "google": "GOOGLE_API_KEY",
-        "groq": "GROQ_API_KEY",
-        "deepseek": "DEEPSEEK_API_KEY",
-        "xai": "XAI_API_KEY",
-        "azure": "AZURE_OPENAI_API_KEY",
-    }
-
-    env_var = env_vars.get(provider)
+    env_var = PROVIDER_ENV_VARS.get(provider)
     if not env_var:
         return False, f"Unknown provider: {provider}"
 
