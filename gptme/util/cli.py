@@ -709,5 +709,100 @@ def models_info(model_name: str):
         print(f"Knowledge cutoff: {model.knowledge_cutoff.strftime('%Y-%m-%d')}")
 
 
+@main.group()
+def profile():
+    """Commands for managing agent profiles.
+
+    Profiles are lightweight agents that define system prompts, tool access,
+    and behavior rules. They provide soft/prompting-based guidance - the agent
+    follows profile instructions but there's no hard technical enforcement.
+
+    Example:
+        gptme-util profile list          # List all profiles
+        gptme-util profile show explorer  # Show profile details
+    """
+    pass
+
+
+@profile.command("list")
+def profile_list():
+    """List available agent profiles."""
+    from rich.console import Console
+    from rich.table import Table
+
+    from ..profiles import list_profiles as list_available_profiles
+
+    console = Console()
+    profiles = list_available_profiles()
+
+    table = Table(title="Available Agent Profiles")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description", style="green")
+    table.add_column("Tools", style="yellow")
+    table.add_column("Behavior", style="magenta")
+
+    for name, prof in sorted(profiles.items()):
+        tools_str = ", ".join(prof.tools) if prof.tools else "all"
+        behavior_flags = []
+        if prof.behavior.read_only:
+            behavior_flags.append("read-only")
+        if prof.behavior.no_network:
+            behavior_flags.append("no-network")
+        if prof.behavior.confirm_writes:
+            behavior_flags.append("confirm-writes")
+        behavior_str = ", ".join(behavior_flags) if behavior_flags else "default"
+
+        table.add_row(name, prof.description, tools_str, behavior_str)
+
+    console.print(table)
+
+
+@profile.command("show")
+@click.argument("name")
+def profile_show(name: str):
+    """Show details for a specific profile."""
+    from rich.console import Console
+    from rich.panel import Panel
+
+    from ..profiles import get_profile
+
+    console = Console()
+    prof = get_profile(name)
+
+    if not prof:
+        console.print(f"[red]Unknown profile: {name}[/red]")
+        console.print("Use 'gptme-util profile list' to see available profiles.")
+        sys.exit(1)
+
+    # Build profile info
+    tools_str = ", ".join(prof.tools) if prof.tools else "all tools"
+
+    behavior_flags = []
+    if prof.behavior.read_only:
+        behavior_flags.append("read-only")
+    if prof.behavior.no_network:
+        behavior_flags.append("no-network")
+    if prof.behavior.confirm_writes:
+        behavior_flags.append("confirm-writes")
+    behavior_str = ", ".join(behavior_flags) if behavior_flags else "none (default)"
+
+    content = f"""[cyan]Name:[/cyan] {prof.name}
+[cyan]Description:[/cyan] {prof.description}
+[cyan]Tools:[/cyan] {tools_str}
+[cyan]Behavior:[/cyan] {behavior_str}
+"""
+
+    if prof.system_prompt:
+        content += f"\n[cyan]System Prompt:[/cyan]\n{prof.system_prompt}"
+
+    console.print(Panel(content, title=f"Profile: {name}"))
+
+    # Note about soft enforcement
+    console.print(
+        "\n[dim]Note: Profile restrictions are soft/prompting-based. "
+        "The agent follows instructions but there's no hard technical enforcement.[/dim]"
+    )
+
+
 if __name__ == "__main__":
     main()
