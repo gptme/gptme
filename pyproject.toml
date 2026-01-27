@@ -16,14 +16,14 @@ Documentation = "https://gptme.org/docs/"
 Issues = "https://github.com/gptme/gptme/issues"
 
 [project.scripts]
-gptme = "gptme.cli:main"
+gptme = "gptme.cli.main:main"
 gptme-server = "gptme.server.cli:main"
 gptme-acp = "gptme.acp.__main__:main"
 gptme-eval = "gptme.eval.main:main"
-gptme-util = "gptme.util.cli:main"
+gptme-util = "gptme.cli.util:main"
 gptme-agent = "gptme.agent.cli:main"
-gptme-doctor = "gptme.doctor:main"
-gptme-onboard = "gptme.onboard:main"
+gptme-doctor = "gptme.cli.doctor:main"
+gptme-onboard = "gptme.cli.onboard:main"
 gptme-wut = "gptme.wut:main"
 gptme-dspy = "gptme.eval.dspy:main"
 

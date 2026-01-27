@@ -481,7 +481,7 @@ def _run_planner(
         context_mode: Controls what context is shared with executors (see subagent() docs)
         context_include: For selective mode, list of context components to include
     """
-    from gptme.cli import get_logdir
+    from gptme.cli.main import get_logdir
 
     logger.info(
         f"Starting planner {agent_id} with {len(subtasks)} subtasks "
@@ -575,7 +575,7 @@ def subagent(
             The full conversation log is available at the logdir path.
     """
     # noreorder
-    from gptme.cli import get_logdir  # fmt: skip
+    from gptme.cli.main import get_logdir  # fmt: skip
     from gptme.llm.models import get_default_model  # fmt: skip
 
     # Get current model from parent conversation (needed for both executor and planner modes)

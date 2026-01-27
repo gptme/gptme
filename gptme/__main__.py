@@ -1,4 +1,4 @@
-from gptme.cli import main
+from gptme.cli.main import main
 
 if __name__ == "__main__":
     main()

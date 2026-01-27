@@ -22,10 +22,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .config import config_path, get_config
-from .llm import list_available_providers
-from .llm.models import PROVIDERS
-from .llm.validate import PROVIDER_DOCS, validate_api_key
+from ..config import config_path, get_config
+from ..llm import list_available_providers
+from ..llm.models import PROVIDERS
+from ..llm.validate import PROVIDER_DOCS, validate_api_key
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -296,7 +296,7 @@ def _check_config(verbose: bool = False) -> list[CheckResult]:
 def _check_permissions(verbose: bool = False) -> list[CheckResult]:
     """Check file and directory permissions."""
     results = []
-    from .dirs import get_logs_dir
+    from ..dirs import get_logs_dir
 
     # Check logs directory
     logs_dir = get_logs_dir()

@@ -18,9 +18,9 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from .config import config_path
-from .llm.models import PROVIDERS, BuiltinProvider, get_recommended_model
-from .llm.validate import PROVIDER_DOCS, validate_api_key
+from ..config import config_path
+from ..llm.models import PROVIDERS, BuiltinProvider, get_recommended_model
+from ..llm.validate import PROVIDER_DOCS, validate_api_key
 
 logger = logging.getLogger(__name__)
 console = Console()

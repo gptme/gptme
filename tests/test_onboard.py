@@ -3,7 +3,7 @@
 import os
 from unittest.mock import patch
 
-from gptme.onboard import _detect_providers, _test_provider
+from gptme.cli.onboard import _detect_providers, _test_provider
 
 
 class TestDetectProviders:

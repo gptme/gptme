@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from gptme.doctor import (
+from gptme.cli.doctor import (
     CheckResult,
     CheckStatus,
     _check_api_keys,
@@ -254,9 +254,9 @@ class TestCLI:
 class TestCheckApiKeys:
     """Test _check_api_keys function."""
 
-    @patch("gptme.doctor.list_available_providers")
-    @patch("gptme.doctor.get_config")
-    @patch("gptme.doctor.validate_api_key")
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch("gptme.cli.doctor.validate_api_key")
     @patch.dict("os.environ", {}, clear=True)
     def test_valid_api_key(self, mock_validate, mock_config, mock_providers):
         """Test that valid API keys are reported as OK."""
@@ -276,9 +276,9 @@ class TestCheckApiKeys:
         assert openai_result.status == CheckStatus.OK
         assert "valid" in openai_result.message.lower()
 
-    @patch("gptme.doctor.list_available_providers")
-    @patch("gptme.doctor.get_config")
-    @patch("gptme.doctor.validate_api_key")
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch("gptme.cli.doctor.validate_api_key")
     @patch.dict("os.environ", {"OPENAI_API_KEY": "sk-invalid"}, clear=True)
     def test_invalid_api_key(self, mock_validate, mock_config, mock_providers):
         """Test that invalid API keys are reported as ERROR."""
@@ -299,8 +299,8 @@ class TestCheckApiKeys:
         assert "invalid" in openai_result.message.lower()
         assert openai_result.fix_hint is not None
 
-    @patch("gptme.doctor.list_available_providers")
-    @patch("gptme.doctor.get_config")
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
     @patch.dict("os.environ", {}, clear=True)
     def test_provider_available_but_key_not_retrievable(
         self, mock_config, mock_providers
@@ -321,8 +321,8 @@ class TestCheckApiKeys:
         assert openai_result.status == CheckStatus.WARNING
         assert "not retrievable" in openai_result.message.lower()
 
-    @patch("gptme.doctor.list_available_providers")
-    @patch("gptme.doctor.get_config")
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
     @patch.dict("os.environ", {}, clear=True)
     def test_unconfigured_provider_skipped(self, mock_config, mock_providers):
         """Test that unconfigured providers are reported as SKIPPED."""
@@ -340,8 +340,8 @@ class TestCheckApiKeys:
                 assert result.status == CheckStatus.SKIPPED
                 assert "not configured" in result.message.lower()
 
-    @patch("gptme.doctor.list_available_providers")
-    @patch("gptme.doctor.get_config")
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
     @patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "test-key"}, clear=True)
     def test_azure_uses_special_env_var(self, mock_config, mock_providers):
         """Test that Azure uses AZURE_OPENAI_API_KEY (special case)."""
@@ -351,7 +351,7 @@ class TestCheckApiKeys:
         mock_config_obj = mock_config.return_value
         mock_config_obj.get_env.return_value = None
 
-        with patch("gptme.doctor.validate_api_key") as mock_validate:
+        with patch("gptme.cli.doctor.validate_api_key") as mock_validate:
             mock_validate.return_value = (True, None)
             results = _check_api_keys()
 

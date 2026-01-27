@@ -11,23 +11,23 @@ from typing import Literal
 import click
 from pick import pick
 
-from . import __version__
-from .chat import chat
-from .commands import _gen_help
-from .config import setup_config_from_cli
-from .constants import MULTIPROMPT_SEPARATOR
-from .dirs import get_logs_dir
-from .init import init_logging
-from .llm.models import get_recommended_model
-from .logmanager import ConversationMeta, get_user_conversations
-from .message import Message
-from .prompts import get_prompt
-from .telemetry import init_telemetry, shutdown_telemetry
-from .tools import ToolFormat, get_available_tools, init_tools
-from .util import epoch_to_age
-from .util.auto_naming import generate_conversation_id
-from .util.interrupt import handle_keyboard_interrupt, set_interruptible
-from .util.prompt import add_history
+from .. import __version__
+from ..chat import chat
+from ..commands import _gen_help
+from ..config import setup_config_from_cli
+from ..constants import MULTIPROMPT_SEPARATOR
+from ..dirs import get_logs_dir
+from ..init import init_logging
+from ..llm.models import get_recommended_model
+from ..logmanager import ConversationMeta, get_user_conversations
+from ..message import Message
+from ..prompts import get_prompt
+from ..telemetry import init_telemetry, shutdown_telemetry
+from ..tools import ToolFormat, get_available_tools, init_tools
+from ..util import epoch_to_age
+from ..util.auto_naming import generate_conversation_id
+from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
+from ..util.prompt import add_history
 
 logger = logging.getLogger(__name__)
 

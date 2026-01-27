@@ -18,7 +18,7 @@ from ..mcp.client import MCPClient
 from ..message import Message
 from ..tools import get_tools, init_tools
 from ..tools.chats import list_chats, search_chats
-from .context import include_paths
+from ..util.context import include_paths
 
 
 @click.group()

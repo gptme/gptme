@@ -689,7 +689,7 @@ def test_subprocess_full_flow_with_subagent_function():
         temp_logdir = Path(tmpdir) / "logs"
         temp_logdir.mkdir()
 
-        with patch("gptme.cli.get_logdir", return_value=temp_logdir):
+        with patch("gptme.cli.main.get_logdir", return_value=temp_logdir):
             # Start a subprocess subagent
             subagent(
                 agent_id="subprocess-test",
@@ -738,7 +738,7 @@ def test_subprocess_monitor_thread_started():
         temp_logdir = Path(tmpdir) / "logs"
         temp_logdir.mkdir()
 
-        with patch("gptme.cli.get_logdir", return_value=temp_logdir):
+        with patch("gptme.cli.main.get_logdir", return_value=temp_logdir):
             subagent(
                 agent_id="monitor-test",
                 prompt="Test",
