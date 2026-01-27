@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 from click.testing import CliRunner
 
-from gptme.util.cli import main
+from gptme.cli.util import main
 
 
 @pytest.fixture

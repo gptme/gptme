@@ -14,7 +14,7 @@ def test_mcp_cli_commands():
     """Test MCP CLI command logic"""
     from click.testing import CliRunner
 
-    from gptme.util.cli import mcp_info
+    from gptme.cli.util import mcp_info
 
     # Test with mock data - this would normally use the config system
     runner = CliRunner()

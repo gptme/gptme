@@ -579,7 +579,7 @@ def _check_dependency(name: str, check_type: str) -> bool:
 
 def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
     """Prompt user for API key and validate it."""
-    from .llm.validate import PROVIDER_DOCS, validate_api_key
+    from ..llm.validate import PROVIDER_DOCS, validate_api_key
 
     console.print("Paste your API key [dim](We will auto-detect the provider)[/dim]")
     api_key = Prompt.ask("API key", password=True).strip()

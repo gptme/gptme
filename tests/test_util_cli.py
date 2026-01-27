@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from gptme.cli.util import main
 from gptme.logmanager import ConversationMeta
-from gptme.util.cli import main
 
 
 def test_tokens_count(tmp_path):

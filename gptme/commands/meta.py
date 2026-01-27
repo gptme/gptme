@@ -80,7 +80,7 @@ def cmd_impersonate(ctx: CommandContext) -> Generator["Message", None, None]:
 @command("setup")
 def cmd_setup(ctx: CommandContext) -> None:
     """Setup gptme with completions, configuration, and project setup."""
-    from ..setup import setup
+    from ..cli.setup import setup
 
     ctx.manager.undo(1, quiet=True)
     ctx.manager.write()
@@ -90,7 +90,7 @@ def cmd_setup(ctx: CommandContext) -> None:
 @command("doctor")
 def cmd_doctor(ctx: CommandContext) -> None:
     """Run system diagnostics to check gptme health."""
-    from ..doctor import main as doctor_main
+    from ..cli.doctor import main as doctor_main
 
     ctx.manager.undo(1, quiet=True)
     ctx.manager.write()
