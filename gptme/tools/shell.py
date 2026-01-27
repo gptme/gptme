@@ -347,7 +347,7 @@ The shell tool will respond with the output of the execution.
 These programs are available, among others:
 {shell_programs_str}
 
-## Background Jobs
+### Background Jobs
 
 For long-running commands (dev servers, builds, etc.), use background jobs:
 - `bg <command>` - Start command in background, returns job ID
