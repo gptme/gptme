@@ -70,27 +70,16 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
     available_provider_names = {provider for provider, _ in available_providers}
     config = get_config()
 
+    # Special case env var names (only azure differs from the default pattern)
+    special_env_vars = {
+        "azure": "AZURE_OPENAI_API_KEY",
+    }
+
     for provider in PROVIDERS:
         # Check if provider has API key configured
         if provider in available_provider_names:
             # Key is configured, validate it
-            env_var = f"{provider.upper()}_API_KEY"
-            if provider == "openai":
-                env_var = "OPENAI_API_KEY"
-            elif provider == "anthropic":
-                env_var = "ANTHROPIC_API_KEY"
-            elif provider == "google":
-                env_var = "GOOGLE_API_KEY"
-            elif provider == "openrouter":
-                env_var = "OPENROUTER_API_KEY"
-            elif provider == "azure":
-                env_var = "AZURE_OPENAI_API_KEY"
-            elif provider == "xai":
-                env_var = "XAI_API_KEY"
-            elif provider == "deepseek":
-                env_var = "DEEPSEEK_API_KEY"
-            elif provider == "groq":
-                env_var = "GROQ_API_KEY"
+            env_var = special_env_vars.get(provider, f"{provider.upper()}_API_KEY")
 
             # Try to get the API key
             api_key = os.environ.get(env_var) or config.get_env(env_var)
@@ -119,11 +108,14 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
                         )
                     )
             else:
+                # Provider is marked available but we can't retrieve the key
+                # This is a warning - the key may be configured differently
                 results.append(
                     CheckResult(
                         name=f"API Key: {provider}",
-                        status=CheckStatus.OK,
-                        message="Configured (via config or env)",
+                        status=CheckStatus.WARNING,
+                        message="Provider available but key not retrievable for validation",
+                        details=f"Expected env var: {env_var}" if verbose else None,
                     )
                 )
         else:

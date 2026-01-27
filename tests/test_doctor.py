@@ -8,6 +8,7 @@ from click.testing import CliRunner
 from gptme.doctor import (
     CheckResult,
     CheckStatus,
+    _check_api_keys,
     _check_config,
     _check_permissions,
     _check_python_deps,
@@ -248,3 +249,115 @@ class TestCLI:
             assert "name" in first_result
             assert "status" in first_result
             assert "message" in first_result
+
+
+class TestCheckApiKeys:
+    """Test _check_api_keys function."""
+
+    @patch("gptme.doctor.list_available_providers")
+    @patch("gptme.doctor.get_config")
+    @patch("gptme.doctor.validate_api_key")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_valid_api_key(self, mock_validate, mock_config, mock_providers):
+        """Test that valid API keys are reported as OK."""
+
+        # Setup mocks
+        mock_providers.return_value = [("openai", None)]
+        mock_config_obj = mock_config.return_value
+        mock_config_obj.get_env.return_value = "sk-test1234567890"
+        mock_validate.return_value = (True, None)
+
+        results = _check_api_keys()
+
+        # Find openai result
+        openai_results = [r for r in results if "openai" in r.name.lower()]
+        assert len(openai_results) >= 1
+        openai_result = openai_results[0]
+        assert openai_result.status == CheckStatus.OK
+        assert "valid" in openai_result.message.lower()
+
+    @patch("gptme.doctor.list_available_providers")
+    @patch("gptme.doctor.get_config")
+    @patch("gptme.doctor.validate_api_key")
+    @patch.dict("os.environ", {"OPENAI_API_KEY": "sk-invalid"}, clear=True)
+    def test_invalid_api_key(self, mock_validate, mock_config, mock_providers):
+        """Test that invalid API keys are reported as ERROR."""
+
+        # Setup mocks
+        mock_providers.return_value = [("openai", None)]
+        mock_config_obj = mock_config.return_value
+        mock_config_obj.get_env.return_value = None
+        mock_validate.return_value = (False, "Invalid key format")
+
+        results = _check_api_keys()
+
+        # Find openai result
+        openai_results = [r for r in results if "openai" in r.name.lower()]
+        assert len(openai_results) >= 1
+        openai_result = openai_results[0]
+        assert openai_result.status == CheckStatus.ERROR
+        assert "invalid" in openai_result.message.lower()
+        assert openai_result.fix_hint is not None
+
+    @patch("gptme.doctor.list_available_providers")
+    @patch("gptme.doctor.get_config")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_provider_available_but_key_not_retrievable(
+        self, mock_config, mock_providers
+    ):
+        """Test that providers available but with non-retrievable keys show WARNING."""
+
+        # Setup: provider is available but we can't get the key via env or config
+        mock_providers.return_value = [("openai", None)]
+        mock_config_obj = mock_config.return_value
+        mock_config_obj.get_env.return_value = None
+
+        results = _check_api_keys()
+
+        # Find openai result
+        openai_results = [r for r in results if "openai" in r.name.lower()]
+        assert len(openai_results) >= 1
+        openai_result = openai_results[0]
+        assert openai_result.status == CheckStatus.WARNING
+        assert "not retrievable" in openai_result.message.lower()
+
+    @patch("gptme.doctor.list_available_providers")
+    @patch("gptme.doctor.get_config")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_unconfigured_provider_skipped(self, mock_config, mock_providers):
+        """Test that unconfigured providers are reported as SKIPPED."""
+
+        # Setup: no providers available
+        mock_providers.return_value = []
+        mock_config_obj = mock_config.return_value
+        mock_config_obj.get_env.return_value = None
+
+        results = _check_api_keys()
+
+        # All provider results should be SKIPPED
+        for result in results:
+            if "API Key:" in result.name:
+                assert result.status == CheckStatus.SKIPPED
+                assert "not configured" in result.message.lower()
+
+    @patch("gptme.doctor.list_available_providers")
+    @patch("gptme.doctor.get_config")
+    @patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "test-key"}, clear=True)
+    def test_azure_uses_special_env_var(self, mock_config, mock_providers):
+        """Test that Azure uses AZURE_OPENAI_API_KEY (special case)."""
+
+        # Setup: azure provider available
+        mock_providers.return_value = [("azure", None)]
+        mock_config_obj = mock_config.return_value
+        mock_config_obj.get_env.return_value = None
+
+        with patch("gptme.doctor.validate_api_key") as mock_validate:
+            mock_validate.return_value = (True, None)
+            results = _check_api_keys()
+
+            # Find azure result
+            azure_results = [r for r in results if "azure" in r.name.lower()]
+            assert len(azure_results) >= 1
+            azure_result = azure_results[0]
+            # Should find the key and mark as OK
+            assert azure_result.status == CheckStatus.OK
