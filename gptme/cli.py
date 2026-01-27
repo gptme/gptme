@@ -603,8 +603,6 @@ def main(
 
         # Append profile system prompt if using a profile
         if selected_profile and selected_profile.system_prompt:
-            from .message import Message
-
             profile_msg = Message(
                 "system",
                 f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
