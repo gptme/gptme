@@ -539,6 +539,39 @@ def prompt_workspace(
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
 
+# Maximum characters for context_cmd output to prevent context explosion
+# ~100k chars ≈ ~25k tokens, a reasonable safeguard for most context windows
+CONTEXT_CMD_MAX_CHARS = 100_000
+
+
+def _truncate_context_output(
+    output: str, max_chars: int = CONTEXT_CMD_MAX_CHARS
+) -> str:
+    """Truncate context output if it exceeds max_chars, with a clear message."""
+    if len(output) <= max_chars:
+        return output
+
+    # Keep the first portion of output with truncation notice
+    truncated = output[:max_chars]
+    # Find a good break point (newline) to avoid cutting mid-line
+    last_newline = truncated.rfind("\n", max_chars - 1000, max_chars)
+    if last_newline > max_chars - 1000:
+        truncated = truncated[:last_newline]
+
+    original_chars = len(output)
+    kept_chars = len(truncated)
+    logger.warning(
+        f"Context command output truncated: {original_chars:,} chars -> {kept_chars:,} chars "
+        f"(limit: {max_chars:,}). Consider optimizing your context_cmd."
+    )
+
+    truncation_notice = (
+        f"\n\n... [TRUNCATED: output was {original_chars:,} chars, "
+        f"showing first {kept_chars:,} chars to prevent context overflow] ..."
+    )
+    return truncated + truncation_notice
+
+
 def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
     from .util import console
 
@@ -559,20 +592,21 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
             f"Context command took {duration:.2f}s",
         )
         if result.returncode == 0:
-            length = len_tokens(result.stdout, "gpt-4")
+            output = _truncate_context_output(result.stdout)
+            length = len_tokens(output, "gpt-4")
             if length > 10000:
                 logger.warning(
                     f"Context command '{cmd}' output is large: ~{length} tokens, consider optimizing."
                 )
-            return md_codeblock(cmd, result.stdout)
+            return md_codeblock(cmd, output)
         else:
             logger.warning(
                 f"Context command '{cmd}' exited with code {result.returncode}"
             )
             # Include both stdout (partial results) and stderr (error details)
             # so LLM can see what worked and what failed for self-recovery
-            # Truncate stderr to avoid leaking sensitive info (paths, env vars)
-            output = result.stdout
+            # Truncate stdout to prevent context explosion, truncate stderr for safety
+            output = _truncate_context_output(result.stdout)
             stderr_stripped = result.stderr.strip()
             if stderr_stripped:
                 stderr_preview = stderr_stripped[:500]
