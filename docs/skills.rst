@@ -280,30 +280,6 @@ Example:
 - Lesson: ``lessons/patterns/testing.md`` - Testing best practices
 - Skill: ``skills/testing-skill.md`` - Bundled pytest utilities
 
-Roadmap
--------
-
-Current Status (Phase 4.1)
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-- ✅ Parser support for skills metadata
-- ✅ Example skill with bundled scripts
-- ✅ Documentation
-- ✅ Hook system (available in :doc:`plugins`, not skills)
-
-Future Work (Phase 4.2+)
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-- [ ] Dependency management for skills
-- [ ] Script bundling and loading for skills
-- [ ] Skills CLI commands
-- [ ] Skills discovery and listing
-
-.. note::
-
-   For runtime integration (hooks, custom tools, commands), see :doc:`plugins`.
-   Skills remain lightweight knowledge bundles.
-
 Related
 -------
 
@@ -311,4 +287,5 @@ Related
 - :doc:`plugins` - For hooks, custom tools, and deep integration
 - :doc:`hooks` - Lifecycle callbacks (plugins only)
 - `Issue #686 <https://github.com/gptme/gptme/issues/686>`_ - Phase 4: Skills Integration
+- `Issue #1170 <https://github.com/gptme/gptme/issues/1170>`_ - Phase 4.2+ roadmap
 - `Claude Skills <https://simonwillison.net/2025/Oct/10/claude-skills/>`_ - Inspiration
