@@ -22,7 +22,6 @@ from .llm.models import get_recommended_model
 from .logmanager import ConversationMeta, get_user_conversations
 from .message import Message
 from .profiles import get_profile
-from .profiles import list_profiles as list_available_profiles
 from .prompts import get_prompt
 from .telemetry import init_telemetry, shutdown_telemetry
 from .tools import ToolFormat, get_available_tools, init_tools
@@ -128,13 +127,7 @@ The interface provides user commands that can be used to interact with the syste
     "--agent-profile",
     "agent_profile",
     default=None,
-    help="Agent profile to use. Profiles define system prompts, tool access, and behavior rules. See --list-profiles.",
-)
-@click.option(
-    "--list-profiles",
-    "list_profiles",
-    is_flag=True,
-    help="List available agent profiles and exit.",
+    help="Agent profile to use. Profiles provide soft/prompting-based system prompts, tool access hints, and behavior rules. Use 'gptme-util profile list' to see available profiles.",
 )
 @click.option(
     "--tool-format",
@@ -210,7 +203,6 @@ def main(
     model: str | None,
     tool_allowlist: tuple[str, ...],
     agent_profile: str | None,
-    list_profiles: bool,
     tool_format: ToolFormat | None,
     stream: bool,
     verbose: bool,
@@ -339,43 +331,13 @@ def main(
 
         exit(0)
 
-    # Handle --list-profiles
-    if list_profiles:
-        from rich.console import Console
-        from rich.table import Table
-
-        console = Console()
-        profiles = list_available_profiles()
-
-        table = Table(title="Available Agent Profiles")
-        table.add_column("Name", style="cyan")
-        table.add_column("Description", style="green")
-        table.add_column("Tools", style="yellow")
-        table.add_column("Behavior", style="magenta")
-
-        for name, prof in sorted(profiles.items()):
-            tools_str = ", ".join(prof.tools) if prof.tools else "all"
-            behavior_flags = []
-            if prof.behavior.read_only:
-                behavior_flags.append("read-only")
-            if prof.behavior.no_network:
-                behavior_flags.append("no-network")
-            if prof.behavior.confirm_writes:
-                behavior_flags.append("confirm-writes")
-            behavior_str = ", ".join(behavior_flags) if behavior_flags else "default"
-
-            table.add_row(name, prof.description, tools_str, behavior_str)
-
-        console.print(table)
-        exit(0)
-
     # Apply agent profile if specified
     selected_profile = None
     if agent_profile:
         selected_profile = get_profile(agent_profile)
         if not selected_profile:
             print(f"Unknown profile: {agent_profile}")
-            print("Use --list-profiles to see available profiles.")
+            print("Use 'gptme-util profile list' to see available profiles.")
             exit(1)
 
         logger.info(f"Using agent profile: {selected_profile.name}")

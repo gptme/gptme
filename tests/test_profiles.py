@@ -45,6 +45,21 @@ class TestProfile:
         assert profile.behavior.read_only is True
         assert profile.behavior.no_network is True
 
+    def test_profile_from_dict_no_mutation(self):
+        """Test that from_dict does not mutate the input dictionary."""
+        data = {
+            "name": "custom",
+            "description": "Custom profile",
+            "behavior": {"read_only": True},
+        }
+        original_data = dict(data)  # Copy to compare
+
+        Profile.from_dict(data)
+
+        # Input dict should not be mutated
+        assert data == original_data
+        assert "behavior" in data  # Key should still exist
+
     def test_profile_default_behavior(self):
         """Test profile with default behavior."""
         profile = Profile(name="test", description="Test")

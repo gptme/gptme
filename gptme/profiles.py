@@ -1,12 +1,20 @@
 """Agent profiles for pre-configured system prompts and tool access.
 
-Profiles combine:
-- System prompt customization
-- Tool access restrictions
-- Behavior rules
+Profiles provide soft/prompting-based guidance combining:
+- System prompt customization (behavioral hints)
+- Tool access suggestions (which tools to prefer)
+- Behavior rules (read-only, no-network, etc.)
+
+IMPORTANT: Profile restrictions are soft enforcement via prompting only.
+The agent receives instructions about limitations but there's no hard
+technical enforcement at the tool level. The agent follows profile
+instructions as guidance, similar to how it follows system prompts.
 
 This enables creating specialized agents like "explorer" (read-only),
 "researcher" (web access), or "developer" (full capabilities).
+
+For hard technical enforcement of tool restrictions, see the shielded
+processing mode in PR #1158.
 """
 
 import logging
@@ -58,10 +66,14 @@ class Profile:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Profile":
-        """Create a Profile from a dictionary (e.g., TOML config)."""
-        behavior_data = data.pop("behavior", {})
+        """Create a Profile from a dictionary (e.g., TOML config).
+
+        Note: This method does not mutate the input dictionary.
+        """
+        behavior_data = data.get("behavior", {})
         behavior = ProfileBehavior(**behavior_data)
-        return cls(behavior=behavior, **data)
+        profile_data = {k: v for k, v in data.items() if k != "behavior"}
+        return cls(behavior=behavior, **profile_data)
 
 
 # Built-in profiles
