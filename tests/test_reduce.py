@@ -10,7 +10,7 @@ root = Path(__file__).parent.parent
 
 # Some large files
 readme = root / "README.md"
-cli = root / "gptme" / "cli.py"
+cli = root / "gptme" / "cli" / "main.py"
 htmlindex = root / "gptme" / "server" / "static" / "index.html"
 
 long_msg = Message(
