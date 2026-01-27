@@ -20,7 +20,7 @@ Architecture Overview
 
 The five core concepts:
 
-1. **Knowledge Files** - Context and instructions (via :doc:`skills/README`)
+1. **Knowledge Files** - Context and instructions (via :doc:`lessons` and :doc:`skills`)
 2. **Tools** - Capabilities the AI can use (see :doc:`tools`)
 3. **Hooks** - Lifecycle integration points (see :doc:`hooks`)
 4. **Commands** - User interface shortcuts (see :ref:`usage-commands`)
@@ -33,7 +33,10 @@ Knowledge Files (Context Injection)
 
 **Purpose**: Share knowledge, workflows, examples, and best practices with the AI without modifying code.
 
-**Format**: Anthropic's skill format - YAML frontmatter + markdown content
+**Formats**: Two formats are supported:
+
+- **Lessons** (core): Auto-load by keywords/patterns/tools (see :doc:`lessons`)
+- **Skills** (Anthropic format): Auto-load by name only (see :doc:`skills`)
 
 **Structure**:
 
@@ -77,7 +80,7 @@ Knowledge Files (Context Injection)
 
 **Distribution**: ZIP archives, shared via directories
 
-See :doc:`skills/README` for complete documentation.
+See :doc:`skills` for complete documentation.
 
 Tools (Capabilities)
 --------------------
@@ -430,7 +433,7 @@ Best Practices
 Further Reading
 ---------------
 
-- :doc:`skills/README` - Knowledge files and skill format
+- :doc:`skills` - Knowledge files and skill format
 - :doc:`tools` - Built-in tools catalog
 - :doc:`custom_tool` - Creating custom tools
 - :doc:`hooks` - Hook system details

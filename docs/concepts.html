@@ -171,7 +171,7 @@ window.addEventListener("load", () => mermaid.run());
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
-<li class="toctree-l1"><a class="reference internal" href="skills/README.html">Skills System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
@@ -496,7 +496,7 @@ window.addEventListener("load", () => mermaid.run());
     A --&gt; U[User]
     </pre><p>The five core concepts:</p>
 <ol class="arabic simple">
-<li><p><strong>Knowledge Files</strong> - Context and instructions (via <a class="reference internal" href="skills/README.html"><span class="doc">Skills System</span></a>)</p></li>
+<li><p><strong>Knowledge Files</strong> - Context and instructions (via <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> and <a class="reference internal" href="skills.html"><span class="doc">Skills</span></a>)</p></li>
 <li><p><strong>Tools</strong> - Capabilities the AI can use (see <a class="reference internal" href="tools.html"><span class="doc">Tools</span></a>)</p></li>
 <li><p><strong>Hooks</strong> - Lifecycle integration points (see <a class="reference internal" href="hooks.html"><span class="doc">Hooks</span></a>)</p></li>
 <li><p><strong>Commands</strong> - User interface shortcuts (see <a class="reference internal" href="usage.html#usage-commands"><span class="std std-ref">Commands</span></a>)</p></li>
@@ -507,7 +507,11 @@ window.addEventListener("load", () => mermaid.run());
 <h2>Knowledge Files (Context Injection)<a class="headerlink" href="#knowledge-files-context-injection" title="Link to this heading">#</a></h2>
 <p><strong>What</strong>: Lightweight knowledge bundles that inject context into conversations.</p>
 <p><strong>Purpose</strong>: Share knowledge, workflows, examples, and best practices with the AI without modifying code.</p>
-<p><strong>Format</strong>: Anthropic’s skill format - YAML frontmatter + markdown content</p>
+<p><strong>Formats</strong>: Two formats are supported:</p>
+<ul class="simple">
+<li><p><strong>Lessons</strong> (core): Auto-load by keywords/patterns/tools (see <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a>)</p></li>
+<li><p><strong>Skills</strong> (Anthropic format): Auto-load by name only (see <a class="reference internal" href="skills.html"><span class="doc">Skills</span></a>)</p></li>
+</ul>
 <p><strong>Structure</strong>:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-skill/
 ├── SKILL.md          # Main content with YAML frontmatter
@@ -545,7 +549,7 @@ Example:
 <li><p>No runtime behavior needed</p></li>
 </ul>
 <p><strong>Distribution</strong>: ZIP archives, shared via directories</p>
-<p>See <a class="reference internal" href="skills/README.html"><span class="doc">Skills System</span></a> for complete documentation.</p>
+<p>See <a class="reference internal" href="skills.html"><span class="doc">Skills</span></a> for complete documentation.</p>
 </section>
 <section id="tools-capabilities">
 <h2>Tools (Capabilities)<a class="headerlink" href="#tools-capabilities" title="Link to this heading">#</a></h2>
@@ -890,7 +894,7 @@ Level 4: deployment_plugin/ (plugin)
 <section id="further-reading">
 <h2>Further Reading<a class="headerlink" href="#further-reading" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="skills/README.html"><span class="doc">Skills System</span></a> - Knowledge files and skill format</p></li>
+<li><p><a class="reference internal" href="skills.html"><span class="doc">Skills</span></a> - Knowledge files and skill format</p></li>
 <li><p><a class="reference internal" href="tools.html"><span class="doc">Tools</span></a> - Built-in tools catalog</p></li>
 <li><p><a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> - Creating custom tools</p></li>
 <li><p><a class="reference internal" href="hooks.html"><span class="doc">Hooks</span></a> - Hook system details</p></li>

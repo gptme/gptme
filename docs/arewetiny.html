@@ -163,7 +163,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
-<li class="toctree-l1"><a class="reference internal" href="skills/README.html">Skills System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
@@ -496,20 +496,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     236565 |       mcp.types
-     238262 |     gptme.tools.mcp_adapter
-     273441 |               openai.types
-     340433 |             openai
-     426229 |           gptme.llm.llm_openai
-     675676 |         gptme.llm
-     677756 |       gptme.commands
-     776967 |     gptme.chat
-    1173460 |   gptme.cli
-    1226095 | gptme
+     255179 |       mcp.types
+     257056 |     gptme.tools.mcp_adapter
+     286722 |               openai.types
+     356199 |             openai
+     450812 |           gptme.llm.llm_openai
+     714639 |         gptme.llm
+     716834 |       gptme.commands
+     820508 |     gptme.chat
+    1241764 |   gptme.cli
+    1296886 | gptme
 
-real	0m1.929s
-user	0m1.692s
-sys	0m0.251s
+real	0m2.242s
+user	0m1.843s
+sys	0m0.270s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -518,8 +518,10 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      1.989 s ±  0.019 s    [User: 1.761 s, System: 0.224 s]
-  Range (min … max):    1.966 s …  2.008 s    5 runs
+  Time (mean ± σ):      2.204 s ±  0.206 s    [User: 1.901 s, System: 0.227 s]
+  Range (min … max):    2.092 s …  2.571 s    5 runs
+ 
+  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the &#39;--warmup&#39; or &#39;--prepare&#39; options.
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1484,7 +1486,7 @@ Clone found (python):
 │ Total:     │ 216            │ 54966       │ 349726       │ 27           │ 393 (0.71%)      │ 3165 (0.9%)       │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 27 clones.
-Detection time:: 3.563s
+Detection time:: 3.717s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>

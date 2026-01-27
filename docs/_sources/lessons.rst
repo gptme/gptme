@@ -3,15 +3,50 @@ Lessons
 
 The lesson system provides contextual guidance and best practices that are automatically included in conversations when relevant. Lessons help users follow recommended patterns and avoid common pitfalls.
 
+The lesson system is the **core knowledge system** in gptme. :doc:`skills` are a special case of lessons that follow Anthropic's folder-style format.
+
 Overview
 --------
 
-Lessons are markdown files with YAML frontmatter that specify when they should be included. The system automatically:
+**Lessons** are markdown files with YAML frontmatter that specify when they should be included. The system automatically:
 
 - Indexes lessons from configured directories
-- Matches lessons based on keywords and tools used
+- Matches lessons based on **keywords**, **patterns**, and **tools** used
 - Includes relevant lessons in conversation context
 - Adapts inclusion behavior for interactive vs autonomous modes
+
+Lessons vs Skills
+~~~~~~~~~~~~~~~~~
+
+The lesson system supports two formats:
+
+**Lessons (Core Format)**:
+
+- Auto-loading: By keywords, patterns, and tools
+- Frontmatter: ``match: {keywords: [...], tools: [...]}``
+- Best for: Context-aware guidance that appears automatically
+- Example: "Git best practices" appears when discussing commits
+
+**Skills (Anthropic Format)**:
+
+- Auto-loading: By name only (when skill name appears in message)
+- Frontmatter: ``name:``, ``description:``
+- Best for: Explicit knowledge bundles, portable across tools
+- Example: "python-repl" skill loads when you mention "python repl"
+
++-------------------+------------------------------------+------------------------------------+
+| Feature           | Lessons (Core)                     | Skills (Anthropic)                 |
++===================+====================================+====================================+
+| Auto-loading      | ✅ Keywords, patterns, tools       | ⚠️ Name only (in message)          |
++-------------------+------------------------------------+------------------------------------+
+| Frontmatter       | ``match: {keywords: [...]}``       | ``name:``, ``description:``        |
++-------------------+------------------------------------+------------------------------------+
+| Best for          | Context-aware guidance             | Explicit knowledge bundles         |
++-------------------+------------------------------------+------------------------------------+
+| Bundled scripts   | No                                 | Yes (optional)                     |
++-------------------+------------------------------------+------------------------------------+
+
+See :doc:`skills` for details on the skills format.
 
 How Lessons Work
 ----------------
@@ -323,6 +358,7 @@ This shows which lessons match and why.
 See Also
 --------
 
+- :doc:`skills` - Skills format (Anthropic-style knowledge bundles)
 - :doc:`tools` - Available tools that lessons can reference
 - :doc:`config` - Configuration options
 - :doc:`custom_tool` - Creating custom tools with lessons

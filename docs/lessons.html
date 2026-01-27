@@ -51,7 +51,7 @@
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Skills System" href="skills/README.html" />
+    <link rel="next" title="Skills" href="skills.html" />
     <link rel="prev" title="Tools" href="tools.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -163,7 +163,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Lessons</a></li>
-<li class="toctree-l1"><a class="reference internal" href="skills/README.html">Skills System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
@@ -448,7 +448,10 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons-vs-skills">Lessons vs Skills</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-lessons-work">How Lessons Work</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lesson-format">Lesson Format</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#metadata-fields">Metadata Fields</a></li>
@@ -498,15 +501,62 @@
   <section id="lessons">
 <h1>Lessons<a class="headerlink" href="#lessons" title="Link to this heading">#</a></h1>
 <p>The lesson system provides contextual guidance and best practices that are automatically included in conversations when relevant. Lessons help users follow recommended patterns and avoid common pitfalls.</p>
+<p>The lesson system is the <strong>core knowledge system</strong> in gptme. <a class="reference internal" href="skills.html"><span class="doc">Skills</span></a> are a special case of lessons that follow Anthropic’s folder-style format.</p>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>Lessons are markdown files with YAML frontmatter that specify when they should be included. The system automatically:</p>
+<p><strong>Lessons</strong> are markdown files with YAML frontmatter that specify when they should be included. The system automatically:</p>
 <ul class="simple">
 <li><p>Indexes lessons from configured directories</p></li>
-<li><p>Matches lessons based on keywords and tools used</p></li>
+<li><p>Matches lessons based on <strong>keywords</strong>, <strong>patterns</strong>, and <strong>tools</strong> used</p></li>
 <li><p>Includes relevant lessons in conversation context</p></li>
 <li><p>Adapts inclusion behavior for interactive vs autonomous modes</p></li>
 </ul>
+<section id="lessons-vs-skills">
+<h3>Lessons vs Skills<a class="headerlink" href="#lessons-vs-skills" title="Link to this heading">#</a></h3>
+<p>The lesson system supports two formats:</p>
+<p><strong>Lessons (Core Format)</strong>:</p>
+<ul class="simple">
+<li><p>Auto-loading: By keywords, patterns, and tools</p></li>
+<li><p>Frontmatter: <code class="docutils literal notranslate"><span class="pre">match:</span> <span class="pre">{keywords:</span> <span class="pre">[...],</span> <span class="pre">tools:</span> <span class="pre">[...]}</span></code></p></li>
+<li><p>Best for: Context-aware guidance that appears automatically</p></li>
+<li><p>Example: “Git best practices” appears when discussing commits</p></li>
+</ul>
+<p><strong>Skills (Anthropic Format)</strong>:</p>
+<ul class="simple">
+<li><p>Auto-loading: By name only (when skill name appears in message)</p></li>
+<li><p>Frontmatter: <code class="docutils literal notranslate"><span class="pre">name:</span></code>, <code class="docutils literal notranslate"><span class="pre">description:</span></code></p></li>
+<li><p>Best for: Explicit knowledge bundles, portable across tools</p></li>
+<li><p>Example: “python-repl” skill loads when you mention “python repl”</p></li>
+</ul>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Feature</p></th>
+<th class="head"><p>Lessons (Core)</p></th>
+<th class="head"><p>Skills (Anthropic)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Auto-loading</p></td>
+<td><p>✅ Keywords, patterns, tools</p></td>
+<td><p>⚠️ Name only (in message)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Frontmatter</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">match:</span> <span class="pre">{keywords:</span> <span class="pre">[...]}</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">name:</span></code>, <code class="docutils literal notranslate"><span class="pre">description:</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Best for</p></td>
+<td><p>Context-aware guidance</p></td>
+<td><p>Explicit knowledge bundles</p></td>
+</tr>
+<tr class="row-odd"><td><p>Bundled scripts</p></td>
+<td><p>No</p></td>
+<td><p>Yes (optional)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>See <a class="reference internal" href="skills.html"><span class="doc">Skills</span></a> for details on the skills format.</p>
+</section>
 </section>
 <section id="how-lessons-work">
 <h2>How Lessons Work<a class="headerlink" href="#how-lessons-work" title="Link to this heading">#</a></h2>
@@ -798,6 +848,7 @@ When using the shell tool...
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
 <ul class="simple">
+<li><p><a class="reference internal" href="skills.html"><span class="doc">Skills</span></a> - Skills format (Anthropic-style knowledge bundles)</p></li>
 <li><p><a class="reference internal" href="tools.html"><span class="doc">Tools</span></a> - Available tools that lessons can reference</p></li>
 <li><p><a class="reference internal" href="config.html"><span class="doc">Configuration</span></a> - Configuration options</p></li>
 <li><p><a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> - Creating custom tools with lessons</p></li>
@@ -827,11 +878,11 @@ When using the shell tool...
       </div>
     </a>
     <a class="right-next"
-       href="skills/README.html"
+       href="skills.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Skills System</p>
+        <p class="prev-next-title">Skills</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -852,7 +903,10 @@ When using the shell tool...
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons-vs-skills">Lessons vs Skills</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-lessons-work">How Lessons Work</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lesson-format">Lesson Format</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#metadata-fields">Metadata Fields</a></li>
