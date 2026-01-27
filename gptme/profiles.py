@@ -10,11 +10,14 @@ This enables creating specialized agents like "explorer" (read-only),
 """
 
 import logging
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
-import tomllib
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 from .dirs import get_config_dir
 
@@ -32,7 +35,7 @@ class ProfileBehavior:
     # If True, prevent network access (browser, etc.)
     no_network: bool = False
     # Maximum context tokens (None = use model default)
-    max_context_tokens: Optional[int] = None
+    max_context_tokens: int | None = None
 
 
 @dataclass
@@ -50,7 +53,7 @@ class Profile:
     name: str
     description: str
     system_prompt: str = ""
-    tools: Optional[list[str]] = None
+    tools: list[str] | None = None
     behavior: ProfileBehavior = field(default_factory=ProfileBehavior)
 
     @classmethod
@@ -159,7 +162,7 @@ def load_user_profiles() -> dict[str, Profile]:
     return profiles
 
 
-def get_profile(name: str) -> Optional[Profile]:
+def get_profile(name: str) -> Profile | None:
     """Get a profile by name.
 
     Checks user profiles first, then falls back to built-in profiles.

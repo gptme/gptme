@@ -21,10 +21,11 @@ from .init import init_logging
 from .llm.models import get_recommended_model
 from .logmanager import ConversationMeta, get_user_conversations
 from .message import Message
+from .profiles import get_profile
+from .profiles import list_profiles as list_available_profiles
 from .prompts import get_prompt
 from .telemetry import init_telemetry, shutdown_telemetry
 from .tools import ToolFormat, get_available_tools, init_tools
-from .profiles import get_profile, list_profiles as list_available_profiles
 from .util import epoch_to_age
 from .util.auto_naming import generate_conversation_id
 from .util.interrupt import handle_keyboard_interrupt, set_interruptible
@@ -352,18 +353,18 @@ def main(
         table.add_column("Tools", style="yellow")
         table.add_column("Behavior", style="magenta")
 
-        for name, profile in sorted(profiles.items()):
-            tools_str = ", ".join(profile.tools) if profile.tools else "all"
+        for name, prof in sorted(profiles.items()):
+            tools_str = ", ".join(prof.tools) if prof.tools else "all"
             behavior_flags = []
-            if profile.behavior.read_only:
+            if prof.behavior.read_only:
                 behavior_flags.append("read-only")
-            if profile.behavior.no_network:
+            if prof.behavior.no_network:
                 behavior_flags.append("no-network")
-            if profile.behavior.confirm_writes:
+            if prof.behavior.confirm_writes:
                 behavior_flags.append("confirm-writes")
             behavior_str = ", ".join(behavior_flags) if behavior_flags else "default"
 
-            table.add_row(name, profile.description, tools_str, behavior_str)
+            table.add_row(name, prof.description, tools_str, behavior_str)
 
         console.print(table)
         exit(0)

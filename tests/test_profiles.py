@@ -1,16 +1,11 @@
 """Tests for agent profiles functionality."""
 
-import tempfile
-from pathlib import Path
-
-import pytest
-
 from gptme.profiles import (
+    BUILTIN_PROFILES,
     Profile,
     ProfileBehavior,
     get_profile,
     list_profiles,
-    BUILTIN_PROFILES,
 )
 
 
@@ -73,6 +68,7 @@ class TestBuiltinProfiles:
         assert explorer.name == "explorer"
         assert explorer.behavior.read_only is True
         assert explorer.behavior.no_network is True
+        assert explorer.tools is not None
         assert "read" in explorer.tools
         assert "shell" in explorer.tools
 
@@ -83,6 +79,7 @@ class TestBuiltinProfiles:
         assert researcher.name == "researcher"
         assert researcher.behavior.read_only is True
         assert researcher.behavior.no_network is False
+        assert researcher.tools is not None
         assert "browser" in researcher.tools
 
     def test_isolated_profile(self):
