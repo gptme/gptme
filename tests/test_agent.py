@@ -172,11 +172,12 @@ class TestCLI:
         assert "View agent logs" in result.output
 
     def test_setup_creates_workspace(self, runner, tmp_path):
-        """Test setup command creates workspace structure."""
+        """Test setup command creates workspace structure (minimal mode)."""
         workspace = tmp_path / "test-agent"
 
-        result = runner.invoke(main, ["setup", str(workspace)])
-        assert result.exit_code == 0
+        # Use --no-template to test minimal setup without network dependency
+        result = runner.invoke(main, ["setup", "--no-template", str(workspace)])
+        assert result.exit_code == 0, f"Setup failed: {result.output}"
         assert "Workspace setup complete" in result.output
 
         # Verify structure created
@@ -184,6 +185,8 @@ class TestCLI:
         assert (workspace / "journal").is_dir()
         assert (workspace / "tasks").is_dir()
         assert (workspace / "knowledge").is_dir()
+        assert (workspace / "lessons").is_dir()  # Also created in minimal mode
+        assert (workspace / "people").is_dir()  # Also created in minimal mode
         assert (workspace / "gptme.toml").is_file()
         assert (workspace / "README.md").is_file()
         assert (

@@ -3,7 +3,7 @@ CLI commands for gptme agent management.
 
 Usage:
     gptme-agent status              # Show all agent statuses
-    gptme-agent setup <path>        # Interactive setup for agent workspace
+    gptme-agent setup <path>        # Set up agent workspace (from template or scratch)
     gptme-agent install [--timer]   # Install systemd/launchd services
     gptme-agent start [<name>]      # Start agent(s)
     gptme-agent stop [<name>]       # Stop agent(s)
@@ -19,6 +19,16 @@ from pathlib import Path
 import click
 
 from .service import ServiceStatus, detect_service_manager, get_service_manager
+from .workspace import (
+    DEFAULT_TEMPLATE_BRANCH,
+    DEFAULT_TEMPLATE_REPO,
+    WorkspaceError,
+    create_workspace_from_template,
+    create_workspace_structure,
+)
+from .workspace import (
+    init_conversation as init_agent_conversation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,29 +137,68 @@ def list_cmd():
 @main.command("setup")
 @click.argument("path", type=click.Path(exists=False))
 @click.option("--name", "-n", help="Agent name (defaults to directory name)")
-@click.option("--template", "-t", help="Template to use for scaffolding")
-def setup_cmd(path: str, name: str | None, template: str | None):
+@click.option(
+    "--template/--no-template",
+    "-t/-T",
+    default=True,
+    help="Use template repository (default: yes)",
+)
+@click.option(
+    "--template-repo",
+    default=DEFAULT_TEMPLATE_REPO,
+    help=f"Template repository URL (default: {DEFAULT_TEMPLATE_REPO})",
+)
+@click.option(
+    "--template-branch",
+    default=DEFAULT_TEMPLATE_BRANCH,
+    help=f"Template branch (default: {DEFAULT_TEMPLATE_BRANCH})",
+)
+@click.option(
+    "--init-conversation",
+    is_flag=True,
+    help="Initialize first conversation for the agent",
+)
+def setup_cmd(
+    path: str,
+    name: str | None,
+    template: bool,
+    template_repo: str,
+    template_branch: str,
+    init_conversation: bool,
+):
     """Set up a new agent workspace.
 
     PATH is the directory where the agent workspace will be created.
-    If it doesn't exist, it will be created.
 
-    This command will:
-    - Create the workspace directory structure
-    - Generate a gptme.toml configuration
-    - Create the autonomous run script
-    - Optionally scaffold from gptme-agent-template
+    By default, this clones from gptme-agent-template and runs its fork.sh script
+    to create a fully-featured agent workspace. Use --no-template for a minimal
+    workspace without the template.
+
+    \b
+    Template-based setup (default):
+    - Clones gptme-agent-template repository
+    - Runs fork.sh to customize for your agent
+    - Includes lessons, knowledge structure, and automation
+
+    \b
+    Minimal setup (--no-template):
+    - Creates basic directory structure
+    - Generates minimal gptme.toml
+    - Creates autonomous run script
 
     \b
     Example:
-      gptme-agent setup ~/my-agent
-      gptme-agent setup ~/my-agent --name bob
+      gptme-agent setup ~/my-agent                    # Template-based (recommended)
+      gptme-agent setup ~/my-agent --name bob         # Custom agent name
+      gptme-agent setup ~/my-agent --no-template      # Minimal setup
+      gptme-agent setup ~/my-agent --init-conversation  # Also create first conversation
     """
     workspace = Path(path).expanduser().resolve()
     agent_name = name or workspace.name
 
     click.echo(f"🚀 Setting up agent workspace: {workspace}")
     click.echo(f"   Agent name: {agent_name}")
+    click.echo(f"   Mode: {'template-based' if template else 'minimal'}")
 
     if workspace.exists():
         if not workspace.is_dir():
@@ -160,90 +209,56 @@ def setup_cmd(path: str, name: str | None, template: str | None):
         gptme_toml = workspace / "gptme.toml"
         if gptme_toml.exists():
             click.echo("✓ Existing workspace detected (has gptme.toml)")
-            if not click.confirm("Update configuration?"):
-                return
-    else:
-        workspace.mkdir(parents=True)
-        click.echo(f"✓ Created directory: {workspace}")
+            click.echo("   Use 'gptme-agent install' to install services")
+            return
 
-    # Create basic structure
-    (workspace / "journal").mkdir(exist_ok=True)
-    (workspace / "tasks").mkdir(exist_ok=True)
-    (workspace / "knowledge").mkdir(exist_ok=True)
-    click.echo("✓ Created directory structure")
+        if any(workspace.iterdir()):
+            click.echo(f"❌ Directory is not empty: {workspace}")
+            click.echo("   Please use an empty directory or remove existing files")
+            sys.exit(1)
 
-    # Create scripts directory and autonomous run script
-    scripts_dir = workspace / "scripts" / "runs" / "autonomous"
-    scripts_dir.mkdir(parents=True, exist_ok=True)
+    click.echo()
 
-    run_script = scripts_dir / "autonomous-run.sh"
-    if not run_script.exists():
-        run_script.write_text(f"""#!/bin/bash
-# Autonomous run script for {agent_name}
-# This script is called by the service manager (systemd/launchd)
+    try:
+        if template:
+            # Template-based setup (recommended)
+            click.echo(f"📦 Cloning template from {template_repo}...")
+            click.echo(f"   Branch: {template_branch}")
 
-set -e
-cd "$(dirname "$0")/../../.."
+            # The fork.sh in gptme-agent-template expects: ./fork.sh <path> <name>
+            fork_command = f"./fork.sh {workspace} {agent_name}"
 
-# Load environment if exists
-if [ -f .env ]; then
-    set -a
-    source .env
-    set +a
-fi
+            create_workspace_from_template(
+                path=workspace,
+                agent_name=agent_name,
+                template_repo=template_repo,
+                template_branch=template_branch,
+                fork_command=fork_command,
+            )
+            click.echo("✓ Template cloned and customized")
+        else:
+            # Minimal setup (fallback)
+            click.echo("📁 Creating minimal workspace structure...")
+            create_workspace_structure(workspace, agent_name)
+            click.echo("✓ Created directory structure")
+            click.echo("✓ Created autonomous run script")
+            click.echo("✓ Created gptme.toml")
+            click.echo("✓ Created README.md")
 
-# Run gptme with autonomous prompt
-exec gptme --non-interactive --workspace . \\
-    "You are {agent_name}, running in autonomous mode. Check your tasks and make progress."
-""")
-        run_script.chmod(0o755)
-        click.echo("✓ Created autonomous run script")
+        # Optionally initialize first conversation
+        if init_conversation:
+            click.echo()
+            click.echo("💬 Initializing first conversation...")
+            conversation_id = init_agent_conversation(workspace)
+            click.echo(f"✓ Created conversation: {conversation_id}")
 
-    # Create gptme.toml if not exists
-    gptme_toml = workspace / "gptme.toml"
-    if not gptme_toml.exists():
-        gptme_toml.write_text(f"""[agent]
-name = "{agent_name}"
-
-[prompt]
-files = [
-  "README.md",
-  "gptme.toml",
-]
-""")
-        click.echo("✓ Created gptme.toml")
-
-    # Create README
-    readme = workspace / "README.md"
-    if not readme.exists():
-        readme.write_text(f"""# {agent_name}
-
-An autonomous AI agent built on [gptme](https://gptme.org).
-
-## Quick Start
-
-```sh
-# Install services
-gptme-agent install
-
-# Check status
-gptme-agent status
-
-# View logs
-gptme-agent logs --follow
-
-# Manual run
-gptme-agent run
-```
-
-## Structure
-
-- `journal/` - Daily activity logs
-- `tasks/` - Task tracking
-- `knowledge/` - Documentation and learnings
-- `scripts/` - Automation scripts
-""")
-        click.echo("✓ Created README.md")
+    except WorkspaceError as e:
+        click.echo(f"❌ Setup failed: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logger.exception("Unexpected error during setup")
+        click.echo(f"❌ Unexpected error: {e}")
+        sys.exit(1)
 
     click.echo()
     click.echo("✅ Workspace setup complete!")
