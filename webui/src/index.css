@@ -1,0 +1,226 @@
+@import url('https://rsms.me/inter/inter.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 142.1 76.2% 36.3%;
+    --primary-foreground: 355.7 100% 97.3%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 142.1 76.2% 36.3%;
+    --code-background: 0 0% 13%;
+    --codesnip: 0 0% 0%;
+    --codesnip-background: 0 0% 90%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 0 0% 8%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 142.1 70.6% 45.3%;
+    --primary-foreground: 144.9 80.4% 10%;
+    --secondary: 0 0% 13%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 13%;
+    --muted-foreground: 0 0% 65%;
+    --accent: 0 0% 13%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 85.7% 97.3%;
+    --border: 0 0% 13%;
+    --input: 0 0% 23%;
+    --ring: 142.4 71.8% 29.2%;
+    --code-background: 0 0% 3%;
+    --codesnip: 0 0% 100%;
+    --codesnip-background: 0 0% 6%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-sm text-foreground;
+    font-feature-settings: 'ss01', 'ss02', 'cv01', 'cv02', 'cv03';
+  }
+}
+
+.chat-message {
+  @apply py-1.5;
+}
+
+.chat-message a {
+  @apply text-blue-300;
+
+  &:hover {
+    @apply text-blue-600;
+  }
+
+  &:visited {
+    @apply text-purple-300;
+  }
+
+  &:visited:hover {
+    @apply text-purple-600;
+  }
+}
+
+.chat-message > p {
+  @apply py-0.5 text-sm leading-relaxed;
+}
+
+.role-system .chat-message > p {
+  @apply py-0.5 text-xs leading-relaxed;
+}
+
+.chat-message h1 {
+  @apply mt-6 border-b border-border pb-2 text-2xl font-bold;
+}
+
+.chat-message h2 {
+  @apply mb-2 mt-5 border-b border-border pb-1 text-xl font-bold;
+}
+
+.chat-message h3 {
+  @apply mb-2 mt-4 pb-1 text-lg font-bold;
+}
+
+.chat-message h4 {
+  @apply mt-3 pb-2 text-base font-bold;
+}
+
+.chat-message h5 {
+  @apply mt-3 pb-2 text-sm font-bold;
+}
+
+.chat-message h6 {
+  @apply mt-3 pb-2 text-xs font-bold;
+}
+
+.chat-message details > pre {
+  @apply rounded-b-lg;
+}
+
+.chat-message pre {
+  @apply overflow-x-auto text-white;
+  background-color: hsl(var(--code-background));
+}
+
+.chat-message code {
+  @apply rounded-lg text-xs text-white;
+  background-color: hsl(var(--code-background));
+}
+
+.chat-message *:not(pre) > code {
+  @apply rounded-sm border-border px-[.4rem] py-1 text-[0.7rem] text-gray-900;
+  color: hsl(var(--codesnip));
+  background-color: hsl(var(--codesnip-background));
+}
+
+.chat-message details {
+  @apply my-2 overflow-hidden rounded-md border border-border bg-white font-sans text-sm dark:border-stone-950 dark:bg-slate-900;
+}
+
+.chat-message details summary {
+  @apply cursor-pointer rounded-md bg-muted px-3 py-2 text-xs transition-colors;
+  user-select: none;
+}
+
+.chat-message details:not([open]) summary {
+  @apply hover:ring hover:ring-inset hover:ring-ring;
+}
+
+.chat-message details[open] {
+  @apply hover:bg-secondary hover:text-secondary-foreground;
+}
+
+.chat-message details[type='thinking'][open] summary {
+  @apply bg-transparent;
+}
+
+.chat-message details[type='thinking'][open] {
+  @apply text-xs;
+  box-shadow: 0 0 10px 4px hsl(var(--border)) inset;
+  /*
+   inset box shadow
+   */
+}
+
+.chat-message details[type='thinking'] > *:not(summary) {
+  @apply italic text-gray-400;
+}
+
+.chat-message details[open] {
+  @apply rounded-lg border border-border;
+}
+
+.chat-message details[open] > summary {
+  @apply rounded-b-none;
+}
+
+details > details {
+  @apply mx-4 my-2;
+}
+
+.chat-message details[open] > *:not(summary):not(pre):not(details) {
+  @apply px-3 py-1;
+}
+
+.chat-message pre {
+  @apply block;
+}
+
+.chat-message ul {
+  @apply my-2 ml-5 list-disc space-y-1;
+}
+
+.chat-message ol {
+  @apply my-2 ml-5 list-decimal space-y-1;
+}
+
+/* Syntax highlighting colors */
+.hljs {
+  @apply text-white;
+}
+
+.hljs-keyword {
+  @apply text-purple-400;
+}
+
+.hljs-string {
+  @apply text-green-400;
+}
+
+.hljs-comment {
+  @apply text-gray-500;
+}
+
+.hljs-function {
+  @apply text-blue-400;
+}
+
+.hljs-number {
+  @apply text-orange-400;
+}

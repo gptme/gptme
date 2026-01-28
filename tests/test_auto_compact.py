@@ -800,6 +800,7 @@ def test_load_context_files_nonexistent(tmp_path):
     assert len(loaded) == 0
 
 
+@pytest.mark.slow
 def test_load_context_files_truncates_long_files(tmp_path):
     """Test that very long files are truncated."""
     from gptme.tools.autocompact import _load_context_files

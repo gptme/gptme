@@ -1,0 +1,56 @@
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v5.0.0
+  hooks:
+  - id: check-yaml
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+
+- repo: local
+  hooks:
+  - id: lint
+    name: lint
+    stages: [pre-commit]
+    types: [javascript, jsx, ts, tsx]
+    entry: npm run lint:fix
+    language: system
+    pass_filenames: false
+    always_run: true
+
+  # handled by lint:fix
+  #- id: format
+  #  name: format
+  #  stages: [commit]
+  #  types: [javascript, jsx, ts, tsx]
+  #  entry: npm run format
+  #  language: system
+  #  pass_filenames: false
+  #  always_run: true
+
+  - id: typecheck
+    name: typecheck
+    stages: [pre-commit]
+    types: [javascript, jsx, ts, tsx]
+    entry: npm run typecheck
+    language: system
+    pass_filenames: false
+    always_run: true
+
+  # Uncomment the following lines to enable testing hooks
+  # Don't commit them uncommented since they take too long to run every time
+
+  #- id: test
+  #  name: test
+  #  types: [javascript, jsx, ts, tsx]
+  #  entry: npm test
+  #  language: system
+  #  pass_filenames: false
+  #  always_run: true
+
+  #- id: test-e2e
+  #  name: test-e2e
+  #  types: [javascript, jsx, ts, tsx]
+  #  entry: npm run test:e2e
+  #  language: system
+  #  pass_filenames: false
+  #  always_run: true

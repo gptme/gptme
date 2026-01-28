@@ -1,0 +1,9 @@
+files = [
+    "README.md",
+    "package.json",
+    "src/main.tsx",
+    "src/App.tsx",
+    "src/types/*.ts",
+    #"../gptme/gptme/server/api.py",
+    #"../gptme/gptme/server/workspace*.py"
+]

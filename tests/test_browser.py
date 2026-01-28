@@ -109,6 +109,7 @@ def test_search_perplexity(monkeypatch):
         ), f"Got error: {results2}"
 
 
+@pytest.mark.slow
 def test_pdf_max_pages_default():
     """Test that PDF reading respects default max_pages limit."""
     # This PDF has 42 pages, so with default max_pages=10, we should see truncation note
@@ -122,6 +123,7 @@ def test_pdf_max_pages_default():
         assert "max_pages=" in content, "Missing hint about max_pages parameter"
 
 
+@pytest.mark.slow
 def test_pdf_max_pages_custom():
     """Test PDF reading with custom max_pages parameter."""
     url = "https://arxiv.org/pdf/2410.12361v2"
@@ -145,6 +147,7 @@ def test_pdf_max_pages_custom():
     assert "max_pages=" in content, "Missing hint about max_pages parameter"
 
 
+@pytest.mark.slow
 def test_pdf_vision_hint():
     """Test that PDF output includes vision-based reading hint."""
     url = "https://arxiv.org/pdf/2410.12361v2"
