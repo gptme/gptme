@@ -627,7 +627,7 @@ skills on-demand requires tool access (e.g., the shell tool to run <cite>cat</ci
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f58a0ba2160&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f2e156820c0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -738,25 +738,17 @@ to append the code block content to the file at the given path.
 <span class="sb">search(&#39;ActivityWatch founder&#39;)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```results</span>
-<span class="s">1. [ActivityWatch](https://activitywatch.net/) ...</span>
+<span class="sb">```result</span>
+<span class="s">ActivityWatch was founded by Erik Bjäreholt in 2016...</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">Assistant: Following link to the ActivityWatch website.</span>
-<span class="sb">```ipython</span>
-<span class="n">read_url</span><span class="p">(</span><span class="s1">&#39;https://activitywatch.net/&#39;</span><span class="p">)</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-```https://activitywatch.net/
-... The ActivityWatch project was founded by Erik Bjäreholt in 2016. ...
-<span class="sb">```</span>
-<span class="sb">&gt; Assistant: The founder of ActivityWatch is Erik Bjäreholt.</span>
+<span class="k">&gt; </span><span class="ge">Assistant: The founder of ActivityWatch is Erik Bjäreholt.</span>
 
-<span class="sb">### Searching with Perplexity</span>
+<span class="gu">### Searching for latest information</span>
 
-<span class="sb">&gt; User: what are the latest developments in AI?</span>
-<span class="sb">&gt; Assistant: Let me search for that using Perplexity AI.</span>
+<span class="k">&gt; </span><span class="ge">User: what are the latest developments in AI?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me search for that.</span>
 <span class="sb">```ipython</span>
-<span class="sb">search(&#39;latest developments in AI&#39;, &#39;perplexity&#39;)</span>
+<span class="n">search</span><span class="p">(</span><span class="s1">&#39;latest developments in AI&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System:</span>
 <span class="sb">```result</span>
@@ -2095,7 +2087,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11001</p>
+<p>Tokens: 10928</p>
 </dd></dl>
 
 <dl class="py function">
