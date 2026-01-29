@@ -5,7 +5,7 @@ import re
 import time
 from collections.abc import Generator, Iterable
 from functools import lru_cache, wraps
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 
 import requests
 from openai import NOT_GIVEN
@@ -41,12 +41,12 @@ logger = logging.getLogger(__name__)
 
 
 # Type definitions for message dictionaries used in API transformations
-class ContentPart(TypedDict, total=False):
+class ContentPart(TypedDict):
     """A content part in a multimodal message."""
 
-    type: str  # "text", "image_url", etc.
-    text: str  # For text parts
-    image_url: dict[str, str]  # For image parts: {"url": "data:..."}
+    type: str  # "text", "image_url", etc. - always required
+    text: NotRequired[str]  # For text parts
+    image_url: NotRequired[dict[str, str]]  # For image parts: {"url": "data:..."}
 
 
 # Type alias for message content (can be string, list of parts, or None)
@@ -68,7 +68,7 @@ class ToolCall(TypedDict):
     function: ToolCallFunction
 
 
-class MessageDict(TypedDict, total=False):
+class MessageDict(TypedDict):
     """
     Dictionary representation of a chat message for API calls.
 
@@ -77,20 +77,24 @@ class MessageDict(TypedDict, total=False):
     in all messages - the required fields vary by role.
     """
 
-    # Core fields (present in most messages)
+    # Core fields (always required)
     role: str  # "system", "user", "assistant", "tool"
     content: MessageContent
 
-    # Tool-related fields
-    tool_calls: list[ToolCall]  # For assistant messages that call tools
-    tool_call_id: str  # For tool response messages
-    call_id: str  # Legacy field for tool responses (converted to tool_call_id)
+    # Tool-related fields (optional)
+    tool_calls: NotRequired[list[ToolCall]]  # For assistant messages that call tools
+    tool_call_id: NotRequired[str]  # For tool response messages
+    call_id: NotRequired[
+        str
+    ]  # Legacy field for tool responses (converted to tool_call_id)
 
     # Reasoning/thinking fields (for models with thinking/reasoning support)
-    reasoning_content: str
+    reasoning_content: NotRequired[str]
 
     # Multimodal fields
-    files: list[str]  # Image/file attachments as file paths (processed before API call)
+    files: NotRequired[
+        list[str]
+    ]  # Image/file attachments as file paths (processed before API call)
 
 
 # Shows in rankings on openrouter.ai
