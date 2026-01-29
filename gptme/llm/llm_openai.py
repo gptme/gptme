@@ -5,7 +5,7 @@ import re
 import time
 from collections.abc import Generator, Iterable
 from functools import lru_cache, wraps
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import requests
 from openai import NOT_GIVEN
@@ -38,6 +38,60 @@ if TYPE_CHECKING:
 # Dictionary to store clients for each provider (includes custom providers)
 clients: dict[Provider, "OpenAI"] = {}
 logger = logging.getLogger(__name__)
+
+
+# Type definitions for message dictionaries used in API transformations
+class ContentPart(TypedDict, total=False):
+    """A content part in a multimodal message."""
+
+    type: str  # "text", "image_url", etc.
+    text: str | None  # For text parts (can be None when not present)
+    image_url: dict  # For image parts
+
+
+# Type alias for message content (can be string, list of parts, or None)
+MessageContent = str | list[ContentPart | str] | None
+
+
+class ToolCallFunction(TypedDict):
+    """Function details in a tool call."""
+
+    name: str
+    arguments: str
+
+
+class ToolCall(TypedDict):
+    """A tool call in an assistant message."""
+
+    id: str
+    type: str  # "function"
+    function: ToolCallFunction
+
+
+class MessageDict(TypedDict, total=False):
+    """
+    Dictionary representation of a chat message for API calls.
+
+    This type covers the internal message format used when preparing
+    messages for various LLM providers. Not all fields are present
+    in all messages - the required fields vary by role.
+    """
+
+    # Core fields (present in most messages)
+    role: str  # "system", "user", "assistant", "tool"
+    content: MessageContent
+
+    # Tool-related fields
+    tool_calls: list[ToolCall]  # For assistant messages that call tools
+    tool_call_id: str  # For tool response messages
+    call_id: str  # Legacy field for tool responses (converted to tool_call_id)
+
+    # Reasoning/thinking fields (for models with thinking/reasoning support)
+    reasoning_content: str
+
+    # Multimodal fields
+    files: list  # Image/file attachments (processed before API call)
+
 
 # Shows in rankings on openrouter.ai
 OPENROUTER_APP_HEADERS = {
@@ -660,15 +714,15 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
 
 
 def _merge_tool_results_with_same_call_id(
-    messages_dicts: Iterable[dict],
-) -> list[dict]:
+    messages_dicts: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """
     When we call a tool, this tool can potentially yield multiple messages. However
     the API expect to have only one tool result per tool call. This function tries
     to merge subsequent tool results with the same call ID as expected by
     the API.
     """
-    messages_new: list[dict] = []
+    messages_new: list[dict[str, Any]] = []
 
     for message in messages_dicts:
         if messages_new and (
@@ -750,11 +804,11 @@ def _process_file(msg: dict, model: ModelMeta) -> dict:
 
 
 def _transform_msgs_for_special_provider(
-    messages_dicts: Iterable[dict], model: ModelMeta
-):
+    messages_dicts: Iterable[dict[str, Any]], model: ModelMeta
+) -> Iterable[dict[str, Any]]:
     # groq and deepseek needs message.content to be a string
     if model.provider == "groq" or model.provider == "deepseek":
-        result = []
+        result: list[dict[str, Any]] = []
         for msg in messages_dicts:
             content = msg.get("content")
             # Handle messages without content (e.g., tool call messages)
@@ -827,7 +881,7 @@ def _transform_msgs_for_special_provider(
 
             return reasoning, cleaned_content
 
-        result = []
+        openrouter_result: list[dict[str, Any]] = []
         for msg in messages_dicts:
             if (
                 msg.get("role") == "assistant"
@@ -849,12 +903,12 @@ def _transform_msgs_for_special_provider(
                     content = "\n".join(text_parts)
 
                 reasoning, cleaned_content = _extract_and_strip_reasoning(content)
-                result.append(
+                openrouter_result.append(
                     {**msg, "reasoning_content": reasoning, "content": cleaned_content}
                 )
             else:
-                result.append(msg)
-        return result
+                openrouter_result.append(msg)
+        return openrouter_result
 
     return messages_dicts
 
@@ -1064,7 +1118,10 @@ def _prepare_messages_for_api(
     ):
         messages = list(_prep_deepseek_reasoner(messages))
 
-    messages_dicts: Iterable[dict] = (
+    # Use dict[str, Any] here since _process_file returns untyped dict
+    # The downstream functions (_transform_msgs_for_special_provider) handle
+    # the message dict structure internally
+    messages_dicts: Iterable[dict[str, Any]] = (
         _process_file(msg, model_meta) for msg in msgs2dicts(messages)
     )
 
