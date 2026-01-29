@@ -9,13 +9,14 @@ from ..message import Message
 from .api import _abs_to_rel_workspace
 
 
-class MessageDict(TypedDict):
+class MessageDict(TypedDict, total=False):
     """Message dictionary type."""
 
     role: str
     content: str
     timestamp: str
     files: list[str] | None
+    hide: bool
 
 
 class ToolUseDict(TypedDict):
@@ -133,9 +134,12 @@ EventType = (
 
 def msg2dict(msg: Message, workspace: Path) -> MessageDict:
     """Convert a Message object to a dictionary."""
-    return {
+    result: MessageDict = {
         "role": msg.role,
         "content": msg.content,
         "timestamp": msg.timestamp.isoformat(),
         "files": [_abs_to_rel_workspace(f, workspace) for f in msg.files],
     }
+    if msg.hide:
+        result["hide"] = True
+    return result
