@@ -5,10 +5,11 @@ import re
 import time
 from collections.abc import Generator, Iterable
 from functools import lru_cache, wraps
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import requests
 from openai import NOT_GIVEN
+from typing_extensions import NotRequired
 
 from ..config import Config, get_config
 from ..constants import TEMPERATURE, TOP_P
