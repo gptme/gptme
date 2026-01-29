@@ -9,15 +9,14 @@ from ..message import Message
 from .api import _abs_to_rel_workspace
 
 
-class MessageDict(TypedDict, total=False):
+class MessageDict(TypedDict):
     """Message dictionary type."""
 
     role: str
     content: str
     timestamp: str
-    files: list[str] | None
-    hide: bool
-
+    files: NotRequired[list[str] | None]
+    hide: NotRequired[bool]
 
 class ToolUseDict(TypedDict):
     """Tool use dictionary type."""
