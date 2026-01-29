@@ -545,16 +545,28 @@ def get_model(model: str) -> ModelMeta:
         if provider_str in PROVIDERS:
             provider = cast(Provider, provider_str)
 
+            # For OpenRouter, strip subprovider suffix (e.g., @moonshotai) for static lookup
+            # The full model name with suffix is used for API calls, but MODELS dict uses base name
+            lookup_model_name = model_name
+            if provider == "openrouter" and "@" in model_name:
+                lookup_model_name = model_name.split("@")[0]
+
             # First try static MODELS dict for performance
-            if provider in MODELS and model_name in MODELS[provider]:
-                return ModelMeta(provider, model_name, **MODELS[provider][model_name])
+            if provider in MODELS and lookup_model_name in MODELS[provider]:
+                return ModelMeta(
+                    provider, model_name, **MODELS[provider][lookup_model_name]
+                )
 
             # For providers that support dynamic fetching, use _get_models_for_provider
             if provider == "openrouter":
                 try:
                     models = _get_models_for_provider(provider, dynamic_fetch=True)
                     for model_meta in models:
-                        if model_meta.model == model_name:
+                        # Check both full name (with suffix) and base name (without suffix)
+                        if (
+                            model_meta.model == model_name
+                            or model_meta.model == lookup_model_name
+                        ):
                             return model_meta
                 except Exception as e:
                     # Fall back to unknown model metadata
