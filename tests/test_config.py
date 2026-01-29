@@ -173,6 +173,10 @@ args = ["oura-mcp-server"]
 [rag]
 enabled = true
 
+[agent]
+name = "TestBot"
+avatar = "assets/avatar.png"
+
 """
 
 project_config_json = """
@@ -201,6 +205,10 @@ project_config_json = """
                 "args": ["oura-mcp-server"]
             }
         ]
+    },
+    "agent": {
+        "name": "TestBot",
+        "avatar": "assets/avatar.png"
     }
 }
 """
@@ -556,6 +564,11 @@ def test_project_config_loaded_from_toml():
     assert oura_server.command == "uvx"
     assert oura_server.args == ["oura-mcp-server"]
 
+    # Agent config
+    assert config.agent is not None
+    assert config.agent.name == "TestBot"
+    assert config.agent.avatar == "assets/avatar.png"
+
 
 def test_project_config_loaded_from_json():
     config = ProjectConfig.from_dict(json.loads(project_config_json))
@@ -583,6 +596,11 @@ def test_project_config_loaded_from_json():
     assert oura_server.enabled is True
     assert oura_server.command == "uvx"
     assert oura_server.args == ["oura-mcp-server"]
+
+    # Agent config
+    assert config.agent is not None
+    assert config.agent.name == "TestBot"
+    assert config.agent.avatar == "assets/avatar.png"
 
 
 def test_project_config_to_dict():

@@ -151,6 +151,7 @@ class AgentConfig:
     """Configuration for agent-specific settings."""
 
     name: str
+    avatar: str | None = None
 
 
 @dataclass
