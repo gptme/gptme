@@ -5,7 +5,7 @@ import re
 import time
 from collections.abc import Generator, Iterable
 from functools import lru_cache, wraps
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import requests
 from openai import NOT_GIVEN
@@ -34,6 +34,18 @@ if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionToolParam  # fmt: skip
 
     from . import is_custom_provider  # fmt: skip
+
+
+# Type alias for OpenAI-compatible message dicts
+# Structure: {
+#   "role": str (required) - "system", "user", "assistant", "tool"
+#   "content": str | list | None - text or multimodal content parts
+#   "tool_calls": list[dict] | None - tool calls for assistant messages
+#   "reasoning_content": str | None - extracted from <think>/<thinking> tags
+#   "files": list[str] | None - gptme-specific: attached file paths
+# }
+OpenAIMessageDict: TypeAlias = dict[str, Any]
+
 
 # Dictionary to store clients for each provider (includes custom providers)
 clients: dict[Provider, "OpenAI"] = {}
@@ -697,7 +709,16 @@ def _merge_tool_results_with_same_call_id(
     return messages_new
 
 
-def _process_file(msg: dict, model: ModelMeta) -> dict:
+def _process_file(msg: OpenAIMessageDict, model: ModelMeta) -> OpenAIMessageDict:
+    """Process attached files in a message, converting to multimodal content.
+
+    Args:
+        msg: OpenAI-compatible message dict with optional "files" key.
+        model: Model metadata for checking vision support.
+
+    Returns:
+        Message dict with files processed into content array.
+    """
     message_content = msg["content"]
 
     # combines a content message with a list of files
@@ -750,8 +771,21 @@ def _process_file(msg: dict, model: ModelMeta) -> dict:
 
 
 def _transform_msgs_for_special_provider(
-    messages_dicts: Iterable[dict], model: ModelMeta
-):
+    messages_dicts: Iterable[OpenAIMessageDict], model: ModelMeta
+) -> list[OpenAIMessageDict]:
+    """Transform messages for provider-specific requirements.
+
+    Handles special cases:
+    - groq/deepseek: Convert multimodal content to string
+    - OpenRouter reasoning models: Extract reasoning_content from <think> tags
+
+    Args:
+        messages_dicts: Iterable of OpenAI-compatible message dicts.
+        model: Model metadata for determining transformations.
+
+    Returns:
+        List of transformed message dicts.
+    """
     # groq and deepseek needs message.content to be a string
     if model.provider == "groq" or model.provider == "deepseek":
         result = []
@@ -856,7 +890,7 @@ def _transform_msgs_for_special_provider(
                 result.append(msg)
         return result
 
-    return messages_dicts
+    return list(messages_dicts)
 
 
 def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
