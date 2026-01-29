@@ -540,13 +540,14 @@ def api_conversation_agent_avatar(conversation_id: str):
         return flask.jsonify({"error": "No agent path configured"}), 404
 
     full_path = chat_config.agent / avatar_path
-    if not full_path.exists():
-        return flask.jsonify({"error": f"Avatar file not found: {avatar_path}"}), 404
 
-    # Validate the path is within agent workspace (security)
+    # Validate the path is within agent workspace (security) - do this BEFORE existence check
     try:
         full_path.resolve().relative_to(chat_config.agent.resolve())
     except ValueError:
         return flask.jsonify({"error": "Invalid avatar path"}), 400
+
+    if not full_path.exists():
+        return flask.jsonify({"error": "Avatar file not found"}), 404
 
     return flask.send_file(full_path)

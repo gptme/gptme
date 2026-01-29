@@ -188,7 +188,7 @@ class AgentInfoResponse(BaseModel):
 
     name: str = Field(..., description="Agent name")
     avatar: str | None = Field(None, description="Avatar path or URL")
-    workspace: str = Field(..., description="Workspace path")
+    path: str | None = Field(None, description="Agent workspace path")
 
 
 class ChatConfig(BaseModel):
