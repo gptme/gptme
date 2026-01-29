@@ -95,7 +95,7 @@ def cli_confirm_hook(
         choicestr += "/c"
     if editable:
         choicestr += "/e"
-    choicestr += "/?]"
+    choicestr += "/a/?]"
 
     question = f"Execute {tool_use.tool}?"
 
