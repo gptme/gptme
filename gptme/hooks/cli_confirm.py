@@ -60,19 +60,12 @@ def cli_confirm_hook(
     """CLI confirmation hook for terminal-based confirmation.
 
     This provides the interactive terminal confirmation experience:
-    - Shows a preview of the tool execution
+    - Shows a preview of the tool execution (always, even in auto-confirm mode)
     - Asks for user confirmation (y/n/e/c)
     - Supports auto-confirm mode
     - Supports editing content before execution
     - Supports copying content to clipboard
     """
-    # Check auto-confirm first (using centralized state)
-    should_auto, message = check_auto_confirm()
-    if should_auto:
-        if message:
-            console.log(message)
-        return ConfirmationResult.confirm()
-
     # Get preview content - use provided preview or generate from tool_use
     content = preview or tool_use.content
     lang = _get_lang_for_tool(tool_use.tool)
@@ -81,9 +74,17 @@ def cli_confirm_hook(
     editable = bool(content)
     copiable = bool(content)
 
-    # Show preview if we have content (using shared utility from ask_execute)
+    # Show preview if we have content (always, even in auto-confirm mode)
+    # This ensures rich diffs are visible for monitoring what's being executed
     if content:
         print_preview(content, lang, copy=copiable)
+
+    # Check auto-confirm (after showing preview)
+    should_auto, message = check_auto_confirm()
+    if should_auto:
+        if message:
+            console.log(message)
+        return ConfirmationResult.confirm()
 
     # Build the confirmation prompt
     print_bell()  # Ring the bell before asking
