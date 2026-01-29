@@ -673,6 +673,7 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
     for message in message_dicts:
         # Format tool result as expected by the model
         if message["role"] == "system" and "call_id" in message:
+            # Convert system+call_id to tool message (conforms to MessageDict)
             modified_message = dict(message)
             modified_message["role"] = "tool"
             modified_message["tool_call_id"] = modified_message.pop("call_id")
@@ -685,18 +686,24 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                 message["content"], tool_format_override="tool"
             )
 
-            # Format tool uses for OpenAI API
-            tool_calls = []
+            # Format tool uses for OpenAI API with explicit typing
+            tool_calls: list[ToolCall] = []
             for tooluse in tool_uses:
                 tool_calls.append(
-                    {
-                        "id": tooluse.call_id or "",
-                        "type": "function",
-                        "function": {
-                            "name": tooluse.tool,
-                            "arguments": json.dumps(tooluse.kwargs or {}),
+                    cast(
+                        ToolCall,
+                        {
+                            "id": tooluse.call_id or "",
+                            "type": "function",
+                            "function": cast(
+                                ToolCallFunction,
+                                {
+                                    "name": tooluse.tool,
+                                    "arguments": json.dumps(tooluse.kwargs or {}),
+                                },
+                            ),
                         },
-                    }
+                    )
                 )
 
             if content:
@@ -721,6 +728,8 @@ def _merge_tool_results_with_same_call_id(
     the API expect to have only one tool result per tool call. This function tries
     to merge subsequent tool results with the same call ID as expected by
     the API.
+
+    Note: Internally uses MessageDict casts for type clarity during processing.
     """
     messages_new: list[dict[str, Any]] = []
 
@@ -728,22 +737,23 @@ def _merge_tool_results_with_same_call_id(
         if messages_new and (
             message["role"] == "tool"
             and messages_new[-1]["role"] == "tool"
-            and message["tool_call_id"] == messages_new[-1]["tool_call_id"]
+            and message.get("tool_call_id") == messages_new[-1].get("tool_call_id")
         ):
             prev_msg = messages_new[-1]
-            prev_content = prev_msg["content"]
-            current_content = message["content"]
+            prev_content = prev_msg.get("content")
+            current_content = message.get("content")
 
             # Ensure both contents are lists of content parts
             if not isinstance(prev_content, list):
-                prev_content = [{"type": "text", "text": prev_content}]
+                prev_content = [{"type": "text", "text": prev_content or ""}]
             if not isinstance(current_content, list):
-                current_content = [{"type": "text", "text": current_content}]
+                current_content = [{"type": "text", "text": current_content or ""}]
 
+            # Create merged message (conforms to MessageDict structure)
             messages_new[-1] = {
                 "role": "tool",
                 "content": prev_content + current_content,
-                "tool_call_id": prev_msg["tool_call_id"],
+                "tool_call_id": prev_msg.get("tool_call_id"),
             }
         else:
             messages_new.append(message)
