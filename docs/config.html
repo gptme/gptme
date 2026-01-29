@@ -549,6 +549,18 @@
 </pre></div>
 </div>
 </li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent</span></code>, a dictionary for agent-specific settings. This is primarily used by autonomous agents like gptme-bob. Example:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[agent]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Bob&quot;</span>
+<span class="n">avatar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;assets/avatar.png&quot;</span><span class="w">  </span><span class="c1"># Path to avatar image (relative to workspace)</span>
+</pre></div>
+</div>
+<p>Options:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code>: The agent’s name, used in system prompts and identification.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">avatar</span></code>: Path to an avatar image (relative to workspace) or URL. Used by gptme-webui, gptme-server, and multi-agent UIs to display the agent’s profile picture.</p></li>
+</ul>
+</li>
 <li><p><code class="docutils literal notranslate"><span class="pre">env</span></code>, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp</span></code>, MCP server configuration for this project. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p></li>
 </ul>

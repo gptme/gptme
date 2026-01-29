@@ -97,6 +97,19 @@ This file currently supports a few options:
       paths = ["./plugins", "~/.config/gptme/plugins"]
       enabled = ["my_project_plugin"]
 
+- ``agent``, a dictionary for agent-specific settings. This is primarily used by autonomous agents like gptme-bob. Example:
+
+  .. code-block:: toml
+
+      [agent]
+      name = "Bob"
+      avatar = "assets/avatar.png"  # Path to avatar image (relative to workspace)
+
+  Options:
+
+  - ``name``: The agent's name, used in system prompts and identification.
+  - ``avatar``: Path to an avatar image (relative to workspace) or URL. Used by gptme-webui, gptme-server, and multi-agent UIs to display the agent's profile picture.
+
 - ``env``, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.
 - ``mcp``, MCP server configuration for this project. See :ref:`mcp` for more information.
 
