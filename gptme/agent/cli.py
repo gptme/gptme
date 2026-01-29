@@ -23,13 +23,13 @@ from .service import ServiceStatus, detect_service_manager, get_service_manager
 from .workspace import (
     DEFAULT_TEMPLATE_BRANCH,
     DEFAULT_TEMPLATE_REPO,
+    DetectedWorkspace,
     WorkspaceError,
     create_workspace_from_template,
     create_workspace_structure,
+    detect_workspaces,
 )
-from .workspace import (
-    init_conversation as init_agent_conversation,
-)
+from .workspace import init_conversation as init_agent_conversation
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,17 @@ def _print_status(status: ServiceStatus) -> None:
         click.echo(f"   Next run: {status.next_run}")
     if status.exit_code is not None and status.exit_code != 0:
         click.echo(f"   Last exit code: {status.exit_code}")
+
+
+def _print_workspace(workspace: DetectedWorkspace) -> None:
+    """Print formatted info for a detected workspace."""
+    emoji = "📦" if workspace.has_run_script else "📁"
+    click.echo(f"{emoji} {workspace.name}")
+    click.echo(f"   Path: {workspace.path}")
+    if workspace.has_run_script:
+        click.echo("   Ready: yes (has autonomous-run.sh)")
+    else:
+        click.echo("   Ready: no (missing autonomous-run.sh)")
 
 
 @click.group()
@@ -81,40 +92,86 @@ def main(verbose: bool = False):
 
 @main.command("status")
 @click.argument("name", required=False)
-def status_cmd(name: str | None):
+@click.option(
+    "--all",
+    "-a",
+    "show_all",
+    is_flag=True,
+    help="Show all detected workspaces, including not installed",
+)
+def status_cmd(name: str | None, show_all: bool):
     """Show status of agent(s).
 
     If NAME is provided, shows status for that specific agent.
     Otherwise, shows status for all installed agents.
+
+    Use --all to also show detected workspaces that haven't been installed yet.
     """
     manager = get_service_manager()
-    if not manager:
-        click.echo(f"❌ No supported service manager found on {sys.platform}")
-        click.echo("   Supported: systemd (Linux), launchd (macOS)")
-        sys.exit(1)
+
+    # Get installed agents (if service manager available)
+    installed_agents = manager.list_agents() if manager else []
 
     if name:
-        status = manager.status(name)
-        if status:
-            _print_status(status)
-        else:
-            click.echo(f"Agent '{name}' not found")
-            sys.exit(1)
+        # Show specific agent
+        if manager:
+            status = manager.status(name)
+            if status:
+                _print_status(status)
+                return
+
+        # Check if it's a detected but not installed workspace
+        workspaces = detect_workspaces(installed_agents=installed_agents)
+        for ws in workspaces:
+            if ws.name == name:
+                _print_workspace(ws)
+                click.echo()
+                click.echo(
+                    "💡 To install: gptme-agent install --workspace " + str(ws.path)
+                )
+                return
+
+        click.echo(f"Agent '{name}' not found")
+        sys.exit(1)
     else:
-        agents = manager.list_agents()
-        if not agents:
-            click.echo("No agents installed")
+        # Show all agents
+        has_output = False
+
+        # Show installed agents
+        if installed_agents:
+            click.echo(f"📋 Installed agents ({len(installed_agents)}):\n")
+            for agent_name in installed_agents:
+                if manager:
+                    status = manager.status(agent_name)
+                    if status:
+                        _print_status(status)
+                        click.echo()
+            has_output = True
+
+        # Show detected workspaces (if --all or no agents installed)
+        if show_all or not installed_agents:
+            workspaces = detect_workspaces(installed_agents=installed_agents)
+            not_installed = [ws for ws in workspaces if not ws.installed]
+
+            if not_installed:
+                if has_output:
+                    click.echo()
+                click.echo(
+                    f"📦 Detected workspaces ({len(not_installed)} not installed):\n"
+                )
+                for ws in not_installed:
+                    _print_workspace(ws)
+                    click.echo()
+                has_output = True
+
+        if not has_output:
+            if not manager:
+                click.echo(f"❌ No supported service manager found on {sys.platform}")
+                click.echo("   Supported: systemd (Linux), launchd (macOS)")
+            click.echo("No agents found")
             click.echo()
             click.echo("To set up a new agent:")
             click.echo("  gptme-agent setup <workspace-path>")
-            return
-
-        click.echo(f"📋 {len(agents)} agent(s) installed:\n")
-        for agent_name in agents:
-            status = manager.status(agent_name)
-            if status:
-                _print_status(status)
-                click.echo()
 
 
 @main.command("list")
@@ -227,9 +284,7 @@ def setup_cmd(
             click.echo(f"   Branch: {template_branch}")
 
             # The fork.sh in gptme-agent-template expects: ./fork.sh <path> <name>
-            fork_command = (
-                f"./fork.sh {shlex.quote(str(workspace))} {shlex.quote(agent_name)}"
-            )
+            fork_command = f"./scripts/fork.sh {shlex.quote(str(workspace))} {shlex.quote(agent_name)}"
 
             create_workspace_from_template(
                 path=workspace,
