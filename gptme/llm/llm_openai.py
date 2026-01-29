@@ -5,10 +5,11 @@ import re
 import time
 from collections.abc import Generator, Iterable
 from functools import lru_cache, wraps
-from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import requests
 from openai import NOT_GIVEN
+from typing_extensions import NotRequired
 
 from ..config import Config, get_config
 from ..constants import TEMPERATURE, TOP_P
@@ -36,15 +37,23 @@ if TYPE_CHECKING:
     from . import is_custom_provider  # fmt: skip
 
 
-# Type alias for OpenAI-compatible message dicts
-# Structure: {
-#   "role": str (required) - "system", "user", "assistant", "tool"
-#   "content": str | list | None - text or multimodal content parts
-#   "tool_calls": list[dict] | None - tool calls for assistant messages
-#   "reasoning_content": str | None - extracted from <think>/<thinking> tags
-#   "files": list[str] | None - gptme-specific: attached file paths
-# }
-OpenAIMessageDict: TypeAlias = dict[str, Any]
+class OpenAIMessageDict(TypedDict):
+    """OpenAI-compatible message dictionary.
+
+    Structure for messages sent to/from OpenAI-compatible APIs.
+    The 'role' field is required; all other fields are optional.
+    """
+
+    role: str  # Required: "system", "user", "assistant", "tool"
+    content: NotRequired[str | list[dict[str, Any]] | None]  # text or multimodal parts
+    tool_calls: NotRequired[
+        list[dict[str, Any]] | None
+    ]  # tool calls for assistant msgs
+    reasoning_content: NotRequired[str | None]  # extracted from <think>/<thinking> tags
+    files: NotRequired[list[str]]  # gptme-specific: attached file paths
+    tool_call_id: NotRequired[str]  # for tool response messages
+    call_id: NotRequired[str]  # intermediate field (gets converted to tool_call_id)
+    name: NotRequired[str]  # tool name
 
 
 # Dictionary to store clients for each provider (includes custom providers)
@@ -627,20 +636,25 @@ def stream(
     return captured_metadata
 
 
-def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
+def _handle_tools(
+    message_dicts: Iterable[OpenAIMessageDict],
+) -> Generator[OpenAIMessageDict, None, None]:
     for message in message_dicts:
         # Format tool result as expected by the model
         if message["role"] == "system" and "call_id" in message:
-            modified_message = dict(message)
+            modified_message: OpenAIMessageDict = cast(OpenAIMessageDict, dict(message))
             modified_message["role"] = "tool"
             modified_message["tool_call_id"] = modified_message.pop("call_id")
             yield modified_message
         # Find tool_use occurrences and format them as expected
         elif message["role"] == "assistant":
-            modified_message = dict(message)
+            modified_message: OpenAIMessageDict = cast(  # type: ignore[no-redef]
+                OpenAIMessageDict, dict(message)
+            )
 
             content, tool_uses = extract_tool_uses_from_assistant_message(
-                message["content"], tool_format_override="tool"
+                message["content"],  # type: ignore[arg-type]
+                tool_format_override="tool",
             )
 
             # Format tool uses for OpenAI API
@@ -672,15 +686,15 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
 
 
 def _merge_tool_results_with_same_call_id(
-    messages_dicts: Iterable[dict],
-) -> list[dict]:
+    messages_dicts: Iterable[OpenAIMessageDict],
+) -> list[OpenAIMessageDict]:
     """
     When we call a tool, this tool can potentially yield multiple messages. However
     the API expect to have only one tool result per tool call. This function tries
     to merge subsequent tool results with the same call ID as expected by
     the API.
     """
-    messages_new: list[dict] = []
+    messages_new: list[OpenAIMessageDict] = []
 
     for message in messages_dicts:
         if messages_new and (
@@ -788,7 +802,7 @@ def _transform_msgs_for_special_provider(
     """
     # groq and deepseek needs message.content to be a string
     if model.provider == "groq" or model.provider == "deepseek":
-        result = []
+        result: list[OpenAIMessageDict] = []
         for msg in messages_dicts:
             content = msg.get("content")
             # Handle messages without content (e.g., tool call messages)
@@ -861,7 +875,7 @@ def _transform_msgs_for_special_provider(
 
             return reasoning, cleaned_content
 
-        result = []
+        result: list[OpenAIMessageDict] = []  # type: ignore[no-redef]
         for msg in messages_dicts:
             if (
                 msg.get("role") == "assistant"
@@ -1073,7 +1087,7 @@ def _prepare_messages_for_api(
     messages: list[Message],
     model: str,
     tools: list[ToolSpec] | None,
-) -> tuple[Iterable[dict], Iterable["ChatCompletionToolParam"] | None]:
+) -> tuple[list[OpenAIMessageDict], list["ChatCompletionToolParam"] | None]:
     from .models import get_model  # fmt: skip
 
     model_meta = get_model(model)
@@ -1098,8 +1112,9 @@ def _prepare_messages_for_api(
     ):
         messages = list(_prep_deepseek_reasoner(messages))
 
-    messages_dicts: Iterable[dict] = (
-        _process_file(msg, model_meta) for msg in msgs2dicts(messages)
+    messages_dicts: Iterable[OpenAIMessageDict] = (
+        _process_file(msg, model_meta)
+        for msg in cast(list[OpenAIMessageDict], msgs2dicts(messages))
     )
 
     tools_dict = [_spec2tool(tool, model_meta) for tool in tools] if tools else None
@@ -1115,6 +1130,9 @@ def _prepare_messages_for_api(
 
     # Apply cache control for Anthropic models on OpenRouter
     if model.startswith("openrouter/anthropic/"):
-        messages_list, _ = apply_cache_control(messages_list)
+        messages_list, _ = cast(
+            tuple[list[OpenAIMessageDict], list[dict] | None],
+            apply_cache_control(cast(list[dict], messages_list)),
+        )
 
     return messages_list, tools_dict
