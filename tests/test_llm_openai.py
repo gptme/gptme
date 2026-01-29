@@ -969,3 +969,44 @@ def test_transform_msgs_for_openrouter_non_reasoning():
     # Non-reasoning models should NOT get reasoning_content added
     assert "reasoning_content" not in result[0]
     assert result[0]["tool_calls"] == messages[0]["tool_calls"]
+
+
+def test_transform_msgs_extracts_reasoning_content():
+    """Test that OpenRouter reasoning models extract thinking content from <think> tags."""
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    openrouter_reasoning_model = ModelMeta(
+        provider="openrouter",
+        model="moonshotai/kimi-k2.5",
+        context=262_144,
+        supports_reasoning=True,
+    )
+
+    # Message with thinking content in <think> tags
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "content": "<think>I need to run ls to list files</think>\n\nLet me check the files.",
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {
+                        "name": "shell",
+                        "arguments": '{"command": "ls"}',
+                    },
+                }
+            ],
+        },
+    ]
+
+    result = list(
+        _transform_msgs_for_special_provider(messages, openrouter_reasoning_model)
+    )
+
+    # Should extract the actual reasoning content
+    assert "reasoning_content" in result[0]
+    assert result[0]["reasoning_content"] == "I need to run ls to list files"
