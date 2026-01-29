@@ -45,8 +45,8 @@ class ContentPart(TypedDict, total=False):
     """A content part in a multimodal message."""
 
     type: str  # "text", "image_url", etc.
-    text: str | None  # For text parts (can be None when not present)
-    image_url: dict  # For image parts
+    text: str  # For text parts
+    image_url: dict[str, str]  # For image parts: {"url": "data:..."}
 
 
 # Type alias for message content (can be string, list of parts, or None)
@@ -90,7 +90,7 @@ class MessageDict(TypedDict, total=False):
     reasoning_content: str
 
     # Multimodal fields
-    files: list  # Image/file attachments (processed before API call)
+    files: list[str]  # Image/file attachments as file paths (processed before API call)
 
 
 # Shows in rankings on openrouter.ai
