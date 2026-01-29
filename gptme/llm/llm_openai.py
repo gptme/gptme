@@ -761,8 +761,18 @@ def _merge_tool_results_with_same_call_id(
     return messages_new
 
 
-def _process_file(msg: dict, model: ModelMeta) -> dict:
-    message_content = msg["content"]
+def _process_file(msg: dict[str, Any], model: ModelMeta) -> dict[str, Any]:
+    """Process file attachments in a message dict, converting to API format.
+
+    Args:
+        msg: A message dict (expected to conform to MessageDict structure)
+        model: Model metadata for checking vision support
+
+    Returns:
+        The processed message dict with files converted to content parts.
+        The returned dict conforms to MessageDict structure.
+    """
+    message_content = msg.get("content")
 
     # combines a content message with a list of files
     content: list[dict[str, Any]] = (
@@ -810,15 +820,24 @@ def _process_file(msg: dict, model: ModelMeta) -> dict:
     if msg["role"] == "system" and has_images:
         msg["role"] = "user"
 
-    return msg
+    return msg  # Conforms to MessageDict structure
 
 
 def _transform_msgs_for_special_provider(
     messages_dicts: Iterable[dict[str, Any]], model: ModelMeta
-) -> Iterable[dict[str, Any]]:
+) -> Iterable[MessageDict]:
+    """Transform message dicts for provider-specific requirements.
+
+    Args:
+        messages_dicts: Iterable of message dicts (expected MessageDict structure)
+        model: Model metadata for determining transformation rules
+
+    Returns:
+        Transformed message dicts conforming to MessageDict type
+    """
     # groq and deepseek needs message.content to be a string
     if model.provider == "groq" or model.provider == "deepseek":
-        result: list[dict[str, Any]] = []
+        result: list[MessageDict] = []
         for msg in messages_dicts:
             content = msg.get("content")
             # Handle messages without content (e.g., tool call messages)
@@ -830,9 +849,9 @@ def _transform_msgs_for_special_provider(
                     and msg.get("role") == "assistant"
                     and msg.get("tool_calls")
                 ):
-                    result.append({**msg, "reasoning_content": ""})
+                    result.append(cast(MessageDict, {**msg, "reasoning_content": ""}))
                 else:
-                    result.append(msg)
+                    result.append(cast(MessageDict, msg))
                 continue
             # Handle list content (multi-modal messages)
             if isinstance(content, list):
@@ -845,9 +864,9 @@ def _transform_msgs_for_special_provider(
                 transformed = (
                     "\n\n".join(text_parts) if text_parts else "[non-text content]"
                 )
-                result.append({**msg, "content": transformed})
+                result.append(cast(MessageDict, {**msg, "content": transformed}))
             else:
-                result.append(msg)
+                result.append(cast(MessageDict, msg))
         return result
 
     # OpenRouter reasoning models (e.g., Moonshot AI Kimi) need reasoning_content
@@ -891,7 +910,7 @@ def _transform_msgs_for_special_provider(
 
             return reasoning, cleaned_content
 
-        openrouter_result: list[dict[str, Any]] = []
+        openrouter_result: list[MessageDict] = []
         for msg in messages_dicts:
             if (
                 msg.get("role") == "assistant"
@@ -914,13 +933,21 @@ def _transform_msgs_for_special_provider(
 
                 reasoning, cleaned_content = _extract_and_strip_reasoning(content)
                 openrouter_result.append(
-                    {**msg, "reasoning_content": reasoning, "content": cleaned_content}
+                    cast(
+                        MessageDict,
+                        {
+                            **msg,
+                            "reasoning_content": reasoning,
+                            "content": cleaned_content,
+                        },
+                    )
                 )
             else:
-                openrouter_result.append(msg)
+                openrouter_result.append(cast(MessageDict, msg))
         return openrouter_result
 
-    return messages_dicts
+    # Return as-is with cast for type safety
+    return cast(Iterable[MessageDict], messages_dicts)
 
 
 def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
@@ -1103,7 +1130,12 @@ def _prepare_messages_for_api(
     messages: list[Message],
     model: str,
     tools: list[ToolSpec] | None,
-) -> tuple[Iterable[dict], Iterable["ChatCompletionToolParam"] | None]:
+) -> tuple[list[MessageDict], list["ChatCompletionToolParam"] | None]:
+    """Prepare messages for API call, handling model-specific transformations.
+
+    Returns:
+        Tuple of (messages as MessageDict list, tools if provided)
+    """
     from .models import get_model  # fmt: skip
 
     model_meta = get_model(model)
@@ -1128,9 +1160,7 @@ def _prepare_messages_for_api(
     ):
         messages = list(_prep_deepseek_reasoner(messages))
 
-    # Use dict[str, Any] here since _process_file returns untyped dict
-    # The downstream functions (_transform_msgs_for_special_provider) handle
-    # the message dict structure internally
+    # Process message dicts - internal functions use dict[str, Any] for flexibility
     messages_dicts: Iterable[dict[str, Any]] = (
         _process_file(msg, model_meta) for msg in msgs2dicts(messages)
     )
@@ -1142,12 +1172,15 @@ def _prepare_messages_for_api(
             _handle_tools(messages_dicts)
         )
 
-    messages_dicts = _transform_msgs_for_special_provider(messages_dicts, model_meta)
+    # Transform returns MessageDict-typed messages
+    typed_messages = _transform_msgs_for_special_provider(messages_dicts, model_meta)
 
-    messages_list = list(messages_dicts)
+    messages_list: list[MessageDict] = list(typed_messages)
 
     # Apply cache control for Anthropic models on OpenRouter
     if model.startswith("openrouter/anthropic/"):
-        messages_list, _ = apply_cache_control(messages_list)
+        # apply_cache_control uses dict[Any, Any] internally, cast at boundary
+        cache_result, _ = apply_cache_control(cast(list[dict[str, Any]], messages_list))
+        messages_list = cast(list[MessageDict], cache_result)
 
     return messages_list, tools_dict
