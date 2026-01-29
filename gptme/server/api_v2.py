@@ -135,6 +135,17 @@ def api_conversation(conversation_id: str):
             msg["files"] = [
                 _abs_to_rel_workspace(f, chat_config.workspace) for f in files
             ]
+
+    # Include agent info if available
+    agent_config = chat_config.agent_config
+    if agent_config:
+        log_dict["agent"] = {
+            "name": agent_config.name,
+            "avatar": agent_config.avatar,
+        }
+        if chat_config.agent:
+            log_dict["agent"]["path"] = str(chat_config.agent)
+
     return flask.jsonify(log_dict)
 
 
@@ -484,3 +495,58 @@ def api_conversation_config_patch(conversation_id: str):
             "tools": [t.name for t in tools],
         }
     )
+
+
+@v2_api.route(
+    "/api/v2/conversations/<string:conversation_id>/agent/avatar", methods=["GET"]
+)
+@require_auth
+@api_doc(
+    summary="Get agent avatar",
+    description="Serve the agent's avatar image for a conversation",
+    responses={200: None, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "conversation_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Conversation ID",
+        }
+    ],
+    tags=["conversations-v2"],
+)
+def api_conversation_agent_avatar(conversation_id: str):
+    """Serve the agent's avatar image."""
+    # Validate conversation_id to prevent path traversal
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
+    logdir = get_logs_dir() / conversation_id
+    chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+
+    agent_config = chat_config.agent_config
+    if not agent_config or not agent_config.avatar:
+        return flask.jsonify({"error": "No avatar configured"}), 404
+
+    avatar_path = agent_config.avatar
+
+    # If it's a URL, redirect to it
+    if avatar_path.startswith(("http://", "https://")):
+        return flask.redirect(avatar_path)
+
+    # Otherwise, serve the file from agent workspace
+    if not chat_config.agent:
+        return flask.jsonify({"error": "No agent path configured"}), 404
+
+    full_path = chat_config.agent / avatar_path
+    if not full_path.exists():
+        return flask.jsonify({"error": f"Avatar file not found: {avatar_path}"}), 404
+
+    # Validate the path is within agent workspace (security)
+    try:
+        full_path.resolve().relative_to(chat_config.agent.resolve())
+    except ValueError:
+        return flask.jsonify({"error": "Invalid avatar path"}), 400
+
+    return flask.send_file(full_path)

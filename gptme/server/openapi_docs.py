@@ -183,6 +183,14 @@ class AgentCreateResponse(BaseModel):
     initial_conversation_id: str = Field(..., description="Initial conversation ID")
 
 
+class AgentInfoResponse(BaseModel):
+    """Response containing agent information."""
+
+    name: str = Field(..., description="Agent name")
+    avatar: str | None = Field(None, description="Avatar path or URL")
+    workspace: str = Field(..., description="Workspace path")
+
+
 class ChatConfig(BaseModel):
     """Chat configuration."""
 
