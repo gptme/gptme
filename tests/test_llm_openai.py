@@ -884,3 +884,88 @@ class TestOpenAIRetryLogic:
 
         assert chunks == ["chunk1", "chunk2"]
         assert return_value == {"metadata": "value"}
+
+
+def test_transform_msgs_for_openrouter_reasoning_tool_calls():
+    """Test that OpenRouter reasoning models get empty reasoning_content for tool_calls.
+
+    This fixes the error: "thinking is enabled but reasoning_content is missing
+    in assistant tool call message" when using models like Moonshot AI Kimi K2.5
+    with --tool-format tool.
+    """
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    # Moonshot AI Kimi model accessed via OpenRouter with reasoning support
+    openrouter_reasoning_model = ModelMeta(
+        provider="openrouter",
+        model="moonshotai/kimi-k2.5",
+        context=262_144,
+        supports_reasoning=True,
+    )
+
+    # Assistant message with tool_calls but no content
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {
+                        "name": "shell",
+                        "arguments": '{"command": "ls"}',
+                    },
+                }
+            ],
+        },
+    ]
+
+    result = list(
+        _transform_msgs_for_special_provider(messages, openrouter_reasoning_model)
+    )
+
+    # OpenRouter reasoning models need reasoning_content for assistant messages with tool_calls
+    assert "reasoning_content" in result[0]
+    assert result[0]["reasoning_content"] == ""
+    assert result[0]["tool_calls"] == messages[0]["tool_calls"]
+
+
+def test_transform_msgs_for_openrouter_non_reasoning():
+    """Test that OpenRouter models without reasoning support are unchanged."""
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    # Regular OpenRouter model without reasoning
+    openrouter_model = ModelMeta(
+        provider="openrouter",
+        model="openai/gpt-4",
+        context=128_000,
+        supports_reasoning=False,
+    )
+
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {
+                        "name": "shell",
+                        "arguments": '{"command": "ls"}',
+                    },
+                }
+            ],
+        },
+    ]
+
+    result = list(_transform_msgs_for_special_provider(messages, openrouter_model))
+
+    # Non-reasoning models should NOT get reasoning_content added
+    assert "reasoning_content" not in result[0]
+    assert result[0]["tool_calls"] == messages[0]["tool_calls"]

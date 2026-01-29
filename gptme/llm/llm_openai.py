@@ -785,6 +785,22 @@ def _transform_msgs_for_special_provider(
                 result.append(msg)
         return result
 
+    # OpenRouter reasoning models (e.g., Moonshot AI Kimi) need reasoning_content
+    # for assistant messages with tool_calls when thinking mode is enabled
+    # This prevents: "thinking is enabled but reasoning_content is missing in assistant tool call message"
+    if model.provider == "openrouter" and model.supports_reasoning:
+        result = []
+        for msg in messages_dicts:
+            if (
+                msg.get("role") == "assistant"
+                and msg.get("tool_calls")
+                and "reasoning_content" not in msg
+            ):
+                result.append({**msg, "reasoning_content": ""})
+            else:
+                result.append(msg)
+        return result
+
     return messages_dicts
 
 
