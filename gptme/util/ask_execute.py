@@ -13,7 +13,6 @@ from rich import print
 from rich.console import Console
 from rich.syntax import Syntax
 
-from ..constants import DECLINED_CONTENT
 from ..message import Message
 from .clipboard import set_copytext
 
@@ -42,7 +41,6 @@ def print_confirmation_help(copiable: bool, editable: bool, default: bool = True
         ]
     )
     print("\n".join(lines))
-
 
 
 def print_preview(

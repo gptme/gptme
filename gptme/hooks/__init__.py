@@ -2,7 +2,7 @@
 
 import logging
 import threading
-from collections.abc import Generator, Iterable
+from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
@@ -499,7 +499,11 @@ class HookRegistry:
             t_delta = t_end - t_start
 
             # Process the result (log messages instead of yielding)
-            if hasattr(result, "__iter__") and not isinstance(result, str | bytes):
+            if (
+                result is not None
+                and hasattr(result, "__iter__")
+                and not isinstance(result, str | bytes)
+            ):
                 try:
                     for msg in result:
                         if isinstance(msg, Message):
