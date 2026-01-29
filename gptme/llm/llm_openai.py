@@ -791,10 +791,17 @@ def _transform_msgs_for_special_provider(
     # This prevents: "thinking is enabled but reasoning_content is missing in assistant tool call message"
     if model.provider == "openrouter" and model.supports_reasoning:
 
-        def _extract_reasoning_content(content: str | None) -> str:
-            """Extract reasoning content from <think> or <thinking> tags."""
+        def _extract_and_strip_reasoning(
+            content: str | None,
+        ) -> tuple[str, str]:
+            """Extract reasoning from <think>/<thinking> tags and return cleaned content.
+
+            Returns:
+                Tuple of (reasoning_content, cleaned_content_without_think_tags)
+            """
             if not content:
-                return ""
+                return "", ""
+
             # Extract content from <think>...</think> and <thinking>...</thinking> blocks
             think_matches = re.findall(
                 r"<think>(.*?)</think>", content, flags=re.DOTALL
@@ -803,9 +810,22 @@ def _transform_msgs_for_special_provider(
                 r"<thinking>(.*?)</thinking>", content, flags=re.DOTALL
             )
             all_reasoning = think_matches + thinking_matches
-            if not all_reasoning:
-                return ""
-            return "\n".join(r.strip() for r in all_reasoning if r.strip())
+            reasoning = (
+                "\n".join(r.strip() for r in all_reasoning if r.strip())
+                if all_reasoning
+                else ""
+            )
+
+            # Remove <think> and <thinking> tags from content to prevent duplication
+            cleaned_content = re.sub(
+                r"<think>.*?</think>\s*", "", content, flags=re.DOTALL
+            )
+            cleaned_content = re.sub(
+                r"<thinking>.*?</thinking>\s*", "", cleaned_content, flags=re.DOTALL
+            )
+            cleaned_content = cleaned_content.strip()
+
+            return reasoning, cleaned_content
 
         result = []
         for msg in messages_dicts:
@@ -814,10 +834,12 @@ def _transform_msgs_for_special_provider(
                 and msg.get("tool_calls")
                 and "reasoning_content" not in msg
             ):
-                # Extract actual reasoning from <think> tags in content
+                # Extract reasoning and clean content to prevent context duplication
                 content = msg.get("content", "")
-                reasoning = _extract_reasoning_content(content)
-                result.append({**msg, "reasoning_content": reasoning})
+                reasoning, cleaned_content = _extract_and_strip_reasoning(content)
+                result.append(
+                    {**msg, "reasoning_content": reasoning, "content": cleaned_content}
+                )
             else:
                 result.append(msg)
         return result

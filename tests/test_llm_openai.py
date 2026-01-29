@@ -1010,3 +1010,7 @@ def test_transform_msgs_extracts_reasoning_content():
     # Should extract the actual reasoning content
     assert "reasoning_content" in result[0]
     assert result[0]["reasoning_content"] == "I need to run ls to list files"
+
+    # Should remove <think> tags from content to prevent context duplication
+    assert result[0]["content"] == "Let me check the files."
+    assert "<think>" not in result[0]["content"]
