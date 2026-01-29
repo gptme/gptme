@@ -322,7 +322,11 @@ def load_user_config(path: str | None = None) -> UserConfig:
 
     # Parse lessons config
     lessons_data = config.pop("lessons", None)
-    lessons = LessonsConfig(dirs=lessons_data.get("dirs", [])) if lessons_data else None
+    lessons = (
+        LessonsConfig(dirs=lessons_data.get("dirs", []))
+        if lessons_data and isinstance(lessons_data, dict)
+        else None
+    )
 
     if config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
