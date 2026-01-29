@@ -545,17 +545,42 @@ def get_model(model: str) -> ModelMeta:
         if provider_str in PROVIDERS:
             provider = cast(Provider, provider_str)
 
+            # For OpenRouter, strip subprovider suffix (e.g., @moonshotai) for static lookup
+            # The full model name with suffix is used for API calls, but MODELS dict uses base name
+            lookup_model_name = model_name
+            if provider == "openrouter" and "@" in model_name:
+                lookup_model_name = model_name.split("@")[0]
+
             # First try static MODELS dict for performance
-            if provider in MODELS and model_name in MODELS[provider]:
-                return ModelMeta(provider, model_name, **MODELS[provider][model_name])
+            if provider in MODELS and lookup_model_name in MODELS[provider]:
+                return ModelMeta(
+                    provider, model_name, **MODELS[provider][lookup_model_name]
+                )
 
             # For providers that support dynamic fetching, use _get_models_for_provider
             if provider == "openrouter":
                 try:
                     models = _get_models_for_provider(provider, dynamic_fetch=True)
                     for model_meta in models:
-                        if model_meta.model == model_name:
-                            return model_meta
+                        # Check both full name (with suffix) and base name (without suffix)
+                        if (
+                            model_meta.model == model_name
+                            or model_meta.model == lookup_model_name
+                        ):
+                            # Preserve the original model_name (with suffix) in the returned ModelMeta
+                            # Use the found model's metadata but with the requested name
+                            return ModelMeta(
+                                provider=model_meta.provider,
+                                model=model_name,  # Preserve original name with suffix
+                                context=model_meta.context,
+                                max_output=model_meta.max_output,
+                                supports_streaming=model_meta.supports_streaming,
+                                supports_vision=model_meta.supports_vision,
+                                supports_reasoning=model_meta.supports_reasoning,
+                                price_input=model_meta.price_input,
+                                price_output=model_meta.price_output,
+                                knowledge_cutoff=model_meta.knowledge_cutoff,
+                            )
                 except Exception as e:
                     # Fall back to unknown model metadata
                     logger.debug(

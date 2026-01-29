@@ -1,6 +1,6 @@
 ---
 match:
-  keywords: [git, commit, push, branch, pr, pull request]
+  keywords: [git, commit, push, branch, pr, pull request, worktree]
   tools: [shell, gh]
 ---
 
@@ -80,3 +80,50 @@ gh pr checks $PR_URL
 - ✅ Use `git status` before commits
 - ✅ Stage files explicitly with `git add`
 - ✅ Use `git stash` to save uncommitted changes
+
+## Using Git Worktrees
+
+Worktrees allow parallel work on multiple branches without switching.
+
+### Best Practice: Use /tmp/ for Worktrees
+
+```shell
+# Create worktree in /tmp/ (recommended)
+git worktree add /tmp/gptme-feat-name feat/feature-name
+
+# Work in the worktree
+cd /tmp/gptme-feat-name
+# ... make changes, commit, push ...
+
+# Clean up when done
+git worktree remove /tmp/gptme-feat-name
+```
+
+### Why /tmp/?
+
+- ✅ **Auto-cleaned**: Removed on reboot (no orphaned worktrees)
+- ✅ **No duplicates**: grep/find/ripgrep won't find duplicate files
+- ✅ **No accidents**: Can't accidentally commit worktree directory
+- ✅ **Clean project**: Main repo stays uncluttered
+
+### Avoid These Patterns
+
+- ❌ `./worktree/` - Causes grep duplicates, often not cleaned up
+- ❌ `../repo-worktree-feat` - Messy sibling directories
+- ❌ Forgetting to remove worktrees after PR merge
+
+### Worktree Commands
+
+```shell
+# List all worktrees
+git worktree list
+
+# Check if worktree exists before creating
+git worktree list | grep feat-name
+
+# Remove a worktree
+git worktree remove /tmp/gptme-feat-name
+
+# Prune stale worktree references
+git worktree prune
+```

@@ -18,11 +18,17 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 import tomlkit
 
-from gptme.config import AgentConfig, ChatConfig, ProjectConfig, get_project_config
+from gptme.config import (
+    AgentConfig,
+    ChatConfig,
+    ProjectConfig,
+    get_project_config,
+)
 from gptme.prompts import get_prompt
 
 from ..dirs import get_logs_dir
@@ -359,6 +365,125 @@ def _merge_project_config(
     # Write the config
     with open(path / "gptme.toml", "w") as f:
         f.write(tomlkit.dumps(final_config.to_dict()))
+
+
+@dataclass
+class DetectedWorkspace:
+    """Represents a detected agent workspace."""
+
+    path: Path
+    name: str
+    installed: bool = False
+
+    @property
+    def has_run_script(self) -> bool:
+        """Check if workspace has autonomous run script."""
+        return (
+            self.path / "scripts" / "runs" / "autonomous" / "autonomous-run.sh"
+        ).exists()
+
+
+def detect_workspaces(
+    search_paths: list[Path] | None = None,
+    installed_agents: list[str] | None = None,
+) -> list[DetectedWorkspace]:
+    """
+    Detect agent workspaces by scanning for gptme.toml with [agent] section.
+
+    Args:
+        search_paths: Paths to search. If None, uses default locations:
+            - Current directory
+            - ~/Programming/*
+            - ~/projects/*
+            - ~/.local/share/gptme/agents/*
+        installed_agents: List of already installed agent names (to mark as installed)
+
+    Returns:
+        List of detected workspaces
+    """
+    if search_paths is None:
+        home = Path.home()
+        search_paths = [
+            Path.cwd(),
+            home / "Programming",
+            home / "projects",
+            home / ".local" / "share" / "gptme" / "agents",
+        ]
+
+    installed_set = set(installed_agents or [])
+    workspaces: dict[str, DetectedWorkspace] = {}
+
+    for base_path in search_paths:
+        if not base_path.exists():
+            continue
+
+        try:
+            # Check if base_path itself is a workspace
+            config = get_project_config(base_path, quiet=True)
+            if config and config.agent and config.agent.name:
+                name = config.agent.name
+                if name not in workspaces:
+                    workspaces[name] = DetectedWorkspace(
+                        path=base_path.resolve(),
+                        name=name,
+                        installed=name in installed_set,
+                    )
+
+            # Search subdirectories (depth 1)
+            if base_path.is_dir():
+                for subdir in base_path.iterdir():
+                    if not subdir.is_dir():
+                        continue
+                    try:
+                        config = get_project_config(subdir, quiet=True)
+                        if config and config.agent and config.agent.name:
+                            name = config.agent.name
+                            if name not in workspaces:
+                                workspaces[name] = DetectedWorkspace(
+                                    path=subdir.resolve(),
+                                    name=name,
+                                    installed=name in installed_set,
+                                )
+                    except (PermissionError, OSError):
+                        # Skip directories we can't read
+                        continue
+        except (PermissionError, OSError):
+            # Skip paths we can't access
+            continue
+
+    return list(workspaces.values())
+
+
+def is_agent_workspace(path: Path, quiet: bool = True) -> bool:
+    """
+    Check if a directory is a valid agent workspace.
+
+    A valid workspace has:
+    - gptme.toml with [agent] section containing name
+
+    Args:
+        path: Path to check
+        quiet: Suppress log messages (default True for quick checks)
+    """
+    config = get_project_config(path, quiet=quiet)
+    return config is not None and config.agent is not None and bool(config.agent.name)
+
+
+def get_workspace_name(path: Path, quiet: bool = True) -> str | None:
+    """
+    Get the agent name from a workspace, if valid.
+
+    Args:
+        path: Path to check
+        quiet: Suppress log messages (default True for quick checks)
+
+    Returns:
+        Agent name or None if not a valid agent workspace
+    """
+    config = get_project_config(path, quiet=quiet)
+    if config and config.agent and config.agent.name:
+        return config.agent.name
+    return None
 
 
 def _create_readme(path: Path, agent_name: str) -> Path:

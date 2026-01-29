@@ -114,3 +114,39 @@ def test_get_model_name_only_with_dynamic_fetch(mock_get_models):
 
     # Should have tried OpenRouter dynamic fetch
     mock_get_models.assert_called_with("openrouter", dynamic_fetch=True)
+
+
+def test_get_model_openrouter_with_subprovider_suffix():
+    """Test getting an OpenRouter model with subprovider suffix (e.g., @moonshotai).
+
+    This tests the fix for issue #1180 where models with subprovider suffixes
+    like 'openrouter/moonshotai/kimi-k2@moonshotai' were not found in static MODELS.
+    """
+    # Test without suffix (should work)
+    model_no_suffix = get_model("openrouter/moonshotai/kimi-k2")
+    assert model_no_suffix.provider == "openrouter"
+    assert model_no_suffix.model == "moonshotai/kimi-k2"
+    assert model_no_suffix.context == 262_144
+
+    # Test with suffix (this was the bug - would return fallback 128k context)
+    model_with_suffix = get_model("openrouter/moonshotai/kimi-k2@moonshotai")
+    assert model_with_suffix.provider == "openrouter"
+    assert (
+        model_with_suffix.model == "moonshotai/kimi-k2@moonshotai"
+    )  # preserves original name
+    assert model_with_suffix.context == 262_144  # should match the non-suffix version
+
+    # Verify price is also correct (not fallback $0)
+    assert model_with_suffix.price_input == model_no_suffix.price_input
+    assert model_with_suffix.price_output == model_no_suffix.price_output
+
+
+def test_get_model_openrouter_subprovider_suffix_not_in_static():
+    """Test that models with subprovider suffix not in static MODELS still work via dynamic fetch."""
+    # This model doesn't exist in static MODELS, so it should try dynamic fetch
+    # We can't easily mock here, but we can verify it doesn't crash and returns something
+    model = get_model("openrouter/anthropic/claude-3-opus@anthropic")
+    # Should either find it via dynamic fetch or return fallback
+    assert model.provider == "openrouter"
+    # The model name should preserve the suffix
+    assert "@anthropic" in model.model

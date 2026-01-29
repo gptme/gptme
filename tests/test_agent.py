@@ -12,6 +12,12 @@ from gptme.agent.service import (
     SystemdManager,
     detect_service_manager,
 )
+from gptme.agent.workspace import (
+    DetectedWorkspace,
+    detect_workspaces,
+    get_workspace_name,
+    is_agent_workspace,
+)
 
 
 class TestDetectServiceManager:
@@ -202,3 +208,200 @@ class TestCLI:
             result = runner.invoke(main, ["list"])
             assert result.exit_code == 0
             assert "No agents installed" in result.output
+
+    def test_uninstall_help(self, runner):
+        """Test uninstall command help."""
+        result = runner.invoke(main, ["uninstall", "--help"])
+        assert result.exit_code == 0
+        assert "Uninstall an agent's services" in result.output
+
+    def test_status_shows_detected_workspaces(self, runner, tmp_path):
+        """Test that status --all shows detected workspaces."""
+        # Create a fake workspace
+        workspace = tmp_path / "test-agent"
+        workspace.mkdir()
+        (workspace / "gptme.toml").write_text('[agent]\nname = "test-agent"\n')
+
+        with (
+            patch("gptme.agent.cli.get_service_manager") as mock_get,
+            patch("gptme.agent.cli.detect_workspaces") as mock_detect,
+        ):
+            mock_manager = mock_get.return_value
+            mock_manager.list_agents.return_value = []
+
+            mock_detect.return_value = [
+                DetectedWorkspace(path=workspace, name="test-agent", installed=False)
+            ]
+
+            result = runner.invoke(main, ["status", "--all"])
+            assert result.exit_code == 0
+            assert "test-agent" in result.output
+            assert "Detected workspaces" in result.output
+
+    def test_status_specific_agent_not_installed(self, runner, tmp_path):
+        """Test status for specific agent that is detected but not installed."""
+        workspace = tmp_path / "my-agent"
+        workspace.mkdir()
+        (workspace / "gptme.toml").write_text('[agent]\nname = "my-agent"\n')
+
+        with (
+            patch("gptme.agent.cli.get_service_manager") as mock_get,
+            patch("gptme.agent.cli.detect_workspaces") as mock_detect,
+        ):
+            mock_manager = mock_get.return_value
+            mock_manager.list_agents.return_value = []
+            mock_manager.status.return_value = None
+
+            mock_detect.return_value = [
+                DetectedWorkspace(path=workspace, name="my-agent", installed=False)
+            ]
+
+            result = runner.invoke(main, ["status", "my-agent"])
+            assert result.exit_code == 0
+            assert "my-agent" in result.output
+            assert "To install:" in result.output
+
+    def test_uninstall_agent(self, runner):
+        """Test uninstall command calls service manager."""
+        with patch("gptme.agent.cli.get_service_manager") as mock_get:
+            mock_manager = mock_get.return_value
+            mock_manager.uninstall.return_value = True
+
+            result = runner.invoke(main, ["uninstall", "test-agent", "--yes"])
+            assert result.exit_code == 0
+            assert "uninstalled" in result.output
+            mock_manager.uninstall.assert_called_once_with("test-agent")
+
+    def test_uninstall_agent_fails(self, runner):
+        """Test uninstall command handles failure."""
+        with patch("gptme.agent.cli.get_service_manager") as mock_get:
+            mock_manager = mock_get.return_value
+            mock_manager.uninstall.return_value = False
+
+            result = runner.invoke(main, ["uninstall", "test-agent", "--yes"])
+            assert result.exit_code == 1
+            assert "Failed to uninstall" in result.output
+
+    def test_install_detects_existing_workspace(self, runner, tmp_path):
+        """Test install command validates workspace has run script."""
+        workspace = tmp_path / "incomplete-agent"
+        workspace.mkdir()
+        (workspace / "gptme.toml").write_text('[agent]\nname = "incomplete"\n')
+        # No scripts/runs/autonomous/autonomous-run.sh
+
+        result = runner.invoke(
+            main, ["install", "--workspace", str(workspace)], catch_exceptions=False
+        )
+        assert result.exit_code == 1
+        assert "No autonomous run script found" in result.output
+
+
+class TestWorkspaceDetection:
+    """Tests for workspace detection functions."""
+
+    def test_is_agent_workspace_valid(self, tmp_path):
+        """Test detection of valid agent workspace."""
+        workspace = tmp_path / "agent"
+        workspace.mkdir()
+        (workspace / "gptme.toml").write_text('[agent]\nname = "test"\n')
+
+        assert is_agent_workspace(workspace) is True
+
+    def test_is_agent_workspace_no_config(self, tmp_path):
+        """Test detection with missing config."""
+        workspace = tmp_path / "agent"
+        workspace.mkdir()
+
+        assert is_agent_workspace(workspace) is False
+
+    def test_is_agent_workspace_no_agent_section(self, tmp_path):
+        """Test detection with config but no agent section."""
+        workspace = tmp_path / "agent"
+        workspace.mkdir()
+        (workspace / "gptme.toml").write_text('files = ["README.md"]\n')
+
+        assert is_agent_workspace(workspace) is False
+
+    def test_get_workspace_name_valid(self, tmp_path):
+        """Test getting name from valid workspace."""
+        workspace = tmp_path / "agent"
+        workspace.mkdir()
+        (workspace / "gptme.toml").write_text('[agent]\nname = "bob"\n')
+
+        assert get_workspace_name(workspace) == "bob"
+
+    def test_get_workspace_name_invalid(self, tmp_path):
+        """Test getting name from invalid workspace."""
+        workspace = tmp_path / "agent"
+        workspace.mkdir()
+
+        assert get_workspace_name(workspace) is None
+
+    def test_detect_workspaces_finds_agents(self, tmp_path):
+        """Test that detect_workspaces finds agent directories."""
+        # Create test workspaces
+        agent1 = tmp_path / "agent1"
+        agent1.mkdir()
+        (agent1 / "gptme.toml").write_text('[agent]\nname = "agent1"\n')
+
+        agent2 = tmp_path / "subdir" / "agent2"
+        agent2.mkdir(parents=True)
+        (agent2 / "gptme.toml").write_text('[agent]\nname = "agent2"\n')
+
+        # Non-agent directory
+        other = tmp_path / "other"
+        other.mkdir()
+        (other / "gptme.toml").write_text('files = ["README.md"]\n')
+
+        # Detect
+        workspaces = detect_workspaces(search_paths=[tmp_path])
+        names = {ws.name for ws in workspaces}
+
+        assert "agent1" in names
+        # agent2 is nested deeper than 1 level from tmp_path
+        # detect_workspaces only checks 1 level deep from search paths
+        # But tmp_path/subdir is checked, so agent2 should be found
+        assert "agent2" not in names  # It's 2 levels deep
+
+    def test_detect_workspaces_marks_installed(self, tmp_path):
+        """Test that installed agents are marked correctly."""
+        agent = tmp_path / "my-agent"
+        agent.mkdir()
+        (agent / "gptme.toml").write_text('[agent]\nname = "my-agent"\n')
+
+        # Detect with my-agent marked as installed
+        workspaces = detect_workspaces(
+            search_paths=[tmp_path], installed_agents=["my-agent"]
+        )
+
+        assert len(workspaces) == 1
+        assert workspaces[0].name == "my-agent"
+        assert workspaces[0].installed is True
+
+    def test_detected_workspace_has_run_script(self, tmp_path):
+        """Test has_run_script property."""
+        workspace = tmp_path / "agent"
+        workspace.mkdir()
+        (workspace / "gptme.toml").write_text('[agent]\nname = "agent"\n')
+
+        detected = DetectedWorkspace(path=workspace, name="agent", installed=False)
+        assert detected.has_run_script is False
+
+        # Add run script
+        scripts_dir = workspace / "scripts" / "runs" / "autonomous"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "autonomous-run.sh").write_text("#!/bin/bash\n")
+
+        assert detected.has_run_script is True
+
+    def test_detect_workspaces_no_duplicates(self, tmp_path):
+        """Test that same agent isn't detected twice from different paths."""
+        agent = tmp_path / "agent"
+        agent.mkdir()
+        (agent / "gptme.toml").write_text('[agent]\nname = "unique-agent"\n')
+
+        # Search same path twice
+        workspaces = detect_workspaces(search_paths=[tmp_path, tmp_path])
+        names = [ws.name for ws in workspaces]
+
+        assert names.count("unique-agent") == 1

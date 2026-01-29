@@ -145,8 +145,17 @@ class LessonIndex:
                 "gptme now supports reading Cursor .mdc rules directly!"
             )
 
-        # Configured directories from gptme.toml
+        # Configured directories from config
         config = get_config()
+
+        # User config lessons directories
+        if config.user and config.user.lessons and config.user.lessons.dirs:
+            for dir_str in config.user.lessons.dirs:
+                lesson_dir = Path(dir_str).expanduser()
+                if lesson_dir.exists():
+                    dirs.append(lesson_dir)
+
+        # Project config lessons directories
         if config.project and config.project.lessons.dirs:
             for dir_str in config.project.lessons.dirs:
                 lesson_dir = Path(dir_str)
