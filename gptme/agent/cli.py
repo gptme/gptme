@@ -3,7 +3,7 @@ CLI commands for gptme agent management.
 
 Usage:
     gptme-agent status              # Show all agent statuses
-    gptme-agent setup <path>        # Set up agent workspace (from template or scratch)
+    gptme-agent create <path>       # Create a new agent workspace
     gptme-agent install [--timer]   # Install systemd/launchd services
     gptme-agent start [<name>]      # Start agent(s)
     gptme-agent stop [<name>]       # Stop agent(s)
@@ -65,7 +65,7 @@ def main(verbose: bool = False):
 
     \b
     Quick start:
-      gptme-agent setup ~/my-agent    # Set up a new agent workspace
+      gptme-agent create ~/my-agent   # Create a new agent workspace
       gptme-agent install             # Install services
       gptme-agent status              # Check status
 
@@ -105,8 +105,8 @@ def status_cmd(name: str | None):
         if not agents:
             click.echo("No agents installed")
             click.echo()
-            click.echo("To set up a new agent:")
-            click.echo("  gptme-agent setup <workspace-path>")
+            click.echo("To create a new agent:")
+            click.echo("  gptme-agent create <workspace-path>")
             return
 
         click.echo(f"📋 {len(agents)} agent(s) installed:\n")
@@ -135,7 +135,7 @@ def list_cmd():
         click.echo(f"  - {name}")
 
 
-@main.command("setup")
+@main.command("create")
 @click.argument("path", type=click.Path(exists=False))
 @click.option("--name", "-n", help="Agent name (defaults to directory name)")
 @click.option(
@@ -159,7 +159,7 @@ def list_cmd():
     is_flag=True,
     help="Initialize first conversation for the agent",
 )
-def setup_cmd(
+def create_cmd(
     path: str,
     name: str | None,
     template: bool,
@@ -167,7 +167,7 @@ def setup_cmd(
     template_branch: str,
     init_conversation: bool,
 ):
-    """Set up a new agent workspace.
+    """Create a new agent workspace.
 
     PATH is the directory where the agent workspace will be created.
 
@@ -176,23 +176,23 @@ def setup_cmd(
     workspace without the template.
 
     \b
-    Template-based setup (default):
+    Template-based (default):
     - Clones gptme-agent-template repository
     - Runs fork.sh to customize for your agent
     - Includes lessons, knowledge structure, and automation
 
     \b
-    Minimal setup (--no-template):
+    Minimal (--no-template):
     - Creates basic directory structure
     - Generates minimal gptme.toml
     - Creates autonomous run script
 
     \b
     Example:
-      gptme-agent setup ~/my-agent                    # Template-based (recommended)
-      gptme-agent setup ~/my-agent --name bob         # Custom agent name
-      gptme-agent setup ~/my-agent --no-template      # Minimal setup
-      gptme-agent setup ~/my-agent --init-conversation  # Also create first conversation
+      gptme-agent create ~/my-agent                    # Template-based (recommended)
+      gptme-agent create ~/my-agent --name bob         # Custom agent name
+      gptme-agent create ~/my-agent --no-template      # Minimal workspace
+      gptme-agent create ~/my-agent --init-conversation  # Also create first conversation
     """
     workspace = Path(path).expanduser().resolve()
     agent_name = name or workspace.name
@@ -313,7 +313,9 @@ def install_cmd(name: str | None, workspace: str | None, schedule: str):
     run_script = ws_path / "scripts" / "runs" / "autonomous" / "autonomous-run.sh"
     if not run_script.exists():
         click.echo(f"❌ No autonomous run script found at {run_script}")
-        click.echo("   Run 'gptme-agent setup' first to create the workspace structure")
+        click.echo(
+            "   Run 'gptme-agent create' first to create the workspace structure"
+        )
         sys.exit(1)
 
     click.echo(f"📦 Installing agent '{agent_name}'")
