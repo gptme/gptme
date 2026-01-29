@@ -35,6 +35,7 @@
 - [Hooks](https://gptme.org/docs/hooks.html)
 - [Plugin System](https://gptme.org/docs/plugins.html)
 - [API Reference](https://gptme.org/docs/api.html)
+- [Design: Hook-Based Tool Confirmations](https://gptme.org/docs/design/hook-based-confirmations.html)
 - [Alternatives](https://gptme.org/docs/alternatives.html)
 - [Are we tiny?](https://gptme.org/docs/arewetiny.html)
 - [Timeline](https://gptme.org/docs/timeline.html)

@@ -197,6 +197,10 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
 </ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="design/hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
+</ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
@@ -1016,25 +1020,9 @@ window.addEventListener("load", () => mermaid.run());
 <h2 id="F">F</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="hooks.html#gptme.hooks.HookType.FILE_PATCH_AFTER">FILE_PATCH_AFTER (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.FILE_PATCH_BEFORE">FILE_PATCH_BEFORE (gptme.hooks.HookType attribute)</a>
-</li>
       <li><a href="hooks.html#gptme.hooks.HookType.FILE_PATCH_POST">FILE_PATCH_POST (gptme.hooks.HookType attribute)</a>
 </li>
       <li><a href="hooks.html#gptme.hooks.HookType.FILE_PATCH_PRE">FILE_PATCH_PRE (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.FILE_POST_PATCH">FILE_POST_PATCH (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.FILE_POST_SAVE">FILE_POST_SAVE (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.FILE_PRE_PATCH">FILE_PRE_PATCH (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.FILE_PRE_SAVE">FILE_PRE_SAVE (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.FILE_SAVE_AFTER">FILE_SAVE_AFTER (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.FILE_SAVE_BEFORE">FILE_SAVE_BEFORE (gptme.hooks.HookType attribute)</a>
 </li>
       <li><a href="hooks.html#gptme.hooks.HookType.FILE_SAVE_POST">FILE_SAVE_POST (gptme.hooks.HookType attribute)</a>
 </li>
@@ -1044,8 +1032,6 @@ window.addEventListener("load", () => mermaid.run());
 </li>
       <li><a href="hooks.html#gptme.hooks.FilePreSaveHook">FilePreSaveHook (class in gptme.hooks)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.message.Message.files">files (gptme.message.Message attribute)</a>
 </li>
       <li><a href="api.html#gptme.logmanager.LogManager.fork">fork() (gptme.logmanager.LogManager method)</a>
@@ -1056,6 +1042,8 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="api.html#gptme.message.Message.format">(gptme.message.Message method)</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.config.ChatConfig.from_dict">from_dict() (gptme.config.ChatConfig class method)</a>
 
       <ul>
@@ -1568,18 +1556,14 @@ window.addEventListener("load", () => mermaid.run());
 </li>
       <li><a href="api.html#gptme.message.Message">Message (class in gptme.message)</a>
 </li>
-      <li><a href="hooks.html#gptme.hooks.HookType.MESSAGE_POST_PROCESS">MESSAGE_POST_PROCESS (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.MESSAGE_PRE_PROCESS">MESSAGE_PRE_PROCESS (gptme.hooks.HookType attribute)</a>
-</li>
       <li><a href="hooks.html#gptme.hooks.HookType.MESSAGE_TRANSFORM">MESSAGE_TRANSFORM (gptme.hooks.HookType attribute)</a>
 </li>
       <li><a href="hooks.html#gptme.hooks.MessageProcessHook">MessageProcessHook (class in gptme.hooks)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#gptme.message.Message.metadata">metadata (gptme.message.Message attribute)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     MODEL_NAME
 
@@ -1808,9 +1792,7 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="api.html#gptme.message.Message.to_xml">(gptme.message.Message method)</a>
 </li>
       </ul></li>
-      <li><a href="hooks.html#gptme.hooks.HookType.TOOL_EXECUTE_AFTER">TOOL_EXECUTE_AFTER (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.TOOL_EXECUTE_BEFORE">TOOL_EXECUTE_BEFORE (gptme.hooks.HookType attribute)</a>
+      <li><a href="hooks.html#gptme.hooks.HookType.TOOL_CONFIRM">TOOL_CONFIRM (gptme.hooks.HookType attribute)</a>
 </li>
       <li><a href="hooks.html#gptme.hooks.HookType.TOOL_EXECUTE_POST">TOOL_EXECUTE_POST (gptme.hooks.HookType attribute)</a>
 </li>
@@ -1827,10 +1809,6 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-util-tools-info-arg-TOOL_NAME">gptme-util-tools-info command line option</a>
 </li>
       </ul></li>
-      <li><a href="hooks.html#gptme.hooks.HookType.TOOL_POST_EXECUTE">TOOL_POST_EXECUTE (gptme.hooks.HookType attribute)</a>
-</li>
-      <li><a href="hooks.html#gptme.hooks.HookType.TOOL_PRE_EXECUTE">TOOL_PRE_EXECUTE (gptme.hooks.HookType attribute)</a>
-</li>
       <li><a href="hooks.html#gptme.hooks.HookType.TOOL_TRANSFORM">TOOL_TRANSFORM (gptme.hooks.HookType attribute)</a>
 </li>
       <li><a href="hooks.html#gptme.hooks.ToolExecuteHook">ToolExecuteHook (class in gptme.hooks)</a>

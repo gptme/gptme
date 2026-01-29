@@ -1,0 +1,1617 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Design: Hook-Based Tool Confirmations &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=a3416100" />
+    <link rel="stylesheet" type="text/css" href="../_static/asciinema-player_3.6.3.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3a28e17f" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/asciinema-player_3.6.3.js"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'design/hook-based-confirmations';</script>
+    <link rel="canonical" href="https://gptme.org/docs/design/hook-based-confirmations.html" />
+    <link rel="icon" href="../_static/logo.png"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Alternatives" href="../alternatives.html" />
+    <link rel="prev" title="API Reference" href="../api.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <img src="../_static/logo.png" class="logo__image only-dark pst-js-only" alt="gptme - Home"/>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../system-dependencies.html">System Dependencies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../automation.html">Automation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../projects.html">Projects</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../tools.html">Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lessons.html">Lessons</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../skills.html">Skills</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../config.html">Configuration</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../custom-providers.html">Custom Providers</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../agents.html">Agents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../mcp.html">MCP</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../acp.html">ACP (Agent Client Protocol)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../security.html">Security Considerations</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../building.html">Building Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../prompts.html">Prompts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">API Reference</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Design: Hook-Based Tool Confirmations</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/design/hook-based-confirmations.md" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../_sources/design/hook-based-confirmations.md" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.md</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button>
+
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Design: Hook-Based Tool Confirmations</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-status">Implementation Status</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#problem-statement">Problem Statement</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#goals">Goals</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-architecture">Current Architecture</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-flow">CLI Flow</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#server-v2-flow">Server V2 Flow</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#key-differences">Key Differences</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#proposed-design">Proposed Design</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#core-concept-tool-confirm-hook">Core Concept: <code class="docutils literal notranslate"><span class="pre">tool.confirm</span></code> Hook</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-protocol">Confirmation Protocol</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-protocol">Hook Protocol</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-architecture">Implementation Architecture</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-implementations">Hook Implementations</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-confirmation-hook">1. CLI Confirmation Hook</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#server-confirmation-hook">2. Server Confirmation Hook</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-confirm-hook-non-interactive-mode">3. Auto-Confirm Hook (Non-Interactive Mode)</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-points">Integration Points</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-execution-flow">Tool Execution Flow</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#evaluation-dimensions">Evaluation Dimensions</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-1-code-simplification">Dimension 1: Code Simplification</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-2-extensibility">Dimension 2: Extensibility</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-3-backward-compatibility">Dimension 3: Backward Compatibility</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-4-testability">Dimension 4: Testability</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-5-server-harmonization">Dimension 5: Server Harmonization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-6-performance-impact">Dimension 6: Performance Impact</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overall-evaluation">Overall Evaluation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-plan">Implementation Plan</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-foundation-1-2-days">Phase 1: Foundation (1-2 days)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-cli-implementation-2-3-days">Phase 2: CLI Implementation (2-3 days)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-3-server-implementation-2-3-days">Phase 3: Server Implementation (2-3 days)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-4-tool-migration-3-5-days">Phase 4: Tool Migration (3-5 days)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-5-documentation-cleanup-1-2-days">Phase 5: Documentation &amp; Cleanup (1-2 days)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#risks-and-mitigations">Risks and Mitigations</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#risk-1-async-sync-mismatch">Risk 1: Async/Sync Mismatch</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#risk-2-state-management">Risk 2: State Management</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#risk-3-migration-complexity">Risk 3: Migration Complexity</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#open-questions">Open Questions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#alternatives-considered">Alternatives Considered</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#alternative-1-use-existing-tool-execute-pre">Alternative 1: Use Existing TOOL_EXECUTE_PRE</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#alternative-2-middleware-pattern">Alternative 2: Middleware Pattern</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#alternative-3-event-system">Alternative 3: Event System</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conclusion">Conclusion</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="design-hook-based-tool-confirmations">
+<h1>Design: Hook-Based Tool Confirmations<a class="headerlink" href="#design-hook-based-tool-confirmations" title="Link to this heading">#</a></h1>
+<p><strong>Issue</strong>: <a class="reference external" href="https://github.com/gptme/gptme/issues/1104">#1104</a>
+<strong>Author</strong>: Bob
+<strong>Date</strong>: 2026-01-10
+<strong>Status</strong>: In Progress</p>
+<section id="implementation-status">
+<h2>Implementation Status<a class="headerlink" href="#implementation-status" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Phase</p></th>
+<th class="head"><p>Component</p></th>
+<th class="head"><p>Status</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>HookType.TOOL_CONFIRM</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>1</p></td>
+<td><p>ConfirmationResult dataclass</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>ToolConfirmHook protocol</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>1</p></td>
+<td><p>get_confirmation() function</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>2</p></td>
+<td><p>cli_confirm_hook</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>auto_confirm_hook</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>2</p></td>
+<td><p>Hook registration in chat.py</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>confirm_bridge utilities</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>2</p></td>
+<td><p>confirm_func integration</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>3</p></td>
+<td><p>server_confirm_hook</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>HTTP endpoint integration</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>3</p></td>
+<td><p>Tests (32 passing)</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>4</p></td>
+<td><p>Server context vars for SSE</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>Server hook registration</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>4</p></td>
+<td><p>V1 API hook-aware confirm_func</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>5</p></td>
+<td><p>Tool migration</p></td>
+<td><p>❌ Reverted (see notes)</p></td>
+</tr>
+<tr class="row-even"><td><p>6</p></td>
+<td><p>Simplification &amp; cleanup</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>6.1</p></td>
+<td><p>Consolidate preview printing</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>6.2</p></td>
+<td><p>Centralize auto-confirm state</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>6.3</p></td>
+<td><p>Unify server auto-confirm</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>6.4</p></td>
+<td><p>Consolidate help text</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>7</p></td>
+<td><p>Remove ask_execute fallback</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>7.1</p></td>
+<td><p>Simplify confirm_func</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>7.2</p></td>
+<td><p>Move CLI hook to init_hooks</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>7.3</p></td>
+<td><p>Use contextvars for auto-confirm</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>8</p></td>
+<td><p>Tool auto-approve via ToolSpec hooks</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>8.1</p></td>
+<td><p>Hook fall-through support</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>8.2</p></td>
+<td><p>Shell allowlist hook</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>8.3</p></td>
+<td><p>Tests for fall-through &amp; allowlist</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Current state</strong>: Phases 1-4, 6, 7, 8 complete. Phase 5 was reverted.</p>
+<p><strong>Implemented</strong>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">confirm_func</span></code> in <code class="docutils literal notranslate"><span class="pre">chat.py</span></code> always uses hooks (no <code class="docutils literal notranslate"><span class="pre">ask_execute</span></code> fallback)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">confirm_func</span></code> in <code class="docutils literal notranslate"><span class="pre">api.py</span></code> (v1) uses hooks when available, falling back to auto-confirm</p></li>
+<li><p>Server’s HTTP endpoint resolves hook-based confirmations via <code class="docutils literal notranslate"><span class="pre">_resolve_hook_confirmation</span></code></p></li>
+<li><p>Server hook now emits SSE events and blocks until client responds via HTTP endpoint</p></li>
+<li><p>Context vars (<code class="docutils literal notranslate"><span class="pre">current_conversation_id</span></code>, <code class="docutils literal notranslate"><span class="pre">current_session_id</span></code>) provide session context to hooks</p></li>
+</ul>
+<p><strong>Phase 5 Reversion Notes</strong>:
+The Phase 5 “tool migration” was reverted because:</p>
+<ol class="arabic simple">
+<li><p>It added ~88 lines without removing any (violated simplification goal)</p></li>
+<li><p>Tools were creating ToolUse objects just to pass to confirmation - this is redundant since ToolUse already exists at the <code class="docutils literal notranslate"><span class="pre">ToolUse.execute()</span></code> level</p></li>
+<li><p>The <code class="docutils literal notranslate"><span class="pre">_execute_with_hook_confirmation()</span></code> helper duplicated logic from <code class="docutils literal notranslate"><span class="pre">execute_with_confirmation()</span></code></p></li>
+</ol>
+<p>The hook system works correctly through the <code class="docutils literal notranslate"><span class="pre">confirm_func</span></code> bridge without requiring tools to create ToolUse objects.</p>
+<p><strong>Architecture notes</strong>:</p>
+<ul class="simple">
+<li><p>V1 API: Uses hook-aware confirm_func, auto-confirms when no context vars set (legacy behavior)</p></li>
+<li><p>V2 API: Uses separate <code class="docutils literal notranslate"><span class="pre">pending_tools</span></code> mechanism + hook resolution for HTTP confirmations</p></li>
+<li><p>CLI: Uses hook-aware confirm_func, routes through cli_confirm_hook when registered</p></li>
+<li><p>Hooks receive confirmation requests via <code class="docutils literal notranslate"><span class="pre">make_confirm_func_from_hooks()</span></code> bridge</p></li>
+</ul>
+<p><strong>Phase 6.1 Notes</strong> (Completed):
+Consolidated duplicate <code class="docutils literal notranslate"><span class="pre">_print_preview</span></code> in cli_confirm.py by importing shared <code class="docutils literal notranslate"><span class="pre">print_preview</span></code>
+from ask_execute.py. This reduced cli_confirm.py by 10 lines (245 → 235) and eliminates
+duplicate preview logic.</p>
+<p><strong>Phase 6.4 Notes</strong> (Completed):
+Extracted shared <code class="docutils literal notranslate"><span class="pre">print_confirmation_help()</span></code> function in ask_execute.py. Both
+ask_execute and cli_confirm_hook now use this shared function instead of
+maintaining duplicate help text. Reduced cli_confirm.py by 19 lines.</p>
+<p><strong>Phase 6.2-6.3 Notes</strong> (Completed):
+Centralized auto-confirm state in <code class="docutils literal notranslate"><span class="pre">confirm.py</span></code> with unified functions:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">set_auto_confirm(count)</span></code> - Set auto-confirm (count or infinite)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">reset_auto_confirm()</span></code> - Reset to defaults</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">check_auto_confirm()</span></code> - Check and decrement (returns tuple)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">is_auto_confirm_active()</span></code> - Check without decrementing</p></li>
+</ul>
+<p>Both <code class="docutils literal notranslate"><span class="pre">cli_confirm.py</span></code> and <code class="docutils literal notranslate"><span class="pre">ask_execute.py</span></code> now use this centralized state instead of
+maintaining their own duplicate globals. Server auto-confirm is also unified -
+<code class="docutils literal notranslate"><span class="pre">server_confirm_hook</span></code> now checks centralized state first before checking session context.</p>
+<p><strong>Phase 7 Notes</strong> (Completed):
+Removed ask_execute fallback from chat.py per Erik’s suggestion:</p>
+<ul class="simple">
+<li><p>confirm_func now always uses hooks via make_confirm_func_from_hooks()</p></li>
+<li><p>CLI hook registration moved into init_hooks() via hook_allowlist parameter</p></li>
+<li><p>Auto-confirm state converted to ContextVars for thread safety in server mode</p></li>
+<li><p>When no_confirm=True, no CLI hook is registered, so get_confirmation() auto-confirms</p></li>
+</ul>
+<p><strong>Phase 8 Notes</strong> (Completed):
+Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s suggestion:</p>
+<ul class="simple">
+<li><p>Modified <code class="docutils literal notranslate"><span class="pre">get_confirmation()</span></code> to support fall-through: hooks returning None pass to next hook</p></li>
+<li><p>Hooks are tried in priority order (highest first), first non-None result wins</p></li>
+<li><p>Updated <code class="docutils literal notranslate"><span class="pre">ToolConfirmHook</span></code> protocol: now returns <code class="docutils literal notranslate"><span class="pre">ConfirmationResult</span> <span class="pre">|</span> <span class="pre">None</span></code></p></li>
+<li><p>Shell tool registers <code class="docutils literal notranslate"><span class="pre">shell_allowlist_hook</span></code> with priority 10 (higher than CLI hook at 0)</p></li>
+<li><p>Shell allowlist hook auto-confirms allowlisted commands, returns None for others</p></li>
+<li><p>This keeps ToolSpec clean (no new fields) while enabling tool-specific auto-approve</p></li>
+<li><p>Tests added: 3 fall-through tests + 5 shell allowlist tests (27 total passing)</p></li>
+</ul>
+<p>Example usage for other tools:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">my_tool_auto_approve</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Auto-approve safe operations, fall through for others.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">is_safe</span><span class="p">(</span><span class="n">tool_use</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">confirm</span><span class="p">()</span>
+    <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Fall through to CLI/server hook</span>
+
+<span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_tool&quot;</span><span class="p">,</span>
+    <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;auto_approve&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;tool_confirm&quot;</span><span class="p">,</span> <span class="n">my_tool_auto_approve</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span>
+    <span class="p">},</span>
+    <span class="o">...</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Next steps</strong>:</p>
+<ul class="simple">
+<li><p>✅ Phase 6.1-6.4: Consolidation complete</p></li>
+<li><p>✅ Phase 7: Remove ask_execute fallback</p></li>
+<li><p>✅ Phase 8: Tool auto-approve via ToolSpec hooks</p></li>
+<li><p>Phase 6.5: Document hook API for custom confirmation backends</p></li>
+<li><p>Phase 6.6: Add examples for new backends (GUI, Discord bot)</p></li>
+<li><p>Future: Consider moving confirmation to ToolUse.execute()</p></li>
+</ul>
+</section>
+<section id="problem-statement">
+<h2>Problem Statement<a class="headerlink" href="#problem-statement" title="Link to this heading">#</a></h2>
+<p>gptme currently has two separate implementations for tool confirmation:</p>
+<ol class="arabic simple">
+<li><p><strong>CLI (<code class="docutils literal notranslate"><span class="pre">ask_execute.py</span></code>)</strong>: Interactive terminal-based confirmation with rich features</p></li>
+<li><p><strong>Server V2 (<code class="docutils literal notranslate"><span class="pre">api_v2_sessions.py</span></code>)</strong>: SSE event-based confirmation with pending tool queue</p></li>
+</ol>
+<p>These implementations are not harmonized:</p>
+<ul class="simple">
+<li><p>CLI uses <code class="docutils literal notranslate"><span class="pre">ask_execute()</span></code> called directly from tools via <code class="docutils literal notranslate"><span class="pre">ConfirmFunc</span></code></p></li>
+<li><p>Server V2 uses <code class="docutils literal notranslate"><span class="pre">pending_tools</span></code> dict with <code class="docutils literal notranslate"><span class="pre">ToolExecution</span></code> state machine</p></li>
+<li><p>Server V1 has no real confirmation support (always auto-confirms)</p></li>
+<li><p>No shared abstraction for confirmation logic</p></li>
+</ul>
+</section>
+<section id="goals">
+<h2>Goals<a class="headerlink" href="#goals" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Harmonize</strong> CLI and Server confirmation implementations</p></li>
+<li><p><strong>Leverage hooks</strong> for extensibility and clean separation</p></li>
+<li><p><strong>Maintain</strong> existing functionality (edit, copy, auto-confirm)</p></li>
+<li><p><strong>Simplify</strong> tool implementations by removing confirmation boilerplate</p></li>
+<li><p><strong>Enable</strong> new confirmation backends (e.g., GUI, Discord bot)</p></li>
+</ol>
+</section>
+<section id="current-architecture">
+<h2>Current Architecture<a class="headerlink" href="#current-architecture" title="Link to this heading">#</a></h2>
+<section id="cli-flow">
+<h3>CLI Flow<a class="headerlink" href="#cli-flow" title="Link to this heading">#</a></h3>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User/Tool → execute_with_confirmation() → ask_execute() → User Input → Execute
+                                              ↓
+                                        print_preview()
+                                              ↓
+                                    editable/copiable state
+</pre></div>
+</div>
+</section>
+<section id="server-v2-flow">
+<h3>Server V2 Flow<a class="headerlink" href="#server-v2-flow" title="Link to this heading">#</a></h3>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Tool Execute → Store in pending_tools → SSE Event (tool_pending) → Client Decides
+                                                                         ↓
+                                                              /api/v2/.../tool/confirm
+                                                                         ↓
+                                                              Execute or Skip
+</pre></div>
+</div>
+</section>
+<section id="key-differences">
+<h3>Key Differences<a class="headerlink" href="#key-differences" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Aspect</p></th>
+<th class="head"><p>CLI</p></th>
+<th class="head"><p>Server V2</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Blocking</p></td>
+<td><p>Synchronous (blocks thread)</p></td>
+<td><p>Async (event-based)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Input</p></td>
+<td><p>Terminal prompt</p></td>
+<td><p>HTTP endpoint</p></td>
+</tr>
+<tr class="row-even"><td><p>Features</p></td>
+<td><p>edit, copy, auto</p></td>
+<td><p>confirm, edit, skip, auto</p></td>
+</tr>
+<tr class="row-odd"><td><p>State</p></td>
+<td><p>Global variables</p></td>
+<td><p>Session object</p></td>
+</tr>
+<tr class="row-even"><td><p>Notification</p></td>
+<td><p>Bell sound</p></td>
+<td><p>SSE event</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="proposed-design">
+<h2>Proposed Design<a class="headerlink" href="#proposed-design" title="Link to this heading">#</a></h2>
+<section id="core-concept-tool-confirm-hook">
+<h3>Core Concept: <code class="docutils literal notranslate"><span class="pre">tool.confirm</span></code> Hook<a class="headerlink" href="#core-concept-tool-confirm-hook" title="Link to this heading">#</a></h3>
+<p>Introduce a new hook type <code class="docutils literal notranslate"><span class="pre">tool.confirm</span></code> that handles the confirmation decision:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">HookType</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">):</span>
+    <span class="c1"># Existing hooks</span>
+    <span class="n">TOOL_EXECUTE_PRE</span> <span class="o">=</span> <span class="s2">&quot;tool.execute.pre&quot;</span>
+    <span class="n">TOOL_EXECUTE_POST</span> <span class="o">=</span> <span class="s2">&quot;tool.execute.post&quot;</span>
+
+    <span class="c1"># New confirmation hook</span>
+    <span class="n">TOOL_CONFIRM</span> <span class="o">=</span> <span class="s2">&quot;tool.confirm&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="confirmation-protocol">
+<h3>Confirmation Protocol<a class="headerlink" href="#confirmation-protocol" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">tool.confirm</span></code> hook follows a request-response protocol:</p>
+<ol class="arabic simple">
+<li><p><strong>Request Phase</strong>: System triggers <code class="docutils literal notranslate"><span class="pre">tool.confirm</span></code> with tool details</p></li>
+<li><p><strong>Decision Phase</strong>: Hook implementation gathers user/client decision</p></li>
+<li><p><strong>Response Phase</strong>: Hook yields a <code class="docutils literal notranslate"><span class="pre">ConfirmationResult</span></code></p></li>
+</ol>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">dataclasses</span> <span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Literal</span>
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">ConfirmationResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Result of a tool confirmation request.&quot;&quot;&quot;</span>
+
+    <span class="n">action</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;confirm&quot;</span><span class="p">,</span> <span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;edit&quot;</span><span class="p">]</span>
+    <span class="n">edited_content</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">auto_confirm_remaining</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+</pre></div>
+</div>
+</section>
+<section id="hook-protocol">
+<h3>Hook Protocol<a class="headerlink" href="#hook-protocol" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">Generator</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+
+<span class="k">class</span> <span class="nc">ToolConfirmHook</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hook for tool confirmation decisions.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">tooluse</span><span class="p">:</span> <span class="s2">&quot;ToolUse&quot;</span><span class="p">,</span>
+        <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">workspace</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">ConfirmationResult</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Request confirmation for tool execution.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            tooluse: The tool about to be executed</span>
+<span class="sd">            preview: Optional preview content for display</span>
+<span class="sd">            workspace: Workspace directory path</span>
+
+<span class="sd">        Yields:</span>
+<span class="sd">            ConfirmationResult with the user&#39;s decision</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span>
+</pre></div>
+</div>
+</section>
+<section id="implementation-architecture">
+<h3>Implementation Architecture<a class="headerlink" href="#implementation-architecture" title="Link to this heading">#</a></h3>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>                     ┌─────────────────────────────────────┐
+                     │         ToolUse.execute()           │
+                     └─────────────────┬───────────────────┘
+                                       │
+                                       ▼
+                     ┌─────────────────────────────────────┐
+                     │    trigger_hook(TOOL_CONFIRM)       │
+                     └─────────────────┬───────────────────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              │                        │                        │
+              ▼                        ▼                        ▼
+    ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+    │ CLI Confirm Hook│      │Server Confirm   │      │ Auto Confirm    │
+    │ (terminal input)│      │Hook (SSE/HTTP)  │      │ Hook (always)   │
+    └────────┬────────┘      └────────┬────────┘      └────────┬────────┘
+             │                        │                        │
+             ▼                        ▼                        ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                      ConfirmationResult                              │
+    └─────────────────────────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+                     ┌─────────────────────────────────────┐
+                     │      Execute or Skip Tool           │
+                     └─────────────────────────────────────┘
+</pre></div>
+</div>
+</section>
+<section id="hook-implementations">
+<h3>Hook Implementations<a class="headerlink" href="#hook-implementations" title="Link to this heading">#</a></h3>
+<section id="cli-confirmation-hook">
+<h4>1. CLI Confirmation Hook<a class="headerlink" href="#cli-confirmation-hook" title="Link to this heading">#</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">cli_confirm_hook</span><span class="p">(</span>
+    <span class="n">tooluse</span><span class="p">:</span> <span class="n">ToolUse</span><span class="p">,</span>
+    <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">workspace</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">ConfirmationResult</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;CLI-based confirmation using terminal input.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Show preview if available</span>
+    <span class="k">if</span> <span class="n">preview</span><span class="p">:</span>
+        <span class="n">print_preview</span><span class="p">(</span><span class="n">preview</span><span class="p">,</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span> <span class="n">copy</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># Make content editable</span>
+    <span class="k">if</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">content</span><span class="p">:</span>
+        <span class="n">set_editable_text</span><span class="p">(</span><span class="n">tooluse</span><span class="o">.</span><span class="n">content</span><span class="p">,</span> <span class="n">get_extension</span><span class="p">(</span><span class="n">tooluse</span><span class="p">))</span>
+
+    <span class="c1"># Get user decision via terminal prompt</span>
+    <span class="n">confirmed</span> <span class="o">=</span> <span class="n">ask_execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Execute </span><span class="si">{</span><span class="n">tooluse</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">?&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">confirmed</span><span class="p">:</span>
+        <span class="n">edited</span> <span class="o">=</span> <span class="n">get_editable_text</span><span class="p">()</span> <span class="k">if</span> <span class="n">editable</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="n">was_edited</span> <span class="o">=</span> <span class="n">edited</span> <span class="o">!=</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">content</span> <span class="k">if</span> <span class="n">edited</span> <span class="k">else</span> <span class="kc">False</span>
+        <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span>
+            <span class="n">action</span><span class="o">=</span><span class="s2">&quot;edit&quot;</span> <span class="k">if</span> <span class="n">was_edited</span> <span class="k">else</span> <span class="s2">&quot;confirm&quot;</span><span class="p">,</span>
+            <span class="n">edited_content</span><span class="o">=</span><span class="n">edited</span> <span class="k">if</span> <span class="n">was_edited</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;skip&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="server-confirmation-hook">
+<h4>2. Server Confirmation Hook<a class="headerlink" href="#server-confirmation-hook" title="Link to this heading">#</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">server_confirm_hook</span><span class="p">(</span>
+    <span class="n">tooluse</span><span class="p">:</span> <span class="n">ToolUse</span><span class="p">,</span>
+    <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">workspace</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">ConfirmationResult</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Server-based confirmation using SSE events.&quot;&quot;&quot;</span>
+
+    <span class="n">session</span> <span class="o">=</span> <span class="n">get_current_session</span><span class="p">()</span>
+
+    <span class="c1"># Check auto-confirm</span>
+    <span class="k">if</span> <span class="n">session</span><span class="o">.</span><span class="n">auto_confirm_count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">auto_confirm_count</span> <span class="o">-=</span> <span class="mi">1</span>
+        <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;confirm&quot;</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="c1"># Create pending tool entry</span>
+    <span class="n">tool_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+    <span class="n">session</span><span class="o">.</span><span class="n">pending_tools</span><span class="p">[</span><span class="n">tool_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">ToolExecution</span><span class="p">(</span>
+        <span class="n">tooluse</span><span class="o">=</span><span class="n">tooluse</span><span class="p">,</span>
+        <span class="n">status</span><span class="o">=</span><span class="n">ToolStatus</span><span class="o">.</span><span class="n">PENDING</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Emit SSE event</span>
+    <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;tool_pending&quot;</span><span class="p">,</span> <span class="p">{</span>
+        <span class="s2">&quot;tool_id&quot;</span><span class="p">:</span> <span class="n">tool_id</span><span class="p">,</span>
+        <span class="s2">&quot;tool&quot;</span><span class="p">:</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span>
+        <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">content</span><span class="p">,</span>
+        <span class="s2">&quot;preview&quot;</span><span class="p">:</span> <span class="n">preview</span><span class="p">,</span>
+    <span class="p">})</span>
+
+    <span class="c1"># Wait for client decision (via HTTP endpoint)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">wait_for_confirmation</span><span class="p">(</span><span class="n">tool_id</span><span class="p">)</span>
+    <span class="k">yield</span> <span class="n">result</span>
+</pre></div>
+</div>
+</section>
+<section id="auto-confirm-hook-non-interactive-mode">
+<h4>3. Auto-Confirm Hook (Non-Interactive Mode)<a class="headerlink" href="#auto-confirm-hook-non-interactive-mode" title="Link to this heading">#</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">auto_confirm_hook</span><span class="p">(</span>
+    <span class="n">tooluse</span><span class="p">:</span> <span class="n">ToolUse</span><span class="p">,</span>
+    <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">workspace</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">ConfirmationResult</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Always confirms - for non-interactive/autonomous mode.&quot;&quot;&quot;</span>
+    <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;confirm&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="integration-points">
+<h3>Integration Points<a class="headerlink" href="#integration-points" title="Link to this heading">#</a></h3>
+<section id="tool-execution-flow">
+<h4>Tool Execution Flow<a class="headerlink" href="#tool-execution-flow" title="Link to this heading">#</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In tools/base.py - ToolUse.execute()</span>
+
+<span class="k">def</span> <span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">confirm</span><span class="p">:</span> <span class="n">ConfirmFunc</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">Message</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+    <span class="c1"># Trigger confirmation hook</span>
+    <span class="n">confirm_results</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">trigger_hook</span><span class="p">(</span>
+        <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
+        <span class="n">tooluse</span><span class="o">=</span><span class="bp">self</span><span class="p">,</span>
+        <span class="n">preview</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_preview</span><span class="p">(),</span>
+        <span class="n">workspace</span><span class="o">=</span><span class="n">get_workspace</span><span class="p">(),</span>
+    <span class="p">))</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">confirm_results</span><span class="p">:</span>
+        <span class="c1"># No confirmation hook registered - fall back to confirm function</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">confirm</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Execute </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">?&quot;</span><span class="p">):</span>
+            <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Aborted&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;confirm&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">confirm_results</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="c1"># Handle result</span>
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">&quot;skip&quot;</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Operation skipped by user&quot;</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">&quot;edit&quot;</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">edited_content</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">content</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">edited_content</span>
+
+    <span class="c1"># Proceed with execution</span>
+    <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">_do_execute</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="hook-registration">
+<h4>Hook Registration<a class="headerlink" href="#hook-registration" title="Link to this heading">#</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In gptme/main.py or gptme/chat.py</span>
+
+<span class="k">def</span> <span class="nf">init_confirmation_hooks</span><span class="p">(</span><span class="n">interactive</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">server_mode</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register appropriate confirmation hook based on mode.&quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="n">server_mode</span><span class="p">:</span>
+        <span class="n">register_hook</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;server_confirm&quot;</span><span class="p">,</span>
+            <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
+            <span class="n">func</span><span class="o">=</span><span class="n">server_confirm_hook</span><span class="p">,</span>
+            <span class="n">priority</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="n">interactive</span><span class="p">:</span>
+        <span class="n">register_hook</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;cli_confirm&quot;</span><span class="p">,</span>
+            <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
+            <span class="n">func</span><span class="o">=</span><span class="n">cli_confirm_hook</span><span class="p">,</span>
+            <span class="n">priority</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">register_hook</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;auto_confirm&quot;</span><span class="p">,</span>
+            <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
+            <span class="n">func</span><span class="o">=</span><span class="n">auto_confirm_hook</span><span class="p">,</span>
+            <span class="n">priority</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="evaluation-dimensions">
+<h2>Evaluation Dimensions<a class="headerlink" href="#evaluation-dimensions" title="Link to this heading">#</a></h2>
+<section id="dimension-1-code-simplification">
+<h3>Dimension 1: Code Simplification<a class="headerlink" href="#dimension-1-code-simplification" title="Link to this heading">#</a></h3>
+<p><strong>Criteria</strong>: Does this reduce complexity in tool implementations?</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Score</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>Increases complexity</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>No change</p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>Minor simplification</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>Moderate simplification</p></td>
+</tr>
+<tr class="row-even"><td><p>5</p></td>
+<td><p>Major simplification</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Current Assessment: 4/5</strong></p>
+<p>Rationale:</p>
+<ul class="simple">
+<li><p>Tools no longer need to handle confirmation logic directly</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">execute_with_confirmation()</span></code> helper can be simplified or deprecated</p></li>
+<li><p>Single point of confirmation logic vs scattered across tools</p></li>
+<li><p>Minor complexity added in hook registration</p></li>
+</ul>
+</section>
+<section id="dimension-2-extensibility">
+<h3>Dimension 2: Extensibility<a class="headerlink" href="#dimension-2-extensibility" title="Link to this heading">#</a></h3>
+<p><strong>Criteria</strong>: How easy is it to add new confirmation backends?</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Score</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>Requires core changes</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>Complex integration</p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>Moderate effort</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>Simple plugin</p></td>
+</tr>
+<tr class="row-even"><td><p>5</p></td>
+<td><p>Trivial addition</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Current Assessment: 5/5</strong></p>
+<p>Rationale:</p>
+<ul class="simple">
+<li><p>New backends just register a hook function</p></li>
+<li><p>No core code changes needed</p></li>
+<li><p>Examples: Discord bot, GUI, mobile app, voice confirmation</p></li>
+<li><p>Clear protocol makes implementation straightforward</p></li>
+</ul>
+</section>
+<section id="dimension-3-backward-compatibility">
+<h3>Dimension 3: Backward Compatibility<a class="headerlink" href="#dimension-3-backward-compatibility" title="Link to this heading">#</a></h3>
+<p><strong>Criteria</strong>: Does this maintain existing behavior and APIs?</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Score</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>Breaking changes, migration required</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>Breaking changes, partial migration</p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>Deprecation warnings, works with changes</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>Fully backward compatible with deprecations</p></td>
+</tr>
+<tr class="row-even"><td><p>5</p></td>
+<td><p>Fully backward compatible, no changes needed</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Current Assessment: 4/5</strong></p>
+<p>Rationale:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ConfirmFunc</span></code> type can still work (fallback when no hook)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ask_execute()</span></code> still functions (wrapped by CLI hook)</p></li>
+<li><p>Server V2 API unchanged externally</p></li>
+<li><p>Internal refactoring required for <code class="docutils literal notranslate"><span class="pre">execute_with_confirmation()</span></code></p></li>
+</ul>
+</section>
+<section id="dimension-4-testability">
+<h3>Dimension 4: Testability<a class="headerlink" href="#dimension-4-testability" title="Link to this heading">#</a></h3>
+<p><strong>Criteria</strong>: How testable is the new design?</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Score</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>Untestable / requires manual testing</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>Difficult to test</p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>Moderate test effort</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>Easy to unit test</p></td>
+</tr>
+<tr class="row-even"><td><p>5</p></td>
+<td><p>Excellent testability with mocks</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Current Assessment: 5/5</strong></p>
+<p>Rationale:</p>
+<ul class="simple">
+<li><p>Hooks are pure functions that can be mocked</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ConfirmationResult</span></code> is a simple dataclass</p></li>
+<li><p>Can test each hook implementation independently</p></li>
+<li><p>Can test tool execution with different hook configurations</p></li>
+</ul>
+</section>
+<section id="dimension-5-server-harmonization">
+<h3>Dimension 5: Server Harmonization<a class="headerlink" href="#dimension-5-server-harmonization" title="Link to this heading">#</a></h3>
+<p><strong>Criteria</strong>: Does this improve CLI/Server code sharing?</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Score</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>More divergence</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>No change</p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>Minor sharing</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>Significant sharing</p></td>
+</tr>
+<tr class="row-even"><td><p>5</p></td>
+<td><p>Full harmonization</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Current Assessment: 4/5</strong></p>
+<p>Rationale:</p>
+<ul class="simple">
+<li><p>Same protocol for both CLI and Server</p></li>
+<li><p>Same <code class="docutils literal notranslate"><span class="pre">ConfirmationResult</span></code> type</p></li>
+<li><p>Tool code doesn’t need to know which environment</p></li>
+<li><p>Server still needs SSE/HTTP infrastructure (inherent)</p></li>
+</ul>
+</section>
+<section id="dimension-6-performance-impact">
+<h3>Dimension 6: Performance Impact<a class="headerlink" href="#dimension-6-performance-impact" title="Link to this heading">#</a></h3>
+<p><strong>Criteria</strong>: Does this affect performance?</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Score</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>Significant slowdown</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>Noticeable slowdown</p></td>
+</tr>
+<tr class="row-even"><td><p>3</p></td>
+<td><p>Minor impact</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
+<td><p>Negligible impact</p></td>
+</tr>
+<tr class="row-even"><td><p>5</p></td>
+<td><p>No impact or improvement</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Current Assessment: 5/5</strong></p>
+<p>Rationale:</p>
+<ul class="simple">
+<li><p>Hook dispatch is O(1) lookup</p></li>
+<li><p>No additional I/O or computation</p></li>
+<li><p>Existing confirmation logic just moves to hook</p></li>
+<li><p>Could potentially improve by reducing redundant preview generation</p></li>
+</ul>
+</section>
+</section>
+<section id="overall-evaluation">
+<h2>Overall Evaluation<a class="headerlink" href="#overall-evaluation" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Dimension</p></th>
+<th class="head"><p>Score</p></th>
+<th class="head"><p>Weight</p></th>
+<th class="head"><p>Weighted</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Code Simplification</p></td>
+<td><p>4</p></td>
+<td><p>20%</p></td>
+<td><p>0.80</p></td>
+</tr>
+<tr class="row-odd"><td><p>Extensibility</p></td>
+<td><p>5</p></td>
+<td><p>25%</p></td>
+<td><p>1.25</p></td>
+</tr>
+<tr class="row-even"><td><p>Backward Compatibility</p></td>
+<td><p>4</p></td>
+<td><p>20%</p></td>
+<td><p>0.80</p></td>
+</tr>
+<tr class="row-odd"><td><p>Testability</p></td>
+<td><p>5</p></td>
+<td><p>15%</p></td>
+<td><p>0.75</p></td>
+</tr>
+<tr class="row-even"><td><p>Server Harmonization</p></td>
+<td><p>4</p></td>
+<td><p>15%</p></td>
+<td><p>0.60</p></td>
+</tr>
+<tr class="row-odd"><td><p>Performance Impact</p></td>
+<td><p>5</p></td>
+<td><p>5%</p></td>
+<td><p>0.25</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Total</strong></p></td>
+<td><p></p></td>
+<td><p></p></td>
+<td><p><strong>4.45/5</strong></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="implementation-plan">
+<h2>Implementation Plan<a class="headerlink" href="#implementation-plan" title="Link to this heading">#</a></h2>
+<section id="phase-1-foundation-1-2-days">
+<h3>Phase 1: Foundation (1-2 days)<a class="headerlink" href="#phase-1-foundation-1-2-days" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>Add <code class="docutils literal notranslate"><span class="pre">HookType.TOOL_CONFIRM</span></code> enum value</p></li>
+<li><p>Add <code class="docutils literal notranslate"><span class="pre">ToolConfirmHook</span></code> protocol</p></li>
+<li><p>Add <code class="docutils literal notranslate"><span class="pre">ConfirmationResult</span></code> dataclass</p></li>
+<li><p>Update hook type overloads</p></li>
+</ol>
+</section>
+<section id="phase-2-cli-implementation-2-3-days">
+<h3>Phase 2: CLI Implementation (2-3 days)<a class="headerlink" href="#phase-2-cli-implementation-2-3-days" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>Create <code class="docutils literal notranslate"><span class="pre">gptme/hooks/cli_confirm.py</span></code></p></li>
+<li><p>Refactor <code class="docutils literal notranslate"><span class="pre">ask_execute.py</span></code> to be callable by hook</p></li>
+<li><p>Register CLI hook in interactive mode</p></li>
+<li><p>Test with existing CLI flows</p></li>
+</ol>
+</section>
+<section id="phase-3-server-implementation-2-3-days">
+<h3>Phase 3: Server Implementation (2-3 days)<a class="headerlink" href="#phase-3-server-implementation-2-3-days" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>Create <code class="docutils literal notranslate"><span class="pre">gptme/hooks/server_confirm.py</span></code></p></li>
+<li><p>Integrate with <code class="docutils literal notranslate"><span class="pre">api_v2_sessions.py</span></code> pending_tools</p></li>
+<li><p>Register Server hook in server mode</p></li>
+<li><p>Test with existing Server V2 flows</p></li>
+</ol>
+</section>
+<section id="phase-4-tool-migration-3-5-days">
+<h3>Phase 4: Tool Migration (3-5 days)<a class="headerlink" href="#phase-4-tool-migration-3-5-days" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>Update <code class="docutils literal notranslate"><span class="pre">ToolUse.execute()</span></code> to use confirmation hook</p></li>
+<li><p>Simplify <code class="docutils literal notranslate"><span class="pre">execute_with_confirmation()</span></code> usage</p></li>
+<li><p>Migrate tools one by one</p></li>
+<li><p>Add deprecation warnings for direct <code class="docutils literal notranslate"><span class="pre">ask_execute</span></code> usage</p></li>
+</ol>
+</section>
+<section id="phase-5-documentation-cleanup-1-2-days">
+<h3>Phase 5: Documentation &amp; Cleanup (1-2 days)<a class="headerlink" href="#phase-5-documentation-cleanup-1-2-days" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p>Document hook API</p></li>
+<li><p>Add examples for custom confirmation backends</p></li>
+<li><p>Remove deprecated code paths</p></li>
+<li><p>Update tests</p></li>
+</ol>
+</section>
+</section>
+<section id="risks-and-mitigations">
+<h2>Risks and Mitigations<a class="headerlink" href="#risks-and-mitigations" title="Link to this heading">#</a></h2>
+<section id="risk-1-async-sync-mismatch">
+<h3>Risk 1: Async/Sync Mismatch<a class="headerlink" href="#risk-1-async-sync-mismatch" title="Link to this heading">#</a></h3>
+<p><strong>Risk</strong>: Server needs async, CLI is sync
+<strong>Mitigation</strong>: Hook protocol uses generators which work for both; Server hook uses threading.Event for blocking</p>
+</section>
+<section id="risk-2-state-management">
+<h3>Risk 2: State Management<a class="headerlink" href="#risk-2-state-management" title="Link to this heading">#</a></h3>
+<p><strong>Risk</strong>: Auto-confirm count, editable state are currently global
+<strong>Mitigation</strong>: Move state into hook context or use ContextVars</p>
+</section>
+<section id="risk-3-migration-complexity">
+<h3>Risk 3: Migration Complexity<a class="headerlink" href="#risk-3-migration-complexity" title="Link to this heading">#</a></h3>
+<p><strong>Risk</strong>: Many tools use <code class="docutils literal notranslate"><span class="pre">execute_with_confirmation</span></code>
+<strong>Mitigation</strong>: Phased migration with backward compatibility layer</p>
+</section>
+</section>
+<section id="open-questions">
+<h2>Open Questions<a class="headerlink" href="#open-questions" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Priority System</strong>: Should multiple confirmation hooks be allowed? (e.g., logging + confirmation)</p></li>
+<li><p><strong>Timeout</strong>: Should there be a configurable timeout for confirmation?</p></li>
+<li><p><strong>Preview Protocol</strong>: Should preview generation be standardized across tools?</p></li>
+<li><p><strong>State Location</strong>: Where should auto-confirm count live in server mode?</p></li>
+</ol>
+</section>
+<section id="alternatives-considered">
+<h2>Alternatives Considered<a class="headerlink" href="#alternatives-considered" title="Link to this heading">#</a></h2>
+<section id="alternative-1-use-existing-tool-execute-pre">
+<h3>Alternative 1: Use Existing TOOL_EXECUTE_PRE<a class="headerlink" href="#alternative-1-use-existing-tool-execute-pre" title="Link to this heading">#</a></h3>
+<p><strong>Rejected</strong>: PRE hook doesn’t have a response mechanism; would need to modify hook system fundamentally.</p>
+</section>
+<section id="alternative-2-middleware-pattern">
+<h3>Alternative 2: Middleware Pattern<a class="headerlink" href="#alternative-2-middleware-pattern" title="Link to this heading">#</a></h3>
+<p><strong>Rejected</strong>: More complex than hooks; would require new abstraction layer.</p>
+</section>
+<section id="alternative-3-event-system">
+<h3>Alternative 3: Event System<a class="headerlink" href="#alternative-3-event-system" title="Link to this heading">#</a></h3>
+<p><strong>Rejected</strong>: Overkill for this use case; hooks are simpler and already exist.</p>
+</section>
+</section>
+<section id="conclusion">
+<h2>Conclusion<a class="headerlink" href="#conclusion" title="Link to this heading">#</a></h2>
+<p>The hook-based confirmation design provides a clean, extensible solution that:</p>
+<ul class="simple">
+<li><p>Harmonizes CLI and Server implementations</p></li>
+<li><p>Maintains backward compatibility</p></li>
+<li><p>Enables new confirmation backends</p></li>
+<li><p>Simplifies tool implementations</p></li>
+</ul>
+<p><strong>Recommendation</strong>: Proceed with implementation starting from Phase 1.</p>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../api.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">API Reference</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../alternatives.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Alternatives</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-status">Implementation Status</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#problem-statement">Problem Statement</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#goals">Goals</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-architecture">Current Architecture</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-flow">CLI Flow</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#server-v2-flow">Server V2 Flow</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#key-differences">Key Differences</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#proposed-design">Proposed Design</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#core-concept-tool-confirm-hook">Core Concept: <code class="docutils literal notranslate"><span class="pre">tool.confirm</span></code> Hook</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-protocol">Confirmation Protocol</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-protocol">Hook Protocol</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-architecture">Implementation Architecture</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-implementations">Hook Implementations</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-confirmation-hook">1. CLI Confirmation Hook</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#server-confirmation-hook">2. Server Confirmation Hook</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-confirm-hook-non-interactive-mode">3. Auto-Confirm Hook (Non-Interactive Mode)</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-points">Integration Points</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-execution-flow">Tool Execution Flow</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-registration">Hook Registration</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#evaluation-dimensions">Evaluation Dimensions</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-1-code-simplification">Dimension 1: Code Simplification</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-2-extensibility">Dimension 2: Extensibility</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-3-backward-compatibility">Dimension 3: Backward Compatibility</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-4-testability">Dimension 4: Testability</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-5-server-harmonization">Dimension 5: Server Harmonization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dimension-6-performance-impact">Dimension 6: Performance Impact</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overall-evaluation">Overall Evaluation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-plan">Implementation Plan</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-foundation-1-2-days">Phase 1: Foundation (1-2 days)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-cli-implementation-2-3-days">Phase 2: CLI Implementation (2-3 days)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-3-server-implementation-2-3-days">Phase 3: Server Implementation (2-3 days)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-4-tool-migration-3-5-days">Phase 4: Tool Migration (3-5 days)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-5-documentation-cleanup-1-2-days">Phase 5: Documentation &amp; Cleanup (1-2 days)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#risks-and-mitigations">Risks and Mitigations</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#risk-1-async-sync-mismatch">Risk 1: Async/Sync Mismatch</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#risk-2-state-management">Risk 2: State Management</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#risk-3-migration-complexity">Risk 3: Migration Complexity</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#open-questions">Open Questions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#alternatives-considered">Alternatives Considered</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#alternative-1-use-existing-tool-execute-pre">Alternative 1: Use Existing TOOL_EXECUTE_PRE</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#alternative-2-middleware-pattern">Alternative 2: Middleware Pattern</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#alternative-3-event-system">Alternative 3: Event System</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conclusion">Conclusion</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2026, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>
