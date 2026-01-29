@@ -1014,3 +1014,96 @@ def test_transform_msgs_extracts_reasoning_content():
     # Should remove <think> tags from content to prevent context duplication
     assert result[0]["content"] == "Let me check the files."
     assert "<think>" not in result[0]["content"]
+
+
+def test_transform_msgs_handles_list_content():
+    """Test that OpenRouter reasoning models correctly handle list content (multi-modal messages).
+
+    This fixes the error: "expected string or bytes-like object, got 'list'"
+    when content is a list of content parts instead of a string.
+    """
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    openrouter_reasoning_model = ModelMeta(
+        provider="openrouter",
+        model="moonshotai/kimi-k2.5",
+        context=262_144,
+        supports_reasoning=True,
+    )
+
+    # Message with list content (multi-modal format)
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "<think>Reasoning here</think>"},
+                {"type": "text", "text": "Actual response content"},
+            ],
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {
+                        "name": "shell",
+                        "arguments": '{"command": "ls"}',
+                    },
+                }
+            ],
+        },
+    ]
+
+    result = list(
+        _transform_msgs_for_special_provider(messages, openrouter_reasoning_model)
+    )
+
+    # Should extract reasoning from list content
+    assert "reasoning_content" in result[0]
+    assert result[0]["reasoning_content"] == "Reasoning here"
+
+    # Content should be cleaned (reasoning extracted)
+    assert "<think>" not in result[0]["content"]
+    assert "Actual response content" in result[0]["content"]
+
+
+def test_transform_msgs_handles_string_list_content():
+    """Test that list content with string items (not dicts) is handled correctly."""
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    openrouter_reasoning_model = ModelMeta(
+        provider="openrouter",
+        model="moonshotai/kimi-k2.5",
+        context=262_144,
+        supports_reasoning=True,
+    )
+
+    # Message with list of strings (edge case)
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "content": ["<think>Thinking</think>", "Response text"],
+            "tool_calls": [
+                {
+                    "id": "call_456",
+                    "type": "function",
+                    "function": {
+                        "name": "ipython",
+                        "arguments": '{"code": "1+1"}',
+                    },
+                }
+            ],
+        },
+    ]
+
+    result = list(
+        _transform_msgs_for_special_provider(messages, openrouter_reasoning_model)
+    )
+
+    # Should handle string list items
+    assert "reasoning_content" in result[0]
+    assert result[0]["reasoning_content"] == "Thinking"

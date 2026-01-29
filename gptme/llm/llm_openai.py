@@ -836,6 +836,18 @@ def _transform_msgs_for_special_provider(
             ):
                 # Extract reasoning and clean content to prevent context duplication
                 content = msg.get("content", "")
+
+                # Handle list content (multi-modal messages)
+                if isinstance(content, list):
+                    # Extract text from list items
+                    text_parts = []
+                    for item in content:
+                        if isinstance(item, str):
+                            text_parts.append(item)
+                        elif isinstance(item, dict) and item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                    content = "\n".join(text_parts)
+
                 reasoning, cleaned_content = _extract_and_strip_reasoning(content)
                 result.append(
                     {**msg, "reasoning_content": reasoning, "content": cleaned_content}
