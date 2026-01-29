@@ -153,9 +153,9 @@ class TestCLI:
         assert result.exit_code == 0
         assert "Show status of agent(s)" in result.output
 
-    def test_setup_help(self, runner):
-        """Test setup command help."""
-        result = runner.invoke(main, ["setup", "--help"])
+    def test_create_help(self, runner):
+        """Test create command help."""
+        result = runner.invoke(main, ["create", "--help"])
         assert result.exit_code == 0
         assert "Set up a new agent workspace" in result.output
 
@@ -171,14 +171,14 @@ class TestCLI:
         assert result.exit_code == 0
         assert "View agent logs" in result.output
 
-    def test_setup_creates_workspace(self, runner, tmp_path):
-        """Test setup command creates workspace structure (minimal mode)."""
+    def test_create_creates_workspace(self, runner, tmp_path):
+        """Test create command creates workspace structure (minimal mode)."""
         workspace = tmp_path / "test-agent"
 
-        # Use --no-template to test minimal setup without network dependency
-        result = runner.invoke(main, ["setup", "--no-template", str(workspace)])
-        assert result.exit_code == 0, f"Setup failed: {result.output}"
-        assert "Workspace setup complete" in result.output
+        # Use --no-template to test minimal create without network dependency
+        result = runner.invoke(main, ["create", "--no-template", str(workspace)])
+        assert result.exit_code == 0, f"Create failed: {result.output}"
+        assert "Workspace created" in result.output
 
         # Verify structure created
         assert workspace.exists()
