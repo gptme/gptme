@@ -54,7 +54,7 @@
 <p align="center">
 📜 Personal AI agent in your terminal, with tools so it can:<br/>
 Use the terminal, run code, edit files, browse the web, use vision, and much more;<br/>
-a great coding agent, but is general-purpose to assists in all kinds of knowledge-work.
+a great coding agent, but is general-purpose to assist in all kinds of knowledge-work.
 </p>
 
 <p align="center">
@@ -96,7 +96,7 @@ For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [
 ## 🎥 Demos
 
 > [!NOTE]
-> These demos are very out of date (2023) and do not reflect the latest capabilities.
+> These demos are from 2023. For up-to-date examples, see the [Documentation][docs-examples].
 
 <table>
   <tr>
@@ -424,7 +424,6 @@ Options:
 [docs-bot]: https://gptme.org/docs/bot.html
 [docs-server]: https://gptme.org/docs/server.html
 [docs-evals]: https://gptme.org/docs/evals.html
-[docs-server]: https://gptme.org/docs/server.html
 [docs-config]: https://gptme.org/docs/config.html
 [docs-arewetiny]: https://gptme.org/docs/arewetiny.html
 [docs-plugins]: https://gptme.org/docs/plugins.html
