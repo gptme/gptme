@@ -197,7 +197,7 @@ def create_cmd(
     workspace = Path(path).expanduser().resolve()
     agent_name = name or workspace.name
 
-    click.echo(f"🚀 Setting up agent workspace: {workspace}")
+    click.echo(f"🚀 Creating agent workspace: {workspace}")
     click.echo(f"   Agent name: {agent_name}")
     click.echo(f"   Mode: {'template-based' if template else 'minimal'}")
 
@@ -222,7 +222,7 @@ def create_cmd(
 
     try:
         if template:
-            # Template-based setup (recommended)
+            # Template-based (recommended)
             click.echo(f"📦 Cloning template from {template_repo}...")
             click.echo(f"   Branch: {template_branch}")
 
@@ -240,7 +240,7 @@ def create_cmd(
             )
             click.echo("✓ Template cloned and customized")
         else:
-            # Minimal setup (fallback)
+            # Minimal (fallback)
             click.echo("📁 Creating minimal workspace structure...")
             create_workspace_structure(workspace, agent_name)
             click.echo("✓ Created directory structure")
@@ -259,12 +259,12 @@ def create_cmd(
         click.echo(f"❌ Setup failed: {e}")
         sys.exit(1)
     except Exception as e:
-        logger.exception("Unexpected error during setup")
+        logger.exception("Unexpected error during workspace creation")
         click.echo(f"❌ Unexpected error: {e}")
         sys.exit(1)
 
     click.echo()
-    click.echo("✅ Workspace setup complete!")
+    click.echo("✅ Workspace created!")
     click.echo()
     click.echo("Next steps:")
     click.echo(f"  1. cd {workspace}")
