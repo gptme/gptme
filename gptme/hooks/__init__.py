@@ -110,23 +110,6 @@ class HookType(str, Enum):
     # Tool confirmation (different from other hooks - returns data, not yields Messages)
     TOOL_CONFIRM = "tool.confirm"  # Confirm tool execution before running
 
-    # === Backward compatibility aliases (DEPRECATED) ===
-    # These will be removed in a future version. Use the new names above.
-    MESSAGE_PRE_PROCESS = STEP_PRE  # Deprecated: use STEP_PRE
-    MESSAGE_POST_PROCESS = TURN_POST  # Deprecated: use TURN_POST
-    TOOL_PRE_EXECUTE = TOOL_EXECUTE_PRE  # Deprecated: use TOOL_EXECUTE_PRE
-    TOOL_POST_EXECUTE = TOOL_EXECUTE_POST  # Deprecated: use TOOL_EXECUTE_POST
-    TOOL_EXECUTE_BEFORE = TOOL_EXECUTE_PRE  # Deprecated: use TOOL_EXECUTE_PRE
-    TOOL_EXECUTE_AFTER = TOOL_EXECUTE_POST  # Deprecated: use TOOL_EXECUTE_POST
-    FILE_PRE_SAVE = FILE_SAVE_PRE  # Deprecated: use FILE_SAVE_PRE
-    FILE_POST_SAVE = FILE_SAVE_POST  # Deprecated: use FILE_SAVE_POST
-    FILE_PRE_PATCH = FILE_PATCH_PRE  # Deprecated: use FILE_PATCH_PRE
-    FILE_POST_PATCH = FILE_PATCH_POST  # Deprecated: use FILE_PATCH_POST
-    FILE_SAVE_BEFORE = FILE_SAVE_PRE  # Deprecated: use FILE_SAVE_PRE
-    FILE_SAVE_AFTER = FILE_SAVE_POST  # Deprecated: use FILE_SAVE_POST
-    FILE_PATCH_BEFORE = FILE_PATCH_PRE  # Deprecated: use FILE_PATCH_PRE
-    FILE_PATCH_AFTER = FILE_PATCH_POST  # Deprecated: use FILE_PATCH_POST
-
 
 # Protocol classes for different hook signatures
 class SessionStartHook(Protocol):

@@ -69,7 +69,6 @@ def execute_with_confirmation(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
-    _deprecated_confirm_fn=None,  # Deprecated - confirmation now via hooks
     *,
     # Required parameters
     execute_fn: Callable[[str, Path | None], Generator[Message, None, None]],

@@ -541,7 +541,7 @@ def start_tool_execution(
         try:
             logger.info(f"Executing tool: {tooluse.tool}")
             tool_outputs = list(
-                tooluse.execute(lambda _: True, manager.log, manager.workspace)
+                tooluse.execute(log=manager.log, workspace=manager.workspace)
             )
             logger.info(f"Tool execution complete, outputs: {len(tool_outputs)}")
 

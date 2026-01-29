@@ -85,7 +85,6 @@ def extract_json(content: str, match: re.Match) -> str | None:
     return content[json_start:json_end]
 
 
-# deprecated - confirmation now uses hook system via get_confirmation()
 ConfirmFunc = Callable[[str], bool]
 
 # Context var to track the current ToolUse being executed
@@ -375,16 +374,10 @@ class ToolUse:
 
     def execute(
         self,
-        confirm: ConfirmFunc | None = None,  # deprecated, kept for backward compat
         log: Log | None = None,
         workspace: Path | None = None,
     ) -> Generator[Message, None, None]:
-        """Executes a tool-use tag and returns the output.
-
-        Note: The `confirm` parameter is deprecated. Confirmation now uses the
-        hook system directly with the actual ToolUse object, eliminating the
-        need for the confirm_bridge module.
-        """
+        """Executes a tool-use tag and returns the output."""
         # noreorder
         from ..hooks import HookType, trigger_hook  # fmt: skip
         from ..telemetry import record_tool_call, trace_function  # fmt: skip
