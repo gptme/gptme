@@ -417,31 +417,39 @@ def detect_workspaces(
         if not base_path.exists():
             continue
 
-        # Check if base_path itself is a workspace
-        config = get_project_config(base_path, quiet=True)
-        if config and config.agent and config.agent.name:
-            name = config.agent.name
-            if name not in workspaces:
-                workspaces[name] = DetectedWorkspace(
-                    path=base_path.resolve(),
-                    name=name,
-                    installed=name in installed_set,
-                )
+        try:
+            # Check if base_path itself is a workspace
+            config = get_project_config(base_path, quiet=True)
+            if config and config.agent and config.agent.name:
+                name = config.agent.name
+                if name not in workspaces:
+                    workspaces[name] = DetectedWorkspace(
+                        path=base_path.resolve(),
+                        name=name,
+                        installed=name in installed_set,
+                    )
 
-        # Search subdirectories (depth 1)
-        if base_path.is_dir():
-            for subdir in base_path.iterdir():
-                if not subdir.is_dir():
-                    continue
-                config = get_project_config(subdir, quiet=True)
-                if config and config.agent and config.agent.name:
-                    name = config.agent.name
-                    if name not in workspaces:
-                        workspaces[name] = DetectedWorkspace(
-                            path=subdir.resolve(),
-                            name=name,
-                            installed=name in installed_set,
-                        )
+            # Search subdirectories (depth 1)
+            if base_path.is_dir():
+                for subdir in base_path.iterdir():
+                    if not subdir.is_dir():
+                        continue
+                    try:
+                        config = get_project_config(subdir, quiet=True)
+                        if config and config.agent and config.agent.name:
+                            name = config.agent.name
+                            if name not in workspaces:
+                                workspaces[name] = DetectedWorkspace(
+                                    path=subdir.resolve(),
+                                    name=name,
+                                    installed=name in installed_set,
+                                )
+                    except (PermissionError, OSError):
+                        # Skip directories we can't read
+                        continue
+        except (PermissionError, OSError):
+            # Skip paths we can't access
+            continue
 
     return list(workspaces.values())
 
