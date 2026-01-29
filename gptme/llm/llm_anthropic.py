@@ -154,6 +154,12 @@ def _record_usage(
 
 
 def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) -> bool:
+    """Determine if thinking mode should be enabled for the given model and tools.
+
+    Note: Thinking mode is now supported with tool use. When enabled, assistant
+    messages containing <think> tags will be converted to proper Anthropic
+    thinking blocks in the content array.
+    """
     # Support environment variable to override reasoning behavior
     env_reasoning = os.environ.get(ENV_REASONING)
     if env_reasoning and env_reasoning.lower() in ("1", "true", "yes"):
@@ -161,12 +167,8 @@ def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) ->
     elif env_reasoning and env_reasoning.lower() in ("0", "false", "no"):
         return False
 
-    # Only enable thinking for supported models and when not using `tool` format
+    # Enable thinking for supported models regardless of tool use
     if not model_meta.supports_reasoning:
-        return False
-    if tools:
-        # FIXME: support this by adhering to anthropic's signature restrictions
-        logger.warning("Tool format `tool` is not supported with reasoning yet.")
         return False
     return True
 
@@ -593,6 +595,52 @@ def stream(
     return captured_metadata
 
 
+def _extract_thinking_content(content: str | list) -> tuple[str, str]:
+    """Extract thinking content from <think>/<thinking> tags.
+
+    Handles both string content and list of content blocks.
+
+    Returns:
+        Tuple of (thinking_content, remaining_content_without_tags)
+    """
+    import re
+
+    # Handle list content (e.g., [{"type": "text", "text": "..."}])
+    text_content = ""
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text_parts.append(item.get("text", ""))
+        text_content = "\n".join(text_parts)
+    elif isinstance(content, str):
+        text_content = content
+
+    if not text_content:
+        return "", ""
+
+    # Extract content from <think>...</think> and <thinking>...</thinking> blocks
+    think_matches = re.findall(r"<think>(.*?)</think>", text_content, flags=re.DOTALL)
+    thinking_matches = re.findall(
+        r"<thinking>(.*?)</thinking>", text_content, flags=re.DOTALL
+    )
+    all_thinking = think_matches + thinking_matches
+    thinking_content = (
+        "\n".join(t.strip() for t in all_thinking if t.strip()) if all_thinking else ""
+    )
+
+    # Remove <think> and <thinking> tags from content
+    cleaned_content = re.sub(
+        r"<think>.*?</think>\s*", "", text_content, flags=re.DOTALL
+    )
+    cleaned_content = re.sub(
+        r"<thinking>.*?</thinking>\s*", "", cleaned_content, flags=re.DOTALL
+    )
+    cleaned_content = cleaned_content.strip()
+
+    return thinking_content, cleaned_content
+
+
 def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
     for message in message_dicts:
         # Format tool result as expected by the model
@@ -609,14 +657,35 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
         # Find tool_use occurrences and format them as expected
         elif message["role"] == "assistant":
             modified_message = dict(message)
+            original_content = message["content"]
 
-            content_parts, tool_uses = extract_tool_uses_from_assistant_message(
-                message["content"], tool_format_override="tool"
+            # Extract thinking content from <think> tags for proper Anthropic format
+            thinking_content, cleaned_content = _extract_thinking_content(
+                original_content
             )
+
+            # Parse tool uses from the cleaned content (without thinking tags)
+            content_parts, tool_uses = extract_tool_uses_from_assistant_message(
+                cleaned_content, tool_format_override="tool"
+            )
+
+            # Build content array in proper order: thinking first, then text, then tools
+            final_content: list[dict] = []
+
+            # Add thinking block if present (must come first in Anthropic format)
+            if thinking_content:
+                final_content.append({"type": "thinking", "thinking": thinking_content})
+
+            # Add text content parts
+            for part in content_parts:
+                if isinstance(part, str) and part.strip():
+                    final_content.append({"type": "text", "text": part})
+                elif isinstance(part, dict):
+                    final_content.append(part)
 
             # Add tool uses in Anthropic format
             for tooluse in tool_uses:
-                content_parts.append(
+                final_content.append(
                     {
                         "type": "tool_use",
                         "id": tooluse.call_id or "",
@@ -625,8 +694,8 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                     }
                 )
 
-            if content_parts:
-                modified_message["content"] = content_parts
+            if final_content:
+                modified_message["content"] = final_content
 
             yield modified_message
         else:
