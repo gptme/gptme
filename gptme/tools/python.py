@@ -16,9 +16,8 @@ from logging import getLogger
 from typing import TYPE_CHECKING, TypeVar
 
 from ..constants import DECLINED_CONTENT
-from ..hooks import confirm
+from ..hooks import ConfirmAction, get_confirmation
 from ..message import Message
-from ..util.ask_execute import print_preview
 from . import get_tools
 from .base import (
     Parameter,
@@ -113,8 +112,9 @@ def execute_python(
 
     assert code is not None
 
-    print_preview(code, "python")
-    if not confirm("Execute this code?"):
+    # Get confirmation via hook system (hook will display preview)
+    confirm_result = get_confirmation()
+    if confirm_result.action != ConfirmAction.CONFIRM:
         # early return - use DECLINED_CONTENT so chat loop detects declined execution
         yield Message("system", DECLINED_CONTENT)
         return

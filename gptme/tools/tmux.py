@@ -18,9 +18,8 @@ from pathlib import Path
 from time import sleep
 
 from ..constants import DECLINED_CONTENT
-from ..hooks import confirm
+from ..hooks import ConfirmAction, get_confirmation
 from ..message import Message
-from ..util.ask_execute import print_preview
 from ..util.output_storage import save_large_output
 from .base import (
     Parameter,
@@ -407,10 +406,9 @@ def execute_tmux(
     if current:
         commands.append("".join(current).strip())
 
-    # Preview all commands
-    preview = "\n".join(commands)
-    print_preview(preview, "bash", copy=True)
-    if not confirm("Execute commands?"):
+    # Get confirmation via hook system (hook will display preview)
+    confirm_result = get_confirmation()
+    if confirm_result.action != ConfirmAction.CONFIRM:
         # Use DECLINED_CONTENT so chat loop detects declined execution
         yield Message("system", DECLINED_CONTENT)
         return
