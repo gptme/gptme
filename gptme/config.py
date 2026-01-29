@@ -125,6 +125,7 @@ class UserConfig:
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
     providers: list[ProviderConfig] = field(default_factory=list)
+    lessons: "LessonsConfig | None" = None
 
 
 @dataclass
@@ -319,10 +320,16 @@ def load_user_config(path: str | None = None) -> UserConfig:
     providers_config = config.pop("providers", [])
     providers = [ProviderConfig(**provider) for provider in providers_config]
 
+    # Parse lessons config
+    lessons_data = config.pop("lessons", None)
+    lessons = LessonsConfig(dirs=lessons_data.get("dirs", [])) if lessons_data else None
+
     if config:
         logger.warning(f"Unknown keys in config: {config.keys()}")
 
-    return UserConfig(prompt=prompt, env=env, mcp=mcp, providers=providers)
+    return UserConfig(
+        prompt=prompt, env=env, mcp=mcp, providers=providers, lessons=lessons
+    )
 
 
 def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
