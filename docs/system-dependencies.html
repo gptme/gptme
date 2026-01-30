@@ -452,7 +452,9 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-dependencies">Optional Dependencies</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-extras">Python Extras</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installing-from-source">Installing from Source</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#system-packages">System Packages</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#details">Details</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#playwright">playwright</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lynx">lynx</a></li>
@@ -475,9 +477,84 @@
                   
   <section id="system-dependencies">
 <h1>System Dependencies<a class="headerlink" href="#system-dependencies" title="Link to this heading">#</a></h1>
-<p>Some gptme features require additional non-Python dependencies. These are optional and only needed for specific tools.</p>
-<section id="optional-dependencies">
-<h2>Optional Dependencies<a class="headerlink" href="#optional-dependencies" title="Link to this heading">#</a></h2>
+<p>Some gptme features require additional dependencies. These are optional and only needed for specific features.</p>
+<section id="python-extras">
+<h2>Python Extras<a class="headerlink" href="#python-extras" title="Link to this heading">#</a></h2>
+<p>gptme has optional Python dependencies that can be installed using extras:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install with specific extras</span>
+pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;gptme[server,browser]&quot;</span>
+
+<span class="c1"># Install with all optional dependencies</span>
+pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;gptme[all]&quot;</span>
+</pre></div>
+</div>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Extra</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">server</span></code></p></td>
+<td><p>Flask server for web UI and REST API</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">browser</span></code></p></td>
+<td><p>Playwright for web browsing and automation</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">datascience</span></code></p></td>
+<td><p>matplotlib, pandas, numpy for data analysis</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">youtube</span></code></p></td>
+<td><p>YouTube transcript extraction</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tts</span></code></p></td>
+<td><p>Text-to-speech support with Kokoro</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">telemetry</span></code></p></td>
+<td><p>OpenTelemetry instrumentation for observability</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">all</span></code></p></td>
+<td><p>All optional dependencies</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="installing-from-source">
+<h2>Installing from Source<a class="headerlink" href="#installing-from-source" title="Link to this heading">#</a></h2>
+<p>To install the latest development version from git:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Using pipx</span>
+pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/gptme/gptme.git&quot;</span>
+
+<span class="c1"># Using uv</span>
+uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/gptme/gptme.git&quot;</span>
+
+<span class="c1"># With extras</span>
+pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/gptme/gptme.git[server,browser]&quot;</span>
+</pre></div>
+</div>
+<p>If you have cloned the repository locally and want an editable install (changes to code take effect immediately):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone if you haven&#39;t already</span>
+git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme.git
+<span class="nb">cd</span><span class="w"> </span>gptme
+
+<span class="c1"># Using pipx (editable)</span>
+pipx<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
+
+<span class="c1"># Using uv (editable)</span>
+uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
+
+<span class="c1"># Editable with extras</span>
+pipx<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[server,browser]&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="system-packages">
+<h2>System Packages<a class="headerlink" href="#system-packages" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 20.0%" />
@@ -594,7 +671,9 @@
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-dependencies">Optional Dependencies</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-extras">Python Extras</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installing-from-source">Installing from Source</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#system-packages">System Packages</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#details">Details</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#playwright">playwright</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lynx">lynx</a></li>

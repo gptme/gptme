@@ -1,10 +1,77 @@
 System Dependencies
 ===================
 
-Some gptme features require additional non-Python dependencies. These are optional and only needed for specific tools.
+Some gptme features require additional dependencies. These are optional and only needed for specific features.
 
-Optional Dependencies
----------------------
+Python Extras
+-------------
+
+gptme has optional Python dependencies that can be installed using extras:
+
+.. code-block:: bash
+
+    # Install with specific extras
+    pipx install "gptme[server,browser]"
+
+    # Install with all optional dependencies
+    pipx install "gptme[all]"
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Extra
+     - Description
+   * - ``server``
+     - Flask server for web UI and REST API
+   * - ``browser``
+     - Playwright for web browsing and automation
+   * - ``datascience``
+     - matplotlib, pandas, numpy for data analysis
+   * - ``youtube``
+     - YouTube transcript extraction
+   * - ``tts``
+     - Text-to-speech support with Kokoro
+   * - ``telemetry``
+     - OpenTelemetry instrumentation for observability
+   * - ``all``
+     - All optional dependencies
+
+Installing from Source
+----------------------
+
+To install the latest development version from git:
+
+.. code-block:: bash
+
+    # Using pipx
+    pipx install "git+https://github.com/gptme/gptme.git"
+
+    # Using uv
+    uv tool install "git+https://github.com/gptme/gptme.git"
+
+    # With extras
+    pipx install "git+https://github.com/gptme/gptme.git[server,browser]"
+
+If you have cloned the repository locally and want an editable install (changes to code take effect immediately):
+
+.. code-block:: bash
+
+    # Clone if you haven't already
+    git clone https://github.com/gptme/gptme.git
+    cd gptme
+
+    # Using pipx (editable)
+    pipx install -e .
+
+    # Using uv (editable)
+    uv tool install -e .
+
+    # Editable with extras
+    pipx install -e ".[server,browser]"
+
+System Packages
+---------------
 
 .. list-table::
    :header-rows: 1

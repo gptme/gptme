@@ -28,8 +28,7 @@ If ``uv`` is not installed, you can install it using pip, pipx, or your system p
 
 .. tip::
 
-   Some gptme tools require additional system dependencies (playwright, tmux, gh, etc.).
-   See :doc:`system-dependencies` for details.
+   For installing from source, optional extras (server, browser, etc.), or system dependencies, see :doc:`system-dependencies`.
 
 Usage
 -----
