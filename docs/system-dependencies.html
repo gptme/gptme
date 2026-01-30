@@ -454,12 +454,11 @@
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-extras">Python Extras</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installing-from-source">Installing from Source</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#system-packages">System Packages</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended">Recommended</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-system-packages">Optional System Packages</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#details">Details</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#playwright">playwright</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lynx">lynx</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tmux">tmux</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gh-github-cli">gh (GitHub CLI)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#wl-clipboard">wl-clipboard</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pdftotext">pdftotext</a></li>
 </ul>
@@ -553,8 +552,40 @@ pipx<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </
 </pre></div>
 </div>
 </section>
-<section id="system-packages">
-<h2>System Packages<a class="headerlink" href="#system-packages" title="Link to this heading">#</a></h2>
+<section id="recommended">
+<h2>Recommended<a class="headerlink" href="#recommended" title="Link to this heading">#</a></h2>
+<p>These packages enhance gptme’s capabilities and are recommended for the best experience:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 40.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Dependency</p></th>
+<th class="head"><p>Purpose</p></th>
+<th class="head"><p>Installation</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shellcheck</span></code></p></td>
+<td><p>Shell script linting (used by pre-commit)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">apt</span> <span class="pre">install</span> <span class="pre">shellcheck</span></code> (Debian/Ubuntu) or <code class="docutils literal notranslate"><span class="pre">brew</span> <span class="pre">install</span> <span class="pre">shellcheck</span></code> (macOS)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tmux</span></code></p></td>
+<td><p>Terminal multiplexer for long-running commands</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">apt</span> <span class="pre">install</span> <span class="pre">tmux</span></code> (Debian/Ubuntu) or <code class="docutils literal notranslate"><span class="pre">brew</span> <span class="pre">install</span> <span class="pre">tmux</span></code> (macOS)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">gh</span></code></p></td>
+<td><p>GitHub CLI for the gh tool</p></td>
+<td><p>See <a class="reference external" href="https://cli.github.com/">GitHub CLI installation</a></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="optional-system-packages">
+<h2>Optional System Packages<a class="headerlink" href="#optional-system-packages" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 20.0%" />
@@ -575,14 +606,6 @@ pipx<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lynx</span></code></p></td>
 <td><p>Text-based web browser (alternative to playwright)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">apt</span> <span class="pre">install</span> <span class="pre">lynx</span></code> (Debian/Ubuntu) or <code class="docutils literal notranslate"><span class="pre">brew</span> <span class="pre">install</span> <span class="pre">lynx</span></code> (macOS)</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tmux</span></code></p></td>
-<td><p>Terminal multiplexer for long-running commands</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">apt</span> <span class="pre">install</span> <span class="pre">tmux</span></code> (Debian/Ubuntu) or <code class="docutils literal notranslate"><span class="pre">brew</span> <span class="pre">install</span> <span class="pre">tmux</span></code> (macOS)</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gh</span></code></p></td>
-<td><p>GitHub CLI for the gh tool</p></td>
-<td><p>See <a class="reference external" href="https://cli.github.com/">GitHub CLI installation</a></p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">wl-clipboard</span></code></p></td>
 <td><p>Wayland clipboard support</p></td>
@@ -605,14 +628,6 @@ pipx<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </
 <section id="lynx">
 <h3>lynx<a class="headerlink" href="#lynx" title="Link to this heading">#</a></h3>
 <p>An alternative to playwright for web browsing. Uses less resources and works in text mode, but has limited JavaScript support.</p>
-</section>
-<section id="tmux">
-<h3>tmux<a class="headerlink" href="#tmux" title="Link to this heading">#</a></h3>
-<p>Required for the tmux tool which enables running long-running or interactive commands in persistent terminal sessions.</p>
-</section>
-<section id="gh-github-cli">
-<h3>gh (GitHub CLI)<a class="headerlink" href="#gh-github-cli" title="Link to this heading">#</a></h3>
-<p>The GitHub CLI is needed for the gh tool to interact with GitHub repositories, issues, and pull requests. Installation instructions vary by platform - see the <a class="reference external" href="https://cli.github.com/">official documentation</a>.</p>
 </section>
 <section id="wl-clipboard">
 <h3>wl-clipboard<a class="headerlink" href="#wl-clipboard" title="Link to this heading">#</a></h3>
@@ -673,12 +688,11 @@ pipx<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-extras">Python Extras</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installing-from-source">Installing from Source</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#system-packages">System Packages</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended">Recommended</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-system-packages">Optional System Packages</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#details">Details</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#playwright">playwright</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lynx">lynx</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tmux">tmux</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gh-github-cli">gh (GitHub CLI)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#wl-clipboard">wl-clipboard</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pdftotext">pdftotext</a></li>
 </ul>
