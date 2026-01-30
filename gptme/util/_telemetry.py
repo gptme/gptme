@@ -371,6 +371,13 @@ def init_telemetry(
             if not interactive:
                 logger.debug("Running in autonomous mode")
 
+        # Add run type from environment (e.g., "autonomous", "monitoring", "manual")
+        # This allows distinguishing different types of non-interactive runs
+        run_type = os.getenv("GPTME_RUN_TYPE")
+        if run_type:
+            resource_attrs["agent.run_type"] = run_type
+            logger.debug(f"Adding agent.run_type to resource: {run_type}")
+
         resource = Resource.create(resource_attrs)
         trace.set_tracer_provider(TracerProvider(resource=resource))
         _tracer = trace.get_tracer(service_name)
