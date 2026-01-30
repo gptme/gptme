@@ -127,6 +127,8 @@ def test_message_conversion_with_tools():
         }
     ]
 
+    # NOTE: <thinking> tags are now converted to proper Anthropic thinking blocks
+    # This enables thinking mode to work with native tool calling
     assert list(messages_dicts) == [
         {
             "role": "user",
@@ -141,7 +143,7 @@ def test_message_conversion_with_tools():
         {
             "role": "assistant",
             "content": [
-                {"type": "text", "text": "<thinking>\nSomething\n</thinking>"},
+                {"type": "thinking", "thinking": "Something"},
                 {
                     "type": "tool_use",
                     "id": "tool_call_id",
