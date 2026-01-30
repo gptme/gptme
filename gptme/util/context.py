@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..config import get_config
+from ..constants import CONTENT_SIZE_INFO_THRESHOLD, CONTENT_SIZE_WARN_THRESHOLD
 from ..message import Message
 from ..tools import has_tool
 from ..tools.browser import read_url
@@ -26,6 +27,117 @@ from .gh import (
 from .uri import URI
 
 logger = logging.getLogger(__name__)
+
+
+def _is_interactive_mode() -> bool:
+    """Check if we're in interactive CLI mode.
+
+    Returns True if the cli_confirm hook is registered, indicating
+    interactive mode with confirmation enabled.
+    """
+    try:
+        from ..hooks import HookType, get_hooks
+
+        hooks = get_hooks(HookType.TOOL_CONFIRM)
+        return any(h.name == "cli_confirm" and h.enabled for h in hooks)
+    except Exception:
+        return False
+
+
+def _confirm_urls(urls: list[str]) -> list[str]:
+    """Prompt user to confirm which URLs to read.
+
+    Args:
+        urls: List of URLs found in the message
+
+    Returns:
+        List of URLs the user confirmed to read
+    """
+    from rich import print as rprint
+
+    if not urls:
+        return []
+
+    if len(urls) == 1:
+        rprint(f"[yellow]Found URL in message:[/yellow] {urls[0]}")
+    else:
+        rprint(f"[yellow]Found {len(urls)} URLs in message:[/yellow]")
+        for i, url in enumerate(urls, 1):
+            rprint(f"  {i}. {url}")
+
+    try:
+        response = input("Read URL(s)? [Y/n/select numbers] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return []
+
+    if response in ("n", "no"):
+        logger.info("User declined to read URLs")
+        return []
+
+    if response in ("", "y", "yes"):
+        return urls
+
+    # Parse number selection (e.g., "1,3" or "1 3" or "1-3")
+    selected: list[str] = []
+    for part in re.split(r"[,\s]+", response):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            try:
+                start, end = map(int, part.split("-", 1))
+                selected.extend(
+                    urls[i - 1] for i in range(start, end + 1) if 1 <= i <= len(urls)
+                )
+            except ValueError:
+                continue
+        else:
+            try:
+                idx = int(part)
+                if 1 <= idx <= len(urls):
+                    selected.append(urls[idx - 1])
+            except ValueError:
+                continue
+
+    if not selected:
+        # If parsing failed or no valid selection, treat empty as abort
+        logger.info("No valid URL selection, skipping all")
+        return []
+
+    return selected
+
+
+def _check_content_size(content: str, source: str) -> str:
+    """Check content size and log/truncate if necessary.
+
+    Args:
+        content: The content to check
+        source: Description of the source (URL or file path) for logging
+
+    Returns:
+        The content, potentially truncated
+    """
+    size = len(content)
+
+    if size > CONTENT_SIZE_WARN_THRESHOLD:
+        # Truncate with warning
+        logger.warning(
+            f"Content from {source} is very large ({size:,} chars), "
+            f"truncating to {CONTENT_SIZE_WARN_THRESHOLD:,} chars"
+        )
+        truncation_note = (
+            f"\n\n[Content truncated from {size:,} to "
+            f"{CONTENT_SIZE_WARN_THRESHOLD:,} characters]"
+        )
+        return (
+            content[: CONTENT_SIZE_WARN_THRESHOLD - len(truncation_note)]
+            + truncation_note
+        )
+    elif size > CONTENT_SIZE_INFO_THRESHOLD:
+        # Log info for large-ish content
+        logger.info(f"Content from {source} is large: {size:,} chars")
+
+    return content
 
 
 def use_fresh_context() -> bool:
@@ -327,6 +439,9 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
        - includes all files in msg.files
        - contents are applied right before sending to LLM (only paths stored in the log)
 
+    In interactive mode, asks for confirmation before reading URLs to prevent
+    accidental context bloat from pasted logs containing URLs.
+
     Args:
         msg: Message to process
         workspace: If provided, paths will be stored relative to this directory
@@ -345,17 +460,45 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
     if is_message_command(msg.content):
         return msg
 
+    # Collect all potential paths/URLs first
+    potential_paths = _find_potential_paths(msg.content)
+
+    # Separate URLs from file paths for confirmation
+    urls_found = []
+    file_paths = []
+    for word in potential_paths:
+        try:
+            p = urllib.parse.urlparse(word)
+            if p.scheme in ("http", "https") and p.netloc:
+                urls_found.append(word)
+            else:
+                file_paths.append(word)
+        except ValueError:
+            file_paths.append(word)
+
+    # In interactive mode, ask for confirmation before reading URLs
+    confirmed_urls: list[str] | None = None
+    if urls_found and _is_interactive_mode():
+        confirmed_urls = _confirm_urls(urls_found)
+        if not confirmed_urls:
+            logger.info(f"Skipping {len(urls_found)} URL(s) - not confirmed by user")
+    elif urls_found:
+        # Non-interactive mode: read all URLs
+        confirmed_urls = urls_found
+
     append_msg = ""
     files = []
 
-    # Find potential paths in message
-    for word in _find_potential_paths(msg.content):
-        logger.debug(f"potential path/url: {word=}")
+    # Process file paths
+    for word in file_paths:
+        logger.debug(f"potential path: {word=}")
         # If not using fresh context, include text file contents in the message
-        if not use_fresh_context() and (contents := _resource_to_codeblock(word)):
+        if not use_fresh_context() and (
+            contents := _resource_to_codeblock(word, confirmed_urls=None)
+        ):
             append_msg += "\n\n" + contents
         else:
-            # if we found an non-text file, include it in msg.files
+            # if we found a non-text file, include it in msg.files
             file = _parse_prompt_files(word)
             if file:
                 # Store path relative to workspace if provided
@@ -363,6 +506,17 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
                 if workspace and not file.is_absolute():
                     file = file.absolute().relative_to(workspace)
                 files.append(file)
+
+    # Process URLs (only confirmed ones in interactive mode)
+    for url in urls_found:
+        if confirmed_urls is not None and url not in confirmed_urls:
+            logger.debug(f"Skipping unconfirmed URL: {url}")
+            continue
+        logger.debug(f"potential url: {url=}")
+        if not use_fresh_context() and (
+            contents := _resource_to_codeblock(url, confirmed_urls=confirmed_urls)
+        ):
+            append_msg += "\n\n" + contents
 
     if files:
         msg = msg.replace(files=msg.files + files)
@@ -437,17 +591,26 @@ def _find_potential_paths(content: str) -> list[str]:
     return paths
 
 
-def _resource_to_codeblock(prompt: str) -> str | None:
+def _resource_to_codeblock(
+    prompt: str, confirmed_urls: list[str] | None = None
+) -> str | None:
     """
     Takes a string that might be a path or URL,
     and if so, returns the contents of that file wrapped in a codeblock.
+
+    Args:
+        prompt: A string that might be a file path or URL
+        confirmed_urls: If provided, only these URLs will be read (skip others).
+                       If None, all URLs are read (for backward compatibility).
     """
 
     try:
         # check if prompt is a path, if so, replace it with the contents of that file
         f = Path(prompt).expanduser()
         if f.exists() and f.is_file():
-            return md_codeblock(prompt, f.read_text())
+            file_content = f.read_text()
+            file_content = _check_content_size(file_content, str(f))
+            return md_codeblock(prompt, file_content)
     except OSError as oserr:
         # some prompts are too long to be a path, so we can't read them
         if oserr.errno == errno.ENAMETOOLONG:
@@ -487,7 +650,12 @@ def _resource_to_codeblock(prompt: str) -> str | None:
         result += _resource_to_codeblock(path) or ""
 
     for url in urls:
-        content = None
+        # Skip URLs that weren't confirmed (if confirmation list is provided)
+        if confirmed_urls is not None and url not in confirmed_urls:
+            logger.debug(f"Skipping unconfirmed URL: {url}")
+            continue
+
+        content: str | None = None
 
         # First try to handle GitHub issues/PRs with specialized tools
         github_info = parse_github_url(url)
@@ -513,6 +681,8 @@ def _resource_to_codeblock(prompt: str) -> str | None:
             logger.warning("Browser tool not available, skipping URL read")
 
         if content:
+            # Check content size and potentially truncate
+            content = _check_content_size(content, url)
             result += md_codeblock(url, content)
 
     return result

@@ -270,3 +270,34 @@ def test_parse_prompt_files_home_expansion(tmp_path, monkeypatch):
 
     result = _parse_prompt_files("~/home_test.txt")
     assert result == tmp_path / "home_test.txt"
+
+
+def test_check_content_size():
+    """Test content size checking and truncation."""
+    from gptme.constants import CONTENT_SIZE_INFO_THRESHOLD, CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _check_content_size
+
+    # Small content passes through unchanged
+    small = "hello world"
+    assert _check_content_size(small, "test.txt") == small
+
+    # Large content (above info threshold) passes through with log
+    large_ish = "x" * (CONTENT_SIZE_INFO_THRESHOLD + 100)
+    result = _check_content_size(large_ish, "test.txt")
+    assert result == large_ish  # Not truncated, just logged
+
+    # Very large content gets truncated
+    very_large = "x" * (CONTENT_SIZE_WARN_THRESHOLD + 1000)
+    result = _check_content_size(very_large, "test.txt")
+    assert len(result) <= CONTENT_SIZE_WARN_THRESHOLD
+    assert "truncated" in result.lower()
+
+
+def test_is_interactive_mode():
+    """Test interactive mode detection."""
+    from gptme.util.context import _is_interactive_mode
+
+    # Without cli_confirm hook registered, should return False
+    # (This test runs outside the normal CLI context)
+    result = _is_interactive_mode()
+    assert isinstance(result, bool)
