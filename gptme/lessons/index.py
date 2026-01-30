@@ -254,11 +254,21 @@ class LessonIndex:
         # Find both .md and .mdc files
         lesson_files = list(directory.rglob("*.md")) + list(directory.rglob("*.mdc"))
 
+        # Exclusion patterns for directories that shouldn't be indexed
+        # Worktrees often contain symlinked/copied lesson directories
+        excluded_patterns = ["worktree/", "/.git/"]
+
         for lesson_file in lesson_files:
             # Skip special files
             if lesson_file.name.lower() in ("readme.md", "todo.md"):
                 continue
             if "template" in lesson_file.name.lower():
+                continue
+
+            # Skip files in excluded directories (worktrees, .git, etc.)
+            lesson_path_str = str(lesson_file)
+            if any(pattern in lesson_path_str for pattern in excluded_patterns):
+                logger.debug(f"Skipping lesson in excluded directory: {lesson_file}")
                 continue
 
             # Deduplication: Skip if lesson with same resolved path already indexed

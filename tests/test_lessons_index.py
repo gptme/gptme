@@ -393,3 +393,59 @@ class TestLessonSearch:
         results = index.search("test lesson")
 
         assert len(results) == 1
+
+
+class TestWorktreeExclusion:
+    """Test that lessons in worktree directories are excluded."""
+
+    def test_worktree_lessons_excluded(self, tmp_path):
+        """Lessons in worktree/ subdirectories should be excluded."""
+        from gptme.lessons.index import LessonIndex
+
+        # Create a normal lesson
+        normal_lesson = tmp_path / "normal.md"
+        normal_lesson.write_text(
+            "---\nmatch:\n  keywords: [normal]\n---\n# Normal Lesson\n\nContent."
+        )
+
+        # Create a worktree subdirectory with a lesson
+        worktree_dir = tmp_path / "worktree" / "some-branch" / "lessons"
+        worktree_dir.mkdir(parents=True)
+        worktree_lesson = worktree_dir / "worktree-lesson.md"
+        worktree_lesson.write_text(
+            "---\nmatch:\n  keywords: [worktree]\n---\n# Worktree Lesson\n\nContent."
+        )
+
+        # Index should only include the normal lesson, not the worktree one
+        index = LessonIndex(lesson_dirs=[tmp_path])
+
+        lesson_names = [lesson.title for lesson in index.lessons]
+        assert "Normal Lesson" in lesson_names
+        assert "Worktree Lesson" not in lesson_names
+        assert len(index.lessons) == 1
+
+    def test_git_directory_excluded(self, tmp_path):
+        """Lessons in .git directories should be excluded."""
+        from gptme.lessons.index import LessonIndex
+
+        # Create a normal lesson
+        normal_lesson = tmp_path / "normal.md"
+        normal_lesson.write_text(
+            "---\nmatch:\n  keywords: [normal]\n---\n# Normal Lesson\n\nContent."
+        )
+
+        # Create a .git subdirectory with a lesson (shouldn't happen but test it)
+        git_dir = tmp_path / ".git" / "hooks"
+        git_dir.mkdir(parents=True)
+        git_lesson = git_dir / "some-file.md"
+        git_lesson.write_text(
+            "---\nmatch:\n  keywords: [git]\n---\n# Git Lesson\n\nContent."
+        )
+
+        # Index should only include the normal lesson
+        index = LessonIndex(lesson_dirs=[tmp_path])
+
+        lesson_names = [lesson.title for lesson in index.lessons]
+        assert "Normal Lesson" in lesson_names
+        assert "Git Lesson" not in lesson_names
+        assert len(index.lessons) == 1
