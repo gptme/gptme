@@ -124,6 +124,7 @@ def server_confirm_hook(
     tool_use: "ToolUse",
     preview: str | None = None,
     workspace: Path | None = None,
+    confirm_msg: str | None = None,
 ) -> ConfirmationResult:
     """Server-based confirmation hook using SSE events.
 

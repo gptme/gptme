@@ -129,6 +129,8 @@ class ToolConfirmHook(Protocol):
         tool_use: The tool execution to confirm
         preview: Optional preview of what will be executed
         workspace: Workspace directory (optional)
+        confirm_msg: Optional additional context for the confirmation prompt
+            (e.g., "(file exists, overwrite)")
 
     Returns:
         ConfirmationResult to handle the confirmation, or None to fall through
@@ -140,6 +142,7 @@ class ToolConfirmHook(Protocol):
         tool_use: "ToolUse",
         preview: str | None = None,
         workspace: Path | None = None,
+        confirm_msg: str | None = None,
     ) -> ConfirmationResult | None: ...
 
 
@@ -157,7 +160,7 @@ def confirm(msg: str, default: bool = True) -> bool:
     Returns:
         True if confirmed, False otherwise
     """
-    result = get_confirmation(preview=msg, default_confirm=default)
+    result = get_confirmation(confirm_msg=msg, default_confirm=default)
     return result.action == ConfirmAction.CONFIRM
 
 
@@ -166,6 +169,7 @@ def get_confirmation(
     preview: str | None = None,
     workspace: Path | None = None,
     default_confirm: bool = True,
+    confirm_msg: str | None = None,
 ) -> ConfirmationResult:
     """Get confirmation for a tool execution via hooks.
 
@@ -177,6 +181,8 @@ def get_confirmation(
         preview: Optional preview content
         workspace: Workspace directory
         default_confirm: Whether to auto-confirm if no hook is registered
+        confirm_msg: Optional additional context for confirmation prompt
+            (e.g., "(file exists, overwrite)")
 
     Returns:
         ConfirmationResult indicating the action to take
@@ -219,7 +225,7 @@ def get_confirmation(
             # Cast to ToolConfirmHook - we know it's this type because we only
             # get hooks registered for TOOL_CONFIRM
             confirm_func = cast(ToolConfirmHook, hook.func)
-            result = confirm_func(tool_use, preview, workspace)
+            result = confirm_func(tool_use, preview, workspace, confirm_msg)
 
             if result is None:
                 # Hook declined to handle this confirmation, try next hook

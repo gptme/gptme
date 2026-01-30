@@ -846,6 +846,7 @@ def shell_allowlist_hook(
     tool_use: "ToolUse",
     preview: str | None = None,
     workspace: "Path | None" = None,
+    confirm_msg: str | None = None,
 ):
     """Auto-approve hook for allowlisted shell commands.
 

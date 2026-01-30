@@ -117,6 +117,7 @@ def execute_with_confirmation(
         result = get_confirmation(
             preview=preview_content or content,
             default_confirm=True,
+            confirm_msg=confirm_msg,
         )
 
         if result.action == ConfirmAction.SKIP:

@@ -56,6 +56,7 @@ def cli_confirm_hook(
     tool_use: "ToolUse",
     preview: str | None = None,
     workspace: Path | None = None,
+    confirm_msg: str | None = None,
 ) -> ConfirmationResult:
     """CLI confirmation hook for terminal-based confirmation.
 
@@ -65,6 +66,13 @@ def cli_confirm_hook(
     - Supports auto-confirm mode
     - Supports editing content before execution
     - Supports copying content to clipboard
+
+    Args:
+        tool_use: The tool execution to confirm
+        preview: Optional preview content (e.g., diff for save)
+        workspace: Workspace directory (optional)
+        confirm_msg: Optional additional context for the confirmation prompt
+            (e.g., "(file exists, overwrite)")
     """
     # Get preview content - use provided preview or generate from tool_use
     content = preview or tool_use.content
@@ -98,7 +106,11 @@ def cli_confirm_hook(
         choicestr += "/e"
     choicestr += "/a/?]"
 
-    question = f"Execute {tool_use.tool}?"
+    # Build confirmation question
+    if confirm_msg:
+        question = confirm_msg.rstrip()
+    else:
+        question = f"Execute {tool_use.tool}?"
 
     with terminal_state_title("❓ waiting for confirmation"):
         session = get_prompt_session()
