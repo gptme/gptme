@@ -125,7 +125,6 @@ def server_confirm_hook(
     preview: str | None = None,
     workspace: Path | None = None,
     confirm_msg: str | None = None,
-    custom_question: str | None = None,
 ) -> ConfirmationResult:
     """Server-based confirmation hook using SSE events.
 
@@ -138,14 +137,6 @@ def server_confirm_hook(
     Auto-confirm triggers in these cases (unified with CLI):
     1. Centralized auto-confirm is active (user requested via CLI or API)
     2. No server session context is set (not in a server request)
-
-    Args:
-        tool_use: The tool execution to confirm
-        preview: Optional preview content
-        workspace: Workspace directory (optional)
-        confirm_msg: Optional additional context for confirmation
-        custom_question: If provided, replaces the entire confirmation question
-            (used by confirm() helper for simple yes/no prompts)
     """
     # Check centralized auto-confirm first (unified with CLI)
     should_auto, message = check_auto_confirm()

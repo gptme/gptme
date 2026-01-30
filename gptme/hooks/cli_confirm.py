@@ -57,7 +57,6 @@ def cli_confirm_hook(
     preview: str | None = None,
     workspace: Path | None = None,
     confirm_msg: str | None = None,
-    custom_question: str | None = None,
 ) -> ConfirmationResult:
     """CLI confirmation hook for terminal-based confirmation.
 
@@ -74,22 +73,14 @@ def cli_confirm_hook(
         workspace: Workspace directory (optional)
         confirm_msg: Optional additional context for the confirmation prompt
             (e.g., "(file exists, overwrite)")
-        custom_question: If provided, replaces the entire confirmation question
-            (used by confirm() helper for simple yes/no prompts)
     """
-    # For custom questions (from confirm() helper), show simple yes/no prompt
-    # without preview content
-    if custom_question:
-        content = None
-        editable = False
-        copiable = False
-    else:
-        # Get preview content - use provided preview or generate from tool_use
-        content = preview or tool_use.content
-        editable = bool(content)
-        copiable = bool(content)
-
+    # Get preview content - use provided preview or generate from tool_use
+    content = preview or tool_use.content
     lang = _get_lang_for_tool(tool_use.tool)
+
+    # Determine if content is editable/copiable
+    editable = bool(content)
+    copiable = bool(content)
 
     # Show preview if we have content (always, even in auto-confirm mode)
     # This ensures rich diffs are visible for monitoring what's being executed
@@ -115,11 +106,8 @@ def cli_confirm_hook(
         choicestr += "/e"
     choicestr += "/a/?]"
 
-    # Build confirmation question
-    if custom_question:
-        # Simple yes/no prompt (from confirm() helper)
-        question = custom_question
-    elif confirm_msg:
+    # Build confirmation question with optional context message
+    if confirm_msg:
         question = f"Execute {tool_use.tool}? {confirm_msg}"
     else:
         question = f"Execute {tool_use.tool}?"
