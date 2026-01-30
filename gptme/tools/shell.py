@@ -847,11 +847,19 @@ def shell_allowlist_hook(
     preview: str | None = None,
     workspace: "Path | None" = None,
     confirm_msg: str | None = None,
+    custom_question: str | None = None,
 ):
     """Auto-approve hook for allowlisted shell commands.
 
     This hook is registered with high priority (10) to check allowlisted
     commands before falling through to CLI/server confirmation hooks.
+
+    Args:
+        tool_use: The tool execution to confirm
+        preview: Optional preview content (unused)
+        workspace: Workspace directory (unused)
+        confirm_msg: Optional confirmation message (unused)
+        custom_question: Optional custom question (unused)
 
     Returns:
         ConfirmationResult.confirm() for allowlisted commands,

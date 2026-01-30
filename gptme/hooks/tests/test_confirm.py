@@ -83,7 +83,9 @@ class TestGetConfirmation:
             content="test content",
         )
 
-        def test_hook(tool_use, preview, workspace, confirm_msg=None):
+        def test_hook(
+            tool_use, preview, workspace, confirm_msg=None, custom_question=None
+        ):
             return ConfirmationResult.confirm()
 
         register_hook(
@@ -104,7 +106,9 @@ class TestGetConfirmation:
             content="test content",
         )
 
-        def test_hook(tool_use, preview, workspace, confirm_msg=None):
+        def test_hook(
+            tool_use, preview, workspace, confirm_msg=None, custom_question=None
+        ):
             return ConfirmationResult.skip("Test skip")
 
         register_hook(
@@ -126,7 +130,9 @@ class TestGetConfirmation:
             content="original content",
         )
 
-        def test_hook(tool_use, preview, workspace, confirm_msg=None):
+        def test_hook(
+            tool_use, preview, workspace, confirm_msg=None, custom_question=None
+        ):
             return ConfirmationResult.edit("modified content")
 
         register_hook(
@@ -148,7 +154,9 @@ class TestGetConfirmation:
             content="test content",
         )
 
-        def bool_hook(tool_use, preview, workspace, confirm_msg=None):
+        def bool_hook(
+            tool_use, preview, workspace, confirm_msg=None, custom_question=None
+        ):
             return True
 
         register_hook(
@@ -169,7 +177,9 @@ class TestGetConfirmation:
             content="test content",
         )
 
-        def bool_hook(tool_use, preview, workspace, confirm_msg=None):
+        def bool_hook(
+            tool_use, preview, workspace, confirm_msg=None, custom_question=None
+        ):
             return False
 
         register_hook(
@@ -338,12 +348,22 @@ class TestHookFallthrough:
 
         # First hook (high priority) returns None
         def high_priority_hook(
-            tool_use, preview=None, workspace=None, confirm_msg=None
+            tool_use,
+            preview=None,
+            workspace=None,
+            confirm_msg=None,
+            custom_question=None,
         ):
             return None  # Fall through
 
         # Second hook (low priority) confirms
-        def low_priority_hook(tool_use, preview=None, workspace=None, confirm_msg=None):
+        def low_priority_hook(
+            tool_use,
+            preview=None,
+            workspace=None,
+            confirm_msg=None,
+            custom_question=None,
+        ):
             return ConfirmationResult.confirm()
 
         registry.register(
@@ -369,11 +389,23 @@ class TestHookFallthrough:
         registry.hooks.clear()
 
         # First hook skips
-        def first_hook(tool_use, preview=None, workspace=None, confirm_msg=None):
+        def first_hook(
+            tool_use,
+            preview=None,
+            workspace=None,
+            confirm_msg=None,
+            custom_question=None,
+        ):
             return ConfirmationResult.skip("First hook skipped")
 
         # Second hook would confirm but should never be called
-        def second_hook(tool_use, preview=None, workspace=None, confirm_msg=None):
+        def second_hook(
+            tool_use,
+            preview=None,
+            workspace=None,
+            confirm_msg=None,
+            custom_question=None,
+        ):
             return ConfirmationResult.confirm()
 
         registry.register("first", HookType.TOOL_CONFIRM, first_hook, priority=10)
@@ -397,7 +429,13 @@ class TestHookFallthrough:
         original_hooks = registry.hooks.copy()
         registry.hooks.clear()
 
-        def null_hook(tool_use, preview=None, workspace=None, confirm_msg=None):
+        def null_hook(
+            tool_use,
+            preview=None,
+            workspace=None,
+            confirm_msg=None,
+            custom_question=None,
+        ):
             return None
 
         registry.register("null", HookType.TOOL_CONFIRM, null_hook, priority=0)

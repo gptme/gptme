@@ -21,6 +21,7 @@ def auto_confirm_hook(
     preview: str | None = None,
     workspace: Path | None = None,
     confirm_msg: str | None = None,
+    custom_question: str | None = None,
 ) -> ConfirmationResult:
     """Auto-confirm hook that always confirms execution.
 
@@ -32,6 +33,7 @@ def auto_confirm_hook(
         preview: Optional preview content (unused in auto-confirm)
         workspace: Workspace directory (unused in auto-confirm)
         confirm_msg: Optional confirmation message (unused in auto-confirm)
+        custom_question: Optional custom question (unused in auto-confirm)
     """
     logger.debug(f"Auto-confirming tool execution: {tool_use.tool}")
     return ConfirmationResult.confirm()
