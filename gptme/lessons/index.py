@@ -266,7 +266,7 @@ class LessonIndex:
                 continue
 
             # Skip files in excluded directories (worktrees, .git, etc.)
-            lesson_path_str = str(lesson_file)
+            lesson_path_str = lesson_file.as_posix()
             if any(pattern in lesson_path_str for pattern in excluded_patterns):
                 logger.debug(f"Skipping lesson in excluded directory: {lesson_file}")
                 continue

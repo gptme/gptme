@@ -400,6 +400,7 @@ class TestWorktreeExclusion:
 
     def test_worktree_lessons_excluded(self, tmp_path):
         """Lessons in worktree/ subdirectories should be excluded."""
+        clear_cache()
         from gptme.lessons.index import LessonIndex
 
         # Create a normal lesson
@@ -426,6 +427,7 @@ class TestWorktreeExclusion:
 
     def test_git_directory_excluded(self, tmp_path):
         """Lessons in .git directories should be excluded."""
+        clear_cache()
         from gptme.lessons.index import LessonIndex
 
         # Create a normal lesson
