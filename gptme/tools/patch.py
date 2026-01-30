@@ -224,7 +224,10 @@ class Patch:
                 modified, _ = re.split(re.escape(UPDATED), after_divider, maxsplit=1)
 
                 # Check for extra ======= markers in the updated content
-                if "\n=======" in modified:
+                # Use regex with negative lookahead to match exactly 7 equals signs
+                # This avoids matching longer sequences like RST heading underlines
+                # (e.g., ===================) while still catching actual extra dividers
+                if re.search(r"\n=======(?!=)", modified):
                     raise ValueError(
                         "invalid patch format: extra ======= marker found in updated content. "
                         "Use only one ======= between original and updated content."

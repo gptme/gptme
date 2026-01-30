@@ -357,3 +357,50 @@ modified lines
         assert "Path traversal detected" in messages[0].content
     finally:
         os.chdir(original_cwd)
+
+
+def test_apply_rst_heading_underlines():
+    """Test that RST heading underlines (===================) don't trigger separator detection.
+
+    Regression test for https://github.com/gptme/gptme/issues/1201
+    """
+    content = """System Dependencies
+===================
+
+Some gptme features require additional dependencies.
+"""
+
+    codeblock = """
+<<<<<<< ORIGINAL
+Some gptme features require additional dependencies.
+=======
+Some gptme features require system packages.
+>>>>>>> UPDATED
+"""
+    result = apply(codeblock, content)
+    assert "system packages" in result
+    assert "===================" in result  # RST underline preserved
+
+
+def test_apply_rst_heading_in_updated_content():
+    """Test that adding RST headings in updated content works.
+
+    Regression test for https://github.com/gptme/gptme/issues/1201
+    """
+    content = """Some text here.
+"""
+
+    # Patch that adds an RST heading
+    codeblock = """
+<<<<<<< ORIGINAL
+Some text here.
+=======
+System Dependencies
+===================
+
+Some text here.
+>>>>>>> UPDATED
+"""
+    result = apply(codeblock, content)
+    assert "System Dependencies" in result
+    assert "===================" in result
