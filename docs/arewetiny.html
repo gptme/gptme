@@ -500,20 +500,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     215355 |       mcp.types
-     217394 |     gptme.tools.mcp_adapter
-     242734 |             openai.types
-     299090 |           openai
-     348319 |   gptme.cli.main
-     364737 |         gptme.llm.llm_openai
-     604262 |       gptme.llm
-     606128 |     gptme.commands
-     701384 |   gptme.chat
-    1099138 | gptme
+     241328 |       mcp.types
+     243503 |     gptme.tools.mcp_adapter
+     315662 |             openai.types
+     382060 |           openai
+     391081 |   gptme.cli.main
+     450961 |         gptme.llm.llm_openai
+     716363 |       gptme.llm
+     718298 |     gptme.commands
+     821083 |   gptme.chat
+    1265710 | gptme
 
-real	0m1.808s
-user	0m1.652s
-sys	0m0.164s
+real	0m2.162s
+user	0m1.749s
+sys	0m0.267s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -522,8 +522,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      1.849 s ±  0.028 s    [User: 1.707 s, System: 0.129 s]
-  Range (min … max):    1.823 s …  1.894 s    5 runs
+  Time (mean ± σ):      2.027 s ±  0.033 s    [User: 1.804 s, System: 0.221 s]
+  Range (min … max):    2.004 s …  2.085 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -548,7 +548,7 @@ gptme/logmanager.py                                    132            158       
 gptme/tools/base.py                                    131            141            510
 gptme/prompts.py                                       144            174            508
 gptme/chat.py                                           69             94            374
-gptme/util/_telemetry.py                               105            121            356
+gptme/util/_telemetry.py                               106            123            360
 gptme/telemetry.py                                      85             54            342
 gptme/util/prompt.py                                    83            114            337
 gptme/util/context.py                                   85            131            328
@@ -605,7 +605,7 @@ gptme/constants.py                                      12             16       
 gptme/__init__.py                                        1              1              9
 gptme/__main__.py                                        1              0              3
 ----------------------------------------------------------------------------------------
-SUM:                                                  3343           3907          12099
+SUM:                                                  3344           3909          12103
 ----------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -926,7 +926,7 @@ tests/context/test_task_analyzer.py                                 119         
 tests/test_util_cli_mcp.py                                           89             45            380
 gptme/chat.py                                                        69             94            374
 gptme/cli/doctor.py                                                  70             55            373
-gptme/util/_telemetry.py                                            105            121            356
+gptme/util/_telemetry.py                                            106            123            360
 gptme/eval/dspy/cli.py                                               73             57            355
 gptme/eval/dspy/experiments.py                                       94             60            352
 gptme/eval/execenv.py                                                54             96            351
@@ -1199,7 +1199,7 @@ gptme/server/__main__.py                                              1         
 gptme/server/exceptions.py                                            5              8              2
 gptme/server/constants.py                                             1              3              1
 -----------------------------------------------------------------------------------------------------
-SUM:                                                              16662          17527          54014
+SUM:                                                              16663          17529          54018
 -----------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1215,7 +1215,7 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Project Overview:
   Files: 314
   Total blocks: 3411
-  Average complexity: 4.336265024919379
+  Average complexity: 4.336558194077983
 
 Most Complex Functions (D+):
   gptme/eval/main.py
@@ -1341,9 +1341,9 @@ Largest Files (&gt;300 SLOC):
    373 gptme/cli/doctor.py
    367 gptme/agent/service.py
    363 gptme/eval/execenv.py
+   360 gptme/util/_telemetry.py
    357 gptme/util/prompt.py
    357 gptme/eval/dspy/experiments.py
-   356 gptme/util/_telemetry.py
    355 gptme/eval/dspy/cli.py
    349 gptme/eval/dspy/metrics.py
    348 tests/test_llm_anthropic.py
@@ -1365,7 +1365,7 @@ Largest Files (&gt;300 SLOC):
 
 make[3]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Most Duplicated Files:
-npm warn exec The following package was not found and will be installed: jscpd@4.0.7
+npm warn exec The following package was not found and will be installed: jscpd@4.0.8
 Clone found (python):
  - gptme/util/_sound_sounddevice.py [95:5 - 106:67] (11 lines, 101 tokens)
    gptme/util/_sound_sounddevice.py [55:5 - 66:27]
@@ -1473,7 +1473,7 @@ Clone found (python):
 ┌────────────┬────────────────┬─────────────┬──────────────┬──────────────┬──────────────────┬───────────────────┐
 │ Format     │ Files analyzed │ Total lines │ Total tokens │ Clones found │ Duplicated lines │ Duplicated tokens │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 200            │ 53082       │ 335255       │ 26           │ 386 (0.73%)      │ 3090 (0.92%)      │
+│ python     │ 200            │ 53089       │ 335299       │ 26           │ 386 (0.73%)      │ 3090 (0.92%)      │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ css        │ 1              │ 173         │ 1045         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -1487,10 +1487,10 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ url        │ 1              │ 2           │ 16           │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 221            │ 55482       │ 352176       │ 26           │ 386 (0.7%)       │ 3090 (0.88%)      │
+│ Total:     │ 221            │ 55489       │ 352220       │ 26           │ 386 (0.7%)       │ 3090 (0.88%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 26 clones.
-Detection time:: 3.823s
+Detection time:: 3.706s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
