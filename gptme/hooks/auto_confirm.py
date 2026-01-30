@@ -20,11 +20,18 @@ def auto_confirm_hook(
     tool_use: "ToolUse",
     preview: str | None = None,
     workspace: Path | None = None,
+    confirm_msg: str | None = None,
 ) -> ConfirmationResult:
     """Auto-confirm hook that always confirms execution.
 
     This hook is for autonomous/non-interactive mode where all tool
     executions should proceed without confirmation.
+
+    Args:
+        tool_use: The tool execution to confirm
+        preview: Optional preview content (unused in auto-confirm)
+        workspace: Workspace directory (unused in auto-confirm)
+        confirm_msg: Optional confirmation message (unused in auto-confirm)
     """
     logger.debug(f"Auto-confirming tool execution: {tool_use.tool}")
     return ConfirmationResult.confirm()

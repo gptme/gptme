@@ -278,7 +278,13 @@ def _validate_and_execute(
         return
 
     preview_lang = "diff" if path.exists() else None
-    confirm_msg = f"Save to {path}?" if operation == "save" else f"Append to {path}?"
+    if operation == "save":
+        if path.exists():
+            confirm_msg = "(file exists, overwrite?)"
+        else:
+            confirm_msg = None
+    else:
+        confirm_msg = None
     execute_fn = execute_save_impl if operation == "save" else execute_append_impl
     preview_fn = preview_save if operation == "save" else preview_append
 
