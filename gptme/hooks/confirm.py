@@ -160,7 +160,7 @@ def confirm(msg: str, default: bool = True) -> bool:
     Returns:
         True if confirmed, False otherwise
     """
-    result = get_confirmation(preview=msg, default_confirm=default)
+    result = get_confirmation(confirm_msg=msg, default_confirm=default)
     return result.action == ConfirmAction.CONFIRM
 
 

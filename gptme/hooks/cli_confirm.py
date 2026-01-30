@@ -74,15 +74,8 @@ def cli_confirm_hook(
         confirm_msg: Optional additional context for the confirmation prompt
             (e.g., "(file exists, overwrite)")
     """
-    # Detect simple confirmation: preview is a question (ends with ?) that's
-    # different from tool content. This happens when confirm() helper is used.
-    is_simple_confirm = (
-        preview and preview.rstrip().endswith("?") and preview != tool_use.content
-    )
-
     # Get preview content - use provided preview or generate from tool_use
-    # For simple confirms, show actual tool content (if any), not the question
-    content = tool_use.content if is_simple_confirm else (preview or tool_use.content)
+    content = preview or tool_use.content
     lang = _get_lang_for_tool(tool_use.tool)
 
     # Determine if content is editable/copiable
@@ -114,11 +107,8 @@ def cli_confirm_hook(
     choicestr += "/a/?]"
 
     # Build confirmation question
-    # For simple confirms, use the preview directly as the question
-    if is_simple_confirm and preview:  # preview check for mypy
-        question = preview.rstrip()
-    elif confirm_msg:
-        question = f"Execute {tool_use.tool}? {confirm_msg}"
+    if confirm_msg:
+        question = confirm_msg.rstrip()
     else:
         question = f"Execute {tool_use.tool}?"
 
