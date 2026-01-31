@@ -22,6 +22,7 @@ export default tseslint.config(
           jsx: true,
         },
         sourceType: 'module',
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     plugins: {
