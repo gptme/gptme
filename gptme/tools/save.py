@@ -134,14 +134,9 @@ def execute_save_impl(
         content += "\n"
 
     # Check if file exists and store original content for comparison
-    overwrite = False
-    original_content = None
-    if path.exists():
-        original_content = path.read_text()
-        if not confirm(f"File {path_display} exists, overwrite?"):
-            yield Message("system", "Save aborted: user refused to overwrite the file.")
-            return
-        overwrite = True
+    # Note: User already confirmed via execute_with_confirmation() with diff preview
+    overwrite = path.exists()
+    original_content = path.read_text() if overwrite else None
 
     # Check if folder exists
     missing_parent_created = False
