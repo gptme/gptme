@@ -448,7 +448,8 @@ def auto_compact_log(
     # Phase 2: Truncate largest tool results first (oh-my-opencode strategy)
     # Instead of truncating all large results in order, prioritize the largest
     # This achieves target reduction with minimal information loss
-    tokens_saved = 0
+    tool_result_tokens_saved = 0
+    compression_tokens_saved = 0
     current_tokens = len_tokens(compacted_log, model.model)
     target_tokens = int(0.8 * model.context)  # Target 80% of context
 
@@ -508,7 +509,7 @@ def auto_compact_log(
             truncated_indices.add(idx)
 
             saved = msg_tokens - len_tokens(summary_content, model.model)
-            tokens_saved += saved
+            tool_result_tokens_saved += saved
             current_tokens -= saved
             logger.debug(
                 f"Truncated largest tool result at idx {idx}: "
@@ -555,7 +556,7 @@ def auto_compact_log(
 
                 compacted_log[idx] = msg.replace(content=compressed_content)
                 compression_saved = msg_tokens - compressed_tokens
-                tokens_saved += compression_saved
+                compression_tokens_saved += compression_saved
                 logger.debug(
                     f"Compressed message {idx}: {msg_tokens} -> {compressed_tokens} tokens "
                     f"({compression_saved} saved, {(compression_saved/msg_tokens)*100:.1f}% reduction)"
@@ -563,12 +564,40 @@ def auto_compact_log(
 
     # Check if we're now within limits
     final_tokens = len_tokens(compacted_log, model.model)
-    total_saved = tokens_saved + reasoning_tokens_saved
+    total_saved = (
+        tool_result_tokens_saved + compression_tokens_saved + reasoning_tokens_saved
+    )
     if final_tokens <= limit:
+        # Calculate reduction percentage
+        reduction_pct = ((tokens - final_tokens) / tokens * 100) if tokens > 0 else 0.0
+
+        # Build detailed breakdown message
+        breakdown_parts = []
+        if reasoning_tokens_saved > 0:
+            pct = (reasoning_tokens_saved / total_saved * 100) if total_saved > 0 else 0
+            breakdown_parts.append(
+                f"reasoning: {reasoning_tokens_saved:,} ({pct:.0f}%)"
+            )
+        if tool_result_tokens_saved > 0:
+            pct = (
+                (tool_result_tokens_saved / total_saved * 100) if total_saved > 0 else 0
+            )
+            breakdown_parts.append(
+                f"tool results: {tool_result_tokens_saved:,} ({pct:.0f}%)"
+            )
+        if compression_tokens_saved > 0:
+            pct = (
+                (compression_tokens_saved / total_saved * 100) if total_saved > 0 else 0
+            )
+            breakdown_parts.append(
+                f"compression: {compression_tokens_saved:,} ({pct:.0f}%)"
+            )
+
+        breakdown_str = ", ".join(breakdown_parts) if breakdown_parts else "no savings"
         logger.info(
-            f"Auto-compacting successful: {tokens} -> {final_tokens} tokens "
-            f"(saved {total_saved}: {tokens_saved} from tool results/compression, "
-            f"{reasoning_tokens_saved} from reasoning)"
+            f"Auto-compacting successful: {tokens:,} -> {final_tokens:,} tokens "
+            f"({reduction_pct:.1f}% reduction, saved {total_saved:,} tokens) "
+            f"[{breakdown_str}]"
         )
         yield from compacted_log
         return
