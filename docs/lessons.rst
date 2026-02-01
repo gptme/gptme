@@ -152,14 +152,40 @@ Create a ``.md`` file in your lessons directory with:
     ## Outcome
     Clear commit history, automated changelog generation.
 
-Lesson Directories
-~~~~~~~~~~~~~~~~~~
+Lesson and Skill Directories
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Lessons are loaded from:
+Lessons and skills are loaded from the following directories (if they exist):
 
-1. ``~/.config/gptme/lessons/`` - User-specific lessons
-2. ``./lessons/`` - Project-specific lessons (if present)
-3. Package lessons (examples in gptme)
+**User-level lessons:**
+
+1. ``~/.config/gptme/lessons/`` - gptme native lessons
+2. ``~/.agents/lessons/`` - Cross-platform standard
+
+**User-level skills (Anthropic SKILL.md format):**
+
+3. ``~/.config/gptme/skills/`` - gptme native skills
+4. ``~/.claude/skills/`` - Claude CLI compatibility
+5. ``~/.agents/skills/`` - Cross-platform standard
+
+**Workspace-level lessons:**
+
+6. ``./lessons/`` - Project-specific lessons
+7. ``./.gptme/lessons/`` - Hidden project-local lessons
+
+**Workspace-level skills:**
+
+8. ``./skills/`` - Project-specific skills
+9. ``./.gptme/skills/`` - Hidden project-local skills
+
+**Other:**
+
+10. ``./.cursor/`` - Cursor rules (auto-translated to keywords)
+11. Directories configured in ``gptme.toml``
+12. Plugin lessons (auto-discovered from plugin paths)
+
+The ``~/.agents/`` paths provide cross-platform compatibility with other AI tools.
+The ``~/.claude/skills/`` path enables sharing skills with Claude CLI.
 
 Organize lessons by category:
 

@@ -74,9 +74,26 @@ export GPTME_LESSONS_REFRESH=true
 
 ## Creating Your Own Lessons
 
-1. Create `.md` files in `~/.config/gptme/lessons/` or `./lessons/` in your workspace
-2. Add YAML frontmatter with keywords and/or tools
-3. Write helpful content that will guide your work
+Create `.md` files in any of these directories (lessons are indexed from all that exist):
+
+**User-level lessons:**
+- `~/.config/gptme/lessons/` - gptme native lessons
+- `~/.agents/lessons/` - Cross-platform standard
+
+**User-level skills (Anthropic SKILL.md format):**
+- `~/.config/gptme/skills/` - gptme native skills
+- `~/.claude/skills/` - Claude CLI compatibility
+- `~/.agents/skills/` - Cross-platform standard
+
+**Workspace-level:**
+- `./lessons/` - Project-specific lessons
+- `./skills/` - Project-specific skills
+- `./.gptme/lessons/` - Hidden project-local lessons
+- `./.gptme/skills/` - Hidden project-local skills
+
+**Requirements:**
+1. Add YAML frontmatter with keywords and/or tools (lessons) OR name/description (skills)
+2. Write helpful content that will guide your work
 
 Lessons are automatically indexed on first use in a conversation.
 

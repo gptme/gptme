@@ -95,15 +95,33 @@ class LessonIndex:
 
     @staticmethod
     def _default_dirs() -> list[Path]:
-        """Get default lesson directories.
+        """Get default lesson and skill directories.
 
-        Searches for lessons in:
-        - User config: ~/.config/gptme/lessons
-        - Current workspace: ./lessons
-        - Project-local: ./.gptme/lessons
+        Searches for lessons/skills in:
+
+        User-level (lessons):
+        - ~/.config/gptme/lessons
+        - ~/.agents/lessons (cross-platform standard)
+
+        User-level (skills, Anthropic SKILL.md format):
+        - ~/.config/gptme/skills
+        - ~/.claude/skills (Claude CLI compatibility)
+        - ~/.agents/skills (cross-platform standard)
+
+        Workspace-level (lessons):
+        - ./lessons
+        - ./.gptme/lessons
+
+        Workspace-level (skills):
+        - ./skills
+        - ./.gptme/skills
+
+        Also:
         - Configured directories from gptme.toml
+        - .cursor/ directory (Cursor rules compatibility)
 
-        Also detects .cursorrules files and provides conversion guidance.
+        Note: Skills use the same parser as lessons but with
+        'name' and 'description' frontmatter instead of 'keywords'.
         """
         from pathlib import Path
 
@@ -111,12 +129,38 @@ class LessonIndex:
 
         dirs = []
 
-        # User config directory
+        # === User-level lessons directories ===
+
+        # gptme native config
         config_dir = Path.home() / ".config" / "gptme" / "lessons"
         if config_dir.exists():
             dirs.append(config_dir)
 
-        # Current workspace
+        # Cross-platform standard (~/.agents/lessons)
+        agents_lessons_dir = Path.home() / ".agents" / "lessons"
+        if agents_lessons_dir.exists():
+            dirs.append(agents_lessons_dir)
+
+        # === User-level skills directories ===
+
+        # gptme native skills
+        gptme_skills_dir = Path.home() / ".config" / "gptme" / "skills"
+        if gptme_skills_dir.exists():
+            dirs.append(gptme_skills_dir)
+
+        # Claude CLI compatibility (~/.claude/skills)
+        claude_skills_dir = Path.home() / ".claude" / "skills"
+        if claude_skills_dir.exists():
+            dirs.append(claude_skills_dir)
+
+        # Cross-platform standard (~/.agents/skills)
+        agents_skills_dir = Path.home() / ".agents" / "skills"
+        if agents_skills_dir.exists():
+            dirs.append(agents_skills_dir)
+
+        # === Workspace-level lessons directories ===
+
+        # Current workspace lessons
         workspace_dir = Path.cwd() / "lessons"
         if workspace_dir.exists():
             dirs.append(workspace_dir)
@@ -125,6 +169,18 @@ class LessonIndex:
         gptme_lessons_dir = Path.cwd() / ".gptme" / "lessons"
         if gptme_lessons_dir.exists():
             dirs.append(gptme_lessons_dir)
+
+        # === Workspace-level skills directories ===
+
+        # Current workspace skills
+        workspace_skills_dir = Path.cwd() / "skills"
+        if workspace_skills_dir.exists():
+            dirs.append(workspace_skills_dir)
+
+        # Project-local skills (.gptme/skills/)
+        gptme_project_skills_dir = Path.cwd() / ".gptme" / "skills"
+        if gptme_project_skills_dir.exists():
+            dirs.append(gptme_project_skills_dir)
 
         # Cursor rules directory (.cursor/)
         cursor_dir = Path.cwd() / ".cursor"
