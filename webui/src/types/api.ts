@@ -23,6 +23,12 @@ export interface SendMessageRequest extends Message {
   branch?: string;
 }
 
+// Agent info returned with conversation
+export interface AgentInfo {
+  name: string;
+  avatar?: string;
+}
+
 // Response from /api/conversations/<logfile>
 export interface ConversationResponse {
   id: string;
@@ -31,6 +37,7 @@ export interface ConversationResponse {
   logfile: string;
   branches: Record<string, Message[]>;
   workspace: string;
+  agent?: AgentInfo;
 }
 
 export enum ToolFormat {

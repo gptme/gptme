@@ -25,7 +25,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, isReadOnly }) =
   // Store the previous conversation ID to detect changes
   const prevConversationIdRef = useRef<string | null>(null);
 
-  const { api } = useApi();
+  const { api, connectionConfig } = useApi();
   const hasSession$ = useObservable<boolean>(false);
   const { defaultModel } = useModels();
 
@@ -219,6 +219,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, isReadOnly }) =
             const previousMessage$ = index > 0 ? conversation$.data.log[index - 1] : undefined;
             const nextMessage$ = conversation$.data.log[index + 1];
 
+            // Construct agent avatar URL if agent has avatar configured
+            const agentAvatarUrl = conversation$.data.agent?.avatar
+              ? `${connectionConfig.baseUrl}/api/v2/conversations/${conversationId}/agent/avatar`
+              : undefined;
+
             return (
               <ChatMessage
                 key={`${index}-${msg$.timestamp.get()}`}
@@ -226,6 +231,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, isReadOnly }) =
                 previousMessage$={previousMessage$}
                 nextMessage$={nextMessage$}
                 conversationId={conversationId}
+                agentAvatarUrl={agentAvatarUrl}
               />
             );
           }}
