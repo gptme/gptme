@@ -438,7 +438,7 @@ def auto_compact_log(
             if reasoning_saved > 0:
                 msg = msg.replace(content=stripped_content)
                 reasoning_tokens_saved += reasoning_saved
-                logger.info(
+                logger.debug(
                     f"Stripped reasoning from message {idx}: "
                     f"saved {reasoning_saved} tokens (distance from end: {distance_from_end})"
                 )
@@ -510,7 +510,7 @@ def auto_compact_log(
             saved = msg_tokens - len_tokens(summary_content, model.model)
             tokens_saved += saved
             current_tokens -= saved
-            logger.info(
+            logger.debug(
                 f"Truncated largest tool result at idx {idx}: "
                 f"{msg_tokens} -> {len_tokens(summary_content, model.model)} tokens "
                 f"(saved {saved}, now at {current_tokens} tokens)"
@@ -556,7 +556,7 @@ def auto_compact_log(
                 compacted_log[idx] = msg.replace(content=compressed_content)
                 compression_saved = msg_tokens - compressed_tokens
                 tokens_saved += compression_saved
-                logger.info(
+                logger.debug(
                     f"Compressed message {idx}: {msg_tokens} -> {compressed_tokens} tokens "
                     f"({compression_saved} saved, {(compression_saved/msg_tokens)*100:.1f}% reduction)"
                 )
