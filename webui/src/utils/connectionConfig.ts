@@ -2,7 +2,7 @@ const DEFAULT_API_URL = 'http://127.0.0.1:5700';
 
 // Fleet operator URL for auth code exchange
 // Configure via VITE_FLEET_OPERATOR_URL environment variable
-const FLEET_OPERATOR_URL = import.meta.env.VITE_FLEET_OPERATOR_URL || 'https://fleet.gptme.ai';
+const FLEET_OPERATOR_URL = import.meta.env.VITE_GPTME_FLEET_BASE_URL || 'https://fleet.gptme.ai';
 
 export interface ConnectionConfig {
   baseUrl: string;
@@ -99,7 +99,11 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
   }
 
   return {
-    baseUrl: fragmentBaseUrl || storedBaseUrl || import.meta.env.VITE_API_URL || DEFAULT_API_URL,
+    baseUrl:
+      fragmentBaseUrl ||
+      storedBaseUrl ||
+      import.meta.env.VITE_GPTME_FLEET_BASE_URL ||
+      DEFAULT_API_URL,
     authToken: fragmentUserToken || storedUserToken || null,
     useAuthToken: Boolean(fragmentUserToken || storedUserToken),
   };
