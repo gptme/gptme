@@ -457,6 +457,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson-vs-plugin">Skill vs. Lesson vs. Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-format">Skill Format</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#directory-structure">Directory Structure</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-loading-directories">Skill Loading Directories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-skills">Creating Skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-the-skill">1. Design the Skill</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-skill-directory">2. Create Skill Directory</a></li>
@@ -640,6 +641,23 @@ placed in the same directory as <code class="docutils literal notranslate"><span
             └── requirements.txt
 </pre></div>
 </div>
+</section>
+<section id="skill-loading-directories">
+<h2>Skill Loading Directories<a class="headerlink" href="#skill-loading-directories" title="Link to this heading">#</a></h2>
+<p>Skills are loaded from the following directories (if they exist):</p>
+<p><strong>User-level:</strong></p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">~/.config/gptme/skills/</span></code> - gptme native skills</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">~/.claude/skills/</span></code> - Claude CLI compatibility (share skills with Claude CLI)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">~/.agents/skills/</span></code> - Cross-platform standard</p></li>
+</ol>
+<p><strong>Workspace-level:</strong></p>
+<ol class="arabic simple" start="4">
+<li><p><code class="docutils literal notranslate"><span class="pre">./skills/</span></code> - Project-specific skills</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">./.gptme/skills/</span></code> - Hidden project-local skills</p></li>
+</ol>
+<p>The <code class="docutils literal notranslate"><span class="pre">~/.agents/</span></code> and <code class="docutils literal notranslate"><span class="pre">~/.claude/</span></code> paths provide cross-platform compatibility,
+enabling skills to be shared between gptme and other AI tools.</p>
 </section>
 <section id="creating-skills">
 <h2>Creating Skills<a class="headerlink" href="#creating-skills" title="Link to this heading">#</a></h2>
@@ -857,6 +875,7 @@ For bundled utilities, mention &quot;python-repl&quot; to load helper functions.
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson-vs-plugin">Skill vs. Lesson vs. Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-format">Skill Format</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#directory-structure">Directory Structure</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-loading-directories">Skill Loading Directories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-skills">Creating Skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-the-skill">1. Design the Skill</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-skill-directory">2. Create Skill Directory</a></li>

@@ -661,12 +661,28 @@ Clear commit history, automated changelog generation.
 </section>
 <section id="lesson-directories">
 <h3>Lesson Directories<a class="headerlink" href="#lesson-directories" title="Link to this heading">#</a></h3>
-<p>Lessons are loaded from:</p>
+<p>Lessons are loaded from the following directories (if they exist):</p>
+<p><strong>User-level:</strong></p>
 <ol class="arabic simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">~/.config/gptme/lessons/</span></code> - User-specific lessons</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">./lessons/</span></code> - Project-specific lessons (if present)</p></li>
-<li><p>Package lessons (examples in gptme)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">~/.config/gptme/lessons/</span></code> - gptme native lessons</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">~/.agents/lessons/</span></code> - Cross-platform standard</p></li>
 </ol>
+<p><strong>Workspace-level:</strong></p>
+<ol class="arabic simple" start="3">
+<li><p><code class="docutils literal notranslate"><span class="pre">./lessons/</span></code> - Project-specific lessons</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">./.gptme/lessons/</span></code> - Hidden project-local lessons</p></li>
+</ol>
+<p><strong>Other:</strong></p>
+<ol class="arabic simple" start="5">
+<li><p><code class="docutils literal notranslate"><span class="pre">./.cursor/</span></code> - Cursor rules (auto-translated to keywords)</p></li>
+<li><p>Directories configured in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
+<li><p>Plugin lessons (auto-discovered from plugin paths)</p></li>
+</ol>
+<p>The <code class="docutils literal notranslate"><span class="pre">~/.agents/</span></code> paths provide cross-platform compatibility with other AI tools.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For skill directories (Anthropic SKILL.md format), see <a class="reference internal" href="skills.html"><span class="doc">Skills</span></a>.</p>
+</div>
 <p>Organize lessons by category:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>lessons/
 ├── tools/           # Tool-specific guidance
