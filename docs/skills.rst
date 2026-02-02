@@ -136,6 +136,25 @@ Skills are organized parallel to lessons:
                 ├── python_helpers.py
                 └── requirements.txt
 
+Skill Loading Directories
+-------------------------
+
+Skills are loaded from the following directories (if they exist):
+
+**User-level:**
+
+1. ``~/.config/gptme/skills/`` - gptme native skills
+2. ``~/.claude/skills/`` - Claude CLI compatibility (share skills with Claude CLI)
+3. ``~/.agents/skills/`` - Cross-platform standard
+
+**Workspace-level:**
+
+4. ``./skills/`` - Project-specific skills
+5. ``./.gptme/skills/`` - Hidden project-local skills
+
+The ``~/.agents/`` and ``~/.claude/`` paths provide cross-platform compatibility,
+enabling skills to be shared between gptme and other AI tools.
+
 Creating Skills
 ---------------
 
