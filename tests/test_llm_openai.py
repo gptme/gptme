@@ -737,19 +737,34 @@ class TestOpenAIRetryLogic:
             "Error", response=mock_response, body={"error": "Overloaded"}
         )
 
-        with patch("time.sleep"):
-            # Should retry on overloaded error in body
+        # Test retry path: on attempt 0, should sleep and return (retry)
+        with patch("time.sleep") as mock_sleep:
             _handle_openai_transient_error(
                 error, attempt=0, max_retries=3, base_delay=0.1
             )
+            # Assert retry path was taken (sleep called = will retry)
+            mock_sleep.assert_called_once()
 
         # Test with overload in string representation
         error_str = APIStatusError("Overloaded", response=mock_response, body=None)
 
-        with patch("time.sleep"):
+        with patch("time.sleep") as mock_sleep:
             _handle_openai_transient_error(
                 error_str, attempt=0, max_retries=3, base_delay=0.1
             )
+            # Assert retry path was taken
+            mock_sleep.assert_called_once()
+
+        # Test non-retry path: on last attempt, should raise the error
+        with patch("time.sleep") as mock_sleep:
+            import pytest
+
+            with pytest.raises(APIStatusError):
+                _handle_openai_transient_error(
+                    error, attempt=2, max_retries=3, base_delay=0.1
+                )
+            # On last attempt, should not sleep (no retry)
+            mock_sleep.assert_not_called()
 
     def test_retry_decorator_retries_on_transient_error(self, monkeypatch):
         """Test that the retry decorator properly retries on transient errors."""
