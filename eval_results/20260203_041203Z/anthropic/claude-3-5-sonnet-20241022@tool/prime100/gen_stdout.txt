@@ -1,0 +1,14 @@
+
+--- Start of generation ---
+[04:11:08] Using model: anthropic/claude-3-5-sonnet-20241022                    
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-02-03-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-tool-3b8871cc                                      
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-02-03-gptme-evals-anthropic--claude-3-
+           5-sonnet-20241022-tool-3b8871cc/workspace                            
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script prime.py that computes and prints the 100th prime number 
+when called, then call it
+Assistant: Thinking...                                                                                
