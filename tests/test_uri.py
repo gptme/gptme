@@ -141,7 +141,8 @@ class TestMessageWithURI:
         )
         d = msg.to_dict()
         assert "files" in d
-        assert d["files"] == ["/tmp/file.txt", "http://example.com"]
+        # Paths are resolved, so we need to compare with the resolved path
+        assert d["files"] == [str(Path("/tmp/file.txt").resolve()), "http://example.com"]
 
     def test_message_toml_roundtrip(self):
         """Test TOML serialization roundtrip preserves URIs."""

@@ -107,6 +107,7 @@ def _abs_to_rel_workspace(path: str | Path | URI, workspace: Path) -> str:
         return str(path)
 
     path = Path(path).resolve()
+    workspace = workspace.resolve()
     if path.is_relative_to(workspace):
         return str(path.relative_to(workspace))
     return str(path)

@@ -106,7 +106,7 @@ def test_experiment_initialization():
 
         assert experiment.name == "test_experiment"
         assert experiment.model == "test-model"
-        assert experiment.output_dir == Path(tmp_dir)
+        assert experiment.output_dir == Path(tmp_dir).resolve()
         assert "experiment_name" in experiment.results
         assert experiment.results["experiment_name"] == "test_experiment"
 
