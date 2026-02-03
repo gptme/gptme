@@ -728,14 +728,11 @@ class ShellSession:
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
     def close(self):
-        # Close all pipes explicitly to prevent file descriptor leaks
+        # Close stdin to signal no more input
         if self.process.stdin:
             self.process.stdin.close()
-        if self.process.stdout:
-            self.process.stdout.close()
-        if self.process.stderr:
-            self.process.stderr.close()
-        
+
+        # Terminate the process first
         try:
             pgid = os.getpgid(self.process.pid)
             os.killpg(pgid, signal.SIGTERM)
@@ -747,6 +744,12 @@ class ShellSession:
             pass
         except Exception as e:
             logger.warning(f"Error terminating process during close: {e}")
+
+        # Close stdout/stderr AFTER process is terminated to prevent broken pipes
+        if self.process.stdout:
+            self.process.stdout.close()
+        if self.process.stderr:
+            self.process.stderr.close()
 
     def restart(self):
         self.close()

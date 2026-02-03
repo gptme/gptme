@@ -558,14 +558,16 @@ def start_tool_execution(
             # Clean up shell session to prevent file descriptor leaks
             # This runs in the tool execution thread context where the shell was created
             from ..tools.shell import _shell_var
-            
+
             shell = _shell_var.get()
             if shell is not None:
                 try:
                     shell.close()
                     _shell_var.set(None)
                 except Exception as cleanup_err:
-                    logger.warning(f"Error closing shell session in thread cleanup: {cleanup_err}")
+                    logger.warning(
+                        f"Error closing shell session in thread cleanup: {cleanup_err}"
+                    )
 
         # This implements auto-stepping similar to the CLI behavior
         _start_step_thread(conversation_id, session, model, chat_config.workspace)
