@@ -41,6 +41,43 @@ Use the ``[env]`` section in the :ref:`global-config` file to store API keys usi
 - ``GROQ_API_KEY="your-api-key"``
 - ``DEEPSEEK_API_KEY="your-api-key"``
 
+.. rubric:: OpenAI Subscription
+
+You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses the ChatGPT backend API (Codex endpoint) instead of the OpenAI Platform API, allowing you to leverage your subscription for development.
+
+**Setup:**
+
+1. Log into chatgpt.com in your browser
+2. Open DevTools (F12) → Application → Cookies
+3. Copy the value of ``__Secure-next-auth.session-token``
+4. Set the environment variable:
+
+.. code-block:: sh
+
+    export OPENAI_SUBSCRIPTION_SESSION_TOKEN='your-session-token'
+
+**Usage:**
+
+.. code-block:: sh
+
+    gptme "hello" -m openai-subscription/gpt-5.2
+    gptme "hello" -m openai-subscription/gpt-5.2-codex
+    gptme "hello" -m openai-subscription/gpt-5.1
+
+**Available Models:**
+
+- ``gpt-5.2`` - Latest GPT model with reasoning capabilities
+- ``gpt-5.2-codex`` - Optimized for code tasks
+- ``gpt-5.1-codex-max`` - Maximum capability variant
+- ``gpt-5.1-codex`` - Code-optimized
+- ``gpt-5.1`` - Previous generation
+
+.. note::
+
+    This is for **personal development use** with your own ChatGPT Plus/Pro subscription.
+    For production or multi-user applications, use the OpenAI Platform API.
+    Session tokens typically expire after ~1 hour and will need to be refreshed.
+
 .. rubric:: Local
 
 You can use local LLM models using any OpenAI API-compatible server.

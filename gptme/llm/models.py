@@ -26,6 +26,7 @@ _DATE_SUFFIX_PATTERN = re.compile(r"-\d{8}$")
 # Built-in providers (static list)
 BuiltinProvider = Literal[
     "openai",
+    "openai-subscription",
     "anthropic",
     "azure",
     "openrouter",
@@ -126,6 +127,55 @@ _default_model_var: ContextVar[ModelMeta | None] = ContextVar(
 # TODO: can we get this from the API?
 MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     "openai": OPENAI_MODELS,
+    # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
+    # Price is effectively 0 since using existing subscription
+    "openai-subscription": {
+        "gpt-5.2": {
+            "context": 128_000,
+            "max_output": 16_000,
+            "price_input": 0,
+            "price_output": 0,
+            "supports_streaming": True,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        },
+        "gpt-5.2-codex": {
+            "context": 128_000,
+            "max_output": 16_000,
+            "price_input": 0,
+            "price_output": 0,
+            "supports_streaming": True,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        },
+        "gpt-5.1-codex-max": {
+            "context": 128_000,
+            "max_output": 16_000,
+            "price_input": 0,
+            "price_output": 0,
+            "supports_streaming": True,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        },
+        "gpt-5.1-codex": {
+            "context": 128_000,
+            "max_output": 16_000,
+            "price_input": 0,
+            "price_output": 0,
+            "supports_streaming": True,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        },
+        "gpt-5.1": {
+            "context": 128_000,
+            "max_output": 16_000,
+            "price_input": 0,
+            "price_output": 0,
+            "supports_streaming": True,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        },
+    },
     # https://docs.anthropic.com/en/docs/about-claude/models
     "anthropic": {
         "claude-opus-4-5": {
