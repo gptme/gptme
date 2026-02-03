@@ -155,11 +155,29 @@ Create a ``.md`` file in your lessons directory with:
 Lesson Directories
 ~~~~~~~~~~~~~~~~~~
 
-Lessons are loaded from:
+Lessons are loaded from the following directories (if they exist):
 
-1. ``~/.config/gptme/lessons/`` - User-specific lessons
-2. ``./lessons/`` - Project-specific lessons (if present)
-3. Package lessons (examples in gptme)
+**User-level:**
+
+1. ``~/.config/gptme/lessons/`` - gptme native lessons
+2. ``~/.agents/lessons/`` - Cross-platform standard
+
+**Workspace-level:**
+
+3. ``./lessons/`` - Project-specific lessons
+4. ``./.gptme/lessons/`` - Hidden project-local lessons
+
+**Other:**
+
+5. ``./.cursor/`` - Cursor rules (auto-translated to keywords)
+6. Directories configured in ``gptme.toml``
+7. Plugin lessons (auto-discovered from plugin paths)
+
+The ``~/.agents/`` paths provide cross-platform compatibility with other AI tools.
+
+.. note::
+
+   For skill directories (Anthropic SKILL.md format), see :doc:`skills`.
 
 Organize lessons by category:
 

@@ -717,6 +717,55 @@ class TestOpenAIRetryLogic:
                 error, attempt=2, max_retries=3, base_delay=0.1
             )
 
+    def test_handle_openai_transient_error_openrouter_overloaded(self):
+        """Test that OpenRouter Anthropic 'Overloaded' errors trigger retry.
+
+        OpenRouter proxies Anthropic models and may return overloaded errors
+        with the message in the body rather than the message attribute.
+        See: https://github.com/ErikBjare/bob/issues/287
+        """
+        from unittest.mock import MagicMock, patch
+
+        from openai import APIStatusError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        # Test with overload in body dict
+        mock_response = MagicMock()
+        mock_response.status_code = 400  # Not 5xx, to test body-based detection
+        error = APIStatusError(
+            "Error", response=mock_response, body={"error": "Overloaded"}
+        )
+
+        # Test retry path: on attempt 0, should sleep and return (retry)
+        with patch("time.sleep") as mock_sleep:
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+            # Assert retry path was taken (sleep called = will retry)
+            mock_sleep.assert_called_once()
+
+        # Test with overload in string representation
+        error_str = APIStatusError("Overloaded", response=mock_response, body=None)
+
+        with patch("time.sleep") as mock_sleep:
+            _handle_openai_transient_error(
+                error_str, attempt=0, max_retries=3, base_delay=0.1
+            )
+            # Assert retry path was taken
+            mock_sleep.assert_called_once()
+
+        # Test non-retry path: on last attempt, should raise the error
+        with patch("time.sleep") as mock_sleep:
+            import pytest
+
+            with pytest.raises(APIStatusError):
+                _handle_openai_transient_error(
+                    error, attempt=2, max_retries=3, base_delay=0.1
+                )
+            # On last attempt, should not sleep (no retry)
+            mock_sleep.assert_not_called()
+
     def test_retry_decorator_retries_on_transient_error(self, monkeypatch):
         """Test that the retry decorator properly retries on transient errors."""
         from unittest.mock import MagicMock, patch

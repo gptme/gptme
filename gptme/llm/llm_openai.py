@@ -394,11 +394,25 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
         # Retry on all 5xx server errors (transient)
         if 500 <= e.status_code < 600:
             should_retry = True
-        # Also check error message for known transient issues
-        elif hasattr(e, "message"):
-            error_msg = str(e.message).lower()
+        else:
+            # Check for known transient issues in error message, body, or string repr
+            # This catches OpenRouter proxying Anthropic's "Overloaded" errors
+            error_texts = []
+            if hasattr(e, "message"):
+                error_texts.append(str(e.message))
+            if hasattr(e, "body") and e.body:
+                # Body can be dict with 'error' key or other formats
+                if isinstance(e.body, dict):
+                    error_texts.append(str(e.body.get("error", "")))
+                    error_texts.append(str(e.body.get("message", "")))
+                error_texts.append(str(e.body))
+            # Also check string representation as fallback
+            error_texts.append(str(e))
+
+            combined_error = " ".join(error_texts).lower()
             if any(
-                keyword in error_msg for keyword in ["overload", "internal", "timeout"]
+                keyword in combined_error
+                for keyword in ["overload", "internal", "timeout"]
             ):
                 should_retry = True
 
