@@ -1,30 +1,38 @@
 """OpenAI Subscription Provider.
 
 Enables use of ChatGPT Plus/Pro subscriptions with gptme through the
-ChatGPT backend API (not the Platform API). This uses OAuth authentication
-against ChatGPT's web interface.
+ChatGPT backend API (not the Platform API). Uses OAuth 2.0 + PKCE for
+authentication.
 
-Based on research from opencode-openai-codex-auth plugin.
+Based on opencode-openai-codex-auth plugin OAuth implementation.
 
 NOTICE: For personal development use with your own ChatGPT Plus/Pro subscription.
 For production or multi-user applications, use the OpenAI Platform API.
 
 Usage:
-    1. Set OPENAI_SUBSCRIPTION_SESSION_TOKEN environment variable
-       (Get from browser: chatgpt.com cookies -> "__Secure-next-auth.session-token")
+    1. First run: `gptme auth openai-subscription` to authenticate
     2. Use model like: openai-subscription/gpt-5.2
 
 Endpoint: https://chatgpt.com/backend-api/codex/responses
 """
 
+import base64
+import hashlib
+import http.server
 import json
 import logging
 import os
+import secrets
+import socket
+import threading
 import time
+import webbrowser
 from base64 import urlsafe_b64decode
 from collections.abc import Generator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import uuid4
 
 import requests
@@ -35,10 +43,18 @@ logger = logging.getLogger(__name__)
 
 from typing import TypedDict
 
+# OAuth Configuration (from opencode)
+OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+OAUTH_AUTH_URL = "https://auth.openai.com/oauth/authorize"
+OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
+OAUTH_CALLBACK_PORT = 1455
+OAUTH_CALLBACK_PATH = "/auth/callback"
+OAUTH_SCOPES = "openid profile email offline_access"
+OAUTH_AUDIENCE = "https://api.openai.com"
+
 # ChatGPT backend API base URL
 CHATGPT_BASE_URL = "https://chatgpt.com"
 CODEX_ENDPOINT = f"{CHATGPT_BASE_URL}/backend-api/codex/responses"
-SESSION_ENDPOINT = f"{CHATGPT_BASE_URL}/api/auth/session"
 
 
 class _SubscriptionModelInfo(TypedDict):
@@ -47,7 +63,6 @@ class _SubscriptionModelInfo(TypedDict):
 
 
 # Available models through subscription
-# Format: model-name with optional reasoning level (none/low/medium/high/xhigh)
 SUBSCRIPTION_MODELS: dict[str, _SubscriptionModelInfo] = {
     "gpt-5.2": {
         "context": 128_000,
@@ -70,7 +85,33 @@ SUBSCRIPTION_MODELS: dict[str, _SubscriptionModelInfo] = {
         "context": 128_000,
         "reasoning_levels": ["none", "low", "medium", "high"],
     },
+    # Reasoning level variants
+    "gpt-5.2:none": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.2:low": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.2:medium": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.2:high": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.2:xhigh": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.2-codex:low": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.2-codex:medium": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.2-codex:high": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.2-codex:xhigh": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.1-codex-max:low": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.1-codex-max:medium": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.1-codex-max:high": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.1-codex-max:xhigh": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.1:none": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.1:low": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.1:medium": {"context": 128_000, "reasoning_levels": []},
+    "gpt-5.1:high": {"context": 128_000, "reasoning_levels": []},
 }
+
+
+def _get_token_storage_path() -> Path:
+    """Get path to store OAuth tokens."""
+    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    token_dir = config_dir / "gptme" / "oauth"
+    token_dir.mkdir(parents=True, exist_ok=True)
+    return token_dir / "openai_subscription.json"
 
 
 @dataclass
@@ -78,21 +119,29 @@ class SubscriptionAuth:
     """Authentication state for OpenAI subscription."""
 
     access_token: str
+    refresh_token: str | None
     account_id: str
-    expires_at: float | None = None
+    expires_at: float
 
 
 # Global auth state
 _auth: SubscriptionAuth | None = None
 
 
+def _generate_pkce() -> tuple[str, str]:
+    """Generate PKCE code verifier and challenge."""
+    code_verifier = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    return code_verifier, code_challenge
+
+
 def _decode_jwt_payload(token: str) -> dict[str, Any]:
-    """Decode JWT payload without verification (we trust ChatGPT's token)."""
+    """Decode JWT payload without verification."""
     parts = token.split(".")
     if len(parts) != 3:
         raise ValueError("Invalid JWT format")
 
-    # Add padding if needed
     payload = parts[1]
     padding = 4 - len(payload) % 4
     if padding != 4:
@@ -106,83 +155,298 @@ def _extract_account_id(access_token: str) -> str:
     """Extract chatgpt-account-id from JWT claims."""
     payload = _decode_jwt_payload(access_token)
 
-    # Account ID is in the custom claims
-    # Look for https://api.openai.com/auth or similar claims
     for key, value in payload.items():
         if "openai" in key.lower() and isinstance(value, dict):
             if "organization_id" in value:
                 return value["organization_id"]
 
-    # Fallback: try 'sub' claim or organization patterns
     if "sub" in payload:
         return payload["sub"]
 
     raise ValueError("Could not extract account ID from JWT")
 
 
-def _get_session_token() -> str:
-    """Get session token from environment."""
-    token = os.environ.get("OPENAI_SUBSCRIPTION_SESSION_TOKEN")
-    if not token:
-        raise ValueError(
-            "OPENAI_SUBSCRIPTION_SESSION_TOKEN environment variable not set.\n"
-            "To get your session token:\n"
-            "1. Log into chatgpt.com in your browser\n"
-            "2. Open DevTools (F12) -> Application -> Cookies\n"
-            "3. Copy the value of '__Secure-next-auth.session-token'\n"
-            "4. Set: export OPENAI_SUBSCRIPTION_SESSION_TOKEN='your-token'"
+def _get_token_expiry(access_token: str) -> float:
+    """Extract expiry timestamp from JWT."""
+    try:
+        payload = _decode_jwt_payload(access_token)
+        if "exp" in payload:
+            return float(payload["exp"])
+    except Exception:
+        pass
+    return time.time() + 3600
+
+
+def _save_tokens(auth: SubscriptionAuth) -> None:
+    """Save tokens to disk."""
+    token_path = _get_token_storage_path()
+    data = {
+        "access_token": auth.access_token,
+        "refresh_token": auth.refresh_token,
+        "account_id": auth.account_id,
+        "expires_at": auth.expires_at,
+    }
+    token_path.write_text(json.dumps(data, indent=2))
+    token_path.chmod(0o600)
+    logger.debug(f"Saved tokens to {token_path}")
+
+
+def _load_tokens() -> SubscriptionAuth | None:
+    """Load tokens from disk."""
+    token_path = _get_token_storage_path()
+    if not token_path.exists():
+        return None
+
+    try:
+        data = json.loads(token_path.read_text())
+        return SubscriptionAuth(
+            access_token=data["access_token"],
+            refresh_token=data.get("refresh_token"),
+            account_id=data["account_id"],
+            expires_at=data["expires_at"],
         )
-    return token
+    except Exception as e:
+        logger.warning(f"Failed to load tokens: {e}")
+        return None
 
 
-def _refresh_auth() -> SubscriptionAuth:
-    """Refresh authentication by getting access token from session."""
-    global _auth
+def _is_port_available(port: int) -> bool:
+    """Check if a port is available."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
 
-    session_token = _get_session_token()
 
-    # Get session info which includes access token
-    response = requests.get(
-        SESSION_ENDPOINT,
-        cookies={"__Secure-next-auth.session-token": session_token},
-        headers={"User-Agent": "gptme/1.0"},
+class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
+    """HTTP handler for OAuth callback."""
+
+    authorization_code: str | None = None
+    error: str | None = None
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+
+        if "code" in params:
+            _OAuthCallbackHandler.authorization_code = params["code"][0]
+            self._send_success_response()
+        elif "error" in params:
+            err = params.get("error_description", params["error"])[0]
+            _OAuthCallbackHandler.error = err
+            self._send_error_response(err)
+        else:
+            self._send_error_response("No authorization code received")
+
+    def _send_success_response(self) -> None:
+        html = """<!DOCTYPE html>
+<html>
+<head><title>gptme - Authentication Successful</title></head>
+<body style="font-family: system-ui; text-align: center; padding: 50px;">
+<h1>✅ Authentication Successful</h1>
+<p>You can close this window and return to gptme.</p>
+<script>setTimeout(() => window.close(), 3000);</script>
+</body>
+</html>"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.end_headers()
+        self.wfile.write(html.encode())
+
+    def _send_error_response(self, error: str) -> None:
+        html = f"""<!DOCTYPE html>
+<html>
+<head><title>gptme - Authentication Failed</title></head>
+<body style="font-family: system-ui; text-align: center; padding: 50px;">
+<h1>❌ Authentication Failed</h1>
+<p>{error}</p>
+<p>Please try again.</p>
+</body>
+</html>"""
+        self.send_response(400)
+        self.send_header("Content-Type", "text/html")
+        self.end_headers()
+        self.wfile.write(html.encode())
+
+
+def oauth_authenticate() -> SubscriptionAuth:
+    """Perform OAuth authentication flow.
+
+    Opens browser for user to log in, handles callback, and exchanges
+    authorization code for tokens.
+    """
+    if not _is_port_available(OAUTH_CALLBACK_PORT):
+        raise ValueError(
+            f"Port {OAUTH_CALLBACK_PORT} is not available. "
+            "Please close any other gptme instances and try again."
+        )
+
+    code_verifier, code_challenge = _generate_pkce()
+    state = secrets.token_urlsafe(16)
+
+    auth_params = {
+        "client_id": OAUTH_CLIENT_ID,
+        "redirect_uri": f"http://localhost:{OAUTH_CALLBACK_PORT}{OAUTH_CALLBACK_PATH}",
+        "response_type": "code",
+        "scope": OAUTH_SCOPES,
+        "audience": OAUTH_AUDIENCE,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    auth_url = f"{OAUTH_AUTH_URL}?{urlencode(auth_params)}"
+
+    _OAuthCallbackHandler.authorization_code = None
+    _OAuthCallbackHandler.error = None
+
+    server = http.server.HTTPServer(
+        ("127.0.0.1", OAUTH_CALLBACK_PORT),
+        _OAuthCallbackHandler,
+    )
+    server.timeout = 300
+
+    print("\n🔐 Opening browser for OpenAI authentication...")
+    print(f"   If browser doesn't open, visit: {auth_url[:80]}...")
+
+    def open_browser() -> None:
+        time.sleep(0.5)
+        webbrowser.open(auth_url)
+
+    threading.Thread(target=open_browser, daemon=True).start()
+
+    print(f"   Waiting for authentication callback on port {OAUTH_CALLBACK_PORT}...")
+    try:
+        while (
+            _OAuthCallbackHandler.authorization_code is None
+            and _OAuthCallbackHandler.error is None
+        ):
+            server.handle_request()
+    finally:
+        server.server_close()
+
+    if _OAuthCallbackHandler.error:
+        raise ValueError(f"OAuth error: {_OAuthCallbackHandler.error}")
+
+    if not _OAuthCallbackHandler.authorization_code:
+        raise ValueError("No authorization code received")
+
+    print("   Exchanging authorization code for tokens...")
+    token_response = requests.post(
+        OAUTH_TOKEN_URL,
+        data={
+            "client_id": OAUTH_CLIENT_ID,
+            "grant_type": "authorization_code",
+            "code": _OAuthCallbackHandler.authorization_code,
+            "redirect_uri": f"http://localhost:{OAUTH_CALLBACK_PORT}{OAUTH_CALLBACK_PATH}",
+            "code_verifier": code_verifier,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
         timeout=30,
     )
 
-    if response.status_code != 200:
+    if token_response.status_code != 200:
         raise ValueError(
-            f"Failed to get session: {response.status_code} - {response.text}"
+            f"Token exchange failed: {token_response.status_code} - {token_response.text}"
         )
 
-    session_data = response.json()
-    access_token = session_data.get("accessToken")
+    tokens = token_response.json()
+    access_token = tokens.get("access_token")
+    refresh_token = tokens.get("refresh_token")
+
     if not access_token:
-        raise ValueError("No accessToken in session response. Token may have expired.")
+        raise ValueError("No access token in response")
 
-    # Extract account ID from JWT
     account_id = _extract_account_id(access_token)
+    expires_at = _get_token_expiry(access_token)
 
-    # Calculate expiry (sessions typically last ~1 hour, but we refresh at 50 min)
-    expires_at = time.time() + 50 * 60
-
-    _auth = SubscriptionAuth(
+    auth = SubscriptionAuth(
         access_token=access_token,
+        refresh_token=refresh_token,
         account_id=account_id,
         expires_at=expires_at,
     )
 
-    logger.info("OpenAI subscription auth refreshed successfully")
-    return _auth
+    _save_tokens(auth)
+
+    print("✅ Authentication successful!")
+    return auth
+
+
+def _refresh_access_token(refresh_token: str) -> SubscriptionAuth:
+    """Refresh access token using refresh token."""
+    response = requests.post(
+        OAUTH_TOKEN_URL,
+        data={
+            "client_id": OAUTH_CLIENT_ID,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+    )
+
+    if response.status_code != 200:
+        raise ValueError(f"Token refresh failed: {response.status_code}")
+
+    tokens = response.json()
+    access_token = tokens.get("access_token")
+    new_refresh_token = tokens.get("refresh_token", refresh_token)
+
+    if not access_token:
+        raise ValueError("No access token in refresh response")
+
+    account_id = _extract_account_id(access_token)
+    expires_at = _get_token_expiry(access_token)
+
+    auth = SubscriptionAuth(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
+        account_id=account_id,
+        expires_at=expires_at,
+    )
+
+    _save_tokens(auth)
+    logger.info("Access token refreshed successfully")
+    return auth
 
 
 def get_auth() -> SubscriptionAuth:
-    """Get current auth, refreshing if needed."""
+    """Get current auth, refreshing or prompting login if needed."""
     global _auth
 
-    if _auth is None or (_auth.expires_at and time.time() > _auth.expires_at):
-        return _refresh_auth()
+    if _auth is not None:
+        if time.time() < _auth.expires_at - 300:
+            return _auth
 
-    return _auth
+        if _auth.refresh_token:
+            try:
+                _auth = _refresh_access_token(_auth.refresh_token)
+                return _auth
+            except Exception as e:
+                logger.warning(f"Token refresh failed: {e}")
+
+    stored_auth = _load_tokens()
+    if stored_auth is not None:
+        if time.time() < stored_auth.expires_at - 300:
+            _auth = stored_auth
+            return _auth
+
+        if stored_auth.refresh_token:
+            try:
+                _auth = _refresh_access_token(stored_auth.refresh_token)
+                return _auth
+            except Exception as e:
+                logger.warning(f"Token refresh failed: {e}")
+
+    raise ValueError(
+        "OpenAI subscription not authenticated.\n"
+        "Please run: gptme auth openai-subscription"
+    )
 
 
 def _transform_to_codex_request(
@@ -192,19 +456,18 @@ def _transform_to_codex_request(
     reasoning_level: str | None = None,
 ) -> dict[str, Any]:
     """Transform OpenAI-style request to Codex format."""
-    # Parse model and reasoning level
-    # Format: gpt-5.2 or gpt-5.2-codex
-    # Reasoning level can be appended like: gpt-5.2:high
     base_model = model.split(":")[0] if ":" in model else model
     if ":" in model:
         reasoning_level = model.split(":")[1]
 
-    # Default reasoning level
     if reasoning_level is None:
         model_info = SUBSCRIPTION_MODELS.get(base_model)
         if model_info:
             levels = model_info.get("reasoning_levels", ["medium"])
-            reasoning_level = "medium" if "medium" in levels else levels[0]
+            if levels:
+                reasoning_level = "medium" if "medium" in levels else levels[0]
+            else:
+                reasoning_level = "medium"
         else:
             reasoning_level = "medium"
 
@@ -212,7 +475,7 @@ def _transform_to_codex_request(
         "model": base_model,
         "messages": messages,
         "stream": stream,
-        "store": False,  # REQUIRED for ChatGPT backend
+        "store": False,
         "reasoning": {
             "effort": reasoning_level,
         },
@@ -243,7 +506,6 @@ def stream(
     """Stream completion from ChatGPT subscription API."""
     auth = get_auth()
 
-    # Convert messages to API format
     api_messages = []
     for msg in messages:
         api_messages.append(
@@ -253,14 +515,12 @@ def stream(
             }
         )
 
-    # Build request
     request_body = _transform_to_codex_request(
         messages=api_messages,
         model=model,
         stream=True,
     )
 
-    # Add tools if provided (standard OpenAI format)
     if tools:
         request_body["tools"] = [
             t.to_param() if hasattr(t, "to_param") else t for t in tools
@@ -287,7 +547,6 @@ def stream(
         error_text = response.text[:500]
         raise ValueError(f"Codex API error {response.status_code}: {error_text}")
 
-    # Process SSE stream
     for line in response.iter_lines(decode_unicode=True):
         if not line:
             continue
@@ -299,8 +558,6 @@ def stream(
         if data.get("done"):
             break
 
-        # Extract content delta from response
-        # Codex uses similar format to OpenAI chat completions
         choices = data.get("choices", [])
         if choices:
             delta = choices[0].get("delta", {})
@@ -316,30 +573,38 @@ def chat(
     **kwargs: Any,
 ) -> str:
     """Non-streaming completion from ChatGPT subscription API."""
-    # Collect all streamed content
     content_parts = list(stream(messages, model, tools, **kwargs))
     return "".join(content_parts)
 
 
 def init(config: Any) -> bool:
     """Initialize the OpenAI subscription provider."""
-    try:
-        # Verify we can authenticate
-        get_auth()
-        logger.info("OpenAI subscription provider initialized")
-        return True
-    except Exception as e:
-        logger.warning(f"OpenAI subscription provider initialization failed: {e}")
-        return False
+    global _auth
+
+    stored_auth = _load_tokens()
+    if stored_auth is not None:
+        if time.time() < stored_auth.expires_at - 300:
+            _auth = stored_auth
+            logger.info("OpenAI subscription provider initialized with stored tokens")
+            return True
+
+        if stored_auth.refresh_token:
+            try:
+                _auth = _refresh_access_token(stored_auth.refresh_token)
+                logger.info(
+                    "OpenAI subscription provider initialized with refreshed token"
+                )
+                return True
+            except Exception as e:
+                logger.debug(f"Token refresh failed during init: {e}")
+
+    logger.info(
+        "OpenAI subscription provider available "
+        "(run 'gptme auth openai-subscription' to authenticate)"
+    )
+    return True
 
 
 def get_models() -> list[str]:
     """Return available models for subscription provider."""
-    models = []
-    for model, info in SUBSCRIPTION_MODELS.items():
-        models.append(model)
-        # Add variants with reasoning levels
-        for level in info.get("reasoning_levels", []):
-            if level != "none":
-                models.append(f"{model}:{level}")
-    return models
+    return list(SUBSCRIPTION_MODELS.keys())
