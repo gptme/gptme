@@ -728,8 +728,14 @@ class ShellSession:
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
     def close(self):
-        assert self.process.stdin
-        self.process.stdin.close()
+        # Close all pipes explicitly to prevent file descriptor leaks
+        if self.process.stdin:
+            self.process.stdin.close()
+        if self.process.stdout:
+            self.process.stdout.close()
+        if self.process.stderr:
+            self.process.stderr.close()
+        
         try:
             pgid = os.getpgid(self.process.pid)
             os.killpg(pgid, signal.SIGTERM)
