@@ -717,6 +717,40 @@ class TestOpenAIRetryLogic:
                 error, attempt=2, max_retries=3, base_delay=0.1
             )
 
+    def test_handle_openai_transient_error_openrouter_overloaded(self):
+        """Test that OpenRouter Anthropic 'Overloaded' errors trigger retry.
+
+        OpenRouter proxies Anthropic models and may return overloaded errors
+        with the message in the body rather than the message attribute.
+        See: https://github.com/ErikBjare/bob/issues/287
+        """
+        from unittest.mock import MagicMock, patch
+
+        from openai import APIStatusError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        # Test with overload in body dict
+        mock_response = MagicMock()
+        mock_response.status_code = 400  # Not 5xx, to test body-based detection
+        error = APIStatusError(
+            "Error", response=mock_response, body={"error": "Overloaded"}
+        )
+
+        with patch("time.sleep"):
+            # Should retry on overloaded error in body
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+
+        # Test with overload in string representation
+        error_str = APIStatusError("Overloaded", response=mock_response, body=None)
+
+        with patch("time.sleep"):
+            _handle_openai_transient_error(
+                error_str, attempt=0, max_retries=3, base_delay=0.1
+            )
+
     def test_retry_decorator_retries_on_transient_error(self, monkeypatch):
         """Test that the retry decorator properly retries on transient errors."""
         from unittest.mock import MagicMock, patch
