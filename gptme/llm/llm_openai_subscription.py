@@ -86,23 +86,6 @@ SUBSCRIPTION_MODELS: dict[str, _SubscriptionModelInfo] = {
         "reasoning_levels": ["none", "low", "medium", "high"],
     },
     # Reasoning level variants
-    "gpt-5.2:none": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.2:low": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.2:medium": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.2:high": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.2:xhigh": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.2-codex:low": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.2-codex:medium": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.2-codex:high": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.2-codex:xhigh": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.1-codex-max:low": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.1-codex-max:medium": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.1-codex-max:high": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.1-codex-max:xhigh": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.1:none": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.1:low": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.1:medium": {"context": 128_000, "reasoning_levels": []},
-    "gpt-5.1:high": {"context": 128_000, "reasoning_levels": []},
 }
 
 
@@ -558,6 +541,18 @@ def stream(
         if data.get("done"):
             break
 
+        # Handle Responses API format (Codex endpoint)
+        # Events: response.output_text.delta, response.done, etc.
+        event_type = data.get("type", "")
+        if event_type == "response.output_text.delta":
+            delta_text = data.get("delta", "")
+            if delta_text:
+                yield delta_text
+            continue
+        elif event_type == "response.done":
+            break
+
+        # Fallback: Handle Chat Completions format
         choices = data.get("choices", [])
         if choices:
             delta = choices[0].get("delta", {})
