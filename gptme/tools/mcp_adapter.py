@@ -827,3 +827,169 @@ def remove_mcp_root(server_name: str, uri: str) -> str:
     except Exception as e:
         logger.error(f"Failed to remove root from {server_name}: {e}")
         return f"Error removing root: {e}"
+
+
+# Elicitation support functions
+
+
+def _create_cli_elicitation_handler(server_name: str):
+    """Create a CLI-based elicitation callback for a server.
+
+    Returns an async callable that handles elicitation requests by prompting
+    the user in the terminal.
+    """
+    import mcp.types as mcp_types
+
+    async def cli_elicitation_callback(
+        params: mcp_types.ElicitRequestParams,
+    ) -> mcp_types.ElicitResult | mcp_types.ErrorData:
+        """Handle elicitation request from MCP server via CLI."""
+        from ..hooks.confirm import confirm
+
+        logger.info(f"Elicitation request from {server_name}: {params.message}")
+
+        # Display the elicitation request to the user
+        print(f"\n📋 **MCP Server '{server_name}' is requesting input:**")
+        print(f"   {params.message}\n")
+
+        # Show the requested schema fields
+        schema = params.requestedSchema
+        if schema and "properties" in schema:
+            print("   **Requested fields:**")
+            properties = schema.get("properties", {})
+            required = schema.get("required", [])
+            for field_name, field_info in properties.items():
+                field_type = field_info.get("type", "string")
+                field_desc = field_info.get("description", "")
+                req_marker = " (required)" if field_name in required else ""
+                print(f"   - {field_name} ({field_type}){req_marker}: {field_desc}")
+            print()
+
+        # Ask user whether to proceed
+        response = confirm("Provide input for this request?", default=False)
+        if not response:
+            return mcp_types.ElicitResult(action="decline", content=None)
+
+        # Collect input for each field
+        content: dict[str, str | int | float | bool | None] = {}
+        if schema and "properties" in schema:
+            properties = schema.get("properties", {})
+            for field_name, field_info in properties.items():
+                field_type = field_info.get("type", "string")
+                field_default = field_info.get("default", "")
+                prompt_text = f"   Enter {field_name}"
+                if field_default:
+                    prompt_text += f" [{field_default}]"
+                prompt_text += ": "
+
+                try:
+                    user_input = input(prompt_text).strip()
+                    if not user_input and field_default:
+                        user_input = str(field_default)
+
+                    # Convert to appropriate type
+                    if field_type == "integer":
+                        content[field_name] = int(user_input) if user_input else None
+                    elif field_type == "number":
+                        content[field_name] = float(user_input) if user_input else None
+                    elif field_type == "boolean":
+                        content[field_name] = user_input.lower() in (
+                            "true",
+                            "yes",
+                            "1",
+                            "y",
+                        )
+                    else:
+                        content[field_name] = user_input if user_input else None
+                except (KeyboardInterrupt, EOFError):
+                    print("\n   Input cancelled.")
+                    return mcp_types.ElicitResult(action="cancel", content=None)
+
+        return mcp_types.ElicitResult(action="accept", content=content)
+
+    return cli_elicitation_callback
+
+
+def enable_mcp_elicitation(server_name: str) -> str:
+    """
+    Enable elicitation support for an MCP server.
+
+    When enabled, the server can request user input during operations.
+    A CLI-based handler prompts the user for input when requests come in.
+
+    Args:
+        server_name: Name of the loaded MCP server
+
+    Returns:
+        Success message or error
+    """
+    client = _get_mcp_client(server_name)
+    if not client:
+        return (
+            f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+        )
+
+    try:
+        callback = _create_cli_elicitation_handler(server_name)
+        client.set_elicitation_callback(callback)
+        return f"Elicitation enabled for server '{server_name}'. Server can now request user input."
+    except Exception as e:
+        logger.error(f"Failed to enable elicitation for {server_name}: {e}")
+        return f"Error enabling elicitation: {e}"
+
+
+def disable_mcp_elicitation(server_name: str) -> str:
+    """
+    Disable elicitation support for an MCP server.
+
+    Args:
+        server_name: Name of the loaded MCP server
+
+    Returns:
+        Success message or error
+    """
+    client = _get_mcp_client(server_name)
+    if not client:
+        return (
+            f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
+        )
+
+    try:
+        client.set_elicitation_callback(None)
+        return f"Elicitation disabled for server '{server_name}'."
+    except Exception as e:
+        logger.error(f"Failed to disable elicitation for {server_name}: {e}")
+        return f"Error disabling elicitation: {e}"
+
+
+def get_mcp_elicitation_status(server_name: str | None = None) -> str:
+    """
+    Get elicitation status for MCP servers.
+
+    Args:
+        server_name: Optional server name. If provided, shows status for that server.
+                     If None, shows status for all loaded servers.
+
+    Returns:
+        Formatted elicitation status
+    """
+    if server_name:
+        client = _get_mcp_client(server_name)
+        if not client:
+            return f"Server '{server_name}' is not loaded."
+
+        enabled = client._elicitation_callback is not None
+        status = "✅ Enabled" if enabled else "❌ Disabled"
+        return f"Elicitation for '{server_name}': {status}"
+    else:
+        # Show status for all loaded servers
+        all_clients = {**_mcp_clients, **_dynamic_servers}
+        if not all_clients:
+            return "No MCP servers loaded."
+
+        output = ["# Elicitation Status\n"]
+        for name, client in all_clients.items():
+            enabled = client._elicitation_callback is not None
+            status = "✅ Enabled" if enabled else "❌ Disabled"
+            output.append(f"- **{name}**: {status}")
+        return "\n".join(output)

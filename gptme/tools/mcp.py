@@ -28,6 +28,9 @@ from .base import (
 )
 from .mcp_adapter import (
     add_mcp_root,
+    disable_mcp_elicitation,
+    enable_mcp_elicitation,
+    get_mcp_elicitation_status,
     get_mcp_prompt,
     get_mcp_server_info,
     list_loaded_servers,
@@ -269,6 +272,35 @@ def execute_mcp(
             result = remove_mcp_root(remove_server_name, remove_uri)
             yield Message("system", result)
 
+        elif command.startswith("elicitation enable"):
+            # elicitation enable <server-name>
+            parts = command.split()
+            if len(parts) < 3:
+                yield Message("system", "Usage: elicitation enable <server-name>")
+                return
+
+            elicit_server = parts[2]
+            result = enable_mcp_elicitation(elicit_server)
+            yield Message("system", result)
+
+        elif command.startswith("elicitation disable"):
+            # elicitation disable <server-name>
+            parts = command.split()
+            if len(parts) < 3:
+                yield Message("system", "Usage: elicitation disable <server-name>")
+                return
+
+            elicit_server = parts[2]
+            result = disable_mcp_elicitation(elicit_server)
+            yield Message("system", result)
+
+        elif command.startswith("elicitation status"):
+            # elicitation status [server-name]
+            parts = command.split()
+            status_server: str | None = parts[2] if len(parts) > 2 else None
+            result = get_mcp_elicitation_status(status_server)
+            yield Message("system", result)
+
         else:
             yield Message(
                 "system",
@@ -286,7 +318,10 @@ def execute_mcp(
                 "  prompts get <server> <name> [args] - Get a prompt\n"
                 "  roots list [server] - List configured roots\n"
                 "  roots add <server> <uri> [name] - Add a root\n"
-                "  roots remove <server> <uri> - Remove a root",
+                "  roots remove <server> <uri> - Remove a root\n"
+                "  elicitation enable <server> - Enable elicitation for a server\n"
+                "  elicitation disable <server> - Disable elicitation\n"
+                "  elicitation status [server] - Show elicitation status",
             )
 
     except Exception as e:
