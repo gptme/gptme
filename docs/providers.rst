@@ -47,14 +47,14 @@ You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses th
 
 **Setup:**
 
-1. Log into chatgpt.com in your browser
-2. Open DevTools (F12) → Application → Cookies
-3. Copy the value of ``__Secure-next-auth.session-token``
-4. Set the environment variable:
+Authenticate using the OAuth command (opens browser for login):
 
 .. code-block:: sh
 
-    export OPENAI_SUBSCRIPTION_SESSION_TOKEN='your-session-token'
+    gptme-auth openai-subscription
+
+This stores credentials locally at ``~/.config/gptme/oauth/openai_subscription.json``.
+Access tokens are automatically refreshed before expiry, so you only need to authenticate once.
 
 **Usage:**
 
@@ -64,19 +64,26 @@ You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses th
     gptme "hello" -m openai-subscription/gpt-5.2-codex
     gptme "hello" -m openai-subscription/gpt-5.1
 
+You can also append reasoning levels: ``:low``, ``:medium``, ``:high``, or ``:xhigh``:
+
+.. code-block:: sh
+
+    gptme "solve this problem" -m openai-subscription/gpt-5.2:high
+
 **Available Models:**
 
 - ``gpt-5.2`` - Latest GPT model with reasoning capabilities
 - ``gpt-5.2-codex`` - Optimized for code tasks
 - ``gpt-5.1-codex-max`` - Maximum capability variant
 - ``gpt-5.1-codex`` - Code-optimized
+- ``gpt-5.1-codex-mini`` - Smaller code-optimized variant
 - ``gpt-5.1`` - Previous generation
 
 .. note::
 
     This is for **personal development use** with your own ChatGPT Plus/Pro subscription.
     For production or multi-user applications, use the OpenAI Platform API.
-    Session tokens typically expire after ~1 hour and will need to be refreshed.
+    OAuth credentials are stored locally and access tokens are refreshed automatically.
 
 .. rubric:: Local
 

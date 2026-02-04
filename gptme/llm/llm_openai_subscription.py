@@ -155,8 +155,8 @@ def _get_token_expiry(access_token: str) -> float:
         payload = _decode_jwt_payload(access_token)
         if "exp" in payload:
             return float(payload["exp"])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to extract token expiry: {e}")
     return time.time() + 3600
 
 
@@ -206,8 +206,11 @@ def _is_port_available(port: int) -> bool:
 class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     """HTTP handler for OAuth callback."""
 
+    # Thread-safe state using class variables (single OAuth flow at a time)
+    # Protected by port check - only one flow can run on OAUTH_CALLBACK_PORT
     authorization_code: str | None = None
     error: str | None = None
+    expected_state: str | None = None  # Set before starting server
 
     def log_message(self, format: str, *args: Any) -> None:
         pass
@@ -215,6 +218,15 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
+
+        # Validate state parameter to prevent CSRF attacks
+        received_state = params.get("state", [None])[0]
+        if received_state != _OAuthCallbackHandler.expected_state:
+            _OAuthCallbackHandler.error = (
+                "Invalid state parameter (possible CSRF attack)"
+            )
+            self._send_error_response("Security error: Invalid state parameter")
+            return
 
         if "code" in params:
             _OAuthCallbackHandler.authorization_code = params["code"][0]
@@ -284,14 +296,16 @@ def oauth_authenticate() -> SubscriptionAuth:
     }
     auth_url = f"{OAUTH_AUTH_URL}?{urlencode(auth_params)}"
 
+    # Reset handler state (protected by port check - only one flow at a time)
     _OAuthCallbackHandler.authorization_code = None
     _OAuthCallbackHandler.error = None
+    _OAuthCallbackHandler.expected_state = state  # For CSRF validation
 
     server = http.server.HTTPServer(
         ("127.0.0.1", OAUTH_CALLBACK_PORT),
         _OAuthCallbackHandler,
     )
-    server.timeout = 300
+    server.timeout = 120  # 2 minutes should be sufficient for browser auth
 
     print("\n🔐 Opening browser for OpenAI authentication...")
     print(f"   If browser doesn't open, visit: {auth_url[:80]}...")

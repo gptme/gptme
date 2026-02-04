@@ -168,6 +168,15 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
         },
+        "gpt-5.1-codex-mini": {
+            "context": 128_000,
+            "max_output": 16_000,
+            "price_input": 0,
+            "price_output": 0,
+            "supports_streaming": True,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        },
         "gpt-5.1": {
             "context": 128_000,
             "max_output": 16_000,
