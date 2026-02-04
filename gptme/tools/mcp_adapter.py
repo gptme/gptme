@@ -889,9 +889,21 @@ def _create_cli_elicitation_handler(server_name: str):
 
                     # Convert to appropriate type
                     if field_type == "integer":
-                        content[field_name] = int(user_input) if user_input else None
+                        try:
+                            content[field_name] = (
+                                int(user_input) if user_input else None
+                            )
+                        except ValueError:
+                            print(f"   ⚠️  Invalid integer value: {user_input!r}")
+                            content[field_name] = None
                     elif field_type == "number":
-                        content[field_name] = float(user_input) if user_input else None
+                        try:
+                            content[field_name] = (
+                                float(user_input) if user_input else None
+                            )
+                        except ValueError:
+                            print(f"   ⚠️  Invalid number value: {user_input!r}")
+                            content[field_name] = None
                     elif field_type == "boolean":
                         content[field_name] = user_input.lower() in (
                             "true",
