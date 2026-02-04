@@ -367,8 +367,14 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
     - 5xx server errors (500-599): Internal errors, bad gateway, service unavailable, etc.
     - 429 rate limit errors: Should back off and retry
     - Connection errors: Network issues, timeouts
+    - httpx transport/protocol errors: Incomplete reads, server disconnects mid-stream
     """
     from openai import APIConnectionError, APIStatusError, RateLimitError  # fmt: skip
+
+    try:
+        import httpx
+    except ImportError:
+        httpx = None  # type: ignore
 
     # Allow tests to override max_retries via environment variable
     # This breaks out of the retry loop early to prevent test timeouts
@@ -389,6 +395,9 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
         should_retry = True
     elif isinstance(e, APIConnectionError):
         # Connection errors are transient
+        should_retry = True
+    elif httpx is not None and isinstance(e, httpx.NetworkError | httpx.ProtocolError):
+        # httpx transport/protocol errors (server disconnects mid-stream, incomplete reads)
         should_retry = True
     elif isinstance(e, APIStatusError):
         # Retry on all 5xx server errors (transient)
