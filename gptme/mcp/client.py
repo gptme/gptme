@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from collections.abc import Callable, Coroutine
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -11,6 +12,12 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from gptme.config import Config, get_config
+
+# Type alias for elicitation callback
+ElicitationCallback = Callable[
+    [types.ElicitRequestParams],
+    Coroutine[Any, Any, types.ElicitResult | types.ErrorData],
+]
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +65,7 @@ class MCPClient:
         self.tools: types.ListToolsResult | None = None
         self.stack: AsyncExitStack | None = None
         self.roots: list[types.Root] = []
+        self._elicitation_callback: ElicitationCallback | None = None
 
     def _run_async(self, coro):
         """Run a coroutine in the event loop.
@@ -115,6 +123,36 @@ class MCPClient:
         logger.debug(f"Server requested roots list, returning {len(self.roots)} roots")
         return types.ListRootsResult(roots=self.roots)
 
+    async def _elicitation_callback_wrapper(
+        self,
+        context: RequestContext["ClientSession", Any],
+        params: types.ElicitRequestParams,
+    ) -> types.ElicitResult | types.ErrorData:
+        """Callback for servers to request user input via elicitation.
+
+        This callback is invoked when an MCP server sends an elicitation/create request.
+        """
+        logger.debug(f"Server requested elicitation: {params.message}")
+        if self._elicitation_callback is None:
+            logger.warning("Elicitation requested but no callback configured")
+            return types.ElicitResult(action="decline", content=None)
+        try:
+            result = await self._elicitation_callback(params)
+            return result
+        except Exception as e:
+            logger.error(f"Elicitation callback error: {e}")
+            return types.ErrorData(code=-32000, message=str(e))
+
+    def set_elicitation_callback(self, callback: ElicitationCallback | None) -> None:
+        """Set the callback for handling elicitation requests from MCP servers.
+
+        Args:
+            callback: Async function that takes ElicitRequestParams and returns
+                      ElicitResult or ErrorData. Set to None to disable elicitation.
+        """
+        self._elicitation_callback = callback
+        logger.debug(f"Elicitation callback {'set' if callback else 'cleared'}")
+
     async def _setup_stdio_connection(
         self, server_params
     ) -> tuple[types.ListToolsResult, ClientSession]:
@@ -129,7 +167,12 @@ class MCPClient:
             read, write = transport
 
             csession = ClientSession(
-                read, write, list_roots_callback=self._list_roots_callback
+                read,
+                write,
+                list_roots_callback=self._list_roots_callback,
+                elicitation_callback=self._elicitation_callback_wrapper
+                if self._elicitation_callback
+                else None,
             )
             session = await self.stack.enter_async_context(csession)
             self.session = session  # Assign to self.session after the await
@@ -167,7 +210,12 @@ class MCPClient:
             read, write, _ = transport
 
             csession = ClientSession(
-                read, write, list_roots_callback=self._list_roots_callback
+                read,
+                write,
+                list_roots_callback=self._list_roots_callback,
+                elicitation_callback=self._elicitation_callback_wrapper
+                if self._elicitation_callback
+                else None,
             )
             session = await self.stack.enter_async_context(csession)
             self.session = session
