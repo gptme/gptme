@@ -26,6 +26,7 @@ _DATE_SUFFIX_PATTERN = re.compile(r"-\d{8}$")
 # Built-in providers (static list)
 BuiltinProvider = Literal[
     "openai",
+    "openai-subscription",
     "anthropic",
     "azure",
     "openrouter",
@@ -126,6 +127,30 @@ _default_model_var: ContextVar[ModelMeta | None] = ContextVar(
 # TODO: can we get this from the API?
 MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     "openai": OPENAI_MODELS,
+    # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
+    # Price is effectively 0 since using existing subscription
+    # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
+    # All models share same specs; price is 0 since using existing subscription
+    # Format: model or model:reasoning_level (low/medium/high/xhigh)
+    "openai-subscription": {
+        model: {
+            "context": 128_000,
+            "max_output": 16_000,
+            "price_input": 0,
+            "price_output": 0,
+            "supports_streaming": True,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        }
+        for model in [
+            "gpt-5.2",
+            "gpt-5.2-codex",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex",
+            "gpt-5.1-codex-mini",
+            "gpt-5.1",
+        ]
+    },
     # https://docs.anthropic.com/en/docs/about-claude/models
     "anthropic": {
         "claude-opus-4-5": {
@@ -550,6 +575,11 @@ def get_model(model: str) -> ModelMeta:
             lookup_model_name = model_name
             if provider == "openrouter" and "@" in model_name:
                 lookup_model_name = model_name.split("@")[0]
+
+            # For openai-subscription, strip reasoning level suffix (e.g., :high, :medium)
+            # The full model name with suffix is used for API calls, but MODELS dict uses base name
+            if provider == "openai-subscription" and ":" in model_name:
+                lookup_model_name = model_name.rsplit(":", 1)[0]
 
             # First try static MODELS dict for performance
             if provider in MODELS and lookup_model_name in MODELS[provider]:
