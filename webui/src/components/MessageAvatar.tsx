@@ -8,9 +8,16 @@ interface MessageAvatarProps {
   isError$?: Observable<boolean>;
   isSuccess$?: Observable<boolean>;
   chainType$: Observable<'start' | 'middle' | 'end' | 'standalone'>;
+  avatarUrl?: string;
 }
 
-export function MessageAvatar({ role$, isError$, isSuccess$, chainType$ }: MessageAvatarProps) {
+export function MessageAvatar({
+  role$,
+  isError$,
+  isSuccess$,
+  chainType$,
+  avatarUrl,
+}: MessageAvatarProps) {
   const role = use$(role$);
   const isError = use$(isError$);
   const isSuccess = use$(isSuccess$);
@@ -24,13 +31,38 @@ export function MessageAvatar({ role$, isError$, isSuccess$, chainType$ }: Messa
     role === 'user'
       ? 'bg-blue-600 text-white right-0'
       : role === 'assistant'
-        ? 'bg-gptme-600 text-white left-0'
+        ? avatarUrl
+          ? 'left-0 overflow-hidden'
+          : 'bg-gptme-600 text-white left-0'
         : isError
           ? 'bg-red-800 text-red-100'
           : isSuccess
             ? 'bg-green-800 text-green-100'
             : 'bg-slate-500 text-white left-0'
   }`;
+
+  // Render custom avatar image for assistant if available
+  if (role === 'assistant' && avatarUrl) {
+    return (
+      <div className={avatarClasses}>
+        <img
+          src={avatarUrl}
+          alt="Agent avatar"
+          className="w-full h-full object-cover rounded-full"
+          onError={(e) => {
+            // Fall back to Bot icon if image fails to load
+            const target = e.currentTarget;
+            target.style.display = 'none';
+            target.parentElement!.classList.add('bg-gptme-600', 'text-white');
+            // Create and append Bot icon fallback
+            const fallback = document.createElement('span');
+            fallback.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>`;
+            target.parentElement!.appendChild(fallback);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={avatarClasses}>
