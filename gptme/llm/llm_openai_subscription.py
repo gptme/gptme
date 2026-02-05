@@ -41,7 +41,7 @@ from ..message import Message
 
 logger = logging.getLogger(__name__)
 
-from typing import TypedDict
+from .models import MODELS
 
 # OAuth Configuration (from opencode)
 OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -55,38 +55,6 @@ OAUTH_AUDIENCE = "https://api.openai.com"
 # ChatGPT backend API base URL
 CHATGPT_BASE_URL = "https://chatgpt.com"
 CODEX_ENDPOINT = f"{CHATGPT_BASE_URL}/backend-api/codex/responses"
-
-
-class _SubscriptionModelInfo(TypedDict):
-    context: int
-    reasoning_levels: list[str]
-
-
-# Available models through subscription
-SUBSCRIPTION_MODELS: dict[str, _SubscriptionModelInfo] = {
-    "gpt-5.2": {
-        "context": 128_000,
-        "reasoning_levels": ["none", "low", "medium", "high", "xhigh"],
-    },
-    "gpt-5.2-codex": {
-        "context": 128_000,
-        "reasoning_levels": ["low", "medium", "high", "xhigh"],
-    },
-    "gpt-5.1-codex-max": {
-        "context": 128_000,
-        "reasoning_levels": ["low", "medium", "high", "xhigh"],
-    },
-    "gpt-5.1-codex": {
-        "context": 128_000,
-        "reasoning_levels": ["low", "medium", "high"],
-    },
-    "gpt-5.1-codex-mini": {"context": 128_000, "reasoning_levels": ["medium", "high"]},
-    "gpt-5.1": {
-        "context": 128_000,
-        "reasoning_levels": ["none", "low", "medium", "high"],
-    },
-    # Reasoning level variants
-}
 
 
 def _get_token_storage_path() -> Path:
@@ -458,15 +426,8 @@ def _transform_to_codex_request(
         reasoning_level = model.split(":")[1]
 
     if reasoning_level is None:
-        model_info = SUBSCRIPTION_MODELS.get(base_model)
-        if model_info:
-            levels = model_info.get("reasoning_levels", ["medium"])
-            if levels:
-                reasoning_level = "medium" if "medium" in levels else levels[0]
-            else:
-                reasoning_level = "medium"
-        else:
-            reasoning_level = "medium"
+        # Default to medium reasoning level - supported by all subscription models
+        reasoning_level = "medium"
 
     return {
         "model": base_model,
@@ -616,4 +577,4 @@ def init(config: Any) -> bool:
 
 def get_models() -> list[str]:
     """Return available models for subscription provider."""
-    return list(SUBSCRIPTION_MODELS.keys())
+    return list(MODELS.get("openai-subscription", {}).keys())
