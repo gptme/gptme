@@ -41,8 +41,6 @@ from ..message import Message
 
 logger = logging.getLogger(__name__)
 
-from .models import MODELS
-
 # OAuth Configuration (from opencode)
 OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 OAUTH_AUTH_URL = "https://auth.openai.com/oauth/authorize"
@@ -573,8 +571,3 @@ def init(config: Any) -> bool:
         "(run 'gptme auth openai-subscription' to authenticate)"
     )
     return True
-
-
-def get_models() -> list[str]:
-    """Return available models for subscription provider."""
-    return list(MODELS.get("openai-subscription", {}).keys())

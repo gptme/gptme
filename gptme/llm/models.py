@@ -129,10 +129,11 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     "openai": OPENAI_MODELS,
     # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
     # Price is effectively 0 since using existing subscription
+    # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
+    # All models share same specs; price is 0 since using existing subscription
+    # Format: model or model:reasoning_level (low/medium/high/xhigh)
     "openai-subscription": {
-        # Base models and reasoning level variants
-        # Format: model or model:reasoning_level (low/medium/high/xhigh)
-        "gpt-5.2": {
+        model: {
             "context": 128_000,
             "max_output": 16_000,
             "price_input": 0,
@@ -140,52 +141,15 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_streaming": True,
             "supports_vision": True,
             "supports_reasoning": True,
-        },
-        "gpt-5.2-codex": {
-            "context": 128_000,
-            "max_output": 16_000,
-            "price_input": 0,
-            "price_output": 0,
-            "supports_streaming": True,
-            "supports_vision": True,
-            "supports_reasoning": True,
-        },
-        "gpt-5.1-codex-max": {
-            "context": 128_000,
-            "max_output": 16_000,
-            "price_input": 0,
-            "price_output": 0,
-            "supports_streaming": True,
-            "supports_vision": True,
-            "supports_reasoning": True,
-        },
-        "gpt-5.1-codex": {
-            "context": 128_000,
-            "max_output": 16_000,
-            "price_input": 0,
-            "price_output": 0,
-            "supports_streaming": True,
-            "supports_vision": True,
-            "supports_reasoning": True,
-        },
-        "gpt-5.1-codex-mini": {
-            "context": 128_000,
-            "max_output": 16_000,
-            "price_input": 0,
-            "price_output": 0,
-            "supports_streaming": True,
-            "supports_vision": True,
-            "supports_reasoning": True,
-        },
-        "gpt-5.1": {
-            "context": 128_000,
-            "max_output": 16_000,
-            "price_input": 0,
-            "price_output": 0,
-            "supports_streaming": True,
-            "supports_vision": True,
-            "supports_reasoning": True,
-        },
+        }
+        for model in [
+            "gpt-5.2",
+            "gpt-5.2-codex",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex",
+            "gpt-5.1-codex-mini",
+            "gpt-5.1",
+        ]
     },
     # https://docs.anthropic.com/en/docs/about-claude/models
     "anthropic": {
