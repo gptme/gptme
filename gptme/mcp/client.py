@@ -153,6 +153,14 @@ class MCPClient:
         self._elicitation_callback = callback
         logger.debug(f"Elicitation callback {'set' if callback else 'cleared'}")
 
+    def has_elicitation_callback(self) -> bool:
+        """Check if an elicitation callback is set.
+
+        Returns:
+            True if elicitation is enabled, False otherwise.
+        """
+        return self._elicitation_callback is not None
+
     async def _setup_stdio_connection(
         self, server_params
     ) -> tuple[types.ListToolsResult, ClientSession]:
