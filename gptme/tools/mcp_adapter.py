@@ -917,6 +917,23 @@ def _create_cli_elicitation_handler(server_name: str):
                     print("\n   Input cancelled.")
                     return mcp_types.ElicitResult(action="cancel", content=None)
 
+        # Validate required fields
+        if schema and "required" in schema:
+            required_fields = schema.get("required", [])
+            missing_fields = [
+                f
+                for f in required_fields
+                if f not in content or content[f] is None or content[f] == ""
+            ]
+            if missing_fields:
+                print(f"   ⚠️  Missing required fields: {', '.join(missing_fields)}")
+                retry = confirm("Would you like to re-enter the values?", default=True)
+                if retry:
+                    # Recursively call to re-collect input
+                    return await cli_elicitation_callback(params)
+                else:
+                    return mcp_types.ElicitResult(action="decline", content=None)
+
         return mcp_types.ElicitResult(action="accept", content=content)
 
     return cli_elicitation_callback
@@ -990,7 +1007,7 @@ def get_mcp_elicitation_status(server_name: str | None = None) -> str:
         if not client:
             return f"Server '{server_name}' is not loaded."
 
-        enabled = client._elicitation_callback is not None
+        enabled = client.has_elicitation_callback()
         status = "✅ Enabled" if enabled else "❌ Disabled"
         return f"Elicitation for '{server_name}': {status}"
     else:
@@ -1001,7 +1018,7 @@ def get_mcp_elicitation_status(server_name: str | None = None) -> str:
 
         output = ["# Elicitation Status\n"]
         for name, client in all_clients.items():
-            enabled = client._elicitation_callback is not None
+            enabled = client.has_elicitation_callback()
             status = "✅ Enabled" if enabled else "❌ Disabled"
             output.append(f"- **{name}**: {status}")
         return "\n".join(output)
