@@ -20,7 +20,7 @@ from .dirs import get_project_git_dir
 from .llm.models import get_model, get_recommended_model
 from .message import Message, len_tokens
 from .tools import ToolFormat, ToolSpec, get_available_tools
-from .util import document_prompt_function
+from .util import document_prompt_function, safe_read_text
 from .util.content import extract_content_summary
 from .util.context import md_codeblock
 from .util.tree import get_tree_output
@@ -519,7 +519,11 @@ def prompt_workspace(
     files_str = []
     for file in files:
         if file.exists():
-            files_str.append(md_codeblock(file.resolve(), file.read_text()))
+            content = safe_read_text(file)
+            if content is not None:
+                files_str.append(md_codeblock(file.resolve(), content))
+            else:
+                logger.debug(f"Skipping binary or unreadable file: {file}")
     if files_str:
         sections.append(
             "## Selected files\n\nRead more with `cat`.\n\n" + "\n\n".join(files_str)

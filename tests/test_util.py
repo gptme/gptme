@@ -114,3 +114,96 @@ blah
 </system>
 """.strip()
     )
+
+
+"""Tests for gptme.util module."""
+
+import tempfile
+from pathlib import Path
+
+from gptme.util import safe_read_text
+
+
+def test_safe_read_text_normal_file():
+    """Test reading a normal text file."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("Hello, world!")
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        content = safe_read_text(path)
+        assert content == "Hello, world!"
+    finally:
+        path.unlink()
+
+
+def test_safe_read_text_binary_png():
+    """Test that PNG files are detected as binary and return None."""
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        # Write PNG magic bytes
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(b"\x00" * 100)  # Some binary content
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        content = safe_read_text(path)
+        assert content is None
+    finally:
+        path.unlink()
+
+
+def test_safe_read_text_binary_jpeg():
+    """Test that JPEG files are detected as binary and return None."""
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+        # Write JPEG magic bytes
+        f.write(b"\xff\xd8\xff\xe0")
+        f.write(b"\x00" * 100)
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        content = safe_read_text(path)
+        assert content is None
+    finally:
+        path.unlink()
+
+
+def test_safe_read_text_file_with_null_bytes():
+    """Test that files with null bytes are detected as binary."""
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
+        f.write(b"some\x00binary\x00content")
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        content = safe_read_text(path)
+        assert content is None
+    finally:
+        path.unlink()
+
+
+def test_safe_read_text_invalid_utf8():
+    """Test that invalid UTF-8 is handled with replacement characters."""
+    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+        # Write text with invalid UTF-8 sequence (but not binary signature)
+        f.write(b"Hello \x80\x81 World")  # Invalid UTF-8 bytes
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        content = safe_read_text(path)
+        # Should replace invalid bytes with replacement character
+        assert content is not None
+        assert "Hello" in content
+        assert "World" in content
+    finally:
+        path.unlink()
+
+
+def test_safe_read_text_nonexistent_file():
+    """Test that nonexistent files return None."""
+    path = Path("/nonexistent/file/path.txt")
+    content = safe_read_text(path)
+    assert content is None

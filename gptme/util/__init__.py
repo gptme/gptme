@@ -18,6 +18,64 @@ from rich.console import Console
 EMOJI_WARN = "⚠️"
 
 logger = logging.getLogger(__name__)
+
+
+def safe_read_text(path: Path, errors: str = "replace") -> str | None:
+    """
+    Safely read a text file, handling binary files and encoding errors.
+
+    Args:
+        path: Path to the file to read
+        errors: How to handle encoding errors ('replace', 'ignore', 'strict')
+               Default 'replace' replaces invalid bytes with replacement character
+
+    Returns:
+        File contents as string, or None if file appears to be binary
+
+    Binary detection:
+        - Checks for common binary file signatures (PNG, JPEG, GIF, PDF, etc.)
+        - Returns None for detected binary files
+    """
+    # Common binary file signatures (magic bytes)
+    BINARY_SIGNATURES = [
+        b"\x89PNG",  # PNG
+        b"\xff\xd8\xff",  # JPEG
+        b"GIF8",  # GIF
+        b"%PDF",  # PDF
+        b"PK\x03\x04",  # ZIP/DOCX/etc
+        b"\x7fELF",  # ELF executable
+        b"MZ",  # Windows executable
+        b"\x00\x00\x01\x00",  # ICO
+        b"RIFF",  # WAV/AVI
+        b"\x1f\x8b",  # GZIP
+        b"BZh",  # BZIP2
+        b"\xfd7zXZ",  # XZ
+    ]
+
+    try:
+        # Read first few bytes to check for binary signature
+        with open(path, "rb") as f:
+            header = f.read(8)
+
+        # Check for binary signatures
+        for sig in BINARY_SIGNATURES:
+            if header.startswith(sig):
+                logger.debug(f"Skipping binary file: {path}")
+                return None
+
+        # Check for null bytes (common in binary files)
+        if b"\x00" in header:
+            logger.debug(f"Skipping file with null bytes: {path}")
+            return None
+
+        # Try to read as text with error handling
+        return path.read_text(errors=errors)
+
+    except OSError as e:
+        logger.warning(f"Could not read file {path}: {e}")
+        return None
+
+
 console = Console(log_path=False)
 
 
