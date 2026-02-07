@@ -1,8 +1,11 @@
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 from gptme.util import (
     epoch_to_age,
     example_to_xml,
+    safe_read_text,
     transform_examples_to_chat_directives,
 )
 from gptme.util.generate_name import generate_name, is_generated_name
@@ -114,14 +117,6 @@ blah
 </system>
 """.strip()
     )
-
-
-"""Tests for gptme.util module."""
-
-import tempfile
-from pathlib import Path
-
-from gptme.util import safe_read_text
 
 
 def test_safe_read_text_normal_file():
