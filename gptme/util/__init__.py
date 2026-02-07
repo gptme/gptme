@@ -96,7 +96,7 @@ def safe_read_text(path: Path, errors: str = "replace") -> str | None:
     """
     file_type, _ = detect_binary_type(path)
     if file_type:
-        logger.debug(f"Detected binary file ({file_type}): {path}")
+        logger.warning(f"Skipping binary file in workspace ({file_type}): {path}")
         return None
 
     try:
