@@ -202,3 +202,56 @@ def test_safe_read_text_nonexistent_file():
     path = Path("/nonexistent/file/path.txt")
     content = safe_read_text(path)
     assert content is None
+
+
+def test_detect_binary_type_png():
+    """Test that PNG files are detected as images."""
+    from gptme.util import detect_binary_type
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        # PNG magic bytes
+        f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        file_type, is_image = detect_binary_type(path)
+        assert file_type == "PNG"
+        assert is_image is True
+    finally:
+        path.unlink()
+
+
+def test_detect_binary_type_pdf():
+    """Test that PDF files are detected as non-image binary."""
+    from gptme.util import detect_binary_type
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        # PDF magic bytes
+        f.write(b"%PDF-1.4" + b"\x00" * 100)
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        file_type, is_image = detect_binary_type(path)
+        assert file_type == "PDF"
+        assert is_image is False
+    finally:
+        path.unlink()
+
+
+def test_detect_binary_type_text():
+    """Test that text files are not detected as binary."""
+    from gptme.util import detect_binary_type
+
+    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w") as f:
+        f.write("Hello, world!")
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        file_type, is_image = detect_binary_type(path)
+        assert file_type is None
+        assert is_image is False
+    finally:
+        path.unlink()

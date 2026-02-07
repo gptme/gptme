@@ -20,6 +20,64 @@ EMOJI_WARN = "⚠️"
 logger = logging.getLogger(__name__)
 
 
+# Binary file type classification
+BINARY_IMAGE_SIGNATURES = [
+    (b"\x89PNG", "PNG"),
+    (b"\xff\xd8\xff", "JPEG"),
+    (b"GIF8", "GIF"),
+    (b"\x00\x00\x01\x00", "ICO"),
+    (b"RIFF", "WEBP"),  # WEBP uses RIFF container
+]
+
+BINARY_OTHER_SIGNATURES = [
+    (b"%PDF", "PDF"),
+    (b"PK\x03\x04", "ZIP"),
+    (b"\x7fELF", "ELF"),
+    (b"MZ", "EXE"),
+    (b"\x1f\x8b", "GZIP"),
+    (b"BZh", "BZIP2"),
+    (b"\xfd7zXZ", "XZ"),
+]
+
+
+def detect_binary_type(path: Path) -> tuple[str | None, bool]:
+    """
+    Detect if a file is binary and whether it's an image.
+
+    Args:
+        path: Path to the file to check
+
+    Returns:
+        Tuple of (file_type, is_image) where:
+        - file_type is None if not binary, or a string like "PNG", "PDF", etc.
+        - is_image is True if the file is an image format
+    """
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)  # Read enough for WEBP detection
+    except OSError:
+        return None, False
+
+    # Check image signatures first
+    for sig, file_type in BINARY_IMAGE_SIGNATURES:
+        if header.startswith(sig):
+            # Special case for WEBP: RIFF....WEBP
+            if file_type == "WEBP" and b"WEBP" not in header:
+                continue
+            return file_type, True
+
+    # Check other binary signatures
+    for sig, file_type in BINARY_OTHER_SIGNATURES:
+        if header.startswith(sig):
+            return file_type, False
+
+    # Check for null bytes (common in binary files)
+    if b"\x00" in header:
+        return "binary", False
+
+    return None, False
+
+
 def safe_read_text(path: Path, errors: str = "replace") -> str | None:
     """
     Safely read a text file, handling binary files and encoding errors.
@@ -36,38 +94,12 @@ def safe_read_text(path: Path, errors: str = "replace") -> str | None:
         - Checks for common binary file signatures (PNG, JPEG, GIF, PDF, etc.)
         - Returns None for detected binary files
     """
-    # Common binary file signatures (magic bytes)
-    BINARY_SIGNATURES = [
-        b"\x89PNG",  # PNG
-        b"\xff\xd8\xff",  # JPEG
-        b"GIF8",  # GIF
-        b"%PDF",  # PDF
-        b"PK\x03\x04",  # ZIP/DOCX/etc
-        b"\x7fELF",  # ELF executable
-        b"MZ",  # Windows executable
-        b"\x00\x00\x01\x00",  # ICO
-        b"RIFF",  # WAV/AVI
-        b"\x1f\x8b",  # GZIP
-        b"BZh",  # BZIP2
-        b"\xfd7zXZ",  # XZ
-    ]
+    file_type, _ = detect_binary_type(path)
+    if file_type:
+        logger.debug(f"Detected binary file ({file_type}): {path}")
+        return None
 
     try:
-        # Read first few bytes to check for binary signature
-        with open(path, "rb") as f:
-            header = f.read(8)
-
-        # Check for binary signatures
-        for sig in BINARY_SIGNATURES:
-            if header.startswith(sig):
-                logger.debug(f"Skipping binary file: {path}")
-                return None
-
-        # Check for null bytes (common in binary files)
-        if b"\x00" in header:
-            logger.debug(f"Skipping file with null bytes: {path}")
-            return None
-
         # Try to read as text with error handling
         return path.read_text(errors=errors)
 

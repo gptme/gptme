@@ -20,10 +20,11 @@ from .dirs import get_project_git_dir
 from .llm.models import get_model, get_recommended_model
 from .message import Message, len_tokens
 from .tools import ToolFormat, ToolSpec, get_available_tools
-from .util import document_prompt_function, safe_read_text
+from .util import detect_binary_type, document_prompt_function, safe_read_text
 from .util.content import extract_content_summary
 from .util.context import md_codeblock
 from .util.tree import get_tree_output
+from .util.uri import FilePath
 
 # Default files to include in context when no gptme.toml is present or files list is empty
 DEFAULT_CONTEXT_FILES = [
@@ -517,13 +518,26 @@ def prompt_workspace(
         sections.append(f"## Project Structure\n\n{md_codeblock('', tree_output)}\n\n")
 
     files_str = []
+    image_files: list[FilePath] = []
     for file in files:
         if file.exists():
-            content = safe_read_text(file)
-            if content is not None:
-                files_str.append(md_codeblock(file.resolve(), content))
+            # Check if it's a binary file and if it's an image
+            file_type, is_image = detect_binary_type(file)
+            if file_type:
+                if is_image:
+                    # Collect images to attach to the message
+                    image_files.append(file.resolve())
+                    logger.info(f"Including image file as attachment: {file}")
+                else:
+                    # Non-image binary files are skipped with informative logging
+                    logger.info(f"Skipping binary file ({file_type}): {file}")
             else:
-                logger.debug(f"Skipping binary or unreadable file: {file}")
+                # Text file - read and include content
+                content = safe_read_text(file)
+                if content is not None:
+                    files_str.append(md_codeblock(file.resolve(), content))
+                else:
+                    logger.warning(f"Failed to read text file: {file}")
     if files_str:
         sections.append(
             "## Selected files\n\nRead more with `cat`.\n\n" + "\n\n".join(files_str)
@@ -539,8 +553,13 @@ def prompt_workspace(
     ):
         sections.append("## Computed context\n\n" + cmd_output)
 
-    if sections:
-        yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
+    if sections or image_files:
+        msg = Message(
+            "system",
+            f"# {title}\n\n" + "\n\n".join(sections),
+            files=image_files if image_files else [],
+        )
+        yield msg
 
 
 # Maximum characters for context_cmd output to prevent context explosion
