@@ -647,7 +647,7 @@ def _resource_to_codeblock(
         if urls:
             logger.debug(f"{urls=}")
     for path in paths:
-        result += _resource_to_codeblock(path) or ""
+        result += _resource_to_codeblock(path, confirmed_urls) or ""
 
     for url in urls:
         # Skip URLs that weren't confirmed (if confirmation list is provided)
