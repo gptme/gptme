@@ -301,3 +301,154 @@ def test_is_interactive_mode():
     # (This test runs outside the normal CLI context)
     result = _is_interactive_mode()
     assert isinstance(result, bool)
+
+
+def test_confirm_urls_decline_all(monkeypatch):
+    """Test _confirm_urls declining all URLs."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return "n"
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    urls = ["http://example.com", "http://test.com"]
+    result = _confirm_urls(urls)
+    assert result == []
+
+
+def test_confirm_urls_decline_no(monkeypatch):
+    """Test _confirm_urls declining with 'no'."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return "no"
+    monkeypatch.setattr("builtins.input", lambda prompt: "no")
+    urls = ["http://example.com", "http://test.com"]
+    result = _confirm_urls(urls)
+    assert result == []
+
+
+def test_confirm_urls_accept_all_empty(monkeypatch):
+    """Test _confirm_urls accepting all URLs with empty input."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return "" (default to yes)
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    urls = ["http://example.com", "http://test.com"]
+    result = _confirm_urls(urls)
+    assert result == urls
+
+
+def test_confirm_urls_accept_all_yes(monkeypatch):
+    """Test _confirm_urls accepting all URLs with 'yes'."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return "yes"
+    monkeypatch.setattr("builtins.input", lambda prompt: "yes")
+    urls = ["http://example.com", "http://test.com"]
+    result = _confirm_urls(urls)
+    assert result == urls
+
+
+def test_confirm_urls_select_single(monkeypatch):
+    """Test _confirm_urls selecting a single URL by number."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return "2" (select second URL)
+    monkeypatch.setattr("builtins.input", lambda prompt: "2")
+    urls = ["http://example.com", "http://test.com", "http://third.com"]
+    result = _confirm_urls(urls)
+    assert result == ["http://test.com"]
+
+
+def test_confirm_urls_select_range(monkeypatch):
+    """Test _confirm_urls selecting a range of URLs."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return "1-2" (select first two URLs)
+    monkeypatch.setattr("builtins.input", lambda prompt: "1-2")
+    urls = ["http://example.com", "http://test.com", "http://third.com"]
+    result = _confirm_urls(urls)
+    assert result == ["http://example.com", "http://test.com"]
+
+
+def test_confirm_urls_select_comma_separated(monkeypatch):
+    """Test _confirm_urls selecting URLs with comma separator."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return "1,3" (select first and third URLs)
+    monkeypatch.setattr("builtins.input", lambda prompt: "1,3")
+    urls = ["http://example.com", "http://test.com", "http://third.com"]
+    result = _confirm_urls(urls)
+    assert result == ["http://example.com", "http://third.com"]
+
+
+def test_confirm_urls_select_mixed_format(monkeypatch):
+    """Test _confirm_urls with mixed format (comma and range)."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return "1,3-4" (select first, third, and fourth URLs)
+    monkeypatch.setattr("builtins.input", lambda prompt: "1,3-4")
+    urls = [
+        "http://example.com",
+        "http://test.com",
+        "http://third.com",
+        "http://fourth.com",
+    ]
+    result = _confirm_urls(urls)
+    assert result == ["http://example.com", "http://third.com", "http://fourth.com"]
+
+
+def test_confirm_urls_out_of_range(monkeypatch):
+    """Test _confirm_urls handling out-of-range selections gracefully."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return "5" (out of range for 3 URLs)
+    monkeypatch.setattr("builtins.input", lambda prompt: "5")
+    urls = ["http://example.com", "http://test.com", "http://third.com"]
+    result = _confirm_urls(urls)
+    assert result == []  # Should return empty list, not error
+
+
+def test_confirm_urls_invalid_input(monkeypatch):
+    """Test _confirm_urls handling invalid input gracefully."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to return invalid text
+    monkeypatch.setattr("builtins.input", lambda prompt: "invalid")
+    urls = ["http://example.com", "http://test.com"]
+    result = _confirm_urls(urls)
+    assert result == []  # Should return empty list, not error
+
+
+def test_confirm_urls_eof_error(monkeypatch):
+    """Test _confirm_urls handling EOFError (non-interactive)."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to raise EOFError
+    def raise_eof(prompt):
+        raise EOFError()
+
+    monkeypatch.setattr("builtins.input", raise_eof)
+    urls = ["http://example.com", "http://test.com"]
+    result = _confirm_urls(urls)
+    assert result == []
+
+
+def test_confirm_urls_keyboard_interrupt(monkeypatch):
+    """Test _confirm_urls handling KeyboardInterrupt."""
+    from gptme.util.context import _confirm_urls
+
+    # Mock input to raise KeyboardInterrupt
+    def raise_interrupt(prompt):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr("builtins.input", raise_interrupt)
+    urls = ["http://example.com", "http://test.com"]
+    result = _confirm_urls(urls)
+    assert result == []
+
+
+def test_confirm_urls_empty_list():
+    """Test _confirm_urls with empty URL list."""
+    from gptme.util.context import _confirm_urls
+
+    result = _confirm_urls([])
+    assert result == []
