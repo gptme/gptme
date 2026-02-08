@@ -107,21 +107,13 @@ def _preprocess_kimi_markdown(markdown: str) -> str:
     # Common tool/language names that should start on their own line
     common_tools = r"(?:save|append|patch|shell|ipython|python|gh|git|cat|ls|echo|mkdir|cd|pwd|rm|cp|mv|npm|pip|uv|cargo|go|rustc)"
 
-    # Pattern 1: Opening fences - word char OR punctuation OR backtick followed by ``` followed by a common tool name
-    # Preceded by: word char (letter, digit, underscore), sentence-ending punctuation, or backtick (for consecutive codeblocks)
-    opening_pattern = rf"(?<!^)(?<!\n)(?<=[\w.!?`])(```+)({common_tools})(?=\s|$|\n)"
+    # Pattern 1: Opening fences - word char OR punctuation followed by ``` followed by a common tool name
+    # Preceded by: word char (letter, digit, underscore) or sentence-ending punctuation
+    # Note: Backtick removed from character class to avoid breaking quad-backtick fences like "````save"
+    opening_pattern = rf"(?<!^)(?<!\n)(?<=[\w.!?])(```+)({common_tools})(?=\s|$|\n)"
 
     # Replace with newline + the backticks + the tool name
     markdown = re.sub(opening_pattern, r"\n\1\2", markdown)
-
-    # Pattern 2: Closing fences with text after them
-    # Match lines that start with ``` and have text after that is NOT a common tool/language name
-    # This handles cases like "```Then" but not "```python"
-    # Negative lookahead to exclude common tools
-    closing_pattern = rf"^(`{{3,}})(?!{common_tools}\b)([a-zA-Z_][a-zA-Z0-9_]*)$"
-
-    # Replace with the backticks + newline + the following text
-    markdown = re.sub(closing_pattern, r"\1\n\2", markdown, flags=re.MULTILINE)
 
     return markdown
 

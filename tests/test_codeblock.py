@@ -1130,8 +1130,15 @@ def test_kimi_missing_newline_before_codeblock():
     assert len(blocks) == 1
     assert blocks[0].lang == "python"
 
-    # Multiple tool calls should all be extracted
-    markdown = "First```python\n1\n```Then```shell\necho 2\n```"
+    # Multiple codeblocks with text between them (blank line between closing and next opening)
+    markdown = "First```python\n1\n```\n\nThen\n```shell\necho 2\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 2
+    assert blocks[0].lang == "python"
+    assert blocks[1].lang == "shell"
+
+    # Consecutive codeblocks with blank line between
+    markdown = "```python\n1\n```\n\n```shell\necho 2\n```"
     blocks = list(_extract_codeblocks(markdown))
     assert len(blocks) == 2
     assert blocks[0].lang == "python"
