@@ -278,11 +278,14 @@ def _tiered_search(
 
     Total: ~30ms vs ~80ms for single MPNet search
 
-    Note: Current implementation searches full corpus twice.
-    Future optimization: Add re-ranking API to gptme-rag to only search
-    filtered documents in Stage 2.
+    Note: Uses separate persist directories for each model.
     """
     workspace_path = workspace.as_posix() if workspace else "."
+
+    # Define persist directories for each model
+    cache_dir = Path.home() / ".cache" / "gptme-rag"
+    minilm_index = cache_dir / "minilm"
+    mpnet_index = cache_dir / "mpnet"
 
     # Stage 1: Fast filter with MiniLM
     logger.info("Tiered search Stage 1: Fast filter with MiniLM")
@@ -290,8 +293,8 @@ def _tiered_search(
         "gptme-rag",
         "search",
         query,
-        "--embedding-function",
-        "minilm",
+        "--persist-dir",
+        str(minilm_index),
     ]
     if workspace and rag_config.workspace_only:
         cmd_stage1.append(workspace_path)
@@ -315,8 +318,8 @@ def _tiered_search(
         "gptme-rag",
         "search",
         query,
-        "--embedding-function",
-        "mpnet",
+        "--persist-dir",
+        str(mpnet_index),
     ]
     if workspace and rag_config.workspace_only:
         cmd_stage2.append(workspace_path)
