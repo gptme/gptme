@@ -1103,3 +1103,56 @@ def test_mismatched_fence_lengths():
     markdown3 = "```text\nline 1\n````"
     blocks3 = Codeblock.iter_from_markdown(markdown3)
     assert len(blocks3) == 0
+
+
+def test_kimi_missing_newline_before_codeblock():
+    """
+    Test fix for Kimi K2.5 issue where newlines are missing before tool calls.
+
+    See: https://github.com/gptme/gptme/issues/1234
+    """
+    # Problem case from the issue - newline should be inserted before the code block
+    markdown = "I'll check the status```gh pr status\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    # The full text after ``` becomes the lang (everything until newline)
+    assert "gh" in blocks[0].lang
+
+    # Should also work with save tool - lang includes the filename on same line
+    markdown = "Let me save this```save file.txt\ncontent\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert "save" in blocks[0].lang
+
+    # Should work with sentence-ending punctuation
+    markdown = 'Run this.```python\nprint("hello")\n```'
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "python"
+
+    # Multiple tool calls should all be extracted
+    markdown = "First```python\n1\n```Then```shell\necho 2\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 2
+    assert blocks[0].lang == "python"
+    assert blocks[1].lang == "shell"
+
+
+def test_kimi_fix_does_not_break_nested_blocks():
+    """
+    Ensure the Kimi fix doesn't break nested code blocks.
+    """
+    # Nested blocks should not be affected
+    markdown = """```python
+code = \'\'\'```python
+inner
+```\'\'\'
+```"""
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "python"
+
+    # String literals with backticks should not be affected
+    markdown = 'code = "```python\\nhello\\n```"'
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 0  # No valid code blocks in this string

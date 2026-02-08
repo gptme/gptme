@@ -84,6 +84,34 @@ class Codeblock:
 import re
 
 
+def _preprocess_kimi_markdown(markdown: str) -> str:
+    """
+    Preprocess markdown to fix Kimi K2.5 formatting issues.
+
+    Problem: Kimi sometimes doesn't output a newline before markdown code blocks,
+    resulting in text like: "I'll check the status```gh pr status\n```"
+    instead of: "I'll check the status\n```gh pr status\n```"
+
+    Solution: Insert a newline before ``` when:
+    1. It's preceded by a word character OR sentence-ending punctuation
+    2. It's followed by common tool/language names
+    3. It's not already at the start of a line
+
+    This is conservative to avoid breaking nested code blocks or backticks in strings.
+
+    See: https://github.com/gptme/gptme/issues/1234
+    """
+    # Common tool/language names that should start on their own line
+    common_tools = r"(?:save|append|patch|shell|ipython|python|gh|git|cat|ls|echo|mkdir|cd|pwd|rm|cp|mv|npm|pip|uv|cargo|go|rustc)"
+
+    # Pattern: word char OR punctuation followed by ``` followed by a common tool name
+    # Preceded by: word char (letter, digit, underscore) or sentence-ending punctuation
+    pattern = rf"(?<!^)(?<!\n)(?<=[\w.!?])(```+)({common_tools})(?=\s|$|\n)"
+
+    # Replace with newline + the backticks + the tool name
+    return re.sub(pattern, r"\n\1\2", markdown)
+
+
 def _extract_codeblocks(
     markdown: str, streaming: bool = False
 ) -> Generator[Codeblock, None, None]:
@@ -105,12 +133,16 @@ def _extract_codeblocks(
 
     This handles nested cases where ``` appears inside string literals or other content.
     """
+    # Fix Kimi K2.5 formatting issues (missing newlines before code blocks)
+    markdown = _preprocess_kimi_markdown(markdown)
+
     # dont extract codeblocks from thinking blocks
     # (since claude sometimes forgets to close codeblocks in its thinking)
-    think_end = markdown.find("</think>")
-    if think_end != -1:
-        # remove anything before and including </think> if it exists
-        markdown = markdown[think_end + len("</think>") :]
+    # Handle multiple thinking blocks by finding the last </think>
+    last_think_end = markdown.rfind("</think>")
+    if last_think_end != -1:
+        # remove anything before and including the last </think>
+        markdown = markdown[last_think_end + len("</think>") :]
     else:
         # if start <think> tag but no end, early exit
         if "<think>" in markdown:
