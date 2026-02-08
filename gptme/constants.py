@@ -49,4 +49,4 @@ MAX_PROMPT_QUEUE_SIZE = 100
 # Content above INFO threshold logs info about the size
 # Content above WARN threshold logs warning and gets truncated
 CONTENT_SIZE_INFO_THRESHOLD = 50_000  # 50KB - log info
-CONTENT_SIZE_WARN_THRESHOLD = 200_000  # 200KB - warn and truncate
+CONTENT_SIZE_WARN_THRESHOLD = 100_000  # 100KB - warn and truncate
