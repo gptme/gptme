@@ -87,33 +87,59 @@ import re
 def _preprocess_inline_codeblocks(markdown: str) -> str:
     """Pre-process markdown to handle inline codeblocks.
 
-    Some models (like Kimi K2.5) output codeblocks without a newline before them:
+    Some models (like Kimi K2.5) output codeblocks without newlines around them:
         I'll check the status```gh pr status```
 
     This function splits such patterns to ensure proper parsing:
         I'll check the status
-        ```gh pr status
+        ```gh
+        pr status
         ```
     """
     lines = markdown.split("\n")
     result_lines = []
 
     for line in lines:
-        # Find patterns where ``` appears after non-whitespace content
-        # Pattern: text```content``` or text```lang\ncode```
-        # We need to split: text\n```content``` or text\n```lang\ncode\n```
+        # Process multiple inline codeblocks on the same line
+        # Pattern: text```lang content``` (inline block with both fences on same line)
+        # We need to be careful not to break nested code blocks in string literals
 
-        # Look for ``` preceded by non-whitespace
-        match = re.search(r"(\S)(`{3,})", line)
-        if match and match.start() > 0:
-            # Split the line at the backticks
-            before = line[: match.start() + 1]  # Include the char before backticks
-            after = line[match.start() + 1 :]  # The backticks and everything after
+        current_line = line
+        line_parts = []
 
-            result_lines.append(before)
-            result_lines.append(after)
-        else:
-            result_lines.append(line)
+        while True:
+            # Look for inline codeblock pattern: text```lang ... ```
+            # Only match if:
+            # 1. Preceded by non-whitespace (part of text)
+            # 2. Followed by language name (word chars)
+            # 3. Has matching closing fence on same line
+            pattern = r"^(.*?)(\S)(`{3,})([a-zA-Z_][a-zA-Z0-9_]*)([^`]*?)(`{3,})(.*)$"
+            match = re.match(pattern, current_line)
+
+            if match:
+                prefix = match.group(1) + match.group(2)
+                fence = match.group(3)
+                lang = match.group(4)
+                code = match.group(5)
+                closing = match.group(6)
+                suffix = match.group(7)
+
+                if prefix.strip():
+                    line_parts.append(prefix)
+                line_parts.append(f"{fence}{lang}")
+                if code.strip():
+                    line_parts.append(code.strip())
+                line_parts.append(closing)
+
+                # Continue processing the rest of the line
+                current_line = suffix
+            else:
+                # No more inline codeblocks
+                if current_line:
+                    line_parts.append(current_line)
+                break
+
+        result_lines.extend(line_parts)
 
     return "\n".join(result_lines)
 
@@ -178,108 +204,26 @@ def _extract_codeblocks(
             # Track nesting depth to handle nested code blocks
             nesting_depth = 1
 
-            # Collect content until we find the matching closing ```
             while i < len(lines):
                 line = lines[i]
 
-                # Check if this line starts with backticks (potential opening or closing)
-                line_fence_match = re.match(r"^(`{3,})", line)
-                if line_fence_match:
-                    line_fence_len = len(line_fence_match.group(1))
-                    # Check if this is a bare fence (only backticks on the line)
-                    is_bare_fence = line.strip() == "`" * line_fence_len
-                    # For closing the outer block, need exact match of opening fence length
-                    # For inner nested blocks, any bare fence can close them
-                    is_outer_close = is_bare_fence and line_fence_len == fence_len
-                    if is_outer_close or (is_bare_fence and nesting_depth > 1):
-                        # Bare fence - determine if opening or closing based on context
+                # Check if this line has backticks at the start
+                inner_fence_match = re.match(r"^(`{3,})", line)
+                if inner_fence_match:
+                    line_fence_len = len(inner_fence_match.group(1))
 
-                        # Check next line
-                        has_next_line = i + 1 < len(lines)
-                        next_has_content = has_next_line and lines[i + 1].strip() != ""
-                        next_is_blank = has_next_line and lines[i + 1].strip() == ""
-                        next_is_fence = has_next_line and bool(
-                            re.match(r"^`{3,}", lines[i + 1])
-                        )
+                    # Check if the rest of the line is empty (bare fence)
+                    rest_of_line = line[line_fence_len:].strip()
 
-                        # Decision logic:
-                        # 1. If we have nested blocks open (depth > 1), prefer closing
-                        #    This fixes the case where ``` appears after a nested block
-                        #    like ```text, where it should close that block.
-                        # 2. If next line has content and isn't a fence -> opening
-                        # 3. If streaming mode:
-                        #    - Require blank line after ``` to confirm closure
-                        #    - Otherwise treat as incomplete (don't extract)
-                        # 4. If not streaming:
-                        #    - Blank line or EOF -> closing
-
-                        if nesting_depth > 1:
-                            # We have nested blocks open, this should close the innermost one
-                            nesting_depth -= 1
-                            if nesting_depth == 0:
-                                # Check streaming condition before yielding
-                                if streaming and not next_is_blank:
-                                    # Streaming mode requires blank line to confirm closure
-                                    # Incomplete block - don't extract
-                                    break
-                                # Either not streaming, or streaming with blank line - extract
-                                yield Codeblock(
-                                    lang, "\n".join(content_lines), start=start_line
-                                )
-                                i += 1
-                                break
-                            else:
-                                content_lines.append(line)
-                        elif next_has_content and not next_is_fence:
-                            # Next line has content - check if this is a real nested block
-                            if nesting_depth > 1:
-                                # We're already nested, this opens another level
-                                nesting_depth += 1
-                                content_lines.append(line)
-                            elif nesting_depth == 1:
-                                # At depth 1, look ahead to see if there's a matching closing fence
-                                # This distinguishes real nested blocks from bare backticks in content
-                                has_closing_fence = False
-                                for j in range(i + 1, min(i + 20, len(lines))):
-                                    # Check if this line is a bare fence (only backticks)
-                                    inner_fence_match = re.match(
-                                        r"^(`{3,})$", lines[j].strip()
-                                    )
-                                    if inner_fence_match:
-                                        # Found a bare fence
-                                        # Check if there's content after it (allowing blank lines)
-                                        # Look ahead a few more lines to see if outer block continues
-                                        has_more_content = False
-                                        for k in range(j + 1, min(j + 5, len(lines))):
-                                            if lines[k].strip() != "":
-                                                # Found non-blank content after closing fence
-                                                has_more_content = True
-                                                break
-
-                                        if has_more_content:
-                                            # This looks like a nested block: opening, content, closing, more content
-                                            has_closing_fence = True
-                                        break
-                                    elif (
-                                        re.match(r"^`{3,}", lines[j])
-                                        and len(lines[j].strip()) > 3
-                                    ):
-                                        # Hit a language-tagged fence, stop looking
-                                        break
-
-                                if has_closing_fence:
-                                    # Looks like a real nested block
-                                    nesting_depth += 1
-                                    content_lines.append(line)
-                                else:
-                                    # No matching fence found, treat as literal content
-                                    content_lines.append(line)
-                            else:
-                                content_lines.append(line)
-                        elif streaming:
+                    if rest_of_line == "":
+                        # This is a bare fence - could be closing or nested opening
+                        if streaming:
                             # Streaming mode: require blank line to confirm closure
-                            if next_is_blank:
-                                # Blank line confirms this is a closing tag
+                            next_is_blank = (
+                                i + 1 < len(lines) and lines[i + 1].strip() == ""
+                            ) or (i + 1 >= len(lines))
+                            if next_is_blank or i + 1 >= len(lines):
+                                # Blank line or EOF confirms this is a closing tag
                                 nesting_depth -= 1
                                 if nesting_depth == 0:
                                     yield Codeblock(
@@ -290,12 +234,11 @@ def _extract_codeblocks(
                                 else:
                                     content_lines.append(line)
                             else:
-                                # No blank line in streaming mode - incomplete block
-                                # Don't extract, treat as opening to keep block open
+                                # No blank line in streaming mode - this is opening a nested block
                                 nesting_depth += 1
                                 content_lines.append(line)
                         else:
-                            # Not streaming: blank line, EOF, or other -> closing
+                            # Not streaming: treat as closing
                             nesting_depth -= 1
                             if nesting_depth == 0:
                                 # This closes our top-level block

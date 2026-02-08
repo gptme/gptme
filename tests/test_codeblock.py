@@ -1,6 +1,10 @@
 import pytest
 
-from gptme.codeblock import Codeblock, _extract_codeblocks
+from gptme.codeblock import (
+    Codeblock,
+    _extract_codeblocks,
+    _preprocess_inline_codeblocks,
+)
 
 
 def test_extract_codeblocks_basic():
@@ -1103,3 +1107,27 @@ def test_mismatched_fence_lengths():
     markdown3 = "```text\nline 1\n````"
     blocks3 = Codeblock.iter_from_markdown(markdown3)
     assert len(blocks3) == 0
+
+
+def test_preprocess_inline_codeblocks():
+    """Test that inline codeblocks are preprocessed correctly."""
+    # Basic inline codeblock - language and content split on same line
+    markdown = "I'll check the status```gh pr status```"
+    result = _preprocess_inline_codeblocks(markdown)
+    assert result == "I'll check the status\n```gh\npr status\n```"
+
+    # Multiple inline codeblocks on same line
+    markdown = "First```python print(1)``` and second```bash echo 2```"
+    result = _preprocess_inline_codeblocks(markdown)
+    assert "First\n```python" in result
+    assert "and second\n```bash" in result
+
+
+def test_extract_inline_codeblock():
+    """Test extracting inline codeblocks (Kimi K2.5 format issue)."""
+    # Kimi sometimes outputs codeblocks without newlines
+    markdown = "I'll check the current CI status```gh pr status```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "gh"
+    assert blocks[0].content == "pr status"
