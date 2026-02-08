@@ -277,9 +277,13 @@ timestamp = "{self.timestamp.isoformat()}"
             metadata=metadata,
         )
 
-    def get_codeblocks(self) -> list[Codeblock]:
+    def get_codeblocks(self, preprocess: bool = True) -> list[Codeblock]:
         """
         Get all codeblocks from the message content.
+
+        Args:
+            preprocess: If True, pre-process inline codeblocks (for Kimi K2.5 compatibility).
+                       Set to False when extracting for truncation to preserve original format.
         """
         content_str = self.content
 
@@ -292,7 +296,7 @@ timestamp = "{self.timestamp.isoformat()}"
         if backtick_count < 2:
             return []
 
-        return Codeblock.iter_from_markdown(content_str)
+        return Codeblock.iter_from_markdown(content_str, preprocess=preprocess)
 
     def cost(self, model: str | None = None, output=False) -> float:
         """Get the input cost of the message in USD."""

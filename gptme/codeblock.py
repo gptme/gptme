@@ -71,14 +71,16 @@ class Codeblock:
 
     @classmethod
     def iter_from_markdown(
-        cls, markdown: str, streaming: bool = False
+        cls, markdown: str, streaming: bool = False, preprocess: bool = True
     ) -> list["Codeblock"]:
         """Extract codeblocks from markdown.
 
         Note: Tracing removed from this function as it's called hundreds of times
         per conversation, creating ~97% of all trace spans (see Issue #199).
         """
-        return list(_extract_codeblocks(markdown, streaming=streaming))
+        return list(
+            _extract_codeblocks(markdown, streaming=streaming, preprocess=preprocess)
+        )
 
 
 import re
@@ -171,7 +173,7 @@ def _preprocess_inline_codeblocks(markdown: str) -> str:
 
 
 def _extract_codeblocks(
-    markdown: str, streaming: bool = False
+    markdown: str, streaming: bool = False, preprocess: bool = True
 ) -> Generator[Codeblock, None, None]:
     """
     Extracts code blocks from a markdown string using context-aware pattern matching.
@@ -183,6 +185,8 @@ def _extract_codeblocks(
         markdown: The markdown string to extract code blocks from
         streaming: If True, requires blank line after ``` to confirm block closure.
                    This prevents extracting incomplete blocks during streaming.
+        preprocess: If True, pre-process inline codeblocks (for Kimi K2.5 compatibility).
+                   Set to False when extracting for truncation to preserve original format.
 
     Tricks used:
     - Opening ``` must be at start of line, optionally preceded by blank lines
@@ -194,7 +198,7 @@ def _extract_codeblocks(
     # Pre-process to handle inline codeblocks (models like Kimi K2.5)
     # Only preprocess complete messages (not during streaming) to avoid
     # prematurely extracting incomplete blocks
-    if not streaming:
+    if preprocess and not streaming:
         markdown = _preprocess_inline_codeblocks(markdown)
 
     # dont extract codeblocks from thinking blocks

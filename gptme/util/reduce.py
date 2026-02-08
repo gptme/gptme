@@ -77,7 +77,8 @@ def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
     content_staged = msg.content
 
     # Truncate long codeblocks
-    for codeblock in msg.get_codeblocks():
+    # Use preprocess=False to preserve original format for truncation
+    for codeblock in msg.get_codeblocks(preprocess=False):
         # check that the reformatted codeblock is in the content
         full_block = codeblock.to_markdown()
         assert full_block in content_staged, f"{full_block} not in {content_staged}"
