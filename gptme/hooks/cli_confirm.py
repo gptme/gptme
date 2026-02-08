@@ -147,7 +147,7 @@ def _handle_response(
     # Auto-confirm options
     import re
 
-    re_auto = r"a(?:uto)?(?:\s+(\d+))?"
+    re_auto = r"^a(?:uto)?(?:\s+(\d+))?$"
     match = re.match(re_auto, answer)
     if match:
         if num := match.group(1):
