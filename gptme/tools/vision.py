@@ -13,8 +13,14 @@ from ..message import Message
 from .base import ToolSpec
 
 
-def view_image(image_path: Path | str) -> Message:
+def view_image(image_path: Path | str | Image.Image) -> Message:
     """View an image. Large images (>1MB) will be automatically scaled down."""
+    # Handle PIL Image objects
+    if isinstance(image_path, Image.Image):
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            image_path.save(tmp.name)
+            image_path = Path(tmp.name)
+
     if isinstance(image_path, str):
         image_path = Path(image_path)
 
