@@ -95,6 +95,11 @@ def _preprocess_inline_codeblocks(markdown: str) -> str:
         ```gh
         pr status
         ```
+
+    Note: This only handles simple inline blocks where:
+    - The code content doesn't contain backticks
+    - The block has a language tag (e.g., ```gh, ```python)
+    - Both opening and closing fences are on the same line as the content
     """
     lines = markdown.split("\n")
     result_lines = []
@@ -102,18 +107,26 @@ def _preprocess_inline_codeblocks(markdown: str) -> str:
     for line in lines:
         # Process multiple inline codeblocks on the same line
         # Pattern: text```lang content``` (inline block with both fences on same line)
-        # We need to be careful not to break nested code blocks in string literals
+        # We intentionally only match blocks with language tags to avoid breaking
+        # legitimate inline code spans like ``foo```bar```baz``
 
         current_line = line
         line_parts = []
 
         while True:
-            # Look for inline codeblock pattern: text```lang ... ```
-            # Only match if:
-            # 1. Preceded by non-whitespace (part of text)
-            # 2. Followed by language name (word chars)
-            # 3. Has matching closing fence on same line
-            pattern = r"^(.*?)(\S)(`{3,})([a-zA-Z_][a-zA-Z0-9_]*)([^`]*?)(`{3,})(.*)$"
+            # Look for inline codeblock pattern: text```lang content```
+            # Requires:
+            # 1. Preceded by non-backtick character (to avoid matching inline code spans)
+            # 2. Opening fence (3+ backticks)
+            # 3. Language identifier (alphanumeric)
+            # 4. Code content (no backticks allowed)
+            # 5. Closing fence (same number of backticks as opening)
+            # 6. End of line or more text
+            #
+            # This regex is intentionally conservative to avoid false positives.
+            # It won't match inline blocks containing backticks in the code.
+            # Use non-greedy matching (.*?) to find the first codeblock, not the last.
+            pattern = r"^(.*?)([^`])(`{3,})([a-zA-Z_][a-zA-Z0-9_]*)([^`]*?)(\3)(.*)$"
             match = re.match(pattern, current_line)
 
             if match:
@@ -121,22 +134,30 @@ def _preprocess_inline_codeblocks(markdown: str) -> str:
                 fence = match.group(3)
                 lang = match.group(4)
                 code = match.group(5)
-                closing = match.group(6)
                 suffix = match.group(7)
 
-                if prefix.strip():
-                    line_parts.append(prefix)
-                line_parts.append(f"{fence}{lang}")
-                if code.strip():
-                    line_parts.append(code.strip())
-                line_parts.append(closing)
+                # Only process if there's actual code content or this is clearly a code block
+                # (not just an empty language tag)
+                if code.strip() or suffix.strip():
+                    if prefix.strip():
+                        line_parts.append(prefix)
+                    # Add opening fence with language on its own line
+                    line_parts.append(f"{fence}{lang}")
+                    # Add code content on its own line (if any)
+                    if code.strip():
+                        line_parts.append(code.strip())
+                    # Add closing fence on its own line
+                    line_parts.append(fence)
 
-                # Continue processing the rest of the line
-                current_line = suffix
-            else:
-                # No more inline codeblocks
-                if current_line:
+                    # Continue processing the rest of the line
+                    current_line = suffix
+                else:
+                    # No code content and nothing after - treat as regular text
                     line_parts.append(current_line)
+                    break
+            else:
+                # No more inline codeblocks - append remaining line (even if empty)
+                line_parts.append(current_line)
                 break
 
         result_lines.extend(line_parts)
@@ -166,7 +187,10 @@ def _extract_codeblocks(
     This handles nested cases where ``` appears inside string literals or other content.
     """
     # Pre-process to handle inline codeblocks (models like Kimi K2.5)
-    markdown = _preprocess_inline_codeblocks(markdown)
+    # Only preprocess complete messages (not during streaming) to avoid
+    # prematurely extracting incomplete blocks
+    if not streaming:
+        markdown = _preprocess_inline_codeblocks(markdown)
 
     # dont extract codeblocks from thinking blocks
     # (since claude sometimes forgets to close codeblocks in its thinking)
