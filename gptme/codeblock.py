@@ -84,6 +84,40 @@ class Codeblock:
 import re
 
 
+def _preprocess_inline_codeblocks(markdown: str) -> str:
+    """Pre-process markdown to handle inline codeblocks.
+
+    Some models (like Kimi K2.5) output codeblocks without a newline before them:
+        I'll check the status```gh pr status```
+
+    This function splits such patterns to ensure proper parsing:
+        I'll check the status
+        ```gh pr status
+        ```
+    """
+    lines = markdown.split("\n")
+    result_lines = []
+
+    for line in lines:
+        # Find patterns where ``` appears after non-whitespace content
+        # Pattern: text```content``` or text```lang\ncode```
+        # We need to split: text\n```content``` or text\n```lang\ncode\n```
+
+        # Look for ``` preceded by non-whitespace
+        match = re.search(r"(\S)(`{3,})", line)
+        if match and match.start() > 0:
+            # Split the line at the backticks
+            before = line[: match.start() + 1]  # Include the char before backticks
+            after = line[match.start() + 1 :]  # The backticks and everything after
+
+            result_lines.append(before)
+            result_lines.append(after)
+        else:
+            result_lines.append(line)
+
+    return "\n".join(result_lines)
+
+
 def _extract_codeblocks(
     markdown: str, streaming: bool = False
 ) -> Generator[Codeblock, None, None]:
@@ -105,6 +139,9 @@ def _extract_codeblocks(
 
     This handles nested cases where ``` appears inside string literals or other content.
     """
+    # Pre-process to handle inline codeblocks (models like Kimi K2.5)
+    markdown = _preprocess_inline_codeblocks(markdown)
+
     # dont extract codeblocks from thinking blocks
     # (since claude sometimes forgets to close codeblocks in its thinking)
     think_end = markdown.find("</think>")
