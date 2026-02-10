@@ -1135,7 +1135,16 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
     pricing = model_data.get("pricing", {})
     price_input = float(pricing.get("prompt", 0)) * 1_000_000
     price_output = float(pricing.get("completion", 0)) * 1_000_000
-    vision = "vision" in model_data.get("architecture", {}).get("modality", "")
+    # Check for vision support: look for "image" in input modalities
+    # OpenRouter uses modalities like "text+image->text" (not "vision")
+    architecture = model_data.get("architecture", {})
+    input_modalities = architecture.get("input_modalities", [])
+    vision = "image" in input_modalities
+    if not vision and not input_modalities:
+        # Fallback: parse input side of modality string (before "->")
+        modality = architecture.get("modality", "")
+        input_side = modality.split("->")[0] if "->" in modality else ""
+        vision = "image" in input_side
     reasoning = "reasoning" in model_data.get("supported_parameters", [])
     include_reasoning = "include_reasoning" in model_data.get(
         "supported_parameters", []
