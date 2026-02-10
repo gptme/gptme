@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 from gptme.util import (
+    detect_binary_type,
     epoch_to_age,
     example_to_xml,
     safe_read_text,
@@ -206,8 +207,6 @@ def test_safe_read_text_nonexistent_file():
 
 def test_detect_binary_type_png():
     """Test that PNG files are detected as images."""
-    from gptme.util import detect_binary_type
-
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         # PNG magic bytes
         f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
@@ -224,8 +223,6 @@ def test_detect_binary_type_png():
 
 def test_detect_binary_type_pdf():
     """Test that PDF files are detected as non-image binary."""
-    from gptme.util import detect_binary_type
-
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
         # PDF magic bytes
         f.write(b"%PDF-1.4" + b"\x00" * 100)
@@ -242,8 +239,6 @@ def test_detect_binary_type_pdf():
 
 def test_detect_binary_type_text():
     """Test that text files are not detected as binary."""
-    from gptme.util import detect_binary_type
-
     with tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w") as f:
         f.write("Hello, world!")
         f.flush()
