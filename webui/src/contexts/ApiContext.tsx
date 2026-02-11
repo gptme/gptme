@@ -5,8 +5,9 @@ import {
   processConnectionFromHash,
   type ConnectionConfig,
 } from '@/utils/connectionConfig';
+import { getActiveServer, updateServer } from '@/stores/servers';
 import { type Observable, observable } from '@legendapp/state';
-import { use$, useObserveEffect } from '@legendapp/state/react';
+import { use$ } from '@legendapp/state/react';
 import type { QueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -86,18 +87,14 @@ const updateConfig = (newConfig: Partial<ConnectionConfig>) => {
   connectionConfig$.set((prev) => {
     const updated = { ...prev, ...newConfig };
 
-    // Update localStorage
-    // Wrap in try/catch for private browsing mode or disabled storage
-    try {
-      localStorage.setItem('gptme_baseUrl', updated.baseUrl);
-      if (updated.authToken && updated.useAuthToken) {
-        localStorage.setItem('gptme_userToken', updated.authToken);
-      } else {
-        localStorage.removeItem('gptme_userToken');
-      }
-    } catch {
-      // localStorage unavailable (private browsing, storage disabled, etc.)
-      console.warn('[ApiContext] localStorage unavailable, config will not persist');
+    // Persist to the server registry
+    const activeServer = getActiveServer();
+    if (activeServer) {
+      updateServer(activeServer.id, {
+        baseUrl: updated.baseUrl,
+        authToken: updated.authToken,
+        useAuthToken: updated.useAuthToken,
+      });
     }
 
     return updated;
@@ -319,12 +316,6 @@ export function ApiProvider({
       stopAutoConnect();
     };
   }, []);
-
-  // Reconnect on config change
-  useObserveEffect(connectionConfig$, async ({ value }) => {
-    console.log('[ApiContext] Reconnecting on config change', value);
-    await connect(value);
-  });
 
   const connectionConfig = use$(connectionConfig$);
 

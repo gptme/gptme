@@ -11,18 +11,25 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Settings, Volume2, Palette, Info, FileText, ExternalLink } from 'lucide-react';
+import { Settings, Volume2, Palette, Info, FileText, ExternalLink, Server } from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
+import { ServerConfiguration } from '@/components/settings/ServerConfiguration';
 
 interface SettingsModalProps {
   children?: React.ReactNode;
 }
 
-type SettingsCategory = 'appearance' | 'audio' | 'content' | 'about';
+type SettingsCategory = 'servers' | 'appearance' | 'audio' | 'content' | 'about';
 
 const categories = [
+  {
+    id: 'servers' as const,
+    label: 'Servers',
+    icon: Server,
+    description: 'Manage server connections',
+  },
   {
     id: 'appearance' as const,
     label: 'Appearance',
@@ -58,6 +65,9 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
 
     const renderCategoryContent = () => {
       switch (activeCategory) {
+        case 'servers':
+          return <ServerConfiguration />;
+
         case 'appearance':
           return (
             <div className="space-y-6">

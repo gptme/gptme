@@ -1,3 +1,10 @@
+import {
+  findOrCreateServerByUrl,
+  getActiveServer,
+  setActiveServer,
+  updateServer,
+} from '@/stores/servers';
+
 const DEFAULT_API_URL = 'http://127.0.0.1:5700';
 
 // Fleet operator URL for auth code exchange
@@ -69,39 +76,53 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
   const fragmentBaseUrl = params.get('baseUrl');
   const fragmentUserToken = params.get('userToken');
 
-  // Save fragment values to localStorage if present
-  // Wrap in try/catch for private browsing mode or disabled storage
-  try {
-    if (fragmentBaseUrl) {
-      localStorage.setItem('gptme_baseUrl', fragmentBaseUrl);
+  // Register fragment values as a server in the registry
+  if (fragmentBaseUrl) {
+    const server = findOrCreateServerByUrl(fragmentBaseUrl, {
+      authToken: fragmentUserToken || null,
+      useAuthToken: Boolean(fragmentUserToken),
+    });
+    setActiveServer(server.id);
+
+    // Clean fragment from URL
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
-    if (fragmentUserToken) {
-      localStorage.setItem('gptme_userToken', fragmentUserToken);
+
+    return {
+      baseUrl: server.baseUrl,
+      authToken: server.authToken,
+      useAuthToken: server.useAuthToken,
+    };
+  }
+
+  // Clean fragment if only userToken was provided (update active server)
+  if (fragmentUserToken) {
+    const active = getActiveServer();
+    if (active) {
+      updateServer(active.id, { authToken: fragmentUserToken, useAuthToken: true });
     }
-  } catch {
-    // localStorage unavailable (private browsing, storage disabled, etc.)
-    console.warn('[ConnectionConfig] localStorage unavailable, config will not persist');
+
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
   }
 
-  // Clean fragment from URL if parameters were found
-  if ((fragmentBaseUrl || fragmentUserToken) && typeof window !== 'undefined') {
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  // Read from active server in registry
+  const activeServer = getActiveServer();
+  if (activeServer) {
+    return {
+      baseUrl: activeServer.baseUrl,
+      authToken: activeServer.authToken,
+      useAuthToken: activeServer.useAuthToken,
+    };
   }
 
-  // Get stored values with fallback for unavailable localStorage
-  let storedBaseUrl: string | null = null;
-  let storedUserToken: string | null = null;
-  try {
-    storedBaseUrl = localStorage.getItem('gptme_baseUrl');
-    storedUserToken = localStorage.getItem('gptme_userToken');
-  } catch {
-    // localStorage unavailable
-  }
-
+  // Fallback (should not happen since registry always has at least one server)
   return {
-    baseUrl: fragmentBaseUrl || storedBaseUrl || import.meta.env.VITE_API_URL || DEFAULT_API_URL,
-    authToken: fragmentUserToken || storedUserToken || null,
-    useAuthToken: Boolean(fragmentUserToken || storedUserToken),
+    baseUrl: import.meta.env.VITE_API_URL || DEFAULT_API_URL,
+    authToken: null,
+    useAuthToken: false,
   };
 }
 
@@ -122,15 +143,12 @@ export async function processConnectionFromHash(hash?: string): Promise<Connecti
       const exchangeUrl = getExchangeUrl();
       const result = await exchangeAuthCode(authCodeParams.code, exchangeUrl);
 
-      // Save exchanged values to localStorage
-      // Wrap in try/catch for private browsing mode or disabled storage
-      try {
-        localStorage.setItem('gptme_baseUrl', result.instanceUrl);
-        localStorage.setItem('gptme_userToken', result.userToken);
-      } catch {
-        // localStorage unavailable (private browsing, storage disabled, etc.)
-        console.warn('[ConnectionConfig] localStorage unavailable, config will not persist');
-      }
+      // Register the exchanged server in the registry
+      const server = findOrCreateServerByUrl(result.instanceUrl, {
+        authToken: result.userToken,
+        useAuthToken: true,
+      });
+      setActiveServer(server.id);
 
       // Clean fragment from URL
       if (typeof window !== 'undefined') {
@@ -146,8 +164,6 @@ export async function processConnectionFromHash(hash?: string): Promise<Connecti
       };
     } catch (error) {
       console.error('[ConnectionConfig] Auth code exchange failed:', error);
-      // Fall back to stored/default config on exchange failure
-      // The user will see an error and can try again
       throw error;
     }
   }
@@ -157,16 +173,18 @@ export async function processConnectionFromHash(hash?: string): Promise<Connecti
 }
 
 /**
- * Get the current API base URL from the same sources as the main API client
+ * Get the current API base URL from the active server
  */
 export function getApiBaseUrl(): string {
-  return getConnectionConfigFromSources().baseUrl;
+  const server = getActiveServer();
+  return server?.baseUrl || import.meta.env.VITE_API_URL || DEFAULT_API_URL;
 }
 
 /**
- * Get the current auth header from the same sources as the main API client
+ * Get the current auth header from the active server
  */
 export function getAuthHeader(): string | null {
-  const config = getConnectionConfigFromSources();
-  return config.useAuthToken && config.authToken ? `Bearer ${config.authToken}` : null;
+  const server = getActiveServer();
+  if (!server) return null;
+  return server.useAuthToken && server.authToken ? `Bearer ${server.authToken}` : null;
 }
