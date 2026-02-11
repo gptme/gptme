@@ -22,9 +22,18 @@ Here is an example:
 
 .. code-block:: toml
 
-    [prompt]
-    about_user = "I am a curious human programmer."
+    [user]
+    name = "Erik"
+    about = "I am a curious human programmer."
     response_preference = "Don't explain basic concepts"
+
+    [prompt]
+    # Additional files to always include in context
+    files = ["~/notes/llm-tips.md"]
+
+    # Project descriptions (optional)
+    #[prompt.project]
+    #myproject = "A description of my project."
 
     [env]
     # Uncomment to use Claude 3.5 Sonnet by default
@@ -49,7 +58,20 @@ Here is an example:
     #TOOL_ALLOWLIST = "save,append,patch,ipython,shell,browser"  # Comma separated list of allowed tools
     #TOOL_MODULES = "gptme.tools,custom.tools" # List of python comma separated python module path
 
-The ``prompt`` section contains options for the prompt.
+The ``user`` section configures user identity:
+
+- ``name``: Your display name, shown at the CLI input prompt (default: ``"User"``).
+- ``about``: A description of yourself, included in the system prompt so the assistant knows who it's talking to.
+- ``response_preference``: Preferences for how the assistant should respond (e.g. level of detail).
+
+.. note::
+
+    For backward compatibility, ``about_user`` and ``response_preference`` under the ``[prompt]`` section are still supported as fallbacks if not set in ``[user]``.
+
+The ``prompt`` section contains options included in both interactive and non-interactive runs:
+
+- ``files``: A list of additional files to always include in context. Supports absolute paths, ``~`` expansion, and paths relative to the config directory.
+- ``project``: A table of project descriptions, keyed by project name, included when working in the matching Git repository.
 
 The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
 

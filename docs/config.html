@@ -484,9 +484,18 @@
 <span id="id1"></span><h2>Global config<a class="headerlink" href="#global-config" title="Link to this heading">#</a></h2>
 <p>The file is located at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>.</p>
 <p>Here is an example:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[prompt]</span>
-<span class="n">about_user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;I am a curious human programmer.&quot;</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[user]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Erik&quot;</span>
+<span class="n">about</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;I am a curious human programmer.&quot;</span>
 <span class="n">response_preference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Don&#39;t explain basic concepts&quot;</span>
+
+<span class="k">[prompt]</span>
+<span class="c1"># Additional files to always include in context</span>
+<span class="n">files</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/notes/llm-tips.md&quot;</span><span class="p">]</span>
+
+<span class="c1"># Project descriptions (optional)</span>
+<span class="c1">#[prompt.project]</span>
+<span class="c1">#myproject = &quot;A description of my project.&quot;</span>
 
 <span class="k">[env]</span>
 <span class="c1"># Uncomment to use Claude 3.5 Sonnet by default</span>
@@ -512,7 +521,21 @@
 <span class="c1">#TOOL_MODULES = &quot;gptme.tools,custom.tools&quot; # List of python comma separated python module path</span>
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">prompt</span></code> section contains options for the prompt.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">user</span></code> section configures user identity:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code>: Your display name, shown at the CLI input prompt (default: <code class="docutils literal notranslate"><span class="pre">&quot;User&quot;</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">about</span></code>: A description of yourself, included in the system prompt so the assistant knows who it’s talking to.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">response_preference</span></code>: Preferences for how the assistant should respond (e.g. level of detail).</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For backward compatibility, <code class="docutils literal notranslate"><span class="pre">about_user</span></code> and <code class="docutils literal notranslate"><span class="pre">response_preference</span></code> under the <code class="docutils literal notranslate"><span class="pre">[prompt]</span></code> section are still supported as fallbacks if not set in <code class="docutils literal notranslate"><span class="pre">[user]</span></code>.</p>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">prompt</span></code> section contains options included in both interactive and non-interactive runs:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">files</span></code>: A list of additional files to always include in context. Supports absolute paths, <code class="docutils literal notranslate"><span class="pre">~</span></code> expansion, and paths relative to the config directory.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">project</span></code>: A table of project descriptions, keyed by project name, included when working in the matching Git repository.</p></li>
+</ul>
 <p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>. It can also be used to set default tool configuration options, see <a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> for more information.</p>
 <p>If you want to configure MCP servers, you can do so in a <code class="docutils literal notranslate"><span class="pre">mcp</span></code> section. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p>
 <p>See <a class="reference internal" href="api.html#gptme.config.UserConfig" title="gptme.config.UserConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.UserConfig</span></code></a> for the API reference.</p>
