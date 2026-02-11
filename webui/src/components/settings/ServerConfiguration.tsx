@@ -118,7 +118,15 @@ export const ServerConfiguration: FC = () => {
       } else {
         // Adding new server
         const server = addServer({
-          name: formState.name.trim() || (() => { try { return new URL(formState.baseUrl).hostname; } catch { return 'Server'; } })(),
+          name:
+            formState.name.trim() ||
+            (() => {
+              try {
+                return new URL(formState.baseUrl).hostname;
+              } catch {
+                return 'Server';
+              }
+            })(),
           baseUrl: formState.baseUrl.trim(),
           authToken: formState.useAuthToken ? formState.authToken : null,
           useAuthToken: formState.useAuthToken,

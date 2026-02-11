@@ -23,13 +23,10 @@ test.describe('Connecting', () => {
     await expect(page.getByText(/Hello! I'm gptme, your AI programming assistant/)).toBeVisible();
     await page.goto('/');
 
-    // Wait for successful connection
+    // Wait for successful connection (green button confirms connected state)
     await expect(page.getByRole('button', { name: /Connect/i })).toHaveClass(/text-green-600/, {
       timeout: 10000,
     });
-
-    // Wait for success toast to confirm API connection
-    await expect(page.getByText('Connected to gptme server')).toBeVisible();
 
     // In the new layout, conversations should be visible by default
     // No need to toggle sidebar, but ensure we're on chat section

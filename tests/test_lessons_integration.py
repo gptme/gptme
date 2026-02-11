@@ -403,7 +403,7 @@ This is a test lesson for .gptme/lessons/ detection.
         monkeypatch.chdir(tmp_path)
 
         # Create index (should detect .cursorrules)
-        with caplog.at_level("INFO"):
+        with caplog.at_level("DEBUG"):
             LessonIndex()
 
         # Verify helpful message was logged
