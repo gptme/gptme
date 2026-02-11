@@ -7,19 +7,45 @@ import { toast } from 'sonner';
 import { use$ } from '@legendapp/state/react';
 import { observable } from '@legendapp/state';
 import { ChatInput, type ChatOptions } from '@/components/ChatInput';
-import { History } from 'lucide-react';
+import { History, Server } from 'lucide-react';
 import { ExamplesSection } from '@/components/ExamplesSection';
+import { serverRegistry$, setActiveServer, getConnectedServers } from '@/stores/servers';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export const WelcomeView = ({ onToggleHistory }: { onToggleHistory: () => void }) => {
   const [inputValue, setInputValue] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
-  const { api, isConnected$, connectionConfig } = useApi();
+  const { api, isConnected$, connectionConfig, connect } = useApi();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
+  const registry = use$(serverRegistry$);
+  const connectedServers = getConnectedServers();
+  const activeServer = registry.servers.find((s) => s.id === registry.activeServerId);
+  const showServerPicker = connectedServers.length > 1;
 
   // Create observables that ChatInput expects
   const autoFocus$ = observable(true);
+
+  const handleServerSwitch = async (serverId: string) => {
+    const server = registry.servers.find((s) => s.id === serverId);
+    if (!server) return;
+    setActiveServer(serverId);
+    try {
+      await connect({
+        baseUrl: server.baseUrl,
+        authToken: server.authToken,
+        useAuthToken: server.useAuthToken,
+      });
+    } catch {
+      toast.error(`Failed to switch to "${server.name}"`);
+    }
+  };
 
   const handleSend = async (message: string, options?: ChatOptions) => {
     if (!message.trim() || !isConnected) return;
@@ -72,6 +98,25 @@ export const WelcomeView = ({ onToggleHistory }: { onToggleHistory: () => void }
 
       <div>
         <div className="flex justify-center space-x-4">
+          {showServerPicker && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="text-muted-foreground">
+                  <Server className="mr-2 h-4 w-4" />
+                  {activeServer?.name || 'Server'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                {connectedServers.map((server) => (
+                  <DropdownMenuItem key={server.id} onClick={() => handleServerSwitch(server.id)}>
+                    <span className={server.id === registry.activeServerId ? 'font-medium' : ''}>
+                      {server.name}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button
             type="button"
             variant="ghost"

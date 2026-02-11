@@ -13,7 +13,9 @@ import { UnifiedSidebar } from '@/components/UnifiedSidebar';
 import { setDocumentTitle } from '@/utils/title';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConversationsInfiniteQuery } from '@/hooks/useConversationsInfiniteQuery';
+import { useSecondaryServerConversations } from '@/hooks/useMultiServerConversations';
 import { useApi } from '@/contexts/ApiContext';
+import { serverRegistry$ } from '@/stores/servers';
 import { demoConversations, getDemoMessages } from '@/democonversations';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
@@ -137,18 +139,27 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     }
   }, [stepParam, conversationId, isConnected, api, navigate, searchParams]);
 
-  // Fetch conversations from API
+  // Fetch conversations from primary server
   const { data, isError, error, isLoading, isFetching, fetchNextPage, hasNextPage, refetch } =
     useConversationsInfiniteQuery();
 
+  // Fetch conversations from secondary connected servers
+  const { secondaryConversations, connectedServerCount } = useSecondaryServerConversations();
+  const registry = use$(serverRegistry$);
+
   const apiConversations = useMemo(() => {
-    return (
+    const primaryServer = registry.servers.find((s) => s.id === registry.activeServerId);
+    const primary =
       data?.pages.flatMap(
         (page: { conversations: ConversationSummary[]; nextCursor: number | undefined }) =>
-          page.conversations
-      ) ?? []
-    );
-  }, [data]);
+          page.conversations.map((conv) => ({
+            ...conv,
+            serverId: registry.activeServerId,
+            serverName: primaryServer?.name,
+          }))
+      ) ?? [];
+    return primary;
+  }, [data, registry.activeServerId, registry.servers]);
 
   // Fetch tasks
   const {
@@ -205,21 +216,25 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     return storeConvs;
   });
 
+  const showServerLabels = connectedServerCount > 1;
+
   const allConversations: ConversationSummary[] = useMemo(() => {
     const storeConvs = storeConversations$.get();
 
-    // Combine demo, API, and store conversations, deduplicating by ID
+    // Combine demo, API (primary), secondary servers, store conversations
+    // Deduplicate by serverId:id compound key (or just id for demos/store)
     const conversationMap = new Map<string, ConversationSummary>();
 
-    // Add in order of preference: API items (most up-to-date), store items, demo items
-    [...apiItems, ...storeConvs, ...demoItems].forEach((conv) => {
-      if (!conversationMap.has(conv.id)) {
-        conversationMap.set(conv.id, conv);
+    // Add in order of preference: API items (most up-to-date), secondary, store items, demo items
+    [...apiItems, ...secondaryConversations, ...storeConvs, ...demoItems].forEach((conv) => {
+      const key = conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id;
+      if (!conversationMap.has(key)) {
+        conversationMap.set(key, conv);
       }
     });
 
     return Array.from(conversationMap.values());
-  }, [demoItems, apiItems, storeConversations$]);
+  }, [demoItems, apiItems, secondaryConversations, storeConversations$]);
 
   const handleSelectConversation = useCallback(
     (id: string) => {
@@ -431,6 +446,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
                 onConversationsRetry={() => refetch()}
                 fetchNextPage={fetchNextPage}
                 hasNextPage={hasNextPage}
+                showServerLabels={showServerLabels}
                 tasks={tasks}
                 selectedTaskId={selectedTaskId || undefined}
                 onSelectTask={(task) => {
@@ -537,6 +553,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             onConversationsRetry={() => refetch()}
             fetchNextPage={fetchNextPage}
             hasNextPage={hasNextPage}
+            showServerLabels={showServerLabels}
             tasks={tasks}
             selectedTaskId={selectedTaskId || undefined}
             onSelectTask={handleSelectTask}

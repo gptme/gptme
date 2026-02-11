@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FC } from 'react';
-import { Server, ChevronDown, Check, Plus } from 'lucide-react';
+import { Server, ChevronDown, Plus, Plug, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,13 +22,19 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
-import { serverRegistry$, setActiveServer, addServer } from '@/stores/servers';
+import {
+  serverRegistry$,
+  setActiveServer,
+  addServer,
+  connectServer,
+  disconnectServer,
+} from '@/stores/servers';
 import { toast } from 'sonner';
 
 export const ServerSelector: FC = () => {
   const { connect } = useApi();
   const registry = use$(serverRegistry$);
-  const activeServer = registry.servers.find((s) => s.id === registry.activeServerId);
+  const connectedCount = registry.connectedServerIds.length;
 
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [formState, setFormState] = useState({
@@ -37,30 +43,62 @@ export const ServerSelector: FC = () => {
     authToken: '',
     useAuthToken: false,
   });
-  const [isSwitching, setIsSwitching] = useState(false);
 
-  const handleSwitch = async (serverId: string) => {
-    if (serverId === registry.activeServerId) return;
-
+  const handleToggleConnection = async (serverId: string) => {
+    const isConnected = registry.connectedServerIds.includes(serverId);
     const server = registry.servers.find((s) => s.id === serverId);
     if (!server) return;
 
-    const previousId = registry.activeServerId;
-    setIsSwitching(true);
+    if (isConnected) {
+      // Don't disconnect the last server
+      if (connectedCount <= 1) {
+        toast.error('At least one server must be connected');
+        return;
+      }
+      disconnectServer(serverId);
+      toast.success(`Disconnected from "${server.name}"`);
+    } else {
+      // Connect: if this becomes the primary, use the full connect flow
+      connectServer(serverId);
 
+      // If it's the only connected server or no primary is connected, make it active
+      if (!registry.connectedServerIds.includes(registry.activeServerId)) {
+        setActiveServer(serverId);
+        try {
+          await connect({
+            baseUrl: server.baseUrl,
+            authToken: server.authToken,
+            useAuthToken: server.useAuthToken,
+          });
+        } catch {
+          disconnectServer(serverId);
+          toast.error(`Failed to connect to "${server.name}"`);
+          return;
+        }
+      }
+      toast.success(`Connected to "${server.name}"`);
+    }
+  };
+
+  const handleSetPrimary = async (serverId: string) => {
+    if (serverId === registry.activeServerId) return;
+    const server = registry.servers.find((s) => s.id === serverId);
+    if (!server) return;
+
+    // Ensure it's connected
+    if (!registry.connectedServerIds.includes(serverId)) {
+      connectServer(serverId);
+    }
+
+    setActiveServer(serverId);
     try {
-      setActiveServer(serverId);
       await connect({
         baseUrl: server.baseUrl,
         authToken: server.authToken,
         useAuthToken: server.useAuthToken,
       });
     } catch {
-      // Rollback on failed connection
-      setActiveServer(previousId);
       toast.error(`Failed to connect to "${server.name}"`);
-    } finally {
-      setIsSwitching(false);
     }
   };
 
@@ -71,16 +109,18 @@ export const ServerSelector: FC = () => {
     }
 
     try {
+      const name =
+        formState.name.trim() ||
+        (() => {
+          try {
+            return new URL(formState.baseUrl).hostname;
+          } catch {
+            return 'Server';
+          }
+        })();
+
       const server = addServer({
-        name:
-          formState.name.trim() ||
-          (() => {
-            try {
-              return new URL(formState.baseUrl).hostname;
-            } catch {
-              return 'Server';
-            }
-          })(),
+        name,
         baseUrl: formState.baseUrl.trim(),
         authToken: formState.useAuthToken ? formState.authToken : null,
         useAuthToken: formState.useAuthToken,
@@ -89,51 +129,72 @@ export const ServerSelector: FC = () => {
       setAddDialogOpen(false);
       setFormState({ name: '', baseUrl: '', authToken: '', useAuthToken: false });
 
-      // Switch to the new server
-      await handleSwitch(server.id);
+      // Connect and make primary
+      connectServer(server.id);
+      await handleSetPrimary(server.id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to add server');
     }
   };
 
-  // Only show the selector if there are multiple servers
-  if (registry.servers.length <= 1) {
-    return null;
-  }
+  // Always show — the dropdown is useful for managing connections
+  const label =
+    connectedCount > 1
+      ? `${connectedCount} servers`
+      : registry.servers.find((s) => s.id === registry.activeServerId)?.name || 'Servers';
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground"
-            disabled={isSwitching}
-          >
+          <Button variant="ghost" size="xs" className="text-muted-foreground">
             <Server className="mr-1.5 h-3 w-3" />
-            <span className="max-w-[120px] truncate text-xs">
-              {activeServer?.name || 'Select server'}
-            </span>
+            <span className="max-w-[120px] truncate text-xs">{label}</span>
             <ChevronDown className="ml-1 h-3 w-3" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuContent align="end" className="w-64">
           <DropdownMenuLabel>Servers</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {registry.servers.map((server) => (
-            <DropdownMenuItem
-              key={server.id}
-              onClick={() => handleSwitch(server.id)}
-              className="flex items-center justify-between"
-            >
-              <div className="flex flex-col">
-                <span className="text-sm">{server.name}</span>
-                <span className="text-xs text-muted-foreground">{server.baseUrl}</span>
-              </div>
-              {server.id === registry.activeServerId && <Check className="ml-2 h-4 w-4 shrink-0" />}
-            </DropdownMenuItem>
-          ))}
+          {registry.servers.map((server) => {
+            const isConnected = registry.connectedServerIds.includes(server.id);
+            const isPrimary = server.id === registry.activeServerId;
+
+            return (
+              <DropdownMenuItem
+                key={server.id}
+                className="flex items-center justify-between"
+                onSelect={(e) => e.preventDefault()}
+              >
+                <button
+                  className="flex flex-1 cursor-pointer flex-col text-left"
+                  onClick={() => handleSetPrimary(server.id)}
+                >
+                  <span className="flex items-center gap-1.5 text-sm">
+                    {server.name}
+                    {isPrimary && (
+                      <span className="rounded bg-primary/10 px-1 text-[10px] text-primary">
+                        primary
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{server.baseUrl}</span>
+                </button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-2 h-7 w-7 shrink-0"
+                  onClick={() => handleToggleConnection(server.id)}
+                >
+                  {isConnected ? (
+                    <Unplug className="h-3.5 w-3.5 text-green-600" />
+                  ) : (
+                    <Plug className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                </Button>
+              </DropdownMenuItem>
+            );
+          })}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setAddDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
@@ -155,7 +216,7 @@ export const ServerSelector: FC = () => {
                 id="server-name"
                 value={formState.name}
                 onChange={(e) => setFormState((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="e.g. Production, Staging"
+                placeholder="e.g. bob-vm, staging"
               />
             </div>
             <div className="space-y-2">

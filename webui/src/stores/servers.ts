@@ -1,6 +1,7 @@
 import { observable } from '@legendapp/state';
 import {
   DEFAULT_SERVER_CONFIG,
+  PRESET_CLOUD,
   generateServerId,
   type ServerConfig,
   type ServerRegistry,
@@ -18,6 +19,12 @@ function loadRegistry(): ServerRegistry {
     if (stored) {
       const parsed = JSON.parse(stored) as ServerRegistry;
       if (parsed.servers?.length > 0) {
+        // Ensure connectedServerIds exists (migration from phase 1 format)
+        if (!parsed.connectedServerIds) {
+          parsed.connectedServerIds = [parsed.activeServerId];
+        }
+        // Ensure Cloud preset exists
+        ensurePresets(parsed);
         return parsed;
       }
     }
@@ -27,6 +34,22 @@ function loadRegistry(): ServerRegistry {
 
   // Migrate from legacy keys
   return migrateFromLegacy();
+}
+
+/** Ensure both Local and Cloud presets exist in the registry */
+function ensurePresets(registry: ServerRegistry): void {
+  const normalized = (url: string) => url.toLowerCase().replace(/\/+$/, '');
+  const hasCloud = registry.servers.some(
+    (s) => normalized(s.baseUrl) === normalized(PRESET_CLOUD.baseUrl)
+  );
+  if (!hasCloud) {
+    registry.servers.push({
+      ...PRESET_CLOUD,
+      id: generateServerId(),
+      createdAt: Date.now(),
+      lastUsedAt: 0,
+    });
+  }
 }
 
 function migrateFromLegacy(): ServerRegistry {
@@ -47,19 +70,28 @@ function migrateFromLegacy(): ServerRegistry {
     // localStorage unavailable
   }
 
-  const server: ServerConfig = {
+  const localServer: ServerConfig = {
     id: generateServerId(),
     name: 'Local',
     baseUrl,
     authToken,
     useAuthToken,
+    isPreset: true,
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
   };
 
+  const cloudServer: ServerConfig = {
+    ...PRESET_CLOUD,
+    id: generateServerId(),
+    createdAt: Date.now(),
+    lastUsedAt: 0,
+  };
+
   const registry: ServerRegistry = {
-    servers: [server],
-    activeServerId: server.id,
+    servers: [localServer, cloudServer],
+    activeServerId: localServer.id,
+    connectedServerIds: [localServer.id],
   };
 
   persistRegistry(registry);
@@ -101,6 +133,37 @@ export function setActiveServer(id: string): void {
   // Update lastUsedAt
   const idx = registry.servers.indexOf(server);
   serverRegistry$.servers[idx].lastUsedAt.set(Date.now());
+}
+
+export function getConnectedServers(): ServerConfig[] {
+  const registry = serverRegistry$.get();
+  return registry.servers.filter((s) => registry.connectedServerIds.includes(s.id));
+}
+
+export function isServerConnected(id: string): boolean {
+  return serverRegistry$.connectedServerIds.get().includes(id);
+}
+
+export function connectServer(id: string): void {
+  const registry = serverRegistry$.get();
+  if (!registry.connectedServerIds.includes(id)) {
+    serverRegistry$.connectedServerIds.push(id);
+  }
+}
+
+export function disconnectServer(id: string): void {
+  const registry = serverRegistry$.get();
+  const idx = registry.connectedServerIds.indexOf(id);
+  if (idx !== -1) {
+    serverRegistry$.connectedServerIds.splice(idx, 1);
+  }
+  // If we disconnected the active server, switch to first remaining connected
+  if (registry.activeServerId === id) {
+    const remaining = serverRegistry$.connectedServerIds.get();
+    if (remaining.length > 0) {
+      serverRegistry$.activeServerId.set(remaining[0]);
+    }
+  }
 }
 
 export function addServer(
@@ -151,6 +214,12 @@ export function updateServer(
 
 export function removeServer(id: string): void {
   const registry = serverRegistry$.get();
+  const server = registry.servers.find((s) => s.id === id);
+
+  if (server?.isPreset) {
+    throw new Error('Cannot remove a pre-configured server');
+  }
+
   if (registry.servers.length <= 1) {
     throw new Error('Cannot remove the last server');
   }
@@ -159,6 +228,12 @@ export function removeServer(id: string): void {
   if (idx === -1) return;
 
   serverRegistry$.servers.splice(idx, 1);
+
+  // Remove from connected list
+  const connIdx = registry.connectedServerIds.indexOf(id);
+  if (connIdx !== -1) {
+    serverRegistry$.connectedServerIds.splice(connIdx, 1);
+  }
 
   // If we removed the active server, switch to the first remaining one
   if (registry.activeServerId === id) {

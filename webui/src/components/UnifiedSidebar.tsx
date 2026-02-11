@@ -78,6 +78,9 @@ interface Props {
   fetchNextPage: () => void;
   hasNextPage?: boolean;
 
+  // Multi-backend
+  showServerLabels?: boolean;
+
   // Task props
   tasks: Task[];
   selectedTaskId?: string;
@@ -99,6 +102,7 @@ export const UnifiedSidebar: FC<Props> = ({
   onConversationsRetry,
   fetchNextPage,
   hasNextPage = false,
+  showServerLabels = false,
   tasks,
   selectedTaskId,
   onSelectTask,
@@ -262,6 +266,7 @@ export const UnifiedSidebar: FC<Props> = ({
               onRetry={onConversationsRetry}
               fetchNextPage={fetchNextPage}
               hasNextPage={hasNextPage}
+              showServerLabels={showServerLabels}
             />
           )}
 

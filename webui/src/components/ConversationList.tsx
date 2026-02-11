@@ -24,6 +24,7 @@ interface Props {
   fetchNextPage: () => void;
   hasNextPage?: boolean;
   selectedId$?: Observable<string | null>;
+  showServerLabels?: boolean;
 }
 
 export const ConversationList: FC<Props> = ({
@@ -37,6 +38,7 @@ export const ConversationList: FC<Props> = ({
   fetchNextPage,
   hasNextPage = false,
   selectedId$,
+  showServerLabels = false,
 }) => {
   const { isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
@@ -102,7 +104,10 @@ export const ConversationList: FC<Props> = ({
     return match ? match[1] : name;
   }
 
-  const ConversationItem: FC<{ conv: ConversationSummary }> = ({ conv }) => {
+  const ConversationItem: FC<{ conv: ConversationSummary; showLabel?: boolean }> = ({
+    conv,
+    showLabel,
+  }) => {
     // For demo conversations, get messages from demoConversations
     const demoConv = demoConversations.find((dc) => dc.id === conv.id);
 
@@ -171,6 +176,11 @@ export const ConversationList: FC<Props> = ({
                 >
                   {convState?.data?.name || conv.name || stripDate(conv.id)}
                 </div>
+                {showLabel && conv.serverName && (
+                  <span className="mb-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {conv.serverName}
+                  </span>
+                )}
                 <div className="flex items-center space-x-3 text-xs text-muted-foreground">
                   <Tooltip>
                     <TooltipTrigger>
@@ -308,7 +318,13 @@ export const ConversationList: FC<Props> = ({
       {/* Render conversations */}
       {!isLoading &&
         !isError &&
-        conversations.map((conv) => <ConversationItem key={conv.id} conv={conv} />)}
+        conversations.map((conv) => (
+          <ConversationItem
+            key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
+            conv={conv}
+            showLabel={showServerLabels}
+          />
+        ))}
 
       {/* Loading indicator for fetching more */}
       {isFetching && !isLoading && (

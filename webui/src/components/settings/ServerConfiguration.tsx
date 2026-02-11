@@ -11,7 +11,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Pencil, Trash2, Plus, Check } from 'lucide-react';
+import { Pencil, Trash2, Plus, Check, Plug, Unplug } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
 import {
@@ -20,6 +20,8 @@ import {
   addServer,
   updateServer,
   removeServer,
+  connectServer,
+  disconnectServer,
 } from '@/stores/servers';
 import type { ServerConfig } from '@/types/servers';
 import { toast } from 'sonner';
@@ -57,11 +59,16 @@ export const ServerConfiguration: FC = () => {
   const [formState, setFormState] = useState<ServerFormState>(emptyForm);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const handleSwitchActive = async (serverId: string) => {
+  const handleSetPrimary = async (serverId: string) => {
     if (serverId === registry.activeServerId) return;
 
     const server = registry.servers.find((s) => s.id === serverId);
     if (!server) return;
+
+    // Ensure it's connected
+    if (!registry.connectedServerIds.includes(serverId)) {
+      connectServer(serverId);
+    }
 
     const previousId = registry.activeServerId;
     setActiveServer(serverId);
@@ -72,9 +79,41 @@ export const ServerConfiguration: FC = () => {
         useAuthToken: server.useAuthToken,
       });
     } catch {
-      // Rollback on failed connection
       setActiveServer(previousId);
       toast.error(`Failed to connect to "${server.name}"`);
+    }
+  };
+
+  const handleToggleConnection = async (serverId: string) => {
+    const isConnected = registry.connectedServerIds.includes(serverId);
+    const server = registry.servers.find((s) => s.id === serverId);
+    if (!server) return;
+
+    if (isConnected) {
+      if (registry.connectedServerIds.length <= 1) {
+        toast.error('At least one server must be connected');
+        return;
+      }
+      disconnectServer(serverId);
+      toast.success(`Disconnected from "${server.name}"`);
+    } else {
+      connectServer(serverId);
+      // If no primary is connected, make this the primary
+      if (!registry.connectedServerIds.includes(registry.activeServerId)) {
+        setActiveServer(serverId);
+        try {
+          await connect({
+            baseUrl: server.baseUrl,
+            authToken: server.authToken,
+            useAuthToken: server.useAuthToken,
+          });
+        } catch {
+          disconnectServer(serverId);
+          toast.error(`Failed to connect to "${server.name}"`);
+          return;
+        }
+      }
+      toast.success(`Connected to "${server.name}"`);
     }
   };
 
@@ -133,7 +172,8 @@ export const ServerConfiguration: FC = () => {
         });
         toast.success('Server added');
 
-        // Switch to the new server
+        // Connect and switch to the new server
+        connectServer(server.id);
         setActiveServer(server.id);
         await connect({
           baseUrl: server.baseUrl,
@@ -181,27 +221,41 @@ export const ServerConfiguration: FC = () => {
       <div>
         <h3 className="mb-1 text-lg font-medium">Servers</h3>
         <p className="mb-4 text-sm text-muted-foreground">
-          Manage gptme server connections. Click a server to make it active.
+          Manage gptme server connections. Click a server to make it the primary connection.
         </p>
       </div>
 
       <div className="space-y-3">
         {registry.servers.map((server) => {
-          const isActive = server.id === registry.activeServerId;
+          const isPrimary = server.id === registry.activeServerId;
+          const isConnected = registry.connectedServerIds.includes(server.id);
 
           return (
             <div
               key={server.id}
-              onClick={() => handleSwitchActive(server.id)}
+              onClick={() => handleSetPrimary(server.id)}
               className={cn(
                 'flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/40',
-                isActive && 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20'
+                isPrimary && 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20',
+                !isConnected && 'opacity-60'
               )}
             >
               <div className="flex items-center gap-3">
-                {isActive && <Check className="h-4 w-4 shrink-0 text-green-600" />}
-                <div className={cn(!isActive && 'ml-7')}>
-                  <div className="text-sm font-medium">{server.name}</div>
+                {isPrimary && <Check className="h-4 w-4 shrink-0 text-green-600" />}
+                <div className={cn(!isPrimary && 'ml-7')}>
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    {server.name}
+                    {isPrimary && (
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                        primary
+                      </span>
+                    )}
+                    {server.isPreset && (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        preset
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-muted-foreground">{server.baseUrl}</div>
                   {server.useAuthToken && (
                     <div className="text-xs text-muted-foreground">Auth enabled</div>
@@ -209,6 +263,21 @@ export const ServerConfiguration: FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleConnection(server.id);
+                  }}
+                >
+                  {isConnected ? (
+                    <Unplug className="h-3.5 w-3.5 text-green-600" />
+                  ) : (
+                    <Plug className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -227,7 +296,6 @@ export const ServerConfiguration: FC = () => {
                       size="sm"
                       className="h-7 text-xs"
                       onClick={() => handleDelete(server.id)}
-                      disabled={registry.servers.length <= 1}
                     >
                       Confirm
                     </Button>
@@ -249,7 +317,7 @@ export const ServerConfiguration: FC = () => {
                       e.stopPropagation();
                       setDeleteConfirmId(server.id);
                     }}
-                    disabled={registry.servers.length <= 1}
+                    disabled={!!server.isPreset}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
