@@ -416,6 +416,10 @@ def act_process(
 
     # handle SIGTERM
     def sigterm_handler(*_):
+        # Reset to default handler first to prevent recursive SIGTERM loop:
+        # _graceful_killpg sends SIGTERM to our own process group, which would
+        # re-trigger this handler without this reset.
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
         error_handler(KeyboardInterrupt("SIGTERM received"))
 
     signal.signal(signal.SIGTERM, sigterm_handler)
