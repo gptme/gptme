@@ -862,3 +862,64 @@ response_preference = "Fallback preference."
             assert config.user.response_preference == "Fallback preference."
         finally:
             os.remove(f.name)
+
+
+def test_user_config_local_toml(tmp_path):
+    """Test that config.local.toml is merged into the user config."""
+    # Create main config with preferences (committable to dotfiles)
+    main_config = tmp_path / "config.toml"
+    main_config.write_text(
+        '[prompt]\nabout_user = "I am a developer."\n\n' "[env]\n" 'EDITOR = "vim"\n'
+    )
+
+    # Create local config with secrets (gitignored)
+    local_config = tmp_path / "config.local.toml"
+    local_config.write_text(
+        "[env]\n" 'OPENAI_API_KEY = "sk-secret-123"\n' 'EDITOR = "nvim"\n'
+    )
+
+    config = Config(user=load_user_config(str(main_config)))
+
+    # Local env values should be merged in, overriding main where they overlap
+    assert config.get_env("OPENAI_API_KEY") == "sk-secret-123"
+    assert config.get_env("EDITOR") == "nvim"
+
+    # Non-overlapping values from main config should be preserved
+    assert config.user.prompt.about_user == "I am a developer."
+
+
+def test_user_config_local_toml_mcp_merge(tmp_path):
+    """Test that config.local.toml merges MCP server env vars into main config."""
+    main_config = tmp_path / "config.toml"
+    main_config.write_text(
+        "[prompt]\n\n"
+        "[mcp]\nenabled = true\nauto_start = true\n\n"
+        "[[mcp.servers]]\n"
+        'name = "my-server"\n'
+        'command = "server-cmd"\n'
+        'args = ["--arg1"]\n'
+    )
+
+    local_config = tmp_path / "config.local.toml"
+    local_config.write_text(
+        "[[mcp.servers]]\n" 'name = "my-server"\n' 'env = { API_KEY = "secret-key" }\n'
+    )
+
+    config = Config(user=load_user_config(str(main_config)))
+
+    assert config.mcp.enabled is True
+    assert len(config.mcp.servers) == 1
+    server = config.mcp.servers[0]
+    assert server.name == "my-server"
+    assert server.command == "server-cmd"
+    assert server.env == {"API_KEY": "secret-key"}
+
+
+def test_user_config_no_local_toml(tmp_path):
+    """Test that missing config.local.toml doesn't cause errors."""
+    main_config = tmp_path / "config.toml"
+    main_config.write_text('[prompt]\nabout_user = "I am a developer."\n\n[env]\n')
+
+    # Should work fine without config.local.toml
+    config = Config(user=load_user_config(str(main_config)))
+    assert config.user.prompt.about_user == "I am a developer."

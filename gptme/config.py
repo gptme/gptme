@@ -340,8 +340,25 @@ default_config = UserConfig(
 
 
 def load_user_config(path: str | None = None) -> UserConfig:
-    """Load the user configuration from the config file."""
+    """Load the user configuration from the config file.
+
+    Also loads config.local.toml from the same directory if it exists,
+    merging it into the main config (local values override main values).
+    This allows committing preferences to dotfiles while keeping secrets separate.
+    """
+    config_file_path = path or config_path
     config = _load_config_doc(path).unwrap()
+
+    # Look for local config file in the same directory
+    local_path = Path(config_file_path).parent / "config.local.toml"
+    if local_path.exists():
+        with open(local_path) as f:
+            local_config = tomlkit.load(f).unwrap()
+        config = _merge_config_data(config, local_config)
+        console.log(
+            f"Using local user configuration from {path_with_tilde(local_path)}"
+        )
+
     # Note: prompt and env are optional - defaults are used if missing
 
     prompt = UserPromptConfig(**config.pop("prompt", {}))
