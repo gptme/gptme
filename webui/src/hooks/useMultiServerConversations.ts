@@ -27,15 +27,15 @@ export function useSecondaryServerConversations() {
     const server = registry.servers.find((s) => s.id === serverId);
     if (!server) return null;
 
+    const authHeader =
+      server.useAuthToken && server.authToken ? `Bearer ${server.authToken}` : null;
+
     const existing = clientsRef.current.get(serverId);
-    if (existing && existing.baseUrl === server.baseUrl) {
+    if (existing && existing.baseUrl === server.baseUrl && existing.authHeader === authHeader) {
       return existing;
     }
 
-    const client = createApiClient(
-      server.baseUrl,
-      server.useAuthToken && server.authToken ? `Bearer ${server.authToken}` : null
-    );
+    const client = createApiClient(server.baseUrl, authHeader);
     clientsRef.current.set(serverId, client);
     return client;
   };
@@ -50,7 +50,7 @@ export function useSecondaryServerConversations() {
 
   const queries = useQueries({
     queries: secondaryServers.map((server) => ({
-      queryKey: ['secondary-conversations', server.id, server.baseUrl],
+      queryKey: ['secondary-conversations', server.id, server.baseUrl, server.authToken ?? ''],
       queryFn: async (): Promise<ConversationSummary[]> => {
         const client = getClient(server.id);
         if (!client) return [];
