@@ -72,7 +72,7 @@ export const ServerSelector: FC = () => {
 
     try {
       const server = addServer({
-        name: formState.name.trim() || new URL(formState.baseUrl).hostname,
+        name: formState.name.trim() || (() => { try { return new URL(formState.baseUrl).hostname; } catch { return 'Server'; } })(),
         baseUrl: formState.baseUrl.trim(),
         authToken: formState.useAuthToken ? formState.authToken : null,
         useAuthToken: formState.useAuthToken,

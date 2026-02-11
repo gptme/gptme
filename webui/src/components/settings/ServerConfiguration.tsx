@@ -63,6 +63,7 @@ export const ServerConfiguration: FC = () => {
     const server = registry.servers.find((s) => s.id === serverId);
     if (!server) return;
 
+    const previousId = registry.activeServerId;
     setActiveServer(serverId);
     try {
       await connect({
@@ -71,6 +72,8 @@ export const ServerConfiguration: FC = () => {
         useAuthToken: server.useAuthToken,
       });
     } catch {
+      // Rollback on failed connection
+      setActiveServer(previousId);
       toast.error(`Failed to connect to "${server.name}"`);
     }
   };
@@ -115,7 +118,7 @@ export const ServerConfiguration: FC = () => {
       } else {
         // Adding new server
         const server = addServer({
-          name: formState.name.trim() || new URL(formState.baseUrl).hostname,
+          name: formState.name.trim() || (() => { try { return new URL(formState.baseUrl).hostname; } catch { return 'Server'; } })(),
           baseUrl: formState.baseUrl.trim(),
           authToken: formState.useAuthToken ? formState.authToken : null,
           useAuthToken: formState.useAuthToken,
@@ -137,11 +140,29 @@ export const ServerConfiguration: FC = () => {
     }
   };
 
-  const handleDelete = (serverId: string) => {
+  const handleDelete = async (serverId: string) => {
+    const wasActive = serverId === registry.activeServerId;
+
     try {
       removeServer(serverId);
       setDeleteConfirmId(null);
       toast.success('Server removed');
+
+      // Reconnect if we deleted the active server
+      if (wasActive) {
+        const newActive = serverRegistry$.get().servers[0];
+        if (newActive) {
+          try {
+            await connect({
+              baseUrl: newActive.baseUrl,
+              authToken: newActive.authToken,
+              useAuthToken: newActive.useAuthToken,
+            });
+          } catch {
+            toast.error(`Failed to connect to "${newActive.name}"`);
+          }
+        }
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to remove server');
     }
