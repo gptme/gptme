@@ -25,6 +25,14 @@ function loadRegistry(): ServerRegistry {
         }
         // Ensure Cloud preset exists
         ensurePresets(parsed);
+        // Validate activeServerId points to an existing server
+        if (!parsed.servers.some((s) => s.id === parsed.activeServerId)) {
+          parsed.activeServerId = parsed.servers[0].id;
+        }
+        // Ensure activeServerId is in connectedServerIds
+        if (!parsed.connectedServerIds.includes(parsed.activeServerId)) {
+          parsed.connectedServerIds.push(parsed.activeServerId);
+        }
         return parsed;
       }
     }

@@ -22,17 +22,11 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
-import {
-  serverRegistry$,
-  setActiveServer,
-  addServer,
-  connectServer,
-  disconnectServer,
-} from '@/stores/servers';
+import { serverRegistry$, addServer, connectServer, disconnectServer } from '@/stores/servers';
 import { toast } from 'sonner';
 
 export const ServerSelector: FC = () => {
-  const { connect } = useApi();
+  const { switchServer } = useApi();
   const registry = use$(serverRegistry$);
   const connectedCount = registry.connectedServerIds.length;
 
@@ -58,18 +52,12 @@ export const ServerSelector: FC = () => {
       disconnectServer(serverId);
       toast.success(`Disconnected from "${server.name}"`);
     } else {
-      // Connect: if this becomes the primary, use the full connect flow
       connectServer(serverId);
 
-      // If it's the only connected server or no primary is connected, make it active
+      // If no primary is connected, make this the primary via atomic switch
       if (!registry.connectedServerIds.includes(registry.activeServerId)) {
-        setActiveServer(serverId);
         try {
-          await connect({
-            baseUrl: server.baseUrl,
-            authToken: server.authToken,
-            useAuthToken: server.useAuthToken,
-          });
+          await switchServer(serverId);
         } catch {
           disconnectServer(serverId);
           toast.error(`Failed to connect to "${server.name}"`);
@@ -82,23 +70,11 @@ export const ServerSelector: FC = () => {
 
   const handleSetPrimary = async (serverId: string) => {
     if (serverId === registry.activeServerId) return;
-    const server = registry.servers.find((s) => s.id === serverId);
-    if (!server) return;
-
-    // Ensure it's connected
-    if (!registry.connectedServerIds.includes(serverId)) {
-      connectServer(serverId);
-    }
-
-    setActiveServer(serverId);
     try {
-      await connect({
-        baseUrl: server.baseUrl,
-        authToken: server.authToken,
-        useAuthToken: server.useAuthToken,
-      });
+      await switchServer(serverId);
     } catch {
-      toast.error(`Failed to connect to "${server.name}"`);
+      const server = registry.servers.find((s) => s.id === serverId);
+      toast.error(`Failed to connect to "${server?.name || 'server'}"`);
     }
   };
 
@@ -129,9 +105,8 @@ export const ServerSelector: FC = () => {
       setAddDialogOpen(false);
       setFormState({ name: '', baseUrl: '', authToken: '', useAuthToken: false });
 
-      // Connect and make primary
-      connectServer(server.id);
-      await handleSetPrimary(server.id);
+      // Connect and make primary (switchServer handles connectServer internally)
+      await switchServer(server.id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to add server');
     }

@@ -16,7 +16,6 @@ import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
 import {
   serverRegistry$,
-  setActiveServer,
   addServer,
   updateServer,
   removeServer,
@@ -51,7 +50,7 @@ function serverToForm(server: ServerConfig): ServerFormState {
 }
 
 export const ServerConfiguration: FC = () => {
-  const { connect } = useApi();
+  const { connect, switchServer } = useApi();
   const registry = use$(serverRegistry$);
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -61,26 +60,11 @@ export const ServerConfiguration: FC = () => {
 
   const handleSetPrimary = async (serverId: string) => {
     if (serverId === registry.activeServerId) return;
-
-    const server = registry.servers.find((s) => s.id === serverId);
-    if (!server) return;
-
-    // Ensure it's connected
-    if (!registry.connectedServerIds.includes(serverId)) {
-      connectServer(serverId);
-    }
-
-    const previousId = registry.activeServerId;
-    setActiveServer(serverId);
     try {
-      await connect({
-        baseUrl: server.baseUrl,
-        authToken: server.authToken,
-        useAuthToken: server.useAuthToken,
-      });
+      await switchServer(serverId);
     } catch {
-      setActiveServer(previousId);
-      toast.error(`Failed to connect to "${server.name}"`);
+      const server = registry.servers.find((s) => s.id === serverId);
+      toast.error(`Failed to connect to "${server?.name || 'server'}"`);
     }
   };
 
@@ -98,15 +82,10 @@ export const ServerConfiguration: FC = () => {
       toast.success(`Disconnected from "${server.name}"`);
     } else {
       connectServer(serverId);
-      // If no primary is connected, make this the primary
+      // If no primary is connected, make this the primary via atomic switch
       if (!registry.connectedServerIds.includes(registry.activeServerId)) {
-        setActiveServer(serverId);
         try {
-          await connect({
-            baseUrl: server.baseUrl,
-            authToken: server.authToken,
-            useAuthToken: server.useAuthToken,
-          });
+          await switchServer(serverId);
         } catch {
           disconnectServer(serverId);
           toast.error(`Failed to connect to "${server.name}"`);
@@ -172,14 +151,8 @@ export const ServerConfiguration: FC = () => {
         });
         toast.success('Server added');
 
-        // Connect and switch to the new server
-        connectServer(server.id);
-        setActiveServer(server.id);
-        await connect({
-          baseUrl: server.baseUrl,
-          authToken: server.authToken,
-          useAuthToken: server.useAuthToken,
-        });
+        // Connect and switch to the new server (switchServer handles connectServer + setActiveServer)
+        await switchServer(server.id);
       }
 
       setEditDialogOpen(false);
@@ -196,7 +169,7 @@ export const ServerConfiguration: FC = () => {
       setDeleteConfirmId(null);
       toast.success('Server removed');
 
-      // Reconnect if we deleted the active server
+      // Reconnect if we deleted the active server (removeServer already updates activeServerId)
       if (wasActive) {
         const newActive = serverRegistry$.get().servers[0];
         if (newActive) {

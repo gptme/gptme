@@ -5,7 +5,14 @@ import {
   processConnectionFromHash,
   type ConnectionConfig,
 } from '@/utils/connectionConfig';
-import { getActiveServer, updateServer } from '@/stores/servers';
+import {
+  getActiveServer,
+  updateServer,
+  serverRegistry$,
+  setActiveServer,
+  connectServer,
+} from '@/stores/servers';
+import type { ServerConfig } from '@/types/servers';
 import { type Observable, observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
 import type { QueryClient } from '@tanstack/react-query';
@@ -21,6 +28,7 @@ interface ApiContextType {
   connectionConfig: ConnectionConfig;
   updateConfig: (config: Partial<ConnectionConfig>) => void;
   connect: (config?: Partial<ConnectionConfig>) => Promise<void>;
+  switchServer: (serverId: string) => Promise<void>;
   stopAutoConnect: () => void;
   // Methods from ApiClient that are used in components
   getConversation: ApiClient['getConversation'];
@@ -186,6 +194,46 @@ export function ApiProvider({
     [queryClient]
   );
 
+  // Atomic server switch: switches active server with full rollback on failure
+  const switchServer = useCallback(
+    async (serverId: string) => {
+      const registry = serverRegistry$.get();
+      const server = registry.servers.find((s: ServerConfig) => s.id === serverId);
+      if (!server) throw new Error(`Server not found: ${serverId}`);
+
+      if (serverId === registry.activeServerId) return;
+
+      // Snapshot current state for rollback
+      const previousActiveId = registry.activeServerId;
+      const previousConfig = connectionConfig$.get();
+      const previousApi = api;
+
+      // Ensure server is in connected list
+      if (!registry.connectedServerIds.includes(serverId)) {
+        connectServer(serverId);
+      }
+
+      // Update active server in registry
+      setActiveServer(serverId);
+
+      try {
+        // connect() will update connectionConfig$, create new api client, and verify connectivity
+        await connect({
+          baseUrl: server.baseUrl,
+          authToken: server.authToken,
+          useAuthToken: server.useAuthToken,
+        });
+      } catch (error) {
+        // Full rollback: restore active server, config, and api client
+        setActiveServer(previousActiveId);
+        connectionConfig$.set(previousConfig);
+        api = previousApi;
+        throw error;
+      }
+    },
+    [connect]
+  );
+
   // Auto-connect with retry logic
   const autoConnect = useCallback(
     async (isInitialAttempt: boolean = false) => {
@@ -330,6 +378,7 @@ export function ApiProvider({
         connectionConfig,
         updateConfig,
         connect,
+        switchServer,
         stopAutoConnect,
         // Forward methods from the API client
         getConversation: api.getConversation.bind(api),

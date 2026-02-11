@@ -9,7 +9,7 @@ import { observable } from '@legendapp/state';
 import { ChatInput, type ChatOptions } from '@/components/ChatInput';
 import { History, Server } from 'lucide-react';
 import { ExamplesSection } from '@/components/ExamplesSection';
-import { serverRegistry$, setActiveServer, getConnectedServers } from '@/stores/servers';
+import { serverRegistry$, getConnectedServers } from '@/stores/servers';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +21,7 @@ export const WelcomeView = ({ onToggleHistory }: { onToggleHistory: () => void }
   const [inputValue, setInputValue] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
-  const { api, isConnected$, connectionConfig, connect } = useApi();
+  const { api, isConnected$, connectionConfig, switchServer } = useApi();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
   const registry = use$(serverRegistry$);
@@ -33,17 +33,11 @@ export const WelcomeView = ({ onToggleHistory }: { onToggleHistory: () => void }
   const autoFocus$ = observable(true);
 
   const handleServerSwitch = async (serverId: string) => {
-    const server = registry.servers.find((s) => s.id === serverId);
-    if (!server) return;
-    setActiveServer(serverId);
     try {
-      await connect({
-        baseUrl: server.baseUrl,
-        authToken: server.authToken,
-        useAuthToken: server.useAuthToken,
-      });
+      await switchServer(serverId);
     } catch {
-      toast.error(`Failed to switch to "${server.name}"`);
+      const server = registry.servers.find((s) => s.id === serverId);
+      toast.error(`Failed to switch to "${server?.name || 'server'}"`);
     }
   };
 
