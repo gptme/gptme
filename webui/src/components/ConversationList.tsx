@@ -15,7 +15,7 @@ type MessageBreakdown = Partial<Record<MessageRole, number>>;
 
 interface Props {
   conversations: ConversationSummary[];
-  onSelect: (id: string) => void;
+  onSelect: (id: string, serverId?: string) => void;
   isLoading?: boolean;
   isFetching?: boolean;
   isError?: boolean;
@@ -161,7 +161,7 @@ export const ConversationList: FC<Props> = ({
               className={`cursor-pointer rounded-lg py-2 pl-2 transition-colors hover:bg-accent ${
                 isSelected ? 'bg-accent' : ''
               }`}
-              onClick={() => onSelect(conv.id)}
+              onClick={() => onSelect(conv.id, conv.serverId)}
             >
               <div>
                 <div

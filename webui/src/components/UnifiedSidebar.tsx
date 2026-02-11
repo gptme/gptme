@@ -69,7 +69,7 @@ interface Props {
   // Conversation props
   conversations: ConversationSummary[];
   selectedConversationId$: Observable<string | null>;
-  onSelectConversation: (id: string) => void;
+  onSelectConversation: (id: string, serverId?: string) => void;
   conversationsLoading?: boolean;
   conversationsFetching?: boolean;
   conversationsError?: boolean;
@@ -111,7 +111,7 @@ export const UnifiedSidebar: FC<Props> = ({
   tasksError = false,
   onTasksRetry,
 }) => {
-  const { createAgent } = useApi();
+  const { api } = useApi();
   const selectedWorkspace = use$(selectedWorkspace$);
   const selectedAgent = use$(selectedAgent$);
   const location = useLocation();
@@ -161,7 +161,7 @@ export const UnifiedSidebar: FC<Props> = ({
 
   const handleAgentCreated = async (agentData: CreateAgentRequest) => {
     try {
-      return await createAgent(agentData);
+      return await api.createAgent(agentData);
     } catch (error) {
       console.error('Failed to create agent:', error);
       throw error;

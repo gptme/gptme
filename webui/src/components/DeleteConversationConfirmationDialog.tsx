@@ -28,7 +28,7 @@ export function DeleteConversationConfirmationDialog({
   onOpenChange,
   onDelete,
 }: Props) {
-  const { deleteConversation, connectionConfig, isConnected$ } = useApi();
+  const { api, connectionConfig, isConnected$ } = useApi();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -41,7 +41,7 @@ export function DeleteConversationConfirmationDialog({
 
     // Delete conversation
     try {
-      await deleteConversation(conversationName);
+      await api.deleteConversation(conversationName);
     } catch (error) {
       setIsError(true);
       if (error instanceof Error) {

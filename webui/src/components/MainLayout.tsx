@@ -48,6 +48,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const stepParam = searchParams.get('step');
+  const serverParam = searchParams.get('server');
   const { api, isConnected$ } = useApi();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
@@ -237,7 +238,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   }, [demoItems, apiItems, secondaryConversations, storeConversations$]);
 
   const handleSelectConversation = useCallback(
-    (id: string) => {
+    (id: string, serverId?: string) => {
       if (id === selectedConversation$.get()) {
         return;
       }
@@ -246,7 +247,13 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       });
       selectedConversation$.set(id);
 
-      const queryString = searchParams.toString();
+      const newParams = new URLSearchParams(searchParams);
+      if (serverId) {
+        newParams.set('server', serverId);
+      } else {
+        newParams.delete('server');
+      }
+      const queryString = newParams.toString();
       const url = `/chat/${id}${queryString ? `?${queryString}` : ''}`;
       navigate(url);
     },
@@ -404,6 +411,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         <div className="h-full overflow-auto">
           <ConversationContent
             conversationId={conversation.id}
+            serverId={serverParam || conversation.serverId}
             isReadOnly={conversation.readonly}
           />
         </div>
@@ -435,8 +443,8 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
               <UnifiedSidebar
                 conversations={allConversations}
                 selectedConversationId$={selectedConversation$}
-                onSelectConversation={(id) => {
-                  handleSelectConversation(id);
+                onSelectConversation={(id, serverId) => {
+                  handleSelectConversation(id, serverId);
                   leftSidebarVisible$.set(false);
                 }}
                 conversationsLoading={isLoading}

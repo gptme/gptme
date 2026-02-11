@@ -36,7 +36,7 @@ const chatConfigToFormValues = (config: ChatConfig | null): FormSchema => ({
 });
 
 export const useConversationSettings = (conversationId: string) => {
-  const api = useApi();
+  const { api } = useApi();
   const conversation$ = conversations$.get(conversationId);
   const chatConfig = use$(conversation$?.chatConfig);
   const [configError, setConfigError] = useState<string | null>(null);

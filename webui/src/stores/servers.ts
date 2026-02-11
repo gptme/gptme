@@ -29,6 +29,9 @@ function loadRegistry(): ServerRegistry {
         if (!parsed.servers.some((s) => s.id === parsed.activeServerId)) {
           parsed.activeServerId = parsed.servers[0].id;
         }
+        // Prune connectedServerIds to only existing servers
+        const serverIds = new Set(parsed.servers.map((s) => s.id));
+        parsed.connectedServerIds = parsed.connectedServerIds.filter((id) => serverIds.has(id));
         // Ensure activeServerId is in connectedServerIds
         if (!parsed.connectedServerIds.includes(parsed.activeServerId)) {
           parsed.connectedServerIds.push(parsed.activeServerId);
@@ -101,6 +104,14 @@ function migrateFromLegacy(): ServerRegistry {
     activeServerId: localServer.id,
     connectedServerIds: [localServer.id],
   };
+
+  // Clean up legacy keys after migration
+  try {
+    localStorage.removeItem(LEGACY_BASE_URL_KEY);
+    localStorage.removeItem(LEGACY_USER_TOKEN_KEY);
+  } catch {
+    // localStorage unavailable
+  }
 
   persistRegistry(registry);
   return registry;

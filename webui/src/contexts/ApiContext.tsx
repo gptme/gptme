@@ -1,4 +1,3 @@
-import { createApiClient } from '@/utils/api';
 import type { ApiClient } from '@/utils/api';
 import {
   getConnectionConfigFromSources,
@@ -12,6 +11,7 @@ import {
   setActiveServer,
   connectServer,
 } from '@/stores/servers';
+import { getClientForServer, getPrimaryClient } from '@/stores/serverClients';
 import type { ServerConfig } from '@/types/servers';
 import { type Observable, observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
@@ -20,7 +20,10 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { toast } from 'sonner';
 
 interface ApiContextType {
+  /** The primary server's client (shorthand for getClient(activeServerId)) */
   api: ApiClient;
+  /** Get a client for any connected server. Defaults to primary. */
+  getClient: (serverId?: string) => ApiClient;
   isConnecting$: Observable<boolean>;
   isConnected$: Observable<boolean>;
   isAutoConnecting$: Observable<boolean>;
@@ -30,49 +33,24 @@ interface ApiContextType {
   connect: (config?: Partial<ConnectionConfig>) => Promise<void>;
   switchServer: (serverId: string) => Promise<void>;
   stopAutoConnect: () => void;
-  // Methods from ApiClient that are used in components
-  getConversation: ApiClient['getConversation'];
-  createConversation: ApiClient['createConversation'];
-  sendMessage: ApiClient['sendMessage'];
-  step: ApiClient['step'];
-  confirmTool: ApiClient['confirmTool'];
-  interruptGeneration: ApiClient['interruptGeneration'];
-  cancelPendingRequests: ApiClient['cancelPendingRequests'];
-  // Add event stream methods
-  subscribeToEvents: ApiClient['subscribeToEvents'];
-  closeEventStream: ApiClient['closeEventStream'];
-  getChatConfig: ApiClient['getChatConfig'];
-  updateChatConfig: ApiClient['updateChatConfig'];
-  deleteConversation: ApiClient['deleteConversation'];
-  createAgent: ApiClient['createAgent'];
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
 
 // Check if hash contains auth code (sync check)
-// Note: exchangeUrl is derived from configuration, only code is needed in URL
 function hasAuthCodeInHash(hash: string): boolean {
   const params = new URLSearchParams(hash);
   return Boolean(params.get('code'));
 }
 
-// Initial sync config (may be incomplete if auth code present)
+// Process initial hash (legacy direct token flow — registers into server registry)
 const initialHash = window.location.hash.substring(1);
 const needsAuthCodeExchange = hasAuthCodeInHash(initialHash);
 
-const connectionConfig$ = observable(
-  // If auth code is present, start with default config - it will be updated after exchange
-  needsAuthCodeExchange
-    ? getConnectionConfigFromSources() // Get from storage/defaults, not hash
-    : getConnectionConfigFromSources(initialHash)
-);
+if (!needsAuthCodeExchange && initialHash) {
+  getConnectionConfigFromSources(initialHash);
+}
 
-let api = createApiClient(
-  connectionConfig$.baseUrl.get(),
-  connectionConfig$.useAuthToken.get() && connectionConfig$.authToken.get()
-    ? `Bearer ${connectionConfig$.authToken.get()}`
-    : null
-);
 const isConnecting$ = observable(false);
 const isAutoConnecting$ = observable(false);
 
@@ -80,7 +58,7 @@ const isAutoConnecting$ = observable(false);
 let autoConnectTimer: ReturnType<typeof setTimeout> | null = null;
 let autoConnectAttempts = 0;
 const MAX_AUTO_CONNECT_ATTEMPTS = 10;
-const INITIAL_RETRY_DELAY = 1000; // 1 second
+const INITIAL_RETRY_DELAY = 1000;
 
 const stopAutoConnect = () => {
   if (autoConnectTimer) {
@@ -91,22 +69,19 @@ const stopAutoConnect = () => {
   autoConnectAttempts = 0;
 };
 
+/**
+ * Update the active server's connection config.
+ * Used by gptme-cloud's Chat.tsx to inject Supabase session tokens.
+ */
 const updateConfig = (newConfig: Partial<ConnectionConfig>) => {
-  connectionConfig$.set((prev) => {
-    const updated = { ...prev, ...newConfig };
-
-    // Persist to the server registry
-    const activeServer = getActiveServer();
-    if (activeServer) {
-      updateServer(activeServer.id, {
-        baseUrl: updated.baseUrl,
-        authToken: updated.authToken,
-        useAuthToken: updated.useAuthToken,
-      });
-    }
-
-    return updated;
-  });
+  const activeServer = getActiveServer();
+  if (activeServer) {
+    updateServer(activeServer.id, {
+      ...(newConfig.baseUrl !== undefined && { baseUrl: newConfig.baseUrl }),
+      ...(newConfig.authToken !== undefined && { authToken: newConfig.authToken }),
+      ...(newConfig.useAuthToken !== undefined && { useAuthToken: newConfig.useAuthToken }),
+    });
+  }
 };
 
 export function ApiProvider({
@@ -118,29 +93,36 @@ export function ApiProvider({
 }) {
   const [isExchangingAuthCode, setIsExchangingAuthCode] = useState(needsAuthCodeExchange);
 
-  // Connect to API
+  // Get client for any server from the shared pool
+  const getClient = useCallback((serverId?: string): ApiClient => {
+    if (serverId) {
+      const client = getClientForServer(serverId);
+      if (client) return client;
+    }
+    return getPrimaryClient();
+  }, []);
+
+  // Connect to API — tests connectivity of the active server
   const connect = useCallback(
     async (config?: Partial<ConnectionConfig>) => {
-      // Stop any ongoing auto-connect attempts when manually connecting
       stopAutoConnect();
 
       if (config) {
-        // Update config if provided
-        updateConfig(config);
-
-        // Update API client if config has changed
-        const { baseUrl, authToken, useAuthToken } = config;
-        if (
-          api.baseUrl !== baseUrl ||
-          api.authHeader !== (useAuthToken && authToken ? `Bearer ${authToken}` : null)
-        ) {
-          console.log('[ApiContext] Creating new API client');
-          api = createApiClient(baseUrl, useAuthToken && authToken ? `Bearer ${authToken}` : null);
-          isConnecting$.set(false);
+        // Update the active server in the registry (pool will pick up changes)
+        const activeServer = getActiveServer();
+        if (activeServer) {
+          updateServer(activeServer.id, {
+            ...(config.baseUrl !== undefined && { baseUrl: config.baseUrl }),
+            ...(config.authToken !== undefined && { authToken: config.authToken }),
+            ...(config.useAuthToken !== undefined && { useAuthToken: config.useAuthToken }),
+          });
         }
       }
 
-      if (api.isConnected$.get()) {
+      // Get a fresh client from the pool (picks up any config changes)
+      const client = getPrimaryClient();
+
+      if (client.isConnected$.get()) {
         console.log('[ApiContext] Already connected, skipping connection');
         return;
       }
@@ -153,17 +135,14 @@ export function ApiProvider({
       console.log('[ApiContext] Connecting to API');
       isConnecting$.set(true);
       try {
-        // Test connection
-        const connected = await api.checkConnection();
+        const connected = await client.checkConnection();
         console.log('[ApiContext] Connected:', connected);
         if (!connected) {
           throw new Error('Failed to connect to API');
         }
 
-        // Update state
-        api.setConnected(true);
+        client.setConnected(true);
 
-        // Refresh queries
         await queryClient.invalidateQueries();
         await queryClient.refetchQueries({
           queryKey: ['conversations'],
@@ -173,7 +152,7 @@ export function ApiProvider({
         toast.success('Connected to gptme server');
       } catch (error) {
         console.error('Failed to connect to API:', error);
-        api.setConnected(false);
+        client.setConnected(false);
 
         let errorMessage = 'Could not connect to gptme instance.';
         if (error instanceof Error) {
@@ -194,7 +173,7 @@ export function ApiProvider({
     [queryClient]
   );
 
-  // Atomic server switch: switches active server with full rollback on failure
+  // Atomic server switch: changes the primary server with rollback on failure
   const switchServer = useCallback(
     async (serverId: string) => {
       const registry = serverRegistry$.get();
@@ -203,31 +182,25 @@ export function ApiProvider({
 
       if (serverId === registry.activeServerId) return;
 
-      // Snapshot current state for rollback
       const previousActiveId = registry.activeServerId;
-      const previousConfig = connectionConfig$.get();
-      const previousApi = api;
 
       // Ensure server is in connected list
       if (!registry.connectedServerIds.includes(serverId)) {
         connectServer(serverId);
       }
 
-      // Update active server in registry
       setActiveServer(serverId);
 
       try {
-        // connect() will update connectionConfig$, create new api client, and verify connectivity
+        // Connect tests the new primary (pool creates/returns client for this server)
         await connect({
           baseUrl: server.baseUrl,
           authToken: server.authToken,
           useAuthToken: server.useAuthToken,
         });
       } catch (error) {
-        // Full rollback: restore active server, config, and api client
+        // Rollback: restore previous active server
         setActiveServer(previousActiveId);
-        connectionConfig$.set(previousConfig);
-        api = previousApi;
         throw error;
       }
     },
@@ -237,7 +210,9 @@ export function ApiProvider({
   // Auto-connect with retry logic
   const autoConnect = useCallback(
     async (isInitialAttempt: boolean = false) => {
-      if (api.isConnected$.get()) {
+      const client = getPrimaryClient();
+
+      if (client.isConnected$.get()) {
         console.log('[ApiContext] Already connected, stopping auto-connect');
         stopAutoConnect();
         return;
@@ -260,20 +235,18 @@ export function ApiProvider({
       );
 
       try {
-        const connected = await api.checkConnection();
+        const connected = await client.checkConnection();
         if (connected) {
           console.log('[ApiContext] Auto-connect successful');
-          api.setConnected(true);
+          client.setConnected(true);
           stopAutoConnect();
 
-          // Refresh queries
           await queryClient.invalidateQueries();
           await queryClient.refetchQueries({
             queryKey: ['conversations'],
             type: 'active',
           });
 
-          // Only show success toast if not the initial attempt
           if (!isInitialAttempt) {
             toast.success('Connected to gptme server');
           }
@@ -283,9 +256,8 @@ export function ApiProvider({
         console.log(`[ApiContext] Auto-connect attempt ${autoConnectAttempts} failed:`, error);
       }
 
-      // Schedule next retry with exponential backoff
       const delay = INITIAL_RETRY_DELAY * Math.pow(2, autoConnectAttempts - 1);
-      const maxDelay = 30000; // Cap at 30 seconds
+      const maxDelay = 30000;
       const nextDelay = Math.min(delay, maxDelay);
 
       console.log(`[ApiContext] Scheduling next auto-connect attempt in ${nextDelay}ms`);
@@ -300,26 +272,15 @@ export function ApiProvider({
   // Handle auth code exchange on mount
   useEffect(() => {
     const handleAuthCodeExchange = async () => {
-      // Re-check hash at mount time (not module load time) for SPA navigation
-      // The module-level initialHash may be empty if the module loaded before navigation
       const currentHash = window.location.hash.substring(1);
-      const hasAuthCode = hasAuthCodeInHash(currentHash);
-
-      if (!hasAuthCode) {
-        return;
-      }
+      if (!hasAuthCodeInHash(currentHash)) return;
 
       console.log('[ApiContext] Auth code detected, starting exchange...');
       setIsExchangingAuthCode(true);
 
       try {
         const config = await processConnectionFromHash(currentHash);
-        console.log('[ApiContext] Auth code exchange successful, updating config');
-
-        // Update the config with exchanged values
-        updateConfig(config);
-
-        // Connect with the new config
+        console.log('[ApiContext] Auth code exchange successful, connecting');
         await connect(config);
       } catch (error) {
         console.error('[ApiContext] Auth code exchange failed:', error);
@@ -334,28 +295,18 @@ export function ApiProvider({
     };
 
     void handleAuthCodeExchange();
-    // Only run on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Attempt initial connection (skip if auth code exchange is happening)
   useEffect(() => {
-    // Re-check hash at mount time (not module load time) for SPA navigation
-    // This mirrors the check in the auth code exchange effect above
     const currentHash = window.location.hash.substring(1);
-    if (hasAuthCodeInHash(currentHash)) {
-      // Auth code exchange effect will handle connection
-      return;
-    }
+    if (hasAuthCodeInHash(currentHash)) return;
 
-    const attemptInitialConnection = async () => {
+    void (async () => {
       console.log('[ApiContext] Attempting initial connection');
-      // Use autoConnect for all environments - enables launching webui before server
-      // autoConnect will retry with exponential backoff until successful or max attempts reached
       await autoConnect(true);
-    };
-
-    void attemptInitialConnection();
+    })();
   }, [autoConnect]);
 
   // Cleanup on unmount
@@ -365,12 +316,25 @@ export function ApiProvider({
     };
   }, []);
 
-  const connectionConfig = use$(connectionConfig$);
+  // Derive connectionConfig from the active server (single source of truth)
+  const registry = use$(serverRegistry$);
+  const activeServer = registry.servers.find((s) => s.id === registry.activeServerId);
+  const connectionConfig: ConnectionConfig = activeServer
+    ? {
+        baseUrl: activeServer.baseUrl,
+        authToken: activeServer.authToken,
+        useAuthToken: activeServer.useAuthToken,
+      }
+    : { baseUrl: 'http://127.0.0.1:5700', authToken: null, useAuthToken: false };
+
+  // Primary client from pool (re-resolved each render to pick up changes)
+  const api = getPrimaryClient();
 
   return (
     <ApiContext.Provider
       value={{
         api,
+        getClient,
         isConnecting$,
         isConnected$: api.isConnected$,
         isAutoConnecting$,
@@ -380,20 +344,6 @@ export function ApiProvider({
         connect,
         switchServer,
         stopAutoConnect,
-        // Forward methods from the API client
-        getConversation: api.getConversation.bind(api),
-        createConversation: api.createConversation.bind(api),
-        sendMessage: api.sendMessage.bind(api),
-        step: api.step.bind(api),
-        confirmTool: api.confirmTool.bind(api),
-        interruptGeneration: api.interruptGeneration.bind(api),
-        cancelPendingRequests: api.cancelPendingRequests.bind(api),
-        subscribeToEvents: api.subscribeToEvents.bind(api),
-        closeEventStream: api.closeEventStream.bind(api),
-        getChatConfig: api.getChatConfig.bind(api),
-        updateChatConfig: api.updateChatConfig.bind(api),
-        deleteConversation: api.deleteConversation.bind(api),
-        createAgent: api.createAgent.bind(api),
       }}
     >
       {children}

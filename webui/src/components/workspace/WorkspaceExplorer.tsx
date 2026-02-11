@@ -22,7 +22,7 @@ export function WorkspaceExplorer({ conversationId }: WorkspaceExplorerProps) {
   const [error, setError] = useState<string | null>(null);
 
   const [workspaceRoot, setWorkspaceRoot] = useState<string>('');
-  const api = useApi();
+  const { api } = useApi();
   const { listWorkspace } = useWorkspaceApi();
 
   const loadFiles = useCallback(async () => {

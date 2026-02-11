@@ -14,12 +14,15 @@ import { useModels } from '@/hooks/useModels';
 
 interface Props {
   conversationId: string;
+  serverId?: string;
   isReadOnly?: boolean;
 }
 
-export const ConversationContent: FC<Props> = ({ conversationId, isReadOnly }) => {
-  const { conversation$, sendMessage, confirmTool, interruptGeneration } =
-    useConversation(conversationId);
+export const ConversationContent: FC<Props> = ({ conversationId, serverId, isReadOnly }) => {
+  const { conversation$, sendMessage, confirmTool, interruptGeneration } = useConversation(
+    conversationId,
+    serverId
+  );
   // State to track when to auto-focus the input
   const shouldFocus$ = useObservable(false);
   // Store the previous conversation ID to detect changes

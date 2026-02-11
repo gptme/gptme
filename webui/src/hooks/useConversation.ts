@@ -24,11 +24,13 @@ import { ApiClientError } from '@/utils/api';
 
 const MAX_CONNECTED_CONVERSATIONS = 3;
 
-export function useConversation(conversationId: string) {
-  const api = useApi();
+export function useConversation(conversationId: string, serverId?: string) {
+  const { getClient, isConnected$ } = useApi();
+  // Use the client for the specific server, or primary if no serverId
+  const api = getClient(serverId);
   const { toast } = useToast();
   const conversation$ = conversations$.get(conversationId);
-  const isConnected = use$(api.isConnected$);
+  const isConnected = use$(isConnected$);
 
   const messageJustCompleted = useRef(false);
 
