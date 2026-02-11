@@ -878,14 +878,15 @@ def test_user_config_local_toml(tmp_path):
         "[env]\n" 'OPENAI_API_KEY = "sk-secret-123"\n' 'EDITOR = "nvim"\n'
     )
 
-    config = Config(user=load_user_config(str(main_config)))
+    user_config = load_user_config(str(main_config))
 
     # Local env values should be merged in, overriding main where they overlap
-    assert config.get_env("OPENAI_API_KEY") == "sk-secret-123"
-    assert config.get_env("EDITOR") == "nvim"
+    # (check user.env directly to avoid os.environ interference in CI)
+    assert user_config.env["OPENAI_API_KEY"] == "sk-secret-123"
+    assert user_config.env["EDITOR"] == "nvim"
 
     # Non-overlapping values from main config should be preserved
-    assert config.user.prompt.about_user == "I am a developer."
+    assert user_config.prompt.about_user == "I am a developer."
 
 
 def test_user_config_local_toml_mcp_merge(tmp_path):
