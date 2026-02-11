@@ -352,20 +352,17 @@ def load_user_config(path: str | None = None) -> UserConfig:
 
     # Backward compat: if about/response_preference not set in [user],
     # fall back to [prompt].about_user / [prompt].response_preference
-    if user_identity.about is None and prompt.about_user is not None:
+    about = user_identity.about
+    if about is None and prompt.about_user is not None:
+        about = prompt.about_user
+    resp_pref = user_identity.response_preference
+    if resp_pref is None and prompt.response_preference is not None:
+        resp_pref = prompt.response_preference
+    if about != user_identity.about or resp_pref != user_identity.response_preference:
         user_identity = UserIdentityConfig(
             name=user_identity.name,
-            about=prompt.about_user,
-            response_preference=user_identity.response_preference,
-        )
-    if (
-        user_identity.response_preference is None
-        and prompt.response_preference is not None
-    ):
-        user_identity = UserIdentityConfig(
-            name=user_identity.name,
-            about=user_identity.about,
-            response_preference=prompt.response_preference,
+            about=about,
+            response_preference=resp_pref,
         )
 
     env = config.pop("env", {})

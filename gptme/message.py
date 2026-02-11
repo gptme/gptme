@@ -310,19 +310,11 @@ def format_msgs(
     oneline: bool = False,
     highlight: bool = False,
     indent: int = 0,
-    user_name: str | None = None,
 ) -> list[str]:
-    """Formats messages for printing to the console.
-
-    Args:
-        user_name: If set, use this name instead of "User" for user messages.
-    """
+    """Formats messages for printing to the console."""
     outputs = []
     for msg in msgs:
-        if msg.role == "user" and user_name:
-            userprefix = user_name
-        else:
-            userprefix = msg.role.capitalize()
+        userprefix = msg.role.capitalize()
         if highlight:
             color = ROLE_COLOR[msg.role]
             userprefix = f"[bold {color}]{userprefix}[/bold {color}]"
