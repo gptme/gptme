@@ -452,8 +452,14 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-config-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-gptme-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">gptme.local.toml</span></code>)</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chat-config">Chat config</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-conversation-context">Cross-Conversation Context</a></li>
@@ -539,6 +545,22 @@
 <p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>. It can also be used to set default tool configuration options, see <a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> for more information.</p>
 <p>If you want to configure MCP servers, you can do so in a <code class="docutils literal notranslate"><span class="pre">mcp</span></code> section. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p>
 <p>See <a class="reference internal" href="api.html#gptme.config.UserConfig" title="gptme.config.UserConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.UserConfig</span></code></a> for the API reference.</p>
+<section id="local-overrides-config-local-toml">
+<span id="global-config-local"></span><h3>Local overrides (<code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>)<a class="headerlink" href="#local-overrides-config-local-toml" title="Link to this heading">#</a></h3>
+<p>You can create a <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code> in the same directory (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/</span></code>) to override or extend values from <code class="docutils literal notranslate"><span class="pre">config.toml</span></code>. This is useful for keeping secrets (API keys, MCP server credentials) separate from preferences you might commit to your dotfiles.</p>
+<p>Example <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
+<span class="n">OPENAI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sk-...&quot;</span>
+<span class="n">ANTHROPIC_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sk-ant-...&quot;</span>
+
+<span class="c1"># Add secret env vars to an MCP server defined in config.toml</span>
+<span class="k">[[mcp.servers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-server&quot;</span>
+<span class="n">env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">API_KEY</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;secret-key&quot;</span><span class="w"> </span><span class="p">}</span>
+</pre></div>
+</div>
+<p>Values in <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code> are merged into the main config: dictionary sections are merged recursively, and MCP servers are merged by name (so you can define the server command/args in <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> and add secrets in <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>). Scalar values in the local file override the main file.</p>
+</section>
 </section>
 <section id="project-config">
 <span id="id2"></span><h2>Project config<a class="headerlink" href="#project-config" title="Link to this heading">#</a></h2>
@@ -588,6 +610,15 @@
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp</span></code>, MCP server configuration for this project. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p></li>
 </ul>
 <p>See <a class="reference internal" href="api.html#gptme.config.ProjectConfig" title="gptme.config.ProjectConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.ProjectConfig</span></code></a> for the API reference.</p>
+<section id="local-overrides-gptme-local-toml">
+<span id="project-config-local"></span><h3>Local overrides (<code class="docutils literal notranslate"><span class="pre">gptme.local.toml</span></code>)<a class="headerlink" href="#local-overrides-gptme-local-toml" title="Link to this heading">#</a></h3>
+<p>You can create a <code class="docutils literal notranslate"><span class="pre">gptme.local.toml</span></code> file next to <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> to override or extend the project config with values you don’t want to commit to version control (e.g. secrets for MCP servers, personal env vars).</p>
+<p>The merging behavior is the same as for the <a class="reference internal" href="#global-config-local"><span class="std std-ref">global local config</span></a>: dictionaries merge recursively, MCP servers merge by name, and scalar values in the local file override the main file.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Add <code class="docutils literal notranslate"><span class="pre">gptme.local.toml</span></code> to your <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> to keep secrets out of version control.</p>
+</div>
+</section>
 </section>
 <section id="chat-config">
 <span id="id3"></span><h2>Chat config<a class="headerlink" href="#chat-config" title="Link to this heading">#</a></h2>
@@ -696,8 +727,14 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-config-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-gptme-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">gptme.local.toml</span></code>)</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chat-config">Chat config</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-conversation-context">Cross-Conversation Context</a></li>
