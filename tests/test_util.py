@@ -250,3 +250,19 @@ def test_detect_binary_type_text():
         assert is_image is False
     finally:
         path.unlink()
+
+
+def test_detect_binary_type_webp():
+    """Test that WEBP files are detected as images."""
+    with tempfile.NamedTemporaryFile(suffix=".webp", delete=False) as f:
+        # WEBP magic bytes: RIFF....WEBP
+        f.write(b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 100)
+        f.flush()
+        path = Path(f.name)
+
+    try:
+        file_type, is_image = detect_binary_type(path)
+        assert file_type == "WEBP"
+        assert is_image is True
+    finally:
+        path.unlink()

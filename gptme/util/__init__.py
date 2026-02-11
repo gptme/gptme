@@ -54,7 +54,7 @@ def detect_binary_type(path: Path) -> tuple[str | None, bool]:
     """
     try:
         with open(path, "rb") as f:
-            header = f.read(12)  # Read enough for WEBP detection
+            header = f.read(20)  # Read enough for WEBP detection (RIFF + size + WEBP)
     except OSError:
         return None, False
 
