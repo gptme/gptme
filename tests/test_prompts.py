@@ -135,6 +135,14 @@ files = ["../outside/secret.txt", "README.md"]
     msgs = list(prompt_workspace(workspace))
     content = "\n".join(msg.content for msg in msgs)
 
-    # Should include README but NOT secret file
-    assert "# Test" in content, "README.md should be included"
-    assert "secret data" not in content, "secret.txt should be blocked (path traversal)"
+    # Collect attached files from all messages
+    attached_files: list[str] = []
+    for msg in msgs:
+        attached_files.extend(str(f) for f in msg.files)
+
+    # README should be attached, secret file should be blocked (path traversal)
+    assert any("README.md" in f for f in attached_files), "README.md should be attached"
+    assert not any(
+        "secret.txt" in f for f in attached_files
+    ), "secret.txt should NOT be attached (path traversal)"
+    assert "../outside/secret.txt" not in content, "Path traversal should be blocked"

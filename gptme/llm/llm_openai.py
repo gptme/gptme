@@ -790,7 +790,10 @@ def _merge_tool_results_with_same_call_id(
 
 
 def _process_file(msg: dict[str, Any], model: ModelMeta) -> dict[str, Any]:
-    """Process file attachments in a message dict, converting to API format.
+    """Process remaining file attachments (images only).
+
+    Text files are already embedded by embed_attached_file_content() in
+    prepare_messages(). Only non-text files (images, binaries) remain here.
 
     Args:
         msg: A message dict (expected to conform to MessageDict structure)

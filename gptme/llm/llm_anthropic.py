@@ -707,6 +707,11 @@ ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif"]
 
 
 def _process_file(message_dict: dict) -> dict:
+    """Process remaining file attachments (images only).
+
+    Text files are already embedded by embed_attached_file_content() in
+    prepare_messages(). Only non-text files (images, binaries) remain here.
+    """
     message_content = message_dict["content"]
 
     # combines a content message with a list of files

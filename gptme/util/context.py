@@ -223,6 +223,12 @@ def embed_attached_file_content(
 ) -> Message:
     """Embed attached file contents inline in a message.
 
+    This is the canonical path for reading text file attachments into message
+    content. It runs in prepare_messages() before messages reach LLM providers.
+    Text files are embedded as codeblocks and removed from msg.files.
+    Non-text files (images, binaries) remain in msg.files for provider-specific
+    handling in _process_file().
+
     If the message has file_hashes, attempts to read from content-addressed
     storage first (preserving the file version at message creation time).
     Falls back to the original file path if stored content is not available.

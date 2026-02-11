@@ -24,6 +24,7 @@ from .util import document_prompt_function
 from .util.content import extract_content_summary
 from .util.context import md_codeblock
 from .util.tree import get_tree_output
+from .util.uri import FilePath
 
 # Default files to include in context when no gptme.toml is present or files list is empty
 DEFAULT_CONTEXT_FILES = [
@@ -516,16 +517,20 @@ def prompt_workspace(
     if tree_output := get_tree_output(workspace):
         sections.append(f"## Project Structure\n\n{md_codeblock('', tree_output)}\n\n")
 
-    files_str = []
-    for file in files:
-        if file.exists():
-            files_str.append(md_codeblock(file.resolve(), file.read_text()))
-    if files_str:
-        sections.append(
-            "## Selected files\n\nRead more with `cat`.\n\n" + "\n\n".join(files_str)
+    if sections:
+        yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
+
+    # Yield files as a separate message (more stable than computed context)
+    valid_files: list[FilePath] = [file for file in files if file.exists()]
+    if valid_files:
+        file_list = "\n".join(f"- {file}" for file in valid_files)
+        yield Message(
+            "system",
+            f"## Selected files\n\nRead more with `cat`.\n\n{file_list}",
+            files=valid_files,
         )
 
-    # context_cmd
+    # Computed context last (changes most often, least cacheable)
     if (
         project
         and project.context_cmd
@@ -533,10 +538,7 @@ def prompt_workspace(
             cmd_output := get_project_context_cmd_output(project.context_cmd, workspace)
         )
     ):
-        sections.append("## Computed context\n\n" + cmd_output)
-
-    if sections:
-        yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
+        yield Message("system", "## Computed context\n\n" + cmd_output)
 
 
 # Maximum characters for context_cmd output to prevent context explosion
