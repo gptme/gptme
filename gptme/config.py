@@ -346,8 +346,11 @@ def load_user_config(path: str | None = None) -> UserConfig:
 
     prompt = UserPromptConfig(**config.pop("prompt", {}))
 
-    # Parse [user] section
+    # Parse [user] section (validate it's a dict in case of e.g. user = "Erik")
     user_data = config.pop("user", {})
+    if not isinstance(user_data, dict):
+        logger.warning(f"[user] should be a table, got {type(user_data).__name__}")
+        user_data = {}
     user_identity = UserIdentityConfig(**user_data)
 
     # Backward compat: if about/response_preference not set in [user],

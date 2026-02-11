@@ -25,9 +25,11 @@ ROLE_COLOR = {
 
 
 def prompt_user(name: str | None = None) -> str:
+    from rich.markup import escape
+
     if not name:
         name = "User"
-    return f"[bold {ROLE_COLOR['user']}]{name}[/bold {ROLE_COLOR['user']}]"
+    return f"[bold {ROLE_COLOR['user']}]{escape(name)}[/bold {ROLE_COLOR['user']}]"
 
 
 PROMPT_USER = prompt_user()
