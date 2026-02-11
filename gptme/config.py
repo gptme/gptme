@@ -117,10 +117,20 @@ class UserPromptConfig:
 
 
 @dataclass
+class UserIdentityConfig:
+    """Configuration for user identity."""
+
+    name: str = "User"
+    about: str | None = None
+    response_preference: str | None = None
+
+
+@dataclass
 class UserConfig:
     """User-level configuration, such as user-specific prompts and environment variables."""
 
     prompt: UserPromptConfig = field(default_factory=UserPromptConfig)
+    user: UserIdentityConfig = field(default_factory=UserIdentityConfig)
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -311,9 +321,12 @@ ABOUT_GPTME = "gptme is a CLI to interact with large language models in a Chat-s
 
 # TODO: include this in docs
 default_config = UserConfig(
-    prompt=UserPromptConfig(
-        about_user="I am a curious human programmer.",
+    user=UserIdentityConfig(
+        name="User",
+        about="I am a curious human programmer.",
         response_preference="Basic concepts don't need to be explained.",
+    ),
+    prompt=UserPromptConfig(
         project={
             "activitywatch": ABOUT_ACTIVITYWATCH,
             "gptme": ABOUT_GPTME,
@@ -332,6 +345,29 @@ def load_user_config(path: str | None = None) -> UserConfig:
     # Note: prompt and env are optional - defaults are used if missing
 
     prompt = UserPromptConfig(**config.pop("prompt", {}))
+
+    # Parse [user] section
+    user_data = config.pop("user", {})
+    user_identity = UserIdentityConfig(**user_data)
+
+    # Backward compat: if about/response_preference not set in [user],
+    # fall back to [prompt].about_user / [prompt].response_preference
+    if user_identity.about is None and prompt.about_user is not None:
+        user_identity = UserIdentityConfig(
+            name=user_identity.name,
+            about=prompt.about_user,
+            response_preference=user_identity.response_preference,
+        )
+    if (
+        user_identity.response_preference is None
+        and prompt.response_preference is not None
+    ):
+        user_identity = UserIdentityConfig(
+            name=user_identity.name,
+            about=user_identity.about,
+            response_preference=prompt.response_preference,
+        )
+
     env = config.pop("env", {})
     mcp = MCPConfig.from_dict(config.pop("mcp", {}))
 
@@ -359,6 +395,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
 
     return UserConfig(
         prompt=prompt,
+        user=user_identity,
         env=env,
         mcp=mcp,
         providers=providers,

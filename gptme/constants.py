@@ -23,7 +23,14 @@ ROLE_COLOR = {
     "system": "grey42",
 }
 
-PROMPT_USER = f"[bold {ROLE_COLOR['user']}]User[/bold {ROLE_COLOR['user']}]"
+
+def prompt_user(name: str | None = None) -> str:
+    if not name:
+        name = "User"
+    return f"[bold {ROLE_COLOR['user']}]{name}[/bold {ROLE_COLOR['user']}]"
+
+
+PROMPT_USER = prompt_user()
 
 
 def prompt_assistant(name: str | None) -> str:

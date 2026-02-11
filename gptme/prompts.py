@@ -313,20 +313,31 @@ def prompt_user() -> Generator[Message, None, None]:
     Generate the user-specific prompt based on config.
 
     Only included in interactive mode.
+    Reads from ``[user]`` section first, falling back to ``[prompt]`` for backward compat.
     """
-    config_prompt = get_config().user.prompt
+    config = get_config()
+    user_identity = config.user.user
+    config_prompt = config.user.prompt
+
+    # Prefer [user] section, fall back to [prompt] for backward compat
     about_user = (
-        config_prompt.about_user or "You are interacting with a human programmer."
+        user_identity.about
+        or config_prompt.about_user
+        or "You are interacting with a human programmer."
     )
     response_prefs = (
-        config_prompt.response_preference or "No specific preferences set."
+        user_identity.response_preference
+        or config_prompt.response_preference
+        or "No specific preferences set."
     ).strip()
 
-    prompt_content = f"""# About User
+    user_name = user_identity.name or "User"
+
+    prompt_content = f"""# About {user_name}
 
 {about_user}
 
-## User's Response Preferences
+## {user_name}'s Response Preferences
 
 {response_prefs}
 """

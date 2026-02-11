@@ -13,7 +13,9 @@ from .constants import (
     INTERRUPT_CONTENT,
     MAX_MESSAGE_LENGTH,
     MAX_PROMPT_QUEUE_SIZE,
-    PROMPT_USER,
+)
+from .constants import (
+    prompt_user as prompt_user_styled,
 )
 from .hooks import HookType, trigger_hook
 from .init import init
@@ -512,11 +514,14 @@ def prompt_user(value=None) -> str:  # pragma: no cover
     if sys.stdin.isatty():
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
     response = ""
+    # Get user name from config for the prompt display
+    user_name = get_config().user.user.name
+    styled_prompt = prompt_user_styled(user_name)
     with terminal_state_title("⌨️ waiting for input"):
         while not response:
             try:
                 set_interruptible()
-                response = prompt_input(PROMPT_USER, value)
+                response = prompt_input(styled_prompt, value)
                 if response:
                     add_history(response)
             except KeyboardInterrupt:

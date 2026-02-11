@@ -12,6 +12,7 @@ from gptme.config import (
     Config,
     MCPConfig,
     ProjectConfig,
+    UserIdentityConfig,
     get_config,
     load_user_config,
     setup_config_from_cli,
@@ -750,3 +751,114 @@ def test_reload_config_clears_tools(monkeypatch, tmp_path):
 
     # Verify clear_tools was called
     assert mock_clear_tools.called, "reload_config() should call clear_tools()"
+
+
+def test_user_identity_config_new_format():
+    """Test that [user] section is parsed correctly."""
+    config_toml = """
+[user]
+name = "Erik"
+about = "I am a curious human programmer."
+response_preference = "Basic concepts don't need to be explained."
+
+[prompt]
+[prompt.project]
+myproject = "A cool project."
+
+[env]
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+        f.flush()
+        try:
+            config = load_user_config(f.name)
+            assert config.user.name == "Erik"
+            assert config.user.about == "I am a curious human programmer."
+            assert (
+                config.user.response_preference
+                == "Basic concepts don't need to be explained."
+            )
+            assert config.prompt.project == {"myproject": "A cool project."}
+        finally:
+            os.remove(f.name)
+
+
+def test_user_identity_config_backward_compat():
+    """Test that old [prompt] about_user/response_preference still works as fallback."""
+    config_toml = """
+[prompt]
+about_user = "I am a legacy user."
+response_preference = "Keep it short."
+
+[env]
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+        f.flush()
+        try:
+            config = load_user_config(f.name)
+            # Should fall back to [prompt] values
+            assert config.user.name == "User"
+            assert config.user.about == "I am a legacy user."
+            assert config.user.response_preference == "Keep it short."
+        finally:
+            os.remove(f.name)
+
+
+def test_user_identity_config_new_overrides_old():
+    """Test that [user] values take priority over [prompt] fallback."""
+    config_toml = """
+[user]
+name = "Erik"
+about = "New about text."
+response_preference = "New preference."
+
+[prompt]
+about_user = "Old about text."
+response_preference = "Old preference."
+
+[env]
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+        f.flush()
+        try:
+            config = load_user_config(f.name)
+            # [user] should take priority
+            assert config.user.name == "Erik"
+            assert config.user.about == "New about text."
+            assert config.user.response_preference == "New preference."
+        finally:
+            os.remove(f.name)
+
+
+def test_user_identity_config_defaults():
+    """Test that UserIdentityConfig has sensible defaults."""
+    identity = UserIdentityConfig()
+    assert identity.name == "User"
+    assert identity.about is None
+    assert identity.response_preference is None
+
+
+def test_user_identity_config_partial_fallback():
+    """Test that fallback works per-field."""
+    config_toml = """
+[user]
+name = "Erik"
+about = "Custom about."
+
+[prompt]
+response_preference = "Fallback preference."
+
+[env]
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+        f.flush()
+        try:
+            config = load_user_config(f.name)
+            assert config.user.name == "Erik"
+            assert config.user.about == "Custom about."
+            assert config.user.response_preference == "Fallback preference."
+        finally:
+            os.remove(f.name)
