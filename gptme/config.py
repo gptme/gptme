@@ -401,6 +401,15 @@ def load_user_config(path: str | None = None) -> UserConfig:
     )
 
 
+def _strip_none(d: dict) -> dict:
+    """Recursively remove None values from a dict (tomlkit can't serialize None)."""
+    return {
+        k: _strip_none(v) if isinstance(v, dict) else v
+        for k, v in d.items()
+        if v is not None
+    }
+
+
 def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     if path is None:
         path = config_path
@@ -408,9 +417,7 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     if not os.path.exists(path):
         # If not, create it and write some default settings
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        toml = tomlkit.dumps(
-            {k: v for k, v in asdict(default_config).items() if v is not None}
-        )
+        toml = tomlkit.dumps(_strip_none(asdict(default_config)))
         with open(path, "w") as config_file:
             config_file.write(toml)
         console.log(f"Created config file at {path}")
