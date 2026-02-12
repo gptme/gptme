@@ -48,7 +48,7 @@ export function MessageAvatar({
     (isUser && userAvatarUrl && !imageError);
   const avatarUrl = isUser ? userAvatarUrl : agentAvatarUrl;
 
-  const avatarClasses = `hidden md:flex mt-0.5 flex-shrink-0 w-8 h-8 rounded-full items-center justify-center absolute border-2 border-border ${
+  const avatarClasses = `hidden md:flex flex-shrink-0 w-10 h-10 rounded-full items-center justify-center absolute border-2 border-border ${
     isUser
       ? showCustomAvatar
         ? 'right-0 overflow-hidden'
