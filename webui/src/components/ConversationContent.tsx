@@ -202,9 +202,30 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
               return <div key={`${index}-${msg$.timestamp.get()}`} />;
             }
 
-            // Get the previous and next messages for spacing context
-            const previousMessage$ = index > 0 ? conversation$.data.log[index - 1] : undefined;
-            const nextMessage$ = conversation$.data.log[index + 1];
+            // Helper to check if a message at a given index is hidden
+            const isHiddenAt = (idx: number) => {
+              const m = conversation$.data.log[idx];
+              if (!m?.get()) return false;
+              const r = m.role.get();
+              const h = m.hide?.get();
+              const isInitial =
+                r === 'system' && (firstNonSystemIndex === -1 || idx < firstNonSystemIndex);
+              if (isInitial && !showInitialSystem$.get()) return true;
+              if (h && !showHiddenMessages$.get()) return true;
+              return false;
+            };
+
+            // Get the previous and next *visible* messages for chain context
+            // (skip hidden messages so they don't break chain grouping)
+            let prevIdx = index - 1;
+            while (prevIdx >= 0 && isHiddenAt(prevIdx)) prevIdx--;
+            const previousMessage$ = prevIdx >= 0 ? conversation$.data.log[prevIdx] : undefined;
+
+            let nextIdx = index + 1;
+            while (conversation$.data.log[nextIdx]?.get() && isHiddenAt(nextIdx)) nextIdx++;
+            const nextMessage$ = conversation$.data.log[nextIdx]?.get()
+              ? conversation$.data.log[nextIdx]
+              : undefined;
 
             // Construct agent avatar URL if agent has avatar configured
             // Normalize baseUrl by removing trailing slashes to avoid double slashes
