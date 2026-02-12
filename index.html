@@ -555,48 +555,49 @@ href="https://gptme.org/docs/">documentation</a>.</p>
 <span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/summarize</span>    Summarize the conversation</span>
 <span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/replay</span>       Replay tool operations</span>
 <span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/export</span>       Export conversation as HTML</span>
-<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/model</span>        List or switch models</span>
-<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/tokens</span>       Show token usage and costs</span>
-<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/context</span>      Show context token breakdown</span>
-<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/tools</span>        Show available tools</span>
-<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/commit</span>       Ask assistant to git commit</span>
-<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/compact</span>      Compact the conversation</span>
-<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/impersonate</span>  Impersonate the assistant</span>
-<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/restart</span>      Restart gptme process</span>
-<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/setup</span>        Setup gptme</span>
-<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/help</span>         Show this help message</span>
-<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/exit</span>         Exit the program</span>
-<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>  <span class="ex">See</span> docs for all commands: https://gptme.org/docs/commands.html</span>
-<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>  <span class="ex">Keyboard</span> shortcuts:</span>
-<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>    <span class="ex">Ctrl+X</span> Ctrl+E  Edit prompt in your editor</span>
-<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>    <span class="ex">Ctrl+J</span>         Insert a new line without executing the prompt</span>
-<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a><span class="ex">Options:</span></span>
-<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--name</span> TEXT            Name of conversation. Defaults to generating a random</span>
-<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">name.</span></span>
-<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-m,</span> <span class="at">--model</span> TEXT       Model to use, e.g. openai/gpt-5, anthropic/claude-</span>
-<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">sonnet-4-20250514.</span> If only provider given then a</span>
-<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">default</span> is used.</span>
-<span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-w,</span> <span class="at">--workspace</span> TEXT   Path to workspace directory. Pass <span class="st">&#39;@log&#39;</span> to create a</span>
-<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">workspace</span> in the log directory.</span>
-<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--agent-path</span> TEXT      Path to agent workspace directory.</span>
-<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-r,</span> <span class="at">--resume</span>           Load most recent conversation.</span>
-<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-y,</span> <span class="at">--no-confirm</span>       Skip all confirmation prompts.</span>
-<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-n,</span> <span class="at">--non-interactive</span>  Non-interactive mode. Implies <span class="at">--no-confirm.</span></span>
-<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--system</span> TEXT          System prompt. Options: <span class="st">&#39;full&#39;</span>, <span class="st">&#39;short&#39;</span>, or something</span>
-<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">custom.</span></span>
-<span id="cb4-54"><a href="#cb4-54" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-t,</span> <span class="at">--tools</span> TEXT       Tools to allow as comma-separated list. Available:</span>
-<span id="cb4-55"><a href="#cb4-55" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">append,</span> browser, chats, choice, computer, gh,</span>
-<span id="cb4-56"><a href="#cb4-56" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">ipython,</span> morph, patch, rag, read, save, screenshot,</span>
-<span id="cb4-57"><a href="#cb4-57" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">shell,</span> subagent, tmux, tts, vision, youtube.</span>
-<span id="cb4-58"><a href="#cb4-58" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--tool-format</span> TEXT     Tool format to use. Options: markdown, xml, tool</span>
-<span id="cb4-59"><a href="#cb4-59" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--no-stream</span>            Don<span class="st">&#39;t stream responses</span></span>
-<span id="cb4-60"><a href="#cb4-60" aria-hidden="true" tabindex="-1"></a><span class="st">  --show-hidden          Show hidden system messages.</span></span>
-<span id="cb4-61"><a href="#cb4-61" aria-hidden="true" tabindex="-1"></a><span class="st">  -v, --verbose          Show verbose output.</span></span>
-<span id="cb4-62"><a href="#cb4-62" aria-hidden="true" tabindex="-1"></a><span class="st">  --version              Show version and configuration information</span></span>
-<span id="cb4-63"><a href="#cb4-63" aria-hidden="true" tabindex="-1"></a><span class="st">  --help                 Show this message and exit.</span></span></code></pre></div>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/model</span>        Show or switch the current model</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/models</span>       List available models</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/tokens</span>       Show token usage and costs</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/context</span>      Show context token breakdown</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/tools</span>        Show available tools</span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/commit</span>       Ask assistant to git commit</span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/compact</span>      Compact the conversation</span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/impersonate</span>  Impersonate the assistant</span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/restart</span>      Restart gptme process</span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/setup</span>        Setup gptme</span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/help</span>         Show this help message</span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>    <span class="ex">/exit</span>         Exit the program</span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>  <span class="ex">See</span> docs for all commands: https://gptme.org/docs/commands.html</span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>  <span class="ex">Keyboard</span> shortcuts:</span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>    <span class="ex">Ctrl+X</span> Ctrl+E  Edit prompt in your editor</span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>    <span class="ex">Ctrl+J</span>         Insert a new line without executing the prompt</span>
+<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a><span class="ex">Options:</span></span>
+<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--name</span> TEXT            Name of conversation. Defaults to generating a random</span>
+<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">name.</span></span>
+<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-m,</span> <span class="at">--model</span> TEXT       Model to use, e.g. openai/gpt-5, anthropic/claude-</span>
+<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">sonnet-4-20250514.</span> If only provider given then a</span>
+<span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">default</span> is used.</span>
+<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-w,</span> <span class="at">--workspace</span> TEXT   Path to workspace directory. Pass <span class="st">&#39;@log&#39;</span> to create a</span>
+<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">workspace</span> in the log directory.</span>
+<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--agent-path</span> TEXT      Path to agent workspace directory.</span>
+<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-r,</span> <span class="at">--resume</span>           Load most recent conversation.</span>
+<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-y,</span> <span class="at">--no-confirm</span>       Skip all confirmation prompts.</span>
+<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-n,</span> <span class="at">--non-interactive</span>  Non-interactive mode. Implies <span class="at">--no-confirm.</span></span>
+<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--system</span> TEXT          System prompt. Options: <span class="st">&#39;full&#39;</span>, <span class="st">&#39;short&#39;</span>, or something</span>
+<span id="cb4-54"><a href="#cb4-54" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">custom.</span></span>
+<span id="cb4-55"><a href="#cb4-55" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-t,</span> <span class="at">--tools</span> TEXT       Tools to allow as comma-separated list. Available:</span>
+<span id="cb4-56"><a href="#cb4-56" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">append,</span> browser, chats, choice, computer, gh,</span>
+<span id="cb4-57"><a href="#cb4-57" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">ipython,</span> morph, patch, rag, read, save, screenshot,</span>
+<span id="cb4-58"><a href="#cb4-58" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">shell,</span> subagent, tmux, tts, vision, youtube.</span>
+<span id="cb4-59"><a href="#cb4-59" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--tool-format</span> TEXT     Tool format to use. Options: markdown, xml, tool</span>
+<span id="cb4-60"><a href="#cb4-60" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--no-stream</span>            Don<span class="st">&#39;t stream responses</span></span>
+<span id="cb4-61"><a href="#cb4-61" aria-hidden="true" tabindex="-1"></a><span class="st">  --show-hidden          Show hidden system messages.</span></span>
+<span id="cb4-62"><a href="#cb4-62" aria-hidden="true" tabindex="-1"></a><span class="st">  -v, --verbose          Show verbose output.</span></span>
+<span id="cb4-63"><a href="#cb4-63" aria-hidden="true" tabindex="-1"></a><span class="st">  --version              Show version and configuration information</span></span>
+<span id="cb4-64"><a href="#cb4-64" aria-hidden="true" tabindex="-1"></a><span class="st">  --help                 Show this message and exit.</span></span></code></pre></div>
 <h2 id="bar_chart-stats">📊 Stats</h2>
 <h3 id="star-stargazers-over-time">⭐ Stargazers over time</h3>
 <p><a href="https://starchart.cc/gptme/gptme"><img
