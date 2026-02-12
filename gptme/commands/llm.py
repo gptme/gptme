@@ -58,16 +58,15 @@ def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]
     return unique_completions[:30]  # Limit to 30 completions
 
 
-@command("model", aliases=["models"], completer=_complete_model)
+@command("model", completer=_complete_model)
 def cmd_model(ctx: CommandContext) -> None:
-    """List or switch models."""
+    """Show or switch the current model."""
     from ..config import ChatConfig  # fmt: skip
     from ..llm.models import (  # fmt: skip
         get_default_model,
         set_default_model,
     )
 
-    ctx.manager.undo(1, quiet=True)
     if ctx.args:
         new_model = ctx.args[0]
         set_default_model(new_model)
@@ -88,7 +87,12 @@ def cmd_model(ctx: CommandContext) -> None:
             f"  (streaming: {model.supports_streaming}, vision: {model.supports_vision})"
         )
 
-        _print_available_models()
+
+@command("models")
+def cmd_models(ctx: CommandContext) -> None:
+    """List available models."""
+    ctx.manager.undo(1, quiet=True)
+    _print_available_models()
 
 
 @command("tools")
@@ -97,7 +101,6 @@ def cmd_tools(ctx: CommandContext) -> None:
     from ..message import len_tokens  # fmt: skip
     from ..tools import get_tool_format, get_tools  # fmt: skip
 
-    ctx.manager.undo(1, quiet=True)
     print("Available tools:")
     for tool in get_tools():
         print(
@@ -115,8 +118,6 @@ def cmd_context(ctx: CommandContext) -> None:
     from ..tools import ToolUse  # fmt: skip
     from ..util import console  # fmt: skip
     from ..util.tokens import len_tokens  # fmt: skip
-
-    ctx.manager.undo(1, quiet=True)
 
     # Try to use the current model's tokenizer, fallback to gpt-4
     current_model = get_default_model()
@@ -187,8 +188,6 @@ def cmd_tokens(ctx: CommandContext) -> None:
         gather_conversation_costs,
         gather_session_costs,
     )
-
-    ctx.manager.undo(1, quiet=True)
 
     session = gather_session_costs()
     conversation = gather_conversation_costs(ctx.manager.log.messages)

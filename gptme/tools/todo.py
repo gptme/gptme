@@ -146,10 +146,10 @@ def _format_todo_list() -> str:
     return "\n".join(output)
 
 
-def replay_todowrite_on_session_start(
+def replay_todo_on_session_start(
     logdir, workspace, initial_msgs, **kwargs
 ) -> Generator[Message, None, None]:
-    """Hook function that replays todowrite operations at session start.
+    """Hook function that replays todo write operations at session start.
 
     This ensures todo state is restored when resuming a conversation.
 
@@ -164,17 +164,17 @@ def replay_todowrite_on_session_start(
     if not initial_msgs:
         return
 
-    # Check if there are any todowrite operations in the log
-    has_todowrite = any(
-        tooluse.tool == "todowrite"
+    # Check if there are any todo write operations in the log
+    has_todo_write = any(
+        tooluse.tool == "todo" and tooluse.args and tooluse.args[0] == "write"
         for msg in initial_msgs
         for tooluse in ToolUse.iter_from_content(msg.content)
     )
 
-    if not has_todowrite:
+    if not has_todo_write:
         return
 
-    logger.info("Detected todowrite operations, replaying to restore state...")
+    logger.info("Detected todo write operations, replaying to restore state...")
 
     try:
         # Import here to avoid circular dependency
@@ -183,25 +183,38 @@ def replay_todowrite_on_session_start(
         # Create a minimal Log object for replay
         log = Log(initial_msgs)
 
-        # Replay todowrite operations
-        _replay_tool(log, "todowrite")
+        # Replay todo operations (the replay will filter to write subcommand)
+        _replay_tool(log, "todo")
 
         yield Message("system", "Restored todo state from previous session", hide=True)
 
     except Exception as e:
-        logger.exception(f"Error replaying todowrite operations: {e}")
+        logger.exception(f"Error replaying todo operations: {e}")
         yield Message(
             "system", f"Warning: Failed to restore todo state: {e}", hide=True
         )
 
 
+def _todo(operation: str, *args: str) -> str:
+    """Helper function for todo replay - routes to appropriate handler.
+
+    This exists for compatibility with _replay_tool which looks for _{tool_name} helpers.
+    """
+    operation = operation.lower()
+    if operation == "read":
+        return _todoread()
+    else:
+        # Treat as a write operation (add, update, remove, clear)
+        return _todowrite(operation, *args)
+
+
 def _todoread() -> str:
-    """Helper function for todoread - used by tests and execute function."""
+    """Helper function for todo read - used by tests and execute function."""
     return _format_todo_list()
 
 
 def _todowrite(operation: str, *args: str) -> str:
-    """Helper function for todowrite - used by tests and execute function."""
+    """Helper function for todo write - used by tests and execute function."""
     operation = operation.lower()
 
     if operation == "add":
@@ -273,128 +286,108 @@ def _todowrite(operation: str, *args: str) -> str:
         )
 
 
-def execute_todoread(
+def execute_todo(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
 ) -> Generator[Message, None, None]:
-    """Execute todoread command."""
-    result = _todoread()
-    yield Message("system", result)
-
-
-def execute_todowrite(
-    code: str | None,
-    args: list[str] | None,
-    kwargs: dict[str, str] | None,
-) -> Generator[Message, None, None]:
-    """Execute todowrite command."""
-    if not code:
-        yield Message(
-            "system",
-            'Error: todowrite requires an operation. Usage: add "todo text" | update ID state | remove ID | clear',
-        )
+    """Execute todo command with read/write subcommands."""
+    if not args:
+        # Default to read if no subcommand
+        yield Message("system", _todoread())
         return
 
-    # Split code into lines for multiple operations
-    lines = [line.strip() for line in code.strip().split("\n") if line.strip()]
+    subcommand = args[0].lower()
 
-    if not lines:
-        yield Message(
-            "system",
-            'Error: todowrite requires an operation. Usage: add "todo text" | update ID state | remove ID | clear',
-        )
+    if subcommand == "read":
+        yield Message("system", _todoread())
         return
 
-    results = []
+    elif subcommand == "write":
+        if not code:
+            yield Message(
+                "system",
+                'Error: todo write requires operations. Usage: add "todo text" | update ID state | remove ID | clear',
+            )
+            return
 
-    # Process each line as a separate operation
-    for line in lines:
-        parts = shlex.split(line)
-        if not parts:
-            continue
+        # Split code into lines for multiple operations
+        lines = [line.strip() for line in code.strip().split("\n") if line.strip()]
 
-        operation = parts[0]
-        operation_args = parts[1:]
+        if not lines:
+            yield Message(
+                "system",
+                'Error: todo write requires operations. Usage: add "todo text" | update ID state | remove ID | clear',
+            )
+            return
 
-        # Use the helper function
-        result = _todowrite(operation, *operation_args)
-        results.append(result)
+        results = []
 
-    # Combine results
-    yield Message("system", "\n".join(results))
+        # Process each line as a separate operation
+        for line in lines:
+            parts = shlex.split(line)
+            if not parts:
+                continue
+
+            operation = parts[0]
+            operation_args = parts[1:]
+
+            # Use the helper function
+            result = _todowrite(operation, *operation_args)
+            results.append(result)
+
+        # Combine results
+        yield Message("system", "\n".join(results))
+
+    else:
+        yield Message(
+            "system",
+            f"Error: Unknown subcommand '{subcommand}'. Use: todo read | todo write",
+        )
 
 
-def examples_todoread(tool_format):
-    """Generate examples for todoread tool."""
+def examples_todo(tool_format):
+    """Generate examples for todo tool."""
     return f"""
 > User: What's on my todo list?
 > Assistant: Let me check the current todo list.
-{ToolUse("todoread", [], "").to_output(tool_format)}
+{ToolUse("todo", ["read"], "").to_output(tool_format)}
 > System: Todo List:
 ...
 
-> User: I've been working on a complex task, can you show me progress?
-> Assistant: I'll check the todo list to see our progress.
-{ToolUse("todoread", [], "").to_output(tool_format)}
-""".strip()
-
-
-def examples_todowrite(tool_format):
-    """Generate examples for todowrite tool."""
-    return f"""
 > Assistant: I'll break this complex task into steps.
-{ToolUse("todowrite", [], '''
-add "Set up project structure
-add "Implement core functionality
+{ToolUse("todo", ["write"], '''
+add "Set up project structure"
+add "Implement core functionality"
 '''.strip()).to_output(tool_format)}
 
 > Assistant: Starting the first task.
-{ToolUse("todowrite", [], "update 1 in_progress").to_output(tool_format)}
+{ToolUse("todo", ["write"], "update 1 in_progress").to_output(tool_format)}
 
 > Assistant: Completed the project setup.
-{ToolUse("todowrite", [], '''
+{ToolUse("todo", ["write"], '''
 update 1 completed
 update 2 in_progress
 '''.strip()).to_output(tool_format)}
 
 > Assistant: Clearing completed todos to focus on remaining work.
-{ToolUse("todowrite", [], "clear completed").to_output(tool_format)}
+{ToolUse("todo", ["write"], "clear completed").to_output(tool_format)}
 """.strip()
 
 
-# Tool specifications
-todoread = ToolSpec(
-    name="todoread",
-    desc="Read and display the current todo list",
-    block_types=["todoread"],
-    instructions="""
-Use this tool to read and display the current todo list.
-
-This shows all todos organized by state (pending, in_progress, completed)
-and provides a summary of progress.
-
-Use this frequently to:
-- Check current progress
-- See what needs to be done next
-- Review completed work
-- Plan next steps
-
-The todo list is conversation-scoped and resets between conversations.
-For long-term persistent tasks, use the task management system instead.
-    """.strip(),
-    examples=examples_todoread,
-    execute=execute_todoread,
-)
-
-todowrite = ToolSpec(
-    name="todowrite",
-    desc="Write, update, or manage todos in the current conversation",
-    block_types=["todowrite"],
+# Tool specification
+todo = ToolSpec(
+    name="todo",
+    desc="Manage an in-session todo list (ephemeral, not persisted across conversations)",
+    block_types=["todo"],
     instructions="""
 Use this tool to manage todos in the current conversation context.
 
-Operations:
+Subcommands:
+- `todo read` - Display the current todo list
+- `todo write` - Modify todos (with operations in content block)
+
+Write operations (in content block):
 - add "todo text" - Add a new todo item
 - update ID state - Update todo state (pending/in_progress/completed)
 - update ID "new text" - Update todo text
@@ -416,12 +409,12 @@ For persistent cross-conversation tasks, use the task management system.
 Auto-replay: Todo operations are automatically replayed when resuming conversations
 to restore your todo list state.
     """.strip(),
-    examples=examples_todowrite,
-    execute=execute_todowrite,
+    examples=examples_todo,
+    execute=execute_todo,
     hooks={
         "replay_todos": (
             HookType.SESSION_START.value,
-            replay_todowrite_on_session_start,
+            replay_todo_on_session_start,
             10,  # High priority: run early in session start
         )
     },
@@ -429,8 +422,7 @@ to restore your todo list state.
 
 
 __all__ = [
-    "todoread",
-    "todowrite",
+    "todo",
     "has_incomplete_todos",
     "get_incomplete_todos_summary",
 ]

@@ -32,7 +32,8 @@ Common commands:
 - ``/undo [n]`` - Undo the last n actions
 - ``/log`` - Show the conversation log
 - ``/edit`` - Edit the conversation in your editor
-- ``/model`` - List or switch models
+- ``/model`` - Show or switch the current model
+- ``/models`` - List available models
 - ``/tokens`` - Show token usage and costs
 - ``/exit`` - Exit the program
 

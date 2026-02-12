@@ -18,7 +18,6 @@ def cmd_summarize(ctx: CommandContext) -> None:
     from ..logmanager import prepare_messages  # fmt: skip
     from ..message import print_msg  # fmt: skip
 
-    ctx.manager.undo(1, quiet=True)
     msgs = prepare_messages(ctx.manager.log.messages)
     msgs = [m for m in msgs if not m.hide]
     print_msg(llm.summarize(msgs))
@@ -51,9 +50,6 @@ def cmd_replay(ctx: CommandContext) -> None:
     from ..message import print_msg  # fmt: skip
     from ..tools import ToolUse, execute_msg  # fmt: skip
 
-    ctx.manager.undo(1, quiet=True)
-    ctx.manager.write()
-
     # Check if replaying a specific tool
     if ctx.args and ctx.args[0].lower() not in ["last", "all"]:
         tool_name = ctx.args[0]
@@ -70,7 +66,7 @@ def cmd_replay(ctx: CommandContext) -> None:
         print("Replay options:")
         print("  last - Replay only the last assistant message")
         print("  all  - Replay all assistant messages")
-        print("  <tool> - Replay all operations for a specific tool (e.g., todowrite)")
+        print("  <tool> - Replay all operations for a specific tool (e.g., todo)")
         scope = input("Choose (last/all/<tool>): ").strip().lower()
         if scope not in ["last", "all"]:
             # Try as tool name
@@ -132,12 +128,12 @@ def _replay_tool(log, tool_name: str) -> None:
 
                 for line in lines:
                     # Use the tool's execute function directly
-                    # For tools like todowrite, this will update internal state
+                    # For tools like todo, this will update internal state
                     try:
                         parts = shlex.split(line)
                         if parts:
                             # Import the tool's helper function if it exists
-                            # For todowrite, this would be _todowrite
+                            # For todo, this would be _todowrite
                             helper_name = f"_{tool_name}"
                             tool_module = __import__(
                                 f"gptme.tools.{tool_name}",
@@ -164,8 +160,6 @@ def cmd_export(ctx: CommandContext) -> None:
     """Export conversation as HTML."""
     from ..util.export import export_chat_to_html  # fmt: skip
 
-    ctx.manager.undo(1, quiet=True)
-    ctx.manager.write()
     # Get output path from args or use default
     output_path = (
         Path(ctx.args[0])

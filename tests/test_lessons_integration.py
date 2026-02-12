@@ -392,7 +392,7 @@ This is a test lesson for .gptme/lessons/ detection.
         )
 
     def test_cursorrules_detection_logged(self, tmp_path, monkeypatch, caplog):
-        """Test that .cursorrules file detection logs helpful message."""
+        """Test that .cursorrules file detection logs helpful message at DEBUG level."""
         from gptme.lessons import LessonIndex
 
         # Create .cursorrules file
@@ -403,6 +403,7 @@ This is a test lesson for .gptme/lessons/ detection.
         monkeypatch.chdir(tmp_path)
 
         # Create index (should detect .cursorrules)
+        # Note: logged at DEBUG to avoid spam in normal operation
         with caplog.at_level("DEBUG"):
             LessonIndex()
 
