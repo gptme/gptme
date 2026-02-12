@@ -93,8 +93,9 @@ test.describe('Connecting', () => {
     await page.getByRole('button', { name: /Add & Connect/i }).click();
 
     // Wait for error toast to appear (connection fails for unreachable server)
+    // Use .first() because the toast may render multiple matching elements
     await expect(
-      page.getByText(/Failed to connect|Could not connect|Failed to switch|Failed to add/i)
+      page.getByText(/Failed to connect|Could not connect|Failed to switch|Failed to add/i).first()
     ).toBeVisible({
       timeout: 10000,
     });
