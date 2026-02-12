@@ -27,11 +27,11 @@ instructions = """
 To patch/modify files, we use an adapted version of git conflict markers.
 
 This can be used to edit files, without having to rewrite the whole file.
-Only one patch block can be written per tool use. Extra ORIGINAL/UPDATED blocks will be ignored.
-Try to keep the patch as small as possible. Avoid placeholders, as they may make the patch fail.
+Multiple ORIGINAL/UPDATED blocks can be included in a single patch to make several changes at once.
+Try to keep each patch as small as possible. Avoid placeholders, as they may make the patch fail.
 
-To keep the patch small, try to scope the patch to imports/function/class.
-If the patch is large, consider using the save tool to rewrite the whole file.
+To keep patches small, try to scope each change to imports/function/class.
+If the total patch is large, consider using the save tool to rewrite the whole file.
 """.strip()
 
 instructions_format = {
@@ -258,10 +258,33 @@ class Patch:
 def apply(codeblock: str, content: str) -> str:
     """
     Applies multiple patches in ``codeblock`` to ``content``.
+    Provides detailed error messages when patches fail.
     """
+    patches = list(Patch.from_codeblock(codeblock))
+    total_hunks = len(patches)
     new_content = content
-    for patch in Patch.from_codeblock(codeblock):
-        new_content = patch.apply(new_content)
+
+    for i, patch in enumerate(patches, 1):
+        try:
+            new_content = patch.apply(new_content)
+        except ValueError as e:
+            error_msg = str(e.args[0]) if e.args else str(e)
+            # Create a preview of the failing hunk (first few lines)
+            original_preview = patch.original[:100].replace("\n", "\\n")
+            if len(patch.original) > 100:
+                original_preview += "..."
+
+            if total_hunks == 1:
+                raise ValueError(error_msg) from None
+            else:
+                status = f"Hunk {i}/{total_hunks} failed"
+                if i > 1:
+                    status += f" ({i-1} hunk(s) applied successfully before failure)"
+                raise ValueError(
+                    f"{status}: {error_msg}\n"
+                    f"Failed hunk starts with: {original_preview!r}"
+                ) from None
+
     return new_content
 
 

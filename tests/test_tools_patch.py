@@ -404,3 +404,41 @@ Some text here.
     result = apply(codeblock, content)
     assert "System Dependencies" in result
     assert "===================" in result
+
+
+def test_apply_multiple_hunks_error_message():
+    """Test that multi-hunk failures show which hunk failed."""
+    from gptme.tools.patch import apply
+
+    original = """def foo():
+    pass
+
+def bar():
+    pass
+"""
+    # First hunk will succeed, second will fail
+    patch = """<<<<<<< ORIGINAL
+def foo():
+    pass
+=======
+def foo():
+    return 1
+>>>>>>> UPDATED
+<<<<<<< ORIGINAL
+def nonexistent():
+    pass
+=======
+def nonexistent():
+    return 2
+>>>>>>> UPDATED
+"""
+    try:
+        apply(patch, original)
+        raise AssertionError("Should have raised ValueError")
+    except ValueError as e:
+        error_msg = str(e)
+        # Should indicate which hunk failed and how many succeeded
+        assert "2/2" in error_msg or "Hunk 2" in error_msg
+        assert (
+            "1 hunk" in error_msg.lower() or "applied successfully" in error_msg.lower()
+        )
