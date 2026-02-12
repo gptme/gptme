@@ -200,6 +200,26 @@ details > details {
   @apply my-2 ml-5 list-decimal space-y-1;
 }
 
+.chat-message table {
+  @apply my-3 w-full border-collapse overflow-hidden rounded-md border border-border text-sm;
+}
+
+.chat-message thead {
+  @apply bg-muted/50;
+}
+
+.chat-message th {
+  @apply border border-border px-3 py-1.5 text-left text-xs font-semibold text-muted-foreground;
+}
+
+.chat-message td {
+  @apply border border-border px-3 py-1.5;
+}
+
+.chat-message tbody tr:hover {
+  @apply bg-muted/30;
+}
+
 /* Syntax highlighting colors */
 .hljs {
   @apply text-white;
