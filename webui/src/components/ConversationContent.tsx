@@ -229,7 +229,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
             // Construct agent avatar URL if agent has avatar configured
             // Normalize baseUrl by removing trailing slashes to avoid double slashes
-            const agentAvatarUrl = conversation$.data.agent?.avatar
+            // NOTE: must use .get() to read the actual value from the observable,
+            // otherwise the Legend State proxy is always truthy
+            const agentAvatarUrl = conversation$.data.agent?.avatar?.get()
               ? `${connectionConfig.baseUrl.replace(/\/+$/, '')}/api/v2/conversations/${conversationId}/agent/avatar`
               : undefined;
 
