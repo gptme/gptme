@@ -32,6 +32,11 @@ Try to keep each patch as small as possible. Avoid placeholders, as they may mak
 
 To keep patches small, try to scope each change to imports/function/class.
 If the total patch is large, consider using the save tool to rewrite the whole file.
+
+Note: When patching markdown files, avoid replacing partial codeblocks (e.g., just the opening
+or closing backticks). The patch content is parsed as nested markdown, which requires complete
+codeblocks. For simple codeblock boundary changes (like modifying a language tag), use shell
+commands like `sed` or `perl` instead.
 """.strip()
 
 instructions_format = {
