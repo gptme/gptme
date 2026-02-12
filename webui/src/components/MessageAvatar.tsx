@@ -3,7 +3,12 @@ import { Bot, User, Terminal } from 'lucide-react';
 import type { MessageRole } from '@/types/conversation';
 import { type Observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface MessageAvatarProps {
   role$: Observable<MessageRole>;
@@ -90,9 +95,11 @@ export function MessageAvatar({
   );
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>{avatarElement}</TooltipTrigger>
-      <TooltipContent side={isUser ? 'left' : 'right'}>{tooltipText}</TooltipContent>
-    </Tooltip>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{avatarElement}</TooltipTrigger>
+        <TooltipContent side={isUser ? 'left' : 'right'}>{tooltipText}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

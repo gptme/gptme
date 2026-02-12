@@ -234,18 +234,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
               ? conversation$.data.log[nextIdx]
               : undefined;
 
-            // Construct avatar URLs and names
+            // Construct agent avatar URL if agent has avatar configured
             // NOTE: must use .get() to read actual values from Legend State observables
             const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
             const agentAvatarUrl = conversation$.data.agent?.avatar?.get()
               ? `${baseUrl}/api/v2/conversations/${conversationId}/agent/avatar`
               : undefined;
             const agentName = conversation$.data.agent?.name?.get();
-            const userInfo = api.userInfo$.get();
-            const userAvatarUrl = userInfo?.avatar
-              ? `${baseUrl}/api/v2/user/avatar`
-              : undefined;
-            const userName = userInfo?.name;
 
             return (
               <ChatMessage
@@ -256,8 +251,6 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                 conversationId={conversationId}
                 agentAvatarUrl={agentAvatarUrl}
                 agentName={agentName}
-                userAvatarUrl={userAvatarUrl}
-                userName={userName}
               />
             );
           }}

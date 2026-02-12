@@ -16,8 +16,6 @@ interface Props {
   conversationId: string;
   agentAvatarUrl?: string;
   agentName?: string;
-  userAvatarUrl?: string;
-  userName?: string;
 }
 
 export const ChatMessage: FC<Props> = ({
@@ -27,10 +25,8 @@ export const ChatMessage: FC<Props> = ({
   conversationId,
   agentAvatarUrl,
   agentName,
-  userAvatarUrl,
-  userName,
 }) => {
-  const { connectionConfig } = useApi();
+  const { api, connectionConfig } = useApi();
   const { settings } = useSettings();
 
   const contentRef = useRef<HTMLDivElement>(null);
@@ -229,8 +225,12 @@ export const ChatMessage: FC<Props> = ({
                   chainType$={chainType$}
                   agentAvatarUrl={agentAvatarUrl}
                   agentName={agentName}
-                  userAvatarUrl={userAvatarUrl}
-                  userName={userName}
+                  userAvatarUrl={
+                    api.userInfo$.avatar?.get()
+                      ? `${connectionConfig.baseUrl.replace(/\/+$/, '')}/api/v2/user/avatar`
+                      : undefined
+                  }
+                  userName={api.userInfo$.name?.get()}
                 />
                 <div className="md:px-12">
                   <div className={messageClasses$.get()}>
