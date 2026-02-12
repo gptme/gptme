@@ -23,6 +23,9 @@ from .llm_openai import chat as chat_openai
 from .llm_openai import get_client as get_openai_client
 from .llm_openai import init as init_openai
 from .llm_openai import stream as stream_openai
+from .llm_openai_subscription import chat as chat_subscription
+from .llm_openai_subscription import init as init_subscription
+from .llm_openai_subscription import stream as stream_subscription
 from .models import (
     MODELS,
     PROVIDERS_OPENAI,
@@ -36,12 +39,17 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+# Track subscription provider initialization
+_subscription_initialized = False
+
+
 def init_llm(provider: Provider):
     """Initialize LLM client for a given provider if not already initialized.
 
     Args:
         provider: Provider name (built-in or custom)
     """
+    global _subscription_initialized
     config = get_config()
 
     # Check if it's a built-in OpenAI-compatible provider
@@ -52,6 +60,8 @@ def init_llm(provider: Provider):
         init_openai(provider, config)
     elif provider == "anthropic" and not get_anthropic_client():
         init_anthropic(config)
+    elif provider == "openai-subscription" and not _subscription_initialized:
+        _subscription_initialized = init_subscription(config)
     else:
         logger.debug(f"Provider {provider} already initialized or unknown")
 
@@ -151,6 +161,9 @@ def _chat_complete(
         return chat_anthropic(
             messages, _get_base_model(model), tools, output_schema=output_schema
         )
+    elif provider == "openai-subscription":
+        content = chat_subscription(messages, _get_base_model(model), tools)
+        return content, {"model": model}
 
     # Unsupported provider - OpenAI and Anthropic are handled above
     raise ValueError(f"Unsupported provider: {provider}")
@@ -193,6 +206,9 @@ def _stream(
         gen = stream_anthropic(
             messages, _get_base_model(model), tools, output_schema=output_schema
         )
+        return _StreamWithMetadata(gen, model)
+    elif provider == "openai-subscription":
+        gen = stream_subscription(messages, _get_base_model(model), tools)
         return _StreamWithMetadata(gen, model)
     else:
         # Note: Validation-only fallback for streaming is complex
