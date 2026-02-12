@@ -98,7 +98,7 @@ export function MessageAvatar({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>{avatarElement}</TooltipTrigger>
-        <TooltipContent side={isUser ? 'left' : 'right'}>{tooltipText}</TooltipContent>
+        <TooltipContent side="bottom">{tooltipText}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
