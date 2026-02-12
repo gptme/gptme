@@ -275,3 +275,24 @@ def test_execute_todo_invalid_subcommand():
     msgs = list(execute_todo(None, ["invalid"], None))
     assert len(msgs) == 1
     assert "Error: Unknown subcommand" in msgs[0].content
+
+
+def test_todo_helper_for_replay():
+    """Test _todo helper function used by replay mechanism."""
+    from gptme.tools.todo import _todo
+
+    # Test routing to write operations
+    result = _todo("add", "Replay task")
+    assert "Added todo 1" in result
+
+    # Test routing to read
+    result = _todo("read")
+    assert "Todo List:" in result
+    assert "Replay task" in result
+
+    # Test other write operations
+    result = _todo("update", "1", "completed")
+    assert "Updated todo 1 state to: completed" in result
+
+    result = _todo("clear")
+    assert "Cleared" in result

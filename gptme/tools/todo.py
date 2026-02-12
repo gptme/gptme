@@ -195,6 +195,19 @@ def replay_todo_on_session_start(
         )
 
 
+def _todo(operation: str, *args: str) -> str:
+    """Helper function for todo replay - routes to appropriate handler.
+
+    This exists for compatibility with _replay_tool which looks for _{tool_name} helpers.
+    """
+    operation = operation.lower()
+    if operation == "read":
+        return _todoread()
+    else:
+        # Treat as a write operation (add, update, remove, clear)
+        return _todowrite(operation, *args)
+
+
 def _todoread() -> str:
     """Helper function for todo read - used by tests and execute function."""
     return _format_todo_list()
