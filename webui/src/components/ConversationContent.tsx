@@ -220,8 +220,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, isReadOnly }) =
             const nextMessage$ = conversation$.data.log[index + 1];
 
             // Construct agent avatar URL if agent has avatar configured
+            // Normalize baseUrl by removing trailing slashes to avoid double slashes
             const agentAvatarUrl = conversation$.data.agent?.avatar
-              ? `${connectionConfig.baseUrl}/api/v2/conversations/${conversationId}/agent/avatar`
+              ? `${connectionConfig.baseUrl.replace(/\/+$/, '')}/api/v2/conversations/${conversationId}/agent/avatar`
               : undefined;
 
             return (
