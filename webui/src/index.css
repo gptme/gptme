@@ -140,11 +140,11 @@
 }
 
 .chat-message details {
-  @apply my-2 overflow-hidden rounded-md border border-border bg-white font-sans text-sm dark:border-stone-950 dark:bg-slate-900;
+  @apply my-2 overflow-hidden rounded-lg border border-border bg-white font-sans text-sm dark:border-stone-950 dark:bg-slate-900;
 }
 
 .chat-message details summary {
-  @apply cursor-pointer rounded-md bg-muted px-3 py-2 text-xs transition-colors;
+  @apply cursor-pointer rounded-lg bg-muted px-3 py-2 text-xs transition-colors;
   user-select: none;
 }
 
