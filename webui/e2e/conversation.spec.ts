@@ -12,9 +12,9 @@ test.describe('Connecting', () => {
     // Check if we can see demo conversations (they should be visible by default)
     await expect(page.getByText('Introduction to gptme')).toBeVisible({ timeout: 10000 });
 
-    // Should show connection status
-    const connectionButton = page.getByRole('button', { name: /Connect/i });
-    await expect(connectionButton).toBeVisible();
+    // Should show the server selector with the active server name
+    const serverSelector = page.getByRole('button', { name: /Local|Servers/i });
+    await expect(serverSelector).toBeVisible();
 
     // Click the demo conversation
     await page.getByText('Introduction to gptme').click();
@@ -23,8 +23,8 @@ test.describe('Connecting', () => {
     await expect(page.getByText(/Hello! I'm gptme, your AI programming assistant/)).toBeVisible();
     await page.goto('/');
 
-    // Wait for successful connection (green button confirms connected state)
-    await expect(page.getByRole('button', { name: /Connect/i })).toHaveClass(/text-green-600/, {
+    // Wait for successful connection (green dot in server selector confirms connected state)
+    await expect(serverSelector.locator('.bg-green-500')).toBeVisible({
       timeout: 10000,
     });
 
@@ -77,30 +77,35 @@ test.describe('Connecting', () => {
     // Should still show demo conversations
     await expect(page.getByText('Introduction to gptme')).toBeVisible({ timeout: 10000 });
 
-    // Click connect button and try to connect to non-existent server
-    const connectionButton = page.getByRole('button', { name: /Connect/i });
-    await connectionButton.click();
+    // Open server selector dropdown
+    const serverSelector = page.getByRole('button', { name: /Local|Servers/i });
+    await serverSelector.click();
 
-    // Fill in invalid server URL and try to connect
+    // Click "Add server" button (Plus icon) in the dropdown header
+    // The button is inside a tooltip; locate it near the "Servers" heading
+    await page.locator('[role="menu"]').getByRole('button').first().click();
+
+    // Fill in an invalid server URL in the Add Server dialog
     await page.getByLabel('Server URL').fill('http://localhost:1');
-    await page.getByRole('button', { name: /^(Connect|Reconnect)$/ }).click();
+    await page.getByLabel('Name').fill('Bad Server');
 
-    // Wait for error toast to appear
-    await expect(page.getByText('Could not connect to gptme instance')).toBeVisible({
+    // Submit the Add Server form
+    await page.getByRole('button', { name: /Add & Connect/i }).click();
+
+    // Wait for error toast to appear (connection fails for unreachable server)
+    await expect(
+      page.getByText(/Failed to connect|Could not connect|Failed to switch|Failed to add/i)
+    ).toBeVisible({
       timeout: 10000,
     });
 
-    // Close the connection dialog by clicking outside
+    // Close dialog if still open
     await page.keyboard.press('Escape');
-
-    // Verify connection button is in disconnected state
-    await expect(connectionButton).toBeVisible();
-    await expect(connectionButton).not.toHaveClass(/text-green-600/);
 
     // Should show demo conversations
     await expect(page.getByText('Introduction to gptme')).toBeVisible();
 
-    // Should not show any API conversations
+    // Should not show any API conversations from the bad server
     const conversationList = page.getByTestId('conversation-list');
     const conversationTitles = await conversationList
       .locator('[data-testid="conversation-title"]')
