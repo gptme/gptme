@@ -4,6 +4,14 @@ import { useObservable } from '@legendapp/state/react';
 
 export const isNonUserMessage = (role?: string) => role === 'assistant' || role === 'system';
 
+/** Check if two roles belong to the same chain group (assistant/system chain together, user chains with user) */
+const isSameChainGroup = (roleA?: string, roleB?: string): boolean => {
+  if (!roleA || !roleB) return false;
+  if (roleA === roleB) return true;
+  // assistant and system chain together
+  return isNonUserMessage(roleA) && isNonUserMessage(roleB);
+};
+
 export const useMessageChainType = (
   message$: Observable<Message>,
   previousMessage$: Observable<Message | undefined> | undefined,
@@ -17,14 +25,12 @@ export const useMessageChainType = (
       const previousMessage = previousMessage$?.get();
       const nextMessage = nextMessage$?.get();
 
-      const isChainStart = !previousMessage || previousMessage.role === 'user';
-      const isChainEnd = !nextMessage || nextMessage.role === 'user';
-      const isPartOfChain = isNonUserMessage(message.role);
+      const chainedWithPrev = isSameChainGroup(message.role, previousMessage?.role);
+      const chainedWithNext = isSameChainGroup(message.role, nextMessage?.role);
 
-      if (!isPartOfChain) return 'standalone';
-      if (isChainStart && isChainEnd) return 'standalone';
-      if (isChainStart) return 'start';
-      if (isChainEnd) return 'end';
+      if (!chainedWithPrev && !chainedWithNext) return 'standalone';
+      if (!chainedWithPrev && chainedWithNext) return 'start';
+      if (chainedWithPrev && !chainedWithNext) return 'end';
       return 'middle';
     } catch (error) {
       console.warn('Error calculating message chain type:', error);
