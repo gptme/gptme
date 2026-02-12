@@ -339,13 +339,13 @@ export const ChatInput: FC<Props> = ({
   const message = value !== undefined ? value : internalMessage;
   const setMessage = value !== undefined ? onChange || (() => {}) : setInternalMessage;
 
-  // Queued message state - stores message and options to send when generation completes
+  // Message queue - stores messages to send when generation completes
   // Options are captured at queue time to prevent changes during generation from affecting the send
   interface QueuedMessage {
     text: string;
     options: ChatOptions;
   }
-  const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
 
   const autoFocus = use$(autoFocus$);
   const conversation = conversationId ? use$(conversations$.get(conversationId)) : undefined;
@@ -373,17 +373,21 @@ export const ChatInput: FC<Props> = ({
   // Track previous isGenerating state to detect when generation completes
   const wasGenerating = useRef(false);
 
-  // Send queued message when generation completes
+  // Send next queued message when generation completes
   useEffect(() => {
     // Detect transition from generating to not generating
-    if (wasGenerating.current && !isGenerating && queuedMessage) {
-      console.log('[ChatInput] Generation completed, sending queued message');
+    if (wasGenerating.current && !isGenerating && messageQueue.length > 0) {
+      const nextMessage = messageQueue[0];
+      console.log('[ChatInput] Generation completed, sending queued message', {
+        remaining: messageQueue.length - 1,
+      });
       // Use options captured at queue time, not current options
-      onSend(queuedMessage.text, queuedMessage.options);
-      setQueuedMessage(null);
+      onSend(nextMessage.text, nextMessage.options);
+      // Remove the sent message from queue
+      setMessageQueue((prev) => prev.slice(1));
     }
     wasGenerating.current = isGenerating;
-  }, [isGenerating, queuedMessage, onSend]);
+  }, [isGenerating, messageQueue, onSend]);
 
   // Update workspace when sidebar selection changes (only for new conversations)
   useEffect(() => {
@@ -410,16 +414,21 @@ export const ChatInput: FC<Props> = ({
     if (isGenerating) {
       // If there's a message, queue it instead of interrupting
       if (message.trim()) {
-        console.log('[ChatInput] Queueing message for after generation completes');
-        // Capture options at queue time to preserve user's intent
-        setQueuedMessage({
-          text: message,
-          options: {
-            model: effectiveModel === 'default' ? undefined : effectiveModel,
-            stream: streamingEnabled,
-            workspace: selectedWorkspace || undefined,
-          },
+        console.log('[ChatInput] Queueing message for after generation completes', {
+          queueLength: messageQueue.length + 1,
         });
+        // Capture options at queue time to preserve user's intent
+        setMessageQueue((prev) => [
+          ...prev,
+          {
+            text: message,
+            options: {
+              model: effectiveModel === 'default' ? undefined : effectiveModel,
+              stream: streamingEnabled,
+              workspace: selectedWorkspace || undefined,
+            },
+          },
+        ]);
         setMessage('');
         // Clear localStorage draft since we're queueing it
         if (typeof window !== 'undefined') {
@@ -510,13 +519,16 @@ export const ChatInput: FC<Props> = ({
   return (
     <form onSubmit={handleSubmit} className="p-4">
       <div className="flex flex-col gap-2">
-        {/* Show queued message indicator */}
-        {queuedMessage && (
-          <div className="flex items-center">
-            <QueuedMessageBadge
-              message={queuedMessage.text}
-              onClear={() => setQueuedMessage(null)}
-            />
+        {/* Show queued messages indicator */}
+        {messageQueue.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1">
+            {messageQueue.map((msg, index) => (
+              <QueuedMessageBadge
+                key={index}
+                message={messageQueue.length > 1 ? `(${index + 1}) ${msg.text}` : msg.text}
+                onClear={() => setMessageQueue((prev) => prev.filter((_, i) => i !== index))}
+              />
+            ))}
           </div>
         )}
         <div className="flex">
