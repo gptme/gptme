@@ -175,6 +175,12 @@ export function customRenderer(
           const langFromInfo = value ? value.split('.').pop() : undefined;
           data.code.setAttribute('class', `hljs ${langFromInfo ? `language-${langFromInfo}` : ''}`);
         }
+      } else if (type === smd.HREF) {
+        smd.default_set_attr(data, type, value);
+        // Open external links in new tab
+        const node = data.nodes[data.index];
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
       } else {
         smd.default_set_attr(data, type, value);
       }
