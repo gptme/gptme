@@ -2030,11 +2030,16 @@ by seeing the actual file contents.</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>To patch/modify files, we use an adapted version of git conflict markers.
 
 This can be used to edit files, without having to rewrite the whole file.
-Only one patch block can be written per tool use. Extra ORIGINAL/UPDATED blocks will be ignored.
-Try to keep the patch as small as possible. Avoid placeholders, as they may make the patch fail.
+Multiple ORIGINAL/UPDATED blocks can be included in a single patch to make several changes at once.
+Try to keep each patch as small as possible. Avoid placeholders, as they may make the patch fail.
 
-To keep the patch small, try to scope the patch to imports/function/class.
-If the patch is large, consider using the save tool to rewrite the whole file.
+To keep patches small, try to scope each change to imports/function/class.
+If the total patch is large, consider using the save tool to rewrite the whole file.
+
+Note: When patching markdown files, avoid replacing partial codeblocks (e.g., just the opening
+or closing backticks). The patch content is parsed as nested markdown, which requires complete
+codeblocks. For simple codeblock boundary changes (like modifying a language tag), use shell
+commands like <span class="sb">`sed`</span> or <span class="sb">`perl`</span> instead.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
@@ -2092,7 +2097,8 @@ Note that a minimal diff isn’t necessarily a unique diff.</p>
 <dl class="py function">
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.patch.</span></span><span class="sig-name descname"><span class="pre">apply</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">codeblock</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">content</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
-<dd><p>Applies multiple patches in <code class="docutils literal notranslate"><span class="pre">codeblock</span></code> to <code class="docutils literal notranslate"><span class="pre">content</span></code>.</p>
+<dd><p>Applies multiple patches in <code class="docutils literal notranslate"><span class="pre">codeblock</span></code> to <code class="docutils literal notranslate"><span class="pre">content</span></code>.
+Provides detailed error messages when patches fail.</p>
 </dd></dl>
 
 <dl class="py function">
