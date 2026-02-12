@@ -149,6 +149,44 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                   onCheckedChange={(checked) => updateSettings({ blocksDefaultOpen: checked })}
                 />
               </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium">Developer Options</h4>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="hidden-toggle" className="text-sm">
+                      Show hidden messages
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Display messages marked as hidden (e.g., lessons, context)
+                    </p>
+                  </div>
+                  <Switch
+                    id="hidden-toggle"
+                    checked={settings.showHiddenMessages}
+                    onCheckedChange={(checked) => updateSettings({ showHiddenMessages: checked })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="initial-system-toggle" className="text-sm">
+                      Show initial system messages
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Display the initial system prompt at the start of conversations
+                    </p>
+                  </div>
+                  <Switch
+                    id="initial-system-toggle"
+                    checked={settings.showInitialSystem}
+                    onCheckedChange={(checked) => updateSettings({ showInitialSystem: checked })}
+                  />
+                </div>
+              </div>
             </div>
           );
 
