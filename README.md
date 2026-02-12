@@ -334,7 +334,8 @@ Usage: gptme [OPTIONS] [PROMPTS]...
     /summarize    Summarize the conversation
     /replay       Replay tool operations
     /export       Export conversation as HTML
-    /model        List or switch models
+    /model        Show or switch the current model
+    /models       List available models
     /tokens       Show token usage and costs
     /context      Show context token breakdown
     /tools        Show available tools

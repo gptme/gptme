@@ -58,9 +58,9 @@ def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]
     return unique_completions[:30]  # Limit to 30 completions
 
 
-@command("model", aliases=["models"], completer=_complete_model)
+@command("model", completer=_complete_model)
 def cmd_model(ctx: CommandContext) -> None:
-    """List or switch models."""
+    """Show or switch the current model."""
     from ..config import ChatConfig  # fmt: skip
     from ..llm.models import (  # fmt: skip
         get_default_model,
@@ -88,7 +88,12 @@ def cmd_model(ctx: CommandContext) -> None:
             f"  (streaming: {model.supports_streaming}, vision: {model.supports_vision})"
         )
 
-        _print_available_models()
+
+@command("models")
+def cmd_models(ctx: CommandContext) -> None:
+    """List available models."""
+    ctx.manager.undo(1, quiet=True)
+    _print_available_models()
 
 
 @command("tools")
