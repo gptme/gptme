@@ -29,6 +29,12 @@ export interface AgentInfo {
   avatar?: string;
 }
 
+// User identity info from global config
+export interface UserInfo {
+  name: string;
+  avatar?: string;
+}
+
 // Response from /api/conversations/<logfile>
 export interface ConversationResponse {
   id: string;

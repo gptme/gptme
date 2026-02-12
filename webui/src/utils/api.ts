@@ -5,6 +5,7 @@ import type {
   ConversationResponse,
   CreateConversationRequest,
   SendMessageRequest,
+  UserInfo,
 } from '@/types/api';
 import type { ConversationSummary, Message, ToolUse } from '@/types/conversation';
 import { getApiBaseUrl } from '@/utils/connectionConfig';
@@ -59,6 +60,7 @@ export class ApiClient {
   private identifier: string;
   private controller: AbortController | null = null;
   public sessions$: Observable<Map<string, string>> = observable(new Map()); // Map conversation IDs to session IDs
+  public userInfo$: Observable<UserInfo | null> = observable<UserInfo | null>(null);
   private eventSources: Map<string, EventSource> = new Map(); // Map conversation IDs to EventSource instances
   private isCleaningUp = false;
 
@@ -476,6 +478,18 @@ export class ApiClient {
       this.eventSources.get(conversationId)!.close();
       this.eventSources.delete(conversationId);
     }
+  }
+
+  async getUserInfo(): Promise<UserInfo> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    // Return cached if available
+    const cached = this.userInfo$.get();
+    if (cached) return cached;
+    const info = await this.fetchJson<UserInfo>(`${this.baseUrl}/api/v2/user`);
+    this.userInfo$.set(info);
+    return info;
   }
 
   async getConversations(limit: number = 100): Promise<ConversationSummary[]> {

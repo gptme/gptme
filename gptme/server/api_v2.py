@@ -15,7 +15,7 @@ import flask
 from dateutil.parser import isoparse
 from flask import request
 
-from gptme.config import ChatConfig, Config, set_config
+from gptme.config import ChatConfig, Config, load_user_config, set_config
 from gptme.llm.models import (
     PROVIDERS,
     Provider,
@@ -546,6 +546,55 @@ def api_conversation_agent_avatar(conversation_id: str):
         full_path.resolve().relative_to(chat_config.agent.resolve())
     except ValueError:
         return flask.jsonify({"error": "Invalid avatar path"}), 400
+
+    if not full_path.exists():
+        return flask.jsonify({"error": "Avatar file not found"}), 404
+
+    return flask.send_file(full_path)
+
+
+@v2_api.route("/api/v2/user", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="Get user identity",
+    description="Get user identity info (name, avatar) from global config",
+    responses={200: None},
+    tags=["user"],
+)
+def api_user():
+    """Get user identity info."""
+    user_config = load_user_config()
+    return flask.jsonify(
+        {
+            "name": user_config.user.name,
+            "avatar": user_config.user.avatar,
+        }
+    )
+
+
+@v2_api.route("/api/v2/user/avatar", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="Get user avatar",
+    description="Serve the user's avatar image from global config",
+    responses={200: None, 404: ErrorResponse},
+    tags=["user"],
+)
+def api_user_avatar():
+    """Serve the user's avatar image."""
+    user_config = load_user_config()
+    avatar_path = user_config.user.avatar
+    if not avatar_path:
+        return flask.jsonify({"error": "No avatar configured"}), 404
+
+    # If it's a URL, redirect to it
+    if avatar_path.startswith(("http://", "https://")):
+        return flask.redirect(avatar_path)
+
+    # Resolve the path (supports ~ expansion)
+    from pathlib import Path
+
+    full_path = Path(avatar_path).expanduser().resolve()
 
     if not full_path.exists():
         return flask.jsonify({"error": "Avatar file not found"}), 404

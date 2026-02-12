@@ -32,6 +32,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const hasSession$ = useObservable<boolean>(false);
   const { defaultModel } = useModels();
 
+  // Fetch user info once (cached in ApiClient)
+  useEffect(() => {
+    if (api.isConnected$.get()) {
+      api.getUserInfo().catch(() => {});
+    }
+  }, [api]);
+
   useObserveEffect(api.sessions$.get(conversationId), () => {
     if (!isReadOnly) {
       hasSession$.set(api.sessions$.get(conversationId).get() !== undefined);
@@ -227,13 +234,18 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
               ? conversation$.data.log[nextIdx]
               : undefined;
 
-            // Construct agent avatar URL if agent has avatar configured
-            // Normalize baseUrl by removing trailing slashes to avoid double slashes
-            // NOTE: must use .get() to read the actual value from the observable,
-            // otherwise the Legend State proxy is always truthy
+            // Construct avatar URLs and names
+            // NOTE: must use .get() to read actual values from Legend State observables
+            const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
             const agentAvatarUrl = conversation$.data.agent?.avatar?.get()
-              ? `${connectionConfig.baseUrl.replace(/\/+$/, '')}/api/v2/conversations/${conversationId}/agent/avatar`
+              ? `${baseUrl}/api/v2/conversations/${conversationId}/agent/avatar`
               : undefined;
+            const agentName = conversation$.data.agent?.name?.get();
+            const userInfo = api.userInfo$.get();
+            const userAvatarUrl = userInfo?.avatar
+              ? `${baseUrl}/api/v2/user/avatar`
+              : undefined;
+            const userName = userInfo?.name;
 
             return (
               <ChatMessage
@@ -243,6 +255,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                 nextMessage$={nextMessage$}
                 conversationId={conversationId}
                 agentAvatarUrl={agentAvatarUrl}
+                agentName={agentName}
+                userAvatarUrl={userAvatarUrl}
+                userName={userName}
               />
             );
           }}

@@ -3,13 +3,17 @@ import { Bot, User, Terminal } from 'lucide-react';
 import type { MessageRole } from '@/types/conversation';
 import { type Observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface MessageAvatarProps {
   role$: Observable<MessageRole>;
   isError$?: Observable<boolean>;
   isSuccess$?: Observable<boolean>;
   chainType$: Observable<'start' | 'middle' | 'end' | 'standalone'>;
-  avatarUrl?: string;
+  agentAvatarUrl?: string;
+  agentName?: string;
+  userAvatarUrl?: string;
+  userName?: string;
 }
 
 export function MessageAvatar({
@@ -17,7 +21,10 @@ export function MessageAvatar({
   isError$,
   isSuccess$,
   chainType$,
-  avatarUrl,
+  agentAvatarUrl,
+  agentName,
+  userAvatarUrl,
+  userName,
 }: MessageAvatarProps) {
   const role = use$(role$);
   const isError = use$(isError$);
@@ -29,13 +36,19 @@ export function MessageAvatar({
     return null;
   }
 
-  // Determine if we should show the custom avatar image
-  const showCustomAvatar = role === 'assistant' && avatarUrl && !imageError;
+  const isUser = role === 'user';
+  const isAssistant = role === 'assistant';
+  const showCustomAvatar =
+    (isAssistant && agentAvatarUrl && !imageError) ||
+    (isUser && userAvatarUrl && !imageError);
+  const avatarUrl = isUser ? userAvatarUrl : agentAvatarUrl;
 
   const avatarClasses = `hidden md:flex mt-0.5 flex-shrink-0 w-8 h-8 rounded-full items-center justify-center absolute ${
-    role === 'user'
-      ? 'bg-blue-600 text-white right-0'
-      : role === 'assistant'
+    isUser
+      ? showCustomAvatar
+        ? 'right-0 overflow-hidden'
+        : 'bg-blue-600 text-white right-0'
+      : isAssistant
         ? showCustomAvatar
           ? 'left-0 overflow-hidden'
           : 'bg-gptme-600 text-white left-0'
@@ -46,23 +59,27 @@ export function MessageAvatar({
             : 'bg-slate-500 text-white left-0'
   }`;
 
-  // Render custom avatar image for assistant if available and not errored
-  if (showCustomAvatar) {
-    return (
-      <div className={avatarClasses}>
-        <img
-          src={avatarUrl}
-          alt="Agent avatar"
-          className="w-full h-full object-cover rounded-full"
-          onError={() => setImageError(true)}
-        />
-      </div>
-    );
-  }
+  // Determine tooltip text
+  const tooltipText = isUser
+    ? userName || 'User'
+    : isAssistant
+      ? agentName || 'Assistant'
+      : role === 'system'
+        ? 'System'
+        : role;
 
-  return (
+  const avatarElement = showCustomAvatar ? (
     <div className={avatarClasses}>
-      {role === 'assistant' ? (
+      <img
+        src={avatarUrl}
+        alt={`${tooltipText} avatar`}
+        className="w-full h-full object-cover rounded-full"
+        onError={() => setImageError(true)}
+      />
+    </div>
+  ) : (
+    <div className={avatarClasses}>
+      {isAssistant ? (
         <Bot className="h-5 w-5" />
       ) : role === 'system' ? (
         <Terminal className="h-5 w-5" />
@@ -70,5 +87,12 @@ export function MessageAvatar({
         <User className="h-5 w-5" />
       )}
     </div>
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{avatarElement}</TooltipTrigger>
+      <TooltipContent side={isUser ? 'left' : 'right'}>{tooltipText}</TooltipContent>
+    </Tooltip>
   );
 }

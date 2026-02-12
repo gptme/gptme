@@ -123,6 +123,7 @@ class UserIdentityConfig:
     name: str = "User"
     about: str | None = None
     response_preference: str | None = None
+    avatar: str | None = None
 
 
 @dataclass
@@ -390,6 +391,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
             name=user_identity.name,
             about=about,
             response_preference=resp_pref,
+            avatar=user_identity.avatar,
         )
 
     env = config.pop("env", {})
