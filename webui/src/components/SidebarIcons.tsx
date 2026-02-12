@@ -1,8 +1,9 @@
-import { MessageSquare, Kanban, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
+import { MessageSquare, Kanban, PanelLeftOpen, PanelLeftClose, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toggleLeftSidebarCollapsed, leftSidebarCollapsed$ } from '@/stores/sidebar';
+import { SettingsModal } from './SettingsModal';
 import type { Task } from '@/types/task';
 import type { FC } from 'react';
 import { use$ } from '@legendapp/state/react';
@@ -73,6 +74,22 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Settings */}
+      <div className="flex-shrink-0 p-1">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <SettingsModal>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </SettingsModal>
+            </TooltipTrigger>
+            <TooltipContent side="right">Settings</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
 
       {/* Toggle Button */}
       <div className="flex-shrink-0 p-1">

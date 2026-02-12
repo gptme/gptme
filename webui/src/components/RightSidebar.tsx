@@ -20,17 +20,11 @@ export const RightSidebar: FC<Props> = ({ conversationId: _conversationId }) => 
   const activeTab = use$(activeTab$);
 
   const handleTabSelect = (tabId: string) => {
-    console.log('handleTabSelect:', { tabId, activeTab, isEqual: tabId === activeTab });
-
     if (tabId === activeTab) {
-      // If clicking the currently active tab, deselect it
-      console.log('Deselecting tab - same tab clicked');
       activeTab$.set(null);
       rightSidebarVisible$.set(false);
       rightSidebarActiveTab$.set(null);
     } else {
-      // Otherwise, switch to the new tab and show content
-      console.log('Switching tab and showing content');
       activeTab$.set(tabId);
       rightSidebarVisible$.set(true);
       rightSidebarActiveTab$.set(tabId);
