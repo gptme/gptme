@@ -11,7 +11,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Pencil, Trash2, Plus, Check, Plug, Unplug } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Pencil, Trash2, Plus, Plug, Unplug, Copy } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
 import {
@@ -22,6 +23,7 @@ import {
   connectServer,
   disconnectServer,
 } from '@/stores/servers';
+import { getClientForServer } from '@/stores/serverClients';
 import type { ServerConfig } from '@/types/servers';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -49,6 +51,21 @@ function serverToForm(server: ServerConfig): ServerFormState {
   };
 }
 
+/** Status dot showing actual per-server connectivity. */
+const ServerDot: FC<{ serverId: string; className?: string }> = ({ serverId, className }) => {
+  const client = getClientForServer(serverId);
+  const reachable = use$(client?.isConnected$ ?? null) ?? false;
+  return (
+    <span
+      className={cn(
+        'inline-block h-3 w-3 shrink-0 rounded-full',
+        reachable ? 'bg-green-500' : 'bg-gray-400',
+        className
+      )}
+    />
+  );
+};
+
 export const ServerConfiguration: FC = () => {
   const { connect, switchServer } = useApi();
   const registry = use$(serverRegistry$);
@@ -60,29 +77,37 @@ export const ServerConfiguration: FC = () => {
 
   const handleSetPrimary = async (serverId: string) => {
     if (serverId === registry.activeServerId) return;
+    const wasInList = registry.connectedServerIds.includes(serverId);
     try {
       await switchServer(serverId);
     } catch {
+      if (!wasInList) {
+        disconnectServer(serverId);
+      }
       const server = registry.servers.find((s) => s.id === serverId);
       toast.error(`Failed to connect to "${server?.name || 'server'}"`);
     }
   };
 
   const handleToggleConnection = async (serverId: string) => {
-    const isConnected = registry.connectedServerIds.includes(serverId);
+    const isInList = registry.connectedServerIds.includes(serverId);
     const server = registry.servers.find((s) => s.id === serverId);
     if (!server) return;
 
-    if (isConnected) {
+    if (isInList) {
       if (registry.connectedServerIds.length <= 1) {
         toast.error('At least one server must be connected');
         return;
+      }
+      // Clear the client's live connectivity status so the dot turns gray
+      const client = getClientForServer(serverId);
+      if (client) {
+        client.setConnected(false);
       }
       disconnectServer(serverId);
       toast.success(`Disconnected from "${server.name}"`);
     } else {
       connectServer(serverId);
-      // If no primary is connected, make this the primary via atomic switch
       if (!registry.connectedServerIds.includes(registry.activeServerId)) {
         try {
           await switchServer(serverId);
@@ -90,6 +115,17 @@ export const ServerConfiguration: FC = () => {
           disconnectServer(serverId);
           toast.error(`Failed to connect to "${server.name}"`);
           return;
+        }
+      } else {
+        // Verify the server is reachable
+        const client = getClientForServer(serverId);
+        if (client) {
+          const ok = await client.checkConnection();
+          if (!ok) {
+            disconnectServer(serverId);
+            toast.error(`Failed to connect to "${server.name}"`);
+            return;
+          }
         }
       }
       toast.success(`Connected to "${server.name}"`);
@@ -116,7 +152,6 @@ export const ServerConfiguration: FC = () => {
 
     try {
       if (editingServerId) {
-        // Editing existing server
         updateServer(editingServerId, {
           name: formState.name.trim() || 'Server',
           baseUrl: formState.baseUrl.trim(),
@@ -125,7 +160,6 @@ export const ServerConfiguration: FC = () => {
         });
         toast.success('Server updated');
 
-        // Reconnect if we edited the active server
         if (editingServerId === registry.activeServerId) {
           await connect({
             baseUrl: formState.baseUrl.trim(),
@@ -134,7 +168,6 @@ export const ServerConfiguration: FC = () => {
           });
         }
       } else {
-        // Adding new server
         const server = addServer({
           name:
             formState.name.trim() ||
@@ -151,7 +184,6 @@ export const ServerConfiguration: FC = () => {
         });
         toast.success('Server added');
 
-        // Connect and switch to the new server (switchServer handles connectServer + setActiveServer)
         await switchServer(server.id);
       }
 
@@ -169,7 +201,6 @@ export const ServerConfiguration: FC = () => {
       setDeleteConfirmId(null);
       toast.success('Server removed');
 
-      // Reconnect if we deleted the active server (removeServer already updates activeServerId)
       if (wasActive) {
         const newActive = serverRegistry$.get().servers[0];
         if (newActive) {
@@ -201,7 +232,7 @@ export const ServerConfiguration: FC = () => {
       <div className="space-y-3">
         {registry.servers.map((server) => {
           const isPrimary = server.id === registry.activeServerId;
-          const isConnected = registry.connectedServerIds.includes(server.id);
+          const isInList = registry.connectedServerIds.includes(server.id);
 
           return (
             <div
@@ -209,13 +240,12 @@ export const ServerConfiguration: FC = () => {
               onClick={() => handleSetPrimary(server.id)}
               className={cn(
                 'flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/40',
-                isPrimary && 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20',
-                !isConnected && 'opacity-60'
+                isPrimary && 'border-primary/30 bg-primary/5'
               )}
             >
               <div className="flex items-center gap-3">
-                {isPrimary && <Check className="h-4 w-4 shrink-0 text-green-600" />}
-                <div className={cn(!isPrimary && 'ml-7')}>
+                <ServerDot serverId={server.id} />
+                <div>
                   <div className="flex items-center gap-2 text-sm font-medium">
                     {server.name}
                     {isPrimary && (
@@ -236,32 +266,42 @@ export const ServerConfiguration: FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleToggleConnection(server.id);
-                  }}
-                >
-                  {isConnected ? (
-                    <Unplug className="h-3.5 w-3.5 text-green-600" />
-                  ) : (
-                    <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenEdit(server);
-                  }}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleConnection(server.id);
+                      }}
+                    >
+                      {isInList ? (
+                        <Unplug className="h-3.5 w-3.5 text-muted-foreground" />
+                      ) : (
+                        <Plug className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{isInList ? 'Disconnect' : 'Connect'}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenEdit(server);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit</TooltipContent>
+                </Tooltip>
                 {deleteConfirmId === server.id ? (
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <Button
@@ -282,18 +322,23 @@ export const ServerConfiguration: FC = () => {
                     </Button>
                   </div>
                 ) : (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteConfirmId(server.id);
-                    }}
-                    disabled={!!server.isPreset}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirmId(server.id);
+                        }}
+                        disabled={!!server.isPreset}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Delete</TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             </div>
@@ -305,6 +350,43 @@ export const ServerConfiguration: FC = () => {
         <Plus className="mr-2 h-4 w-4" />
         Add Server
       </Button>
+
+      <div className="space-y-2">
+        <h4 className="text-sm font-medium">Start the server with:</h4>
+        <div className="flex items-center gap-2 rounded-md bg-muted p-2">
+          <code className="flex-1 text-sm">{`gptme-server --cors-origin='${window.location.origin}'`}</code>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    `gptme-server --cors-origin='${window.location.origin}'`
+                  );
+                  toast.success('Command copied to clipboard');
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Copy command</TooltipContent>
+          </Tooltip>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          See the{' '}
+          <a
+            href="https://gptme.org/docs/server.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            server documentation
+          </a>{' '}
+          for more details.
+        </p>
+      </div>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="sm:max-w-md">

@@ -176,11 +176,6 @@ export const ConversationList: FC<Props> = ({
                 >
                   {convState?.data?.name || conv.name || stripDate(conv.id)}
                 </div>
-                {showLabel && conv.serverName && (
-                  <span className="mb-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {conv.serverName}
-                  </span>
-                )}
                 <div className="flex items-center space-x-3 text-xs text-muted-foreground">
                   <Tooltip>
                     <TooltipTrigger>
@@ -271,6 +266,11 @@ export const ConversationList: FC<Props> = ({
                       </Tooltip>
                     )}
                   </div>
+                  {showLabel && conv.serverName && (
+                    <span className="ml-auto rounded bg-muted px-1 py-0.5 text-[10px]">
+                      {conv.serverName}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

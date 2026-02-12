@@ -1,4 +1,3 @@
-import { ConnectionButton } from './ConnectionButton';
 import { ServerSelector } from './ServerSelector';
 import { SettingsModal } from './SettingsModal';
 import { Button } from './ui/button';
@@ -32,7 +31,6 @@ export const MenuBar: FC<MenuBarProps> = ({ showRightSidebar = false }) => {
       <div className="flex items-center gap-1 sm:gap-4">
         <div className="flex items-center gap-4">
           <ServerSelector />
-          <ConnectionButton />
           {import.meta.env.VITE_EMBEDDED_MODE === 'true' && (
             <TooltipProvider>
               <Tooltip>

@@ -1,4 +1,4 @@
-import { useState, forwardRef } from 'react';
+import { useState, forwardRef, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -16,12 +16,20 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { ServerConfiguration } from '@/components/settings/ServerConfiguration';
+import { observable } from '@legendapp/state';
+import { use$ } from '@legendapp/state/react';
 
 interface SettingsModalProps {
   children?: React.ReactNode;
 }
 
-type SettingsCategory = 'servers' | 'appearance' | 'audio' | 'content' | 'about';
+export type SettingsCategory = 'servers' | 'appearance' | 'audio' | 'content' | 'about';
+
+/** Observable to open the settings modal from outside (e.g. server dropdown). */
+export const settingsModal$ = observable({
+  open: false,
+  category: 'appearance' as SettingsCategory,
+});
 
 const categories = [
   {
@@ -62,6 +70,16 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
     const { theme, setTheme } = useTheme();
     const [open, setOpen] = useState(false);
     const [activeCategory, setActiveCategory] = useState<SettingsCategory>('appearance');
+
+    // Allow external code to open the modal to a specific category
+    const externalRequest = use$(settingsModal$);
+    useEffect(() => {
+      if (externalRequest.open) {
+        setActiveCategory(externalRequest.category);
+        setOpen(true);
+        settingsModal$.open.set(false);
+      }
+    }, [externalRequest.open, externalRequest.category]);
 
     const renderCategoryContent = () => {
       switch (activeCategory) {
@@ -158,44 +176,6 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                   checked={settings.blocksDefaultOpen}
                   onCheckedChange={(checked) => updateSettings({ blocksDefaultOpen: checked })}
                 />
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <h4 className="text-sm font-medium">Developer Options</h4>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="hidden-toggle" className="text-sm">
-                      Show hidden messages
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Display messages marked as hidden (e.g., lessons, context)
-                    </p>
-                  </div>
-                  <Switch
-                    id="hidden-toggle"
-                    checked={settings.showHiddenMessages}
-                    onCheckedChange={(checked) => updateSettings({ showHiddenMessages: checked })}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="initial-system-toggle" className="text-sm">
-                      Show initial system messages
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Display the initial system prompt at the start of conversations
-                    </p>
-                  </div>
-                  <Switch
-                    id="initial-system-toggle"
-                    checked={settings.showInitialSystem}
-                    onCheckedChange={(checked) => updateSettings({ showInitialSystem: checked })}
-                  />
-                </div>
               </div>
             </div>
           );
