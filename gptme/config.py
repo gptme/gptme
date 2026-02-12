@@ -556,8 +556,28 @@ def get_project_config(
     if workspace is None:
         return None
 
+    # Compute file mtimes for cache invalidation
+    # This way, if the config file is modified, the cache is automatically busted
+    config_candidates = (
+        workspace / "gptme.toml",
+        workspace / ".github" / "gptme.toml",
+    )
+    mtimes: list[float] = []
+    for p in config_candidates:
+        try:
+            mtimes.append(p.stat().st_mtime)
+        except OSError:
+            mtimes.append(0)
+    # Also check local config mtime
+    for p in config_candidates:
+        local = p.parent / "gptme.local.toml"
+        try:
+            mtimes.append(local.stat().st_mtime)
+        except OSError:
+            mtimes.append(0)
+
     # Get cached result (includes paths for logging)
-    result = _get_project_config_cached(workspace)
+    result = _get_project_config_cached(workspace, tuple(mtimes))
     if result is None:
         return None
 
@@ -578,8 +598,13 @@ def get_project_config(
 @lru_cache(maxsize=4)
 def _get_project_config_cached(
     workspace: Path,
+    _mtimes: tuple[float, ...] = (),
 ) -> tuple[ProjectConfig, Path, Path | None] | None:
     """Internal cached implementation of get_project_config.
+
+    Args:
+        workspace: Path to the workspace directory
+        _mtimes: File modification times used as cache key for invalidation
 
     Returns:
         Tuple of (config, config_path, local_config_path) or None if no config found.
