@@ -13,6 +13,9 @@ jest.mock('@/contexts/ApiContext', () => ({
       apiKey: '',
       baseUrl: 'http://localhost:5700',
     },
+    api: {
+      userInfo$: observable(null),
+    },
   }),
 }));
 
