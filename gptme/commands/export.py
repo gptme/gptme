@@ -18,7 +18,6 @@ def cmd_summarize(ctx: CommandContext) -> None:
     from ..logmanager import prepare_messages  # fmt: skip
     from ..message import print_msg  # fmt: skip
 
-    ctx.manager.undo(1, quiet=True)
     msgs = prepare_messages(ctx.manager.log.messages)
     msgs = [m for m in msgs if not m.hide]
     print_msg(llm.summarize(msgs))
@@ -50,9 +49,6 @@ def cmd_replay(ctx: CommandContext) -> None:
     """Replay the conversation or specific tool operations."""
     from ..message import print_msg  # fmt: skip
     from ..tools import ToolUse, execute_msg  # fmt: skip
-
-    ctx.manager.undo(1, quiet=True)
-    ctx.manager.write()
 
     # Check if replaying a specific tool
     if ctx.args and ctx.args[0].lower() not in ["last", "all"]:
@@ -164,8 +160,6 @@ def cmd_export(ctx: CommandContext) -> None:
     """Export conversation as HTML."""
     from ..util.export import export_chat_to_html  # fmt: skip
 
-    ctx.manager.undo(1, quiet=True)
-    ctx.manager.write()
     # Get output path from args or use default
     output_path = (
         Path(ctx.args[0])

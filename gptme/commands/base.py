@@ -47,6 +47,7 @@ def command(
     name: str,
     aliases: list[str] | None = None,
     completer: CommandCompleter | None = None,
+    auto_undo: bool = True,
 ):
     """Decorator to register command handlers.
 
@@ -55,10 +56,18 @@ def command(
         aliases: Optional list of command aliases
         completer: Optional function for argument completion.
                    Takes (partial_arg, previous_args) and returns list of (completion, description) tuples.
+        auto_undo: If True (default), automatically undo the command message before execution.
+                   Set to False for commands that should be visible to the assistant
+                   or that handle undo themselves.
     """
 
     def decorator(func: OriginalCommandHandler) -> OriginalCommandHandler:
         def wrapper(ctx: CommandContext) -> Generator:
+            # Auto-undo the command message so it doesn't appear in the conversation
+            if auto_undo:
+                ctx.manager.undo(1, quiet=True)
+                ctx.manager.write()
+
             result = func(ctx)
             if result is not None:
                 # It's a generator, yield from it

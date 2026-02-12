@@ -26,7 +26,6 @@ def _complete_log(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
 @command("log", completer=_complete_log)
 def cmd_log(ctx: CommandContext) -> None:
     """Show the conversation log."""
-    ctx.manager.undo(1, quiet=True)
     ctx.manager.log.print(show_hidden="--hidden" in ctx.args)
 
 
@@ -41,8 +40,6 @@ def _complete_rename(partial: str, _prev_args: list[str]) -> list[tuple[str, str
 @command("rename", completer=_complete_rename)
 def cmd_rename(ctx: CommandContext) -> None:
     """Rename the conversation."""
-    ctx.manager.undo(1, quiet=True)
-    ctx.manager.write()
     # rename the conversation
     print("Renaming conversation")
     if ctx.args:
@@ -69,7 +66,6 @@ def _complete_fork(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]
 @command("fork", completer=_complete_fork)
 def cmd_fork(ctx: CommandContext) -> None:
     """Fork the conversation."""
-    ctx.manager.undo(1, quiet=True)
     new_name = ctx.args[0] if ctx.args else input("New name: ")
     ctx.manager.fork(new_name)
     print(f"✅ Forked conversation to: {ctx.manager.logdir}")
@@ -108,8 +104,6 @@ def cmd_delete(ctx: CommandContext) -> None:
         /delete --force <id> - Delete without confirmation
     """
     from ..logmanager import delete_conversation, list_conversations  # fmt: skip
-
-    ctx.manager.undo(1, quiet=True)
 
     # Check for --force flag
     force = "--force" in ctx.args or "-f" in ctx.args
@@ -159,16 +153,13 @@ def cmd_delete(ctx: CommandContext) -> None:
 @command("edit")
 def cmd_edit(ctx: CommandContext) -> Generator["Message", None, None]:
     """Edit previous messages."""
-    # first undo the '/edit' command itself
-    ctx.manager.undo(1, quiet=True)
     yield from _edit(ctx.manager)
 
 
 @command("undo")
 def cmd_undo(ctx: CommandContext) -> None:
     """Undo the last action(s)."""
-    # undo the '/undo' command itself
-    ctx.manager.undo(1, quiet=True)
+    # auto_undo already removed the '/undo' command itself
     # if int, undo n messages
     n = int(ctx.args[0]) if ctx.args and ctx.args[0].isdigit() else 1
     ctx.manager.undo(n)
@@ -177,7 +168,6 @@ def cmd_undo(ctx: CommandContext) -> None:
 @command("clear", aliases=["cls"])
 def cmd_clear(ctx: CommandContext) -> None:
     """Clear the terminal screen."""
-    ctx.manager.undo(1, quiet=True)
     # ANSI escape code to clear screen and move cursor to home position
     print("\033[2J\033[H", end="")
 
@@ -186,9 +176,6 @@ def cmd_clear(ctx: CommandContext) -> None:
 def cmd_exit(ctx: CommandContext) -> None:
     """Exit the program."""
     from ..hooks import HookType, trigger_hook
-
-    ctx.manager.undo(1, quiet=True)
-    ctx.manager.write()
 
     # Trigger session end hooks before exiting
     logdir = ctx.manager.logdir
@@ -209,8 +196,6 @@ def cmd_restart(ctx: CommandContext) -> None:
     - Recovering from state issues
     """
     from ..tools.restart import _do_restart
-
-    ctx.manager.undo(1, quiet=True)
 
     response = input("Restart gptme? This will exit and restart the process. [y/N] ")
     confirmed = response.lower().strip() in ("y", "yes")

@@ -65,7 +65,7 @@ action_descriptions: dict[Actions, str] = {
 COMMANDS = list(action_descriptions.keys())
 
 
-@command("impersonate")
+@command("impersonate", auto_undo=False)
 def cmd_impersonate(ctx: CommandContext) -> Generator["Message", None, None]:
     """Impersonate the assistant."""
     from ..message import Message  # fmt: skip
@@ -82,8 +82,6 @@ def cmd_setup(ctx: CommandContext) -> None:
     """Setup gptme with completions, configuration, and project setup."""
     from ..cli.setup import setup
 
-    ctx.manager.undo(1, quiet=True)
-    ctx.manager.write()
     setup()
 
 
@@ -92,16 +90,12 @@ def cmd_doctor(ctx: CommandContext) -> None:
     """Run system diagnostics to check gptme health."""
     from ..cli.doctor import main as doctor_main
 
-    ctx.manager.undo(1, quiet=True)
-    ctx.manager.write()
     doctor_main()
 
 
 @command("help")
 def cmd_help(ctx: CommandContext) -> None:
     """Show help message."""
-    ctx.manager.undo(1, quiet=True)
-    ctx.manager.write()
     _help()
 
 
@@ -146,8 +140,6 @@ def cmd_plugin(ctx: CommandContext) -> None:
         discover_plugins,
         get_install_instructions,
     )
-
-    ctx.manager.undo(1, quiet=True)
 
     config = get_config()
 
