@@ -70,7 +70,7 @@ def cmd_replay(ctx: CommandContext) -> None:
         print("Replay options:")
         print("  last - Replay only the last assistant message")
         print("  all  - Replay all assistant messages")
-        print("  <tool> - Replay all operations for a specific tool (e.g., todowrite)")
+        print("  <tool> - Replay all operations for a specific tool (e.g., todo)")
         scope = input("Choose (last/all/<tool>): ").strip().lower()
         if scope not in ["last", "all"]:
             # Try as tool name
@@ -132,12 +132,12 @@ def _replay_tool(log, tool_name: str) -> None:
 
                 for line in lines:
                     # Use the tool's execute function directly
-                    # For tools like todowrite, this will update internal state
+                    # For tools like todo, this will update internal state
                     try:
                         parts = shlex.split(line)
                         if parts:
                             # Import the tool's helper function if it exists
-                            # For todowrite, this would be _todowrite
+                            # For todo, this would be _todowrite
                             helper_name = f"_{tool_name}"
                             tool_module = __import__(
                                 f"gptme.tools.{tool_name}",

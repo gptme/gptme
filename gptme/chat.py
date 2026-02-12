@@ -116,7 +116,7 @@ def chat(
     console.log(f"Using logdir: {path_with_tilde(logdir)}")
     manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
 
-    # Note: todowrite replay is now handled by the todo_replay tool via SESSION_START hook
+    # Note: todo replay is now handled via SESSION_START hook
 
     # Initialize workspace
     console.log(f"Using workspace: {path_with_tilde(workspace)}")
@@ -126,7 +126,7 @@ def chat(
     manager.log.print(show_hidden=show_hidden)
     console.print("--- ^^^ past messages ^^^ ---")
 
-    # Note: todowrite replay is now handled by the todo_replay tool via SESSION_START hook
+    # Note: todo replay is now handled via SESSION_START hook
     # Note: Confirmation is now handled within ToolUse.execute() using the hook system,
     # so we no longer need to create and pass confirm_func.
 

@@ -214,3 +214,64 @@ def test_conversation_scoped_storage():
     # Should be empty
     result = _todoread()
     assert "📝 Todo list is empty" in result
+
+
+def test_execute_todo_read():
+    """Test execute_todo with read subcommand."""
+    from gptme.tools.todo import execute_todo
+
+    # Test read on empty list
+    msgs = list(execute_todo(None, ["read"], None))
+    assert len(msgs) == 1
+    assert "📝 Todo list is empty" in msgs[0].content
+
+    # Add some todos
+    _todowrite("add", "Task one")
+    _todowrite("add", "Task two")
+
+    # Test read with content
+    msgs = list(execute_todo(None, ["read"], None))
+    assert len(msgs) == 1
+    assert "Todo List:" in msgs[0].content
+    assert "Task one" in msgs[0].content
+    assert "Task two" in msgs[0].content
+
+
+def test_execute_todo_write():
+    """Test execute_todo with write subcommand."""
+    from gptme.tools.todo import execute_todo
+
+    # Test write with add operations
+    content = 'add "First task"\nadd "Second task"'
+    msgs = list(execute_todo(content, ["write"], None))
+    assert len(msgs) == 1
+    assert "Added todo 1" in msgs[0].content
+    assert "Added todo 2" in msgs[0].content
+
+    # Verify todos were added
+    assert "1" in _current_todos
+    assert "2" in _current_todos
+
+    # Test write with update
+    msgs = list(execute_todo("update 1 in_progress", ["write"], None))
+    assert "Updated todo 1 state to: in_progress" in msgs[0].content
+    assert _current_todos["1"]["state"] == "in_progress"
+
+
+def test_execute_todo_default_read():
+    """Test execute_todo defaults to read when no subcommand given."""
+    from gptme.tools.todo import execute_todo
+
+    # No args should default to read
+    msgs = list(execute_todo(None, None, None))
+    assert len(msgs) == 1
+    assert "📝 Todo list is empty" in msgs[0].content
+
+
+def test_execute_todo_invalid_subcommand():
+    """Test execute_todo with invalid subcommand."""
+    from gptme.tools.todo import execute_todo
+
+    msgs = list(execute_todo(None, ["invalid"], None))
+    assert len(msgs) == 1
+    assert "Error: Unknown subcommand" in msgs[0].content
