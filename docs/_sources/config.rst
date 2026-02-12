@@ -26,6 +26,7 @@ Here is an example:
     name = "Erik"
     about = "I am a curious human programmer."
     response_preference = "Don't explain basic concepts"
+    avatar = "~/Pictures/avatar.jpg"  # Path to avatar image (or URL)
 
     [prompt]
     # Additional files to always include in context
@@ -60,9 +61,10 @@ Here is an example:
 
 The ``user`` section configures user identity:
 
-- ``name``: Your display name, shown at the CLI input prompt (default: ``"User"``).
+- ``name``: Your display name, shown at the CLI input prompt and as a tooltip on avatar in the web UI (default: ``"User"``).
 - ``about``: A description of yourself, included in the system prompt so the assistant knows who it's talking to.
 - ``response_preference``: Preferences for how the assistant should respond (e.g. level of detail).
+- ``avatar``: Path to your avatar image (supports ``~`` expansion) or URL. Displayed in the web UI next to your messages.
 
 .. note::
 

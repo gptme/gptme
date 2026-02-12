@@ -494,6 +494,7 @@
 <span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Erik&quot;</span>
 <span class="n">about</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;I am a curious human programmer.&quot;</span>
 <span class="n">response_preference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Don&#39;t explain basic concepts&quot;</span>
+<span class="n">avatar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/Pictures/avatar.jpg&quot;</span><span class="w">  </span><span class="c1"># Path to avatar image (or URL)</span>
 
 <span class="k">[prompt]</span>
 <span class="c1"># Additional files to always include in context</span>
@@ -529,9 +530,10 @@
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">user</span></code> section configures user identity:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code>: Your display name, shown at the CLI input prompt (default: <code class="docutils literal notranslate"><span class="pre">&quot;User&quot;</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code>: Your display name, shown at the CLI input prompt and as a tooltip on avatar in the web UI (default: <code class="docutils literal notranslate"><span class="pre">&quot;User&quot;</span></code>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">about</span></code>: A description of yourself, included in the system prompt so the assistant knows who it’s talking to.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">response_preference</span></code>: Preferences for how the assistant should respond (e.g. level of detail).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">avatar</span></code>: Path to your avatar image (supports <code class="docutils literal notranslate"><span class="pre">~</span></code> expansion) or URL. Displayed in the web UI next to your messages.</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
