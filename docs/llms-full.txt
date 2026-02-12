@@ -3767,7 +3767,7 @@ Useful for:
    /replay              # Interactive: choose last, all, or tool name
    /replay last         # Replay only the last assistant message with tool uses
    /replay all          # Replay all assistant messages
-   /replay todowrite    # Replay all operations for a specific tool
+   /replay todo    # Replay all operations for a specific tool
 
 /export
 ^^^^^^^
