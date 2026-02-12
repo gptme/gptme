@@ -1,4 +1,4 @@
-import { Monitor, Settings, Globe, FolderOpen } from 'lucide-react';
+import { Monitor, SlidersHorizontal, Globe, FolderOpen } from 'lucide-react';
 import type { FC } from 'react';
 import { rightSidebarVisible$, rightSidebarActiveTab$ } from '@/stores/sidebar';
 import { use$, useObservable } from '@legendapp/state/react';
@@ -9,7 +9,7 @@ interface Props {
 }
 
 const navItems = [
-  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'settings', label: 'Chat Settings', icon: SlidersHorizontal },
   { id: 'workspace', label: 'Workspace', icon: FolderOpen },
   { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'computer', label: 'Computer', icon: Monitor },

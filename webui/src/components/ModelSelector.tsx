@@ -137,6 +137,27 @@ export function ModelSelector<T extends FieldValues = FieldValues>({
     );
   };
 
+  const searchHeader = (
+    <div className="p-2">
+      <div className="relative">
+        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          ref={searchInputRef}
+          placeholder="Search models..."
+          value={searchTerm}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setShouldFocus(true);
+          }}
+          className="pl-8"
+          onKeyDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onFocus={() => setShouldFocus(false)}
+        />
+      </div>
+    </div>
+  );
+
   const selectContent = (
     <Select value={value} onValueChange={onValueChange} disabled={disabled || isLoading}>
       <SelectTrigger>
@@ -148,25 +169,7 @@ export function ModelSelector<T extends FieldValues = FieldValues>({
           {isLoading && <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />}
         </div>
       </SelectTrigger>
-      <SelectContent>
-        <div className="p-2">
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              ref={searchInputRef}
-              placeholder="Search models..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setShouldFocus(true);
-              }}
-              className="pl-8"
-              onKeyDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-              onFocus={() => setShouldFocus(false)}
-            />
-          </div>
-        </div>
+      <SelectContent stickyHeader={searchHeader}>
         {/* Recommended models section */}
         {finalRecommendedModels.length > 0 && (
           <>
@@ -240,25 +243,7 @@ export function ModelSelector<T extends FieldValues = FieldValues>({
                   {isLoading && <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />}
                 </div>
               </SelectTrigger>
-              <SelectContent>
-                <div className="p-2">
-                  <div className="relative">
-                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      ref={searchInputRef}
-                      placeholder="Search models..."
-                      value={searchTerm}
-                      onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        setShouldFocus(true);
-                      }}
-                      className="pl-8"
-                      onKeyDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onFocus={() => setShouldFocus(false)}
-                    />
-                  </div>
-                </div>
+              <SelectContent stickyHeader={searchHeader}>
                 {/* Recommended models section */}
                 {finalRecommendedModels.length > 0 && (
                   <>

@@ -1,6 +1,7 @@
 import { useState, type FC } from 'react';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
 import { Trash, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { ModelSelector } from './ModelSelector';
 import {
   Form,
@@ -43,6 +44,23 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
     formState: { isDirty, isSubmitting },
   } = form;
 
+  const onInvalid = (errors: Record<string, unknown>) => {
+    // Surface validation errors so the user knows why save doesn't work
+    const messages: string[] = [];
+    const extractErrors = (obj: Record<string, unknown>, prefix = '') => {
+      for (const [key, val] of Object.entries(obj)) {
+        if (val && typeof val === 'object' && 'message' in val && typeof (val as { message: unknown }).message === 'string') {
+          messages.push(`${prefix}${key}: ${(val as { message: string }).message}`);
+        } else if (val && typeof val === 'object') {
+          extractErrors(val as Record<string, unknown>, `${prefix}${key}.`);
+        }
+      }
+    };
+    extractErrors(errors);
+    const errorMsg = messages.length > 0 ? messages.join(', ') : 'Please fix form errors';
+    toast.error(errorMsg);
+  };
+
   const isDemo = demoConversations.some((conv) => conv.id === conversationId);
   const isLoading = isLoadingConfig || (!chatConfig && !configError && !isDemo);
 
@@ -84,7 +102,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
         </div>
       ) : (
         <Form {...form}>
-          <form onSubmit={handleSubmit(onSubmit)} className="flex h-full flex-col">
+          <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="flex h-full flex-col">
             <div className="flex-1 space-y-8 overflow-y-auto p-4 pb-12">
               <h3 className="mt-4 text-lg font-medium">Chat Settings</h3>
 
