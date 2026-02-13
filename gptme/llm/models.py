@@ -634,9 +634,22 @@ def get_model(model: str) -> ModelMeta:
             openrouter_models = _get_models_for_provider(
                 "openrouter", dynamic_fetch=True
             )
+            # Strip @ suffix for comparison (e.g., "z-ai/glm-5@z-ai" -> "z-ai/glm-5")
+            base_model = model.split("@")[0] if "@" in model else model
             for model_meta in openrouter_models:
-                if model_meta.model == model:
-                    return model_meta
+                if model_meta.model == model or model_meta.model == base_model:
+                    return ModelMeta(
+                        provider=model_meta.provider,
+                        model=model,  # Preserve original name with suffix
+                        context=model_meta.context,
+                        max_output=model_meta.max_output,
+                        supports_streaming=model_meta.supports_streaming,
+                        supports_vision=model_meta.supports_vision,
+                        supports_reasoning=model_meta.supports_reasoning,
+                        price_input=model_meta.price_input,
+                        price_output=model_meta.price_output,
+                        knowledge_cutoff=model_meta.knowledge_cutoff,
+                    )
         except Exception as e:
             logger.debug("Failed to fetch OpenRouter models for %s: %s", model, e)
 
