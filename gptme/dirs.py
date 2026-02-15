@@ -109,11 +109,19 @@ def get_workspace() -> Path:
         )
         if result.returncode == 0:
             git_root = Path(result.stdout.strip())
-            # If .git is a file, we're in a submodule — use the parent repo
+            # If .git is a file, we're in a submodule — find the parent repo
             if (git_root / ".git").is_file():
-                parent = git_root.parent
-                if (parent / ".git").exists():
-                    return parent
+                try:
+                    super_result = subprocess.run(
+                        ["git", "rev-parse", "--show-superproject-working-tree"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if super_result.returncode == 0 and super_result.stdout.strip():
+                        return Path(super_result.stdout.strip())
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
             return git_root
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
