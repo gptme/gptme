@@ -26,6 +26,7 @@ from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import bashlex
 
@@ -39,6 +40,10 @@ from .base import (
     ToolSpec,
     ToolUse,
 )
+
+if TYPE_CHECKING:
+    from ..hooks import StopPropagation
+    from ..logmanager import LogManager
 
 # ANSI escape sequence pattern for stripping terminal formatting
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
@@ -826,6 +831,21 @@ def close_conversation_shell(conversation_id: str) -> None:
             logger.warning(
                 f"Error closing shell for conversation {conversation_id}: {e}"
             )
+
+
+def _session_end_shell_cleanup(
+    manager: "LogManager", **kwargs
+) -> "Generator[Message | StopPropagation, None, None]":
+    """Close shell session for a conversation to prevent file descriptor leaks.
+
+    Registered as a SESSION_END hook via ToolSpec.hooks so it's only loaded
+    when the shell tool is active.
+    """
+    conversation_id = manager.logdir.name if manager.logdir else None
+    if conversation_id:
+        close_conversation_shell(conversation_id)
+
+    yield from ()
 
 
 # NOTE: This does not handle control flow words like if, for, while.
@@ -1859,6 +1879,7 @@ tool = ToolSpec(
     # This auto-confirms allowlisted commands before CLI/server hooks (priority 0)
     hooks={
         "allowlist": ("tool.confirm", shell_allowlist_hook, 10),
+        "session_end": ("session.end", _session_end_shell_cleanup, 0),
     },
 )
 __doc__ = tool.get_doc(__doc__)
