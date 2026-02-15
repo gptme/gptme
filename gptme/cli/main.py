@@ -41,14 +41,64 @@ logger = logging.getLogger(__name__)
 
 
 script_path = Path(os.path.realpath(__file__))
+
+
+class CommaSeparatedChoice(click.ParamType):
+    """Click type that validates comma-separated values against a set of choices."""
+
+    name = "TEXT"
+
+    def __init__(
+        self,
+        choices: list[str],
+        allow_prefix: str | None = None,
+        metavar: str | None = None,
+    ):
+        self.choices = choices
+        self.allow_prefix = allow_prefix
+        self._metavar = metavar
+
+    def convert(self, value, param, ctx):
+        parts = [v.strip() for v in value.split(",") if v.strip()]
+        for part in parts:
+            check = part
+            if self.allow_prefix and check.startswith(self.allow_prefix):
+                check = check[len(self.allow_prefix) :]
+            if check not in self.choices:
+                self.fail(
+                    f"invalid choice: {part}. (choose from {', '.join(self.choices)})",
+                    param,
+                    ctx,
+                )
+        return value
+
+    def get_metavar(self, param: click.Parameter, ctx: click.Context) -> str | None:
+        if self._metavar:
+            return self._metavar
+        return "[" + "|".join(self.choices) + "]"
+
+
+class WorkspacePath(click.ParamType):
+    """Click type for workspace paths: a directory path or '@log'."""
+
+    name = "PATH"
+
+    def convert(self, value, param, ctx):
+        if value == "@log":
+            return value
+        path = Path(value)
+        if not path.exists():
+            self.fail(f"directory '{value}' does not exist.", param, ctx)
+        if not path.is_dir():
+            self.fail(f"'{value}' is not a directory.", param, ctx)
+        return str(path.resolve())
+
+
 commands_help = "\n".join(_gen_help(incl_langtags=False))
-available_tool_names = ", ".join(
-    sorted(
-        tool.name
-        for tool in get_available_tools(include_mcp=False)
-        if tool.is_available
-    )
+_available_tools = sorted(
+    tool.name for tool in get_available_tools(include_mcp=False) if tool.is_available
 )
+available_tool_names = ", ".join(_available_tools)
 
 
 docstring = f"""
@@ -97,7 +147,8 @@ Examples:
     "--workspace",
     "workspace",
     default=None,
-    help="Path to workspace directory. Pass '@log' to create a workspace in the log directory.",
+    type=WorkspacePath(),
+    help="Path to workspace directory, or '@log' to use the log directory.",
 )
 @click.option(
     "--agent-path",
@@ -137,7 +188,10 @@ Examples:
     "tool_allowlist",
     default=None,
     multiple=True,
-    help=f"Tools to allow. Can be specified multiple times or comma-separated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use 'none' to disable all tools. Available: {available_tool_names}.",
+    type=CommaSeparatedChoice(
+        _available_tools + ["none"], allow_prefix="+", metavar="TOOL"
+    ),
+    help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use 'none' to disable all tools. Available: {available_tool_names}.",
 )
 @click.option(
     "--tool-format",
@@ -199,13 +253,15 @@ Examples:
     "--context",
     "context_include",
     multiple=True,
+    type=CommaSeparatedChoice(["workspace-files", "workspace-cmd", "workspace"]),
     callback=lambda ctx, param, value: value or None,
-    help="Limit which context is included [workspace-files|workspace-cmd]. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
+    help="Limit which context is included. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
 )
 @click.option(
     "--context-include",
     "context_include",
     multiple=True,
+    type=CommaSeparatedChoice(["workspace-files", "workspace-cmd", "workspace"]),
     hidden=True,
 )
 @click.option(
