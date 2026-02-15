@@ -338,7 +338,7 @@ def parse_schedule(schedule: str) -> dict:
         return {"StartCalendarInterval": [{"Hour": hour, "Minute": minute}]}
 
     # Day of week: Mon/Tue/Wed/Thu/Fri/Sat/Sun HH:MM or *:MM
-    day_map = {"mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6, "sun": 7}
+    day_map = {"mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6, "sun": 0}
     m = re.match(r"^(\w+)\s+\*:(\d+)$", schedule, re.IGNORECASE)
     if m and m.group(1).lower() in day_map:
         weekday = day_map[m.group(1).lower()]
@@ -526,11 +526,9 @@ class LaunchdManager(ServiceManager):
         if not plist_path.exists():
             return None
 
-        loaded = self._is_loaded(name)
-        if not loaded:
-            return ServiceStatus(name=name, running=False, enabled=False)
-
         result = self._run_launchctl("list", self._label(name))
+        if result.returncode != 0:
+            return ServiceStatus(name=name, running=False, enabled=False)
         pid = None
         exit_code = None
 

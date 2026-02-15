@@ -108,6 +108,12 @@ class TestParseSchedule:
             "StartCalendarInterval": [{"Weekday": 5, "Hour": 9, "Minute": 0}]
         }
 
+    def test_sunday_maps_to_zero(self):
+        result = parse_schedule("Sun 10:00")
+        assert result == {
+            "StartCalendarInterval": [{"Weekday": 0, "Hour": 10, "Minute": 0}]
+        }
+
     def test_unrecognized_defaults_to_hourly(self):
         result = parse_schedule("some-weird-format")
         assert result == {"StartCalendarInterval": [{"Minute": 0}]}
@@ -517,7 +523,8 @@ class TestLaunchdManager:
         plist_path = manager._plist_path("test")
         plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
 
-        with patch.object(manager, "_is_loaded", return_value=False):
+        mock_result = MagicMock(returncode=1, stdout="")
+        with patch.object(manager, "_run_launchctl", return_value=mock_result):
             result = manager.status("test")
 
         assert result is not None
@@ -531,11 +538,7 @@ class TestLaunchdManager:
         plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
 
         mock_result = MagicMock(returncode=0, stdout="1234\t0\torg.gptme.agent.test\n")
-
-        with (
-            patch.object(manager, "_is_loaded", return_value=True),
-            patch.object(manager, "_run_launchctl", return_value=mock_result),
-        ):
+        with patch.object(manager, "_run_launchctl", return_value=mock_result):
             result = manager.status("test")
 
         assert result is not None
