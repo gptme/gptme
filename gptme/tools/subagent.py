@@ -354,6 +354,8 @@ def _run_subagent_subprocess(
         workspace: Workspace directory
         context_mode: Context mode (full, instructions-only, selective)
         context_include: Context components to include for selective mode
+            (files, cmd, all). Legacy values like "agent" and "tools" are
+            mapped or ignored since tools/agent are always included by CLI.
         output_schema: JSON schema for structured output
 
     Returns:
@@ -371,13 +373,30 @@ def _run_subagent_subprocess(
     if model:
         cmd.extend(["--model", model])
 
-    # Add context configuration flags (Issue #971)
-    if context_mode:
-        cmd.extend(["--context-mode", context_mode])
-
-    if context_include:
+    # Map context_mode/context_include to the --context CLI flag
+    if context_mode == "instructions-only":
+        # Deprecated: minimal context. Passing no --context values effectively
+        # means selective with nothing included.
+        logger.warning("context_mode='instructions-only' is deprecated")
+    elif context_mode == "selective" and context_include:
+        # Map internal component names to CLI --context values
+        # Thread mode handles "agent"/"tools" internally; for subprocess mode,
+        # map to CLI-compatible values ("files", "cmd").
+        cli_values = []
         for component in context_include:
-            cmd.extend(["--context-include", component])
+            if component in ("files", "cmd", "all"):
+                cli_values.append(component)
+            elif component == "workspace":
+                cli_values.append("files")
+            elif component in ("agent", "tools"):
+                # "agent" and "tools" are always included by the CLI,
+                # no need to pass them explicitly
+                pass
+            else:
+                logger.warning(f"Unknown context_include component: {component}")
+        if cli_values:
+            for val in cli_values:
+                cmd.extend(["--context", val])
 
     if output_schema:
         cmd.extend(["--output-schema", output_schema])
@@ -557,12 +576,13 @@ def subagent(
                        Only applies to planner mode.
         context_mode: Controls what context is shared with the subagent:
             - "full" (default): Share complete context (agent identity, tools, workspace)
-            - "instructions-only": Minimal context, only the user prompt
+            - "instructions-only": Deprecated, minimal context
             - "selective": Share only specified context components (requires context_include)
         context_include: For selective mode, list of context components to include:
-            - "agent": Agent identity and capabilities
-            - "tools": Tool descriptions and usage
-            - "workspace": Workspace files and structure
+            - "files": Project config files (gptme.toml files list)
+            - "cmd": Dynamic context_cmd output
+            - "all": Include both files and cmd
+            Note: Tools and agent identity are always included by the CLI.
         use_subprocess: If True, run subagent in subprocess for output isolation.
             Subprocess mode captures stdout/stderr separately from the parent.
 
@@ -922,7 +942,11 @@ def examples(tool_format):
 ### Executor Mode (single task)
 User: compute fib 13 using a subagent
 Assistant: Starting a subagent to compute the 13th Fibonacci number.
-{ToolUse("ipython", [], 'subagent("fib-13", "compute the 13th Fibonacci number")').to_output(tool_format)}
+{
+        ToolUse(
+            "ipython", [], 'subagent("fib-13", "compute the 13th Fibonacci number")'
+        ).to_output(tool_format)
+    }
 System: Subagent started successfully.
 Assistant: Now we need to wait for the subagent to finish the task.
 {ToolUse("ipython", [], 'subagent_wait("fib-13")').to_output(tool_format)}
@@ -931,14 +955,24 @@ System: {{"status": "success", "result": "The 13th Fibonacci number is 233"}}.
 ### Planner Mode (multi-task delegation)
 User: implement feature X with tests
 Assistant: I'll use planner mode to delegate implementation and testing to separate subagents.
-{ToolUse("ipython", [], '''subtasks = [
+{
+        ToolUse(
+            "ipython",
+            [],
+            '''subtasks = [
     {{"id": "implement", "description": "Write implementation for feature X"}},
     {{"id": "test", "description": "Write comprehensive tests"}},
 ]
-subagent("feature-planner", "Feature X adds new functionality", mode="planner", subtasks=subtasks)''').to_output(tool_format)}
+subagent("feature-planner", "Feature X adds new functionality", mode="planner", subtasks=subtasks)''',
+        ).to_output(tool_format)
+    }
 System: Planner spawned 2 executor subagents.
 Assistant: Now I'll wait for both subtasks to complete.
-{ToolUse("ipython", [], 'subagent_wait("feature-planner-implement")').to_output(tool_format)}
+{
+        ToolUse("ipython", [], 'subagent_wait("feature-planner-implement")').to_output(
+            tool_format
+        )
+    }
 System: {{"status": "success", "result": "Implementation complete in feature_x.py"}}.
 {ToolUse("ipython", [], 'subagent_wait("feature-planner-test")').to_output(tool_format)}
 System: {{"status": "success", "result": "Tests complete in test_feature_x.py, all passing"}}.
@@ -948,28 +982,56 @@ System: {{"status": "success", "result": "Tests complete in test_feature_x.py, a
 #### Full Context (default)
 User: analyze this codebase
 Assistant: I'll use full context mode for comprehensive analysis.
-{ToolUse("ipython", [], 'subagent("analyze", "Analyze code quality and suggest improvements", context_mode="full")').to_output(tool_format)}
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("analyze", "Analyze code quality and suggest improvements", context_mode="full")',
+        ).to_output(tool_format)
+    }
 
 #### Instructions-Only Mode (minimal context)
 User: compute the sum of 1 to 100
 Assistant: For a simple computation, I'll use instructions-only mode with minimal context.
-{ToolUse("ipython", [], 'subagent("sum", "Compute sum of integers from 1 to 100", context_mode="instructions-only")').to_output(tool_format)}
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("sum", "Compute sum of integers from 1 to 100", context_mode="instructions-only")',
+        ).to_output(tool_format)
+    }
 
 #### Selective Context (choose specific components)
 User: write tests using pytest
-Assistant: I'll use selective mode to share only tool descriptions, not workspace files.
-{ToolUse("ipython", [], 'subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["tools"])').to_output(tool_format)}
+Assistant: I'll use selective mode to share only project files, not context_cmd output.
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["files"])',
+        ).to_output(tool_format)
+    }
 
 ### Subprocess Mode (output isolation)
 User: run a subagent without output mixing with parent
 Assistant: I'll use subprocess mode for better output isolation.
-{ToolUse("ipython", [], 'subagent("isolated", "Compute complex calculation", use_subprocess=True)').to_output(tool_format)}
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("isolated", "Compute complex calculation", use_subprocess=True)',
+        ).to_output(tool_format)
+    }
 System: Subagent started in subprocess mode.
 
 ### Batch Execution (parallel tasks)
 User: implement, test, and document a feature in parallel
 Assistant: I'll use subagent_batch for parallel execution with fire-and-gather pattern.
-{ToolUse("ipython", [], '''job = subagent_batch([
+{
+        ToolUse(
+            "ipython",
+            [],
+            '''job = subagent_batch([
     ("impl", "Implement the user authentication feature"),
     ("test", "Write tests for authentication"),
     ("docs", "Document the authentication API"),
@@ -977,7 +1039,9 @@ Assistant: I'll use subagent_batch for parallel execution with fire-and-gather p
 # Do other work while subagents run...
 results = job.wait_all(timeout=300)
 for agent_id, result in results.items():
-    print(f"{{agent_id}}: {{result['status']}}")''').to_output(tool_format)}
+    print(f"{{agent_id}}: {{result['status']}}")''',
+        ).to_output(tool_format)
+    }
 System: Started batch of 3 subagents: ['impl', 'test', 'docs']
 impl: success
 test: success
@@ -986,17 +1050,29 @@ docs: success
 ### Fire-and-Forget with Hook Notifications
 User: start a subagent and continue working
 Assistant: I'll spawn a subagent. Completion will be delivered via the LOOP_CONTINUE hook.
-{ToolUse("ipython", [], '''subagent("compute-demo", "Compute pi to 100 digits")
+{
+        ToolUse(
+            "ipython",
+            [],
+            '''subagent("compute-demo", "Compute pi to 100 digits")
 # I can continue with other work now
 # When the subagent completes, I'll receive a system message like:
-# "✅ Subagent 'compute-demo' completed: pi = 3.14159..."''').to_output(tool_format)}
+# "✅ Subagent 'compute-demo' completed: pi = 3.14159..."''',
+        ).to_output(tool_format)
+    }
 System: Started subagent "compute-demo"
 System: ✅ Subagent 'compute-demo' completed: pi = 3.14159265358979...
 
 ### Structured Delegation Template
 User: implement a robust auth feature
 Assistant: I'll use the structured delegation template for clear task handoff.
-{ToolUse("ipython", [], 'subagent("auth-impl", "TASK: Implement JWT auth | OUTCOME: auth.py with tests | MUST: bcrypt, validation | MUST NOT: plaintext passwords")').to_output(tool_format)}
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("auth-impl", "TASK: Implement JWT auth | OUTCOME: auth.py with tests | MUST: bcrypt, validation | MUST NOT: plaintext passwords")',
+        ).to_output(tool_format)
+    }
 System: Subagent started successfully.
 """.strip()
 
