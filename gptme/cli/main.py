@@ -201,7 +201,7 @@ Examples:
     "context_include",
     multiple=True,
     callback=lambda ctx, param, value: value or None,
-    help="Limit which context is included [workspace-files|workspace-cmd|workspace]. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
+    help="Limit which context is included [workspace-files|workspace-cmd]. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
 )
 @click.option(
     "--output-schema",
