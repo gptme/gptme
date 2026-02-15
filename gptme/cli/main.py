@@ -81,7 +81,7 @@ class CommaSeparatedChoice(click.ParamType):
 class WorkspacePath(click.ParamType):
     """Click type for workspace paths: a directory path or '@log'."""
 
-    name = "PATH"
+    name = "DIRECTORY"
 
     def convert(self, value, param, ctx):
         if value == "@log":
