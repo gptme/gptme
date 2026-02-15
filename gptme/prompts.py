@@ -80,11 +80,12 @@ def get_prompt(
     When ``--context-include`` is passed without ``--context-mode``, selective
     mode is implied.
 
-    ``--context-include`` components:
+    ``--context`` components:
 
-    - ``workspace-files``: project files from gptme.toml config
-    - ``workspace-cmd``: output of ``context_cmd`` in gptme.toml
-    - ``workspace``: shorthand for workspace-files + workspace-cmd
+    - ``files``: project files from gptme.toml and user config
+    - ``cmd``: output of ``context_cmd`` in gptme.toml
+
+    Legacy aliases (still accepted): ``workspace-files``, ``workspace-cmd``, ``workspace``
 
     Implicit behavior (not controlled by ``--context-include``):
 
@@ -122,7 +123,11 @@ def get_prompt(
     # Determine what to include based on context_mode
     # Aliases for backward compatibility
     if "workspace" in include_set:
-        include_set.update(("workspace-files", "workspace-cmd"))
+        include_set.update(("files", "cmd"))
+    if "workspace-files" in include_set:
+        include_set.add("files")
+    if "workspace-cmd" in include_set:
+        include_set.add("cmd")
     # Legacy: "agent" in context_include is ignored (agent-path is now always loaded)
     include_set.discard("agent")
     include_set.discard("agent-config")
@@ -130,12 +135,12 @@ def get_prompt(
     # Tools are always included when they're loaded — no need to opt-in via --context-include
     include_tools = bool(tools)
     include_workspace = effective_mode == "full" or (
-        is_selective and "workspace-files" in include_set
+        is_selective and "files" in include_set
     )
     # Agent workspace is always loaded when --agent-path is provided
     include_agent_config = bool(agent_path)
     include_context_cmd = effective_mode == "full" or (
-        is_selective and "workspace-cmd" in include_set
+        is_selective and "cmd" in include_set
     )
 
     # Generate core system messages (without workspace context)

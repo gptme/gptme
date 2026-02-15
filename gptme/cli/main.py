@@ -117,7 +117,7 @@ Examples:
   gptme --tools none "what is 2+2"           No tools, just chat
   gptme -t patch,save "fix typo" main.py     Only specific tools (comma-separated)
   gptme -t +subagent "plan a refactor"       Default tools + subagent
-  gptme --context workspace-files "task"     Skip context_cmd, keep project files
+  gptme --context files "do task"             Skip context_cmd, keep project files
 
 \b
 {commands_help}"""
@@ -253,7 +253,9 @@ Examples:
     "--context",
     "context_include",
     multiple=True,
-    type=CommaSeparatedChoice(["workspace-files", "workspace-cmd"]),
+    type=CommaSeparatedChoice(
+        ["files", "cmd", "workspace-files", "workspace-cmd"], metavar="[files|cmd]"
+    ),
     callback=lambda ctx, param, value: value or None,
     help="Limit which context is included. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
 )
@@ -261,7 +263,9 @@ Examples:
     "--context-include",
     "context_include",
     multiple=True,
-    type=CommaSeparatedChoice(["workspace-files", "workspace-cmd"]),
+    type=CommaSeparatedChoice(
+        ["files", "cmd", "workspace-files", "workspace-cmd"], metavar="[files|cmd]"
+    ),
     hidden=True,
 )
 @click.option(
