@@ -64,35 +64,34 @@ def get_prompt(
 
     The prompt is assembled from several layers:
 
-    1. **Core prompt** — base gptme identity + tool descriptions (always included
-       when tools are loaded, controlled by ``--tools``)
-    2. **Workspace context** — project files from gptme.toml ``[prompt] files``
-       and computed context from ``context_cmd``
-    3. **Agent config** — separate agent identity workspace (only when
-       ``--agent-path`` is provided and differs from workspace)
+    1. **Core prompt** (always included):
 
-    Context modes (``--context-mode``, deprecated in favor of ``--context-include``):
+       - Base gptme identity and instructions
+       - User identity/preferences (interactive mode only, from user config ``[user]``)
+       - Tool descriptions (when tools are loaded, controlled by ``--tools``)
 
-    - **full** (default): everything — core + tools + workspace files + context_cmd
-    - **selective**: core + tools + only the components listed in ``context_include``
-    - **instructions-only** (deprecated): alias for selective with no includes
+    2. **Context** (controlled by ``--context``):
 
-    When ``--context-include`` is passed without ``--context-mode``, selective
-    mode is implied.
+       - ``files``: static files from project config (gptme.toml ``[prompt] files``)
+         and user config (``~/.config/gptme/config.toml`` ``[prompt] files``).
+         Both sources are merged and deduplicated.
+       - ``cmd``: dynamic output of ``context_cmd`` in gptme.toml (project-level only,
+         no user-level equivalent). Changes most often, least cacheable.
 
-    ``--context`` components:
+    3. **Agent config** (implicit when ``--agent-path`` is provided):
 
-    - ``files``: project files from gptme.toml and user config
-    - ``cmd``: output of ``context_cmd`` in gptme.toml
+       - Separate agent identity workspace. If ``agent_path == workspace``,
+         workspace is skipped to avoid duplication.
+
+    ``--context`` selects which context components to include.
+    Without it, all context is included (full mode).
 
     Legacy aliases (still accepted): ``workspace-files``, ``workspace-cmd``, ``workspace``
 
-    Implicit behavior (not controlled by ``--context-include``):
+    Implicit behavior (not controlled by ``--context``):
 
     - **Tool descriptions** are always included when tools are loaded
-    - **Agent config** (``--agent-path``) is always loaded when specified.
-      If ``agent_path == workspace``, workspace is skipped to avoid duplication
-      (the agent config loads it instead).
+    - **Agent config** is always loaded when ``--agent-path`` is specified
 
     Args:
         tools: List of available tools
