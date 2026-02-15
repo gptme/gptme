@@ -537,8 +537,20 @@
 <p>gptme is a chat-CLI for LLMs, empowering them with tools to run shell commands, execute code, read and manipulate files, and more.</p>
 <p>If PROMPTS are provided, a new conversation will be started with it.
 PROMPTS can be chained with the ‘-’ separator.</p>
-<p>The interface provides user commands that can be used to interact with the system.</p>
 <div class="line-block">
+<div class="line">Examples:</div>
+<div class="line-block">
+<div class="line">gptme “hello”                              Start a conversation</div>
+<div class="line">gptme “fix TODOs” main.py                  Include file or URL in context</div>
+<div class="line">gptme “review” github.com/org/repo/pull/1  Include a GitHub PR in context</div>
+<div class="line">gptme –tools none “what is 2+2”           No tools, just chat</div>
+<div class="line">gptme -t patch,save “fix typo” main.py     Only specific tools (comma-separated)</div>
+<div class="line">gptme -t +subagent “plan a refactor”       Default tools + subagent</div>
+<div class="line">gptme –context files “do task”             Skip context_cmd, keep project files</div>
+</div>
+</div>
+<div class="line-block">
+<div class="line">The interface provides /commands during a conversation:</div>
 <div class="line">Available commands:</div>
 <div class="line-block">
 <div class="line">/undo         Undo the last action</div>
@@ -579,7 +591,7 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-name">
 <span class="sig-name descname"><span class="pre">--name</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;name&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-name" title="Link to this definition">#</a></dt>
-<dd><p>Name of conversation. Defaults to generating a random name.</p>
+<dd><p>Conversation ID (used to resume). Defaults to a random name.</p>
 </dd></dl>
 
 <dl class="std option">
@@ -591,7 +603,7 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-w">
 <span id="cmdoption-gptme-workspace"></span><span class="sig-name descname"><span class="pre">-w</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--workspace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;workspace&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-w" title="Link to this definition">#</a></dt>
-<dd><p>Path to workspace directory. Pass <a class="reference external" href="mailto:'&#37;&#52;&#48;log">‘<span>&#64;</span>log</a>’ to create a workspace in the log directory.</p>
+<dd><p>Path to workspace directory, or <a class="reference external" href="mailto:'&#37;&#52;&#48;log">‘<span>&#64;</span>log</a>’ to use the log directory.</p>
 </dd></dl>
 
 <dl class="std option">
@@ -621,19 +633,24 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-system">
 <span class="sig-name descname"><span class="pre">--system</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;prompt_system&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-system" title="Link to this definition">#</a></dt>
-<dd><p>System prompt. Options: ‘full’, ‘short’, or something custom.</p>
+<dd><p>System prompt [full|short|&lt;custom&gt;]. Defaults to ‘full’.</p>
 </dd></dl>
 
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-t">
 <span id="cmdoption-gptme-tools"></span><span class="sig-name descname"><span class="pre">-t</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--tools</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tool_allowlist&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-t" title="Link to this definition">#</a></dt>
-<dd><p>Tools to allow. Can be specified multiple times or comma-separated. Use ‘+tool’ to add to defaults (e.g., ‘-t +subagent’). Available: append, autocommit, autocompact, browser, chats, choice, complete, computer, form, gh, ipython, lessons, mcp, patch, precommit, read, restart, save, screenshot, shell, subagent, tmux, todo, vision.</p>
+<dd><p>Tools to allow. Comma-separated or repeated. Use ‘+tool’ to add to defaults (e.g., ‘-t +subagent’). Use ‘none’ to disable all tools. Available: append, autocommit, autocompact, browser, chats, choice, complete, computer, form, gh, ipython, lessons, mcp, patch, precommit, read, restart, save, screenshot, shell, subagent, tmux, todo, vision.</p>
 </dd></dl>
 
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-tool-format">
 <span class="sig-name descname"><span class="pre">--tool-format</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tool_format&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-tool-format" title="Link to this definition">#</a></dt>
-<dd><p>Tool format to use. Options: markdown, xml, tool</p>
+<dd><p>Tool format to use.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options<span class="colon">:</span></dt>
+<dd class="field-odd"><p>markdown | xml | tool</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="std option">
@@ -655,12 +672,6 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-multi-tool">
-<span id="cmdoption-gptme-no-multi-tool"></span><span class="sig-name descname"><span class="pre">--multi-tool</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--no-multi-tool</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-multi-tool" title="Link to this definition">#</a></dt>
-<dd><p>Allow multiple tool calls per LLM response (disables break-on-tooluse). Enables efficient API usage with sequential execution.</p>
-</dd></dl>
-
-<dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-version">
 <span class="sig-name descname"><span class="pre">--version</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-version" title="Link to this definition">#</a></dt>
 <dd><p>Show version and configuration information</p>
@@ -673,26 +684,9 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 </dd></dl>
 
 <dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-context-mode">
-<span class="sig-name descname"><span class="pre">--context-mode</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;context_mode&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-context-mode" title="Link to this definition">#</a></dt>
-<dd><p>Context mode for subagent-style execution. ‘full’ includes all context, ‘instructions-only’ minimal context, ‘selective’ uses –context-include.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Options<span class="colon">:</span></dt>
-<dd class="field-odd"><p>full | instructions-only | selective</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-context-include">
-<span class="sig-name descname"><span class="pre">--context-include</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;context_include&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-context-include" title="Link to this definition">#</a></dt>
-<dd><p>Context components to include when using –context-mode=selective. Can be specified multiple times. Options: agent, tools, workspace.</p>
-</dd></dl>
-
-<dl class="std option">
-<dt class="sig sig-object std" id="cmdoption-gptme-output-schema">
-<span class="sig-name descname"><span class="pre">--output-schema</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output_schema&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-output-schema" title="Link to this definition">#</a></dt>
-<dd><p>Schema for structured output in format ‘module:ClassName’. The class should be a Pydantic BaseModel.</p>
+<dt class="sig sig-object std" id="cmdoption-gptme-context">
+<span class="sig-name descname"><span class="pre">--context</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;context_include&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-context" title="Link to this definition">#</a></dt>
+<dd><p>Context to include (default: all). Comma-separated or repeated. Tools and agent config (–agent-path) are always included.</p>
 </dd></dl>
 
 <p class="rubric">Arguments</p>
