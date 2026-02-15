@@ -963,7 +963,9 @@ def _resume_via_llm(
 
     if len(prepared_msgs) < 3:
         yield Message(
-            "system", "Not enough conversation history to create a meaningful resume."
+            "system",
+            "Not enough conversation history to create a meaningful resume.",
+            hide=use_view_branch,
         )
         return
 
@@ -1008,6 +1010,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
             "system",
             "❌ Failed to generate resume: No default model configured. "
             "Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable.",
+            hide=use_view_branch,
         )
         return
     resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
@@ -1234,7 +1237,22 @@ def autocompact_hook(
     elif action == "resume":
         logger.info("Auto-resume triggered: rule-based compaction insufficient")
         try:
+            m = get_default_model()
+            original_tokens = len_tokens(messages, m.model) if m else 0
+
             yield from _resume_via_llm(manager, messages, use_view_branch=True)
+
+            compacted_tokens = len_tokens(manager.log.messages, m.model) if m else 0
+
+            # Trigger CACHE_INVALIDATED hook — resume is even more aggressive
+            # than rule-based compaction, so plugins need to know
+            yield from trigger_hook(
+                HookType.CACHE_INVALIDATED,
+                manager=manager,
+                reason="compact",
+                tokens_before=original_tokens,
+                tokens_after=compacted_tokens,
+            )
         except Exception as e:
             logger.error(f"Auto-resume failed: {e}")
             return
