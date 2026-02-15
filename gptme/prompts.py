@@ -121,8 +121,8 @@ def get_prompt(
         effective_mode = "selective"
 
     # Determine what to include based on context_mode
-    # Aliases for backward compatibility
-    if "workspace" in include_set:
+    # Expand aliases
+    if "all" in include_set or "workspace" in include_set:
         include_set.update(("files", "cmd"))
     if "workspace-files" in include_set:
         include_set.add("files")

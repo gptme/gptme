@@ -254,7 +254,8 @@ Examples:
     "context_include",
     multiple=True,
     type=CommaSeparatedChoice(
-        ["files", "cmd", "workspace-files", "workspace-cmd"], metavar="[files|cmd]"
+        ["all", "files", "cmd", "workspace-files", "workspace-cmd"],
+        metavar="[all|files|cmd]",
     ),
     callback=lambda ctx, param, value: value or None,
     help="Limit which context is included. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
@@ -264,7 +265,8 @@ Examples:
     "context_include",
     multiple=True,
     type=CommaSeparatedChoice(
-        ["files", "cmd", "workspace-files", "workspace-cmd"], metavar="[files|cmd]"
+        ["all", "files", "cmd", "workspace-files", "workspace-cmd"],
+        metavar="[all|files|cmd]",
     ),
     hidden=True,
 )
