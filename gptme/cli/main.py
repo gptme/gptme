@@ -268,6 +268,7 @@ Examples:
     "--output-schema",
     "output_schema",
     default=None,
+    hidden=True,
     help="Schema for structured output in format 'module:ClassName'. The class should be a Pydantic BaseModel.",
 )
 def main(
