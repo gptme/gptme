@@ -11,7 +11,7 @@ import time
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from .. import llm
 from ..context import strip_reasoning
@@ -40,6 +40,8 @@ _autocompact_min_interval = 60  # Minimum 60 seconds between autocompact attempt
 # Minimum savings threshold - don't compact unless we can achieve meaningful savings
 # This prevents triggering compaction that only saves a few percent (not worth cache invalidation)
 MIN_SAVINGS_RATIO = 0.10  # Require at least 10% savings to justify compaction
+
+CompactAction = Literal["none", "rule_based", "resume"]
 
 
 # --- Enhanced Scoring Patterns (Issue #149) ---
@@ -696,12 +698,15 @@ def estimate_compaction_savings(
     return total_tokens, total_estimated_savings, estimated_reasoning_savings
 
 
-def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
+def should_auto_compact(log: list[Message], limit: int | None = None) -> CompactAction:
     """
     Check if a log should be auto-compacted.
 
-    Returns True if the log contains massive tool results that would benefit
-    from auto-compacting rather than regular reduction.
+    Returns:
+        "rule_based" if the log would benefit from rule-based auto-compacting,
+        "resume" if the conversation is over-limit but rule-based savings are too low
+            (LLM-powered resume should be used instead),
+        "none" if no compaction is needed.
 
     Auto-compacting is triggered when:
     1. The conversation exceeds the limit, OR
@@ -731,7 +736,7 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
     would_trigger = total_tokens > limit or (close_to_limit and has_massive_tool_result)
 
     if not would_trigger:
-        return False
+        return "none"
 
     # Second check: estimate if savings would be worth it
     total, estimated_savings, reasoning_savings = estimate_compaction_savings(
@@ -741,17 +746,17 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> bool:
 
     if savings_ratio < MIN_SAVINGS_RATIO:
         logger.info(
-            f"Skipping auto-compact: estimated savings {savings_ratio:.1%} "
+            f"Skipping rule-based auto-compact: estimated savings {savings_ratio:.1%} "
             f"({estimated_savings} tokens) below threshold {MIN_SAVINGS_RATIO:.0%}. "
-            f"Consider using '/compact resume' for LLM-powered summarization."
+            f"Will use LLM-powered resume instead."
         )
-        return False
+        return "resume"
 
     logger.debug(
         f"Auto-compact viable: estimated {savings_ratio:.1%} savings "
         f"({estimated_savings} tokens, {reasoning_savings} from reasoning)"
     )
-    return True
+    return "rule_based"
 
 
 def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
@@ -781,7 +786,7 @@ def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
 def _compact_auto(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     """Auto-compact using the aggressive compacting algorithm."""
 
-    if not should_auto_compact(msgs):
+    if should_auto_compact(msgs) != "rule_based":
         yield Message(
             "system",
             "Auto-compacting not needed. Conversation doesn't contain massive tool results or isn't close to context limits.",
@@ -938,8 +943,20 @@ def _load_context_files(
     return loaded_files
 
 
-def _compact_resume(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
-    """LLM-powered compact that creates RESUME.md, extracts key files, and starts a new conversation with the context."""
+def _resume_via_llm(
+    manager: "LogManager",
+    msgs: list[Message],
+    use_view_branch: bool = False,
+) -> Generator[Message, None, None]:
+    """Core LLM-powered resume logic: summarize conversation and replace history.
+
+    Args:
+        manager: LogManager that owns the conversation.
+        msgs: Messages to summarize.
+        use_view_branch: If True, create a view branch (for auto-triggered resume)
+            and mark status messages as hidden. If False, replace the log directly
+            (for user-invoked /compact resume).
+    """
 
     # Prepare messages for summarization
     prepared_msgs = prepare_messages(msgs)
@@ -951,7 +968,11 @@ def _compact_resume(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
         return
 
     # Generate conversation summary using LLM
-    yield Message("system", "🔄 Generating conversation resume with LLM...")
+    yield Message(
+        "system",
+        "🔄 Generating conversation resume with LLM...",
+        hide=use_view_branch,
+    )
 
     resume_prompt = """Please create a comprehensive resume of this conversation that includes:
 
@@ -980,85 +1001,99 @@ Format the response as a structured document that could serve as a RESUME.md fil
     # Use full prepared messages for prompt caching friendliness
     llm_msgs = prepared_msgs + [resume_request]
 
-    try:
-        # Generate the resume using LLM
-        m = get_default_model()
-        if not m:
-            yield Message(
-                "system",
-                "❌ Failed to generate resume: No default model configured. "
-                "Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable.",
-            )
-            return
-        resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
-        resume_content = resume_response.content
-
-        # Save RESUME.md file
-        resume_path = Path("RESUME.md")
-        with open(resume_path, "w") as f:
-            f.write(resume_content)
-
-        # Parse and load context files suggested by the LLM
-        suggested_files = _parse_context_files(resume_content)
-        workspace = ctx.manager.workspace
-        loaded_files = _load_context_files(suggested_files, workspace=workspace)
-
-        # Extract original system messages (before any user/assistant messages)
-        # These contain essential context: core prompt, tool instructions, workspace info
-        original_system_msgs = []
-        for msg in msgs:
-            if msg.role == "system":
-                original_system_msgs.append(msg)
-            elif msg.role in ("user", "assistant"):
-                # Stop when we hit the first non-system message
-                break
-
-        # Create file context messages for each loaded file
-        file_context_msgs = []
-        for file_path, file_content in loaded_files:
-            file_msg = Message(
-                "system",
-                f"Context file `{file_path}`:\n```\n{file_content}\n```",
-            )
-            file_context_msgs.append(file_msg)
-
-        # Create the resume intro message
-        files_note = ""
-        if loaded_files:
-            files_note = f" (with {len(loaded_files)} context files)"
-        resume_intro_msg = Message(
-            "system", f"Previous conversation resumed from {resume_path}{files_note}:"
-        )
-        resume_msg = Message("assistant", resume_content)
-
-        # Combine: original system messages + file context + resume intro + resume content
-        # This preserves tool instructions and workspace context while compacting conversation history
-        # File context comes before resume so the assistant "knows" the files when continuing
-        ctx.manager.log = Log(
-            original_system_msgs + file_context_msgs + [resume_intro_msg, resume_msg]
-        )
-        ctx.manager.write()
-
-        # Build status message
-        files_loaded_str = ""
-        if loaded_files:
-            files_loaded_str = f"• Context files loaded: {len(loaded_files)}\n"
-            for fp, _ in loaded_files[:5]:  # Show first 5
-                files_loaded_str += f"  - {fp}\n"
-            if len(loaded_files) > 5:
-                files_loaded_str += f"  ... and {len(loaded_files) - 5} more\n"
-        elif suggested_files:
-            files_loaded_str = f"• Suggested files not found: {len(suggested_files)}\n"
-
+    # Generate the resume using LLM
+    m = get_default_model()
+    if not m:
         yield Message(
             "system",
-            f"✅ LLM-powered resume completed:\n"
-            f"• Original conversation ({len(prepared_msgs)} messages) compressed to resume\n"
-            f"• Resume saved to: {resume_path.absolute()}\n"
-            f"{files_loaded_str}"
-            f"• Conversation history replaced with resume",
+            "❌ Failed to generate resume: No default model configured. "
+            "Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable.",
         )
+        return
+    resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
+    resume_content = resume_response.content
 
+    # Save RESUME.md file
+    resume_path = Path("RESUME.md")
+    with open(resume_path, "w") as f:
+        f.write(resume_content)
+
+    # Parse and load context files suggested by the LLM
+    suggested_files = _parse_context_files(resume_content)
+    workspace = manager.workspace
+    loaded_files = _load_context_files(suggested_files, workspace=workspace)
+
+    # Extract original system messages (before any user/assistant messages)
+    # These contain essential context: core prompt, tool instructions, workspace info
+    original_system_msgs = []
+    for msg in msgs:
+        if msg.role == "system":
+            original_system_msgs.append(msg)
+        elif msg.role in ("user", "assistant"):
+            # Stop when we hit the first non-system message
+            break
+
+    # Create file context messages for each loaded file
+    file_context_msgs = []
+    for file_path, file_content in loaded_files:
+        file_msg = Message(
+            "system",
+            f"Context file `{file_path}`:\n```\n{file_content}\n```",
+        )
+        file_context_msgs.append(file_msg)
+
+    # Create the resume intro message
+    files_note = ""
+    if loaded_files:
+        files_note = f" (with {len(loaded_files)} context files)"
+    resume_intro_msg = Message(
+        "system", f"Previous conversation resumed from {resume_path}{files_note}:"
+    )
+    resume_msg = Message("assistant", resume_content)
+
+    new_log = original_system_msgs + file_context_msgs + [resume_intro_msg, resume_msg]
+
+    if use_view_branch:
+        view_name = manager.get_next_view_name()
+        manager.create_view(view_name, new_log)
+        manager.switch_view(view_name)
+    else:
+        # Replace the log directly (user-invoked /compact resume)
+        manager.log = Log(new_log)
+        manager.write()
+
+    # Build status message
+    files_loaded_str = ""
+    if loaded_files:
+        files_loaded_str = f"• Context files loaded: {len(loaded_files)}\n"
+        for fp, _ in loaded_files[:5]:  # Show first 5
+            files_loaded_str += f"  - {fp}\n"
+        if len(loaded_files) > 5:
+            files_loaded_str += f"  ... and {len(loaded_files) - 5} more\n"
+    elif suggested_files:
+        files_loaded_str = f"• Suggested files not found: {len(suggested_files)}\n"
+
+    view_note = ""
+    if use_view_branch:
+        view_note = f"• View: {view_name} (master branch preserved with full history)\n"
+
+    yield Message(
+        "system",
+        f"✅ LLM-powered resume completed:\n"
+        f"• Original conversation ({len(prepared_msgs)} messages) compressed to resume\n"
+        f"• Resume saved to: {resume_path.absolute()}\n"
+        f"{files_loaded_str}"
+        f"{view_note}"
+        f"• Conversation history replaced with resume",
+        hide=use_view_branch,
+    )
+
+
+def _compact_resume(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
+    """LLM-powered compact that creates RESUME.md, extracts key files, and starts a new conversation with the context."""
+
+    try:
+        yield from _resume_via_llm(ctx.manager, msgs, use_view_branch=False)
     except Exception as e:
         # Include exception type for better debugging when message is empty
         error_msg = str(e).strip() or f"({type(e).__name__})"
@@ -1140,58 +1175,69 @@ def autocompact_hook(
 
     messages = manager.log.messages
 
-    if not should_auto_compact(messages):
+    action = should_auto_compact(messages)
+    if action == "none":
         return
 
-    logger.info("Auto-compacting triggered: conversation has massive tool results")
     _last_autocompact_time = current_time
 
-    # Apply auto-compacting to get compacted messages
-    try:
-        compacted_msgs = list(auto_compact_log(messages, logdir=manager.logdir))
+    if action == "rule_based":
+        logger.info("Auto-compacting triggered: conversation has massive tool results")
 
-        # Calculate reduction stats
-        m = get_default_model()
-        original_count = len(messages)
-        compacted_count = len(compacted_msgs)
-        original_tokens = len_tokens(messages, m.model) if m else 0
-        compacted_tokens = len_tokens(compacted_msgs, m.model) if m else 0
+        # Apply auto-compacting to get compacted messages
+        try:
+            compacted_msgs = list(auto_compact_log(messages, logdir=manager.logdir))
 
-        # Create a view branch with compacted content
-        # Master branch (main) stays intact with full history
-        view_name = manager.get_next_view_name()
-        manager.create_view(view_name, compacted_msgs)
-        manager.switch_view(view_name)
+            # Calculate reduction stats
+            m = get_default_model()
+            original_count = len(messages)
+            compacted_count = len(compacted_msgs)
+            original_tokens = len_tokens(messages, m.model) if m else 0
+            compacted_tokens = len_tokens(compacted_msgs, m.model) if m else 0
 
-        # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
-        # (e.g., attention-router can batch-apply decay and re-evaluate tiers)
-        yield from trigger_hook(
-            HookType.CACHE_INVALIDATED,
-            manager=manager,
-            reason="compact",
-            tokens_before=original_tokens,
-            tokens_after=compacted_tokens,
-        )
+            # Create a view branch with compacted content
+            # Master branch (main) stays intact with full history
+            view_name = manager.get_next_view_name()
+            manager.create_view(view_name, compacted_msgs)
+            manager.switch_view(view_name)
 
-        reduction_pct = (
-            ((original_tokens - compacted_tokens) / original_tokens * 100)
-            if original_tokens > 0
-            else 0.0
-        )
-        # Yield a message indicating what happened
-        yield Message(
-            "system",
-            f"🔄 Auto-compacted conversation to view branch:\n"
-            f"• Messages: {original_count} → {compacted_count}\n"
-            f"• Tokens: {original_tokens:,} → {compacted_tokens:,} "
-            f"({reduction_pct:.1f}% reduction)\n"
-            f"• View: {view_name} (master branch preserved with full history)",
-            hide=True,  # Hide to prevent triggering responses
-        )
-    except Exception as e:
-        logger.error(f"Auto-compact failed during compaction: {e}")
-        # Don't yield error message to avoid triggering more hooks
-        return
+            # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
+            # (e.g., attention-router can batch-apply decay and re-evaluate tiers)
+            yield from trigger_hook(
+                HookType.CACHE_INVALIDATED,
+                manager=manager,
+                reason="compact",
+                tokens_before=original_tokens,
+                tokens_after=compacted_tokens,
+            )
+
+            reduction_pct = (
+                ((original_tokens - compacted_tokens) / original_tokens * 100)
+                if original_tokens > 0
+                else 0.0
+            )
+            # Yield a message indicating what happened
+            yield Message(
+                "system",
+                f"🔄 Auto-compacted conversation to view branch:\n"
+                f"• Messages: {original_count} → {compacted_count}\n"
+                f"• Tokens: {original_tokens:,} → {compacted_tokens:,} "
+                f"({reduction_pct:.1f}% reduction)\n"
+                f"• View: {view_name} (master branch preserved with full history)",
+                hide=True,  # Hide to prevent triggering responses
+            )
+        except Exception as e:
+            logger.error(f"Auto-compact failed during compaction: {e}")
+            # Don't yield error message to avoid triggering more hooks
+            return
+
+    elif action == "resume":
+        logger.info("Auto-resume triggered: rule-based compaction insufficient")
+        try:
+            yield from _resume_via_llm(manager, messages, use_view_branch=True)
+        except Exception as e:
+            logger.error(f"Auto-resume failed: {e}")
+            return
 
 
 # Tool specification

@@ -43,7 +43,7 @@ def test_should_auto_compact_with_massive_tool_result():
     messages = create_test_conversation()
 
     # Should trigger auto-compacting due to massive tool result + being close to limit
-    assert should_auto_compact(messages)
+    assert should_auto_compact(messages) == "rule_based"
 
 
 def test_should_auto_compact_with_small_messages():
@@ -55,7 +55,7 @@ def test_should_auto_compact_with_small_messages():
     ]
 
     # Should not trigger auto-compacting
-    assert not should_auto_compact(small_messages)
+    assert should_auto_compact(small_messages) == "none"
 
 
 def test_auto_compact_log_reduces_massive_tool_result():
@@ -571,13 +571,13 @@ def test_should_auto_compact_respects_minimum_savings():
     messages = [Message("user", f"Short message {i}") for i in range(100)]
 
     # Even if close to limit, should not trigger if savings would be minimal
-    result = should_auto_compact(messages, limit=500)  # Low limit to trigger check
+    result = should_auto_compact(messages, limit=100)  # Low limit to trigger check
 
     # With minimal savings potential (no reasoning, no tool results, no long messages),
-    # should return False even though we're "over limit"
+    # should return "resume" (not "rule_based") even though we're "over limit"
     assert (
-        result is False
-    ), "should_auto_compact should return False when savings are below threshold"
+        result == "resume"
+    ), "should_auto_compact should return 'resume' when rule-based savings are below threshold"
 
 
 def test_should_auto_compact_triggers_with_high_savings():
@@ -604,8 +604,8 @@ def test_should_auto_compact_triggers_with_high_savings():
     result = should_auto_compact(messages, limit=100)
 
     assert (
-        result is True
-    ), "should_auto_compact should return True when savings exceed threshold"
+        result == "rule_based"
+    ), "should_auto_compact should return 'rule_based' when savings exceed threshold"
 
 
 def test_compact_resume_error_handling():
@@ -817,3 +817,99 @@ def test_load_context_files_truncates_long_files(tmp_path):
     # Should be truncated
     assert len(loaded[0][1]) < len(long_content)
     assert "truncated" in loaded[0][1].lower()
+
+
+def test_should_auto_compact_returns_resume_when_over_limit_low_savings():
+    """Test that should_auto_compact returns 'resume' when over limit but rule-based savings are too low."""
+    # Many short user messages: over a low limit but nothing to rule-based compact
+    messages = [Message("user", f"Short message {i}") for i in range(100)]
+    result = should_auto_compact(messages, limit=100)
+    assert result == "resume"
+
+
+def test_resume_via_llm_with_mocked_reply():
+    """Test _resume_via_llm creates a resume using the LLM and replaces the log."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact import _resume_via_llm
+
+    mock_manager = MagicMock()
+    mock_manager.workspace = None
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "User message 1"),
+        Message("assistant", "Assistant response 1"),
+        Message("user", "User message 2"),
+        Message("assistant", "Assistant response 2"),
+    ]
+
+    resume_content = (
+        "# Resume\n## Summary\nWe discussed testing.\n"
+        "## Context Files\n- `src/main.py` - Main file\n"
+    )
+
+    with patch("gptme.tools.autocompact.llm") as mock_llm:
+        mock_response = MagicMock()
+        mock_response.content = resume_content
+        mock_llm.reply.return_value = mock_response
+
+        with patch("gptme.tools.autocompact.get_default_model") as mock_model:
+            mock_m = MagicMock()
+            mock_m.full = "test-model"
+            mock_model.return_value = mock_m
+
+            results = list(
+                _resume_via_llm(mock_manager, messages, use_view_branch=False)
+            )
+
+    # Should have progress message + completion message
+    assert len(results) >= 2
+    assert results[-1].role == "system"
+    assert "LLM-powered resume completed" in results[-1].content
+    # Log should have been replaced directly (not via view branch)
+    mock_manager.write.assert_called_once()
+
+
+def test_resume_via_llm_with_view_branch():
+    """Test _resume_via_llm creates a view branch when use_view_branch=True."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact import _resume_via_llm
+
+    mock_manager = MagicMock()
+    mock_manager.workspace = None
+    mock_manager.get_next_view_name.return_value = "view-1"
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "User message 1"),
+        Message("assistant", "Assistant response 1"),
+        Message("user", "User message 2"),
+        Message("assistant", "Assistant response 2"),
+    ]
+
+    resume_content = "# Resume\n## Summary\nWe discussed testing.\n"
+
+    with patch("gptme.tools.autocompact.llm") as mock_llm:
+        mock_response = MagicMock()
+        mock_response.content = resume_content
+        mock_llm.reply.return_value = mock_response
+
+        with patch("gptme.tools.autocompact.get_default_model") as mock_model:
+            mock_m = MagicMock()
+            mock_m.full = "test-model"
+            mock_model.return_value = mock_m
+
+            results = list(
+                _resume_via_llm(mock_manager, messages, use_view_branch=True)
+            )
+
+    # Should create view branch instead of replacing log directly
+    mock_manager.create_view.assert_called_once()
+    mock_manager.switch_view.assert_called_once_with("view-1")
+    # write() should NOT be called when using view branch
+    mock_manager.write.assert_not_called()
+    # Status messages should be hidden
+    for msg in results:
+        assert msg.hide is True
