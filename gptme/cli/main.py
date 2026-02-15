@@ -86,7 +86,7 @@ Examples:
 @click.option(
     "--name",
     default="random",
-    help="Name of conversation. Defaults to generating a random name.",
+    help="Conversation ID (used to resume). Defaults to a random name.",
 )
 @click.option(
     "-m",
