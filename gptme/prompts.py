@@ -87,8 +87,6 @@ def get_prompt(
     ``--context`` selects which context components to include.
     Without it, all context is included (full mode).
 
-    Legacy aliases (still accepted): ``workspace-files``, ``workspace-cmd``, ``workspace``
-
     Implicit behavior (not controlled by ``--context``):
 
     - **Tool descriptions** are always included when tools are loaded
@@ -122,12 +120,8 @@ def get_prompt(
 
     # Determine what to include based on context_mode
     # Expand aliases
-    if "all" in include_set or "workspace" in include_set:
+    if "all" in include_set:
         include_set.update(("files", "cmd"))
-    if "workspace-files" in include_set:
-        include_set.add("files")
-    if "workspace-cmd" in include_set:
-        include_set.add("cmd")
     # Legacy: "agent" in context_include is ignored (agent-path is now always loaded)
     include_set.discard("agent")
     include_set.discard("agent-config")
