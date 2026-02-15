@@ -1508,8 +1508,8 @@ subagent("feature-planner", "Feature X adds new functionality", mode="planner", 
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use selective mode to share only tool descriptions, not workspace files.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["tools"])
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use selective mode to share only project files, not context_cmd output.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["files"])
 </pre></div></pre>
   </td>
 </tr>
@@ -1757,12 +1757,13 @@ continue working and get notified when subagents finish.</p>
 Only applies to planner mode.</p></li>
 <li><p><strong>context_mode</strong> – Controls what context is shared with the subagent:
 - “full” (default): Share complete context (agent identity, tools, workspace)
-- “instructions-only”: Minimal context, only the user prompt
+- “instructions-only”: Deprecated, minimal context
 - “selective”: Share only specified context components (requires context_include)</p></li>
 <li><p><strong>context_include</strong> – For selective mode, list of context components to include:
-- “agent”: Agent identity and capabilities
-- “tools”: Tool descriptions and usage
-- “workspace”: Workspace files and structure</p></li>
+- “files”: Project config files (gptme.toml files list)
+- “cmd”: Dynamic context_cmd output
+- “all”: Include both files and cmd
+Note: Tools and agent identity are always included by the CLI.</p></li>
 <li><p><strong>use_subprocess</strong> – If True, run subagent in subprocess for output isolation.
 Subprocess mode captures stdout/stderr separately from the parent.</p></li>
 </ul>
