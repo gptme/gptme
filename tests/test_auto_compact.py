@@ -574,10 +574,10 @@ def test_should_auto_compact_respects_minimum_savings():
     result = should_auto_compact(messages, limit=100)  # Low limit to trigger check
 
     # With minimal savings potential (no reasoning, no tool results, no long messages),
-    # should return "resume" (not "rule_based") even though we're "over limit"
+    # should return "summarize" (not "rule_based") even though we're "over limit"
     assert (
-        result == "resume"
-    ), "should_auto_compact should return 'resume' when rule-based savings are below threshold"
+        result == "summarize"
+    ), "should_auto_compact should return 'summarize' when rule-based savings are below threshold"
 
 
 def test_should_auto_compact_triggers_with_high_savings():
@@ -819,12 +819,12 @@ def test_load_context_files_truncates_long_files(tmp_path):
     assert "truncated" in loaded[0][1].lower()
 
 
-def test_should_auto_compact_returns_resume_when_over_limit_low_savings():
-    """Test that should_auto_compact returns 'resume' when over limit but rule-based savings are too low."""
+def test_should_auto_compact_returns_summarize_when_over_limit_low_savings():
+    """Test that should_auto_compact returns 'summarize' when over limit but rule-based savings are too low."""
     # Many short user messages: over a low limit but nothing to rule-based compact
     messages = [Message("user", f"Short message {i}") for i in range(100)]
     result = should_auto_compact(messages, limit=100)
-    assert result == "resume"
+    assert result == "summarize"
 
 
 def test_resume_via_llm_with_mocked_reply():

@@ -41,7 +41,7 @@ _autocompact_min_interval = 60  # Minimum 60 seconds between autocompact attempt
 # This prevents triggering compaction that only saves a few percent (not worth cache invalidation)
 MIN_SAVINGS_RATIO = 0.10  # Require at least 10% savings to justify compaction
 
-CompactAction = Literal["none", "rule_based", "resume"]
+CompactAction = Literal["none", "rule_based", "summarize"]
 
 
 # --- Enhanced Scoring Patterns (Issue #149) ---
@@ -704,8 +704,8 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> Compact
 
     Returns:
         "rule_based" if the log would benefit from rule-based auto-compacting,
-        "resume" if the conversation is over-limit but rule-based savings are too low
-            (LLM-powered resume should be used instead),
+        "summarize" if the conversation is over-limit but rule-based savings are too low
+            (LLM-powered summarization should be used instead),
         "none" if no compaction is needed.
 
     Auto-compacting is triggered when:
@@ -748,9 +748,9 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> Compact
         logger.info(
             f"Skipping rule-based auto-compact: estimated savings {savings_ratio:.1%} "
             f"({estimated_savings} tokens) below threshold {MIN_SAVINGS_RATIO:.0%}. "
-            f"Will use LLM-powered resume instead."
+            f"Will use LLM-powered summarization instead."
         )
-        return "resume"
+        return "summarize"
 
     logger.debug(
         f"Auto-compact viable: estimated {savings_ratio:.1%} savings "
@@ -1234,8 +1234,8 @@ def autocompact_hook(
             # Don't yield error message to avoid triggering more hooks
             return
 
-    elif action == "resume":
-        logger.info("Auto-resume triggered: rule-based compaction insufficient")
+    elif action == "summarize":
+        logger.info("Auto-summarize triggered: rule-based compaction insufficient")
         try:
             m = get_default_model()
             original_tokens = len_tokens(messages, m.model) if m else 0
@@ -1254,7 +1254,7 @@ def autocompact_hook(
                 tokens_after=compacted_tokens,
             )
         except Exception as e:
-            logger.error(f"Auto-resume failed: {e}")
+            logger.error(f"Auto-summarize failed: {e}")
             return
 
 
