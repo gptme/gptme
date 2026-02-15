@@ -253,7 +253,7 @@ Examples:
     "--context",
     "context_include",
     multiple=True,
-    type=CommaSeparatedChoice(["workspace-files", "workspace-cmd", "workspace"]),
+    type=CommaSeparatedChoice(["workspace-files", "workspace-cmd"]),
     callback=lambda ctx, param, value: value or None,
     help="Limit which context is included. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
 )
@@ -261,7 +261,7 @@ Examples:
     "--context-include",
     "context_include",
     multiple=True,
-    type=CommaSeparatedChoice(["workspace-files", "workspace-cmd", "workspace"]),
+    type=CommaSeparatedChoice(["workspace-files", "workspace-cmd"]),
     hidden=True,
 )
 @click.option(
