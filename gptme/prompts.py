@@ -67,10 +67,11 @@ def get_prompt(
     1. **Core prompt** (always included):
 
        - Base gptme identity and instructions
-       - User identity/preferences (interactive mode only, from user config ``[user]``)
+       - User identity/preferences (interactive only, from user config ``[user]``;
+         skipped in ``--non-interactive`` since no human is present)
        - Tool descriptions (when tools are loaded, controlled by ``--tools``)
 
-    2. **Context** (controlled by ``--context``):
+    2. **Context** (controlled by ``--context``, independent of ``--non-interactive``):
 
        - ``files``: static files from project config (gptme.toml ``[prompt] files``)
          and user config (``~/.config/gptme/config.toml`` ``[prompt] files``).
