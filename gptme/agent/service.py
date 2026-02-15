@@ -8,6 +8,8 @@ for managing gptme agent services.
 import logging
 import os
 import platform
+import plistlib
+import re
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -177,7 +179,7 @@ WantedBy=timers.target
         # Reload systemd
         self._run_systemctl("daemon-reload")
 
-        # Enable timer if schedule provided
+        # Enable and start timer if schedule provided
         if schedule:
             self._run_systemctl("enable", f"gptme-agent-{name}.timer")
             self._run_systemctl("start", f"gptme-agent-{name}.timer")
@@ -205,13 +207,15 @@ WantedBy=timers.target
         return True
 
     def start(self, name: str) -> bool:
-        """Start the agent timer (enable scheduled runs)."""
+        """Enable and start the agent timer (resume scheduled runs)."""
+        self._run_systemctl("enable", f"gptme-agent-{name}.timer")
         result = self._run_systemctl("start", f"gptme-agent-{name}.timer")
         return result.returncode == 0
 
     def stop(self, name: str) -> bool:
-        """Stop the agent timer (prevent scheduled runs)."""
-        result = self._run_systemctl("stop", f"gptme-agent-{name}.timer")
+        """Stop and disable the agent timer (pause scheduled runs)."""
+        self._run_systemctl("stop", f"gptme-agent-{name}.timer")
+        result = self._run_systemctl("disable", f"gptme-agent-{name}.timer")
         return result.returncode == 0
 
     def restart(self, name: str) -> bool:
@@ -301,6 +305,95 @@ WantedBy=timers.target
         return agents
 
 
+def parse_schedule(schedule: str) -> dict:
+    """Parse a systemd OnCalendar schedule string into launchd config.
+
+    Supports common patterns:
+    - ``*:00/30``     -> every 30 minutes (StartInterval)
+    - ``*:00``        -> every hour on the hour (StartCalendarInterval)
+    - ``*-*-* HH:MM`` -> daily at HH:MM
+    - ``Mon *:00``    -> every hour on Mondays
+
+    Returns a dict with either ``StartInterval`` (int seconds) or
+    ``StartCalendarInterval`` (list of dicts).
+    """
+    schedule = schedule.strip()
+
+    # Interval pattern: *:00/N or *:N/M  -> every N minutes
+    m = re.match(r"^\*:\d+/(\d+)$", schedule)
+    if m:
+        interval_minutes = int(m.group(1))
+        return {"StartInterval": interval_minutes * 60}
+
+    # Hourly: *:00 or *:MM
+    m = re.match(r"^\*:(\d+)$", schedule)
+    if m:
+        minute = int(m.group(1))
+        return {"StartCalendarInterval": [{"Minute": minute}]}
+
+    # Daily: *-*-* HH:MM
+    m = re.match(r"^\*-\*-\*\s+(\d+):(\d+)$", schedule)
+    if m:
+        hour, minute = int(m.group(1)), int(m.group(2))
+        return {"StartCalendarInterval": [{"Hour": hour, "Minute": minute}]}
+
+    # Day of week: Mon/Tue/Wed/Thu/Fri/Sat/Sun HH:MM or *:MM
+    day_map = {"mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6, "sun": 7}
+    m = re.match(r"^(\w+)\s+\*:(\d+)$", schedule, re.IGNORECASE)
+    if m and m.group(1).lower() in day_map:
+        weekday = day_map[m.group(1).lower()]
+        minute = int(m.group(2))
+        return {"StartCalendarInterval": [{"Weekday": weekday, "Minute": minute}]}
+
+    m = re.match(r"^(\w+)\s+(\d+):(\d+)$", schedule, re.IGNORECASE)
+    if m and m.group(1).lower() in day_map:
+        weekday = day_map[m.group(1).lower()]
+        hour, minute = int(m.group(2)), int(m.group(3))
+        return {
+            "StartCalendarInterval": [
+                {"Weekday": weekday, "Hour": hour, "Minute": minute}
+            ]
+        }
+
+    logger.warning(f"Unrecognized schedule format '{schedule}', defaulting to hourly")
+    return {"StartCalendarInterval": [{"Minute": 0}]}
+
+
+def _build_launchd_plist(
+    name: str,
+    workspace: Path,
+    log_path: Path,
+    schedule: str | None = None,
+    env: dict[str, str] | None = None,
+) -> bytes:
+    """Build a launchd plist as bytes using plistlib.
+
+    Uses plistlib for safe XML generation (proper escaping of all values).
+    """
+    plist: dict = {
+        "Label": f"org.gptme.agent.{name}",
+        "ProgramArguments": [
+            str(workspace / "scripts" / "runs" / "autonomous" / "autonomous-run.sh"),
+        ],
+        "WorkingDirectory": str(workspace),
+        "StandardOutPath": str(log_path),
+        "StandardErrorPath": str(log_path),
+        "RunAtLoad": False,
+    }
+
+    if schedule:
+        schedule_config = parse_schedule(schedule)
+        if "StartInterval" in schedule_config:
+            plist["StartInterval"] = schedule_config["StartInterval"]
+        elif "StartCalendarInterval" in schedule_config:
+            plist["StartCalendarInterval"] = schedule_config["StartCalendarInterval"]
+
+    if env:
+        plist["EnvironmentVariables"] = env
+
+    return plistlib.dumps(plist, sort_keys=False)
+
+
 class LaunchdManager(ServiceManager):
     """Launchd service manager for macOS."""
 
@@ -309,6 +402,9 @@ class LaunchdManager(ServiceManager):
         self.agents_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir = Path.home() / "Library" / "Logs" / "gptme"
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+
+    def _label(self, name: str) -> str:
+        return f"org.gptme.agent.{name}"
 
     def _plist_path(self, name: str) -> Path:
         return self.agents_dir / f"org.gptme.agent.{name}.plist"
@@ -321,23 +417,20 @@ class LaunchdManager(ServiceManager):
         cmd = ["launchctl", *args]
         return subprocess.run(cmd, capture_output=True, text=True)
 
-    def _cron_to_launchd(self, schedule: str) -> dict:
-        """Convert cron-like schedule to launchd StartCalendarInterval."""
-        # Simple parsing for common patterns
-        # Format: minute hour day-of-month month day-of-week
-        # or systemd-like: *:00/30 (every 30 minutes)
+    def _is_loaded(self, name: str) -> bool:
+        """Check if the agent plist is currently loaded."""
+        result = self._run_launchctl("list", self._label(name))
+        return result.returncode == 0
 
-        if "/" in schedule and ":" in schedule:
-            # Systemd-like interval: *:00/30 means every 30 minutes
-            parts = schedule.split(":")
-            if len(parts) == 2:
-                minute_part = parts[1]
-                if "/" in minute_part:
-                    interval = int(minute_part.split("/")[1])
-                    return {"StartInterval": interval * 60}
-
-        # Default: every 2 hours
-        return {"StartCalendarInterval": {"Hour": [6, 8, 10, 12, 14, 16, 18, 20]}}
+    def _ensure_loaded(self, name: str) -> bool:
+        """Ensure the agent plist is loaded. Returns False if plist doesn't exist."""
+        if self._is_loaded(name):
+            return True
+        plist_path = self._plist_path(name)
+        if not plist_path.exists():
+            return False
+        result = self._run_launchctl("load", str(plist_path))
+        return result.returncode == 0
 
     def install(
         self,
@@ -350,75 +443,29 @@ class LaunchdManager(ServiceManager):
         workspace = workspace.resolve()
         log_path = self._log_path(name)
 
-        # Build plist content
-        schedule_config = self._cron_to_launchd(schedule or "")
+        # Unload existing if present (so we can overwrite)
+        if self._is_loaded(name):
+            self._run_launchctl("unload", str(self._plist_path(name)))
 
-        # Environment dict for plist
-        env_dict = env or {}
-
-        plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>org.gptme.agent.{name}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{workspace}/scripts/runs/autonomous/autonomous-run.sh</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>{workspace}</string>
-    <key>StandardOutPath</key>
-    <string>{log_path}</string>
-    <key>StandardErrorPath</key>
-    <string>{log_path}</string>
-    <key>RunAtLoad</key>
-    <false/>
-"""
-
-        # Add schedule if provided
-        if "StartInterval" in schedule_config:
-            plist_content += f"""    <key>StartInterval</key>
-    <integer>{schedule_config["StartInterval"]}</integer>
-"""
-        elif "StartCalendarInterval" in schedule_config:
-            plist_content += """    <key>StartCalendarInterval</key>
-    <array>
-"""
-            for hour in schedule_config["StartCalendarInterval"]["Hour"]:
-                plist_content += f"""        <dict>
-            <key>Hour</key>
-            <integer>{hour}</integer>
-            <key>Minute</key>
-            <integer>0</integer>
-        </dict>
-"""
-            plist_content += """    </array>
-"""
-
-        # Add environment variables
-        if env_dict:
-            plist_content += """    <key>EnvironmentVariables</key>
-    <dict>
-"""
-            for key, value in env_dict.items():
-                plist_content += f"""        <key>{key}</key>
-        <string>{value}</string>
-"""
-            plist_content += """    </dict>
-"""
-
-        plist_content += """</dict>
-</plist>
-"""
+        # Build plist using plistlib for safe XML generation
+        plist_bytes = _build_launchd_plist(
+            name=name,
+            workspace=workspace,
+            log_path=log_path,
+            schedule=schedule,
+            env=env,
+        )
 
         # Write plist file
         plist_path = self._plist_path(name)
-        plist_path.write_text(plist_content)
+        plist_path.write_bytes(plist_bytes)
         logger.info(f"Created plist file: {plist_path}")
 
         # Load the agent
-        self._run_launchctl("load", str(plist_path))
+        result = self._run_launchctl("load", str(plist_path))
+        if result.returncode != 0:
+            logger.error(f"Failed to load plist: {result.stderr}")
+            return False
 
         return True
 
@@ -427,7 +474,8 @@ class LaunchdManager(ServiceManager):
         plist_path = self._plist_path(name)
 
         # Unload first
-        self._run_launchctl("unload", str(plist_path))
+        if self._is_loaded(name):
+            self._run_launchctl("unload", str(plist_path))
 
         # Remove file
         if plist_path.exists():
@@ -436,18 +484,24 @@ class LaunchdManager(ServiceManager):
         return True
 
     def start(self, name: str) -> bool:
-        """Start the agent (enable scheduled runs by loading plist)."""
+        """Start the agent (load plist to enable scheduled runs)."""
         plist_path = self._plist_path(name)
         if not plist_path.exists():
             return False
+        if self._is_loaded(name):
+            # Already loaded/started
+            return True
         result = self._run_launchctl("load", str(plist_path))
         return result.returncode == 0
 
     def stop(self, name: str) -> bool:
-        """Stop the agent (disable scheduled runs by unloading plist)."""
+        """Stop the agent (unload plist to disable scheduled runs)."""
         plist_path = self._plist_path(name)
         if not plist_path.exists():
             return False
+        if not self._is_loaded(name):
+            # Already stopped
+            return True
         result = self._run_launchctl("unload", str(plist_path))
         return result.returncode == 0
 
@@ -457,26 +511,30 @@ class LaunchdManager(ServiceManager):
         return self.start(name)
 
     def run(self, name: str) -> bool:
-        """Trigger an immediate one-time run of the agent."""
-        result = self._run_launchctl("start", f"org.gptme.agent.{name}")
+        """Trigger an immediate one-time run of the agent.
+
+        Ensures the plist is loaded first, then kicks off an immediate run.
+        """
+        if not self._ensure_loaded(name):
+            return False
+        result = self._run_launchctl("start", self._label(name))
         return result.returncode == 0
 
     def status(self, name: str) -> ServiceStatus | None:
         """Get status of the agent."""
-        result = self._run_launchctl("list", f"org.gptme.agent.{name}")
-        if result.returncode != 0:
-            # Agent not loaded
-            plist_path = self._plist_path(name)
-            if plist_path.exists():
-                return ServiceStatus(name=name, running=False, enabled=False)
+        plist_path = self._plist_path(name)
+        if not plist_path.exists():
             return None
 
-        # Parse output
-        lines = result.stdout.strip().split("\n")
+        loaded = self._is_loaded(name)
+        if not loaded:
+            return ServiceStatus(name=name, running=False, enabled=False)
+
+        result = self._run_launchctl("list", self._label(name))
         pid = None
         exit_code = None
 
-        for line in lines:
+        for line in result.stdout.strip().split("\n"):
             parts = line.split()
             if len(parts) >= 3:
                 # Format: PID Status Label

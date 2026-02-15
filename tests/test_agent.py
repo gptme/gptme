@@ -1,6 +1,7 @@
 """Tests for gptme.agent module."""
 
-from unittest.mock import patch
+import plistlib
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -10,7 +11,9 @@ from gptme.agent.service import (
     LaunchdManager,
     ServiceStatus,
     SystemdManager,
+    _build_launchd_plist,
     detect_service_manager,
+    parse_schedule,
 )
 from gptme.agent.workspace import (
     DetectedWorkspace,
@@ -68,6 +71,129 @@ class TestServiceStatus:
         assert status.uptime is None
 
 
+class TestParseSchedule:
+    """Tests for schedule parsing (systemd -> launchd conversion)."""
+
+    def test_interval_every_30_minutes(self):
+        result = parse_schedule("*:00/30")
+        assert result == {"StartInterval": 1800}
+
+    def test_interval_every_15_minutes(self):
+        result = parse_schedule("*:00/15")
+        assert result == {"StartInterval": 900}
+
+    def test_hourly(self):
+        result = parse_schedule("*:00")
+        assert result == {"StartCalendarInterval": [{"Minute": 0}]}
+
+    def test_hourly_at_minute_30(self):
+        result = parse_schedule("*:30")
+        assert result == {"StartCalendarInterval": [{"Minute": 30}]}
+
+    def test_daily_at_time(self):
+        result = parse_schedule("*-*-* 06:00")
+        assert result == {"StartCalendarInterval": [{"Hour": 6, "Minute": 0}]}
+
+    def test_daily_at_specific_time(self):
+        result = parse_schedule("*-*-* 14:30")
+        assert result == {"StartCalendarInterval": [{"Hour": 14, "Minute": 30}]}
+
+    def test_weekday_hourly(self):
+        result = parse_schedule("Mon *:00")
+        assert result == {"StartCalendarInterval": [{"Weekday": 1, "Minute": 0}]}
+
+    def test_weekday_at_time(self):
+        result = parse_schedule("Fri 09:00")
+        assert result == {
+            "StartCalendarInterval": [{"Weekday": 5, "Hour": 9, "Minute": 0}]
+        }
+
+    def test_unrecognized_defaults_to_hourly(self):
+        result = parse_schedule("some-weird-format")
+        assert result == {"StartCalendarInterval": [{"Minute": 0}]}
+
+    def test_whitespace_stripped(self):
+        result = parse_schedule("  *:00/30  ")
+        assert result == {"StartInterval": 1800}
+
+
+class TestBuildLaunchdPlist:
+    """Tests for plist generation using plistlib."""
+
+    def test_basic_plist_structure(self, tmp_path):
+        workspace = tmp_path / "agent"
+        log_path = tmp_path / "agent.log"
+
+        plist_bytes = _build_launchd_plist("test", workspace, log_path)
+        plist = plistlib.loads(plist_bytes)
+
+        assert plist["Label"] == "org.gptme.agent.test"
+        assert plist["WorkingDirectory"] == str(workspace)
+        assert plist["StandardOutPath"] == str(log_path)
+        assert plist["StandardErrorPath"] == str(log_path)
+        assert plist["RunAtLoad"] is False
+        assert (
+            str(workspace / "scripts" / "runs" / "autonomous" / "autonomous-run.sh")
+            in plist["ProgramArguments"]
+        )
+
+    def test_plist_with_interval_schedule(self, tmp_path):
+        workspace = tmp_path / "agent"
+        log_path = tmp_path / "agent.log"
+
+        plist_bytes = _build_launchd_plist(
+            "test", workspace, log_path, schedule="*:00/30"
+        )
+        plist = plistlib.loads(plist_bytes)
+
+        assert plist["StartInterval"] == 1800
+        assert "StartCalendarInterval" not in plist
+
+    def test_plist_with_calendar_schedule(self, tmp_path):
+        workspace = tmp_path / "agent"
+        log_path = tmp_path / "agent.log"
+
+        plist_bytes = _build_launchd_plist("test", workspace, log_path, schedule="*:00")
+        plist = plistlib.loads(plist_bytes)
+
+        assert "StartInterval" not in plist
+        assert plist["StartCalendarInterval"] == [{"Minute": 0}]
+
+    def test_plist_with_env(self, tmp_path):
+        workspace = tmp_path / "agent"
+        log_path = tmp_path / "agent.log"
+
+        plist_bytes = _build_launchd_plist(
+            "test", workspace, log_path, env={"FOO": "bar", "BAZ": "qux"}
+        )
+        plist = plistlib.loads(plist_bytes)
+
+        assert plist["EnvironmentVariables"] == {"FOO": "bar", "BAZ": "qux"}
+
+    def test_plist_escapes_special_characters(self, tmp_path):
+        """Verify plistlib properly escapes XML-special characters."""
+        workspace = tmp_path / "agent"
+        log_path = tmp_path / "agent.log"
+
+        plist_bytes = _build_launchd_plist(
+            "test&<agent>", workspace, log_path, env={"KEY": "val<ue>&"}
+        )
+        # Should produce valid XML that can be parsed back
+        plist = plistlib.loads(plist_bytes)
+        assert plist["Label"] == "org.gptme.agent.test&<agent>"
+        assert plist["EnvironmentVariables"]["KEY"] == "val<ue>&"
+
+    def test_plist_no_schedule(self, tmp_path):
+        workspace = tmp_path / "agent"
+        log_path = tmp_path / "agent.log"
+
+        plist_bytes = _build_launchd_plist("test", workspace, log_path)
+        plist = plistlib.loads(plist_bytes)
+
+        assert "StartInterval" not in plist
+        assert "StartCalendarInterval" not in plist
+
+
 class TestSystemdManager:
     """Tests for SystemdManager."""
 
@@ -104,6 +230,103 @@ class TestSystemdManager:
         agents = manager.list_agents()
         assert set(agents) == {"alice", "bob"}
 
+    def test_install_creates_service_and_timer(self, manager, tmp_path):
+        """Test that install writes service and timer files."""
+        workspace = tmp_path / "my-agent"
+        workspace.mkdir()
+
+        with patch.object(
+            manager, "_run_systemctl", return_value=MagicMock(returncode=0)
+        ):
+            result = manager.install("test", workspace, schedule="*:00/30")
+
+        assert result is True
+        service_path = manager._service_path("test")
+        timer_path = manager._timer_path("test")
+        assert service_path.exists()
+        assert timer_path.exists()
+
+        service_content = service_path.read_text()
+        assert str(workspace) in service_content
+        assert "autonomous-run.sh" in service_content
+        assert "Type=oneshot" in service_content
+
+        timer_content = timer_path.read_text()
+        assert "OnCalendar=*:00/30" in timer_content
+        assert "Persistent=true" in timer_content
+
+    def test_install_with_env(self, manager, tmp_path):
+        """Test that install includes environment variables."""
+        workspace = tmp_path / "my-agent"
+        workspace.mkdir()
+
+        with patch.object(
+            manager, "_run_systemctl", return_value=MagicMock(returncode=0)
+        ):
+            manager.install("test", workspace, env={"API_KEY": "secret"})
+
+        service_content = manager._service_path("test").read_text()
+        assert "Environment=API_KEY=secret" in service_content
+
+    def test_start_enables_and_starts_timer(self, manager):
+        """Test that start both enables and starts the timer."""
+        calls = []
+
+        def mock_systemctl(*args):
+            calls.append(args)
+            return MagicMock(returncode=0)
+
+        with patch.object(manager, "_run_systemctl", side_effect=mock_systemctl):
+            result = manager.start("test")
+
+        assert result is True
+        assert ("enable", "gptme-agent-test.timer") in calls
+        assert ("start", "gptme-agent-test.timer") in calls
+
+    def test_stop_disables_and_stops_timer(self, manager):
+        """Test that stop both stops and disables the timer."""
+        calls = []
+
+        def mock_systemctl(*args):
+            calls.append(args)
+            return MagicMock(returncode=0)
+
+        with patch.object(manager, "_run_systemctl", side_effect=mock_systemctl):
+            result = manager.stop("test")
+
+        assert result is True
+        assert ("stop", "gptme-agent-test.timer") in calls
+        assert ("disable", "gptme-agent-test.timer") in calls
+
+    def test_run_starts_service_not_timer(self, manager):
+        """Test that run starts the service directly (not the timer)."""
+        calls = []
+
+        def mock_systemctl(*args):
+            calls.append(args)
+            return MagicMock(returncode=0)
+
+        with patch.object(manager, "_run_systemctl", side_effect=mock_systemctl):
+            result = manager.run("test")
+
+        assert result is True
+        assert ("start", "gptme-agent-test.service") in calls
+
+    def test_uninstall_removes_files(self, manager, tmp_path):
+        """Test that uninstall removes service and timer files."""
+        # Create fake files
+        manager._service_path("test").write_text("[Unit]\n")
+        manager._timer_path("test").write_text("[Unit]\n")
+
+        with patch.object(
+            manager, "_run_systemctl", return_value=MagicMock(returncode=0)
+        ):
+            result = manager.uninstall("test")
+
+        assert result is True
+        assert not manager._service_path("test").exists()
+        assert not manager._timer_path("test").exists()
+
 
 class TestLaunchdManager:
     """Tests for LaunchdManager."""
@@ -123,6 +346,10 @@ class TestLaunchdManager:
         path = manager._plist_path("test")
         assert path.name == "org.gptme.agent.test.plist"
 
+    def test_label(self, manager):
+        """Test label generation."""
+        assert manager._label("test") == "org.gptme.agent.test"
+
     def test_list_agents_empty(self, manager):
         """Test listing agents when none installed."""
         agents = manager.list_agents()
@@ -137,6 +364,200 @@ class TestLaunchdManager:
 
         agents = manager.list_agents()
         assert set(agents) == {"alice", "bob"}
+
+    def test_install_creates_valid_plist(self, manager, tmp_path):
+        """Test that install creates a valid plist file."""
+        workspace = tmp_path / "my-agent"
+        workspace.mkdir()
+
+        with patch.object(
+            manager, "_run_launchctl", return_value=MagicMock(returncode=0)
+        ):
+            with patch.object(manager, "_is_loaded", return_value=False):
+                result = manager.install("test", workspace, schedule="*:00/30")
+
+        assert result is True
+        plist_path = manager._plist_path("test")
+        assert plist_path.exists()
+
+        # Verify it's valid XML that plistlib can parse
+        plist = plistlib.loads(plist_path.read_bytes())
+        assert plist["Label"] == "org.gptme.agent.test"
+        assert plist["StartInterval"] == 1800
+
+    def test_install_unloads_existing(self, manager, tmp_path):
+        """Test that install unloads existing agent before reinstalling."""
+        workspace = tmp_path / "my-agent"
+        workspace.mkdir()
+        calls = []
+
+        def mock_launchctl(*args):
+            calls.append(args)
+            return MagicMock(returncode=0)
+
+        with (
+            patch.object(manager, "_run_launchctl", side_effect=mock_launchctl),
+            patch.object(manager, "_is_loaded", return_value=True),
+        ):
+            manager.install("test", workspace)
+
+        # Should unload before loading
+        unload_calls = [c for c in calls if c[0] == "unload"]
+        load_calls = [c for c in calls if c[0] == "load"]
+        assert len(unload_calls) == 1
+        assert len(load_calls) == 1
+
+    def test_start_when_already_loaded(self, manager, tmp_path):
+        """Test that start returns True when already loaded."""
+        # Create a plist file
+        plist_path = manager._plist_path("test")
+        plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
+
+        with patch.object(manager, "_is_loaded", return_value=True):
+            result = manager.start("test")
+
+        assert result is True
+
+    def test_start_loads_plist(self, manager, tmp_path):
+        """Test that start loads the plist when not loaded."""
+        plist_path = manager._plist_path("test")
+        plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
+
+        with (
+            patch.object(manager, "_is_loaded", return_value=False),
+            patch.object(
+                manager, "_run_launchctl", return_value=MagicMock(returncode=0)
+            ) as mock_ctl,
+        ):
+            result = manager.start("test")
+
+        assert result is True
+        mock_ctl.assert_called_once_with("load", str(plist_path))
+
+    def test_start_fails_without_plist(self, manager):
+        """Test that start fails if plist doesn't exist."""
+        result = manager.start("nonexistent")
+        assert result is False
+
+    def test_stop_when_already_unloaded(self, manager, tmp_path):
+        """Test that stop returns True when already unloaded."""
+        plist_path = manager._plist_path("test")
+        plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
+
+        with patch.object(manager, "_is_loaded", return_value=False):
+            result = manager.stop("test")
+
+        assert result is True
+
+    def test_stop_unloads_plist(self, manager, tmp_path):
+        """Test that stop unloads the plist when loaded."""
+        plist_path = manager._plist_path("test")
+        plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
+
+        with (
+            patch.object(manager, "_is_loaded", return_value=True),
+            patch.object(
+                manager, "_run_launchctl", return_value=MagicMock(returncode=0)
+            ) as mock_ctl,
+        ):
+            result = manager.stop("test")
+
+        assert result is True
+        mock_ctl.assert_called_once_with("unload", str(plist_path))
+
+    def test_run_ensures_loaded_first(self, manager, tmp_path):
+        """Test that run loads the plist before starting."""
+        plist_path = manager._plist_path("test")
+        plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
+        calls = []
+
+        def mock_launchctl(*args):
+            calls.append(args)
+            return MagicMock(returncode=0)
+
+        with (
+            patch.object(manager, "_is_loaded", return_value=False),
+            patch.object(manager, "_run_launchctl", side_effect=mock_launchctl),
+        ):
+            result = manager.run("test")
+
+        assert result is True
+        # Should load first, then start
+        assert ("load", str(plist_path)) in calls
+        assert ("start", "org.gptme.agent.test") in calls
+
+    def test_run_fails_without_plist(self, manager):
+        """Test that run fails if plist doesn't exist."""
+        with patch.object(manager, "_is_loaded", return_value=False):
+            result = manager.run("nonexistent")
+
+        assert result is False
+
+    def test_uninstall_removes_plist(self, manager, tmp_path):
+        """Test that uninstall removes the plist file."""
+        plist_path = manager._plist_path("test")
+        plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
+
+        with patch.object(manager, "_is_loaded", return_value=True):
+            with patch.object(
+                manager, "_run_launchctl", return_value=MagicMock(returncode=0)
+            ):
+                result = manager.uninstall("test")
+
+        assert result is True
+        assert not plist_path.exists()
+
+    def test_status_not_installed(self, manager):
+        """Test status for agent with no plist."""
+        result = manager.status("nonexistent")
+        assert result is None
+
+    def test_status_installed_not_loaded(self, manager, tmp_path):
+        """Test status for agent with plist but not loaded."""
+        plist_path = manager._plist_path("test")
+        plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
+
+        with patch.object(manager, "_is_loaded", return_value=False):
+            result = manager.status("test")
+
+        assert result is not None
+        assert result.name == "test"
+        assert result.running is False
+        assert result.enabled is False
+
+    def test_status_running(self, manager, tmp_path):
+        """Test status for running agent."""
+        plist_path = manager._plist_path("test")
+        plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
+
+        mock_result = MagicMock(returncode=0, stdout="1234\t0\torg.gptme.agent.test\n")
+
+        with (
+            patch.object(manager, "_is_loaded", return_value=True),
+            patch.object(manager, "_run_launchctl", return_value=mock_result),
+        ):
+            result = manager.status("test")
+
+        assert result is not None
+        assert result.running is True
+        assert result.pid == 1234
+        assert result.enabled is True
+
+    def test_logs_missing_file(self, manager):
+        """Test logs when log file doesn't exist."""
+        result = manager.logs("nonexistent")
+        assert "No logs found" in result
+
+    def test_logs_reads_file(self, manager, tmp_path):
+        """Test logs reads from log file."""
+        log_path = manager._log_path("test")
+        log_path.write_text("line1\nline2\nline3\n")
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="line1\nline2\nline3\n")
+            result = manager.logs("test", lines=50)
+
+        assert result == "line1\nline2\nline3\n"
 
 
 class TestCLI:
