@@ -144,7 +144,8 @@ Examples:
     "--tool-format",
     "tool_format",
     default=None,
-    help="Tool format to use. Options: markdown, xml, tool",
+    type=click.Choice(["markdown", "xml", "tool"]),
+    help="Tool format to use.",
 )
 @click.option(
     "--stream/--no-stream",
@@ -200,7 +201,7 @@ Examples:
     "context_include",
     multiple=True,
     callback=lambda ctx, param, value: value or None,
-    help="Limit which context is included. Without this flag, all context is included. Options: workspace-files (project files from gptme.toml), workspace-cmd (context_cmd output), workspace (both). Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
+    help="Limit which context is included [workspace-files|workspace-cmd|workspace]. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
 )
 @click.option(
     "--output-schema",
