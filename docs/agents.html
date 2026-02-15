@@ -652,22 +652,39 @@ sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> <
 </pre></div>
 </div>
 <p><strong>Creating an Agent:</strong></p>
-<p>Use the <a class="reference external" href="https://github.com/gptme/gptme-agent-template/">gptme-agent-template</a> to create new agents:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the template repository</span>
-git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme-agent-template
-<span class="nb">cd</span><span class="w"> </span>gptme-agent-template
+<p>The <code class="docutils literal notranslate"><span class="pre">gptme-agent</span></code> CLI (included with gptme) makes it easy to create and manage agents:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Create a new agent workspace (clones and customizes the template)</span>
+gptme-agent<span class="w"> </span>create<span class="w"> </span>~/my-agent<span class="w"> </span>--name<span class="w"> </span>MyAgent
 
-<span class="c1"># Fork the template</span>
-./fork.sh<span class="w"> </span>../my-agent<span class="w"> </span><span class="s2">&quot;MyAgent&quot;</span>
-<span class="nb">cd</span><span class="w"> </span>../my-agent
-
-<span class="c1"># (optional) set up pre-commit hooks</span>
-make<span class="w"> </span>install
+<span class="c1"># For a minimal workspace without the full template</span>
+gptme-agent<span class="w"> </span>create<span class="w"> </span>~/my-agent<span class="w"> </span>--name<span class="w"> </span>MyAgent<span class="w"> </span>--no-template
 </pre></div>
 </div>
+<p>See the <a class="reference external" href="https://github.com/gptme/gptme-agent-template/">gptme-agent-template</a> repository for more details on the template structure.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>You can also create agents manually by cloning the template repository and running <code class="docutils literal notranslate"><span class="pre">./scripts/fork.sh</span></code>. The <code class="docutils literal notranslate"><span class="pre">gptme-agent</span> <span class="pre">create</span></code> command automates this process.</p>
+</div>
 <p><strong>Running an Agent:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run the agent</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run the agent interactively</span>
+<span class="nb">cd</span><span class="w"> </span>~/my-agent
 gptme<span class="w"> </span><span class="s2">&quot;your prompt here&quot;</span>
+</pre></div>
+</div>
+<p><strong>Autonomous Operation:</strong></p>
+<p>Agents can run autonomously on a schedule using systemd (Linux) or launchd (macOS):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install as a system service (runs every 30 minutes by default)</span>
+gptme-agent<span class="w"> </span>install
+
+<span class="c1"># Customize the schedule</span>
+gptme-agent<span class="w"> </span>install<span class="w"> </span>--schedule<span class="w"> </span><span class="s2">&quot;*:00&quot;</span><span class="w">    </span><span class="c1"># Every hour</span>
+
+<span class="c1"># Manage the agent</span>
+gptme-agent<span class="w"> </span>status<span class="w">              </span><span class="c1"># Check status</span>
+gptme-agent<span class="w"> </span>logs<span class="w"> </span>--follow<span class="w">       </span><span class="c1"># Monitor logs</span>
+gptme-agent<span class="w"> </span>run<span class="w">                 </span><span class="c1"># Trigger immediate run</span>
+gptme-agent<span class="w"> </span>stop<span class="w">                </span><span class="c1"># Pause scheduled runs</span>
+gptme-agent<span class="w"> </span>start<span class="w">               </span><span class="c1"># Resume scheduled runs</span>
 </pre></div>
 </div>
 <p><strong>Execution Flow:</strong></p>
