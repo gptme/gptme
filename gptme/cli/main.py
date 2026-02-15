@@ -105,6 +105,7 @@ Examples:
     "--agent-path",
     "agent_path",
     default=None,
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
     help="Path to agent workspace directory.",
 )
 @click.option(
