@@ -167,6 +167,7 @@ Examples:
     "--multi-tool/--no-multi-tool",
     "multi_tool",
     default=None,
+    hidden=True,
     help="Allow multiple tool calls per LLM response (disables break-on-tooluse). Enables efficient API usage with sequential execution.",
 )
 @click.option(
@@ -196,11 +197,16 @@ Examples:
 )
 @click.option(
     "--context",
-    "--context-include",
     "context_include",
     multiple=True,
     callback=lambda ctx, param, value: value or None,
     help="Limit which context is included [workspace-files|workspace-cmd]. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
+)
+@click.option(
+    "--context-include",
+    "context_include",
+    multiple=True,
+    hidden=True,
 )
 @click.option(
     "--output-schema",
