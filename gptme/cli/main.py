@@ -44,11 +44,9 @@ script_path = Path(os.path.realpath(__file__))
 commands_help = "\n".join(_gen_help(incl_langtags=False))
 available_tool_names = ", ".join(
     sorted(
-        [
-            tool.name
-            for tool in get_available_tools(include_mcp=False)
-            if tool.is_available
-        ]
+        tool.name
+        for tool in get_available_tools(include_mcp=False)
+        if tool.is_available
     )
 )
 
@@ -131,7 +129,7 @@ Examples:
     "--system",
     "prompt_system",
     default="full",
-    help="System prompt. Options: 'full', 'short', or something custom.",
+    help="System prompt [full|short|<custom>]. Defaults to 'full'.",
 )
 @click.option(
     "-t",
