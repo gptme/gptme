@@ -728,8 +728,11 @@ class ShellSession:
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
     def close(self):
-        assert self.process.stdin
-        self.process.stdin.close()
+        # Close stdin to signal no more input
+        if self.process.stdin:
+            self.process.stdin.close()
+
+        # Terminate the process
         try:
             pgid = os.getpgid(self.process.pid)
             os.killpg(pgid, signal.SIGTERM)
@@ -742,6 +745,12 @@ class ShellSession:
         except Exception as e:
             logger.warning(f"Error terminating process during close: {e}")
 
+        # Close stdout/stderr AFTER process is terminated to prevent broken pipes
+        if self.process.stdout:
+            self.process.stdout.close()
+        if self.process.stderr:
+            self.process.stderr.close()
+
     def restart(self):
         self.close()
         self._init()
@@ -749,23 +758,74 @@ class ShellSession:
 
 _shell_var: ContextVar[ShellSession | None] = ContextVar("shell", default=None)
 
+# Conversation-level shell registry for server-side cleanup.
+# Maps conversation_id -> ShellSession so SESSION_END hooks can find and close
+# shells that would otherwise leak when their thread's ContextVar goes out of scope.
+_conversation_shells: dict[str, ShellSession] = {}
+_conv_shell_lock: threading.Lock = threading.Lock()
+
 
 def get_shell() -> ShellSession:
     """Get the shell session for the current context, creating it if necessary.
 
     Uses ContextVar to provide context-local state, allowing each conversation
     to have its own shell session with independent working directory.
+
+    In server contexts (where current_conversation_id is set), also registers
+    the shell in a conversation-level registry for cleanup via SESSION_END hooks.
     """
     shell = _shell_var.get()
     if shell is None:
         shell = ShellSession()
         _shell_var.set(shell)
+        # Register for conversation-level cleanup if in a server context
+        _register_conversation_shell(shell)
     return shell
 
 
 def set_shell(shell: ShellSession) -> None:
     """Set the shell session for the current context (for testing)."""
     _shell_var.set(shell)
+
+
+def _register_conversation_shell(shell: ShellSession) -> None:
+    """Register a shell in the conversation-level registry if a conversation context exists."""
+    try:
+        from ..hooks import current_conversation_id
+
+        conv_id = current_conversation_id.get()
+        if conv_id is not None:
+            with _conv_shell_lock:
+                # Close any existing shell for this conversation before replacing
+                old_shell = _conversation_shells.get(conv_id)
+                if old_shell is not None and old_shell is not shell:
+                    try:
+                        old_shell.close()
+                    except Exception as e:
+                        logger.warning(
+                            f"Error closing old shell for conversation {conv_id}: {e}"
+                        )
+                _conversation_shells[conv_id] = shell
+    except ImportError:
+        pass  # hooks module not available (e.g., during testing)
+
+
+def close_conversation_shell(conversation_id: str) -> None:
+    """Close and remove the shell session for a conversation.
+
+    Called by the SESSION_END hook to clean up shell file descriptors
+    when a conversation's last session is removed.
+    """
+    with _conv_shell_lock:
+        shell = _conversation_shells.pop(conversation_id, None)
+    if shell is not None:
+        try:
+            shell.close()
+            logger.debug(f"Closed shell session for conversation {conversation_id}")
+        except Exception as e:
+            logger.warning(
+                f"Error closing shell for conversation {conversation_id}: {e}"
+            )
 
 
 # NOTE: This does not handle control flow words like if, for, while.
