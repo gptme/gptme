@@ -107,8 +107,6 @@ gptme is a chat-CLI for LLMs, empowering them with tools to run shell commands, 
 If PROMPTS are provided, a new conversation will be started with it.
 PROMPTS can be chained with the '{MULTIPROMPT_SEPARATOR}' separator.
 
-The interface provides /commands for the user to interact with the system.
-
 \b
 Examples:
   gptme "hello"                              Start a conversation
@@ -120,6 +118,7 @@ Examples:
   gptme --context files "do task"             Skip context_cmd, keep project files
 
 \b
+The interface provides /commands during a conversation:
 {commands_help}"""
 
 
