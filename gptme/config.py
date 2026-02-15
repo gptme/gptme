@@ -1086,6 +1086,9 @@ def setup_config_from_cli(
             for tool in additional_tools:
                 if tool not in resolved_tool_allowlist:
                     resolved_tool_allowlist.append(tool)
+        elif tool_allowlist == "":
+            # Explicitly empty: disable all tools (--tools none)
+            resolved_tool_allowlist = []
         else:
             # Normal mode - CLI override replaces defaults
             resolved_tool_allowlist = [

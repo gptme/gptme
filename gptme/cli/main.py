@@ -1,15 +1,23 @@
 import atexit
+import cProfile
+import importlib
 import logging
 import os
+import pstats
 import signal
 import sys
 import traceback
+import warnings
+from datetime import datetime
 from itertools import islice
 from pathlib import Path
 from typing import Literal
 
 import click
+from click.core import ParameterSource
 from pick import pick
+
+import gptme
 
 from .. import __version__
 from ..chat import chat
@@ -51,7 +59,17 @@ gptme is a chat-CLI for LLMs, empowering them with tools to run shell commands, 
 If PROMPTS are provided, a new conversation will be started with it.
 PROMPTS can be chained with the '{MULTIPROMPT_SEPARATOR}' separator.
 
-The interface provides user commands that can be used to interact with the system.
+The interface provides /commands for the user to interact with the system.
+
+\b
+Examples:
+  gptme "hello"                              Start a conversation
+  gptme "fix TODOs" main.py                  Include file or URL in context
+  gptme "review" github.com/org/repo/pull/1  Include a GitHub PR in context
+  gptme --tools none "what is 2+2"           No tools, just chat
+  gptme -t patch,save "fix typo" main.py     Only specific tools (comma-separated)
+  gptme -t +subagent "plan a refactor"       Default tools + subagent
+  gptme --context workspace-files "task"     Skip context_cmd, keep project files
 
 \b
 {commands_help}"""
@@ -120,7 +138,7 @@ The interface provides user commands that can be used to interact with the syste
     "tool_allowlist",
     default=None,
     multiple=True,
-    help=f"Tools to allow. Can be specified multiple times or comma-separated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Available: {available_tool_names}.",
+    help=f"Tools to allow. Can be specified multiple times or comma-separated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use 'none' to disable all tools. Available: {available_tool_names}.",
 )
 @click.option(
     "--tool-format",
@@ -173,14 +191,16 @@ The interface provides user commands that can be used to interact with the syste
     "context_mode",
     type=click.Choice(["full", "instructions-only", "selective"]),
     default=None,
-    help="Context mode for subagent-style execution. 'full' includes all context, 'instructions-only' minimal context, 'selective' uses --context-include.",
+    hidden=True,
+    help="Deprecated: use --context-include instead. Kept for backward compatibility.",
 )
 @click.option(
+    "--context",
     "--context-include",
     "context_include",
     multiple=True,
-    default=None,
-    help="Context components to include when using --context-mode=selective. Can be specified multiple times. Options: agent, tools, workspace.",
+    callback=lambda ctx, param, value: value or None,
+    help="Limit which context is included. Without this flag, all context is included. Options: workspace-files (project files from gptme.toml), workspace-cmd (context_cmd output), workspace (both). Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
 )
 @click.option(
     "--output-schema",
@@ -213,8 +233,6 @@ def main(
     output_schema: str | None,
 ):
     """Main entrypoint for the CLI."""
-    import os
-    import warnings
 
     # Handle deprecated --parallel flag
     if parallel is not None:
@@ -248,12 +266,24 @@ def main(
 
     # Convert tool_allowlist from tuple to string or None
     # Use get_parameter_source to distinguish between default (None) and explicit empty list
-    from click.core import ParameterSource
 
     tool_allowlist_str: str | None
     if ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT:
         # Not provided by user, use None to indicate "use defaults"
         tool_allowlist_str = None
+    elif tool_allowlist and any(
+        t.strip().lower() == "none" for spec in tool_allowlist for t in spec.split(",")
+    ):
+        # --tools none: disable all tools
+        all_specs = [
+            t.strip() for spec in tool_allowlist for t in spec.split(",") if t.strip()
+        ]
+        non_none = [t for t in all_specs if t.lower() != "none"]
+        if non_none:
+            raise click.UsageError(
+                f"Cannot combine 'none' with other tools: {', '.join(non_none)}"
+            )
+        tool_allowlist_str = ""
     elif tool_allowlist:
         # User provided tools - flatten any comma-separated values and join
         tools_list: list[str] = []
@@ -284,10 +314,6 @@ def main(
         tool_allowlist_str = None
 
     if profile:
-        import cProfile
-        import pstats
-        from datetime import datetime
-
         print("Profiling enabled...")
         pr = cProfile.Profile()
         pr.enable()
@@ -454,6 +480,22 @@ def main(
         )
         initial_msgs = []
     else:
+        # Infer context mode: --context-include implies selective mode
+        effective_context_mode = context_mode
+        if context_mode == "instructions-only":
+            warnings.warn(
+                "--context-mode=instructions-only is deprecated. "
+                "Use --context-include with no values instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            effective_context_mode = "selective"
+        elif context_mode == "selective":
+            pass  # explicit selective, keep as-is
+        elif context_include and not context_mode:
+            # --context-include without --context-mode implies selective
+            effective_context_mode = "selective"
+
         # get initial system prompt
         initial_msgs = get_prompt(
             tools=tools,
@@ -463,8 +505,10 @@ def main(
             model=config.chat.model,
             workspace=workspace_path,
             agent_path=config.chat.agent,
-            context_mode=context_mode,  # type: ignore[arg-type]  # click returns str
-            context_include=list(context_include) if context_include else None,
+            context_mode=effective_context_mode,  # type: ignore[arg-type]
+            context_include=[item for val in context_include for item in val.split(",")]
+            if context_include
+            else None,
         )
 
     # register a handler for Ctrl-C
@@ -477,7 +521,6 @@ def main(
         try:
             if ":" in output_schema:
                 module_name, class_name = output_schema.rsplit(":", 1)
-                import importlib
 
                 module = importlib.import_module(module_name)
                 output_schema_type = getattr(module, class_name)
@@ -526,7 +569,6 @@ def main(
             tb = traceback.extract_tb(sys.exc_info()[2])
 
             # Get actual gptme package directory
-            import gptme
 
             gptme_dir = Path(gptme.__file__).parent.resolve()
 

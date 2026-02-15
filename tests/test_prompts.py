@@ -43,48 +43,59 @@ def test_get_prompt_custom():
 
 
 def test_get_prompt_instructions_only():
-    """Test instructions-only mode produces minimal context."""
+    """Test instructions-only mode (deprecated, mapped to selective with no includes).
+
+    Should include tool descriptions (always included when tools are loaded)
+    but skip workspace context.
+    """
     prompt_msgs = get_prompt(
         get_tools(), prompt="full", context_mode="instructions-only"
     )
-    combined_content = "\n\n".join(msg.content for msg in prompt_msgs)
 
-    # Instructions-only should be much smaller than full
+    # Should still include tools (always included when loaded)
+    combined_content = "\n\n".join(msg.content for msg in prompt_msgs)
     full_msgs = get_prompt(get_tools(), prompt="full", context_mode="full")
     full_content = "\n\n".join(msg.content for msg in full_msgs)
 
-    # Instructions-only should be significantly smaller
+    # Without workspace context, should be <= full mode
     instructions_tokens = len_tokens(combined_content, "gpt-4")
     full_tokens = len_tokens(full_content, "gpt-4")
     assert (
-        instructions_tokens < full_tokens * 0.5
-    ), f"Instructions-only ({instructions_tokens}) should be <50% of full ({full_tokens})"
+        instructions_tokens <= full_tokens
+    ), f"instructions-only ({instructions_tokens}) should be <= full ({full_tokens})"
 
 
-def test_get_prompt_selective_tools():
-    """Test selective mode with tools included."""
-    # With tools
-    with_tools = get_prompt(
+def test_get_prompt_selective_tools_always_included():
+    """Test that tool descriptions are always included when tools are loaded."""
+    # Tools loaded: descriptions should be in prompt regardless of context_include
+    with_tools_flag = get_prompt(
         get_tools(),
         prompt="full",
         context_mode="selective",
-        context_include=["tools"],
+        context_include=["tools"],  # explicit (legacy, still works)
     )
-    with_tools_content = "\n\n".join(msg.content for msg in with_tools)
-
-    # Without tools
-    without_tools = get_prompt(
+    without_tools_flag = get_prompt(
         get_tools(),
         prompt="full",
         context_mode="selective",
         context_include=[],
     )
-    without_tools_content = "\n\n".join(msg.content for msg in without_tools)
 
-    # With tools should have more content
-    assert len_tokens(with_tools_content, "gpt-4") > len_tokens(
-        without_tools_content, "gpt-4"
+    with_content = "\n\n".join(msg.content for msg in with_tools_flag)
+    without_content = "\n\n".join(msg.content for msg in without_tools_flag)
+
+    # Should be the same size — tools are always included when loaded
+    assert len_tokens(with_content, "gpt-4") == len_tokens(without_content, "gpt-4")
+
+    # No tools loaded: should have less content
+    no_tools = get_prompt(
+        [],
+        prompt="full",
+        context_mode="selective",
+        context_include=[],
     )
+    no_tools_content = "\n\n".join(msg.content for msg in no_tools)
+    assert len_tokens(no_tools_content, "gpt-4") < len_tokens(without_content, "gpt-4")
 
 
 def test_get_prompt_selective_components():
