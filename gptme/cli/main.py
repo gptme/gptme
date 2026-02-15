@@ -255,7 +255,7 @@ Examples:
     multiple=True,
     type=CommaSeparatedChoice(["all", "files", "cmd"], metavar="[all|files|cmd]"),
     callback=lambda ctx, param, value: value or None,
-    help="Limit which context is included. Without this flag, all context is included. Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
+    help="Context to include (default: all). Comma-separated or repeated. Tools and agent config (--agent-path) are always included.",
 )
 @click.option(
     "--context-include",
