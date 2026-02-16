@@ -498,6 +498,40 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <li><p><code class="docutils literal notranslate"><span class="pre">GROQ_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">DEEPSEEK_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
 </ul>
+<p class="rubric">OpenAI Subscription</p>
+<p>You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses the ChatGPT backend API (Codex endpoint) instead of the OpenAI Platform API, allowing you to leverage your subscription for development.</p>
+<p><strong>Setup:</strong></p>
+<p>Authenticate using the OAuth command (opens browser for login):</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>openai-subscription
+</pre></div>
+</div>
+<p>This stores credentials locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/oauth/openai_subscription.json</span></code>.
+Access tokens are automatically refreshed before expiry, so you only need to authenticate once.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.2
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.2-codex
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.1
+</pre></div>
+</div>
+<p>You can also append reasoning levels: <code class="docutils literal notranslate"><span class="pre">:low</span></code>, <code class="docutils literal notranslate"><span class="pre">:medium</span></code>, <code class="docutils literal notranslate"><span class="pre">:high</span></code>, or <code class="docutils literal notranslate"><span class="pre">:xhigh</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.2:high
+</pre></div>
+</div>
+<p><strong>Available Models:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.2</span></code> - Latest GPT model with reasoning capabilities</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.2-codex</span></code> - Optimized for code tasks</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.1-codex-max</span></code> - Maximum capability variant</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.1-codex</span></code> - Code-optimized</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.1-codex-mini</span></code> - Smaller code-optimized variant</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.1</span></code> - Previous generation</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is for <strong>personal development use</strong> with your own ChatGPT Plus/Pro subscription.
+For production or multi-user applications, use the OpenAI Platform API.
+OAuth credentials are stored locally and access tokens are refreshed automatically.</p>
+</div>
 <p class="rubric">Local</p>
 <p>You can use local LLM models using any OpenAI API-compatible server.</p>
 <p>To achieve that with <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, install it then run:</p>
