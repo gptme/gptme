@@ -43,10 +43,7 @@ from gptme.tools import ToolFormat, clear_tools, init_tools
             "tool",
             True,
             [
-                "the `shell` tool",
-                """@shell: {
-  "command": "cat file.txt"
-}""",
+                "Executes shell commands",
                 "### Examples",
             ],
             [],
@@ -55,12 +52,9 @@ from gptme.tools import ToolFormat, clear_tools, init_tools
             "tool",
             False,
             [
-                "the `shell` tool",
+                "Executes shell commands",
             ],
             [
-                """@shell: {
-  "command": "cat file.txt"
-}""",
                 "### Examples",
             ],
         ),
