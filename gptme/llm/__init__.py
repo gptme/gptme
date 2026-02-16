@@ -1,4 +1,5 @@
 import logging
+import re
 import shutil
 import sys
 import time
@@ -221,6 +222,56 @@ def _stream(
         raise ValueError(f"Unsupported provider: {provider}")
 
 
+def _dedup_thinking_blocks(output: str) -> str:
+    """Remove consecutive duplicate <think>/<thinking> blocks.
+
+    Some models (e.g. Kimi K2.5) emit identical thinking blocks repeatedly.
+    This collapses consecutive identical blocks into one.
+    """
+
+    def _dedup(text: str, tag: str) -> str:
+        """Remove consecutive duplicate blocks for a specific tag."""
+        open_tag = f"<{tag}>"
+        close_tag = f"</{tag}>"
+        pattern = re.compile(
+            rf"({re.escape(open_tag)}\s*)(.*?)(\s*{re.escape(close_tag)})",
+            re.DOTALL,
+        )
+        blocks = list(pattern.finditer(text))
+        if len(blocks) < 2:
+            return text
+
+        # Find consecutive duplicates to remove (keep first of each run)
+        to_remove: list[tuple[int, int]] = []
+        i = 0
+        while i < len(blocks) - 1:
+            current_content = blocks[i].group(2).strip()
+            j = i + 1
+            while j < len(blocks):
+                next_content = blocks[j].group(2).strip()
+                # Check blocks are consecutive (only whitespace between)
+                between = text[blocks[j - 1].end() : blocks[j].start()]
+                if between.strip() == "" and next_content == current_content:
+                    to_remove.append((blocks[j].start(), blocks[j].end()))
+                    j += 1
+                else:
+                    break
+            i = j
+
+        # Remove duplicates in reverse order to preserve positions
+        for start, end in reversed(to_remove):
+            # Also remove trailing whitespace after the removed block
+            while end < len(text) and text[end] in " \t\n":
+                end += 1
+            text = text[:start] + text[end:]
+
+        return text
+
+    output = _dedup(output, "think")
+    output = _dedup(output, "thinking")
+    return output
+
+
 @trace_function(name="llm.reply_stream", attributes={"component": "llm"})
 def _reply_stream(
     messages: list[Message],
@@ -323,6 +374,7 @@ def _reply_stream(
                 f"tok/s: {len_tokens(output, model) / gen_time:.1f})"
             )
 
+    output = _dedup_thinking_blocks(output)
     return Message("assistant", output, metadata=stream.metadata)
 
 
