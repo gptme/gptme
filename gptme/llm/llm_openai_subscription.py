@@ -4,6 +4,12 @@ Enables use of ChatGPT Plus/Pro subscriptions with gptme through the
 ChatGPT backend API (not the Platform API). Uses OAuth 2.0 + PKCE for
 authentication.
 
+Uses the OpenAI **Responses API** format (not Chat Completions):
+- ``input`` instead of ``messages`` for conversation items
+- ``instructions`` for system-level guidance (separated from input)
+- SSE events like ``response.output_text.delta`` and ``response.done``
+See: https://platform.openai.com/docs/api-reference/responses
+
 Based on opencode-openai-codex-auth plugin OAuth implementation.
 
 NOTICE: For personal development use with your own ChatGPT Plus/Pro subscription.
@@ -14,6 +20,12 @@ Usage:
     2. Use model like: openai-subscription/gpt-5.2
 
 Endpoint: https://chatgpt.com/backend-api/codex/responses
+
+TODO: The regular OpenAI provider (llm_openai.py) could also be migrated to the
+Responses API, which would allow unifying both providers. The Responses API is now
+the recommended path forward for OpenAI and supports the same models. A unified
+provider could share auth, request building, and response parsing, with the only
+difference being the auth method (API key vs OAuth) and base URL.
 """
 
 import base64
@@ -38,6 +50,8 @@ from uuid import uuid4
 import requests
 
 from ..message import Message
+from ..tools.base import ToolSpec
+from .utils import parameters2dict
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +62,6 @@ OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 OAUTH_CALLBACK_PORT = 1455
 OAUTH_CALLBACK_PATH = "/auth/callback"
 OAUTH_SCOPES = "openid profile email offline_access"
-OAUTH_AUDIENCE = "https://api.openai.com"
 
 # ChatGPT backend API base URL
 CHATGPT_BASE_URL = "https://chatgpt.com"
@@ -207,30 +220,36 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     def _send_success_response(self) -> None:
         html = """<!DOCTYPE html>
 <html>
-<head><title>gptme - Authentication Successful</title></head>
-<body style="font-family: system-ui; text-align: center; padding: 50px;">
-<h1>✅ Authentication Successful</h1>
-<p>You can close this window and return to gptme.</p>
+<head>
+<meta charset="utf-8">
+<title>gptme - Authentication Successful</title>
+</head>
+<body style="font-family: system-ui; text-align: center; padding: 50px; color: #222; background: #fafafa;">
+<h1 style="font-size: 1.5em;">gptme</h1>
+<p style="font-size: 1.2em;">Authentication successful. You can close this window and return to your terminal.</p>
 <script>setTimeout(() => window.close(), 3000);</script>
 </body>
 </html>"""
         self.send_response(200)
-        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode())
 
     def _send_error_response(self, error: str) -> None:
         html = f"""<!DOCTYPE html>
 <html>
-<head><title>gptme - Authentication Failed</title></head>
-<body style="font-family: system-ui; text-align: center; padding: 50px;">
-<h1>❌ Authentication Failed</h1>
-<p>{error}</p>
-<p>Please try again.</p>
+<head>
+<meta charset="utf-8">
+<title>gptme - Authentication Failed</title>
+</head>
+<body style="font-family: system-ui; text-align: center; padding: 50px; color: #222; background: #fafafa;">
+<h1 style="font-size: 1.5em;">gptme</h1>
+<p style="font-size: 1.2em; color: #c00;">Authentication failed: {error}</p>
+<p>Please close this window and try again.</p>
 </body>
 </html>"""
         self.send_response(400)
-        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode())
 
@@ -255,10 +274,12 @@ def oauth_authenticate() -> SubscriptionAuth:
         "redirect_uri": f"http://localhost:{OAUTH_CALLBACK_PORT}{OAUTH_CALLBACK_PATH}",
         "response_type": "code",
         "scope": OAUTH_SCOPES,
-        "audience": OAUTH_AUDIENCE,
         "state": state,
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
+        "id_token_add_organizations": "true",
+        "codex_cli_simplified_flow": "true",
+        "originator": "codex_cli_rs",
     }
     auth_url = f"{OAUTH_AUTH_URL}?{urlencode(auth_params)}"
 
@@ -412,24 +433,65 @@ def get_auth() -> SubscriptionAuth:
     )
 
 
+def _spec2tool(spec: ToolSpec) -> dict[str, Any]:
+    """Convert a ToolSpec to Responses API function tool format.
+
+    The Responses API uses a flat structure (name/description/parameters at top level),
+    unlike Chat Completions which nests them under a ``function`` key.
+    """
+    name = spec.block_types[0] if spec.block_types else spec.name
+    description = spec.get_instructions("tool")
+    if len(description) > 1024:
+        description = description[:1024]
+    return {
+        "type": "function",
+        "name": name,
+        "description": description,
+        "parameters": parameters2dict(spec.parameters),
+    }
+
+
 def _transform_to_codex_request(
     messages: list[dict[str, Any]],
     model: str,
     stream: bool = True,
     reasoning_level: str | None = None,
 ) -> dict[str, Any]:
-    """Transform OpenAI-style request to Codex format."""
+    """Transform chat messages to the Responses API format used by the Codex endpoint.
+
+    The Codex endpoint uses the Responses API, which takes:
+    - ``instructions`` for system-level guidance (extracted from system messages)
+    - ``input`` (not ``messages``) as a list of input items with role/content
+    """
     base_model = model.split(":")[0] if ":" in model else model
     if ":" in model:
         reasoning_level = model.split(":")[1]
 
     if reasoning_level is None:
-        # Default to medium reasoning level - supported by all subscription models
         reasoning_level = "medium"
+
+    # Extract system messages as instructions, rest becomes input items
+    system_parts = []
+    input_items = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_parts.append(msg["content"])
+        else:
+            input_items.append(
+                {
+                    "role": msg["role"],
+                    "content": msg["content"],
+                }
+            )
+
+    instructions = (
+        "\n\n".join(system_parts) if system_parts else "You are a helpful assistant."
+    )
 
     return {
         "model": base_model,
-        "messages": messages,
+        "instructions": instructions,
+        "input": input_items,
         "stream": stream,
         "store": False,
         "reasoning": {
@@ -438,8 +500,11 @@ def _transform_to_codex_request(
     }
 
 
-def _parse_sse_response(line: str) -> dict[str, Any] | None:
-    """Parse a single SSE line."""
+def _parse_sse_response(line: bytes | str) -> dict[str, Any] | None:
+    """Parse a single SSE line (bytes or str)."""
+    if isinstance(line, bytes):
+        line = line.decode("utf-8")
+
     if not line.startswith("data:"):
         return None
 
@@ -478,9 +543,7 @@ def stream(
     )
 
     if tools:
-        request_body["tools"] = [
-            t.to_param() if hasattr(t, "to_param") else t for t in tools
-        ]
+        request_body["tools"] = [_spec2tool(t) for t in tools]
 
     headers = {
         "Authorization": f"Bearer {auth.access_token}",
@@ -503,7 +566,7 @@ def stream(
         error_text = response.text[:500]
         raise ValueError(f"Codex API error {response.status_code}: {error_text}")
 
-    for line in response.iter_lines(decode_unicode=True):
+    for line in response.iter_lines():
         if not line:
             continue
 
@@ -514,24 +577,30 @@ def stream(
         if data.get("done"):
             break
 
-        # Handle Responses API format (Codex endpoint)
-        # Events: response.output_text.delta, response.done, etc.
+        # Handle Responses API SSE events
         event_type = data.get("type", "")
+
         if event_type == "response.output_text.delta":
             delta_text = data.get("delta", "")
             if delta_text:
                 yield delta_text
-            continue
+
+        elif event_type == "response.output_item.added":
+            # Function call start: emit @name(call_id): prefix
+            item = data.get("item", {})
+            if item.get("type") == "function_call":
+                name = item.get("name", "")
+                call_id = item.get("call_id", "")
+                yield f"\n@{name}({call_id}): "
+
+        elif event_type == "response.function_call_arguments.delta":
+            # Function call argument chunks
+            delta_text = data.get("delta", "")
+            if delta_text:
+                yield delta_text
+
         elif event_type == "response.done":
             break
-
-        # Fallback: Handle Chat Completions format
-        choices = data.get("choices", [])
-        if choices:
-            delta = choices[0].get("delta", {})
-            content = delta.get("content")
-            if content:
-                yield content
 
 
 def chat(
