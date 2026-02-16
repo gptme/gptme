@@ -62,6 +62,21 @@ def execute_read(
         yield Message("system", "No path provided")
         return
 
+    # Path traversal protection: validate relative paths stay within cwd
+    path_display = path
+    path = path.expanduser().resolve()
+    if not path_display.is_absolute():
+        cwd = Path.cwd().resolve()
+        try:
+            path.relative_to(cwd)
+        except ValueError:
+            yield Message(
+                "system",
+                f"Path traversal detected: {path_display} resolves to {path} "
+                f"which is outside current directory {cwd}",
+            )
+            return
+
     if not path.exists():
         yield Message("system", f"File not found: {path}")
         return
@@ -130,6 +145,18 @@ tool = ToolSpec(
             type="string",
             description="The path of the file to read",
             required=True,
+        ),
+        Parameter(
+            name="start_line",
+            type="integer",
+            description="Line number to start reading from (1-indexed)",
+            required=False,
+        ),
+        Parameter(
+            name="end_line",
+            type="integer",
+            description="Line number to stop reading at (inclusive)",
+            required=False,
         ),
     ],
     disabled_by_default=True,
