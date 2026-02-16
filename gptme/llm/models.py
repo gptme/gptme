@@ -128,10 +128,8 @@ _default_model_var: ContextVar[ModelMeta | None] = ContextVar(
 MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     "openai": OPENAI_MODELS,
     # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
-    # Price is effectively 0 since using existing subscription
-    # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
     # All models share same specs; price is 0 since using existing subscription
-    # Format: model or model:reasoning_level (low/medium/high/xhigh)
+    # Reasoning level suffix (e.g., :high) is stripped at lookup time in get_model()
     "openai-subscription": {
         model: {
             "context": 128_000,
