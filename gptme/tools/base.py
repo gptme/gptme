@@ -715,7 +715,10 @@ class ToolUse:
 
                 json_parameters: dict[str, str] = {}
                 for index, param in enumerate(tool.parameters):
-                    json_parameters[param.name] = args[index]
+                    if index < len(args):
+                        json_parameters[param.name] = args[index]
+                    elif param.required:
+                        break  # required param missing, stop mapping
 
                 return json_parameters
         return {}
