@@ -168,12 +168,29 @@ def sort_tests(test_names):
     )
 
 
+def _split_model_id(model_id: str) -> tuple[str, str]:
+    """Split a model_id string into (model, tool_format).
+
+    The model_id uses ``@`` as separator between model name and tool format.
+    If the ``@`` is part of the model name (e.g. OpenRouter suffixes like
+    ``z-ai/glm-5@z-ai``), the full string is returned as the model with an
+    empty tool_format.
+    """
+    if "@" in model_id:
+        model, fmt = model_id.rsplit("@", 1)
+        if fmt in get_args(ToolFormat):
+            return model, fmt
+    return model_id, ""
+
+
 def print_model_results(model_results: dict[str, list[EvalResult]]):
     total_tests = 0
     total_tokens = 0
 
-    for model, results in model_results.items():
-        print(f"\nResults for model: {model}")
+    for model_id, results in model_results.items():
+        model, tool_format = _split_model_id(model_id)
+        label = f"{model} ({tool_format})" if tool_format else model
+        print(f"\nResults for model: {label}")
         model_total_tokens = sum(
             len_tokens(result.gen_stdout, "gpt-4")
             + len_tokens(result.run_stdout, "gpt-4")
@@ -209,11 +226,12 @@ def print_model_results_table(model_results: dict[str, list[EvalResult]]):
     test_names = sort_tests(
         {result.name for results in model_results.values() for result in results}
     )
-    headers = ["Model"] + list(test_names)
+    headers = ["Model", "Format"] + list(test_names)
     table_data = []
 
-    for model, results in model_results.items():
-        row = [model]
+    for model_id, results in model_results.items():
+        model, tool_format = _split_model_id(model_id)
+        row = [model, tool_format]
         for test_name in test_names:
             try:
                 result = next(r for r in results if r.name == test_name)
@@ -263,13 +281,14 @@ def aggregate_and_display_results(result_files: list[str]):
                     all_results[model][result.name]["passed"] += 1
 
     # Prepare table data
-    headers = ["Model"] + sort_tests(
+    test_headers = sort_tests(
         {
             test
             for model_results in all_results.values()
             for test in model_results.keys()
         }
     )
+    headers = ["Model", "Format"] + test_headers
     table_data = []
 
     def get_status_emoji(passed, total):
@@ -281,9 +300,11 @@ def aggregate_and_display_results(result_files: list[str]):
         else:
             return "❌"
 
-    for model, results in sorted(all_results.items()):
-        row = [model.replace("openrouter/", "")]
-        for test in headers[1:]:
+    for model_id, results in sorted(all_results.items()):
+        model, tool_format = _split_model_id(model_id)
+        model_display = model.replace("openrouter/", "")
+        row = [model_display, tool_format]
+        for test in test_headers:
             if test in results:
                 passed = results[test]["passed"]
                 total = results[test]["total"]
@@ -491,7 +512,26 @@ def read_results_from_csv(filename: str) -> dict[str, list[EvalResult]]:
         reader = csv.DictReader(csvfile)
         for row in reader:
             model = row["Model"]
-            test_dir = results_dir / model / row["Test"]
+            tool_format = row.get("Tool Format", "")
+
+            if tool_format:
+                # New format: separate Model and Tool Format columns
+                model_id = f"{model}@{tool_format}"
+                dir_name = f"{model}/{tool_format}"
+            elif "@" in model:
+                # Legacy format: model@format baked into Model column
+                model_id = model
+                dir_name = model
+            else:
+                model_id = model
+                dir_name = model
+
+            test_dir = results_dir / dir_name / row["Test"]
+            # Fallback: try legacy directory layout if new one doesn't exist
+            if not test_dir.exists() and tool_format:
+                legacy_dir = results_dir / f"{model}@{tool_format}" / row["Test"]
+                if legacy_dir.exists():
+                    test_dir = legacy_dir
 
             result = EvalResult(
                 name=row["Test"],
@@ -506,10 +546,10 @@ def read_results_from_csv(filename: str) -> dict[str, list[EvalResult]]:
                 gen_stderr=read_log_file(test_dir / "gen_stderr.txt"),
                 run_stdout=read_log_file(test_dir / "run_stdout.txt"),
                 run_stderr=read_log_file(test_dir / "run_stderr.txt"),
-                log_dir=Path(row.get("Log Dir", test_dir)),
-                workspace_dir=Path(row.get("Workspace Dir", test_dir)),
+                log_dir=Path(row.get("Log Dir", str(test_dir))),
+                workspace_dir=Path(row.get("Workspace Dir", str(test_dir))),
             )
-            model_results[model].append(result)
+            model_results[model_id].append(result)
     return dict(model_results)
 
 
@@ -533,6 +573,7 @@ def write_results(model_results: dict[str, list[EvalResult]]):
     with open(csv_filename, "w", newline="") as csvfile:
         fieldnames = [
             "Model",
+            "Tool Format",
             "Test",
             "Passed",
             "Total Duration",
@@ -546,7 +587,10 @@ def write_results(model_results: dict[str, list[EvalResult]]):
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames, lineterminator="\n")
 
         writer.writeheader()
-        for model, results in model_results.items():
+        for model_id, results in model_results.items():
+            model, tool_format = _split_model_id(model_id)
+            # Use slash-safe directory name for the model+format combo
+            dir_name = f"{model}/{tool_format}" if tool_format else model
             for result in results:
                 passed = (
                     all(case.passed for case in result.results)
@@ -554,7 +598,7 @@ def write_results(model_results: dict[str, list[EvalResult]]):
                     else False
                 )
 
-                test_dir = results_dir / model / result.name
+                test_dir = results_dir / dir_name / result.name
                 test_dir.mkdir(parents=True, exist_ok=True)
 
                 streams = ["gen_stdout", "gen_stderr", "run_stdout", "run_stderr"]
@@ -565,6 +609,7 @@ def write_results(model_results: dict[str, list[EvalResult]]):
 
                 row = {
                     "Model": model,
+                    "Tool Format": tool_format,
                     "Test": result.name,
                     "Passed": "true" if passed else "false",
                     "Total Duration": round(sum(result.timings.values()), 2),
