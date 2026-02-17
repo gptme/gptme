@@ -5,26 +5,70 @@ output to stdout, which would corrupt the protocol communication.
 """
 
 import io
+import os
 import sys
 
 
-def test_stdout_redirected_in_acp_main():
-    """_real_stdout should be captured at module load time."""
-    from gptme.acp.__main__ import _real_stdout
+def test_capture_stdio_transport():
+    """_capture_stdio_transport redirects fd 1 to stderr at OS level."""
+    from gptme.acp.__main__ import _capture_stdio_transport
 
-    # _real_stdout should be a valid file-like object
-    assert _real_stdout is not None
-    assert hasattr(_real_stdout, "write")
-    assert hasattr(_real_stdout, "flush")
+    # Save original state
+    original_stdout_fd = os.dup(1)
+    original_sys_stdout = sys.stdout
+
+    try:
+        real_stdin, real_stdout = _capture_stdio_transport()
+
+        # real_stdout should be a writable binary file object
+        assert hasattr(real_stdout, "write")
+        assert real_stdout.mode == "rb" or hasattr(real_stdout, "writable")
+
+        # real_stdin should be a readable binary file object
+        assert hasattr(real_stdin, "read")
+
+        # fd 1 should now point to the same place as fd 2 (stderr)
+        # Writing to fd 1 should go to stderr, not to the real stdout
+        assert os.fstat(1).st_ino == os.fstat(2).st_ino
+
+        # sys.stdout should be rebuilt on the redirected fd 1
+        assert sys.stdout is not original_sys_stdout
+
+        real_stdin.close()
+        real_stdout.close()
+    finally:
+        # Restore original fd 1
+        os.dup2(original_stdout_fd, 1)
+        os.close(original_stdout_fd)
+        sys.stdout = original_sys_stdout
 
 
-def test_real_streams_preserved():
-    """The saved _real_stdin/_real_stdout should be file-like objects."""
-    from gptme.acp.__main__ import _real_stdin, _real_stdout
+def test_fd_redirect_catches_print():
+    """After fd redirect, print() goes to stderr, not real stdout."""
+    original_stdout_fd = os.dup(1)
+    original_sys_stdout = sys.stdout
 
-    # Both should be readable/writable file-like objects
-    assert hasattr(_real_stdin, "read") or hasattr(_real_stdin, "readline")
-    assert hasattr(_real_stdout, "write")
+    try:
+        # Create a pipe to capture what goes to stderr (fd 2)
+        r_fd, w_fd = os.pipe()
+
+        # Redirect fd 1 to write end of pipe (simulating os.dup2(2, 1))
+        os.dup2(w_fd, 1)
+        os.close(w_fd)
+        sys.stdout = open(1, "w", buffering=1, closefd=False)  # noqa: SIM115
+
+        print("test message", flush=True)
+
+        # Read from pipe
+        os.set_blocking(r_fd, False)
+        data = os.read(r_fd, 4096)
+        os.close(r_fd)
+
+        assert b"test message" in data
+    finally:
+        os.dup2(original_stdout_fd, 1)
+        os.close(original_stdout_fd)
+        sys.stdout = original_sys_stdout
 
 
 def test_global_console_uses_gptme_util():
@@ -34,20 +78,6 @@ def test_global_console_uses_gptme_util():
 
     # They should be the exact same object
     assert plugins_console is util_console
-
-
-def test_print_goes_to_stderr_after_redirect():
-    """When sys.stdout is redirected to stderr, print() goes to stderr."""
-    original_stdout = sys.stdout
-    stderr_capture = io.StringIO()
-
-    try:
-        # Simulate what ACP __main__ does
-        sys.stdout = stderr_capture
-        print("test message")
-        assert "test message" in stderr_capture.getvalue()
-    finally:
-        sys.stdout = original_stdout
 
 
 def test_rich_print_goes_to_stderr_after_redirect():
@@ -74,36 +104,11 @@ def test_console_log_goes_to_stderr_after_redirect():
 
     try:
         sys.stdout = stderr_capture
-        # A new Console() created after redirect will use the redirected stdout
         console = Console()
         console.log("console test message")
         assert "console test message" in stderr_capture.getvalue()
     finally:
         sys.stdout = original_stdout
-
-
-def test_sys_stdout_write_goes_to_stderr_after_redirect():
-    """Direct sys.stdout.write() also goes to stderr after redirect."""
-    original_stdout = sys.stdout
-    stderr_capture = io.StringIO()
-
-    try:
-        sys.stdout = stderr_capture
-        sys.stdout.write("direct write test")
-        sys.stdout.flush()
-        assert "direct write test" in stderr_capture.getvalue()
-    finally:
-        sys.stdout = original_stdout
-
-
-def test_create_stdio_streams_callable():
-    """_create_stdio_streams should be an async callable."""
-    import asyncio
-
-    from gptme.acp.__main__ import _create_stdio_streams
-
-    assert callable(_create_stdio_streams)
-    assert asyncio.iscoroutinefunction(_create_stdio_streams)
 
 
 def test_no_stdout_pollution_from_imports():
