@@ -27,6 +27,12 @@ def main() -> int:
         stream=sys.stderr,
     )
 
+    # Redirect Rich console to stderr to prevent polluting JSON-RPC stdout stream
+    # The global console defaults to stdout, which corrupts ACP protocol communication
+    from gptme.util import console
+
+    console.file = sys.stderr
+
     try:
         from acp import run_agent  # type: ignore[import-not-found]
     except ImportError:
