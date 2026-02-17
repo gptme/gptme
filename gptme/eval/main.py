@@ -391,27 +391,18 @@ def main(
             model, fmt = model_spec.rsplit("@", 1)
             if fmt in get_args(ToolFormat):
                 model_configs.append((model, parse_format(fmt)))
-            else:
-                # @ is part of the model name (e.g. OpenRouter provider suffix
-                # like 'z-ai/glm-5@z-ai'), not a tool format specifier
-                model = model_spec
-                formats_list: list[ToolFormat] = (
-                    [cast(ToolFormat, tool_format)]
-                    if tool_format
-                    else ["markdown", "xml", "tool"]
-                )
-                for fmt_ in formats_list:
-                    model_configs.append((model, fmt_))
                 continue
-        else:
-            # If no format specified for model, use either provided default or test all formats
-            formats: list[ToolFormat] = (
-                [cast(ToolFormat, tool_format)]
-                if tool_format
-                else ["markdown", "xml", "tool"]
-            )
-            for fmt in formats:
-                model_configs.append((model_spec, fmt))
+            # @ is part of the model name (e.g. OpenRouter provider suffix
+            # like 'z-ai/glm-5@z-ai'), not a tool format specifier
+
+        # No format specified (or @ was part of model name): use provided default or test all formats
+        formats: list[ToolFormat] = (
+            [cast(ToolFormat, tool_format)]
+            if tool_format
+            else ["markdown", "xml", "tool"]
+        )
+        for fmt in formats:
+            model_configs.append((model_spec, fmt))
 
     results_files = []
     for f in eval_names_or_result_files:
