@@ -22,7 +22,7 @@ def test_capture_stdio_transport():
 
         # real_stdout should be a writable binary file object
         assert hasattr(real_stdout, "write")
-        assert real_stdout.mode == "rb" or hasattr(real_stdout, "writable")
+        assert real_stdout.mode == "wb"
 
         # real_stdin should be a readable binary file object
         assert hasattr(real_stdin, "read")
