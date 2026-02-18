@@ -340,8 +340,8 @@ class TestElicitTool:
         assert len(messages) == 1
         assert "cancel" in messages[0].content.lower()
 
-    def test_secret_not_in_message(self):
-        """Secret values are not included in the system message."""
+    def test_secret_hidden_in_message(self):
+        """Secret values are delivered via a hidden message (not visible in UI)."""
         import json
 
         from gptme.tools.elicit import execute_elicit
@@ -355,13 +355,10 @@ class TestElicitTool:
             messages = list(execute_elicit(spec, [], {}))
 
         assert len(messages) == 1
-        # The secret value should NOT appear in the message
-        assert "supersecret" not in messages[0].content
-        # But the user should be informed
-        assert (
-            "secret" in messages[0].content.lower()
-            or "provided" in messages[0].content.lower()
-        )
+        # The secret value IS in the message content (for the LLM to use)
+        # but the message is marked hide=True so it's not shown in the UI
+        assert "supersecret" in messages[0].content
+        assert messages[0].hide is True
 
     def test_form_json_output(self):
         """Form responses are formatted as JSON."""

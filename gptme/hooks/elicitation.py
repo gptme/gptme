@@ -314,6 +314,7 @@ def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
         print(f"\n{request.prompt}")
 
     results: dict[str, object] = {}
+    secret_fields: set[str] = set()
     for f in fields:
         # Map FormField types to ElicitationType
         # "boolean" and "number" use "confirmation" and "text" respectively
@@ -346,8 +347,21 @@ def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
                 val = float(v) if "." in v else int(v)
             except (ValueError, TypeError):
                 val = response.value
+        elif f.type == "secret":
+            # Track secret fields so we can redact them from visible form output.
+            # Secret values are not safe to include in the form JSON in plaintext.
+            secret_fields.add(f.name)
 
         results[f.name] = val
+
+    if secret_fields:
+        # Replace secret field values with a placeholder in the visible JSON.
+        # Secret values from form fields are lost here; if the agent needs
+        # secrets from a form, it should use separate secret-type elicitations
+        # after collecting the non-sensitive fields, or handle secrets via
+        # the individual secret elicitation type.
+        for field_name in secret_fields:
+            results[field_name] = "<secret provided>"
 
     return ElicitationResponse.text(json.dumps(results))
 

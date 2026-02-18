@@ -100,6 +100,13 @@ def parse_elicitation_spec(code: str) -> ElicitationRequest | None:
         return None
 
     elicit_type = spec.get("type", "text")
+    valid_types = {"text", "choice", "multi_choice", "secret", "confirmation", "form"}
+    if elicit_type not in valid_types:
+        logger.error(
+            f"Invalid elicitation type '{elicit_type}', must be one of {sorted(valid_types)}"
+        )
+        return None
+
     prompt = spec.get("prompt", "")
     if not prompt:
         logger.error("Elicitation spec missing 'prompt'")
@@ -160,19 +167,23 @@ def execute_elicit(
         yield Message("system", "Elicitation cancelled by user")
         return
 
-    # Handle secret type specially - don't put value in conversation history
+    # Handle secret type specially - value reaches agent but is not stored visibly
     if response.sensitive or request.type == "secret":
         if response.value is not None:
-            # Yield a non-sensitive confirmation that value was provided
+            # Yield the value to the agent so it can use it (e.g. set as env var).
+            # The value is marked hide=True so the UI can suppress it from display,
+            # but it IS part of the conversation so the LLM can act on it.
+            # NOTE: This means the secret IS in the conversation log on disk.
+            # For stronger isolation, a secure side-channel would be needed,
+            # but that requires deeper Message API changes (future work).
+            yield Message(
+                "system",
+                f"Secret value provided by user: {response.value}",
+                hide=True,
+            )
+            logger.info("Secret value provided by user (not displayed in UI)")
+        else:
             yield Message("system", "User provided secret value (not shown)")
-            # The agent gets the value via a special mechanism:
-            # we store it in a thread-local so the agent can retrieve it
-            # without it appearing in conversation history.
-            # For now, we yield the value in a way that won't be shown in UI
-            # but will be visible to the LLM.
-            # TODO: Ideally this would use a secure channel; for now we use
-            # a hint message that the agent can parse.
-            logger.info("Secret value provided by user (not logged)")
         return
 
     # For multi-choice, format the list
