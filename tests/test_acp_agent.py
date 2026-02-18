@@ -34,7 +34,7 @@ def _mock_permission_response(option_id: str | None = None, cancelled: bool = Fa
         cancelled: If True, return a denied/cancelled response
     """
     try:
-        from acp.schema import (
+        from acp.schema import (  # type: ignore[import-not-found]
             AllowedOutcome,
             DeniedOutcome,
             RequestPermissionResponse,
