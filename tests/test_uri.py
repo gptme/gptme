@@ -1,11 +1,14 @@
 """Tests for URI support in Message.files."""
 
+from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
 
 from gptme.message import Message
 from gptme.util.uri import URI, is_uri, parse_file_reference
+
+_has_flask = find_spec("flask") is not None
 
 
 class TestURI:
@@ -183,6 +186,7 @@ class TestMessageWithURI:
         assert all(isinstance(f, Path) for f in msg.files)
 
 
+@pytest.mark.skipif(not _has_flask, reason="flask not installed (server extra)")
 class TestAbsToRelWorkspace:
     """Test _abs_to_rel_workspace handles URIs correctly."""
 
