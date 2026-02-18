@@ -95,7 +95,7 @@ class TestElicitFunction:
         register_hook(
             name="test_elicit",
             hook_type=HookType.ELICIT,
-            func=my_hook,  # type: ignore[arg-type]
+            func=my_hook,
         )
 
         req = ElicitationRequest(type="text", prompt="What is your name?")
@@ -118,13 +118,13 @@ class TestElicitFunction:
         register_hook(
             name="first",
             hook_type=HookType.ELICIT,
-            func=first_hook,  # type: ignore[arg-type]
+            func=first_hook,
             priority=10,
         )
         register_hook(
             name="second",
             hook_type=HookType.ELICIT,
-            func=second_hook,  # type: ignore[arg-type]
+            func=second_hook,
             priority=0,
         )
 
@@ -163,7 +163,7 @@ class TestElicitFunction:
         register_hook(
             name="cancel_hook",
             hook_type=HookType.ELICIT,
-            func=cancelling_hook,  # type: ignore[arg-type]
+            func=cancelling_hook,
         )
 
         req = ElicitationRequest(type="text", prompt="Gonna cancel?")

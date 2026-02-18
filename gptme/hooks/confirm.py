@@ -15,7 +15,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
 if TYPE_CHECKING:
     from ..tools.base import ToolUse
@@ -211,8 +211,6 @@ def get_confirmation(
             return ConfirmationResult.skip("No confirmation hook registered")
 
     # Try hooks in priority order, falling through if a hook returns None
-    from typing import cast
-
     for hook in enabled_hooks:
         try:
             logger.debug(f"Calling confirmation hook '{hook.name}'")

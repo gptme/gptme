@@ -55,7 +55,7 @@ MCP Elicitation:
 import getpass
 import logging
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 
 logger = logging.getLogger(__name__)
 
@@ -398,8 +398,6 @@ def elicit(request: ElicitationRequest) -> ElicitationResponse:
     hooks = [h for h in get_hooks(HookType.ELICIT) if h.enabled]
     for hook in hooks:
         try:
-            from typing import cast
-
             hook_func = cast(ElicitationHook, hook.func)
             result = hook_func(request)
             if result is not None:
@@ -431,7 +429,7 @@ def register_cli_elicitation_hook() -> None:
     register_hook(
         name="cli_elicit",
         hook_type=HookType.ELICIT,
-        func=cli_hook,  # type: ignore[arg-type]
+        func=cli_hook,
         priority=0,
         enabled=True,
     )
