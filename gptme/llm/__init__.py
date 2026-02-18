@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 import sys
 import time
@@ -422,13 +423,11 @@ def list_available_providers() -> list[tuple[Provider, str]]:
             available.append((cast(Provider, provider), env_var))
 
     # Check OAuth-based providers (no API key, use token file)
-    try:
-        from .llm_openai_subscription import _get_token_storage_path
-
-        if _get_token_storage_path().exists():
-            available.append((cast(Provider, "openai-subscription"), "oauth"))
-    except ImportError:
-        pass
+    # Note: compute path directly to avoid side-effecting mkdir in _get_token_storage_path()
+    _config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    _token_path = _config_dir / "gptme" / "oauth" / "openai_subscription.json"
+    if _token_path.exists():
+        available.append((cast(Provider, "openai-subscription"), "oauth"))
 
     return available
 
