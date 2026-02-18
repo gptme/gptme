@@ -125,7 +125,7 @@
                 <div class="text-sm" v-html="message.html"></div>
                 <!-- File attachments (images rendered inline, others as download links) -->
                 <div v-if="message.files && message.files.length" class="mt-3 flex flex-wrap gap-2">
-                  <template v-for="file in message.files">
+                  <template v-for="file in message.files" :key="file">
                     <a v-if="isImage(file)"
                        :href="fileUrl(file)"
                        target="_blank"
@@ -133,7 +133,7 @@
                       <img :src="fileUrl(file)"
                            :alt="file"
                            class="max-w-md rounded-md border border-gray-200 hover:border-blue-400 transition"
-                           @error="$event.target.style.display='none'" />
+                           @error="$event.target.parentElement.style.display='none'" />
                     </a>
                     <a v-else
                        :href="fileUrl(file)"

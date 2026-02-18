@@ -389,7 +389,8 @@ new Vue({
       return /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(filename);
     },
     fileUrl(filename) {
-      return `${apiRoot}/${this.selectedConversation}/files/${filename}`;
+      const sanitized = filename.split('/').filter(part => part !== '..').join('/');
+      return `${apiRoot}/${this.selectedConversation}/files/${sanitized}`;
     },
     handleKeyDown(e) {
       // If Enter is pressed without Shift
