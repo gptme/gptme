@@ -189,3 +189,71 @@ def test_default_model_propagation():
         from gptme.llm.models import _default_model_var
 
         _default_model_var.set(None)
+
+
+def test_api_v2_commands(client: FlaskClient):
+    """Test the /api/v2/commands endpoint returns available commands."""
+    response = client.get("/api/v2/commands")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "commands" in data
+    commands = data["commands"]
+    assert isinstance(commands, list)
+    # Core commands should always be registered
+    assert "/help" in commands
+    assert "/exit" in commands
+    assert "/model" in commands
+
+
+def test_api_v2_conversation_command(conv, client: FlaskClient):
+    """Test that slash commands are detected and executed when posted."""
+    # /help prints to stdout (doesn't yield Messages), so responses=0
+    # but the command flag should be set
+    response = client.post(
+        f"/api/v2/conversations/{conv}",
+        json={"role": "user", "content": "/help"},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data.get("command") is True
+
+
+def test_api_v2_conversation_command_undo(conv, client: FlaskClient):
+    """Test /undo command removes the last message."""
+    # First, add a message
+    client.post(
+        f"/api/v2/conversations/{conv}",
+        json={"role": "user", "content": "test message"},
+    )
+    # Then undo it via slash command
+    response = client.post(
+        f"/api/v2/conversations/{conv}",
+        json={"role": "user", "content": "/undo"},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data.get("command") is True
+
+
+def test_api_v2_conversation_not_command(conv, client: FlaskClient):
+    """Test that regular messages are not treated as commands."""
+    response = client.post(
+        f"/api/v2/conversations/{conv}",
+        json={"role": "user", "content": "hello world"},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    # Regular messages should not have the "command" flag
+    assert "command" not in data
+
+
+def test_api_v2_conversation_path_not_command(conv, client: FlaskClient):
+    """Test that file paths starting with / are not treated as commands."""
+    response = client.post(
+        f"/api/v2/conversations/{conv}",
+        json={"role": "user", "content": "/path/to/file.md"},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    # File paths should not be treated as commands
+    assert "command" not in data

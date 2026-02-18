@@ -24,10 +24,12 @@ from gptme.llm.models import (
 )
 from gptme.prompts import get_prompt
 
+from ..commands import handle_cmd
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager, get_user_conversations
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
+from ..util.content import is_message_command
 
 
 def _validate_conversation_id(
@@ -293,6 +295,43 @@ def api_conversation_post(conversation_id: str):
     msg = Message(
         req_json["role"], req_json["content"], files=req_json.get("files", [])
     )
+
+    # Check if the message is a slash command (e.g. /help, /model, /tools)
+    if msg.role == "user" and is_message_command(msg.content):
+        # Append command message first (handle_cmd may undo it via auto_undo)
+        log.append(msg)
+        SessionManager.add_event(
+            conversation_id,
+            {"type": "message_added", "message": msg2dict(msg, log.workspace)},
+        )
+
+        # Execute the command and collect response messages
+        responses: list[Message] = []
+        try:
+            for resp in handle_cmd(msg.content, log):
+                log.append(resp)
+                responses.append(resp)
+                SessionManager.add_event(
+                    conversation_id,
+                    {"type": "message_added", "message": msg2dict(resp, log.workspace)},
+                )
+        except Exception as e:
+            logger.exception("Error executing command: %s", msg.content)
+            error_msg = Message("system", f"Command error: {e}")
+            log.append(error_msg)
+            responses.append(error_msg)
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "message_added",
+                    "message": msg2dict(error_msg, log.workspace),
+                },
+            )
+
+        return flask.jsonify(
+            {"status": "ok", "command": True, "responses": len(responses)}
+        )
+
     log.append(msg)
 
     # Notify all sessions that a new message was added
@@ -416,6 +455,22 @@ def api_models():
             "default": default_model.full if default_model else None,
         }
     )
+
+
+@v2_api.route("/api/v2/commands")
+@require_auth
+@api_doc_simple(
+    responses={200: StatusResponse},
+    tags=["commands"],
+)
+def api_commands():
+    """Get available slash commands.
+
+    Returns the list of registered commands that can be used via /command syntax.
+    """
+    from ..commands import get_user_commands
+
+    return flask.jsonify({"commands": get_user_commands()})
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["GET"])
