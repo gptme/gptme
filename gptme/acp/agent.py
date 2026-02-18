@@ -219,11 +219,11 @@ class GptmeAgent:
                 options=[opt.to_dict() for opt in options],
             )
 
-            outcome = result.get("outcome", {})
-            if outcome.get("outcome") == "cancelled":
+            outcome = result.outcome
+            if outcome.outcome == "cancelled":
                 return False
 
-            option_id = outcome.get("optionId", "")
+            option_id = outcome.option_id
 
             # Cache always policies
             if option_id == "allow-always":
@@ -497,7 +497,7 @@ class GptmeAgent:
         if not session:
             logger.error(f"Unknown session: {session_id}")
             assert PromptResponse is not None
-            return PromptResponse(stop_reason="error")
+            return PromptResponse(stop_reason="cancelled")
         # Update last_activity timestamp for cleanup tracking
         session.touch()
         log = session.log
@@ -567,7 +567,7 @@ class GptmeAgent:
                 source="gptme",
             )
             assert PromptResponse is not None
-            return PromptResponse(stop_reason="error")
+            return PromptResponse(stop_reason="cancelled")
 
     async def load_session(
         self,

@@ -26,6 +26,32 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def _mock_permission_response(option_id: str | None = None, cancelled: bool = False):
+    """Create a mock RequestPermissionResponse matching the ACP SDK Pydantic model.
+
+    Args:
+        option_id: The option_id for an allowed response (e.g. "allow-once", "allow-always")
+        cancelled: If True, return a denied/cancelled response
+    """
+    try:
+        from acp.schema import (
+            AllowedOutcome,
+            DeniedOutcome,
+            RequestPermissionResponse,
+        )
+
+        if cancelled:
+            outcome = DeniedOutcome(outcome="cancelled")
+        else:
+            outcome = AllowedOutcome(outcome="selected", optionId=option_id or "")
+        return RequestPermissionResponse(outcome=outcome)
+    except ImportError:
+        # Fallback to dict if acp not installed (shouldn't happen in test env)
+        if cancelled:
+            return {"outcome": {"outcome": "cancelled"}}
+        return {"outcome": {"optionId": option_id}}
+
+
 class TestGptmeAgentInit:
     """Tests for GptmeAgent initialization."""
 
@@ -287,7 +313,7 @@ class TestRequestToolPermission:
         agent = GptmeAgent()
         conn = MagicMock()
         conn.request_permission = AsyncMock(
-            return_value={"outcome": {"optionId": "allow-once"}}
+            return_value=_mock_permission_response(option_id="allow-once")
         )
         agent._conn = conn
 
@@ -301,7 +327,7 @@ class TestRequestToolPermission:
         agent = GptmeAgent()
         conn = MagicMock()
         conn.request_permission = AsyncMock(
-            return_value={"outcome": {"optionId": "allow-always"}}
+            return_value=_mock_permission_response(option_id="allow-always")
         )
         agent._conn = conn
 
@@ -314,7 +340,7 @@ class TestRequestToolPermission:
         agent = GptmeAgent()
         conn = MagicMock()
         conn.request_permission = AsyncMock(
-            return_value={"outcome": {"optionId": "reject-always"}}
+            return_value=_mock_permission_response(option_id="reject-always")
         )
         agent._conn = conn
 
@@ -327,7 +353,7 @@ class TestRequestToolPermission:
         agent = GptmeAgent()
         conn = MagicMock()
         conn.request_permission = AsyncMock(
-            return_value={"outcome": {"outcome": "cancelled"}}
+            return_value=_mock_permission_response(cancelled=True)
         )
         agent._conn = conn
 
@@ -388,7 +414,7 @@ class TestCreateConfirmWithTools:
         conn = MagicMock()
         conn.session_update = AsyncMock()
         conn.request_permission = AsyncMock(
-            return_value={"outcome": {"optionId": "allow-once"}}
+            return_value=_mock_permission_response(option_id="allow-once")
         )
         agent._conn = conn
 
@@ -406,7 +432,7 @@ class TestCreateConfirmWithTools:
         conn = MagicMock()
         conn.session_update = AsyncMock()
         conn.request_permission = AsyncMock(
-            return_value={"outcome": {"optionId": "allow-once"}}
+            return_value=_mock_permission_response(option_id="allow-once")
         )
         agent._conn = conn
 
@@ -421,7 +447,7 @@ class TestCreateConfirmWithTools:
         conn = MagicMock()
         conn.session_update = AsyncMock()
         conn.request_permission = AsyncMock(
-            return_value={"outcome": {"optionId": "allow-once"}}
+            return_value=_mock_permission_response(option_id="allow-once")
         )
         agent._conn = conn
 
@@ -438,7 +464,7 @@ class TestCreateConfirmWithTools:
         conn = MagicMock()
         conn.session_update = AsyncMock()
         conn.request_permission = AsyncMock(
-            return_value={"outcome": {"optionId": "reject-once"}}
+            return_value=_mock_permission_response(option_id="reject-once")
         )
         agent._conn = conn
 
