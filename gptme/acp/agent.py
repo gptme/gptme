@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ..init import init
+from ..llm.models import set_default_model
 from ..logmanager import LogManager
 from ..message import Message
 from ..prompts import get_prompt
@@ -523,6 +524,12 @@ class GptmeAgent:
         try:
             # Import chat step
             from ..chat import step as chat_step
+
+            # Ensure model ContextVar is set in this task's context.
+            # Each ACP RPC call runs in a fresh asyncio task that doesn't inherit
+            # the ContextVar set by initialize(). Setting it here ensures both
+            # this task and the executor thread (via copy_context below) see it.
+            set_default_model(self._model)
 
             # Run gptme chat step in executor to not block event loop
             loop = asyncio.get_running_loop()
