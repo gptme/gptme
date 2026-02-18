@@ -204,3 +204,65 @@ def test_write_pipe_protocol_drain_blocks_when_paused():
         assert resumed
 
     asyncio.run(_check())
+
+
+def test_write_pipe_protocol_connection_lost_resolves_drain():
+    """connection_lost(None) resolves a blocked _drain_helper()."""
+
+    async def _check():
+        from gptme.acp.__main__ import _WritePipeProtocol
+
+        proto = _WritePipeProtocol()
+        proto.pause_writing()
+
+        async def drain_task():
+            await proto._drain_helper()
+            return True
+
+        async def close_task():
+            await asyncio.sleep(0.01)
+            proto.connection_lost(None)
+
+        results = await asyncio.gather(drain_task(), close_task())
+        assert results[0] is True
+        assert proto._connection_lost
+
+    asyncio.run(_check())
+
+
+def test_write_pipe_protocol_connection_lost_with_exception():
+    """connection_lost(exc) sets exception on drain waiter."""
+    import pytest
+
+    async def _check():
+        from gptme.acp.__main__ import _WritePipeProtocol
+
+        proto = _WritePipeProtocol()
+        proto.pause_writing()
+
+        async def drain_task():
+            await proto._drain_helper()
+
+        async def close_task():
+            await asyncio.sleep(0.01)
+            proto.connection_lost(OSError("pipe broke"))
+
+        with pytest.raises(OSError, match="pipe broke"):
+            await asyncio.gather(drain_task(), close_task())
+
+    asyncio.run(_check())
+
+
+def test_write_pipe_protocol_drain_after_connection_lost():
+    """_drain_helper() raises ConnectionResetError after connection_lost()."""
+    import pytest
+
+    async def _check():
+        from gptme.acp.__main__ import _WritePipeProtocol
+
+        proto = _WritePipeProtocol()
+        proto.connection_lost(None)
+        with pytest.raises(ConnectionResetError):
+            await proto._drain_helper()
+
+    asyncio.run(_check())
