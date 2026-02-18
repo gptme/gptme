@@ -298,6 +298,14 @@ def api_conversation_post(conversation_id: str):
 
     # Check if the message is a slash command (e.g. /help, /model, /tools)
     if msg.role == "user" and is_message_command(msg.content):
+        # Block commands that are unsafe in server context (would crash or block server)
+        cmd_name = msg.content.lstrip("/").split()[0]
+        server_blocked_commands = {"exit", "restart"}
+        if cmd_name in server_blocked_commands:
+            return flask.jsonify(
+                {"error": f"Command /{cmd_name} is not available in server mode"}
+            ), 400
+
         # Append command message first (handle_cmd may undo it via auto_undo)
         log.append(msg)
         SessionManager.add_event(
@@ -315,7 +323,7 @@ def api_conversation_post(conversation_id: str):
                     conversation_id,
                     {"type": "message_added", "message": msg2dict(resp, log.workspace)},
                 )
-        except Exception as e:
+        except (Exception, SystemExit) as e:
             logger.exception("Error executing command: %s", msg.content)
             error_msg = Message("system", f"Command error: {e}")
             log.append(error_msg)
