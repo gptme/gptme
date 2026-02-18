@@ -362,9 +362,9 @@ def main(
     if config.get_env("ANTHROPIC_API_KEY"):
         default_models.extend(
             [
-                "anthropic/claude-3-5-sonnet-20241022@tool",
-                "anthropic/claude-3-5-sonnet-20241022@markdown",
-                "anthropic/claude-3-5-sonnet-20241022@xml",
+                "anthropic/claude-sonnet-4-5@tool",
+                "anthropic/claude-sonnet-4-5@markdown",
+                "anthropic/claude-sonnet-4-5@xml",
                 "anthropic/claude-haiku-4-5@tool",
                 "anthropic/claude-haiku-4-5@xml",
             ]
@@ -377,7 +377,7 @@ def main(
             ]
         )
     if config.get_env("GEMINI_API_KEY"):
-        default_models.extend(["gemini/gemini-1.5-flash-latest"])
+        default_models.extend(["gemini/gemini-2.0-flash"])
 
     def parse_format(fmt: str) -> ToolFormat:
         if fmt not in get_args(ToolFormat):

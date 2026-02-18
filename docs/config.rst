@@ -37,8 +37,8 @@ Here is an example:
     #myproject = "A description of my project."
 
     [env]
-    # Uncomment to use Claude 3.5 Sonnet by default
-    #MODEL = "anthropic/claude-3-5-sonnet-20240620"
+    # Uncomment to use Claude Sonnet 4.5 by default
+    #MODEL = "anthropic/claude-sonnet-4-5"
 
     # One of these need to be set
     # If none of them are, they will be prompted for on first start
