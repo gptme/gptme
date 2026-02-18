@@ -17,9 +17,10 @@ PROVIDER_DOCS: dict[str, str] = {
     "deepseek": "https://platform.deepseek.com/api_keys",
     "xai": "https://console.x.ai/",
     "azure": "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub",
-    "openai-subscription": "https://chatgpt.com/",  # ChatGPT Plus/Pro subscription (not API keys)
     "nvidia": "https://build.nvidia.com/",
     "local": "https://gptme.org/docs/providers.html#local-models",
+    # NOTE: openai-subscription uses gptme-auth (OAuth), not API keys.
+    # It needs a separate onboarding path (see: gptme-auth login).
 }
 
 

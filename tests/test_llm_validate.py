@@ -138,7 +138,6 @@ class TestProviderDocs:
             "deepseek",
             "xai",
             "azure",
-            "openai-subscription",
             "nvidia",
             "local",
         ]
