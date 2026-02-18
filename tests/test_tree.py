@@ -108,7 +108,7 @@ def test_get_tree_output_fallback_when_tree_missing(tmp_path, monkeypatch):
 
 
 def test_get_tree_output_not_git_repo(tmp_path, monkeypatch):
-    """Test that get_tree_output returns None when not in a git repository."""
+    """Test that get_tree_output falls back to ls when not in a git repository."""
     from gptme.util.tree import get_tree_output
 
     # Enable GPTME_CONTEXT_TREE
@@ -117,18 +117,33 @@ def test_get_tree_output_not_git_repo(tmp_path, monkeypatch):
     # Mock subprocess to simulate not being in a git repo
     import subprocess
 
+    called_commands = []
+
     def mock_run(*args, **kwargs):
+        called_commands.append(args[0])
         if args[0][:2] == ["git", "rev-parse"]:
-            result = subprocess.CompletedProcess(
+            return subprocess.CompletedProcess(
                 args[0], returncode=1, stdout="", stderr="not a git repository"
             )
-            return result
+        elif isinstance(args[0], list) and args[0][:2] == ["ls", "-R"]:
+            return subprocess.CompletedProcess(
+                args[0], returncode=0, stdout="file1.txt\nfile2.txt", stderr=""
+            )
         return subprocess.CompletedProcess(args[0], returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("gptme.util.tree.subprocess.run", mock_run)
 
     result = get_tree_output(tmp_path)
-    assert result is None
+    # Should fall back to ls and return its output
+    assert result == "file1.txt\nfile2.txt"
+    # Verify ls was called (not git ls-files or tree)
+    assert any(
+        isinstance(cmd, list) and cmd[:2] == ["ls", "-R"] for cmd in called_commands
+    )
+    assert not any(
+        isinstance(cmd, list) and cmd[:2] == ["git", "ls-files"]
+        for cmd in called_commands
+    )
 
 
 def test_get_tree_output_command_fails(tmp_path, monkeypatch):
@@ -180,11 +195,11 @@ def test_get_tree_output_too_long(tmp_path, monkeypatch):
 
     monkeypatch.setattr("gptme.util.tree.subprocess.run", mock_run)
 
-    # depth reduction should produce output since each line is shallow (no /)
+    # All lines are "file.txt" (no '/' in path, so depth 0).
+    # 5000 lines × 9 chars = 45000 > 20000 budget, and depth reduction
+    # cannot shrink depth-0-only output, so all methods return None.
     result = get_tree_output(tmp_path)
-    # With shallow paths, depth reduction at depth 0 keeps all lines
-    # so the reduced output should be returned
-    assert result is not None or result is None  # depends on budget
+    assert result is None
 
 
 def test_get_tree_output_success(tmp_path, monkeypatch):

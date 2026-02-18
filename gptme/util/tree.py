@@ -23,6 +23,7 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
         return None
 
     # Check if in a git repository
+    in_git_repo = False
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--is-inside-work-tree"],
@@ -31,24 +32,28 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
             text=True,
             timeout=1,
         )
-        if result.returncode != 0:
-            logger.debug("Not in a git repository, skipping tree output")
-            return None
+        in_git_repo = result.returncode == 0
     except Exception as e:
-        logger.warning(f"Error checking git repository: {e}")
-        return None
+        logger.debug(f"Error checking git repository: {e}")
 
-    methods: dict[TreeMethod, str] = {
-        "git": "git ls-files --exclude-standard",  # use with git ls-files -o --exclude-standard for unstaged files
-        "tree": "tree -fi --gitignore .",  # is -fi more effective? probably
+    # git and tree --gitignore require a git repo; ls works anywhere
+    git_methods: dict[TreeMethod, str] = {
+        "git": "git ls-files --exclude-standard",
+        "tree": "tree -fi --gitignore .",
+    }
+    non_git_methods: dict[TreeMethod, str] = {
         "ls": "ls -R .",
     }
+    methods: dict[TreeMethod, str] = (
+        {**git_methods, **non_git_methods} if in_git_repo else dict(non_git_methods)
+    )
 
-    # Preferred method order
-    method_order: list[TreeMethod] = ["git", "tree", "ls"]
+    # Preferred method order (only include available methods)
+    _all_methods: list[TreeMethod] = ["git", "tree", "ls"]
+    method_order: list[TreeMethod] = [m for m in _all_methods if m in methods]
 
-    # Start with the requested method, then try others
-    if method in method_order:
+    # Start with the requested method (if available), then try others
+    if method in methods:
         methods_to_try = [method] + [m for m in method_order if m != method]
     else:
         methods_to_try = method_order
