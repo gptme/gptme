@@ -206,3 +206,36 @@ class TestFormatToolResult:
     def test_default_success(self):
         result = format_tool_result("output")
         assert result["status"] == "completed"
+
+
+class TestContextVarPropagation:
+    """Tests for ContextVar propagation in ACP agent executor threads."""
+
+    def test_contextvars_copy_context_propagates(self):
+        """Verify that copy_context().run propagates ContextVars to executor threads.
+
+        This is the pattern used in GptmeAgent.prompt() to ensure model, config,
+        and tools ContextVars are available in the run_in_executor thread.
+        Regression test for: https://github.com/gptme/gptme/issues/1290
+        """
+        import asyncio
+        import contextvars
+
+        var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+            "test_var", default=None
+        )
+
+        async def test_propagation():
+            var.set("hello")
+            loop = asyncio.get_running_loop()
+
+            # Without copy_context — value is lost
+            result_without = await loop.run_in_executor(None, var.get)
+            assert result_without is None
+
+            # With copy_context — value is propagated (this is our fix)
+            ctx = contextvars.copy_context()
+            result_with = await loop.run_in_executor(None, ctx.run, var.get)
+            assert result_with == "hello"
+
+        asyncio.run(test_propagation())

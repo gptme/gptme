@@ -7,6 +7,7 @@ as a coding agent from any ACP-compatible editor (Zed, JetBrains, etc.).
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import tempfile
 from pathlib import Path
@@ -399,12 +400,19 @@ class GptmeAgent:
 
         # Initialize gptme on first connection
         if not self._initialized:
-            init(
-                model=self._model,
-                interactive=False,
-                tool_allowlist=None,
-                tool_format="markdown",
-            )
+            try:
+                init(
+                    model=self._model,
+                    interactive=False,
+                    tool_allowlist=None,
+                    tool_format="markdown",
+                )
+            except (KeyError, ValueError) as e:
+                logger.error(f"gptme initialization failed: {e}")
+                raise RuntimeError(
+                    f"gptme initialization failed: {e}. "
+                    "Ensure API keys are set in environment or config.toml."
+                ) from e
             self._initialized = True
 
         logger.info(f"ACP Initialize: protocol_version={protocol_version}")
@@ -531,7 +539,10 @@ class GptmeAgent:
                     )
                 )
 
-            response_msgs = await loop.run_in_executor(None, run_chat_step)
+            # Copy context to propagate ContextVars (model, config, tools, etc.)
+            # to the executor thread — run_in_executor doesn't do this by default
+            ctx = contextvars.copy_context()
+            response_msgs = await loop.run_in_executor(None, ctx.run, run_chat_step)
 
             # Phase 2: Mark all in-progress tool calls as completed
             await self._complete_pending_tool_calls(session_id)
