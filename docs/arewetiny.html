@@ -501,20 +501,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     251228 |     mcp.types
-     253494 |   gptme.tools.mcp_adapter
-     318345 |             openai.types
-     389776 |           openai
-     464823 |         gptme.llm.llm_openai
-     479037 | gptme.cli.main
-     748252 |       gptme.llm
-     750369 |     gptme.commands
-     863218 |   gptme.chat
-     920266 | gptme
+     234968 |     mcp.types
+     237125 |   gptme.tools.mcp_adapter
+     308586 |             openai.types
+     376146 |           openai
+     447173 |         gptme.llm.llm_openai
+     452073 | gptme.cli.main
+     727799 |       gptme.llm
+     729734 |     gptme.commands
+     833926 |   gptme.chat
+     890227 | gptme
 
-real	0m2.322s
-user	0m1.830s
-sys	0m0.300s
+real	0m2.077s
+user	0m1.787s
+sys	0m0.260s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -523,8 +523,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.128 s ±  0.015 s    [User: 1.902 s, System: 0.222 s]
-  Range (min … max):    2.106 s …  2.141 s    5 runs
+  Time (mean ± σ):      2.095 s ±  0.085 s    [User: 1.836 s, System: 0.229 s]
+  Range (min … max):    2.028 s …  2.233 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -717,9 +717,9 @@ gptme/server/tasks_api.py                          171            110           
 gptme/server/openapi_docs.py                       183            142            476
 gptme/server/api_v2.py                             101             65            436
 gptme/server/api.py                                 98            100            398
-gptme/server/static/main.js                         35             45            316
+gptme/server/static/main.js                         35             45            324
 gptme/server/workspace_api.py                       57             55            173
-gptme/server/static/index.html                      11             15            148
+gptme/server/static/index.html                      11             16            167
 gptme/server/static/style.css                       27              4            143
 gptme/server/cli.py                                 26             17            139
 gptme/server/client.py                              60             78            139
@@ -732,7 +732,7 @@ gptme/server/__main__.py                             1              0           
 gptme/server/exceptions.py                           5              8              2
 gptme/server/constants.py                            1              3              1
 ------------------------------------------------------------------------------------
-SUM:                                              1080            947           4115
+SUM:                                              1080            948           4142
 ------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1511,9 +1511,9 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ css        │ 1              │ 173         │ 1045         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ javascript │ 1              │ 395         │ 3314         │ 0            │ 0 (0%)           │ 0 (0%)            │
+│ javascript │ 1              │ 403         │ 3432         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ markup     │ 2              │ 264         │ 2183         │ 0            │ 0 (0%)           │ 0 (0%)            │
+│ markup     │ 2              │ 284         │ 2336         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markdown   │ 7              │ 1231        │ 8776         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -1521,10 +1521,10 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ url        │ 1              │ 2           │ 16           │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 225            │ 57345       │ 364904       │ 26           │ 386 (0.67%)      │ 3090 (0.85%)      │
+│ Total:     │ 225            │ 57373       │ 365175       │ 26           │ 386 (0.67%)      │ 3090 (0.85%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 26 clones.
-Detection time:: 3.768s
+Detection time:: 3.993s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
