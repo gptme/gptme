@@ -565,6 +565,7 @@ class ShellSession:
                 "GIT_PAGER": "cat",
                 "EDITOR": "true",
                 "GIT_EDITOR": "true",
+                "VISUAL": "true",
                 "PYTHONUNBUFFERED": "1",
             }
         )
