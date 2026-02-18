@@ -193,6 +193,7 @@
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="design/hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design/elicitation.html">Design: Generalized Elicitation</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
 <ul class="nav bd-sidenav">
@@ -664,7 +665,7 @@ skills on-demand requires tool access (e.g., the shell tool to run <cite>cat</ci
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1f351e40e0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f8734f99300&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1031,6 +1032,90 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;key&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;ctrl+t&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: Sent key sequence: ctrl+t</span>
+
+<span class="gu">## elicit</span>
+
+<span class="gs">**Description:**</span> Request structured input from the user (text, choice, secret, form, etc.)
+
+<span class="gs">**Instructions:**</span> Request structured input from the user. Supports these types:
+<span class="k">-</span><span class="w"> </span>text: Free-form text input
+<span class="k">-</span><span class="w"> </span>choice: Single selection from a list (specify options)
+<span class="k">-</span><span class="w"> </span>multi_choice: Multiple selections from a list (specify options)
+<span class="k">-</span><span class="w"> </span>secret: Hidden input for API keys/passwords (NOT stored in conversation)
+<span class="k">-</span><span class="w"> </span>confirmation: Yes/No question
+<span class="k">-</span><span class="w"> </span>form: Multiple fields at once (specify JSON field definitions)
+
+For secrets: the value is returned to you but NOT added to conversation history.
+Use the secret type when asking for API keys, passwords, or other credentials.
+
+Use a code block with the language tag: <span class="sb">`elicit`</span> followed by the elicitation spec as JSON.
+
+<span class="gu">### Examples</span>
+
+<span class="gu">### Ask for a secret API key</span>
+
+<span class="k">&gt; </span><span class="ge">User: Set up the OpenAI integration</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I need your OpenAI API key to proceed. It will not be stored in the conversation.</span>
+<span class="sb">```elicit</span>
+<span class="s">{</span>
+<span class="s">  &quot;type&quot;: &quot;secret&quot;,</span>
+<span class="s">  &quot;prompt&quot;: &quot;Enter your OpenAI API key:&quot;,</span>
+<span class="s">  &quot;description&quot;: &quot;Required for the OpenAI integration. Will not be logged.&quot;</span>
+<span class="s">}</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: User provided secret value (not shown)</span>
+
+<span class="gu">### Ask user to choose an option</span>
+
+<span class="k">&gt; </span><span class="ge">User: Which database should we use?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me ask the user their preference.</span>
+<span class="sb">```elicit</span>
+<span class="s">{</span>
+<span class="s">  &quot;type&quot;: &quot;choice&quot;,</span>
+<span class="s">  &quot;prompt&quot;: &quot;Which database should we use?&quot;,</span>
+<span class="s">  &quot;options&quot;: [</span>
+<span class="s">    &quot;PostgreSQL&quot;,</span>
+<span class="s">    &quot;SQLite&quot;,</span>
+<span class="s">    &quot;MySQL&quot;,</span>
+<span class="s">    &quot;MongoDB&quot;</span>
+<span class="s">  ]</span>
+<span class="s">}</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: User selected: PostgreSQL</span>
+
+<span class="gu">### Collect project setup information via form</span>
+
+<span class="k">&gt; </span><span class="ge">User: Set up a new project</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me gather some details about the project.</span>
+<span class="sb">```elicit</span>
+<span class="s">{</span>
+<span class="s">  &quot;type&quot;: &quot;form&quot;,</span>
+<span class="s">  &quot;prompt&quot;: &quot;New project setup:&quot;,</span>
+<span class="s">  &quot;fields&quot;: [</span>
+<span class="s">    {</span>
+<span class="s">      &quot;name&quot;: &quot;name&quot;,</span>
+<span class="s">      &quot;prompt&quot;: &quot;Project name?&quot;,</span>
+<span class="s">      &quot;type&quot;: &quot;text&quot;</span>
+<span class="s">    },</span>
+<span class="s">    {</span>
+<span class="s">      &quot;name&quot;: &quot;language&quot;,</span>
+<span class="s">      &quot;prompt&quot;: &quot;Primary language?&quot;,</span>
+<span class="s">      &quot;type&quot;: &quot;choice&quot;,</span>
+<span class="s">      &quot;options&quot;: [</span>
+<span class="s">        &quot;python&quot;,</span>
+<span class="s">        &quot;typescript&quot;,</span>
+<span class="s">        &quot;rust&quot;</span>
+<span class="s">      ]</span>
+<span class="s">    },</span>
+<span class="s">    {</span>
+<span class="s">      &quot;name&quot;: &quot;tests&quot;,</span>
+<span class="s">      &quot;prompt&quot;: &quot;Include tests?&quot;,</span>
+<span class="s">      &quot;type&quot;: &quot;boolean&quot;</span>
+<span class="s">    }</span>
+<span class="s">  ]</span>
+<span class="s">}</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Form submitted: {&quot;name&quot;: &quot;my-project&quot;, &quot;language&quot;: &quot;python&quot;, &quot;tests&quot;: true}</span>
 
 <span class="gu">## form</span>
 
@@ -2116,7 +2201,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 10953</p>
+<p>Tokens: 11518</p>
 </dd></dl>
 
 <dl class="py function">

@@ -1,0 +1,976 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Design: Generalized Elicitation &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=a746c00c" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=a3416100" />
+    <link rel="stylesheet" type="text/css" href="../_static/asciinema-player_3.6.3.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3a28e17f" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/asciinema-player_3.6.3.js"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'design/elicitation';</script>
+    <link rel="canonical" href="https://gptme.org/docs/design/elicitation.html" />
+    <link rel="icon" href="../_static/logo.png"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Alternatives" href="../alternatives.html" />
+    <link rel="prev" title="Design: Hook-Based Tool Confirmations" href="hook-based-confirmations.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <img src="../_static/logo.png" class="logo__image only-dark pst-js-only" alt="gptme - Home"/>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../system-dependencies.html">System Dependencies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../automation.html">Automation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../projects.html">Projects</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../tools.html">Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../lessons.html">Lessons</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../skills.html">Skills</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../config.html">Configuration</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../custom-providers.html">Custom Providers</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../agents.html">Agents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../mcp.html">MCP</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../acp.html">ACP (Agent Client Protocol)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../security.html">Security Considerations</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../building.html">Building Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../prompts.html">Prompts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">API Reference</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Design: Generalized Elicitation</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/design/elicitation.md" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../_sources/design/elicitation.md" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.md</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button>
+
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Design: Generalized Elicitation</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#background">Background</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-status">Implementation Status</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-concepts">Core Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#elicitation-vs-confirmation">Elicitation vs Confirmation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#elicitation-vs-mcp-elicitation">Elicitation vs MCP Elicitation</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#request-types">Request Types</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#response">Response</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-system">Hook System</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#secret-handling-key-use-case">Secret Handling (Key Use Case)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implemented-files">Implemented Files</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-hooks-elicitation-py"><code class="docutils literal notranslate"><span class="pre">gptme/hooks/elicitation.py</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-tools-elicit-py"><code class="docutils literal notranslate"><span class="pre">gptme/tools/elicit.py</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-hooks-init-py"><code class="docutils literal notranslate"><span class="pre">gptme/hooks/__init__.py</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-usage">Agent Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#server-integration-phase-2">Server Integration (Phase 2)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#open-questions">Open Questions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#comparison-with-other-harnesses">Comparison with Other Harnesses</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="design-generalized-elicitation">
+<h1>Design: Generalized Elicitation<a class="headerlink" href="#design-generalized-elicitation" title="Link to this heading">#</a></h1>
+<p><strong>Issue</strong>: <a class="reference external" href="https://github.com/gptme/gptme/issues/1121">#1121</a>
+<strong>Author</strong>: Bob
+<strong>Date</strong>: 2026-02-18
+<strong>Status</strong>: Implemented (Phase 1 - Foundation)
+<strong>Depends on</strong>: <a class="reference external" href="https://github.com/gptme/gptme/pull/1105">#1105</a> (hook-based confirmations, merged)</p>
+<section id="background">
+<h2>Background<a class="headerlink" href="#background" title="Link to this heading">#</a></h2>
+<p>“Elicitation” is the process by which an agent requests structured input from the user.
+The term is now widely used in agent contexts: Linear, Claude Code, OpenCode, and Lovable
+all have variations on structured user input beyond simple text prompts.</p>
+<p>This design builds on the hook-based confirmation system merged in #1105, extending it
+to a generalized elicitation architecture.</p>
+</section>
+<section id="implementation-status">
+<h2>Implementation Status<a class="headerlink" href="#implementation-status" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Phase</p></th>
+<th class="head"><p>Component</p></th>
+<th class="head"><p>Status</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ElicitationRequest</span></code> dataclass</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ElicitationResponse</span></code> dataclass</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FormField</span></code> dataclass</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">HookType.ELICIT</span></code> hook type</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ElicitationHook</span></code> protocol</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">elicit()</span></code> function with hook dispatch</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>CLI elicitation handler</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">elicit</span></code> tool for agent use</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>29 tests passing</p></td>
+<td><p>✅ Complete</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>Server (WebUI) elicitation handler</p></td>
+<td><p>❌ Planned</p></td>
+</tr>
+<tr class="row-even"><td><p>2</p></td>
+<td><p>MCP elicitation client support</p></td>
+<td><p>❌ Planned</p></td>
+</tr>
+<tr class="row-odd"><td><p>3</p></td>
+<td><p>Secret storage (keyring integration)</p></td>
+<td><p>❌ Planned</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="core-concepts">
+<h2>Core Concepts<a class="headerlink" href="#core-concepts" title="Link to this heading">#</a></h2>
+<section id="elicitation-vs-confirmation">
+<h3>Elicitation vs Confirmation<a class="headerlink" href="#elicitation-vs-confirmation" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Aspect</p></th>
+<th class="head"><p>Confirmation (tool.confirm)</p></th>
+<th class="head"><p>Elicitation (elicit)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Initiator</p></td>
+<td><p>Tool execution (system)</p></td>
+<td><p>Agent (LLM)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Purpose</p></td>
+<td><p>Approve/skip/edit tool run</p></td>
+<td><p>Collect information</p></td>
+</tr>
+<tr class="row-even"><td><p>Types</p></td>
+<td><p>yes/no/edit</p></td>
+<td><p>text, choice, secret, form, …</p></td>
+</tr>
+<tr class="row-odd"><td><p>LLM context</p></td>
+<td><p>Tool details shown</p></td>
+<td><p>Response MAY be hidden</p></td>
+</tr>
+<tr class="row-even"><td><p>Result</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ConfirmationResult</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ElicitationResponse</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="elicitation-vs-mcp-elicitation">
+<h3>Elicitation vs MCP Elicitation<a class="headerlink" href="#elicitation-vs-mcp-elicitation" title="Link to this heading">#</a></h3>
+<p>gptme’s native elicitation (this design) is <strong>agent-initiated</strong>: the gptme agent
+asks the user for input needed to complete a task.</p>
+<p>MCP’s <code class="docutils literal notranslate"><span class="pre">elicitation/requestInput</span></code> is <strong>server-initiated</strong>: an external MCP server
+asks gptme (as MCP client) to collect input on its behalf. This is a separate flow
+handled in <code class="docutils literal notranslate"><span class="pre">gptme/mcp/client.py</span></code>. They are different:</p>
+<ul class="simple">
+<li><p>gptme elicitation: gptme agent → user</p></li>
+<li><p>MCP elicitation: MCP server → gptme (client) → user</p></li>
+</ul>
+</section>
+</section>
+<section id="architecture">
+<h2>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">#</a></h2>
+<section id="request-types">
+<h3>Request Types<a class="headerlink" href="#request-types" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">ElicitationRequest</span><span class="p">:</span>
+    <span class="nb">type</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;choice&quot;</span><span class="p">,</span> <span class="s2">&quot;multi_choice&quot;</span><span class="p">,</span> <span class="s2">&quot;secret&quot;</span><span class="p">,</span> <span class="s2">&quot;confirmation&quot;</span><span class="p">,</span> <span class="s2">&quot;form&quot;</span><span class="p">]</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">options</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>    <span class="c1"># for choice/multi_choice</span>
+    <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FormField</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># for form</span>
+    <span class="n">default</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">sensitive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>             <span class="c1"># always True for &quot;secret&quot;</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</pre></div>
+</div>
+</section>
+<section id="response">
+<h3>Response<a class="headerlink" href="#response" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">ElicitationResponse</span><span class="p">:</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>       <span class="c1"># for text/secret/confirmation/form(JSON)</span>
+    <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># for multi_choice</span>
+    <span class="n">cancelled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">sensitive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>        <span class="c1"># if True, don&#39;t add to LLM context</span>
+</pre></div>
+</div>
+</section>
+<section id="hook-system">
+<h3>Hook System<a class="headerlink" href="#hook-system" title="Link to this heading">#</a></h3>
+<p>Elicitation uses the same hook machinery as confirmations (<code class="docutils literal notranslate"><span class="pre">HookType.ELICIT</span></code>).
+Hooks are registered with priority (higher = tried first), and return <code class="docutils literal notranslate"><span class="pre">None</span></code> to
+fall through to the next hook.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>Agent calls elicit()
+    → Try HookType.ELICIT hooks in priority order
+    → First non-None response wins
+    → If all None and stdin is TTY: fallback to cli_elicit()
+    → If all None and non-TTY: return ElicitationResponse.cancel()
+</pre></div>
+</div>
+</section>
+<section id="secret-handling-key-use-case">
+<h3>Secret Handling (Key Use Case)<a class="headerlink" href="#secret-handling-key-use-case" title="Link to this heading">#</a></h3>
+<p>The most valuable elicitation type is <code class="docutils literal notranslate"><span class="pre">secret</span></code>. Secrets (API keys, passwords) must:</p>
+<ol class="arabic simple">
+<li><p>Not appear in terminal output (use <code class="docutils literal notranslate"><span class="pre">getpass</span></code>)</p></li>
+<li><p>Not be added to LLM conversation context</p></li>
+<li><p>Be stored/used securely by the agent</p></li>
+</ol>
+<p>The <code class="docutils literal notranslate"><span class="pre">elicit</span></code> tool handles this: when the elicitation type is <code class="docutils literal notranslate"><span class="pre">secret</span></code>, the tool
+yields a <code class="docutils literal notranslate"><span class="pre">&quot;User</span> <span class="pre">provided</span> <span class="pre">secret</span> <span class="pre">value</span> <span class="pre">(not</span> <span class="pre">shown)&quot;</span></code> message instead of the actual
+value. The agent receives the secret via the response and must handle it explicitly
+(e.g. write to an env file, pass to a tool that stores credentials).</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Agent workflow for API key setup:</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">elicit</span><span class="p">(</span><span class="n">ElicitationRequest</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">&quot;secret&quot;</span><span class="p">,</span> <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;Enter your OpenAI API key:&quot;</span><span class="p">))</span>
+<span class="c1"># response.value contains the key, but conversation message says &quot;(not shown)&quot;</span>
+<span class="c1"># Agent stores it securely:</span>
+<span class="n">write_to_env_file</span><span class="p">(</span><span class="s2">&quot;OPENAI_API_KEY&quot;</span><span class="p">,</span> <span class="n">response</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="implemented-files">
+<h2>Implemented Files<a class="headerlink" href="#implemented-files" title="Link to this heading">#</a></h2>
+<section id="gptme-hooks-elicitation-py">
+<h3><code class="docutils literal notranslate"><span class="pre">gptme/hooks/elicitation.py</span></code><a class="headerlink" href="#gptme-hooks-elicitation-py" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ElicitationRequest</span></code>, <code class="docutils literal notranslate"><span class="pre">ElicitationResponse</span></code>, <code class="docutils literal notranslate"><span class="pre">FormField</span></code> dataclasses</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ElicitationHook</span></code> protocol</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cli_elicit()</span></code> - CLI handler using <code class="docutils literal notranslate"><span class="pre">getpass</span></code> for secrets, <code class="docutils literal notranslate"><span class="pre">questionary</span></code> for rich UIs</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">elicit()</span></code> - Main function with hook dispatch and CLI fallback</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">register_cli_elicitation_hook()</span></code> - Helper to register CLI hook</p></li>
+</ul>
+</section>
+<section id="gptme-tools-elicit-py">
+<h3><code class="docutils literal notranslate"><span class="pre">gptme/tools/elicit.py</span></code><a class="headerlink" href="#gptme-tools-elicit-py" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">tool_elicit</span></code> - ToolSpec for the <code class="docutils literal notranslate"><span class="pre">elicit</span></code> tool</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">parse_elicitation_spec()</span></code> - Parse JSON elicitation spec from agent</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">execute_elicit()</span></code> - Execute elicitation and format response for LLM context</p></li>
+</ul>
+</section>
+<section id="gptme-hooks-init-py">
+<h3><code class="docutils literal notranslate"><span class="pre">gptme/hooks/__init__.py</span></code><a class="headerlink" href="#gptme-hooks-init-py" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>Added <code class="docutils literal notranslate"><span class="pre">HookType.ELICIT</span> <span class="pre">=</span> <span class="pre">&quot;elicit&quot;</span></code></p></li>
+<li><p>Added imports for elicitation types</p></li>
+<li><p>Added type overload for <code class="docutils literal notranslate"><span class="pre">register_hook</span></code> with <code class="docutils literal notranslate"><span class="pre">HookType.ELICIT</span></code></p></li>
+<li><p>Added <code class="docutils literal notranslate"><span class="pre">ElicitationHook</span></code> to <code class="docutils literal notranslate"><span class="pre">HookFunc</span></code> union</p></li>
+</ul>
+</section>
+</section>
+<section id="agent-usage">
+<h2>Agent Usage<a class="headerlink" href="#agent-usage" title="Link to this heading">#</a></h2>
+<p>The agent uses the <code class="docutils literal notranslate"><span class="pre">elicit</span></code> tool with a JSON spec:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="sb">```elicit</span>
+<span class="s">{</span>
+<span class="s">  &quot;type&quot;: &quot;secret&quot;,</span>
+<span class="s">  &quot;prompt&quot;: &quot;Enter your OpenAI API key:&quot;,</span>
+<span class="s">  &quot;description&quot;: &quot;Required for the OpenAI integration. Will not be logged.&quot;</span>
+<span class="s">}</span>
+<span class="sb">```</span>
+</pre></div>
+</div>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;choice&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Which framework should we use?&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;options&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;FastAPI&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Django&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Flask&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;form&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;New project setup:&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;fields&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;name&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Project name?&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;language&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Language?&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;choice&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;options&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;python&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;typescript&quot;</span><span class="p">]},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tests&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Include tests?&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;boolean&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="server-integration-phase-2">
+<h2>Server Integration (Phase 2)<a class="headerlink" href="#server-integration-phase-2" title="Link to this heading">#</a></h2>
+<p>For the WebUI, a server elicitation hook would:</p>
+<ol class="arabic simple">
+<li><p>Receive the <code class="docutils literal notranslate"><span class="pre">ElicitationRequest</span></code> from the agent</p></li>
+<li><p>Emit an SSE event to the browser client with the request</p></li>
+<li><p>Block until the client responds via a new HTTP endpoint</p></li>
+<li><p>Return the response to the agent</p></li>
+</ol>
+<p>This follows the same pattern as <code class="docutils literal notranslate"><span class="pre">server_confirm.py</span></code> for tool confirmations.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Planned server_elicit.py</span>
+<span class="k">def</span> <span class="nf">server_elicit_hook</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">ElicitationRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ElicitationResponse</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">session_id</span> <span class="o">=</span> <span class="n">current_session_id</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">session_id</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Fall through to CLI or cancel</span>
+
+    <span class="n">elicit_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+    <span class="n">pending</span> <span class="o">=</span> <span class="n">register_pending_elicitation</span><span class="p">(</span><span class="n">elicit_id</span><span class="p">,</span> <span class="n">request</span><span class="p">)</span>
+
+    <span class="n">emit_sse_event</span><span class="p">(</span><span class="s2">&quot;elicitation_requested&quot;</span><span class="p">,</span> <span class="p">{</span>
+        <span class="s2">&quot;elicit_id&quot;</span><span class="p">:</span> <span class="n">elicit_id</span><span class="p">,</span>
+        <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">request</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+        <span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="n">request</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span>
+        <span class="s2">&quot;options&quot;</span><span class="p">:</span> <span class="n">request</span><span class="o">.</span><span class="n">options</span><span class="p">,</span>
+    <span class="p">})</span>
+
+    <span class="c1"># Block until client responds</span>
+    <span class="n">pending</span><span class="o">.</span><span class="n">event</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">pending</span><span class="o">.</span><span class="n">response</span>
+</pre></div>
+</div>
+</section>
+<section id="open-questions">
+<h2>Open Questions<a class="headerlink" href="#open-questions" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Secret storage mechanism</strong>: Should gptme provide a built-in keyring integration?
+The current approach (agent stores explicitly) is flexible but requires agent awareness.</p></li>
+<li><p><strong>MCP elicitation bridge</strong>: Should gptme’s <code class="docutils literal notranslate"><span class="pre">elicit()</span></code> also trigger MCP elicitation
+when an MCP server has registered a handler? MCP’s <code class="docutils literal notranslate"><span class="pre">elicitation/requestInput</span></code> would
+make this possible.</p></li>
+<li><p><strong>Timeout handling</strong>: Should <code class="docutils literal notranslate"><span class="pre">ElicitationRequest</span></code> include a timeout? The server
+hook would need it; CLI can rely on Ctrl+C.</p></li>
+<li><p><strong>Should <code class="docutils literal notranslate"><span class="pre">confirmation</span></code> type in elicitation unify with <code class="docutils literal notranslate"><span class="pre">tool.confirm</span></code>?</strong>
+Current design: separate (confirmations are about tool execution, elicitations
+are about information collection). Could be unified later if patterns emerge.</p></li>
+</ol>
+</section>
+<section id="comparison-with-other-harnesses">
+<h2>Comparison with Other Harnesses<a class="headerlink" href="#comparison-with-other-harnesses" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Feature</p></th>
+<th class="head"><p>gptme</p></th>
+<th class="head"><p>Claude Code</p></th>
+<th class="head"><p>OpenCode</p></th>
+<th class="head"><p>Lovable</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Text input</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+</tr>
+<tr class="row-odd"><td><p>Single choice</p></td>
+<td><p>✅ (choice tool)</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>?</p></td>
+</tr>
+<tr class="row-even"><td><p>Multi-choice</p></td>
+<td><p>✅ (new)</p></td>
+<td><p>✅</p></td>
+<td><p>?</p></td>
+<td><p>?</p></td>
+</tr>
+<tr class="row-odd"><td><p>Form</p></td>
+<td><p>✅ (form tool + new)</p></td>
+<td><p>✅</p></td>
+<td><p>?</p></td>
+<td><p>?</p></td>
+</tr>
+<tr class="row-even"><td><p>Secret/hidden</p></td>
+<td><p>✅ (new)</p></td>
+<td><p>✅</p></td>
+<td><p>?</p></td>
+<td><p>?</p></td>
+</tr>
+<tr class="row-odd"><td><p>Confirmation</p></td>
+<td><p>✅ (tool.confirm)</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+</tr>
+<tr class="row-even"><td><p>Server/Web UI</p></td>
+<td><p>🚧 (planned)</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+</tr>
+<tr class="row-odd"><td><p>MCP bridge</p></td>
+<td><p>🚧 (planned)</p></td>
+<td><p>?</p></td>
+<td><p>?</p></td>
+<td><p>?</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="hook-based-confirmations.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Design: Hook-Based Tool Confirmations</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../alternatives.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Alternatives</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#background">Background</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementation-status">Implementation Status</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-concepts">Core Concepts</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#elicitation-vs-confirmation">Elicitation vs Confirmation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#elicitation-vs-mcp-elicitation">Elicitation vs MCP Elicitation</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#architecture">Architecture</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#request-types">Request Types</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#response">Response</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-system">Hook System</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#secret-handling-key-use-case">Secret Handling (Key Use Case)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implemented-files">Implemented Files</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-hooks-elicitation-py"><code class="docutils literal notranslate"><span class="pre">gptme/hooks/elicitation.py</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-tools-elicit-py"><code class="docutils literal notranslate"><span class="pre">gptme/tools/elicit.py</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-hooks-init-py"><code class="docutils literal notranslate"><span class="pre">gptme/hooks/__init__.py</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-usage">Agent Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#server-integration-phase-2">Server Integration (Phase 2)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#open-questions">Open Questions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#comparison-with-other-harnesses">Comparison with Other Harnesses</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2026, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>
