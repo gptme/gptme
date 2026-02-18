@@ -151,7 +151,7 @@ The agent uses the `elicit` tool with a JSON spec:
 ```
 ````
 
-```elicit
+```json
 {
   "type": "choice",
   "prompt": "Which framework should we use?",
@@ -159,7 +159,7 @@ The agent uses the `elicit` tool with a JSON spec:
 }
 ```
 
-```elicit
+```json
 {
   "type": "form",
   "prompt": "New project setup:",

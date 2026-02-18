@@ -152,6 +152,7 @@ nitpick_ignore = [
     ("py:class", "gptme.tools.subagent.BatchJob"),
     # Hook confirmation system types
     ("py:class", "gptme.hooks.confirm.ToolConfirmHook"),
+    ("py:class", "gptme.hooks.elicitation.ElicitationHook"),
 ]
 
 # -- Options for HTML output -------------------------------------------------
