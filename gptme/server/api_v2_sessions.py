@@ -1032,6 +1032,10 @@ def api_conversation_elicit_respond(conversation_id: str):
 
     The agent requested structured input via the elicit tool. The client
     displays an appropriate UI and sends the user's response here.
+
+    Note: conversation_id is accepted for URL consistency but not validated
+    against elicit_id. The elicitation registry uses globally unique UUIDs,
+    so cross-conversation resolution is not a practical concern.
     """
     req_json = flask.request.json or {}
     elicit_id = req_json.get("elicit_id")
