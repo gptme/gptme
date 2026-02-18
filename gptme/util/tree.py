@@ -1,6 +1,5 @@
 import logging
 import shlex
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Literal
@@ -13,18 +12,14 @@ logger = logging.getLogger(__name__)
 TreeMethod = Literal["tree", "git", "ls"]
 
 
-def get_tree_output(workspace: Path, method: TreeMethod = "tree") -> str | None:
-    """Get the output of `tree --gitignore .` if available."""
-    # TODO: don't depend on `tree` command being installed
-    # TODO: default to True (get_config().get_env_bool("GPTME_CONTEXT_TREE") is False)
-    if not get_config().get_env_bool("GPTME_CONTEXT_TREE"):
-        return None
+def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
+    """Get workspace file listing using git, tree, or ls (with automatic fallback).
 
-    # Check if tree command is available
-    if shutil.which("tree") is None:
-        logger.warning(
-            "GPTME_CONTEXT_TREE is enabled, but 'tree' command is not available. Install it to use this feature."
-        )
+    Tries methods in order: the requested method first, then falls back to others.
+    The default method is 'git' (``git ls-files``) which works in any git repo
+    without requiring external tools like ``tree`` to be installed.
+    """
+    if not get_config().get_env_bool("GPTME_CONTEXT_TREE"):
         return None
 
     # Check if in a git repository
