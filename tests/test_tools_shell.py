@@ -1288,3 +1288,49 @@ def test_execute_jobs_command():
 
     job.kill()
     reset_background_jobs()
+
+
+def test_needs_tty_sudo_detection():
+    """Test that _needs_tty correctly detects sudo commands needing a TTY.
+
+    When stdin is not a TTY (e.g. in tests), _needs_tty should always return False.
+    This tests the command parsing logic itself.
+    """
+    from unittest.mock import patch
+
+    shell = ShellSession()
+    try:
+        # In non-interactive mode (stdin is not a TTY), should always return False
+        assert not shell._needs_tty("sudo apt install vim")
+        assert not shell._needs_tty("sudo echo test")
+        assert not shell._needs_tty("sudo -u root ls")
+        assert not shell._needs_tty("echo hello")
+
+        # Simulate interactive mode (stdin is a TTY)
+        with patch("sys.stdin") as mock_stdin:
+            mock_stdin.isatty.return_value = True
+
+            # Basic sudo should need TTY
+            assert shell._needs_tty("sudo apt install vim")
+            assert shell._needs_tty("sudo echo test")
+            assert shell._needs_tty("sudo -u root ls")
+
+            # sudo -S (stdin password) should NOT need TTY
+            assert not shell._needs_tty("sudo -S apt install vim")
+            assert not shell._needs_tty("sudo --stdin echo test")
+
+            # sudo -n (non-interactive) should NOT need TTY
+            assert not shell._needs_tty("sudo -n apt install vim")
+            assert not shell._needs_tty("sudo --non-interactive echo test")
+
+            # Non-sudo commands should NOT need TTY
+            assert not shell._needs_tty("echo hello")
+            assert not shell._needs_tty("ls -la")
+            assert not shell._needs_tty("apt install vim")  # without sudo
+
+            # Commands with env vars before sudo should still detect sudo
+            assert shell._needs_tty(
+                "DEBIAN_FRONTEND=noninteractive sudo apt install vim"
+            )
+    finally:
+        shell.close()
