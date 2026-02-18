@@ -19,9 +19,11 @@ PROVIDER_DOCS: dict[str, str] = {
     "azure": "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub",
     "nvidia": "https://build.nvidia.com/",
     "local": "https://gptme.org/docs/providers.html#local-models",
-    # NOTE: openai-subscription uses gptme-auth (OAuth), not API keys.
-    # It needs a separate onboarding path (see: gptme-auth login).
+    "openai-subscription": "https://gptme.org/docs/providers.html#openai-subscription",
 }
+
+# Providers that use OAuth instead of API keys
+OAUTH_PROVIDERS: set[str] = {"openai-subscription"}
 
 
 def validate_api_key(

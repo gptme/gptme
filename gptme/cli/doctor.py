@@ -25,7 +25,7 @@ from rich.text import Text
 from ..config import config_path, get_config
 from ..llm import list_available_providers
 from ..llm.models import PROVIDERS
-from ..llm.validate import PROVIDER_DOCS, validate_api_key
+from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -67,7 +67,9 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
 
     # Get configured providers
     available_providers = list_available_providers()
-    available_provider_names = {provider for provider, _ in available_providers}
+    available_provider_map = {
+        provider: source for provider, source in available_providers
+    }
     config = get_config()
 
     # Special case env var names (only azure differs from the default pattern)
@@ -76,8 +78,30 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
     }
 
     for provider in PROVIDERS:
+        # Handle OAuth-based providers separately
+        if provider in OAUTH_PROVIDERS:
+            if provider in available_provider_map:
+                results.append(
+                    CheckResult(
+                        name=f"Auth: {provider}",
+                        status=CheckStatus.OK,
+                        message="Authenticated (OAuth)",
+                        details="Token file present" if verbose else None,
+                    )
+                )
+            else:
+                results.append(
+                    CheckResult(
+                        name=f"Auth: {provider}",
+                        status=CheckStatus.SKIPPED,
+                        message="Not authenticated",
+                        fix_hint=f"Run: gptme auth {provider}",
+                    )
+                )
+            continue
+
         # Check if provider has API key configured
-        if provider in available_provider_names:
+        if provider in available_provider_map:
             # Key is configured, validate it
             env_var = special_env_vars.get(provider, f"{provider.upper()}_API_KEY")
 

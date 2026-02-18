@@ -361,3 +361,64 @@ class TestCheckApiKeys:
             azure_result = azure_results[0]
             # Should find the key and mark as OK
             assert azure_result.status == CheckStatus.OK
+
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_oauth_provider_authenticated(self, mock_config, mock_providers):
+        """OAuth providers should show as authenticated when token exists."""
+        mock_providers.return_value = [("openai-subscription", "oauth")]
+        mock_config.return_value.get_env.return_value = None
+
+        results = _check_api_keys()
+
+        # Find the openai-subscription result
+        oauth_results = [r for r in results if "openai-subscription" in r.name]
+        assert len(oauth_results) == 1
+        assert oauth_results[0].status == CheckStatus.OK
+        assert "Auth:" in oauth_results[0].name
+        assert "OAuth" in oauth_results[0].message
+
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_oauth_provider_not_authenticated(self, mock_config, mock_providers):
+        """OAuth providers should show setup hint when not authenticated."""
+        mock_providers.return_value = []
+        mock_config.return_value.get_env.return_value = None
+
+        results = _check_api_keys()
+
+        # Find the openai-subscription result
+        oauth_results = [r for r in results if "openai-subscription" in r.name]
+        assert len(oauth_results) == 1
+        assert oauth_results[0].status == CheckStatus.SKIPPED
+        assert oauth_results[0].fix_hint is not None
+        assert "gptme auth" in oauth_results[0].fix_hint
+
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch("gptme.cli.doctor.validate_api_key")
+    @patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"}, clear=True)
+    def test_mixed_api_and_oauth_providers(
+        self, mock_validate, mock_config, mock_providers
+    ):
+        """Both API key and OAuth providers should be checked correctly."""
+        mock_providers.return_value = [
+            ("openai", "OPENAI_API_KEY"),
+            ("openai-subscription", "oauth"),
+        ]
+        mock_config.return_value.get_env.return_value = None
+        mock_validate.return_value = (True, "")
+
+        results = _check_api_keys()
+
+        # API key provider should use "API Key:" prefix
+        api_results = [r for r in results if r.name.startswith("API Key:")]
+        openai_api = [r for r in api_results if "openai" in r.name]
+        assert any(r.status == CheckStatus.OK for r in openai_api)
+
+        # OAuth provider should use "Auth:" prefix
+        auth_results = [r for r in results if r.name.startswith("Auth:")]
+        assert len(auth_results) == 1
+        assert auth_results[0].status == CheckStatus.OK
