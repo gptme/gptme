@@ -509,6 +509,174 @@ def llm_generate(prompt: str | None, model: str | None, stream: bool):
 
 
 @main.group()
+def skills():
+    """Browse and inspect skills and lessons."""
+    pass
+
+
+@skills.command("list")
+@click.option("--all", "show_all", is_flag=True, help="Show both skills and lessons")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def skills_list(show_all: bool, json_output: bool):
+    """List available skills (and optionally lessons)."""
+    from ..lessons.index import LessonIndex
+
+    index = LessonIndex()
+
+    if not index.lessons:
+        click.echo("No skills or lessons found.")
+        return
+
+    # Separate skills and lessons
+    skills_items = [item for item in index.lessons if item.metadata.name]
+    lessons_items = [item for item in index.lessons if not item.metadata.name]
+
+    if json_output:
+        import json
+
+        result: dict = {
+            "skills": [
+                {
+                    "name": s.metadata.name,
+                    "description": s.metadata.description or s.description,
+                    "path": str(s.path),
+                    "category": s.category,
+                }
+                for s in sorted(skills_items, key=lambda s: s.metadata.name or "")
+            ],
+        }
+        if show_all:
+            result["lessons"] = [
+                {
+                    "title": lesson.title,
+                    "category": lesson.category,
+                    "keywords": lesson.metadata.keywords[:5],
+                    "path": str(lesson.path),
+                }
+                for lesson in sorted(lessons_items, key=lambda x: x.title)
+            ]
+        click.echo(json.dumps(result, indent=2))
+        return
+
+    # Skills
+    if skills_items:
+        skills_sorted = sorted(skills_items, key=lambda s: s.metadata.name or "")
+        click.echo(f"Skills ({len(skills_sorted)}):\n")
+        for skill in skills_sorted:
+            name = skill.metadata.name
+            desc = skill.metadata.description or skill.description or ""
+            if len(desc) > 60:
+                desc = desc[:57] + "..."
+            click.echo(f"  {name:30s} {desc}")
+    else:
+        click.echo("No skills found.")
+
+    if not show_all:
+        if lessons_items:
+            click.echo(f"\n({len(lessons_items)} lessons available, use --all to show)")
+        return
+
+    # Lessons (grouped by category)
+    if lessons_items:
+        click.echo(f"\nLessons ({len(lessons_items)}):\n")
+        by_category: dict[str, list] = {}
+        for lesson in lessons_items:
+            by_category.setdefault(lesson.category, []).append(lesson)
+
+        for cat in sorted(by_category.keys()):
+            click.echo(f"  [{cat}]")
+            for lesson in sorted(by_category[cat], key=lambda x: x.title):
+                click.echo(f"    {lesson.title}")
+            click.echo()
+
+
+@skills.command("show")
+@click.argument("name")
+def skills_show(name: str):
+    """Show the full content of a skill or lesson."""
+    from ..lessons.index import LessonIndex
+
+    index = LessonIndex()
+
+    if not index.lessons:
+        click.echo("No skills or lessons found.")
+        return
+
+    name_lower = name.lower()
+
+    # Search by skill name first, then lesson title/filename
+    for item in index.lessons:
+        if item.metadata.name and name_lower in item.metadata.name.lower():
+            click.echo(f"# {item.metadata.name}")
+            if item.metadata.description:
+                click.echo(f"\n{item.metadata.description}")
+            click.echo(f"\nPath: {item.path}\n")
+            click.echo(item.body)
+            return
+
+    for item in index.lessons:
+        if name_lower in item.title.lower() or name_lower in item.path.stem.lower():
+            click.echo(f"# {item.title}")
+            click.echo(f"\nPath: {item.path}\n")
+            click.echo(item.body)
+            return
+
+    click.echo(f"Skill or lesson not found: {name}")
+    sys.exit(1)
+
+
+@skills.command("search")
+@click.argument("query")
+@click.option("-n", "--limit", default=10, help="Maximum number of results")
+def skills_search(query: str, limit: int):
+    """Search skills and lessons by keyword."""
+    from ..lessons.index import LessonIndex
+
+    index = LessonIndex()
+
+    if not index.lessons:
+        click.echo("No skills or lessons found.")
+        return
+
+    results = index.search(query)
+
+    if not results:
+        click.echo(f"No results for '{query}'")
+        return
+
+    results = results[:limit]
+    click.echo(f"Results for '{query}' ({len(results)}):\n")
+
+    for item in results:
+        if item.metadata.name:
+            label = f"[skill] {item.metadata.name}"
+        else:
+            label = f"[{item.category}] {item.title}"
+        desc = item.metadata.description or item.description or ""
+        if len(desc) > 50:
+            desc = desc[:47] + "..."
+        click.echo(f"  {label:40s} {desc}")
+
+
+@skills.command("dirs")
+def skills_dirs():
+    """Show directories searched for skills and lessons."""
+    from ..lessons.index import LessonIndex
+
+    index = LessonIndex()
+
+    click.echo("Skill/lesson directories:\n")
+    for d in index.lesson_dirs:
+        exists = d.exists()
+        count = 0
+        if exists:
+            count = len(list(d.rglob("*.md"))) + len(list(d.rglob("*.mdc")))
+        status = f"{count} files" if exists else "not found"
+        icon = "+" if exists else "-"
+        click.echo(f"  {icon} {d}  ({status})")
+
+
+@main.group()
 def tools():
     """Tool-related utilities."""
     pass
