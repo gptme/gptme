@@ -427,7 +427,7 @@ def llm():
 @click.option(
     "-m",
     "--model",
-    help="Model to use (e.g. openai/gpt-4o, anthropic/claude-3-5-sonnet)",
+    help="Model to use (e.g. openai/gpt-4o, anthropic/claude-sonnet-4-6)",
 )
 @click.option("--stream/--no-stream", default=False, help="Stream the response")
 def llm_generate(prompt: str | None, model: str | None, stream: bool):

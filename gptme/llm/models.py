@@ -151,6 +151,28 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     },
     # https://docs.anthropic.com/en/docs/about-claude/models
     "anthropic": {
+        "claude-opus-4-6": {
+            "context": 200_000,
+            "max_output": 128_000,
+            "price_input": 5,
+            "price_output": 25,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "knowledge_cutoff": datetime(
+                2025, 8, 1
+            ),  # training cutoff Aug 2025, reliable May 2025
+        },
+        "claude-sonnet-4-6": {
+            "context": 200_000,
+            "max_output": 64_000,
+            "price_input": 3,
+            "price_output": 15,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "knowledge_cutoff": datetime(
+                2026, 1, 1
+            ),  # training cutoff Jan 2026, reliable Aug 2025
+        },
         "claude-opus-4-5": {
             "context": 200_000,
             "max_output": 64_000,
@@ -158,7 +180,9 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 25,
             "supports_vision": True,
             "supports_reasoning": True,
-            "knowledge_cutoff": datetime(2025, 8, 1),  # "reliable cutoff" is March 2025
+            "knowledge_cutoff": datetime(
+                2025, 8, 1
+            ),  # training cutoff Aug 2025, reliable May 2025
         },
         "claude-sonnet-4-5": {
             "context": 200_000,
@@ -167,7 +191,9 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_vision": True,
             "supports_reasoning": True,
-            "knowledge_cutoff": datetime(2025, 7, 1),  # "reliable cutoff" is Jan 2025
+            "knowledge_cutoff": datetime(
+                2025, 7, 1
+            ),  # training cutoff Jul 2025, reliable Jan 2025
         },
         "claude-haiku-4-5": {
             "context": 200_000,
@@ -407,12 +433,13 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             # "supports_vision": True,
             "supports_reasoning": True,
         },
-        "anthropic/claude-3.5-sonnet": {
+        "anthropic/claude-sonnet-4-6": {
             "context": 200_000,
-            "max_output": 8192,
+            "max_output": 64_000,
             "price_input": 3,
             "price_output": 15,
             "supports_vision": True,
+            "supports_reasoning": True,
         },
         "meta-llama/llama-3.3-70b-instruct": {
             "context": 128_000,
@@ -693,7 +720,7 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
     elif provider == "gemini":
         return "gemini-2.5-pro"
     elif provider == "anthropic":
-        return "claude-sonnet-4-5"
+        return "claude-sonnet-4-6"
     elif provider == "xai":
         return "grok-4"
     else:

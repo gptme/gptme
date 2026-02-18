@@ -17,7 +17,7 @@ jobs:
       - name: Run gptme-bot action
         uses: ./.github/actions/bot
         with:
-          model: 'anthropic/claude-sonnet-4-5'
+          model: 'anthropic/claude-sonnet-4-6'
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
