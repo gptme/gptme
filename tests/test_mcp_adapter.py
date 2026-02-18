@@ -294,19 +294,37 @@ def test_list_loaded_servers_with_servers():
 # MCP-to-gptme elicitation bridge tests
 # ============================================================================
 
+# ElicitRequestFormParams was added in mcp >= 1.22.0 (split from ElicitRequestParams)
+# In older versions, ElicitRequestParams is a concrete class with requestedSchema.
+# Use getattr to avoid mypy errors when the newer type doesn't exist.
+_has_mcp_elicitation = False
+try:
+    import mcp.types as _mcp_types
 
+    _has_mcp_elicitation = hasattr(_mcp_types, "ElicitRequestFormParams")
+    # In mcp < 1.22.0, use ElicitRequestParams directly (it's a concrete class)
+    _ElicitFormParams = getattr(
+        _mcp_types,
+        "ElicitRequestFormParams",
+        getattr(_mcp_types, "ElicitRequestParams", None),
+    )
+except ImportError:
+    _ElicitFormParams = None
+
+
+@pytest.mark.skipif(
+    _ElicitFormParams is None,
+    reason="MCP elicitation types not available",
+)
 class TestMCPElicitationBridge:
     """Tests for MCP elicitation → gptme elicitation translation."""
 
     def test_simple_text_request(self):
         """MCP request without schema maps to text elicitation."""
-        import mcp.types as mcp_types
-
         from gptme.tools.mcp_adapter import _mcp_params_to_elicitation_request
 
-        params = mcp_types.ElicitRequestFormParams(
-            message="Enter your name", requestedSchema={}
-        )
+        assert _ElicitFormParams is not None
+        params = _ElicitFormParams(message="Enter your name", requestedSchema={})
         request = _mcp_params_to_elicitation_request(params, "test-server")
 
         assert request.type == "text"
@@ -315,11 +333,10 @@ class TestMCPElicitationBridge:
 
     def test_schema_request_maps_to_form(self):
         """MCP request with schema maps to form elicitation with FormFields."""
-        import mcp.types as mcp_types
-
         from gptme.tools.mcp_adapter import _mcp_params_to_elicitation_request
 
-        params = mcp_types.ElicitRequestFormParams(
+        assert _ElicitFormParams is not None
+        params = _ElicitFormParams(
             message="Configure settings",
             requestedSchema={
                 "properties": {
@@ -395,11 +412,10 @@ class TestMCPElicitationBridge:
 
     def test_schema_with_defaults(self):
         """Schema properties with defaults are passed through to FormFields."""
-        import mcp.types as mcp_types
-
         from gptme.tools.mcp_adapter import _mcp_params_to_elicitation_request
 
-        params = mcp_types.ElicitRequestFormParams(
+        assert _ElicitFormParams is not None
+        params = _ElicitFormParams(
             message="Settings",
             requestedSchema={
                 "properties": {
