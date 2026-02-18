@@ -23,6 +23,11 @@ from .confirm import ConfirmationResult as ConfirmationResult
 from .confirm import ToolConfirmHook as ToolConfirmHook
 from .confirm import confirm as confirm
 from .confirm import get_confirmation as get_confirmation
+from .elicitation import ElicitationHook as ElicitationHook
+from .elicitation import ElicitationRequest as ElicitationRequest
+from .elicitation import ElicitationResponse as ElicitationResponse
+from .elicitation import FormField as FormField
+from .elicitation import elicit as elicit
 from .server_confirm import current_conversation_id as current_conversation_id
 from .server_confirm import current_session_id as current_session_id
 
@@ -109,6 +114,9 @@ class HookType(str, Enum):
 
     # Tool confirmation (different from other hooks - returns data, not yields Messages)
     TOOL_CONFIRM = "tool.confirm"  # Confirm tool execution before running
+
+    # Elicitation (agent requests structured input from user)
+    ELICIT = "elicit"  # Agent requests user input (text, choice, secret, form, etc.)
 
 
 # Protocol classes for different hook signatures
@@ -286,6 +294,7 @@ HookFunc = (
     | FilePostSaveHook
     | CacheInvalidatedHook
     | ToolConfirmHook
+    | ElicitationHook
 )
 
 
@@ -706,6 +715,16 @@ def register_hook(
     name: str,
     hook_type: Literal[HookType.TOOL_CONFIRM],
     func: ToolConfirmHook,
+    priority: int = 0,
+    enabled: bool = True,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.ELICIT],
+    func: ElicitationHook,
     priority: int = 0,
     enabled: bool = True,
 ) -> None: ...
