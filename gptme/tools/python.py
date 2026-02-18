@@ -77,10 +77,14 @@ def _detect_venv() -> Path | None:
 
 def _get_venv_site_packages(venv_path: Path) -> Path | None:
     """Get the site-packages directory for a venv."""
+    # Windows: Lib/site-packages (no pythonX.Y subdirectory)
+    win_sp = venv_path / "Lib" / "site-packages"
+    if win_sp.is_dir():
+        return win_sp
+    # Unix: lib/pythonX.Y/site-packages
     lib_dir = venv_path / "lib"
     if not lib_dir.is_dir():
         return None
-    # Find the pythonX.Y directory
     for entry in lib_dir.iterdir():
         if entry.name.startswith("python") and entry.is_dir():
             sp = entry / "site-packages"
@@ -111,7 +115,7 @@ def _setup_venv_paths() -> None:
 
     sp_str = str(sp)
     if sp_str not in sys.path:
-        # Insert after gptme's own site-packages so user packages take precedence
+        # Insert before gptme's own site-packages so user packages take precedence
         # for imports, but gptme's deps are still available as fallback
         sys.path.insert(0, sp_str)
         # Also process .pth files in the venv (handles editable installs etc.)

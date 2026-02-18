@@ -129,6 +129,14 @@ def test_get_venv_site_packages(tmp_path):
     assert result == sp
 
 
+def test_get_venv_site_packages_windows(tmp_path):
+    """Should find Windows-style Lib/site-packages."""
+    sp = tmp_path / "Lib" / "site-packages"
+    sp.mkdir(parents=True)
+    result = _get_venv_site_packages(tmp_path)
+    assert result == sp
+
+
 def test_get_venv_site_packages_missing(tmp_path):
     """Should return None if no lib dir."""
     result = _get_venv_site_packages(tmp_path)
