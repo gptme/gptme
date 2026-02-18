@@ -567,7 +567,7 @@ def skills_list(show_all: bool, json_output: bool):
             desc = skill.metadata.description or skill.description or ""
             if len(desc) > 60:
                 desc = desc[:57] + "..."
-            click.echo(f"  {name:30s} {desc}")
+            click.echo(f"  {name or '':30s} {desc}")
     else:
         click.echo("No skills found.")
 

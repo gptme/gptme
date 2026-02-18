@@ -182,6 +182,40 @@ def test_skills_search(tmp_path, mocker):
     assert "python-repl" in result.output
 
 
+def test_skills_search_by_metadata_name(tmp_path, mocker):
+    """Test that search finds skills by metadata.name even when it differs from title."""
+    # Create a skill where metadata.name differs from the H1 title
+    skill_dir = tmp_path / "skills"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "deploy.md").write_text(
+        """---
+name: deploy-helper
+description: Automates deployment workflows
+---
+
+# Production Deployment Tool
+
+Content about deployments.
+"""
+    )
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[skill_dir],
+    )
+
+    runner = CliRunner()
+    # Search by metadata.name which doesn't appear in title
+    result = runner.invoke(main, ["skills", "search", "deploy-helper"])
+    assert result.exit_code == 0
+    assert "deploy-helper" in result.output
+
+    # Search by metadata.description
+    result = runner.invoke(main, ["skills", "search", "deployment workflows"])
+    assert result.exit_code == 0
+    assert "deploy-helper" in result.output
+
+
 def test_skills_search_no_results(tmp_path, mocker):
     """Test skills search with no matching results."""
     _create_skill(tmp_path, "unrelated", "Nothing to see")

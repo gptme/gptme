@@ -371,8 +371,21 @@ class LessonIndex:
         results = []
 
         for lesson in self.lessons:
+            # Check skill name (metadata.name)
+            if lesson.metadata.name and query_lower in lesson.metadata.name.lower():
+                results.append(lesson)
+                continue
+
             # Check title
             if query_lower in lesson.title.lower():
+                results.append(lesson)
+                continue
+
+            # Check skill description (metadata.description)
+            if (
+                lesson.metadata.description
+                and query_lower in lesson.metadata.description.lower()
+            ):
                 results.append(lesson)
                 continue
 
