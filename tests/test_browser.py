@@ -85,8 +85,8 @@ def test_search_perplexity(monkeypatch):
     import os
 
     # Skip if no API keys available
-    has_perplexity = os.getenv("PERPLEXITY_API_KEY") is not None
-    has_openrouter = os.getenv("OPENROUTER_API_KEY") is not None
+    has_perplexity = bool(os.getenv("PERPLEXITY_API_KEY"))
+    has_openrouter = bool(os.getenv("OPENROUTER_API_KEY"))
 
     if not (has_perplexity or has_openrouter):
         pytest.skip("No PERPLEXITY_API_KEY or OPENROUTER_API_KEY available")
