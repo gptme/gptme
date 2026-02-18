@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 import asyncio
 import json
 from collections.abc import Callable, Generator
 from logging import getLogger
+from typing import TYPE_CHECKING
 
 import mcp.types as mcp_types
+
+if TYPE_CHECKING:
+    from ..hooks.elicitation import ElicitationRequest, ElicitationResponse
 
 from gptme.config import Config, MCPServerConfig, get_config, set_config
 
@@ -832,111 +838,112 @@ def remove_mcp_root(server_name: str, uri: str) -> str:
 # Elicitation support functions
 
 
-def _create_cli_elicitation_handler(server_name: str):
-    """Create a CLI-based elicitation callback for a server.
+def _mcp_params_to_elicitation_request(
+    params: mcp_types.ElicitRequestParams,
+    server_name: str,
+) -> ElicitationRequest:
+    """Convert MCP ElicitRequestParams to gptme's ElicitationRequest.
 
-    Returns an async callable that handles elicitation requests by prompting
-    the user in the terminal.
+    Maps MCP's JSON Schema-based requestedSchema to gptme's FormField-based
+    form elicitation, allowing MCP servers to use the shared elicitation UI.
+
+    Handles both MCP elicitation param types:
+    - ElicitRequestFormParams (has requestedSchema)
+    - ElicitRequestURLParams (has url, no schema)
     """
-    import mcp.types as mcp_types
+    from ..hooks.elicitation import ElicitationRequest, FormField
 
-    async def cli_elicitation_callback(
+    prompt = f"MCP Server '{server_name}': {params.message}"
+
+    # URL-mode params don't have a schema — treat as text
+    schema = getattr(params, "requestedSchema", None)
+
+    # If no schema, treat as simple text input
+    if not schema or "properties" not in schema:
+        return ElicitationRequest(type="text", prompt=prompt)
+
+    # Convert JSON Schema properties to FormFields
+    properties = schema.get("properties", {})
+    required_fields = schema.get("required", [])
+    fields: list[FormField] = []
+
+    for field_name, field_info in properties.items():
+        json_type = field_info.get("type", "string")
+        field_desc = field_info.get("description", field_name)
+        field_default = field_info.get("default")
+
+        # Map JSON Schema types to FormField types
+        if json_type == "boolean":
+            form_type: str = "boolean"
+        elif json_type in ("integer", "number"):
+            form_type = "number"
+        else:
+            form_type = "text"
+
+        fields.append(
+            FormField(
+                name=field_name,
+                prompt=field_desc,
+                type=form_type,  # type: ignore[arg-type]
+                required=field_name in required_fields,
+                default=str(field_default) if field_default is not None else None,
+            )
+        )
+
+    return ElicitationRequest(type="form", prompt=prompt, fields=fields)
+
+
+def _elicitation_response_to_mcp_result(
+    response: ElicitationResponse,
+) -> mcp_types.ElicitResult:
+    """Convert gptme's ElicitationResponse to MCP's ElicitResult."""
+    if response.cancelled:
+        return mcp_types.ElicitResult(action="cancel", content=None)
+
+    if response.value is None:
+        return mcp_types.ElicitResult(action="decline", content=None)
+
+    # For form responses, the value is a JSON string of field values
+    import json
+
+    try:
+        content = json.loads(response.value)
+        if isinstance(content, dict):
+            return mcp_types.ElicitResult(action="accept", content=content)
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # For simple text responses, wrap in a content dict
+    return mcp_types.ElicitResult(action="accept", content={"value": response.value})
+
+
+def _create_elicitation_handler(server_name: str):
+    """Create an elicitation callback for a server using the shared hook system.
+
+    Uses gptme's unified elicitation system (hooks/elicitation.py) so MCP
+    servers get the same rich input UI as native gptme elicitation. When
+    WebUI support is added, MCP servers get it automatically.
+
+    Returns an async callable compatible with MCPClient's elicitation_callback.
+    """
+
+    async def elicitation_callback(
         params: mcp_types.ElicitRequestParams,
     ) -> mcp_types.ElicitResult | mcp_types.ErrorData:
-        """Handle elicitation request from MCP server via CLI."""
-        from ..hooks.confirm import confirm
+        """Handle elicitation request from MCP server via shared hook system."""
+        from ..hooks.elicitation import elicit
 
         logger.info(f"Elicitation request from {server_name}: {params.message}")
 
-        # Display the elicitation request to the user
-        print(f"\n📋 **MCP Server '{server_name}' is requesting input:**")
-        print(f"   {params.message}\n")
+        try:
+            request = _mcp_params_to_elicitation_request(params, server_name)
+            response = elicit(request)
+            return _elicitation_response_to_mcp_result(response)
+        except Exception as e:
+            logger.error(f"Elicitation error for {server_name}: {e}")
+            return mcp_types.ErrorData(code=-32000, message=str(e))
 
-        # Show the requested schema fields
-        schema = params.requestedSchema
-        if schema and "properties" in schema:
-            print("   **Requested fields:**")
-            properties = schema.get("properties", {})
-            required = schema.get("required", [])
-            for field_name, field_info in properties.items():
-                field_type = field_info.get("type", "string")
-                field_desc = field_info.get("description", "")
-                req_marker = " (required)" if field_name in required else ""
-                print(f"   - {field_name} ({field_type}){req_marker}: {field_desc}")
-            print()
-
-        # Ask user whether to proceed
-        response = confirm("Provide input for this request?", default=False)
-        if not response:
-            return mcp_types.ElicitResult(action="decline", content=None)
-
-        # Collect input for each field
-        content: dict[str, str | int | float | bool | None] = {}
-        if schema and "properties" in schema:
-            properties = schema.get("properties", {})
-            for field_name, field_info in properties.items():
-                field_type = field_info.get("type", "string")
-                field_default = field_info.get("default", "")
-                prompt_text = f"   Enter {field_name}"
-                if field_default:
-                    prompt_text += f" [{field_default}]"
-                prompt_text += ": "
-
-                try:
-                    user_input = input(prompt_text).strip()
-                    if not user_input and field_default:
-                        user_input = str(field_default)
-
-                    # Convert to appropriate type
-                    if field_type == "integer":
-                        try:
-                            content[field_name] = (
-                                int(user_input) if user_input else None
-                            )
-                        except ValueError:
-                            print(f"   ⚠️  Invalid integer value: {user_input!r}")
-                            content[field_name] = None
-                    elif field_type == "number":
-                        try:
-                            content[field_name] = (
-                                float(user_input) if user_input else None
-                            )
-                        except ValueError:
-                            print(f"   ⚠️  Invalid number value: {user_input!r}")
-                            content[field_name] = None
-                    elif field_type == "boolean":
-                        content[field_name] = user_input.lower() in (
-                            "true",
-                            "yes",
-                            "1",
-                            "y",
-                        )
-                    else:
-                        content[field_name] = user_input if user_input else None
-                except (KeyboardInterrupt, EOFError):
-                    print("\n   Input cancelled.")
-                    return mcp_types.ElicitResult(action="cancel", content=None)
-
-        # Validate required fields
-        if schema and "required" in schema:
-            required_fields = schema.get("required", [])
-            missing_fields = [
-                f
-                for f in required_fields
-                if f not in content or content[f] is None or content[f] == ""
-            ]
-            if missing_fields:
-                print(f"   ⚠️  Missing required fields: {', '.join(missing_fields)}")
-                retry = confirm("Would you like to re-enter the values?", default=True)
-                if retry:
-                    # Recursively call to re-collect input
-                    return await cli_elicitation_callback(params)
-                else:
-                    return mcp_types.ElicitResult(action="decline", content=None)
-
-        return mcp_types.ElicitResult(action="accept", content=content)
-
-    return cli_elicitation_callback
+    return elicitation_callback
 
 
 def enable_mcp_elicitation(server_name: str) -> str:
@@ -959,7 +966,7 @@ def enable_mcp_elicitation(server_name: str) -> str:
         )
 
     try:
-        callback = _create_cli_elicitation_handler(server_name)
+        callback = _create_elicitation_handler(server_name)
         client.set_elicitation_callback(callback)
         return f"Elicitation enabled for server '{server_name}'. Server can now request user input."
     except Exception as e:

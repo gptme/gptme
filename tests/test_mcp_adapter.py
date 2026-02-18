@@ -288,3 +288,133 @@ def test_list_loaded_servers_with_servers():
 
     # Cleanup
     _dynamic_servers.clear()
+
+
+# ============================================================================
+# MCP-to-gptme elicitation bridge tests
+# ============================================================================
+
+
+class TestMCPElicitationBridge:
+    """Tests for MCP elicitation → gptme elicitation translation."""
+
+    def test_simple_text_request(self):
+        """MCP request without schema maps to text elicitation."""
+        import mcp.types as mcp_types
+
+        from gptme.tools.mcp_adapter import _mcp_params_to_elicitation_request
+
+        params = mcp_types.ElicitRequestFormParams(
+            message="Enter your name", requestedSchema={}
+        )
+        request = _mcp_params_to_elicitation_request(params, "test-server")
+
+        assert request.type == "text"
+        assert "test-server" in request.prompt
+        assert "Enter your name" in request.prompt
+
+    def test_schema_request_maps_to_form(self):
+        """MCP request with schema maps to form elicitation with FormFields."""
+        import mcp.types as mcp_types
+
+        from gptme.tools.mcp_adapter import _mcp_params_to_elicitation_request
+
+        params = mcp_types.ElicitRequestFormParams(
+            message="Configure settings",
+            requestedSchema={
+                "properties": {
+                    "name": {"type": "string", "description": "Your name"},
+                    "age": {"type": "integer", "description": "Your age"},
+                    "active": {"type": "boolean", "description": "Is active?"},
+                },
+                "required": ["name"],
+            },
+        )
+        request = _mcp_params_to_elicitation_request(params, "test-server")
+
+        assert request.type == "form"
+        assert request.fields is not None
+        assert len(request.fields) == 3
+
+        # Check field mapping
+        name_field = next(f for f in request.fields if f.name == "name")
+        assert name_field.type == "text"
+        assert name_field.required is True
+
+        age_field = next(f for f in request.fields if f.name == "age")
+        assert age_field.type == "number"
+
+        active_field = next(f for f in request.fields if f.name == "active")
+        assert active_field.type == "boolean"
+
+    def test_cancelled_response_to_mcp(self):
+        """Cancelled ElicitationResponse maps to MCP cancel action."""
+        from gptme.hooks.elicitation import ElicitationResponse
+        from gptme.tools.mcp_adapter import _elicitation_response_to_mcp_result
+
+        response = ElicitationResponse.cancel()
+        result = _elicitation_response_to_mcp_result(response)
+
+        assert result.action == "cancel"
+        assert result.content is None
+
+    def test_none_value_response_to_mcp(self):
+        """None value in response maps to MCP decline action."""
+        from gptme.hooks.elicitation import ElicitationResponse
+        from gptme.tools.mcp_adapter import _elicitation_response_to_mcp_result
+
+        response = ElicitationResponse(value=None, cancelled=False)
+        result = _elicitation_response_to_mcp_result(response)
+
+        assert result.action == "decline"
+
+    def test_form_json_response_to_mcp(self):
+        """JSON form response maps to MCP accept with parsed content."""
+        import json
+
+        from gptme.hooks.elicitation import ElicitationResponse
+        from gptme.tools.mcp_adapter import _elicitation_response_to_mcp_result
+
+        form_data = {"name": "Bob", "age": 42}
+        response = ElicitationResponse.text(json.dumps(form_data))
+        result = _elicitation_response_to_mcp_result(response)
+
+        assert result.action == "accept"
+        assert result.content == form_data
+
+    def test_text_response_to_mcp(self):
+        """Plain text response wraps in value dict for MCP."""
+        from gptme.hooks.elicitation import ElicitationResponse
+        from gptme.tools.mcp_adapter import _elicitation_response_to_mcp_result
+
+        response = ElicitationResponse.text("hello")
+        result = _elicitation_response_to_mcp_result(response)
+
+        assert result.action == "accept"
+        assert result.content == {"value": "hello"}
+
+    def test_schema_with_defaults(self):
+        """Schema properties with defaults are passed through to FormFields."""
+        import mcp.types as mcp_types
+
+        from gptme.tools.mcp_adapter import _mcp_params_to_elicitation_request
+
+        params = mcp_types.ElicitRequestFormParams(
+            message="Settings",
+            requestedSchema={
+                "properties": {
+                    "port": {
+                        "type": "integer",
+                        "description": "Port number",
+                        "default": 8080,
+                    },
+                },
+                "required": [],
+            },
+        )
+        request = _mcp_params_to_elicitation_request(params, "test-server")
+
+        assert request.fields is not None
+        port_field = request.fields[0]
+        assert port_field.default == "8080"
+        assert port_field.required is False
