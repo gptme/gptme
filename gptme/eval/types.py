@@ -39,7 +39,7 @@ class ModelConfig:
             if fmt in get_args(ToolFormat):
                 return cls(model=model, tool_format=cast(ToolFormat, fmt))
             # '@' was part of model name, not a format separator
-        if default_format:
+        if default_format is not None:
             return cls(model=spec, tool_format=default_format)
         raise ValueError(f"No tool format in spec '{spec}' and no default provided")
 

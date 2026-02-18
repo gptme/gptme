@@ -489,6 +489,11 @@ def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
 
             if tool_format:
                 # New format: separate columns
+                if tool_format not in get_args(ToolFormat):
+                    logger.warning(
+                        f"Unknown tool format '{tool_format}' in CSV, skipping row"
+                    )
+                    continue
                 config = ModelConfig(
                     model=model_name, tool_format=cast(ToolFormat, tool_format)
                 )
