@@ -295,26 +295,23 @@ def test_list_loaded_servers_with_servers():
 # ============================================================================
 
 # ElicitRequestFormParams was added in mcp >= 1.22.0 (split from ElicitRequestParams)
-# In older versions, ElicitRequestParams is a concrete class with requestedSchema.
-# Use getattr to avoid mypy errors when the newer type doesn't exist.
+# In older versions, ElicitRequestParams is a Union TypeAlias, not instantiable directly.
+# These tests require mcp >= 1.22.0 with ElicitRequestFormParams as a concrete class.
 _has_mcp_elicitation = False
+_ElicitFormParams = None
 try:
     import mcp.types as _mcp_types
 
-    _has_mcp_elicitation = hasattr(_mcp_types, "ElicitRequestFormParams")
-    # In mcp < 1.22.0, use ElicitRequestParams directly (it's a concrete class)
-    _ElicitFormParams = getattr(
-        _mcp_types,
-        "ElicitRequestFormParams",
-        getattr(_mcp_types, "ElicitRequestParams", None),
-    )
+    if hasattr(_mcp_types, "ElicitRequestFormParams"):
+        _has_mcp_elicitation = True
+        _ElicitFormParams = _mcp_types.ElicitRequestFormParams  # type: ignore[attr-defined]
 except ImportError:
-    _ElicitFormParams = None
+    pass
 
 
 @pytest.mark.skipif(
-    _ElicitFormParams is None,
-    reason="MCP elicitation types not available",
+    not _has_mcp_elicitation,
+    reason="MCP elicitation (ElicitRequestFormParams) requires mcp >= 1.22.0",
 )
 class TestMCPElicitationBridge:
     """Tests for MCP elicitation → gptme elicitation translation."""
