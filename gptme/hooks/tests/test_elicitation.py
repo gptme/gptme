@@ -410,3 +410,66 @@ class TestElicitTool:
             "invalid" in messages[0].content.lower()
             or "missing" in messages[0].content.lower()
         )
+
+    def test_non_dict_json_returns_error(self):
+        """JSON that is not an object (e.g. string, array) produces error message."""
+        import json
+
+        from gptme.tools.elicit import execute_elicit, parse_elicitation_spec
+
+        # Test parse_elicitation_spec directly
+        assert parse_elicitation_spec(json.dumps("just a string")) is None
+        assert parse_elicitation_spec(json.dumps([{"type": "text"}])) is None
+        assert parse_elicitation_spec(json.dumps(42)) is None
+        assert parse_elicitation_spec(json.dumps(None)) is None
+
+        # Test that execute_elicit handles it gracefully (via parse returning None)
+        messages = list(execute_elicit(json.dumps("just a string"), [], {}))
+        assert len(messages) == 1
+        assert (
+            "invalid" in messages[0].content.lower()
+            or "spec" in messages[0].content.lower()
+        )
+
+    def test_non_dict_field_entries_are_skipped(self):
+        """Non-dict entries in 'fields' array are skipped gracefully."""
+        import json
+
+        from gptme.tools.elicit import parse_elicitation_spec
+
+        # Form spec with mixed valid and invalid field entries
+        spec = json.dumps(
+            {
+                "type": "form",
+                "prompt": "Fill out:",
+                "fields": [
+                    "just a string",  # invalid - should be skipped
+                    None,  # invalid - should be skipped
+                    {"name": "username", "prompt": "Username?", "type": "text"},
+                ],
+            }
+        )
+        request = parse_elicitation_spec(spec)
+        assert request is not None
+        assert request.fields is not None
+        # Only the valid dict field should be included
+        assert len(request.fields) == 1
+        assert request.fields[0].name == "username"
+
+    def test_invalid_type_returns_error(self):
+        """Invalid elicitation type produces error message."""
+        import json
+
+        from gptme.tools.elicit import execute_elicit, parse_elicitation_spec
+
+        # Test parse_elicitation_spec directly
+        spec_str = json.dumps({"type": "password", "prompt": "Enter password:"})
+        assert parse_elicitation_spec(spec_str) is None
+
+        # Test execute_elicit
+        messages = list(execute_elicit(spec_str, [], {}))
+        assert len(messages) == 1
+        assert (
+            "invalid" in messages[0].content.lower()
+            or "spec" in messages[0].content.lower()
+        )

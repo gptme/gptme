@@ -99,6 +99,12 @@ def parse_elicitation_spec(code: str) -> ElicitationRequest | None:
         logger.error(f"Failed to parse elicitation spec as JSON: {e}")
         return None
 
+    if not isinstance(spec, dict):
+        logger.error(
+            f"Elicitation spec must be a JSON object, got {type(spec).__name__}"
+        )
+        return None
+
     elicit_type = spec.get("type", "text")
     valid_types = {"text", "choice", "multi_choice", "secret", "confirmation", "form"}
     if elicit_type not in valid_types:
@@ -117,6 +123,9 @@ def parse_elicitation_spec(code: str) -> ElicitationRequest | None:
     if elicit_type == "form" and "fields" in spec:
         fields = []
         for f in spec["fields"]:
+            if not isinstance(f, dict):
+                logger.warning(f"Skipping non-dict field entry in form spec: {f!r}")
+                continue
             fields.append(
                 FormField(
                     name=f.get("name", ""),
