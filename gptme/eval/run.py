@@ -14,7 +14,6 @@ from typing import TypedDict
 
 from tqdm import tqdm
 
-from ..tools import ToolFormat
 from .agents import Agent, GPTMe
 from .cost import get_eval_costs
 from .execenv import DockerExecutionEnv, SimpleExecutionEnv
@@ -22,6 +21,7 @@ from .types import (
     CaseResult,
     EvalResult,
     EvalSpec,
+    ModelConfig,
     ResultContext,
     Status,
 )
@@ -77,17 +77,17 @@ class SyncedDict(TypedDict):
 
 def run_evals(
     evals: list[EvalSpec],
-    model_configs: list[tuple[str, ToolFormat]],  # (model, tool_format)
+    model_configs: list[ModelConfig],
     timeout: int,
     parallel: int,
     use_docker: bool = False,
-) -> dict[str, list[EvalResult]]:
+) -> dict[ModelConfig, list[EvalResult]]:
     """
     Run evals for a list of tests.
 
     Args:
         evals: List of evaluation specifications
-        model_configs: List of (model, tool_format) tuples
+        model_configs: List of ModelConfig objects
         timeout: Timeout in seconds for each eval
         parallel: Number of parallel evaluations to run
         use_docker: Run tests in Docker containers for isolation
@@ -103,20 +103,19 @@ def run_evals(
         cleanup_on_sigterm()
 
     n_runs = len(evals) * len(model_configs)
-    model_results: dict[str, dict[str, EvalResult]] = defaultdict(dict)
+    model_results: dict[ModelConfig, dict[str, EvalResult]] = defaultdict(dict)
     parallel = min(n_runs, parallel)
     with ProcessPoolExecutor(parallel) as executor:
         futures = []
-        future_to_model_test = {}
-        for model, tool_format in model_configs:
-            model_id = f"{model}@{tool_format}"
+        future_to_model_test: dict[Future, tuple[ModelConfig, EvalSpec, Agent]] = {}
+        for config in model_configs:
             for test in evals:
                 tools = test.get(
                     "tools"
                 )  # Get tools from test spec, None if not specified
                 agent = GPTMe(
-                    model=model,
-                    tool_format=tool_format,
+                    model=config.model,
+                    tool_format=config.tool_format,
                     tools=tools,
                     use_docker=use_docker,
                 )
@@ -129,10 +128,10 @@ def run_evals(
                     use_docker,
                 )
                 futures.append(future)
-                future_to_model_test[future] = (model_id, test, agent)
+                future_to_model_test[future] = (config, test, agent)
 
         def _handle_future(future: Future):
-            model, test, agent = future_to_model_test[future]
+            config, test, agent = future_to_model_test[future]
             test_name = test["name"]
             try:
                 result = future.result(timeout=0.1)
@@ -147,7 +146,7 @@ def run_evals(
                 else:
                     status = "error"
                     logger.exception(
-                        f"Test {test_name} for model {model} generated an exception when trying to get result"
+                        f"Test {test_name} for model {config} generated an exception when trying to get result"
                     )
                 result = EvalResult(
                     name=test_name,
@@ -161,7 +160,7 @@ def run_evals(
                     log_dir=agent.log_dir,
                     workspace_dir=agent.workspace_dir,
                 )
-            model_results[model][test_name] = result
+            model_results[config][test_name] = result
 
         # worse-case run time, with some buffer to account for overhead
         max_timeout = timeout * len(evals) / parallel + 10
@@ -195,11 +194,11 @@ def run_evals(
         process.terminate()
         process.join()
 
-    model_results_final: dict[str, list[EvalResult]] = defaultdict(list)
-    for model in sorted(model_results):
+    model_results_final: dict[ModelConfig, list[EvalResult]] = defaultdict(list)
+    for config in sorted(model_results, key=str):
         # sort results by test order
-        model_results_final[model] = sorted(
-            model_results[model].values(),
+        model_results_final[config] = sorted(
+            model_results[config].values(),
             key=lambda result: [test["name"] for test in evals].index(result.name),
         )
 

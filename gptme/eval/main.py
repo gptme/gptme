@@ -24,7 +24,7 @@ from ..message import len_tokens
 from ..tools import ToolFormat
 from .run import run_evals
 from .suites import suites, tests_default, tests_map
-from .types import CaseResult, EvalResult, EvalSpec
+from .types import CaseResult, EvalResult, EvalSpec, ModelConfig
 
 # Configure logging, including fully-qualified module names
 logging.basicConfig(
@@ -164,16 +164,16 @@ def sort_tests(test_names):
     # sorts a list of test names by the order they appear in the default tests
     return sorted(
         test_names,
-        key=lambda x: (list(tests_map).index(x) if x in tests_map else 0),
+        key=lambda x: list(tests_map).index(x) if x in tests_map else 0,
     )
 
 
-def print_model_results(model_results: dict[str, list[EvalResult]]):
+def print_model_results(model_results: dict[ModelConfig, list[EvalResult]]):
     total_tests = 0
     total_tokens = 0
 
-    for model, results in model_results.items():
-        print(f"\nResults for model: {model}")
+    for config, results in model_results.items():
+        print(f"\nResults for model: {config.model} (format: {config.tool_format})")
         model_total_tokens = sum(
             len_tokens(result.gen_stdout, "gpt-4")
             + len_tokens(result.run_stdout, "gpt-4")
@@ -205,15 +205,15 @@ def print_model_results(model_results: dict[str, list[EvalResult]]):
     print(f"Completed {total_tests} tests in {total_tokens}tok")
 
 
-def print_model_results_table(model_results: dict[str, list[EvalResult]]):
+def print_model_results_table(model_results: dict[ModelConfig, list[EvalResult]]):
     test_names = sort_tests(
         {result.name for results in model_results.values() for result in results}
     )
-    headers = ["Model"] + list(test_names)
+    headers = ["Model", "Format"] + list(test_names)
     table_data = []
 
-    for model, results in model_results.items():
-        row = [model]
+    for config, results in model_results.items():
+        row = [config.model, config.tool_format]
         for test_name in test_names:
             try:
                 result = next(r for r in results if r.name == test_name)
@@ -231,7 +231,7 @@ def print_model_results_table(model_results: dict[str, list[EvalResult]]):
                     row.append(f"{checkmark} {reason}")
                 else:
                     row.append(
-                        f"{checkmark} {duration:.0f}s/{gen_tokens+run_tokens}tok"
+                        f"{checkmark} {duration:.0f}s/{gen_tokens + run_tokens}tok"
                     )
             except StopIteration:
                 row.append("❌ N/A")
@@ -241,29 +241,29 @@ def print_model_results_table(model_results: dict[str, list[EvalResult]]):
 
 
 def aggregate_and_display_results(result_files: list[str]):
-    all_results: dict[str, dict[str, dict]] = {}
+    all_results: dict[ModelConfig, dict[str, dict]] = {}
     for file in result_files:
-        for model, model_results in read_results_from_csv(file).items():
-            if model not in all_results:
-                all_results[model] = {}
+        for config, model_results in read_results_from_csv(file).items():
+            if config not in all_results:
+                all_results[config] = {}
             for result in model_results:
-                if result.name not in all_results[model]:
-                    all_results[model][result.name] = {
+                if result.name not in all_results[config]:
+                    all_results[config][result.name] = {
                         "total": 0,
                         "passed": 0,
                         "tokens": 0,
                     }
-                all_results[model][result.name]["total"] += 1
-                all_results[model][result.name]["tokens"] += len_tokens(
+                all_results[config][result.name]["total"] += 1
+                all_results[config][result.name]["tokens"] += len_tokens(
                     result.gen_stdout, "gpt-4"
                 ) + len_tokens(result.run_stdout, "gpt-4")
                 if result.status == "success" and all(
                     case.passed for case in result.results
                 ):
-                    all_results[model][result.name]["passed"] += 1
+                    all_results[config][result.name]["passed"] += 1
 
     # Prepare table data
-    headers = ["Model"] + sort_tests(
+    headers = ["Model", "Format"] + sort_tests(
         {
             test
             for model_results in all_results.values()
@@ -281,9 +281,9 @@ def aggregate_and_display_results(result_files: list[str]):
         else:
             return "❌"
 
-    for model, results in sorted(all_results.items()):
-        row = [model.replace("openrouter/", "")]
-        for test in headers[1:]:
+    for config, results in sorted(all_results.items(), key=lambda x: str(x[0])):
+        row = [config.model.replace("openrouter/", ""), config.tool_format]
+        for test in headers[2:]:
             if test in results:
                 passed = results[test]["passed"]
                 total = results[test]["total"]
@@ -379,21 +379,15 @@ def main(
     if config.get_env("GEMINI_API_KEY"):
         default_models.extend(["gemini/gemini-1.5-flash-latest"])
 
-    def parse_format(fmt: str) -> ToolFormat:
-        if fmt not in get_args(ToolFormat):
-            raise ValueError(f"Invalid tool format: {fmt}")
-        return cast(ToolFormat, fmt)
-
-    # Process model specifications
-    model_configs: list[tuple[str, ToolFormat]] = []
+    # Process model specifications into typed ModelConfig objects
+    model_configs: list[ModelConfig] = []
     for model_spec in _model or default_models:
         if "@" in model_spec:
-            model, fmt = model_spec.rsplit("@", 1)
-            if fmt in get_args(ToolFormat):
-                model_configs.append((model, parse_format(fmt)))
+            try:
+                model_configs.append(ModelConfig.from_spec(model_spec))
                 continue
-            # @ is part of the model name (e.g. OpenRouter provider suffix
-            # like 'z-ai/glm-5@z-ai'), not a tool format specifier
+            except ValueError:
+                pass  # '@' was part of model name, fall through
 
         # No format specified (or @ was part of model name): use provided default or test all formats
         formats: list[ToolFormat] = (
@@ -402,7 +396,7 @@ def main(
             else ["markdown", "xml", "tool"]
         )
         for fmt in formats:
-            model_configs.append((model_spec, fmt))
+            model_configs.append(ModelConfig(model=model_spec, tool_format=fmt))
 
     results_files = []
     for f in eval_names_or_result_files:
@@ -484,14 +478,32 @@ def read_log_file(file_path: Path) -> str:
     return ""
 
 
-def read_results_from_csv(filename: str) -> dict[str, list[EvalResult]]:
-    model_results = defaultdict(list)
+def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
+    model_results: dict[ModelConfig, list[EvalResult]] = defaultdict(list)
     results_dir = Path(filename).parent
     with open(filename, newline="") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            model = row["Model"]
-            test_dir = results_dir / model / row["Test"]
+            model_name = row["Model"]
+            tool_format = row.get("Tool Format", "")
+
+            if tool_format:
+                # New format: separate columns
+                config = ModelConfig(
+                    model=model_name, tool_format=cast(ToolFormat, tool_format)
+                )
+                test_dir = results_dir / model_name / tool_format / row["Test"]
+                if not test_dir.exists():
+                    # Fallback: try legacy flat directory layout
+                    test_dir = results_dir / f"{model_name}@{tool_format}" / row["Test"]
+            else:
+                # Legacy format: model column may contain 'model@format'
+                try:
+                    config = ModelConfig.from_spec(model_name)
+                except ValueError:
+                    # No format info at all — use 'markdown' as default
+                    config = ModelConfig(model=model_name, tool_format="markdown")
+                test_dir = results_dir / model_name / row["Test"]
 
             result = EvalResult(
                 name=row["Test"],
@@ -506,14 +518,14 @@ def read_results_from_csv(filename: str) -> dict[str, list[EvalResult]]:
                 gen_stderr=read_log_file(test_dir / "gen_stderr.txt"),
                 run_stdout=read_log_file(test_dir / "run_stdout.txt"),
                 run_stderr=read_log_file(test_dir / "run_stderr.txt"),
-                log_dir=Path(row.get("Log Dir", test_dir)),
-                workspace_dir=Path(row.get("Workspace Dir", test_dir)),
+                log_dir=Path(row.get("Log Dir", str(test_dir))),
+                workspace_dir=Path(row.get("Workspace Dir", str(test_dir))),
             )
-            model_results[model].append(result)
+            model_results[config].append(result)
     return dict(model_results)
 
 
-def write_results(model_results: dict[str, list[EvalResult]]):
+def write_results(model_results: dict[ModelConfig, list[EvalResult]]):
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%SZ")
     # get current commit hash and dirty status, like: a8b2ef0-dirty
     # TODO: don't assume we are in the gptme repo, use other version identifiers if available
@@ -533,6 +545,7 @@ def write_results(model_results: dict[str, list[EvalResult]]):
     with open(csv_filename, "w", newline="") as csvfile:
         fieldnames = [
             "Model",
+            "Tool Format",
             "Test",
             "Passed",
             "Total Duration",
@@ -546,7 +559,7 @@ def write_results(model_results: dict[str, list[EvalResult]]):
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames, lineterminator="\n")
 
         writer.writeheader()
-        for model, results in model_results.items():
+        for config, results in model_results.items():
             for result in results:
                 passed = (
                     all(case.passed for case in result.results)
@@ -554,7 +567,8 @@ def write_results(model_results: dict[str, list[EvalResult]]):
                     else False
                 )
 
-                test_dir = results_dir / model / result.name
+                # Use model/tool_format/test_name directory layout
+                test_dir = results_dir / config.model / config.tool_format / result.name
                 test_dir.mkdir(parents=True, exist_ok=True)
 
                 streams = ["gen_stdout", "gen_stderr", "run_stdout", "run_stderr"]
@@ -564,7 +578,8 @@ def write_results(model_results: dict[str, list[EvalResult]]):
                         f.write(getattr(result, stream))
 
                 row = {
-                    "Model": model,
+                    "Model": config.model,
+                    "Tool Format": config.tool_format,
                     "Test": result.name,
                     "Passed": "true" if passed else "false",
                     "Total Duration": round(sum(result.timings.values()), 2),
