@@ -34,10 +34,12 @@ def test_branch():
     assert "dev" in d["branches"]
 
 
-def test_write_persists_main_branch_when_on_other_branch(tmp_path: Path):
+def test_write_persists_main_branch_when_on_other_branch(tmp_path: Path, monkeypatch):
     """Regression test: writing while on a non-main branch should also persist
     the main branch to conversation.jsonl."""
-    log = LogManager(logdir=tmp_path)
+    # Use tmp_path for logs dir so we don't write to the global logs directory
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    log = LogManager(logdir=tmp_path / "logs" / "test-conv")
     chat_id = log.chat_id
 
     # add message to main branch
@@ -59,7 +61,7 @@ def test_write_persists_main_branch_when_on_other_branch(tmp_path: Path):
     assert "main message" in main_content
 
     # dev branch should be in branches/dev.jsonl
-    dev_path = tmp_path / "branches" / "dev.jsonl"
+    dev_path = tmp_path / "logs" / "test-conv" / "branches" / "dev.jsonl"
     assert dev_path.exists()
     dev_content = dev_path.read_text()
     assert "dev message" in dev_content
