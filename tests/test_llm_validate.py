@@ -128,7 +128,17 @@ class TestProviderDocs:
 
     def test_all_major_providers_have_docs(self):
         """All major providers should have documentation URLs."""
-        expected_providers = ["openai", "anthropic", "openrouter", "google"]
+        expected_providers = [
+            "openai",
+            "anthropic",
+            "openrouter",
+            "gemini",
+            "google",
+            "groq",
+            "deepseek",
+            "xai",
+            "azure",
+        ]
         for provider in expected_providers:
             assert provider in PROVIDER_DOCS
             assert PROVIDER_DOCS[provider].startswith("https://")

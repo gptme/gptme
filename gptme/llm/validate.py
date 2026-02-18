@@ -11,10 +11,12 @@ PROVIDER_DOCS: dict[str, str] = {
     "openai": "https://platform.openai.com/account/api-keys",
     "anthropic": "https://console.anthropic.com/settings/keys",
     "openrouter": "https://openrouter.ai/settings/keys",
-    "google": "https://aistudio.google.com/app/apikey",
+    "gemini": "https://aistudio.google.com/app/apikey",
+    "google": "https://aistudio.google.com/app/apikey",  # alias for gemini
     "groq": "https://console.groq.com/keys",
     "deepseek": "https://platform.deepseek.com/api_keys",
     "xai": "https://console.x.ai/",
+    "azure": "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub",
     "local": "https://gptme.org/docs/providers.html#local-models",
 }
 
