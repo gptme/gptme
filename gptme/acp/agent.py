@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ..init import init
+from ..llm.models import set_default_model
 from ..logmanager import LogManager
 from ..message import Message
 from ..prompts import get_prompt
@@ -500,6 +501,12 @@ class GptmeAgent:
             text_block,
             update_agent_message,
         )
+
+        # Re-set the default model ContextVar in this task's context.
+        # ACP framework may dispatch each RPC method in a separate asyncio task,
+        # so ContextVars set during initialize() aren't visible here.
+        if self._model:
+            set_default_model(self._model)
 
         session = self._registry.get(session_id)
         if not session:
