@@ -386,7 +386,7 @@ new Vue({
       await this.getConversations();
     },
     isImage(filename) {
-      return /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(filename);
+      return /\.(jpg|jpeg|png|gif|webp)$/i.test(filename);
     },
     fileUrl(filename) {
       const sanitized = filename.split('/').filter(part => part !== '..').join('/');
