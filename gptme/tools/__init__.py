@@ -323,6 +323,15 @@ def get_tools() -> list[ToolSpec]:
     return _get_loaded_tools()
 
 
+def set_tools(tools: list[ToolSpec]) -> None:
+    """Set the loaded tools for the current context.
+
+    Useful for restoring tools in a new asyncio task context where
+    ContextVars from the parent context aren't visible.
+    """
+    _loaded_tools_var.set(tools)
+
+
 def get_tool(tool_name: str) -> ToolSpec | None:
     """Returns a loaded tool by name or block type."""
     loaded_tools = _get_loaded_tools()
