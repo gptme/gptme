@@ -46,10 +46,7 @@ def _mock_permission_response(option_id: str | None = None, cancelled: bool = Fa
             outcome = AllowedOutcome(outcome="selected", optionId=option_id or "")
         return RequestPermissionResponse(outcome=outcome)
     except ImportError:
-        # Fallback to dict if acp not installed (shouldn't happen in test env)
-        if cancelled:
-            return {"outcome": {"outcome": "cancelled"}}
-        return {"outcome": {"optionId": option_id}}
+        pytest.skip("acp not installed")
 
 
 class TestGptmeAgentInit:
