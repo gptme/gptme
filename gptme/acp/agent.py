@@ -608,8 +608,8 @@ class GptmeAgent:
         """List available sessions."""
         if not _import_acp():
             raise RuntimeError("agent-client-protocol package not installed")
-        from acp.client.connection import (
-            ListSessionsResponse,  # type: ignore[import-not-found]
+        from acp.client.connection import (  # type: ignore[import-not-found]
+            ListSessionsResponse,
         )
         from acp.schema import SessionInfo  # type: ignore[import-not-found]
 
