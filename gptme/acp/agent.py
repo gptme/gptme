@@ -599,6 +599,74 @@ class GptmeAgent:
         # Phase 2: Implement cancellation
         logger.warning(f"cancel not yet implemented: {session_id}")
 
+    async def list_sessions(
+        self,
+        cursor: str | None = None,
+        cwd: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """List available sessions."""
+        if not _import_acp():
+            raise RuntimeError("agent-client-protocol package not installed")
+        from acp.client.connection import (
+            ListSessionsResponse,  # type: ignore[import-not-found]
+        )
+        from acp.schema import SessionInfo  # type: ignore[import-not-found]
+
+        sessions = self._registry.list_sessions()
+        return ListSessionsResponse(
+            sessions=[SessionInfo(session_id=sid, cwd="") for sid in sessions],
+        )
+
+    async def authenticate(
+        self,
+        method_id: str,
+        **kwargs: Any,
+    ) -> None:
+        """Handle authentication request (not supported)."""
+        logger.warning(f"authenticate not implemented: {method_id}")
+        return None
+
+    async def set_session_model(
+        self,
+        model_id: str,
+        session_id: str,
+        **kwargs: Any,
+    ) -> None:
+        """Set the model for a session."""
+        logger.info(f"set_session_model: session={session_id}, model={model_id}")
+        self._model = model_id
+        return None
+
+    async def set_session_mode(
+        self,
+        mode_id: str,
+        session_id: str,
+        **kwargs: Any,
+    ) -> None:
+        """Set the mode for a session (not supported)."""
+        logger.warning(
+            f"set_session_mode not implemented: session={session_id}, mode={mode_id}"
+        )
+        return None
+
+    async def ext_method(
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Handle extension method calls."""
+        logger.warning(f"ext_method not implemented: {method}")
+        return {}
+
+    async def ext_notification(
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> None:
+        """Handle extension notifications."""
+        logger.debug(f"ext_notification: {method}")
+
 
 def create_agent() -> GptmeAgent:
     """Create a new GptmeAgent instance.

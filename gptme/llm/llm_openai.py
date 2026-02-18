@@ -184,11 +184,11 @@ def _make_response_format(output_schema):
         output_schema: Optional Pydantic BaseModel class
 
     Returns:
-        OpenAI response_format dict or NOT_GIVEN if no schema
+        OpenAI response_format dict or None if no schema
     """
 
     if output_schema is None:
-        return NOT_GIVEN
+        return None
 
     # Get the JSON schema from Pydantic model
     json_schema = output_schema.model_json_schema()
@@ -216,7 +216,6 @@ def init(provider: Provider, config: Config):
     # Get configurable API timeout (default: client's own default of 10 minutes)
     # If not set explicitly via LLM_API_TIMEOUT, we use NOT_GIVEN to let the
     # client use its own default behavior, which may evolve with future versions.
-    from openai import NOT_GIVEN  # fmt: skip
 
     timeout_str = config.get_env("LLM_API_TIMEOUT")
     try:
@@ -519,21 +518,27 @@ def chat(
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
     api_model = model if is_proxy else base_model
 
-    from openai import NOT_GIVEN  # fmt: skip
     from openai.types.chat import ChatCompletionMessageToolCall  # fmt: skip
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     response_format = _make_response_format(output_schema)
 
+    # Build optional kwargs to avoid NOT_GIVEN/Omit type mismatch
+    optional_kwargs: dict[str, Any] = {}
+    if not is_reasoner:
+        optional_kwargs["temperature"] = TEMPERATURE
+        optional_kwargs["top_p"] = TOP_P
+    if tools_dict:
+        optional_kwargs["tools"] = tools_dict
+    if response_format is not None:
+        optional_kwargs["response_format"] = response_format
+
     response = client.chat.completions.create(
         model=api_model,
         messages=messages_dicts,  # type: ignore
-        temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
-        top_p=TOP_P if not is_reasoner else NOT_GIVEN,
-        tools=tools_dict if tools_dict else NOT_GIVEN,
-        response_format=response_format,
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),
+        **optional_kwargs,
     )
     metadata = _record_usage(response.usage, model)
     choice = response.choices[0]
@@ -611,24 +616,29 @@ def stream(
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
     api_model = model if is_proxy else base_model
 
-    from openai import NOT_GIVEN  # fmt: skip
-
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     response_format = _make_response_format(output_schema)
     in_reasoning_block = False
     stop_reason = None
 
+    # Build optional kwargs to avoid NOT_GIVEN/Omit type mismatch
+    optional_kwargs: dict[str, Any] = {}
+    if not is_reasoner:
+        optional_kwargs["temperature"] = TEMPERATURE
+        optional_kwargs["top_p"] = TOP_P
+    if tools_dict:
+        optional_kwargs["tools"] = tools_dict
+    if response_format is not None:
+        optional_kwargs["response_format"] = response_format
+
     for chunk_raw in client.chat.completions.create(
         model=api_model.split("@")[0],
         messages=messages_dicts,  # type: ignore
-        temperature=TEMPERATURE if not is_reasoner else NOT_GIVEN,
-        top_p=TOP_P if not is_reasoner else NOT_GIVEN,
         stream=True,
-        tools=tools_dict if tools_dict else NOT_GIVEN,
-        response_format=response_format,
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),
         stream_options={"include_usage": True},
+        **optional_kwargs,
     ):
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
         from openai.types.chat.chat_completion_chunk import (  # fmt: skip
