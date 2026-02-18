@@ -364,12 +364,16 @@ class LogManager:
         self.log.write_jsonl(self.logfile)
 
         # write other branches
-        # FIXME: wont write main branch if on a different branch
         if branches:
             branches_dir = self.logdir / "branches"
             branches_dir.mkdir(parents=True, exist_ok=True)
             for branch, log in self._branches.items():
                 if branch == "main":
+                    # when on a non-main branch, also persist main to conversation.jsonl
+                    if self.current_branch != "main":
+                        main_path = get_logs_dir() / self.chat_id / "conversation.jsonl"
+                        main_path.parent.mkdir(parents=True, exist_ok=True)
+                        log.write_jsonl(main_path)
                     continue
                 branch_path = branches_dir / f"{branch}.jsonl"
                 log.write_jsonl(branch_path)
