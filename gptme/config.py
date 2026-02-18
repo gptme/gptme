@@ -22,7 +22,7 @@ from typing_extensions import Self
 from .context.config import ContextConfig
 from .context.selector.config import ContextSelectorConfig
 from .tools import get_toolchain
-from .util import console, path_with_tilde
+from .util import path_with_tilde
 
 if TYPE_CHECKING:
     from .tools.base import ToolFormat
@@ -360,12 +360,14 @@ def load_user_config(path: str | None = None) -> UserConfig:
         config = _merge_config_data(config, local_config)
 
     # Log config paths (only once per config file)
+    # Use logger instead of console to avoid polluting stdout
+    # (console.log writes to stdout, breaking JSON output in doctor --json, ACP, etc.)
     if config_file not in _user_config_logged:
         _user_config_logged.add(config_file)
         msg = f"Using user configuration from {path_with_tilde(config_file)}"
         if has_local:
             msg += " with local overrides"
-        console.log(msg)
+        logger.info(msg)
 
     # Note: prompt and env are optional - defaults are used if missing
 
@@ -449,7 +451,7 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
         toml = tomlkit.dumps(_strip_none(asdict(default_config)))
         with open(path, "w") as config_file:
             config_file.write(toml)
-        console.log(f"Created config file at {path}")
+        logger.info(f"Created config file at {path}")
         doc = tomlkit.loads(toml)
         return doc
     else:
@@ -588,9 +590,9 @@ def get_project_config(
     # Log only on first non-quiet access per workspace
     if not quiet and workspace not in _config_logged_workspaces:
         _config_logged_workspaces.add(workspace)
-        console.log(f"Using project configuration at {path_with_tilde(config_path)}")
+        logger.info(f"Using project configuration at {path_with_tilde(config_path)}")
         if local_config_path:
-            console.log(
+            logger.info(
                 f"Using local configuration from {path_with_tilde(local_config_path)}"
             )
 
