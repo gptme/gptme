@@ -53,12 +53,16 @@ def register_function(func: T) -> T:
     return func
 
 
-def _detect_venv() -> Path | None:
+def _detect_venv(env_only: bool = False) -> Path | None:
     """Detect the user's virtual environment, if any.
 
     Checks in order:
     1. VIRTUAL_ENV environment variable (set when a venv is activated)
-    2. .venv directory in the current working directory
+    2. .venv directory in the current working directory (skipped if env_only=True)
+
+    Args:
+        env_only: If True, only check VIRTUAL_ENV (skip cwd-based detection).
+                  Used during early init before os.chdir(workspace) has run.
     """
     # Check VIRTUAL_ENV env var (set by `source .venv/bin/activate`)
     virtual_env = os.environ.get("VIRTUAL_ENV")
@@ -67,10 +71,11 @@ def _detect_venv() -> Path | None:
         if venv_path.is_dir():
             return venv_path
 
-    # Check for .venv in cwd
-    cwd_venv = Path.cwd() / ".venv"
-    if cwd_venv.is_dir():
-        return cwd_venv
+    if not env_only:
+        # Check for .venv in cwd (only valid after os.chdir(workspace))
+        cwd_venv = Path.cwd() / ".venv"
+        if cwd_venv.is_dir():
+            return cwd_venv
 
     return None
 
@@ -93,14 +98,17 @@ def _get_venv_site_packages(venv_path: Path) -> Path | None:
     return None
 
 
-def _setup_venv_paths() -> None:
+def _setup_venv_paths(env_only: bool = False) -> None:
     """Add the user's venv site-packages to sys.path if available.
 
     This allows the IPython instance (which runs in-process within gptme's
     own environment) to import packages from the user's project venv.
     See: https://github.com/gptme/gptme/issues/29
+
+    Args:
+        env_only: If True, only use VIRTUAL_ENV for detection (skip cwd check).
     """
-    venv_path = _detect_venv()
+    venv_path = _detect_venv(env_only=env_only)
     if venv_path is None:
         return
 
@@ -113,14 +121,14 @@ def _setup_venv_paths() -> None:
         logger.warning("Found venv at %s but couldn't locate site-packages", venv_path)
         return
 
-    sp_str = str(sp)
-    if sp_str not in sys.path:
+    sp_resolved = str(sp.resolve())
+    if sp_resolved not in [str(Path(p).resolve()) for p in sys.path]:
         # Append after gptme's own site-packages so gptme's deps always take
         # precedence (including lazy-imported modules loaded on-demand)
-        sys.path.append(sp_str)
+        sys.path.append(sp_resolved)
         # Also process .pth files in the venv (handles editable installs etc.)
-        site.addsitedir(sp_str)
-        logger.info("Added user venv site-packages to sys.path: %s", sp_str)
+        site.addsitedir(sp_resolved)
+        logger.info("Added user venv site-packages to sys.path: %s", sp_resolved)
 
 
 def _get_ipython():
@@ -297,8 +305,11 @@ fib(10)
 
 
 def init() -> ToolSpec:
-    # Set up user's venv paths early so library detection includes user packages
-    _setup_venv_paths()
+    # Set up user's venv paths early so library detection includes user packages.
+    # Only use VIRTUAL_ENV here (not cwd-based detection) because init() runs
+    # before os.chdir(workspace). The cwd-based .venv detection is deferred to
+    # _get_ipython() which runs lazily after workspace chdir has happened.
+    _setup_venv_paths(env_only=True)
 
     # Register python functions from other tools
     for loaded_tool in get_tools():
