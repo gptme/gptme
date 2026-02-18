@@ -69,7 +69,7 @@ def acp_content_to_gptme_message(content: list, role: RoleType) -> Message:
         # Support both dict-style access and Pydantic model attribute access
         if isinstance(c, dict):
             if c.get("type") == "text":
-                text_parts.append(c.get("text", ""))
+                text_parts.append(c.get("text", "") or "")
         else:
             # Pydantic model (e.g. TextContentBlock)
             if getattr(c, "type", None) == "text":
