@@ -8,11 +8,14 @@ import dataclasses
 import functools
 import importlib.util
 import io
+import os
 import re
+import site
 import sys
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from logging import getLogger
+from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from ..constants import DECLINED_CONTENT
@@ -32,10 +35,6 @@ if TYPE_CHECKING:
 
 logger = getLogger(__name__)
 
-# TODO: launch the IPython session in the current venv, if any, instead of the pipx-managed gptme venv (for example) in which gptme itself runs
-#       would let us use libraries installed with `pip install` in the current venv
-#       https://github.com/gptme/gptme/issues/29
-
 # IPython instance
 _ipython: "InteractiveShell | None" = None
 
@@ -54,11 +53,78 @@ def register_function(func: T) -> T:
     return func
 
 
+def _detect_venv() -> Path | None:
+    """Detect the user's virtual environment, if any.
+
+    Checks in order:
+    1. VIRTUAL_ENV environment variable (set when a venv is activated)
+    2. .venv directory in the current working directory
+    """
+    # Check VIRTUAL_ENV env var (set by `source .venv/bin/activate`)
+    virtual_env = os.environ.get("VIRTUAL_ENV")
+    if virtual_env:
+        venv_path = Path(virtual_env)
+        if venv_path.is_dir():
+            return venv_path
+
+    # Check for .venv in cwd
+    cwd_venv = Path.cwd() / ".venv"
+    if cwd_venv.is_dir():
+        return cwd_venv
+
+    return None
+
+
+def _get_venv_site_packages(venv_path: Path) -> Path | None:
+    """Get the site-packages directory for a venv."""
+    lib_dir = venv_path / "lib"
+    if not lib_dir.is_dir():
+        return None
+    # Find the pythonX.Y directory
+    for entry in lib_dir.iterdir():
+        if entry.name.startswith("python") and entry.is_dir():
+            sp = entry / "site-packages"
+            if sp.is_dir():
+                return sp
+    return None
+
+
+def _setup_venv_paths() -> None:
+    """Add the user's venv site-packages to sys.path if available.
+
+    This allows the IPython instance (which runs in-process within gptme's
+    own environment) to import packages from the user's project venv.
+    See: https://github.com/gptme/gptme/issues/29
+    """
+    venv_path = _detect_venv()
+    if venv_path is None:
+        return
+
+    # Don't add if this IS gptme's own venv
+    if Path(sys.prefix).resolve() == venv_path.resolve():
+        return
+
+    sp = _get_venv_site_packages(venv_path)
+    if sp is None:
+        logger.warning("Found venv at %s but couldn't locate site-packages", venv_path)
+        return
+
+    sp_str = str(sp)
+    if sp_str not in sys.path:
+        # Insert after gptme's own site-packages so user packages take precedence
+        # for imports, but gptme's deps are still available as fallback
+        sys.path.insert(0, sp_str)
+        # Also process .pth files in the venv (handles editable installs etc.)
+        site.addsitedir(sp_str)
+        logger.info("Added user venv site-packages to sys.path: %s", sp_str)
+
+
 def _get_ipython():
     global _ipython
     from IPython.core.interactiveshell import InteractiveShell  # fmt: skip
 
     if _ipython is None:
+        _setup_venv_paths()
         _ipython = InteractiveShell()
         _ipython.push(registered_functions)
 
@@ -227,6 +293,9 @@ fib(10)
 
 
 def init() -> ToolSpec:
+    # Set up user's venv paths early so library detection includes user packages
+    _setup_venv_paths()
+
     # Register python functions from other tools
     for loaded_tool in get_tools():
         if loaded_tool.functions:
