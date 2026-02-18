@@ -45,6 +45,7 @@ class BaseEvent(TypedDict):
         "generation_complete",
         "tool_pending",
         "tool_executing",
+        "elicit_pending",
         "interrupted",
         "error",
         "config_changed",
@@ -101,6 +102,38 @@ class ToolExecutingEvent(BaseEvent):
     tool_id: str
 
 
+class FormFieldDict(TypedDict, total=False):
+    """Form field dictionary type for elicitation."""
+
+    name: str
+    prompt: str
+    type: str
+    options: list[str] | None
+    required: bool
+    default: str | None
+
+
+class ElicitPendingEvent(BaseEvent):
+    """Sent when the agent requests structured user input (elicitation).
+
+    Clients should display an appropriate input UI based on ``elicit_type``:
+    - ``text``: Free-form text input
+    - ``choice``: Single selection from ``options``
+    - ``multi_choice``: Multiple selection from ``options``
+    - ``secret``: Hidden input (password field)
+    - ``confirmation``: Yes/no question
+    - ``form``: Multiple fields (described in ``fields``)
+    """
+
+    elicit_id: str
+    elicit_type: str
+    prompt: str
+    options: NotRequired[list[str]]
+    fields: NotRequired[list[FormFieldDict]]
+    default: NotRequired[str]
+    description: NotRequired[str]
+
+
 class InterruptedEvent(BaseEvent):
     """Sent when generation is interrupted."""
 
@@ -128,6 +161,7 @@ EventType = (
     | GenerationCompleteEvent
     | ToolPendingEvent
     | ToolExecutingEvent
+    | ElicitPendingEvent
     | InterruptedEvent
     | ErrorEvent
     | ConfigChangedEvent

@@ -156,6 +156,24 @@ class ToolConfirmRequest(BaseModel):
     count: int | None = Field(None, description="Auto-confirm count (for auto action)")
 
 
+class ElicitRespondRequest(BaseModel):
+    """Request to respond to an elicitation prompt from the agent."""
+
+    elicit_id: str = Field(..., description="Elicitation request ID")
+    action: str = Field(
+        ...,
+        description="Action: accept (provide value), decline, or cancel",
+    )
+    value: str | None = Field(
+        None,
+        description="Response value for text/choice/secret/confirmation/form types",
+    )
+    values: list[str] | None = Field(
+        None,
+        description="Selected values for multi_choice type",
+    )
+
+
 class InterruptRequest(BaseModel):
     """Request to interrupt generation."""
 

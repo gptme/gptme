@@ -879,6 +879,9 @@ def init_hooks(
         "server_confirm": lambda: __import__(
             "gptme.hooks.server_confirm", fromlist=["register"]
         ).register(),
+        "server_elicit": lambda: __import__(
+            "gptme.hooks.server_elicit", fromlist=["register"]
+        ).register(),
         # NOTE: subagent_completion is now registered via ToolSpec in tools/subagent.py
         "test": lambda: __import__(
             "gptme.hooks.test", fromlist=["register_test_hooks"]
@@ -892,15 +895,22 @@ def init_hooks(
         # Register all default hooks except test and mode-specific confirmation hooks
         # Confirmation hooks (cli_confirm, auto_confirm, server_confirm) should be
         # registered explicitly based on the mode (CLI, server, autonomous)
-        mode_specific_hooks = {"test", "cli_confirm", "auto_confirm", "server_confirm"}
+        mode_specific_hooks = {
+            "test",
+            "cli_confirm",
+            "auto_confirm",
+            "server_confirm",
+            "server_elicit",
+        }
         hooks_to_register = [h for h in available_hooks if h not in mode_specific_hooks]
 
-        # Mode-based confirmation hook selection:
-        # - Server mode with confirmation: server_confirm
+        # Mode-based hook selection:
+        # - Server mode with confirmation: server_confirm + server_elicit
         # - CLI interactive with confirmation enabled: cli_confirm
         # - Non-interactive (autonomous): no confirmation hook (auto-confirm behavior)
         if server and not no_confirm:
             hooks_to_register.append("server_confirm")
+            hooks_to_register.append("server_elicit")
         elif interactive and not no_confirm:
             hooks_to_register.append("cli_confirm")
 

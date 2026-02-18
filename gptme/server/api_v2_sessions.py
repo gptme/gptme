@@ -43,6 +43,7 @@ from .auth import require_auth
 from .constants import DEFAULT_FALLBACK_MODEL
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
+    ElicitRespondRequest,
     ErrorResponse,
     InterruptRequest,
     StatusResponse,
@@ -968,6 +969,92 @@ def api_conversation_tool_confirm(conversation_id: str):
         return flask.jsonify({"error": f"Unknown action: {action}"}), 400
 
     return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})
+
+
+def _resolve_hook_elicitation(
+    elicit_id: str,
+    action: str,
+    value: str | None = None,
+    values: list[str] | None = None,
+) -> None:
+    """Resolve a pending hook-based elicitation.
+
+    Called by the HTTP endpoint when the client responds to an elicitation request.
+
+    Args:
+        elicit_id: The elicitation ID to resolve
+        action: The action (accept, decline, cancel)
+        value: Response value for text/choice/secret/confirmation/form types
+        values: Selected values for multi_choice type
+    """
+    try:
+        from ..hooks.elicitation import ElicitationResponse
+        from ..hooks.server_elicit import resolve_pending
+    except ImportError:
+        return  # Hook module not available
+
+    if action == "cancel":
+        result = ElicitationResponse.cancel()
+    elif action == "decline":
+        result = ElicitationResponse(cancelled=False, value=None)
+    elif action == "accept":
+        if values is not None:
+            result = ElicitationResponse.multi(values)
+        elif value is not None:
+            result = ElicitationResponse.text(value)
+        else:
+            result = ElicitationResponse.text("")
+    else:
+        return  # Unknown action
+
+    resolve_pending(elicit_id, result)
+
+
+@sessions_api.route(
+    "/api/v2/conversations/<string:conversation_id>/elicit/respond",
+    methods=["POST"],
+)
+@require_auth
+@api_doc(
+    summary="Respond to elicitation (V2)",
+    description="Respond to an agent's elicitation request with user input. "
+    "Accepts values for text, choice, secret, confirmation, multi_choice, and form types.",
+    request_body=ElicitRespondRequest,
+    responses={200: StatusResponse, 400: ErrorResponse},
+    parameters=[CONVERSATION_ID_PARAM],
+    tags=["sessions"],
+)
+def api_conversation_elicit_respond(conversation_id: str):
+    """Respond to an elicitation request from the agent.
+
+    The agent requested structured input via the elicit tool. The client
+    displays an appropriate UI and sends the user's response here.
+    """
+    req_json = flask.request.json or {}
+    elicit_id = req_json.get("elicit_id")
+    action = req_json.get("action")
+
+    if not elicit_id or not action:
+        return (
+            flask.jsonify({"error": "elicit_id and action are required"}),
+            400,
+        )
+
+    if action not in ("accept", "decline", "cancel"):
+        return (
+            flask.jsonify(
+                {
+                    "error": f"Unknown action: {action}. Must be accept, decline, or cancel"
+                }
+            ),
+            400,
+        )
+
+    _resolve_hook_elicitation(
+        elicit_id, action, req_json.get("value"), req_json.get("values")
+    )
+
+    return flask.jsonify({"status": "ok", "message": f"Elicitation {action}ed"})
 
 
 @sessions_api.route(
