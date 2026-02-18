@@ -138,6 +138,9 @@ class TestProviderDocs:
             "deepseek",
             "xai",
             "azure",
+            "openai-subscription",
+            "nvidia",
+            "local",
         ]
         for provider in expected_providers:
             assert provider in PROVIDER_DOCS

@@ -17,6 +17,8 @@ PROVIDER_DOCS: dict[str, str] = {
     "deepseek": "https://platform.deepseek.com/api_keys",
     "xai": "https://console.x.ai/",
     "azure": "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub",
+    "openai-subscription": "https://platform.openai.com/account/api-keys",  # same as openai
+    "nvidia": "https://build.nvidia.com/",
     "local": "https://gptme.org/docs/providers.html#local-models",
 }
 
