@@ -7,6 +7,7 @@ Tests the full workflow:
 - End-to-end validation
 """
 
+import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,13 @@ from gptme.lessons import (
     MatchContext,
 )
 from gptme.message import Message
+
+_has_llm_api_key = bool(
+    os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+)
+_needs_llm = pytest.mark.skipif(
+    not _has_llm_api_key, reason="No LLM API key available (OPENAI or ANTHROPIC)"
+)
 
 
 @pytest.fixture
@@ -230,6 +238,7 @@ class TestLessonSelectionIntegration:
         assert any("git" in title for title in titles)
         assert any("shell" in title for title in titles)
 
+    @_needs_llm
     @pytest.mark.slow
     def test_llm_based_selection_git_conversation(
         self, conversation_about_git, sample_lessons
@@ -252,6 +261,7 @@ class TestLessonSelectionIntegration:
         # Git lesson should be highly ranked
         assert any("git" in result.lesson.title.lower() for result in results[:2])
 
+    @_needs_llm
     @pytest.mark.slow
     def test_hybrid_selection_mixed_conversation(
         self, conversation_mixed_topics, sample_lessons
@@ -309,6 +319,7 @@ class TestFileSelectionIntegration:
         # Files should exist
         assert all(isinstance(f, Path) for f in result)
 
+    @_needs_llm
     @pytest.mark.slow
     @pytest.mark.xfail(
         reason="Needs more realistic file fixtures with substantial content"
@@ -331,6 +342,7 @@ class TestFileSelectionIntegration:
         # Files should exist and be from workspace
         assert all(f.exists() for f in files)
 
+    @_needs_llm
     @pytest.mark.slow
     @pytest.mark.xfail(
         reason="Needs more realistic file fixtures with substantial content"
@@ -379,6 +391,7 @@ class TestPerformanceMetrics:
         # Rule-based should be very fast
         assert duration < 0.1  # <100ms
 
+    @_needs_llm
     @pytest.mark.slow
     def test_llm_based_latency(self, conversation_about_git, sample_lessons):
         """Measure LLM-based selection latency."""
@@ -406,6 +419,7 @@ class TestPerformanceMetrics:
 class TestEndToEndWorkflow:
     """Test the complete workflow end-to-end."""
 
+    @_needs_llm
     @pytest.mark.slow
     @pytest.mark.xfail(
         reason="Needs more realistic file fixtures with substantial content"

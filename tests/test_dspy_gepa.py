@@ -1,6 +1,7 @@
 """Test GEPA integration with gptme evaluation."""
 
 import importlib.util
+import os
 
 import pytest
 
@@ -18,6 +19,10 @@ except (ImportError, ModuleNotFoundError):
     pytest.skip("DSPy not available", allow_module_level=True)
 
 
+@pytest.mark.skipif(
+    not os.environ.get("ANTHROPIC_API_KEY"),
+    reason="ANTHROPIC_API_KEY not set",
+)
 @pytest.mark.slow
 def test_gepa_integration():
     """Test that GEPA integration works with actual gptme evaluation."""
