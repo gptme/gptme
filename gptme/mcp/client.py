@@ -178,9 +178,7 @@ class MCPClient:
                 read,
                 write,
                 list_roots_callback=self._list_roots_callback,
-                elicitation_callback=self._elicitation_callback_wrapper
-                if self._elicitation_callback
-                else None,
+                elicitation_callback=self._elicitation_callback_wrapper,
             )
             session = await self.stack.enter_async_context(csession)
             self.session = session  # Assign to self.session after the await
@@ -221,9 +219,7 @@ class MCPClient:
                 read,
                 write,
                 list_roots_callback=self._list_roots_callback,
-                elicitation_callback=self._elicitation_callback_wrapper
-                if self._elicitation_callback
-                else None,
+                elicitation_callback=self._elicitation_callback_wrapper,
             )
             session = await self.stack.enter_async_context(csession)
             self.session = session

@@ -904,8 +904,6 @@ def _elicitation_response_to_mcp_result(
         return mcp_types.ElicitResult(action="decline", content=None)
 
     # For form responses, the value is a JSON string of field values
-    import json
-
     try:
         content = json.loads(response.value)
         if isinstance(content, dict):
