@@ -50,11 +50,14 @@ def gptme_message_to_acp_content(msg: Message) -> list[dict]:
 RoleType = Literal["system", "user", "assistant"]
 
 
-def acp_content_to_gptme_message(content: list[dict], role: RoleType) -> Message:
+def acp_content_to_gptme_message(content: list, role: RoleType) -> Message:
     """Convert ACP Content blocks to a gptme Message.
 
+    Handles both dict content blocks and Pydantic model instances
+    (e.g. TextContentBlock from the ACP SDK).
+
     Args:
-        content: List of ACP Content dictionaries
+        content: List of ACP Content blocks (dicts or Pydantic models)
         role: Message role ("system", "user", or "assistant")
 
     Returns:
@@ -63,8 +66,14 @@ def acp_content_to_gptme_message(content: list[dict], role: RoleType) -> Message
     text_parts = []
 
     for c in content:
-        if c.get("type") == "text":
-            text_parts.append(c.get("text", ""))
+        # Support both dict-style access and Pydantic model attribute access
+        if isinstance(c, dict):
+            if c.get("type") == "text":
+                text_parts.append(c.get("text", ""))
+        else:
+            # Pydantic model (e.g. TextContentBlock)
+            if getattr(c, "type", None) == "text":
+                text_parts.append(getattr(c, "text", "") or "")
 
     return Message(role=role, content="\n".join(text_parts))
 
