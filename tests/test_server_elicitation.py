@@ -1,6 +1,7 @@
 """Tests for the server-based elicitation hook."""
 
 import threading
+from importlib.util import find_spec
 
 import pytest
 import requests
@@ -13,6 +14,8 @@ from gptme.hooks.server_elicit import (
     remove_pending,
     resolve_pending,
 )
+
+_has_flask = find_spec("flask") is not None
 
 
 class TestPendingElicitationRegistry:
@@ -85,6 +88,7 @@ class TestServerElicitHook:
         assert result is None
 
 
+@pytest.mark.skipif(not _has_flask, reason="flask not installed (server extra)")
 class TestResolveHookElicitation:
     """Test the HTTP-to-hook resolution function."""
 
@@ -141,6 +145,7 @@ class TestResolveHookElicitation:
         remove_pending("resolve-4")
 
 
+@pytest.mark.skipif(not _has_flask, reason="flask not installed (server extra)")
 @pytest.mark.timeout(10)
 def test_elicit_respond_endpoint_validation(init_, setup_conversation):
     """Test that the elicit respond endpoint validates required fields."""
@@ -168,6 +173,7 @@ def test_elicit_respond_endpoint_validation(init_, setup_conversation):
     assert resp.status_code == 400
 
 
+@pytest.mark.skipif(not _has_flask, reason="flask not installed (server extra)")
 @pytest.mark.timeout(10)
 def test_elicit_respond_endpoint_accept(init_, setup_conversation):
     """Test that the elicit respond endpoint resolves a pending elicitation."""
