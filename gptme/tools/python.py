@@ -115,9 +115,9 @@ def _setup_venv_paths() -> None:
 
     sp_str = str(sp)
     if sp_str not in sys.path:
-        # Insert before gptme's own site-packages so user packages take precedence
-        # for imports, but gptme's deps are still available as fallback
-        sys.path.insert(0, sp_str)
+        # Append after gptme's own site-packages so gptme's deps always take
+        # precedence (including lazy-imported modules loaded on-demand)
+        sys.path.append(sp_str)
         # Also process .pth files in the venv (handles editable installs etc.)
         site.addsitedir(sp_str)
         logger.info("Added user venv site-packages to sys.path: %s", sp_str)
