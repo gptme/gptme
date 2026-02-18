@@ -41,10 +41,11 @@ def _mock_permission_response(option_id: str | None = None, cancelled: bool = Fa
         )
 
         if cancelled:
-            outcome = DeniedOutcome(outcome="cancelled")
+            return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
         else:
-            outcome = AllowedOutcome(outcome="selected", optionId=option_id or "")
-        return RequestPermissionResponse(outcome=outcome)
+            return RequestPermissionResponse(
+                outcome=AllowedOutcome(outcome="selected", option_id=option_id or "")
+            )
     except ImportError:
         pytest.skip("acp not installed")
 
