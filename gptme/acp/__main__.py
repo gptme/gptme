@@ -25,6 +25,38 @@ from typing import IO
 logger = logging.getLogger(__name__)
 
 
+class _WritePipeProtocol(asyncio.BaseProtocol):
+    """Protocol for write pipes that supports ``StreamWriter.drain()``.
+
+    ``asyncio.BaseProtocol`` lacks ``_drain_helper()``, so using it directly
+    with ``StreamWriter`` causes ``AttributeError`` when backpressure triggers
+    ``drain()``.  This implementation handles pause/resume writing and exposes
+    the ``_drain_helper()`` coroutine that ``StreamWriter`` expects.
+
+    Adapted from the agent-client-protocol library's own ``_WritePipeProtocol``.
+    """
+
+    def __init__(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._paused = False
+        self._drain_waiter: asyncio.Future[None] | None = None
+
+    def pause_writing(self) -> None:  # type: ignore[override]
+        self._paused = True
+        if self._drain_waiter is None:
+            self._drain_waiter = self._loop.create_future()
+
+    def resume_writing(self) -> None:  # type: ignore[override]
+        self._paused = False
+        if self._drain_waiter is not None and not self._drain_waiter.done():
+            self._drain_waiter.set_result(None)
+        self._drain_waiter = None
+
+    async def _drain_helper(self) -> None:
+        if self._paused and self._drain_waiter is not None:
+            await self._drain_waiter
+
+
 def _capture_stdio_transport() -> tuple[IO[bytes], IO[bytes]]:
     """Capture real stdin/stdout fds, then redirect fd 1 to fd 2 at the OS level.
 
@@ -66,8 +98,9 @@ async def _run_acp(real_stdin: IO[bytes], real_stdout: IO[bytes]) -> None:
     reader_protocol = asyncio.StreamReaderProtocol(reader)
     await loop.connect_read_pipe(lambda: reader_protocol, real_stdin)
 
-    write_transport, write_protocol = await loop.connect_write_pipe(
-        asyncio.BaseProtocol, real_stdout
+    write_protocol = _WritePipeProtocol()
+    write_transport, _ = await loop.connect_write_pipe(
+        lambda: write_protocol, real_stdout
     )
     writer = asyncio.StreamWriter(write_transport, write_protocol, reader, loop)
 

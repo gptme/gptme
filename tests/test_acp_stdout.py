@@ -1,9 +1,11 @@
-"""Tests for ACP stdout isolation.
+"""Tests for ACP stdout isolation and write pipe protocol.
 
 Verifies that running gptme in ACP mode doesn't leak non-JSON-RPC
 output to stdout, which would corrupt the protocol communication.
+Also tests the _WritePipeProtocol used for backpressure handling.
 """
 
+import asyncio
 import io
 import os
 import sys
@@ -133,3 +135,72 @@ def test_no_stdout_pollution_from_imports():
         assert output == "", f"Unexpected stdout output during imports: {output!r}"
     finally:
         sys.stdout = original_stdout
+
+
+def test_write_pipe_protocol_has_drain_helper():
+    """_WritePipeProtocol exposes _drain_helper for StreamWriter.drain()."""
+
+    async def _check():
+        from gptme.acp.__main__ import _WritePipeProtocol
+
+        proto = _WritePipeProtocol()
+        assert hasattr(proto, "_drain_helper")
+        # When not paused, drain should return immediately
+        await proto._drain_helper()
+
+    asyncio.run(_check())
+
+
+def test_write_pipe_protocol_pause_resume():
+    """_WritePipeProtocol handles pause/resume writing correctly."""
+
+    async def _check():
+        from gptme.acp.__main__ import _WritePipeProtocol
+
+        proto = _WritePipeProtocol()
+
+        # Initially not paused
+        assert not proto._paused
+        assert proto._drain_waiter is None
+
+        # Pause creates a future
+        proto.pause_writing()
+        assert proto._paused
+        assert proto._drain_waiter is not None
+        assert not proto._drain_waiter.done()
+
+        # Resume resolves the future
+        proto.resume_writing()
+        assert not proto._paused
+        assert proto._drain_waiter is None
+
+    asyncio.run(_check())
+
+
+def test_write_pipe_protocol_drain_blocks_when_paused():
+    """_drain_helper blocks until resume_writing is called."""
+
+    async def _check():
+        from gptme.acp.__main__ import _WritePipeProtocol
+
+        proto = _WritePipeProtocol()
+        proto.pause_writing()
+
+        resumed = False
+
+        async def drain_task():
+            await proto._drain_helper()
+            return True
+
+        async def resume_task():
+            nonlocal resumed
+            await asyncio.sleep(0.01)
+            proto.resume_writing()
+            resumed = True
+
+        # drain should block until resume is called
+        results = await asyncio.gather(drain_task(), resume_task())
+        assert results[0] is True
+        assert resumed
+
+    asyncio.run(_check())
