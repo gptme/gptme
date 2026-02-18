@@ -525,12 +525,17 @@ class ShellSession:
                 continue  # Skip env var assignments
             if part == "sudo":
                 # Check if -S or -n flags are present (they disable TTY need)
+                # Also handle combined short flags like -Sn, -nS, -uS
                 remaining = parts[i + 1 :]
                 flags = [p for p in remaining if p.startswith("-")]
-                if "-S" in flags or "--stdin" in flags:
-                    return False
-                if "-n" in flags or "--non-interactive" in flags:
-                    return False
+                for flag in flags:
+                    if flag in ("--stdin", "--non-interactive"):
+                        return False
+                    # Check combined short flags (e.g. -Sn, -nS, -uS)
+                    if flag.startswith("-") and not flag.startswith("--"):
+                        chars = flag[1:]
+                        if "S" in chars or "n" in chars:
+                            return False
                 return True
             break  # First non-env-var token is not sudo
         return False
@@ -550,15 +555,29 @@ class ShellSession:
             logger.warning("Could not open /dev/tty, falling back to normal run")
             return self._run_pipe(command, output=output, timeout=timeout)
 
+        # Inherit session env overrides so sudo commands behave consistently
+        # (e.g. no pager, consistent EDITOR) with commands run via _run_pipe
+        session_env = os.environ.copy()
+        session_env.update(
+            {
+                "PAGER": "",
+                "GH_PAGER": "",
+                "GIT_PAGER": "cat",
+                "EDITOR": "true",
+                "GIT_EDITOR": "true",
+                "PYTHONUNBUFFERED": "1",
+            }
+        )
+        proc = subprocess.Popen(
+            ["bash", "-c", command],
+            stdin=tty_stdin,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            cwd=os.getcwd(),
+            env=session_env,
+        )
         try:
-            proc = subprocess.Popen(
-                ["bash", "-c", command],
-                stdin=tty_stdin,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True,
-                cwd=os.getcwd(),
-            )
             stdout_data, stderr_data = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
@@ -566,6 +585,10 @@ class ShellSession:
             stdout_str = stdout_data.decode("utf-8", errors="replace").strip()
             stderr_str = stderr_data.decode("utf-8", errors="replace").strip()
             return -124, stdout_str, stderr_str
+        except KeyboardInterrupt:
+            proc.kill()
+            proc.communicate()
+            raise
         finally:
             tty_stdin.close()
 
