@@ -102,15 +102,15 @@ class ToolExecutingEvent(BaseEvent):
     tool_id: str
 
 
-class FormFieldDict(TypedDict, total=False):
+class FormFieldDict(TypedDict):
     """Form field dictionary type for elicitation."""
 
     name: str
     prompt: str
     type: str
-    options: list[str] | None
-    required: bool
-    default: str | None
+    options: NotRequired[list[str] | None]
+    required: NotRequired[bool]
+    default: NotRequired[str | None]
 
 
 class ElicitPendingEvent(BaseEvent):

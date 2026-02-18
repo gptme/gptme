@@ -989,7 +989,7 @@ def _resolve_hook_elicitation(
     """
     try:
         from ..hooks.elicitation import ElicitationResponse
-        from ..hooks.server_elicit import resolve_pending
+        from ..hooks.server_elicit import get_pending, resolve_pending
     except ImportError:
         return  # Hook module not available
 
@@ -998,12 +998,15 @@ def _resolve_hook_elicitation(
     elif action == "decline":
         result = ElicitationResponse(cancelled=False, value=None)
     elif action == "accept":
+        # Look up the pending request to check if sensitive (e.g. secret-type)
+        pending = get_pending(elicit_id)
+        is_sensitive = pending.request.sensitive if pending else False
         if values is not None:
             result = ElicitationResponse.multi(values)
         elif value is not None:
-            result = ElicitationResponse.text(value)
+            result = ElicitationResponse.text(value, sensitive=is_sensitive)
         else:
-            result = ElicitationResponse.text("")
+            result = ElicitationResponse.text("", sensitive=is_sensitive)
     else:
         return  # Unknown action
 

@@ -22,21 +22,15 @@ Usage:
 import logging
 import threading
 import uuid
-from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from .elicitation import ElicitationRequest, ElicitationResponse
 
-logger = logging.getLogger(__name__)
+# Re-use the context variables from server_confirm - these are set by the server
+# before starting tool execution and are the same context for confirm+elicit
+from .server_confirm import current_conversation_id, current_session_id
 
-# Re-use the same context variables as server_confirm
-# These are set by the server before starting tool execution
-current_conversation_id: ContextVar[str | None] = ContextVar(
-    "elicit_conversation_id", default=None
-)
-current_session_id: ContextVar[str | None] = ContextVar(
-    "elicit_session_id", default=None
-)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -130,21 +124,6 @@ def server_elicit_hook(
     # Try our own context vars first, then fall back to server_confirm's
     conversation_id = current_conversation_id.get()
     session_id = current_session_id.get()
-
-    if not conversation_id or not session_id:
-        # Try the server_confirm context vars (shared server context)
-        try:
-            from .server_confirm import (
-                current_conversation_id as sc_conv_id,
-            )
-            from .server_confirm import (
-                current_session_id as sc_sess_id,
-            )
-
-            conversation_id = sc_conv_id.get()
-            session_id = sc_sess_id.get()
-        except ImportError:
-            pass
 
     if not conversation_id or not session_id:
         # Not in a server session context - fall through to CLI handler
