@@ -71,8 +71,8 @@ try:
 except ImportError:
     has_pypdf = False
 
-has_playwright = lambda: importlib.util.find_spec("playwright") is not None  # noqa
-has_lynx = lambda: shutil.which("lynx")  # noqa
+has_playwright = lambda: importlib.util.find_spec("playwright") is not None  # noqa: E731
+has_lynx = lambda: shutil.which("lynx")  # noqa: E731
 browser: Literal["playwright", "lynx"] | None = (
     "playwright" if has_playwright() else ("lynx" if has_lynx() else None)
 )
@@ -280,7 +280,7 @@ try:
     has_perplexity = has_perplexity_key()
 except ImportError:
     has_perplexity = False
-    search_perplexity = None  # type: ignore
+    search_perplexity = None  # type: ignore[assignment]
 
 # noreorder
 if browser == "playwright":
@@ -493,9 +493,9 @@ def read_url(url: str, max_pages: int | None = None) -> str:
     # Otherwise use normal browser reading (max_pages ignored)
     assert browser
     if browser == "playwright":
-        return read_url_playwright(url)  # type: ignore
+        return read_url_playwright(url)
     elif browser == "lynx":
-        return read_url_lynx(url)  # type: ignore
+        return read_url_lynx(url)
 
 
 def search(query: str, engine: EngineType = "perplexity") -> str:
@@ -509,7 +509,7 @@ def search(query: str, engine: EngineType = "perplexity") -> str:
         )
     if engine == "perplexity":
         if has_perplexity:
-            return search_perplexity(query)  # type: ignore
+            return search_perplexity(query)
         else:
             return "Error: Perplexity search not available. Set PERPLEXITY_API_KEY or OPENROUTER_API_KEY environment variable or add it to ~/.config/gptme/config.toml"
     raise ValueError(f"Unknown search engine: {engine}")
@@ -518,9 +518,9 @@ def search(query: str, engine: EngineType = "perplexity") -> str:
 def search_playwright(query: str, engine: EngineType = "google") -> str:
     """Search for a query on a search engine using Playwright."""
     if engine == "google":
-        return search_google(query)  # type: ignore
+        return search_google(query)
     elif engine == "duckduckgo":
-        return search_duckduckgo(query)  # type: ignore
+        return search_duckduckgo(query)
     raise ValueError(f"Unknown search engine: {engine}")
 
 
@@ -528,7 +528,7 @@ def screenshot_url(url: str, path: Path | str | None = None) -> Path:
     """Take a screenshot of a webpage."""
     assert browser
     if browser == "playwright":
-        return screenshot_url_pw(url, path)  # type: ignore
+        return screenshot_url_pw(url, path)
     raise ValueError("Screenshot not supported with lynx backend")
 
 
@@ -536,7 +536,7 @@ def read_logs() -> str:
     """Read browser console logs from the last read URL."""
     assert browser
     if browser == "playwright":
-        return read_logs_playwright()  # type: ignore
+        return read_logs_playwright()
     raise ValueError("Browser logs not supported with lynx backend")
 
 

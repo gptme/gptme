@@ -478,8 +478,8 @@ class ShellSession:
             universal_newlines=True,
             start_new_session=True,  # Create new process group for proper signal handling
         )
-        self.stdout_fd = self.process.stdout.fileno()  # type: ignore
-        self.stderr_fd = self.process.stderr.fileno()  # type: ignore
+        self.stdout_fd = self.process.stdout.fileno()  # type: ignore[union-attr]
+        self.stderr_fd = self.process.stderr.fileno()  # type: ignore[union-attr]
         self.delimiter = "END_OF_COMMAND_OUTPUT"
         self.start_marker = "START_OF_COMMAND_OUTPUT"
 

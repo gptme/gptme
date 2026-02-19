@@ -58,7 +58,7 @@ def use_checks() -> bool:
     Any issues found are included in the context, helping catch and fix code quality
     issues before the user continues the conversation.
     """
-    flag: str = get_config().get_env("GPTME_CHECK", "")  # type: ignore
+    flag: str = get_config().get_env("GPTME_CHECK", "")  # type: ignore[assignment]
     explicit_enabled = flag.lower() in ("1", "true", "yes")
     explicit_disabled = flag.lower() in ("0", "false", "no")
     if explicit_disabled:
@@ -91,7 +91,7 @@ def run_checks_per_file() -> bool:
     Not always a good idea for multi-step/multi-file changes, so disabled by default.
     """
     # TODO: also support checking only modified files in the full run after step complete?
-    flag: str = get_config().get_env("GPTME_CHECK_PER_FILE", "false")  # type: ignore
+    flag: str = get_config().get_env("GPTME_CHECK_PER_FILE", "false")  # type: ignore[assignment]
     return flag.lower() in (
         "1",
         "true",
