@@ -231,6 +231,14 @@ ignore_missing_imports = true
 module = "flask.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "dspy.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "playwright.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
