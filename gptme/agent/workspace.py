@@ -352,9 +352,17 @@ def _reset_git_history(path: Path, agent_name: str) -> None:
     if git_dir.exists():
         shutil.rmtree(git_dir)
 
-    # Use -c core.hooksPath=/dev/null to bypass any global git hooks
-    # during workspace initialization (this is not a normal development commit)
-    git_no_hooks = ["git", "-c", "core.hooksPath=/dev/null"]
+    # Use -c flags to bypass global git hooks and set identity for CI environments
+    # where user.email/user.name may not be configured globally
+    git_no_hooks = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "user.email=agent@gptme.org",
+        "-c",
+        "user.name=gptme-agent",
+    ]
     subprocess.run(
         [*git_no_hooks, "init"], cwd=str(path), capture_output=True, check=True
     )

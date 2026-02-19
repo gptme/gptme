@@ -841,7 +841,16 @@ class TestResetGitHistory:
         import subprocess
 
         return subprocess.run(
-            ["git", "-c", "core.hooksPath=/dev/null", *args],
+            [
+                "git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "user.email=test@gptme.org",
+                "-c",
+                "user.name=gptme-test",
+                *args,
+            ],
             cwd=cwd,
             capture_output=True,
             text=True,
