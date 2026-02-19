@@ -112,14 +112,12 @@ class Message:
         return f"<Message role={self.role} content={content}>"
 
     def __eq__(self, other):
-        # FIXME: really include timestamp?
         if not isinstance(other, Message):
             return False
-        return (
-            self.role == other.role
-            and self.content == other.content
-            and self.timestamp == other.timestamp
-        )
+        return self.role == other.role and self.content == other.content
+
+    def __hash__(self):
+        return hash((self.role, self.content))
 
     def len_tokens(self, model: str) -> int:
         return len_tokens(self, model=model)

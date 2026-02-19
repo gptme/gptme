@@ -307,6 +307,45 @@ def test_to_xml_handles_quotes_in_role():
     assert 'Test content with "quotes"' in xml_str
 
 
+def test_message_equality_ignores_timestamp():
+    """Test that Message equality is based on role and content, not timestamp."""
+    msg1 = Message("user", "Hello", timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc))
+    msg2 = Message("user", "Hello", timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    msg3 = Message("user", "World", timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc))
+    msg4 = Message(
+        "assistant", "Hello", timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc)
+    )
+
+    # Same role + content = equal, regardless of timestamp
+    assert msg1 == msg2
+
+    # Different content = not equal
+    assert msg1 != msg3
+
+    # Different role = not equal
+    assert msg1 != msg4
+
+    # Not equal to non-Message
+    assert msg1 != "not a message"
+
+
+def test_message_hash_consistent_with_equality():
+    """Test that Message hash is consistent with equality (equal objects hash the same)."""
+    msg1 = Message("user", "Hello", timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc))
+    msg2 = Message("user", "Hello", timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    msg3 = Message("user", "World")
+
+    # Equal messages must have equal hashes
+    assert hash(msg1) == hash(msg2)
+
+    # Different messages should (likely) have different hashes
+    assert hash(msg1) != hash(msg3)
+
+    # Messages work correctly in sets
+    s = {msg1, msg2, msg3}
+    assert len(s) == 2  # msg1 and msg2 are equal, so only 2 unique
+
+
 def test_toml_preserves_whitespace():
     """Test that from_toml preserves leading/trailing whitespace in content.
 
