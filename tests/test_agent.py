@@ -17,6 +17,7 @@ from gptme.agent.service import (
 )
 from gptme.agent.workspace import (
     DetectedWorkspace,
+    _reset_git_history,
     detect_workspaces,
     get_workspace_name,
     is_agent_workspace,
@@ -829,3 +830,63 @@ class TestWorkspaceDetection:
         names = [ws.name for ws in workspaces]
 
         assert names.count("unique-agent") == 1
+
+
+class TestResetGitHistory:
+    """Tests for _reset_git_history function."""
+
+    @staticmethod
+    def _git(args, cwd):
+        """Run git with hooks disabled (avoids global hook interference)."""
+        import subprocess
+
+        return subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    def test_replaces_existing_history(self, tmp_path):
+        """Test that existing git history is replaced with a single commit."""
+        workspace = tmp_path / "agent"
+        workspace.mkdir()
+
+        # Create a repo with multiple commits
+        self._git(["init"], workspace)
+        (workspace / "file1.txt").write_text("first")
+        self._git(["add", "."], workspace)
+        self._git(["commit", "-m", "first commit"], workspace)
+        (workspace / "file2.txt").write_text("second")
+        self._git(["add", "."], workspace)
+        self._git(["commit", "-m", "second commit"], workspace)
+
+        # Verify 2 commits exist
+        result = self._git(["log", "--oneline"], workspace)
+        assert len(result.stdout.strip().split("\n")) == 2
+
+        # Reset history
+        _reset_git_history(workspace, "test-agent")
+
+        # Verify single commit with correct message
+        result = self._git(["log", "--oneline"], workspace)
+        lines = result.stdout.strip().split("\n")
+        assert len(lines) == 1
+        assert "initialize test-agent agent workspace" in lines[0]
+
+        # Verify all files are still present
+        assert (workspace / "file1.txt").exists()
+        assert (workspace / "file2.txt").exists()
+
+    def test_works_without_existing_git(self, tmp_path):
+        """Test that it works on a directory without .git."""
+        workspace = tmp_path / "agent"
+        workspace.mkdir()
+        (workspace / "file.txt").write_text("content")
+
+        _reset_git_history(workspace, "new-agent")
+
+        result = self._git(["log", "--oneline"], workspace)
+        assert len(result.stdout.strip().split("\n")) == 1
+        assert "initialize new-agent agent workspace" in result.stdout
