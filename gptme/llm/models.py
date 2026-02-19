@@ -276,6 +276,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 4096,
             "price_input": 15,
             "price_output": 75,
+            "knowledge_cutoff": datetime(2023, 8, 1),
         },
     },
     # https://ai.google.dev/gemini-api/docs/models/gemini#gemini-1.5-flash
@@ -403,17 +404,26 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
             "supports_vision": True,
         },
-        "grok-beta": {
+        "grok-3": {
             "context": 131_072,
-            "max_output": 4096,  # guess
-            "price_input": 5,
+            "max_output": 131_072,
+            "price_input": 3,
             "price_output": 15,
+            "supports_reasoning": True,
+            "supports_vision": True,
         },
-        "grok-vision-beta": {
-            "context": 8192,
-            "max_output": 4096,  # guess
-            "price_input": 5,  # $10/1Mtok for vision
-            "price_output": 15,
+        "grok-3-mini": {
+            "context": 131_072,
+            "max_output": 131_072,
+            "price_input": 0.3,
+            "price_output": 0.5,
+            "supports_reasoning": True,
+        },
+        "grok-2-vision-1212": {
+            "context": 32_768,
+            "max_output": 32_768,
+            "price_input": 2,
+            "price_output": 10,
             "supports_vision": True,
         },
     },
