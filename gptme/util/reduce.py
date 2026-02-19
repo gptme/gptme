@@ -73,7 +73,6 @@ def reduce_log(
 
 def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
     """Truncates message codeblocks to the first and last `lines_pre` and `lines_post` lines, keeping the rest as `[...]`."""
-    # TODO: also truncate long <details> (as can be found in GitHub issue comments)
     content_staged = msg.content
 
     # Truncate long codeblocks
