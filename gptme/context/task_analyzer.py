@@ -308,7 +308,7 @@ def classify_task(features: TaskFeatures) -> TaskClassification:
         scores = {k: v / max_score for k, v in scores.items()}
 
     # Select primary type (highest score)
-    primary_type = max(scores, key=scores.get)  # type: ignore
+    primary_type = max(scores, key=scores.get)  # type: ignore[arg-type]
     confidence = scores[primary_type]
 
     # Secondary types (score > 0.5)

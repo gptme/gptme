@@ -142,7 +142,7 @@ def trace_function(
                     span.set_attribute("function.error.message", str(e))
                     raise
 
-        return wrapper  # type: ignore
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 
@@ -478,4 +478,4 @@ def measure_tokens_per_second(func: F) -> F:
 
         return result
 
-    return wrapper  # type: ignore
+    return wrapper  # type: ignore[return-value]

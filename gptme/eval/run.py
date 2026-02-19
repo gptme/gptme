@@ -96,7 +96,9 @@ def run_evals(
     # https://pytest-cov.readthedocs.io/en/latest/subprocess-support.html
     try:
         # noreorder
-        from pytest_cov.embed import cleanup_on_sigterm  # fmt: skip  # type: ignore
+        from pytest_cov.embed import (
+            cleanup_on_sigterm,  # fmt: skip  # type: ignore[import-not-found]
+        )
     except ImportError:
         pass
     else:
@@ -393,7 +395,7 @@ def act_process(
         stdout = StreamTee(sys.stdout, keep=not parallel)
         stderr = StreamTee(sys.stderr, keep=not parallel)
 
-    sys.stdout, sys.stderr = stdout, stderr  # type: ignore
+    sys.stdout, sys.stderr = stdout, stderr
 
     start = time.time()
 

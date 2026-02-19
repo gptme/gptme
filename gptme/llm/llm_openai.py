@@ -373,7 +373,7 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
     try:
         import httpx
     except ImportError:
-        httpx = None  # type: ignore
+        httpx = None  # type: ignore[assignment]
 
     # Allow tests to override max_retries via environment variable
     # This breaks out of the retry loop early to prevent test timeouts
@@ -535,7 +535,7 @@ def chat(
 
     response = client.chat.completions.create(
         model=api_model,
-        messages=messages_dicts,  # type: ignore
+        messages=messages_dicts,  # type: ignore[arg-type]
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),
         **optional_kwargs,
@@ -633,7 +633,7 @@ def stream(
 
     for chunk_raw in client.chat.completions.create(
         model=api_model.split("@")[0],
-        messages=messages_dicts,  # type: ignore
+        messages=messages_dicts,  # type: ignore[call-overload]
         stream=True,
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),

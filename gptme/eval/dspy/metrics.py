@@ -237,7 +237,7 @@ def create_task_success_metric(
         if not hasattr(pred, "eval_result") or not pred.eval_result:
             return 0.0
 
-        result: EvalResult = pred.eval_result  # type: ignore
+        result: EvalResult = pred.eval_result
 
         # Calculate success rate based on passed expectations
         total_expectations = len(result.results)
@@ -275,7 +275,7 @@ def create_tool_usage_metric() -> Callable[[Any, Any, Any | None], float]:
         - Whether tool usage followed best practices
         """
         # Get messages from pred (added by GptmeModule) - must be present
-        messages: list[Message] = pred.messages  # type: ignore
+        messages: list[Message] = pred.messages
         if not messages:
             raise ValueError(
                 "No messages available for tool usage analysis - evaluation may have failed"

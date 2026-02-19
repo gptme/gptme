@@ -24,7 +24,7 @@ class ContextConfig:
     enabled: bool = False  # Default: opt-in
 
     # Nested selector configuration
-    selector: ContextSelectorConfig = None  # type: ignore
+    selector: ContextSelectorConfig = None  # type: ignore[assignment]
 
     def __post_init__(self):
         # Default selector config if not provided

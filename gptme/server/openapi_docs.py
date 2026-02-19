@@ -721,13 +721,13 @@ def _add_flask_routes_to_spec(spec: dict[str, Any]) -> None:
 
         final_parameters = _process_route_parameters(view_func, rule.rule, doc)
 
-        paths_dict = spec["paths"]  # type: ignore
+        paths_dict = spec["paths"]
         if path not in paths_dict:
             paths_dict[path] = {}
 
         for method in methods:
             method_spec = _create_method_spec(doc, method, final_parameters)
-            paths_dict[path][method.lower()] = method_spec  # type: ignore
+            paths_dict[path][method.lower()] = method_spec
 
 
 def generate_openapi_spec() -> dict[str, Any]:
@@ -747,7 +747,7 @@ def generate_openapi_spec() -> dict[str, Any]:
         )
 
     # Add all schemas to spec
-    spec["components"]["schemas"].update(all_schemas)  # type: ignore
+    spec["components"]["schemas"].update(all_schemas)
 
     # Add Flask routes
     _add_flask_routes_to_spec(spec)

@@ -10,13 +10,13 @@ class FileSelectorConfig(ContextSelectorConfig):
     """Configuration for file selection with file-specific boosts."""
 
     # Mention count boosts (files mentioned more frequently)
-    mention_boost_thresholds: dict[int, float] = None  # type: ignore
+    mention_boost_thresholds: dict[int, float] = None  # type: ignore[assignment]
 
     # Recency boosts (files modified recently)
-    recency_boost_hours: dict[float, float] = None  # type: ignore
+    recency_boost_hours: dict[float, float] = None  # type: ignore[assignment]
 
     # File type weights (prioritize certain file types)
-    file_type_weights: dict[str, float] = None  # type: ignore
+    file_type_weights: dict[str, float] = None  # type: ignore[assignment]
 
     def __post_init__(self):
         # Default mention count boosts

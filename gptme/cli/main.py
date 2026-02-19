@@ -687,7 +687,7 @@ def pick_log(limit=20) -> Path:  # pragma: no cover
     )
 
     index: int
-    _, index = pick(options, title)  # type: ignore
+    _, index = pick(options, title)
     if index == 0:
         return get_logdir("random")
     elif index == len(options) - 1:

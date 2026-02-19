@@ -333,7 +333,7 @@ def examples(tool_format: str) -> str:
     """Return example usage."""
 
     # Cast to ToolFormat type
-    fmt: ToolFormat = tool_format  # type: ignore
+    fmt: ToolFormat = tool_format  # type: ignore[assignment]
     return "\n\n".join(
         [
             ToolUse("mcp", [], "search sqlite").to_output(fmt),

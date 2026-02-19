@@ -558,7 +558,7 @@ def stream(
                         logger.warning("Unknown delta type: %s", delta)
                 case "content_block_stop":
                     stop_chunk = cast(anthropic.types.ContentBlockStopEvent, chunk)
-                    stop_block = stop_chunk.content_block  # type: ignore
+                    stop_block = stop_chunk.content_block  # type: ignore[attr-defined]
                     if isinstance(stop_block, anthropic.types.TextBlock):
                         pass
                     elif isinstance(stop_block, anthropic.types.ToolUseBlock):
@@ -783,7 +783,7 @@ def _transform_system_messages(
             messages[i] = Message(
                 "user",
                 content=content,
-                files=message.files,  # type: ignore
+                files=message.files,
                 call_id=message.call_id,
             )
 
@@ -800,7 +800,7 @@ def _transform_system_messages(
             messages_new[-1] = Message(
                 "user",
                 content=f"{messages_new[-1].content}\n\n{message.content}",
-                files=messages_new[-1].files + message.files,  # type: ignore
+                files=messages_new[-1].files + message.files,
                 call_id=messages_new[-1].call_id,
             )
         else:
@@ -898,7 +898,7 @@ def _prepare_messages_for_api(
         web_search_tool = _create_web_search_tool(max_uses=max_uses)
         if tools_dict is None:
             tools_dict = []
-        tools_dict.append(web_search_tool)  # type: ignore
+        tools_dict.append(web_search_tool)  # type: ignore[arg-type]
         logger.info(f"Anthropic native web search enabled (max_uses={max_uses})")
 
     if tools_dict is not None:
@@ -921,7 +921,7 @@ def _prepare_messages_for_api(
 
         for part in raw_content:
             if isinstance(part, dict):
-                content_parts.append(part)  # type: ignore
+                content_parts.append(part)  # type: ignore[arg-type]
             else:
                 content_parts.append({"type": "text", "text": str(part)})
 

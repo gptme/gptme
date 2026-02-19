@@ -222,7 +222,7 @@ def _edit(
     from ..util.useredit import edit_text_with_editor  # fmt: skip
 
     # generate editable toml of all messages
-    t = msgs_to_toml(reversed(manager.log))  # type: ignore
+    t = msgs_to_toml(reversed(manager.log))  # type: ignore[arg-type]
     res = None
     while not res:
         t = edit_text_with_editor(t, "toml")

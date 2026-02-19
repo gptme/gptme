@@ -404,7 +404,7 @@ def init_telemetry(
         )
         tracer_provider = trace.get_tracer_provider()
         if hasattr(tracer_provider, "add_span_processor"):
-            tracer_provider.add_span_processor(span_processor)  # type: ignore
+            tracer_provider.add_span_processor(span_processor)
 
         # Use OTLP for metrics (same endpoint as traces)
         try:

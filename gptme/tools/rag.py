@@ -224,7 +224,7 @@ def get_rag_context(
         start = time.monotonic()
         rag_result = _chat_complete(
             messages=post_process_msgs,
-            model=rag_config.post_process_model,  # type: ignore
+            model=rag_config.post_process_model,  # type: ignore[arg-type]
             tools=[],
         )
         logger.info(f"Ran RAG post-process in {time.monotonic() - start:.2f}s")

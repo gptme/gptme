@@ -531,4 +531,4 @@ def rich_to_str(text: str | Any, **kwargs) -> str:
     # kwargs.setdefault("force_terminal", True)  # Ensure ANSI codes are generated
     console = Console(file=io.StringIO(), **kwargs)
     console.print(text, end="")
-    return console.file.getvalue()  # type: ignore
+    return console.file.getvalue()  # type: ignore[attr-defined]

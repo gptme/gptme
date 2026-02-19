@@ -68,7 +68,7 @@ class Log:
     def read_jsonl(cls, path: PathLike, limit=None) -> "Log":
         gen = _gen_read_jsonl(path)
         if limit:
-            gen = islice(gen, limit)  # type: ignore
+            gen = islice(gen, limit)  # type: ignore[assignment]
         return Log(list(gen))
 
     def write_jsonl(self, path: PathLike) -> None:
