@@ -124,7 +124,11 @@ def get_sessions() -> list[str]:
         capture_output=True,
         text=True,
     )
-    assert output.returncode == 0
+    if output.returncode != 0:
+        logger.warning(
+            f"tmux list-sessions failed (rc={output.returncode}): {output.stderr.strip()}"
+        )
+        return []
     return [session.split(":")[0] for session in output.stdout.split("\n") if session]
 
 
