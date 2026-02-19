@@ -5,6 +5,7 @@ Typically used when the log exceeds a token limit and needs to be shortened.
 """
 
 import logging
+import re
 from collections.abc import Generator
 
 from ..codeblock import Codeblock
@@ -72,8 +73,7 @@ def reduce_log(
 
 
 def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
-    """Truncates message codeblocks to the first and last `lines_pre` and `lines_post` lines, keeping the rest as `[...]`."""
-    # TODO: also truncate long <details> (as can be found in GitHub issue comments)
+    """Truncates message codeblocks and <details> blocks to the first and last `lines_pre` and `lines_post` lines, keeping the rest as `[...]`."""
     content_staged = msg.content
 
     # Truncate long codeblocks
@@ -98,10 +98,52 @@ def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
         assert content_staged != content_staged_prev
         assert full_block not in content_staged
 
+    # Truncate long <details> blocks (common in GitHub issue comments)
+    content_staged = _truncate_details_blocks(
+        content_staged, lines_pre=lines_pre, lines_post=lines_post
+    )
+
     if content_staged != msg.content:
         return msg.replace(content=content_staged)
     else:
         return None
+
+
+# Regex to match <details> blocks, capturing summary and body separately
+_DETAILS_RE = re.compile(
+    r"(<details[^>]*>\s*"  # opening tag
+    r"(?:<summary>.*?</summary>\s*)?)"  # optional summary (kept intact)
+    r"(.*?)"  # body content (group 2, to truncate)
+    r"(</details>)",  # closing tag
+    re.DOTALL,
+)
+
+
+def _truncate_details_blocks(
+    content: str, lines_pre: int = 10, lines_post: int = 10
+) -> str:
+    """Truncate long <details> blocks, preserving <summary> and first/last lines."""
+
+    def _truncate_match(match: re.Match) -> str:
+        header = match.group(1)  # <details> + <summary>
+        body = match.group(2)
+        footer = match.group(3)  # </details>
+
+        lines = body.split("\n")
+        # strip leading/trailing blank lines for accurate counting
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+        if len(lines) > lines_pre + lines_post + 1:
+            truncated_body = "\n".join(
+                [*lines[:lines_pre], "[...]", *lines[-lines_post:]]
+            )
+            return f"{header}\n{truncated_body}\n{footer}"
+        return match.group(0)
+
+    return _DETAILS_RE.sub(_truncate_match, content)
 
 
 def limit_log(log: list[Message]) -> list[Message]:
