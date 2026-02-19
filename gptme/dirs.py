@@ -137,8 +137,11 @@ def _migrate_readline_history():
     old_path = get_config_dir() / "history"
     new_path = get_data_dir() / "history"
     if old_path.exists() and not new_path.exists():
-        logger.info(f"Migrating readline history: {old_path} -> {new_path}")
-        shutil.move(str(old_path), str(new_path))
+        try:
+            logger.info(f"Migrating readline history: {old_path} -> {new_path}")
+            shutil.move(str(old_path), str(new_path))
+        except Exception as e:
+            logger.warning(f"Failed to migrate readline history: {e}")
 
 
 def _init_paths():
