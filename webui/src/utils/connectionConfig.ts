@@ -8,8 +8,8 @@ import {
 const DEFAULT_API_URL = 'http://127.0.0.1:5700';
 
 // Fleet operator URL for auth code exchange
-// Configure via VITE_FLEET_OPERATOR_URL environment variable
-const FLEET_OPERATOR_URL = import.meta.env.VITE_FLEET_OPERATOR_URL || 'https://fleet.gptme.ai';
+// Configure via VITE_GPTME_CLOUD_BASE_URL environment variable
+const FLEET_OPERATOR_URL = import.meta.env.VITE_GPTME_CLOUD_BASE_URL || 'https://fleet.gptme.ai';
 
 export interface ConnectionConfig {
   baseUrl: string;
@@ -63,7 +63,7 @@ function getAuthCodeParams(hash?: string): { code: string } | null {
 
 /**
  * Get the exchange URL for auth code flow.
- * Derives from VITE_FLEET_OPERATOR_URL environment variable.
+ * Derives from VITE_GPTME_CLOUD_BASE_URL environment variable.
  */
 function getExchangeUrl(): string {
   return `${FLEET_OPERATOR_URL}/api/v1/operator/auth/exchange`;
@@ -120,7 +120,7 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
 
   // Fallback (should not happen since registry always has at least one server)
   return {
-    baseUrl: import.meta.env.VITE_API_URL || DEFAULT_API_URL,
+    baseUrl: import.meta.env.VITE_GPTME_API_URL || DEFAULT_API_URL,
     authToken: null,
     useAuthToken: false,
   };
@@ -177,7 +177,7 @@ export async function processConnectionFromHash(hash?: string): Promise<Connecti
  */
 export function getApiBaseUrl(): string {
   const server = getActiveServer();
-  return server?.baseUrl || import.meta.env.VITE_API_URL || DEFAULT_API_URL;
+  return server?.baseUrl || import.meta.env.VITE_GPTME_API_URL || DEFAULT_API_URL;
 }
 
 /**
