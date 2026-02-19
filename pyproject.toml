@@ -246,6 +246,8 @@ markers = [
     "serial",
     "timeout: marks tests with timeout value in seconds",
     "requires_api: marks tests that require API access",
+    "flaky: marks tests as flaky (retried automatically)",
+    "integration: marks tests as integration tests requiring external services",
 ]
 
 [tool.coverage.run]
