@@ -410,9 +410,6 @@ class GptmeAgent:
                     tool_allowlist=None,
                     tool_format="markdown",
                 )
-                self._initialized = True
-                # Store tools for re-setting in other handler contexts
-                self._tools = get_tools()
             except Exception as e:
                 # Store the error instead of raising — raising would kill the
                 # ACP connection and leave the editor showing "Loading..." with
