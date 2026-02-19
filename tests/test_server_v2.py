@@ -102,6 +102,11 @@ def test_v2_create_conversation_default_system_prompt(
     monkeypatch.chdir(tmp_path)
     # Explicitly disable chat history for this test
     monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
+    # Isolate from user config (user-level prompt files can inject extra messages)
+    monkeypatch.setattr("gptme.config.config_path", str(tmp_path / "config.toml"))
+    from gptme.config import _config_var
+
+    _config_var.set(None)  # Force re-creation from isolated config path
 
     convname = f"test-server-v2-{random.randint(0, 1000000)}"
     response = client.put(
