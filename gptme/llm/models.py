@@ -337,7 +337,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
         "gemini-2.5-pro": {
             "context": 1_048_576,
-            "max_output": 8192,
+            "max_output": 65_536,
             # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 1.25,
             "price_output": 10,
