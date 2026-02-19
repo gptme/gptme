@@ -831,8 +831,18 @@ def models():
 @click.option(
     "--simple", is_flag=True, help="Output one model per line as provider/model"
 )
+@click.option(
+    "--include-deprecated",
+    is_flag=True,
+    help="Include deprecated/sunset models in the listing",
+)
 def models_list(
-    provider: str | None, pricing: bool, vision: bool, reasoning: bool, simple: bool
+    provider: str | None,
+    pricing: bool,
+    vision: bool,
+    reasoning: bool,
+    simple: bool,
+    include_deprecated: bool,
 ):
     """List available models."""
 
@@ -841,6 +851,7 @@ def models_list(
         show_pricing=pricing,
         vision_only=vision,
         reasoning_only=reasoning,
+        include_deprecated=include_deprecated,
         simple_format=simple,
         dynamic_fetch=True,
     )
@@ -875,6 +886,9 @@ def models_info(model_name: str):
 
     if model.knowledge_cutoff:
         print(f"Knowledge cutoff: {model.knowledge_cutoff.strftime('%Y-%m-%d')}")
+
+    if model.deprecated:
+        print("Status: DEPRECATED")
 
 
 if __name__ == "__main__":

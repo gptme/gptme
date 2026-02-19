@@ -94,6 +94,9 @@ class ModelMeta:
 
     knowledge_cutoff: datetime | None = None
 
+    # whether the model is deprecated/sunset by the provider
+    deprecated: bool = False
+
     @property
     def full(self) -> str:
         # For unknown providers (including custom providers), the model field
@@ -116,6 +119,7 @@ class _ModelDictMeta(TypedDict):
     supports_reasoning: NotRequired[bool]
 
     knowledge_cutoff: NotRequired[datetime]
+    deprecated: NotRequired[bool]
 
 
 # default model - using ContextVar for thread safety
@@ -266,6 +270,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 3,
             "price_output": 15,
             "knowledge_cutoff": datetime(2024, 4, 1),
+            "deprecated": True,  # superseded by claude-3-5-sonnet-20241022
         },
         "claude-3-5-sonnet-latest": {
             "context": 200_000,
@@ -297,6 +302,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.25,
             "price_output": 1.25,
             "knowledge_cutoff": datetime(2024, 4, 1),
+            "deprecated": True,  # superseded by claude-3-5-haiku
         },
         "claude-3-opus-20240229": {
             "context": 200_000,
@@ -304,6 +310,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 15,
             "price_output": 75,
             "knowledge_cutoff": datetime(2023, 8, 1),
+            "deprecated": True,  # superseded by claude-opus-4+
         },
         "claude-3-opus-latest": {
             "context": 200_000,
@@ -870,11 +877,16 @@ def _get_models_for_provider(
 
 
 def _apply_model_filters(
-    models: list[ModelMeta], vision_only: bool = False, reasoning_only: bool = False
+    models: list[ModelMeta],
+    vision_only: bool = False,
+    reasoning_only: bool = False,
+    include_deprecated: bool = False,
 ) -> list[ModelMeta]:
-    """Apply vision and reasoning filters to models."""
+    """Apply vision, reasoning, and deprecation filters to models."""
     filtered_models = []
     for model in models:
+        if not include_deprecated and model.deprecated:
+            continue
         if vision_only and not model.supports_vision:
             continue
         if reasoning_only and not model.supports_reasoning:
@@ -893,6 +905,7 @@ def get_model_list(
     provider_filter: str | None = None,
     vision_only: bool = False,
     reasoning_only: bool = False,
+    include_deprecated: bool = False,
     dynamic_fetch: bool = True,
 ) -> list[ModelMeta]:
     """
@@ -905,6 +918,7 @@ def get_model_list(
         provider_filter: Only include models from this provider
         vision_only: Only include models with vision support
         reasoning_only: Only include models with reasoning support
+        include_deprecated: Include deprecated/sunset models (default: False)
         dynamic_fetch: Fetch dynamic models from APIs where available
 
     Returns:
@@ -919,7 +933,11 @@ def get_model_list(
     # Check cache for unfiltered dynamic fetches
     current_time = time.time()
     use_cache = (
-        dynamic_fetch and not provider_filter and not vision_only and not reasoning_only
+        dynamic_fetch
+        and not provider_filter
+        and not vision_only
+        and not reasoning_only
+        and not include_deprecated
     )
 
     if (
@@ -950,7 +968,9 @@ def get_model_list(
         models = _get_models_for_provider(provider, dynamic_fetch)
 
         # Apply filters
-        filtered_models = _apply_model_filters(models, vision_only, reasoning_only)
+        filtered_models = _apply_model_filters(
+            models, vision_only, reasoning_only, include_deprecated
+        )
         all_models.extend(filtered_models)
 
     # Update cache for unfiltered results
@@ -970,6 +990,10 @@ def _print_simple_format(models: list[ModelMeta]) -> None:
 def _format_model_details(model: ModelMeta, show_pricing: bool = False) -> str:
     """Format model details for display."""
     info_parts = [f"  {model.model}"]
+
+    # Deprecated indicator
+    if model.deprecated:
+        info_parts.append("DEPRECATED")
 
     # Context window
     if model.context:
@@ -1027,6 +1051,7 @@ def list_models(
     show_pricing: bool = False,
     vision_only: bool = False,
     reasoning_only: bool = False,
+    include_deprecated: bool = False,
     simple_format: bool = False,
     dynamic_fetch: bool = True,
 ) -> None:
@@ -1038,6 +1063,7 @@ def list_models(
         show_pricing: Include pricing information
         vision_only: Only show models with vision support
         reasoning_only: Only show models with reasoning support
+        include_deprecated: Include deprecated/sunset models
         simple_format: Output one model per line as provider/model
         dynamic_fetch: Fetch dynamic models from APIs where available
     """
@@ -1047,6 +1073,7 @@ def list_models(
             provider_filter=provider_filter,
             vision_only=vision_only,
             reasoning_only=reasoning_only,
+            include_deprecated=include_deprecated,
             dynamic_fetch=dynamic_fetch,
         )
         _print_simple_format(all_models)
@@ -1069,7 +1096,9 @@ def list_models(
                 continue
 
             models = _get_models_for_provider(provider, dynamic_fetch)
-            filtered_models = _apply_model_filters(models, vision_only, reasoning_only)
+            filtered_models = _apply_model_filters(
+                models, vision_only, reasoning_only, include_deprecated
+            )
 
             if not filtered_models:
                 continue

@@ -454,6 +454,7 @@ def api_models():
                     "supports_reasoning": model.supports_reasoning,
                     "price_input": model.price_input,
                     "price_output": model.price_output,
+                    "deprecated": model.deprecated,
                 }
             )
 
