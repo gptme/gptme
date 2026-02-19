@@ -33,6 +33,31 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "supports_reasoning": True,
         "knowledge_cutoff": datetime(2024, 5, 31),
     },
+    # GPT-4.1
+    "gpt-4.1": {
+        "context": 1_047_576,
+        "max_output": 32_768,
+        "price_input": 2,
+        "price_output": 8,
+        "supports_vision": True,
+        "knowledge_cutoff": datetime(2025, 3, 1),
+    },
+    "gpt-4.1-mini": {
+        "context": 1_047_576,
+        "max_output": 32_768,
+        "price_input": 0.4,
+        "price_output": 1.6,
+        "supports_vision": True,
+        "knowledge_cutoff": datetime(2025, 3, 1),
+    },
+    "gpt-4.1-nano": {
+        "context": 1_047_576,
+        "max_output": 32_768,
+        "price_input": 0.1,
+        "price_output": 0.4,
+        "supports_vision": True,
+        "knowledge_cutoff": datetime(2025, 3, 1),
+    },
     # GPT-4o
     "gpt-4o": {
         "context": 128_000,
@@ -68,7 +93,39 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 0.6,
         "knowledge_cutoff": datetime(2023, 10, 1),
     },
-    # OpenAI o1-preview
+    # OpenAI o4-mini
+    "o4-mini": {
+        "context": 200_000,
+        "max_output": 100_000,
+        "price_input": 1.1,
+        "price_output": 4.4,
+        "supports_vision": True,
+        "supports_reasoning": True,
+    },
+    # OpenAI o3
+    "o3": {
+        "context": 200_000,
+        "max_output": 100_000,
+        "price_input": 2,
+        "price_output": 8,
+        "supports_vision": True,
+        "supports_reasoning": True,
+    },
+    "o3-mini": {
+        "context": 200_000,
+        "max_output": 100_000,
+        "price_input": 1.1,
+        "price_output": 4.4,
+        "supports_reasoning": True,
+    },
+    # OpenAI o1
+    "o1": {
+        "context": 200_000,
+        "max_output": 100_000,
+        "price_input": 15,
+        "price_output": 60,
+        "supports_reasoning": True,
+    },
     "o1-preview": {
         "context": 128_000,
         "price_input": 15,
@@ -81,7 +138,6 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 60,
         "supports_reasoning": True,
     },
-    # OpenAI o1-mini
     "o1-mini": {
         "context": 128_000,
         "price_input": 3,
