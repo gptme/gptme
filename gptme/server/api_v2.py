@@ -19,6 +19,7 @@ from gptme.config import ChatConfig, Config, load_user_config, set_config
 from gptme.llm.models import (
     PROVIDERS,
     Provider,
+    _apply_model_filters,
     _get_models_for_provider,
     get_default_model,
 )
@@ -440,7 +441,8 @@ def api_models():
     else:
         providers_to_check = cast(list[Provider], PROVIDERS)
     for provider in providers_to_check:
-        models = _get_models_for_provider(provider, dynamic_fetch=True)
+        provider_models = _get_models_for_provider(provider, dynamic_fetch=True)
+        models = _apply_model_filters(provider_models, include_deprecated=False)
         for model in models:
             models_data.append(
                 {
