@@ -1,7 +1,16 @@
 from pathlib import Path
 
+import pytest
+
 from gptme.dirs import get_logs_dir
-from gptme.logmanager import LogManager, Message
+from gptme.logmanager import Log, LogManager, Message, check_for_modifications
+from gptme.tools import init_tools
+
+
+@pytest.fixture(autouse=True)
+def _init_tools():
+    """Ensure tools are loaded for check_for_modifications tests."""
+    init_tools(allowlist=["save", "patch", "append"])
 
 
 def test_branch():
@@ -65,3 +74,75 @@ def test_write_persists_main_branch_when_on_other_branch(tmp_path: Path, monkeyp
     assert dev_path.exists()
     dev_content = dev_path.read_text()
     assert "dev message" in dev_content
+
+
+def test_check_for_modifications_with_tool_use():
+    """Test that check_for_modifications detects save/patch/append/morph tool uses."""
+    log = Log(
+        messages=[
+            Message("user", "Please create a file"),
+            Message(
+                "assistant",
+                "I'll create that file.\n```save test.py\nprint('hello')\n```",
+            ),
+        ]
+    )
+    assert check_for_modifications(log) is True
+
+
+def test_check_for_modifications_no_tools():
+    """Test that check_for_modifications returns False when no file tools are used."""
+    log = Log(
+        messages=[
+            Message("user", "What is Python?"),
+            Message("assistant", "Python is a programming language."),
+        ]
+    )
+    assert check_for_modifications(log) is False
+
+
+def test_check_for_modifications_beyond_third_message():
+    """Test that modifications are detected even after 3+ assistant messages.
+
+    Previously, only the first 3 messages were checked, which could miss
+    modifications when the agent took many steps.
+    """
+    log = Log(
+        messages=[
+            Message("user", "Create a file"),
+            Message("assistant", "Let me think about that..."),
+            Message("assistant", "I need to check something first."),
+            Message("assistant", "Almost ready..."),
+            Message(
+                "assistant",
+                "Here it is.\n```save test.py\nprint('hello')\n```",
+            ),
+        ]
+    )
+    assert check_for_modifications(log) is True
+
+
+def test_check_for_modifications_no_user_message():
+    """Test that check_for_modifications returns False when no user message exists."""
+    log = Log(
+        messages=[
+            Message("system", "System prompt"),
+            Message("assistant", "```save test.py\nprint('hello')\n```"),
+        ]
+    )
+    assert check_for_modifications(log) is False
+
+
+def test_check_for_modifications_skips_system_messages():
+    """Test that system messages between user and assistant are skipped."""
+    log = Log(
+        messages=[
+            Message("user", "Create a file"),
+            Message("system", "Tool output: success"),
+            Message(
+                "assistant",
+                "Done.\n```save test.py\nprint('hello')\n```",
+            ),
+        ]
+    )
+    assert check_for_modifications(log) is True

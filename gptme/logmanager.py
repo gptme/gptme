@@ -770,7 +770,7 @@ def delete_conversation(conv_id: str) -> bool:
 
 
 def check_for_modifications(log: Log) -> bool:
-    """Check if there are any file modifications in last 3 assistant messages since last user message."""
+    """Check if there are any file modifications in assistant messages since last user message."""
     messages_since_user = []
     found_user_message = False
 
@@ -786,17 +786,11 @@ def check_for_modifications(log: Log) -> bool:
     if not found_user_message:
         return False
 
-    # FIXME: this is hacky and unreliable
-
-    has_modifications = any(
+    return any(
         tu.tool in ["save", "patch", "append", "morph"]
-        for m in messages_since_user[:3]
+        for m in messages_since_user
         for tu in ToolUse.iter_from_content(m.content)
     )
-    # logger.debug(
-    #     f"Found {len(messages_since_user)} messages since user ({found_user_message=}, {has_modifications=})"
-    # )
-    return has_modifications
 
 
 def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
