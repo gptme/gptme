@@ -137,7 +137,14 @@ def _get_ipython():
 
     if _ipython is None:
         _setup_venv_paths()
+
+        # Disable colors at the source to avoid ANSI escape codes in output
+        # that would need to be stripped later. Setting NO_COLOR is the
+        # cross-library standard (https://no-color.org/).
+        os.environ["NO_COLOR"] = "1"
+
         _ipython = InteractiveShell()
+        _ipython.colors = "NoColor"
         _ipython.push(registered_functions)
 
     return _ipython
@@ -232,9 +239,9 @@ def execute_python(
         if tb:
             output += f"Exception during execution on line {tb.tb_lineno}:\n  {result.error_in_exec.__class__.__name__}: {result.error_in_exec}"
 
-    # strip ANSI escape sequences
-    # TODO: better to signal to the terminal that we don't want colors?
-    output = re.sub(r"\x1b[^m]*m", "", output)
+    # strip ANSI escape sequences (safety net — colors are disabled at the source
+    # via NO_COLOR=1 and IPython's NoColor setting, but libraries may still emit them)
+    output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
     yield Message("system", "Executed code block.\n\n" + output)
 
 
