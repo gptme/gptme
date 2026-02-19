@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ..init import init
-from ..llm.models import set_default_model
+from ..llm.models import get_default_model, set_default_model
 from ..logmanager import LogManager
 from ..message import Message
 from ..prompts import get_prompt
@@ -83,7 +83,7 @@ class GptmeAgent:
         self._conn: Any = None
         self._registry = SessionRegistry()
         self._initialized = False
-        self._model: str = "anthropic/claude-sonnet-4-20250514"
+        self._model: str | None = None
         self._tools: list[Any] | None = None
         # Phase 2: Track active tool calls per session
         self._tool_calls: dict[str, dict[str, ToolCall]] = {}
@@ -416,6 +416,11 @@ class GptmeAgent:
                     "Ensure API keys are set in environment or config.toml."
                 ) from e
             self._initialized = True
+            # Capture the resolved model (from config/env/auto-detect)
+            # so subsequent handlers use the same model
+            resolved = get_default_model()
+            if resolved:
+                self._model = f"{resolved.provider}/{resolved.model}"
             # Store tools for re-setting in other handler contexts
             self._tools = get_tools()
 

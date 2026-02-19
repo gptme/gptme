@@ -57,7 +57,7 @@ class TestGptmeAgentInit:
         agent = GptmeAgent()
         assert agent._conn is None
         assert agent._initialized is False
-        assert agent._model == "anthropic/claude-sonnet-4-20250514"
+        assert agent._model is None
         assert agent._tool_calls == {}
         assert agent._permission_policies == {}
 
