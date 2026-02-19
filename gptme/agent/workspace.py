@@ -40,7 +40,6 @@ logger = logging.getLogger(__name__)
 # Default template repository
 DEFAULT_TEMPLATE_REPO = "https://github.com/gptme/gptme-agent-template"
 DEFAULT_TEMPLATE_BRANCH = "master"
-DEFAULT_FORK_COMMAND = "./fork.sh {path} {name}"
 
 
 class WorkspaceError(Exception):
