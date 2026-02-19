@@ -83,6 +83,7 @@ class GptmeAgent:
         self._conn: Any = None
         self._registry = SessionRegistry()
         self._initialized = False
+        self._init_error: str | None = None
         self._model: str | None = None
         self._tools: list[Any] | None = None
         # Phase 2: Track active tool calls per session
@@ -401,7 +402,7 @@ class GptmeAgent:
             )
 
         # Initialize gptme on first connection
-        if not self._initialized:
+        if not self._initialized and not self._init_error:
             try:
                 init(
                     model=self._model,
@@ -409,12 +410,20 @@ class GptmeAgent:
                     tool_allowlist=None,
                     tool_format="markdown",
                 )
-            except (KeyError, ValueError) as e:
-                logger.error(f"gptme initialization failed: {e}")
-                raise RuntimeError(
+                self._initialized = True
+                # Store tools for re-setting in other handler contexts
+                self._tools = get_tools()
+            except Exception as e:
+                # Store the error instead of raising — raising would kill the
+                # ACP connection and leave the editor showing "Loading..." with
+                # no explanation. The error is surfaced in prompt() instead.
+                self._init_error = (
                     f"gptme initialization failed: {e}. "
                     "Ensure API keys are set in environment or config.toml."
-                ) from e
+                )
+                logger.error(self._init_error)
+                return InitializeResponse(protocol_version=protocol_version)  # type: ignore[operator]
+
             self._initialized = True
             # Capture the resolved model (from config/env/auto-detect)
             # so subsequent handlers use the same model
@@ -517,6 +526,20 @@ class GptmeAgent:
             text_block,
             update_agent_message,
         )
+
+        # Surface initialization errors as visible agent messages
+        if self._init_error:
+            error_chunk = update_agent_message(text_block(f"⚠️ {self._init_error}"))
+            if self._conn:
+                await self._conn.session_update(
+                    session_id=session_id,
+                    update=error_chunk,
+                    source="gptme",
+                )
+            # Clear the error so the user can retry after fixing their config
+            self._init_error = None
+            assert PromptResponse is not None
+            return PromptResponse(stop_reason="cancelled")
 
         # Re-set ContextVars that may be missing in this task's context.
         # ACP framework may dispatch each RPC method in a separate asyncio task,
