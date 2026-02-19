@@ -279,9 +279,26 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "knowledge_cutoff": datetime(2023, 8, 1),
         },
     },
-    # https://ai.google.dev/gemini-api/docs/models/gemini#gemini-1.5-flash
-    # https://ai.google.dev/pricing#1_5flash
+    # https://ai.google.dev/gemini-api/docs/models
+    # https://ai.google.dev/gemini-api/docs/pricing
     "gemini": {
+        "gemini-3.1-pro-preview": {
+            "context": 1_000_000,
+            "max_output": 64_000,
+            # NOTE: at >200k context price is 2x for input and 1.5x for output
+            "price_input": 2,
+            "price_output": 12,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        },
+        "gemini-3-flash-preview": {
+            "context": 1_000_000,
+            "max_output": 64_000,
+            "price_input": 0.5,
+            "price_output": 3,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        },
         "gemini-1.5-flash-latest": {
             "context": 1_048_576,
             "max_output": 8192,
@@ -314,7 +331,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
         "gemini-2.5-pro-preview-05-06": {
             "context": 1_048_576,
-            "max_output": 8192,
+            "max_output": 65_536,
             # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 1.25,
             "price_output": 10,
