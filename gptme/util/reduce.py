@@ -109,28 +109,84 @@ def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
         return None
 
 
-# Regex to match <details> blocks, capturing summary and body separately
-_DETAILS_RE = re.compile(
-    r"(<details[^>]*>\s*"  # opening tag
-    r"(?:<summary>.*?</summary>\s*)?)"  # optional summary (kept intact)
-    r"(.*?)"  # body content (group 2, to truncate)
-    r"(</details>)",  # closing tag
-    re.DOTALL,
-)
+_DETAILS_OPEN_RE = re.compile(r"<details[^>]*>", re.IGNORECASE)
+_DETAILS_CLOSE_RE = re.compile(r"</details>", re.IGNORECASE)
+_SUMMARY_RE = re.compile(r"<summary>.*?</summary>", re.DOTALL | re.IGNORECASE)
+
+
+def _find_details_blocks(content: str) -> list[tuple[int, int]]:
+    """Find top-level <details> block spans using nesting-aware matching."""
+    blocks: list[tuple[int, int]] = []
+    depth = 0
+    start = 0
+
+    # Merge open/close tags into a sorted event list
+    events: list[tuple[int, str, int]] = []  # (pos, type, end_pos)
+    for m in _DETAILS_OPEN_RE.finditer(content):
+        events.append((m.start(), "open", m.end()))
+    for m in _DETAILS_CLOSE_RE.finditer(content):
+        events.append((m.start(), "close", m.end()))
+    events.sort(key=lambda e: e[0])
+
+    for pos, kind, end_pos in events:
+        if kind == "open":
+            if depth == 0:
+                start = pos
+            depth += 1
+        elif kind == "close":
+            depth -= 1
+            if depth == 0:
+                blocks.append((start, end_pos))
+            elif depth < 0:
+                depth = 0  # malformed HTML, reset
+
+    return blocks
 
 
 def _truncate_details_blocks(
     content: str, lines_pre: int = 10, lines_post: int = 10
 ) -> str:
-    """Truncate long <details> blocks, preserving <summary> and first/last lines."""
+    """Truncate long <details> blocks, preserving <summary> and first/last lines.
 
-    def _truncate_match(match: re.Match) -> str:
-        header = match.group(1)  # <details> + <summary>
-        body = match.group(2)
-        footer = match.group(3)  # </details>
+    Handles nested <details> by only truncating top-level blocks.
+    """
+    blocks = _find_details_blocks(content)
+    if not blocks:
+        return content
 
+    # Process blocks in reverse order so positions remain valid
+    for block_start, block_end in reversed(blocks):
+        block_text = content[block_start:block_end]
+
+        # Extract header: opening tag + optional summary
+        open_match = _DETAILS_OPEN_RE.match(block_text)
+        if not open_match:
+            continue
+        header_end = open_match.end()
+
+        # Check for summary immediately after the opening tag
+        remaining = block_text[header_end:]
+        summary_match = _SUMMARY_RE.match(remaining.lstrip())
+        if summary_match:
+            # Include whitespace between <details> and <summary>
+            ws_len = len(remaining) - len(remaining.lstrip())
+            header_end += ws_len + summary_match.end()
+
+        header = block_text[:header_end]
+
+        # Find closing tag position within block
+        close_match = _DETAILS_CLOSE_RE.search(
+            block_text, len(block_text) - len("</details>") - 5
+        )
+        if not close_match:
+            continue
+        footer = block_text[close_match.start() :]
+
+        # Extract body between header and footer
+        body = block_text[header_end : close_match.start()]
         lines = body.split("\n")
-        # strip leading/trailing blank lines for accurate counting
+
+        # Strip leading/trailing blank lines for accurate counting
         while lines and not lines[0].strip():
             lines.pop(0)
         while lines and not lines[-1].strip():
@@ -140,10 +196,10 @@ def _truncate_details_blocks(
             truncated_body = "\n".join(
                 [*lines[:lines_pre], "[...]", *lines[-lines_post:]]
             )
-            return f"{header}\n{truncated_body}\n{footer}"
-        return match.group(0)
+            replacement = f"{header}\n{truncated_body}\n{footer}"
+            content = content[:block_start] + replacement + content[block_end:]
 
-    return _DETAILS_RE.sub(_truncate_match, content)
+    return content
 
 
 def limit_log(log: list[Message]) -> list[Message]:

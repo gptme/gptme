@@ -110,6 +110,29 @@ def test_truncate_details_helper():
     assert "line 15" not in result
 
 
+def test_truncate_details_nested():
+    """Nested <details> blocks should be handled correctly (only outer truncated)."""
+    inner_body = "\n".join(f"inner {i}" for i in range(5))
+    outer_lines = [f"outer {i}" for i in range(40)]
+    # Insert a nested <details> block in the middle
+    outer_lines.insert(
+        20,
+        f"<details>\n<summary>Inner</summary>\n{inner_body}\n</details>",
+    )
+    outer_body = "\n".join(outer_lines)
+    content = f"<details>\n<summary>Outer</summary>\n{outer_body}\n</details>"
+
+    result = _truncate_details_blocks(content, lines_pre=5, lines_post=5)
+    assert "[...]" in result
+    # Outer structure preserved
+    assert "<summary>Outer</summary>" in result
+    # First and last outer lines preserved
+    assert "outer 0" in result
+    assert "outer 39" in result
+    # Middle lines truncated
+    assert "outer 15" not in result
+
+
 @pytest.mark.slow
 def test_reduce_log():
     msgs = [
