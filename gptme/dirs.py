@@ -1,8 +1,12 @@
+import logging
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 from platformdirs import user_config_dir, user_data_dir
+
+logger = logging.getLogger(__name__)
 
 
 def get_config_dir() -> Path:
@@ -10,8 +14,7 @@ def get_config_dir() -> Path:
 
 
 def get_readline_history_file() -> Path:
-    # TODO: move to data dir
-    return get_config_dir() / "history"
+    return get_data_dir() / "history"
 
 
 def get_pt_history_file() -> Path:
@@ -129,10 +132,21 @@ def get_workspace() -> Path:
     return Path.cwd()
 
 
+def _migrate_readline_history():
+    """Migrate readline history from config dir to data dir."""
+    old_path = get_config_dir() / "history"
+    new_path = get_data_dir() / "history"
+    if old_path.exists() and not new_path.exists():
+        logger.info(f"Migrating readline history: {old_path} -> {new_path}")
+        shutil.move(str(old_path), str(new_path))
+
+
 def _init_paths():
     # create all paths
     for path in [get_config_dir(), get_data_dir(), get_logs_dir()]:
         path.mkdir(parents=True, exist_ok=True)
+
+    _migrate_readline_history()
 
 
 # run once on init
