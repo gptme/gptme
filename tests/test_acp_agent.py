@@ -58,6 +58,7 @@ class TestGptmeAgentInit:
         assert agent._conn is None
         assert agent._initialized is False
         assert agent._model is None
+        assert agent._session_models == {}
         assert agent._tool_calls == {}
         assert agent._permission_policies == {}
 
@@ -491,3 +492,63 @@ class TestInitializeWithoutAcp:
         agent = GptmeAgent()
         with pytest.raises(NotImplementedError, match="not yet implemented"):
             _run(agent.load_session(session_id="fake_session"))
+
+
+class TestCleanupSession:
+    """Tests for _cleanup_session method."""
+
+    def test_cleanup_removes_all_per_session_state(self):
+        agent = GptmeAgent()
+        session_id = "session_cleanup_test"
+
+        # Populate all three per-session dicts
+        agent._session_models[session_id] = "anthropic/claude-3-5-sonnet"
+        agent._tool_calls[session_id] = {
+            "call_1": ToolCall(
+                tool_call_id="call_1", title="Test", kind=ToolKind.EXECUTE
+            )
+        }
+        agent._permission_policies[session_id] = {"execute": "allow"}
+        # Also register in the registry so remove() works
+        agent._registry.create(session_id)
+
+        agent._cleanup_session(session_id)
+
+        assert session_id not in agent._session_models
+        assert session_id not in agent._tool_calls
+        assert session_id not in agent._permission_policies
+        assert agent._registry.get(session_id) is None
+
+    def test_cleanup_idempotent_on_unknown_session(self):
+        """Cleaning up a session that was never populated should not raise."""
+        agent = GptmeAgent()
+        # Should not raise even if session never existed
+        agent._cleanup_session("nonexistent_session")
+
+    def test_cleanup_does_not_affect_other_sessions(self):
+        agent = GptmeAgent()
+        session_a = "session_a"
+        session_b = "session_b"
+
+        agent._session_models[session_a] = "model-a"
+        agent._session_models[session_b] = "model-b"
+        agent._tool_calls[session_a] = {}
+        agent._tool_calls[session_b] = {}
+        agent._permission_policies[session_a] = {"execute": "allow"}
+        agent._permission_policies[session_b] = {"read": "reject"}
+        agent._registry.create(session_a)
+        agent._registry.create(session_b)
+
+        agent._cleanup_session(session_a)
+
+        # session_a gone
+        assert session_a not in agent._session_models
+        assert session_a not in agent._tool_calls
+        assert session_a not in agent._permission_policies
+        assert agent._registry.get(session_a) is None
+
+        # session_b unaffected
+        assert agent._session_models[session_b] == "model-b"
+        assert session_b in agent._tool_calls
+        assert agent._permission_policies[session_b] == {"read": "reject"}
+        assert agent._registry.get(session_b) is not None

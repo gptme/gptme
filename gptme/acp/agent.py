@@ -379,6 +379,21 @@ class GptmeAgent:
                     status,
                 )
 
+    def _cleanup_session(self, session_id: str) -> None:
+        """Clean up all per-session state and remove from registry.
+
+        Called when a session ends to prevent memory leaks from unbounded growth
+        of the per-session dicts (_session_models, _tool_calls, _permission_policies).
+
+        Args:
+            session_id: The session ID to clean up
+        """
+        self._session_models.pop(session_id, None)
+        self._tool_calls.pop(session_id, None)
+        self._permission_policies.pop(session_id, None)
+        self._registry.remove(session_id)
+        logger.debug(f"Cleaned up session state: {session_id[:8]}")
+
     async def initialize(
         self,
         protocol_version: int,
