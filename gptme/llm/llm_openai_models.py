@@ -43,7 +43,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 2,
         "price_output": 8,
         "supports_vision": True,
-        "knowledge_cutoff": datetime(2025, 3, 1),
+        "knowledge_cutoff": datetime(2024, 6, 1),
     },
     "gpt-4.1-mini": {
         "context": 1_047_576,
@@ -51,7 +51,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 0.4,
         "price_output": 1.6,
         "supports_vision": True,
-        "knowledge_cutoff": datetime(2025, 3, 1),
+        "knowledge_cutoff": datetime(2024, 6, 1),
     },
     "gpt-4.1-nano": {
         "context": 1_047_576,
@@ -59,7 +59,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 0.1,
         "price_output": 0.4,
         "supports_vision": True,
-        "knowledge_cutoff": datetime(2025, 3, 1),
+        "knowledge_cutoff": datetime(2024, 6, 1),
     },
     # GPT-4o
     "gpt-4o": {
