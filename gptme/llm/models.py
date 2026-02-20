@@ -318,6 +318,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 15,
             "price_output": 75,
             "knowledge_cutoff": datetime(2023, 8, 1),
+            "deprecated": True,  # resolves to claude-3-opus-20240229 (deprecated)
         },
     },
     # https://ai.google.dev/gemini-api/docs/models
