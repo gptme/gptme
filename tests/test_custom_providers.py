@@ -76,7 +76,6 @@ def test_backward_compatibility_local_provider():
     """Test that 'local' provider still works with existing env vars."""
     # The "local" provider should still work using OPENAI_BASE_URL
     # This is tested in the init function with the existing elif branch
-    pass
 
 
 def test_custom_provider_supports_tools_api():
