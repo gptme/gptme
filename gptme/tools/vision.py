@@ -45,12 +45,11 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
             )
 
         # Convert RGBA to RGB if needed
-        if img.mode == "RGBA":
-            img = img.convert("RGB")
+        out: Image.Image = img.convert("RGB") if img.mode == "RGBA" else img
 
         # First try just compressing as JPG without scaling
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            img.save(tmp.name, "JPEG", quality=85)
+            out.save(tmp.name, "JPEG", quality=85)
             compressed_size = Path(tmp.name).stat().st_size
             msg_parts.append(f"Compressed to: {compressed_size/1024:.1f}KB")
 
@@ -58,11 +57,14 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
             if compressed_size > MAX_SIZE:
                 # Calculate scaling factor to get file size roughly under 1MB
                 scale_factor = (MAX_SIZE / compressed_size) ** 0.5
-                new_size = tuple(int(dim * scale_factor) for dim in img.size)
+                new_size: tuple[int, int] = (
+                    int(out.size[0] * scale_factor),
+                    int(out.size[1] * scale_factor),
+                )
                 msg_parts.append(f"Scaling from {dimensions} to {new_size}")
 
                 # Create a scaled version
-                scaled_img = img.resize(new_size, Image.Resampling.LANCZOS)
+                scaled_img = out.resize(new_size, Image.Resampling.LANCZOS)
                 scaled_img.save(tmp.name, "JPEG", quality=85)
                 final_size = Path(tmp.name).stat().st_size
                 msg_parts.append(f"Final size after scaling: {final_size/1024:.1f}KB")
