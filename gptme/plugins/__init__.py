@@ -19,11 +19,11 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 # Use the global console from gptme.util (redirected to stderr in ACP mode)
 # instead of creating a separate instance that would default to stdout.
 from gptme.util import console
+
+logger = logging.getLogger(__name__)
 
 # Cache for discovered plugins to avoid repeated discovery
 _plugin_cache: dict[tuple[Path, ...], list[Plugin]] = {}

@@ -1,3 +1,4 @@
+import re
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
@@ -31,8 +32,6 @@ class Codeblock:
     @classmethod
     @trace_function(name="codeblock.from_markdown", attributes={"component": "parser"})
     def from_markdown(cls, content: str) -> "Codeblock":
-        import re
-
         stripped = content.strip()
         fence_len = 0
 
@@ -79,9 +78,6 @@ class Codeblock:
         per conversation, creating ~97% of all trace spans (see Issue #199).
         """
         return list(_extract_codeblocks(markdown, streaming=streaming))
-
-
-import re
 
 
 def _extract_codeblocks(
