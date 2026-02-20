@@ -71,8 +71,17 @@ try:
 except ImportError:
     has_pypdf = False
 
-has_playwright = lambda: importlib.util.find_spec("playwright") is not None  # noqa: E731
-has_lynx = lambda: shutil.which("lynx")  # noqa: E731
+
+def has_playwright() -> bool:
+    """Check if playwright is available."""
+    return importlib.util.find_spec("playwright") is not None
+
+
+def has_lynx() -> bool:
+    """Check if lynx is available."""
+    return shutil.which("lynx") is not None
+
+
 browser: Literal["playwright", "lynx"] | None = (
     "playwright" if has_playwright() else ("lynx" if has_lynx() else None)
 )
