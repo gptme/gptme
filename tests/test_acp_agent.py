@@ -491,3 +491,66 @@ class TestInitializeWithoutAcp:
         agent = GptmeAgent()
         with pytest.raises(NotImplementedError, match="not yet implemented"):
             _run(agent.load_session(session_id="fake_session"))
+
+
+class TestCleanupSession:
+    """Tests for _cleanup_session and cancel methods."""
+
+    def test_cleanup_removes_all_state(self):
+        """_cleanup_session should remove session_models, tool_calls, and permission_policies."""
+        agent = GptmeAgent()
+        sid = "session_cleanup_test"
+
+        # Populate all per-session state
+        agent._session_models[sid] = "anthropic/claude-sonnet-4-6"
+        agent._tool_calls[sid] = {
+            "call_1": ToolCall(
+                tool_call_id="call_1", title="Test", kind=ToolKind.EXECUTE
+            )
+        }
+        agent._permission_policies[sid] = {"execute": "allow"}
+        agent._registry.create(sid)
+
+        agent._cleanup_session(sid)
+
+        assert sid not in agent._session_models
+        assert sid not in agent._tool_calls
+        assert sid not in agent._permission_policies
+        assert agent._registry.get(sid) is None
+
+    def test_cleanup_idempotent_on_unknown_session(self):
+        """Cleaning up a nonexistent session should not raise."""
+        agent = GptmeAgent()
+        # Should not raise
+        agent._cleanup_session("nonexistent_session")
+
+    def test_cleanup_isolates_other_sessions(self):
+        """Cleaning up one session should not affect another."""
+        agent = GptmeAgent()
+
+        agent._session_models["s1"] = "model-a"
+        agent._session_models["s2"] = "model-b"
+        agent._tool_calls["s1"] = {}
+        agent._tool_calls["s2"] = {}
+
+        agent._cleanup_session("s1")
+
+        assert "s1" not in agent._session_models
+        assert agent._session_models["s2"] == "model-b"
+        assert "s1" not in agent._tool_calls
+        assert "s2" in agent._tool_calls
+
+    def test_cancel_calls_cleanup(self):
+        """cancel() should clean up all per-session state."""
+        agent = GptmeAgent()
+        sid = "session_cancel_test"
+
+        agent._session_models[sid] = "some-model"
+        agent._tool_calls[sid] = {}
+        agent._permission_policies[sid] = {"execute": "allow"}
+
+        _run(agent.cancel(session_id=sid))
+
+        assert sid not in agent._session_models
+        assert sid not in agent._tool_calls
+        assert sid not in agent._permission_policies

@@ -688,18 +688,29 @@ class GptmeAgent:
         logger.warning(f"load_session not yet implemented: {session_id}")
         raise NotImplementedError("Session loading not yet implemented")
 
+    def _cleanup_session(self, session_id: str) -> None:
+        """Remove all per-session state for a given session.
+
+        Cleans up _session_models, _tool_calls, and _permission_policies
+        to prevent unbounded memory growth from accumulated sessions.
+        """
+        self._session_models.pop(session_id, None)
+        self._tool_calls.pop(session_id, None)
+        self._permission_policies.pop(session_id, None)
+        self._registry.remove(session_id)
+
     async def cancel(
         self,
         session_id: str,
         **kwargs: Any,
     ) -> None:
-        """Cancel an ongoing operation (Phase 2 feature).
+        """Cancel an ongoing operation and clean up session state.
 
         Args:
             session_id: Session to cancel
         """
-        # Phase 2: Implement cancellation
-        logger.warning(f"cancel not yet implemented: {session_id}")
+        logger.info(f"Cancelling session {session_id}")
+        self._cleanup_session(session_id)
 
     async def list_sessions(
         self,
