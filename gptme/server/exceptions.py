@@ -11,5 +11,3 @@ class ModelConfigurationError(Exception):
 
     The server can fall back to a default model when this exception is caught.
     """
-
-    pass

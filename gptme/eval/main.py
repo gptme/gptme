@@ -264,11 +264,7 @@ def aggregate_and_display_results(result_files: list[str]):
 
     # Prepare table data
     headers = ["Model", "Format"] + sort_tests(
-        {
-            test
-            for model_results in all_results.values()
-            for test in model_results.keys()
-        }
+        {test for model_results in all_results.values() for test in model_results}
     )
     table_data = []
 

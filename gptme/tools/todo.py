@@ -67,7 +67,7 @@ class TodoItem:
 
 def _generate_todo_id() -> str:
     """Generate a simple incremental ID for new todos."""
-    existing_ids = [int(id) for id in _current_todos.keys() if id.isdigit()]
+    existing_ids = [int(id) for id in _current_todos if id.isdigit()]
     return str(max(existing_ids, default=0) + 1)
 
 

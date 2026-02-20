@@ -55,8 +55,6 @@ class CustomProvider(str):
     but is distinguishable from plain strings and built-in Provider literals.
     """
 
-    pass
-
 
 def is_custom_provider(provider: str) -> bool:
     """Check if the provider is a custom provider configured by the user."""

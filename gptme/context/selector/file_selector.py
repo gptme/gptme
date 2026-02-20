@@ -158,7 +158,7 @@ def select_relevant_files(
             path = (workspace / file_ref).resolve() if workspace else file_ref.resolve()
             mention_counts[path] = mention_counts.get(path, 0) + 1
 
-    for f in candidates.keys():
+    for f in candidates:
         try:
             mtime = f.stat().st_mtime if f.exists() else 0
             count = mention_counts.get(f, 0)

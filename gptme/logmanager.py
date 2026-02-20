@@ -110,7 +110,7 @@ class LogManager:
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Exit context manager, ensuring lock is released."""
         self._release_lock()
-        return None
+        return
 
     def __init__(
         self,
@@ -396,7 +396,7 @@ class LogManager:
     def _save_backup_branch(self, type="edit") -> None:
         """backup the current log to a new branch, usually before editing/undoing"""
         branch_prefix = f"{self.current_branch}-{type}-"
-        n = len([b for b in self._branches.keys() if b.startswith(branch_prefix)])
+        n = len([b for b in self._branches if b.startswith(branch_prefix)])
         self._branches[f"{branch_prefix}{n}"] = self.log
         self.write()
 
@@ -555,7 +555,7 @@ class LogManager:
         """Generate the next sequential view name."""
         existing = [
             int(v.split("-")[1])
-            for v in self._views.keys()
+            for v in self._views
             if v.startswith("compacted-") and v.split("-")[1].isdigit()
         ]
         next_num = max(existing, default=0) + 1

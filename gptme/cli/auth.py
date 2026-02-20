@@ -18,7 +18,6 @@ console = Console()
 @click.group()
 def main():
     """Authenticate with various gptme providers."""
-    pass
 
 
 @main.command("openai-subscription")

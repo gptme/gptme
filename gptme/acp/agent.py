@@ -735,7 +735,7 @@ class GptmeAgent:
     ) -> None:
         """Handle authentication request (not supported)."""
         logger.warning(f"authenticate not implemented: {method_id}")
-        return None
+        return
 
     async def set_session_model(
         self,
@@ -746,7 +746,7 @@ class GptmeAgent:
         """Set the model for a specific session."""
         logger.info(f"set_session_model: session={session_id}, model={model_id}")
         self._session_models[session_id] = model_id
-        return None
+        return
 
     async def set_session_mode(
         self,
@@ -758,7 +758,7 @@ class GptmeAgent:
         logger.warning(
             f"set_session_mode not implemented: session={session_id}, mode={mode_id}"
         )
-        return None
+        return
 
     async def ext_method(
         self,

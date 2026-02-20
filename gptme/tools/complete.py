@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 class SessionCompleteException(Exception):
     """Exception raised to signal that the session should end."""
 
-    pass
-
 
 def execute_complete(
     code: str | None,

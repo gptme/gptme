@@ -151,7 +151,7 @@ class ExperimentRunner:
         random.seed(42)  # Consistent fake results
 
         results = {}
-        for name in prompts.keys():
+        for name in prompts:
             # Slightly vary scores to simulate realistic differences
             base_score = 0.75 + hash(name) % 100 / 1000  # Deterministic but varied
             results[name] = {

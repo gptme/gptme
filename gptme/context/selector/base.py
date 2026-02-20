@@ -22,19 +22,16 @@ class ContextItem(ABC):
     @abstractmethod
     def content(self) -> str:
         """Return the text content for LLM evaluation."""
-        pass
 
     @property
     @abstractmethod
     def metadata(self) -> dict[str, Any]:
         """Return metadata (YAML frontmatter, file stats, etc.)."""
-        pass
 
     @property
     @abstractmethod
     def identifier(self) -> str:
         """Return unique identifier for this item."""
-        pass
 
 
 class ContextSelector(ABC):
@@ -61,4 +58,3 @@ class ContextSelector(ABC):
         Returns:
             List of selected items, ordered by relevance
         """
-        pass

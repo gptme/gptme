@@ -29,8 +29,6 @@ class MCPInterruptedError(Exception):
     aggressive cleanup that would terminate the MCP server process.
     """
 
-    pass
-
 
 def _is_connection_error(error: Exception) -> bool:
     """Check if error indicates MCP connection failure"""

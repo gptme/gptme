@@ -45,8 +45,6 @@ DEFAULT_TEMPLATE_BRANCH = "master"
 class WorkspaceError(Exception):
     """Error during workspace creation or management."""
 
-    pass
-
 
 def create_workspace_from_template(
     path: Path,

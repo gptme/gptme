@@ -37,7 +37,6 @@ class ExecutionEnv:
         Cleans up any resources used by the execution environment.
         Default implementation does nothing; subclasses can override.
         """
-        pass
 
 
 class SimpleExecutionEnv(FileStore, ExecutionEnv):
