@@ -490,6 +490,26 @@ class GptmeAgent:
         self._registry.create(session_id, log=log)
         logger.info(f"ACP NewSession: session_id={session_id}, cwd={cwd}")
 
+        # Surface initialization errors proactively on session open, so the user
+        # sees feedback immediately in the Zed ACP panel rather than only after
+        # sending their first prompt. Uses session/update notifications which are
+        # the protocol-correct mechanism for unsolicited agent messages.
+        if self._init_error:
+            from acp import (  # type: ignore[import-not-found]
+                text_block,
+                update_agent_message,
+            )
+
+            error_chunk = update_agent_message(text_block(f"⚠️ {self._init_error}"))
+            if self._conn:
+                await self._conn.session_update(
+                    session_id=session_id,
+                    update=error_chunk,
+                    source="gptme",
+                )
+            # Keep _init_error set so prompt() can still surface it for retries
+            # (the user may send a message before the notification is seen)
+
         assert NewSessionResponse is not None
         return NewSessionResponse(session_id=session_id)
 
