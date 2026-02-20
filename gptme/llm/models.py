@@ -291,6 +291,14 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
         },
+        "gemini-3-pro-preview": {
+            "context": 1_000_000,
+            "max_output": 64_000,
+            "price_input": 2,
+            "price_output": 12,
+            "supports_vision": True,
+            "supports_reasoning": True,
+        },
         "gemini-3-flash-preview": {
             "context": 1_000_000,
             "max_output": 64_000,
@@ -298,6 +306,13 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 3,
             "supports_vision": True,
             "supports_reasoning": True,
+        },
+        "gemini-2.0-flash": {
+            "context": 1_048_576,
+            "max_output": 8192,
+            "price_input": 0.10,
+            "price_output": 0.40,
+            "supports_vision": True,
         },
         "gemini-1.5-flash-latest": {
             "context": 1_048_576,
