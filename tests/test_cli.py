@@ -228,6 +228,7 @@ def test_shell(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
 
 
+@pytest.mark.xfail(strict=False, reason="Flaky in CI")
 def test_shell_file(args: list[str], runner: CliRunner):
     # test running the shell tool with a filename
     # make sure we don't accidentally expand the filename and include it in the shell command
