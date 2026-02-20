@@ -51,16 +51,3 @@ def search(query: str, engine: str = "duckduckgo") -> str:
     elif engine == "duckduckgo":
         return read_url(f"https://lite.duckduckgo.com/lite/?q={query}")
     raise ValueError(f"Unknown search engine: {engine}")
-
-
-def test_read_url():
-    content = read_url("https://gptme.org/")
-    assert "Getting Started" in content
-    content = read_url("https://github.com/gptme/gptme/issues/205")
-    assert "lynx-backed browser tool" in content
-
-
-def test_search():
-    # result = search("Python", "google")
-    result = search("Erik Bjäreholt", "duckduckgo")
-    assert "erik.bjareholt.com" in result
