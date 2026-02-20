@@ -202,14 +202,7 @@ def execute_msg(
     log: Log | None = None,
     workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
-    """
-    Uses any tools called in a message and returns the response.
-
-    If GPTME_TOOLUSE_PARALLEL is enabled, executes independent tool calls
-    in parallel using threads.
-    """
-    from .parallel import execute_tools_parallel, is_parallel_enabled  # fmt: skip
-
+    """Uses any tools called in a message and returns the response."""
     assert msg.role == "assistant", "Only assistant messages can be executed"
 
     # Collect all runnable tool uses
@@ -220,30 +213,19 @@ def execute_msg(
     if not runnable_tools:
         return
 
-    # Check if parallel execution is enabled and we have multiple tools
-    if is_parallel_enabled() and len(runnable_tools) > 1:
-        logger.info(f"Executing {len(runnable_tools)} tools in parallel")
-        try:
-            results = execute_tools_parallel(runnable_tools, log, workspace)
-            yield from results
-        except KeyboardInterrupt:
-            clear_interruptible()
-            yield Message("system", INTERRUPT_CONTENT)
-    else:
-        # Sequential execution (default behavior)
-        for tooluse in runnable_tools:
-            with terminal_state_title(f"🛠️ running {tooluse.tool}"):
-                try:
-                    for tool_response in tooluse.execute(log=log, workspace=workspace):
-                        yield tool_response.replace(call_id=tooluse.call_id)
-                except KeyboardInterrupt:
-                    clear_interruptible()
-                    yield Message(
-                        "system",
-                        INTERRUPT_CONTENT,
-                        call_id=tooluse.call_id,
-                    )
-                    break
+    for tooluse in runnable_tools:
+        with terminal_state_title(f"🛠️ running {tooluse.tool}"):
+            try:
+                for tool_response in tooluse.execute(log=log, workspace=workspace):
+                    yield tool_response.replace(call_id=tooluse.call_id)
+            except KeyboardInterrupt:
+                clear_interruptible()
+                yield Message(
+                    "system",
+                    INTERRUPT_CONTENT,
+                    call_id=tooluse.call_id,
+                )
+                break
 
 
 def get_tool_for_langtag(lang: str) -> ToolSpec | None:

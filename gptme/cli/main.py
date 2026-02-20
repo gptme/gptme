@@ -226,13 +226,6 @@ The interface provides /commands during a conversation:
     help="Allow multiple tool calls per LLM response (disables break-on-tooluse). Enables efficient API usage with sequential execution.",
 )
 @click.option(
-    "--parallel/--no-parallel",
-    "parallel",
-    default=None,
-    hidden=True,  # Deprecated, hidden from help
-    help="[DEPRECATED] Use --multi-tool instead. Previously enabled parallel execution which caused thread-safety issues.",
-)
-@click.option(
     "--version",
     is_flag=True,
     help="Show version and configuration information",
@@ -291,38 +284,13 @@ def main(
     agent_path: str | None,
     profile: bool,
     multi_tool: bool | None,
-    parallel: bool | None,
     context_mode: str | None,
     context_include: tuple[str, ...],
     output_schema: str | None,
 ):
     """Main entrypoint for the CLI."""
 
-    # Handle deprecated --parallel flag
-    if parallel is not None:
-        warnings.warn(
-            "--parallel is deprecated and will be removed in a future version. "
-            "Use --multi-tool instead. Note: parallel execution is deprecated "
-            "due to thread-safety issues; --multi-tool enables multiple tool calls "
-            "per response with sequential execution.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        # Treat --parallel as equivalent to --multi-tool
-        if multi_tool is None:
-            multi_tool = parallel
-
-    # Check for deprecated GPTME_TOOLUSE_PARALLEL env var
-    if os.environ.get("GPTME_TOOLUSE_PARALLEL"):
-        warnings.warn(
-            "GPTME_TOOLUSE_PARALLEL environment variable is deprecated and will be "
-            "ignored in a future version. Parallel execution is deprecated due to "
-            "thread-safety issues. Use GPTME_BREAK_ON_TOOLUSE=0 for multi-tool mode.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-    # Handle multi-tool flag - only controls break_on_tooluse, not parallel execution
+    # Handle multi-tool flag - controls break_on_tooluse
     if multi_tool is not None:
         # Only set GPTME_BREAK_ON_TOOLUSE - multi-tool mode allows multiple tool calls
         # per LLM response but executes them sequentially (no thread-safety issues)
