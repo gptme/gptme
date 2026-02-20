@@ -16,7 +16,7 @@ htmlindex = root / "gptme" / "server" / "static" / "index.html"
 long_msg = Message(
     "system",
     content="\n\n".join(
-        f"```{fn.name}\n{open(fn).read()}\n```" for fn in [cli, htmlindex]
+        f"```{fn.name}\n{fn.read_text()}\n```" for fn in [cli, htmlindex]
     ),
 )
 
