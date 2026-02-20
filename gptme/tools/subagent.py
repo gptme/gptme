@@ -511,19 +511,19 @@ def _run_planner(
         s = string.ascii_lowercase + string.digits
         return "".join(random.choice(s) for _ in range(n))
 
-    # Capture workspace before spawning threads to avoid FileNotFoundError
-    # if cwd is deleted (e.g., tmpdir cleanup in tests)
-    try:
-        workspace = Path.cwd()
-    except FileNotFoundError:
-        workspace = Path.home()
-
     threads = []
     for subtask in subtasks:
         executor_id = f"{agent_id}-{subtask['id']}"
         executor_prompt = f"Context: {prompt}\n\nSubtask: {subtask['description']}"
         name = f"subagent-{executor_id}"
         logdir = get_logdir(name + "-" + random_string(4))
+
+        # Capture workspace before spawning thread to avoid FileNotFoundError
+        # if cwd is deleted (e.g., tmpdir cleanup in tests)
+        try:
+            workspace = Path.cwd()
+        except FileNotFoundError:
+            workspace = logdir.parent
 
         def run_executor(prompt=executor_prompt, log_dir=logdir, ws=workspace):
             _create_subagent_thread(
