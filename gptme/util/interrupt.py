@@ -29,15 +29,8 @@ def handle_keyboard_interrupt(signum, frame):  # pragma: no cover
     if _interruptible_var.get() or testing:
         raise KeyboardInterrupt
 
-    # if current_time - last_interrupt_time <= timeout:
-    #     console.log("Second interrupt received, exiting...")
-    #     sys.exit(0)
-
     _last_interrupt_time_var.set(current_time)
     console.print()
-    # console.log(
-    #     f"Interrupt received. Press Ctrl-C again within {timeout} seconds to exit."
-    # )
     console.log("Interrupted. Press Ctrl-D to exit.")
 
 

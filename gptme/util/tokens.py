@@ -37,12 +37,6 @@ def get_tokenizer(model: str) -> "tiktoken.Encoding":
         return tiktoken.get_encoding("cl100k_base")
 
 
-# perf trick: start background thread that pre-loads the gpt-4 and gpt-5 tokenizers
-#             needs logic to wait for the tokenizer to be ready if requested before loaded
-# threading.Thread(target=get_tokenizer, args=("gpt-4",), daemon=True).start()
-# threading.Thread(target=get_tokenizer, args=("gpt-5",), daemon=True).start()
-
-
 def _hash_content(content: str) -> str:
     """Create a hash of the content"""
     return hashlib.sha256(content.encode()).hexdigest()

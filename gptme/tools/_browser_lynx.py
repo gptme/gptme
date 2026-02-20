@@ -27,14 +27,9 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     _validate_url_scheme(url)
 
     env = os.environ.copy()
-    # TODO: create and set LYNX_CFG to use custom lynx config file (needed to save cookies, which I need to debug how cookies should be read)
-    # env["LYNX_CFG"] = str(Path("~/.config/lynx/lynx.cfg").expanduser())
+    # TODO: implement cookie support for lynx backend
     if cookies:
-        # save them to file to be read by lynx
         pass
-    #     with open(Path("~/.lynx_cookies").expanduser(), "w") as f:
-    #         for k, v in cookies.items():
-    #             f.write(f"{k}\t{v}\n")
     p = subprocess.run(
         ["lynx", "--dump", url, "--display_charset=utf-8"],
         env=env,

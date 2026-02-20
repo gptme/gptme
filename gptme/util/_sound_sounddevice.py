@@ -151,12 +151,6 @@ def get_output_device() -> tuple[int, int]:
         raise RuntimeError("Audio imports not available")
 
     devices = sd.query_devices()
-    # log.debug("Available audio devices:")
-    # for i, dev in enumerate(devices):
-    #     log.debug(
-    #         f"  [{i}] {dev['name']} (in: {dev['max_input_channels']}, "
-    #         f"out: {dev['max_output_channels']}, hostapi: {dev['hostapi']})"
-    #     )
 
     # Check for environment variable override first
     if override_result := _check_device_override(devices):

@@ -418,8 +418,6 @@ class LogManager:
         if self.log and not self.log[-1].content.startswith("/"):
             self._save_backup_branch(type="undo")
 
-        # Doesn't work for multiple undos in a row, but useful in testing
-        # assert undid.content == ".undo"  # assert that the last message is an undo
         peek = self.log[-1] if self.log else None
         if not peek:
             print("[yellow]Nothing to undo.[/]")

@@ -50,11 +50,6 @@ def reduce_log(
     if truncated:
         summary_msg = truncated
     else:
-        # NOTE: disabled because buggy
-        # from . import summarize
-        # summary_msg = summarize(longest_msg, preamble=False)
-        # logger.info("Summary: %s", summary_msg.content)
-        # summary_msg.content = f"This {summary_msg.role} message was summarized due to length:\n{summary_msg.content}"
         summary_msg = longest_msg
 
     log = log[:i] + [summary_msg] + log[i + 1 :]

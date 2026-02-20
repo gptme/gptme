@@ -61,15 +61,3 @@ def log_costs(msgs: list[Message]) -> None:
         if turns > 1:
             cost_msg += f" (session: ${sum(costs):.2f})"
         console.log(cost_msg)
-
-    # ALTERNATIVE
-    # print tokens and cost by request and session on separate lines
-    # console.log(
-    #     f"Cost (request): ${costs[-1]:.2f}  (tokens: {tok_in}/{tok_out} in/out)"
-    # )
-    # if turns > 1:
-    #     tok_in_total = sum(t[0] for t in tokens)
-    #     tok_out_total = sum(t[1] for t in tokens)
-    #     console.log(
-    #         f"Cost (session): ${sum(costs):.2f}  (tokens: {tok_in_total}/{tok_out_total} in/out, turns: {turns})"
-    #     )
