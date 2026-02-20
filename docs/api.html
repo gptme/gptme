@@ -1009,7 +1009,12 @@ pass</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="gptme.logmanager.check_for_modifications">
 <span class="sig-prename descclassname"><span class="pre">gptme.logmanager.</span></span><span class="sig-name descname"><span class="pre">check_for_modifications</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.logmanager.Log" title="gptme.logmanager.Log"><span class="pre">Log</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#gptme.logmanager.check_for_modifications" title="Link to this definition">#</a></dt>
-<dd><p>Check if there are any file modifications in assistant messages since last user message.</p>
+<dd><p>Check if the most recent assistant message (since last user) has file modifications.</p>
+<p>Only checks the last assistant message to prevent re-triggering pre-commit/autocommit
+when the agent responds to hook output (e.g. pre-commit failure) without making new
+file changes. Checking all assistant messages since the last user would cause infinite
+loops: the original save is still visible after the agent writes a text response to
+the failure.</p>
 </dd></dl>
 
 <dl class="py function">
