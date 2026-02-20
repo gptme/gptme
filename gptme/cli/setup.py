@@ -355,7 +355,6 @@ files = ["README.md"]
 
 def _suggest_precommit() -> bool:
     """Suggest setting up pre-commit. Returns True if already configured."""
-    # TODO: also check
     cwd = Path.cwd()
     precommit_config = cwd / ".pre-commit-config.yaml"
 

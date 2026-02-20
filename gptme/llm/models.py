@@ -273,6 +273,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 4096,
             "price_input": 3,
             "price_output": 15,
+            "supports_vision": True,
             "knowledge_cutoff": datetime(2024, 4, 1),
             "deprecated": True,  # superseded by claude-3-5-sonnet-20241022
         },
@@ -305,6 +306,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 4096,
             "price_input": 0.25,
             "price_output": 1.25,
+            "supports_vision": True,
             "knowledge_cutoff": datetime(2024, 4, 1),
             "deprecated": True,  # superseded by claude-3-5-haiku
         },
@@ -313,6 +315,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 4096,
             "price_input": 15,
             "price_output": 75,
+            "supports_vision": True,
             "knowledge_cutoff": datetime(2023, 8, 1),
             "deprecated": True,  # superseded by claude-opus-4+
         },
@@ -321,6 +324,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 4096,
             "price_input": 15,
             "price_output": 75,
+            "supports_vision": True,
             "knowledge_cutoff": datetime(2023, 8, 1),
             "deprecated": True,  # resolves to claude-3-opus-20240229 (deprecated)
         },

@@ -2,9 +2,13 @@
 Browser tool by calling lynx --dump
 """
 
+import logging
 import os
 import subprocess
+import tempfile
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_url_scheme(url: str) -> None:
@@ -27,17 +31,38 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     _validate_url_scheme(url)
 
     env = os.environ.copy()
-    # TODO: implement cookie support for lynx backend
+    cmd = ["lynx", "--dump", url, "--display_charset=utf-8"]
+
+    cookie_file = None
     if cookies:
-        pass
-    p = subprocess.run(
-        ["lynx", "--dump", url, "--display_charset=utf-8"],
-        env=env,
-        check=True,
-        capture_output=True,
-    )
-    # should be utf-8, but we can't be sure
-    return p.stdout.decode("utf-8", errors="replace")
+        # Create Netscape-format cookie file for lynx
+        parsed = urlparse(url)
+        domain = parsed.hostname or ""
+        fd, cookie_file = tempfile.mkstemp(suffix=".txt", prefix="lynx_cookies_")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write("# Netscape HTTP Cookie File\n")
+                for name, value in cookies.items():
+                    # Format: domain, tail-match, path, secure, expiry, name, value
+                    f.write(f".{domain}\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
+        except Exception:
+            os.unlink(cookie_file)
+            cookie_file = None
+            raise
+        cmd.extend([f"-cookie_file={cookie_file}", "-accept_all_cookies"])
+
+    try:
+        p = subprocess.run(
+            cmd,
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        # should be utf-8, but we can't be sure
+        return p.stdout.decode("utf-8", errors="replace")
+    finally:
+        if cookie_file and os.path.exists(cookie_file):
+            os.unlink(cookie_file)
 
 
 def search(query: str, engine: str = "duckduckgo") -> str:
