@@ -806,7 +806,14 @@ def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
 
     with open(path) as file:
         for line in file.readlines():
-            json_data = json.loads(line)
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                json_data = json.loads(line)
+            except json.JSONDecodeError:
+                logger.warning(f"Skipping malformed JSON line in {path}")
+                continue
             files = [parse_file_reference(f) for f in json_data.pop("files", [])]
             file_hashes = json_data.pop("file_hashes", {})
             if "timestamp" in json_data:

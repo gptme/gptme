@@ -168,3 +168,18 @@ def test_check_for_modifications_prevents_precommit_rerun_loop():
         ]
     )
     assert check_for_modifications(log) is False
+
+
+def test_read_jsonl_malformed(tmp_path):
+    """Test that malformed JSON lines are skipped gracefully."""
+    jsonl_file = tmp_path / "test.jsonl"
+    jsonl_file.write_text(
+        '{"role": "user", "content": "hello", "timestamp": "2025-01-01T00:00:00Z"}\n'
+        '{"role": "assistant", "content": "truncated stri\n'  # malformed
+        "\n"  # empty line
+        '{"role": "assistant", "content": "world", "timestamp": "2025-01-01T00:00:01Z"}\n'
+    )
+    log = Log.read_jsonl(jsonl_file)
+    assert len(log.messages) == 2
+    assert log.messages[0].content == "hello"
+    assert log.messages[1].content == "world"
