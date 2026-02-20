@@ -74,7 +74,7 @@ class CommaSeparatedChoice(click.ParamType):
 
     def get_metavar(
         self, param: click.Parameter, ctx: click.Context | None = None
-    ) -> str | None:  # type: ignore[override]
+    ) -> str | None:
         if self._metavar:
             return self._metavar
         return "[" + "|".join(self.choices) + "]"

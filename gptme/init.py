@@ -108,7 +108,7 @@ def init_model(
 
     # set up API_KEY and API_BASE, needs to be done before loading history to avoid saving API_KEY
     if model_name is None:
-        model_name = get_recommended_model(provider)  # type: ignore[arg-type]
+        model_name = get_recommended_model(provider)
     model_full = f"{provider}/{model_name}"
     console.log(f"Using model: [green]{model_full}[/green]")
     init_llm(provider)

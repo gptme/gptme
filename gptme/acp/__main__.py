@@ -42,18 +42,18 @@ class _WritePipeProtocol(asyncio.BaseProtocol):
         self._drain_waiter: asyncio.Future[None] | None = None
         self._connection_lost = False
 
-    def pause_writing(self) -> None:  # type: ignore[override]
+    def pause_writing(self) -> None:
         self._paused = True
         if self._drain_waiter is None:
             self._drain_waiter = self._loop.create_future()
 
-    def resume_writing(self) -> None:  # type: ignore[override]
+    def resume_writing(self) -> None:
         self._paused = False
         if self._drain_waiter is not None and not self._drain_waiter.done():
             self._drain_waiter.set_result(None)
         self._drain_waiter = None
 
-    def connection_lost(self, exc: Exception | None) -> None:  # type: ignore[override]
+    def connection_lost(self, exc: Exception | None) -> None:
         self._connection_lost = True
         if self._drain_waiter is not None and not self._drain_waiter.done():
             if exc is None:

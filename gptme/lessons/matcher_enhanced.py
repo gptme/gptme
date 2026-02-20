@@ -79,7 +79,7 @@ class EnhancedLessonMatcher(LessonMatcher):
         selector = self._get_selector()
         selected_items = selector.select(
             query=context.message,
-            candidates=lesson_items,  # type: ignore[arg-type]
+            candidates=lesson_items,
             max_results=max_results,
         )
 
