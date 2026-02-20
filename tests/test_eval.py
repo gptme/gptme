@@ -8,8 +8,7 @@ from gptme.eval.main import main
 
 
 def _detect_model():
-    # detect which model is configured
-    # TODO: isn't there already a get_default_model() helper?
+    # detect which model is configured (manual since init() hasn't run in tests)
     config = get_config()
     if model := config.get_env("MODEL"):
         return model

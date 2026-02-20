@@ -1785,8 +1785,6 @@ def _find_max_heredoc_pos(node, current_max: int = 0) -> int:
 
 
 def split_commands(script: str) -> list[str]:
-    # TODO: write proper tests
-
     # Preprocess script to handle quoted heredoc delimiters that bashlex can't parse
     processed_script = _preprocess_quoted_heredocs(script)
 
