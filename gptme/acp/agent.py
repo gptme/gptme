@@ -11,7 +11,7 @@ import contextvars
 import logging
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 from ..config import get_project_config
@@ -30,9 +30,6 @@ from .types import (
     ToolCallStatus,
     gptme_tool_to_acp_kind,
 )
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

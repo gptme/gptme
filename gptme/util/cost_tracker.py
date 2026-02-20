@@ -8,10 +8,6 @@ See Issue #935 for design context.
 
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 
 @dataclass

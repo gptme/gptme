@@ -4,7 +4,6 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from typing import (
-    TYPE_CHECKING,
     Literal,
     TypedDict,
     cast,
@@ -14,9 +13,6 @@ from typing import (
 from typing_extensions import NotRequired
 
 from .llm_openai_models import OPENAI_MODELS
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
