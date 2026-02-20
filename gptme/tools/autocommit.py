@@ -148,7 +148,6 @@ def autocommit_on_message_complete(
 
 
 # Tool specification
-# TODO: should probably be disabled by default, or at least in non-interactive modes
 tool = ToolSpec(
     name="autocommit",
     desc="Automatic hints to commit changes after message processing",
