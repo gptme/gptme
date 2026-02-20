@@ -385,7 +385,7 @@ A complete example of a weather information plugin:
        functions=[get_weather],
    )
 
-**Configuration (~/.config/gptme/gptme.toml):**
+**Configuration (~/.config/gptme/config.toml):**
 
 .. code-block:: toml
 

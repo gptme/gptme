@@ -2720,7 +2720,7 @@ gptme supports configuring multiple custom OpenAI-compatible providers (completi
 
 ## Configuration
 
-Add custom providers to your `~/.config/gptme/gptme.toml`:
+Add custom providers to your `~/.config/gptme/config.toml`:
 
 ```toml
 [[providers]]
@@ -6045,7 +6045,7 @@ A complete example of a weather information plugin:
        functions=[get_weather],
    )
 
-**Configuration (~/.config/gptme/gptme.toml):**
+**Configuration (~/.config/gptme/config.toml):**
 
 .. code-block:: toml
 

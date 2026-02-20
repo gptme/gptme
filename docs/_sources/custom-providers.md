@@ -4,7 +4,7 @@ gptme supports configuring multiple custom OpenAI-compatible providers (completi
 
 ## Configuration
 
-Add custom providers to your `~/.config/gptme/gptme.toml`:
+Add custom providers to your `~/.config/gptme/config.toml`:
 
 ```toml
 [[providers]]
