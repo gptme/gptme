@@ -204,10 +204,6 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
 - ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
 
-.. rubric:: Deprecated Environment Variables
-
-- ``GPTME_TOOLUSE_PARALLEL`` - **DEPRECATED**: Previously enabled parallel thread execution of tool calls, but caused thread-safety issues with prompt_toolkit. Use ``GPTME_BREAK_ON_TOOLUSE=0`` instead for multi-tool mode with sequential execution.
-
 .. rubric:: API Configuration
 
 - ``LLM_API_TIMEOUT`` - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., "600", "1800"). Useful for local LLMs that may take longer to respond.
