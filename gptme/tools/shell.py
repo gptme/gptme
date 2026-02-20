@@ -783,8 +783,12 @@ class ShellSession:
                             # if command is cd and successful, we need to change the directory
                             if command.startswith("cd ") and return_code == 0:
                                 ex, pwd, _ = self._run("pwd", output=False)
-                                assert ex == 0
-                                os.chdir(pwd.strip())
+                                if ex != 0:
+                                    logger.warning(
+                                        "pwd failed after cd, cannot update working directory"
+                                    )
+                                else:
+                                    os.chdir(pwd.strip())
 
                             # Issue #408: Drain any remaining stderr before returning
                             # This prevents stderr from leaking to the next command

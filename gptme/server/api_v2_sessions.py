@@ -168,9 +168,8 @@ class SessionManager:
         """Remove a session."""
         if session_id in cls._sessions:
             conversation_id = cls._sessions[session_id].conversation_id
-            assert (
-                conversation_id is not None
-            ), "Server sessions must have conversation_id"
+            if conversation_id is None:
+                raise ValueError("Server sessions must have conversation_id")
 
             # Trigger SESSION_END hook when removing the last session for a conversation
             is_last_session = (
@@ -220,9 +219,8 @@ class SessionManager:
 def _append_and_notify(manager: LogManager, session: ConversationSession, msg: Message):
     """Append a message and notify clients."""
     manager.append(msg)
-    assert (
-        session.conversation_id is not None
-    ), "Server sessions must have conversation_id"
+    if session.conversation_id is None:
+        raise ValueError("Server sessions must have conversation_id")
     SessionManager.add_event(
         session.conversation_id,
         {
