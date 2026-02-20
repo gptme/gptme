@@ -231,7 +231,7 @@ def _handle_anthropic_transient_error(e, attempt, max_retries, base_delay):
         f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
     )
     if status_code in [200, "200"]:
-        logger.warning(f"Status code was strangely 200. Error details: {str(e)}")
+        logger.warning(f"Status code was strangely 200. Error details: {e}")
     time.sleep(delay)
 
 

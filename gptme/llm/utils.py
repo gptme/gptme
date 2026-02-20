@@ -170,7 +170,7 @@ def process_image_file(
     try:
         data_bytes = f.read_bytes()
     except Exception as e:
-        logger.error("Error reading file %s: %s", file_path, str(e))
+        logger.error("Error reading file %s: %s", file_path, e)
         content_parts.append(
             {
                 "type": "text",

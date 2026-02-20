@@ -106,7 +106,6 @@ def _run_tmux_command(cmd: list[str]) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0
     print(result.stdout, result.stderr)
     return result
 

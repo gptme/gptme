@@ -123,7 +123,7 @@ def mcp_list():
                 )
                 click.echo(f"   Tools: {', '.join(tool_names)}{more}")
         except Exception as e:
-            click.echo(f"   Status: ❌ Connection failed: {str(e)}")
+            click.echo(f"   Status: ❌ Connection failed: {e}")
 
         click.echo()
 
@@ -161,7 +161,7 @@ def mcp_test(server_name: str):
             click.echo(f"   • {tool.name}: {tool.description or 'No description'}")
 
     except Exception as e:
-        click.echo(f"❌ Connection failed: {str(e)}")
+        click.echo(f"❌ Connection failed: {e}")
 
 
 @mcp.command("info")

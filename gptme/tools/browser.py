@@ -475,7 +475,7 @@ def _read_pdf_url(url: str, max_pages: int | None = None) -> str:
 
     except Exception as e:
         logger.error(f"Error reading PDF: {e}")
-        return f"Error reading PDF: {str(e)}"
+        return f"Error reading PDF: {e}"
 
 
 def read_url(url: str, max_pages: int | None = None) -> str:

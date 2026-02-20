@@ -121,7 +121,7 @@ def _load_page(browser: Browser, url: str) -> str:
         # Wait for page to be fully loaded (includes network idle)
         page.wait_for_load_state("networkidle")
     except Exception as e:
-        page_errors.append(f"Navigation error: {str(e)}")
+        page_errors.append(f"Navigation error: {e}")
         # Don't re-raise, just capture the error
 
     # Store logs globally

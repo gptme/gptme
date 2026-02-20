@@ -102,7 +102,7 @@ def search_perplexity(query: str) -> str:
         return msg.content
 
     except Exception as e:
-        return f"Error searching with Perplexity: {str(e)}"
+        return f"Error searching with Perplexity: {e}"
 
 
 def has_perplexity_key() -> bool:
