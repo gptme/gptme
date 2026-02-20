@@ -116,7 +116,7 @@ def _replay_tool(log, tool_name: str) -> None:
     count = 0
 
     for msg in log:
-        for tooluse in ToolUse.iter_from_content(msg.content):  # noqa: F821 - ToolUse imported above
+        for tooluse in ToolUse.iter_from_content(msg.content):
             if tooluse.tool == tool_name and tooluse.content:
                 count += 1
                 # Execute the tool operation

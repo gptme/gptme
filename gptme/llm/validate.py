@@ -110,7 +110,7 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
             "content-type": "application/json",
         },
         json={
-            "model": "claude-3-haiku-20240307",
+            "model": "claude-haiku-4-5",
             "max_tokens": 1,
             "messages": [],  # Empty messages will fail validation but key is checked first
         },
