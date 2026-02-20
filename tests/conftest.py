@@ -73,13 +73,13 @@ def download_model():
 
     try:
         # downloads the model if it doesn't exist
-        from chromadb.utils import embedding_functions  # type: ignore # fmt: skip
+        from chromadb.utils import embedding_functions  # fmt: skip
     except ImportError:
         return
 
     ef = embedding_functions.DefaultEmbeddingFunction()
     if ef:
-        ef._download_model_if_not_exists()  # type: ignore
+        ef._download_model_if_not_exists()
 
 
 @pytest.fixture

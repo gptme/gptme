@@ -16,7 +16,7 @@ class TestValidateApiKey:
 
     def test_unknown_provider_skips_validation(self):
         """Unknown providers should skip validation."""
-        is_valid, error = validate_api_key("some-key", "unknown")  # type: ignore
+        is_valid, error = validate_api_key("some-key", "unknown")
         assert is_valid
         assert error == ""
 

@@ -238,8 +238,15 @@ class Element:
             name=element.evaluate("el => el.name"),
             href=element.evaluate("el => el.href"),
             element=element,
-            # FIXME: is this correct?
-            selector=element.evaluate("el => el.selector"),
+            selector=element.evaluate(
+                """el => {
+                    let s = el.tagName.toLowerCase();
+                    if (el.id) return s + '#' + el.id;
+                    if (el.className && typeof el.className === 'string')
+                        s += '.' + el.className.trim().split(/\\s+/).join('.');
+                    return s;
+                }"""
+            ),
         )
 
 

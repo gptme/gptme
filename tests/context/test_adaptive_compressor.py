@@ -78,7 +78,7 @@ def test_compression_result_tokens_saved():
         original_content="a" * 1000,  # 1000 chars
         compressed_content="a" * 500,  # 500 chars
         compression_ratio=0.5,
-        task_classification=None,  # type: ignore
+        task_classification=None,  # type: ignore[arg-type]
         rationale="Test",
     )
 
