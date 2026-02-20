@@ -534,7 +534,7 @@ def chat(
         optional_kwargs["response_format"] = response_format
 
     response = client.chat.completions.create(
-        model=api_model,
+        model=api_model.split("@")[0],
         messages=messages_dicts,  # type: ignore[arg-type]
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),
