@@ -1,4 +1,3 @@
-import fcntl
 import json
 import logging
 import os
@@ -143,7 +142,7 @@ class LogManager:
         # Create and optionally lock the directory
         self.logdir.mkdir(parents=True, exist_ok=True)
         is_pytest = "PYTEST_CURRENT_TEST" in os.environ
-        if lock and not is_pytest:
+        if lock and not is_pytest and os.name != "nt":
             self._lockfile = self.logdir / ".lock"
             self._lockfile.touch(exist_ok=True)
             self._lock_fd = self._lockfile.open("r+")
@@ -189,6 +188,7 @@ class LogManager:
         - PID tracking for debugging
         """
         import atexit
+        import fcntl
 
         assert self._lock_fd is not None, "_acquire_lock called without open fd"
 
@@ -258,6 +258,8 @@ class LogManager:
 
     def _release_lock(self):
         """Release the lock and close the file descriptor"""
+        import fcntl
+
         if self._lock_fd:
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_UN)

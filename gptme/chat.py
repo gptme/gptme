@@ -2,7 +2,6 @@ import copy
 import logging
 import os
 import sys
-import termios
 import threading
 from collections.abc import Generator
 from pathlib import Path
@@ -519,7 +518,12 @@ def prompt_user(value=None) -> str:  # pragma: no cover
     print_bell()
     # Flush stdin to clear any buffered input before prompting (only if stdin is a TTY)
     if sys.stdin.isatty():
-        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+        try:
+            import termios
+
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+        except ImportError:
+            pass  # termios unavailable on Windows
     response = ""
     # Get user name from config for the prompt display
     user_name = get_config().user.user.name
