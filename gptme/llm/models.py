@@ -141,6 +141,8 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
         }
         for model in [
+            "gpt-5.3-codex",
+            "gpt-5.3-codex-spark",
             "gpt-5.2",
             "gpt-5.2-codex",
             "gpt-5.1-codex-max",
