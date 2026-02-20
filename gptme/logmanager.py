@@ -258,9 +258,9 @@ class LogManager:
 
     def _release_lock(self):
         """Release the lock and close the file descriptor"""
-        import fcntl
-
         if self._lock_fd:
+            import fcntl
+
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
                 self._lock_fd.close()
