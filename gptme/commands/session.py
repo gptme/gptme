@@ -248,7 +248,8 @@ def _rename(manager: "LogManager", new_name: str) -> None:
     if new_name in ["", "auto"]:
         msgs = prepare_messages(manager.log.messages)[1:]  # skip system message
         new_name = generate_llm_name(msgs)
-        assert " " not in new_name, f"Invalid name: {new_name}"
+        if " " in new_name:
+            raise ValueError(f"Generated name contains spaces: '{new_name}'")
         print(f"Generated name: {new_name}")
         if sys.stdin.isatty():
             response = input("Confirm? [y/N] ")

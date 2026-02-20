@@ -77,7 +77,9 @@ def cmd_model(ctx: CommandContext) -> None:
         print(f"Set model to {new_model}")
     else:
         model = get_default_model()
-        assert model
+        if not model:
+            print("No model configured. Use `/model <model>` to set one.")
+            return
         print(f"Current model: {model.full}")
         print(
             f"  price: input ${model.price_input}/Mtok, output ${model.price_output}/Mtok"
