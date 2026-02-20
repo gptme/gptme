@@ -23,6 +23,16 @@ logger = logging.getLogger(__name__)
 # Pattern to match date suffixes like -20250929 or -20250514
 _DATE_SUFFIX_PATTERN = re.compile(r"-\d{8}$")
 
+# Model aliases: maps short alias names to their canonical model IDs per provider.
+# Avoids duplicating full metadata entries for models with both short and dated names.
+MODEL_ALIASES: dict[str, dict[str, str]] = {
+    "anthropic": {
+        "claude-opus-4-1": "claude-opus-4-1-20250805",
+        "claude-opus-4-0": "claude-opus-4-20250514",
+        "claude-sonnet-4-0": "claude-sonnet-4-20250514",
+    },
+}
+
 # Built-in providers (static list)
 BuiltinProvider = Literal[
     "openai",
@@ -635,6 +645,13 @@ def _find_base_model_properties(
         return None
 
     provider_models = MODELS[provider]
+
+    # Try alias resolution (e.g., claude-opus-4-1 -> claude-opus-4-1-20250805)
+    if provider in MODEL_ALIASES and model_name in MODEL_ALIASES[provider]:
+        canonical = MODEL_ALIASES[provider][model_name]
+        if canonical in provider_models:
+            logger.debug(f"Resolved alias {model_name} -> {canonical}")
+            return provider_models[canonical]
 
     # Try stripping date suffix (e.g., -20250929) to find base model
     base_name = _DATE_SUFFIX_PATTERN.sub("", model_name)
