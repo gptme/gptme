@@ -770,26 +770,32 @@ def delete_conversation(conv_id: str) -> bool:
 
 
 def check_for_modifications(log: Log) -> bool:
-    """Check if there are any file modifications in assistant messages since last user message."""
-    messages_since_user = []
-    found_user_message = False
+    """Check if the most recent assistant message (since last user) has file modifications.
+
+    Only checks the last assistant message to prevent re-triggering pre-commit/autocommit
+    when the agent responds to hook output (e.g. pre-commit failure) without making new
+    file changes. Checking all assistant messages since the last user would cause infinite
+    loops: the original save is still visible after the agent writes a text response to
+    the failure.
+    """
+    last_assistant: Message | None = None
+    found_user = False
 
     for m in reversed(log):
         if m.role == "user":
-            found_user_message = True
+            found_user = True
             break
         if m.role == "system":
-            continue
-        messages_since_user.append(m)
+            continue  # Skip system messages (tool results, hook outputs)
+        if last_assistant is None:
+            last_assistant = m  # Record only the most recent assistant message
 
-    # If no user message found, skip the check (only system messages so far)
-    if not found_user_message:
+    if not found_user or last_assistant is None:
         return False
 
     return any(
         tu.tool in ["save", "patch", "append", "morph"]
-        for m in messages_since_user
-        for tu in ToolUse.iter_from_content(m.content)
+        for tu in ToolUse.iter_from_content(last_assistant.content)
     )
 
 

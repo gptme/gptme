@@ -146,3 +146,25 @@ def test_check_for_modifications_skips_system_messages():
         ]
     )
     assert check_for_modifications(log) is True
+
+
+def test_check_for_modifications_prevents_precommit_rerun_loop():
+    """Test that only the LAST assistant message is checked to prevent infinite loops.
+
+    When the agent responds to a pre-commit failure with text (no file modifications),
+    check_for_modifications must return False to avoid re-triggering pre-commit.
+    The original save is still visible in the log but should NOT cause a re-run.
+    """
+    log = Log(
+        messages=[
+            Message("user", "Create a file"),
+            Message(
+                "assistant",
+                "Here it is.\n```save test.py\nprint('hello')\n```",
+            ),
+            Message("system", "Saved to test.py"),
+            Message("system", "Pre-commit failed: E501 line too long"),
+            Message("assistant", "I see the issue, let me fix the line length..."),
+        ]
+    )
+    assert check_for_modifications(log) is False
