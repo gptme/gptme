@@ -243,6 +243,15 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
             "knowledge_cutoff": datetime(2024, 10, 1),
         },
+        "claude-3-7-sonnet-latest": {
+            "context": 200_000,
+            "max_output": 8192,
+            "price_input": 3,
+            "price_output": 15,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "knowledge_cutoff": datetime(2024, 10, 1),
+        },
         "claude-3-5-sonnet-20241022": {
             "context": 200_000,
             "max_output": 8192,
@@ -258,7 +267,23 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "knowledge_cutoff": datetime(2024, 4, 1),
         },
+        "claude-3-5-sonnet-latest": {
+            "context": 200_000,
+            "max_output": 8192,
+            "price_input": 3,
+            "price_output": 15,
+            "supports_vision": True,
+            "knowledge_cutoff": datetime(2024, 4, 1),
+        },
         "claude-3-5-haiku-20241022": {
+            "context": 200_000,
+            "max_output": 8192,
+            "price_input": 1,
+            "price_output": 5,
+            "supports_vision": True,
+            "knowledge_cutoff": datetime(2024, 4, 1),
+        },
+        "claude-3-5-haiku-latest": {
             "context": 200_000,
             "max_output": 8192,
             "price_input": 1,
@@ -274,6 +299,13 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "knowledge_cutoff": datetime(2024, 4, 1),
         },
         "claude-3-opus-20240229": {
+            "context": 200_000,
+            "max_output": 4096,
+            "price_input": 15,
+            "price_output": 75,
+            "knowledge_cutoff": datetime(2023, 8, 1),
+        },
+        "claude-3-opus-latest": {
             "context": 200_000,
             "max_output": 4096,
             "price_input": 15,
