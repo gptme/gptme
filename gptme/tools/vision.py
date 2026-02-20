@@ -31,7 +31,7 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
     MAX_SIZE = 1024 * 1024  # 1MB in bytes
 
     with Image.open(image_path) as img:
-        dimensions = img.size
+        dimensions: tuple[int, int] = (img.size[0], img.size[1])
         msg_parts = [
             f"Image size: {dimensions[0]}x{dimensions[1]}, {file_size/1024:.1f}KB"
         ]
@@ -44,8 +44,10 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
                 files=[image_path.absolute()],
             )
 
-        # Convert RGBA to RGB if needed
-        out: Image.Image = img.convert("RGB") if img.mode == "RGBA" else img
+        # Convert RGBA to RGB if needed (convert both branches to ensure Image type)
+        out: Image.Image = (
+            img.convert("RGB") if img.mode == "RGBA" else img.convert(img.mode)
+        )
 
         # First try just compressing as JPG without scaling
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
