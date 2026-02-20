@@ -73,7 +73,9 @@ def download_model():
 
     try:
         # downloads the model if it doesn't exist
-        from chromadb.utils import embedding_functions  # fmt: skip
+        from chromadb.utils import (
+            embedding_functions,  # type: ignore[import-not-found] # fmt: skip
+        )
     except ImportError:
         return
 
