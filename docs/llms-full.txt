@@ -2636,7 +2636,7 @@ To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag s
     gptme "hello" -m deepseek/deepseek-reasoner
     gptme "hello" -m gemini/gemini-2.5-flash
     gptme "hello" -m groq/llama-3.3-70b-versatile
-    gptme "hello" -m xai/grok-beta
+    gptme "hello" -m xai/grok-4
     gptme "hello" -m local/llama3.2:1b
 
 You can list the models known to gptme using ``gptme '/models' - '/exit'``
