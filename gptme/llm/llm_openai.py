@@ -1012,7 +1012,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
         "openrouter",
         "deepseek",
         "local",
-    ] or is_custom_provider(model.model):
+    ] or is_custom_provider(model.model.split("/")[0]):
         return {
             "type": "function",
             "function": {
