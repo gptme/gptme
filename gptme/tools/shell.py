@@ -576,7 +576,8 @@ class ShellSession:
             stdin=tty_stdin,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            start_new_session=True,
+            # Don't use start_new_session=True here - we need to inherit the
+            # controlling terminal so sudo can prompt for passwords
             cwd=os.getcwd(),
             env=session_env,
         )
