@@ -307,18 +307,15 @@ def step(
             manager.write()
             logger.debug("Wrote SESSION_START hook messages to disk")
 
-    # TODO: This is not the best way to manage the chdir state, since it's
-    # essentially a shared global across chats (bad), but the fix at least
-    # addresses the issue where chats don't start in the directory they should.
-    # If we are attempting to make a step in a conversation with only one or fewer user
-    # messages, make sure we first chdir to the workspace directory (so that
-    # the conversation starts in the right folder).
-    user_messages = [msg for msg in manager.log.messages if msg.role == "user"]
-    if len(user_messages) <= 1:
-        logger.debug(
-            f"One or fewer user messages found, changing directory to workspace: {workspace}"
-        )
-        os.chdir(workspace)
+    # Ensure tools run in the correct workspace directory.
+    # NOTE: os.chdir() is process-global, so concurrent conversations can
+    # interfere with each other's working directory.  A proper fix requires
+    # threading the workspace path through the tool chain (large refactor).
+    # For now we always chdir at the start of every step — this is correct
+    # for single-conversation use and at least starts each step in the right
+    # place for the concurrent case.
+    logger.debug(f"Changing directory to workspace: {workspace}")
+    os.chdir(workspace)
 
     # Trigger STEP_PRE hook BEFORE preparing messages
     # This ensures hook messages are included in the LLM input
