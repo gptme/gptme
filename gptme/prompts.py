@@ -591,14 +591,15 @@ def prompt_workspace(
     if sections:
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
-    # Yield files as a separate message (more stable than computed context)
-    valid_files: list[FilePath] = [file for file in files if file.exists()]
-    if valid_files:
-        file_list = "\n".join(f"- {file}" for file in valid_files)
-        yield Message(
-            "system",
-            f"## Selected files\n\nRead more with `cat`.\n\n{file_list}",
-            files=valid_files,
+    files_str = []
+    for file in files:
+        if file.exists():
+            files_str.append(
+                md_codeblock(file.resolve(), file.read_text(encoding="utf-8"))
+            )
+    if files_str:
+        sections.append(
+            "## Selected files\n\nRead more with `cat`.\n\n" + "\n\n".join(files_str)
         )
 
     # Computed context last (changes most often, least cacheable)

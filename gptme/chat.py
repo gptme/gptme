@@ -3,6 +3,15 @@ import logging
 import os
 import sys
 import threading
+
+try:
+    import termios
+except ImportError:
+    termios = None  # type: ignore
+
+msvcrt = None  # type: object
+if os.name == "nt":
+    import msvcrt  # type: ignore
 from collections.abc import Generator
 from pathlib import Path
 
@@ -76,9 +85,9 @@ def chat(
     set_conversation_context(conversation_id=conv_name)
 
     # tool_format should already be resolved by this point
-    assert (
-        tool_format is not None
-    ), "tool_format should be resolved before calling chat()"
+    assert tool_format is not None, (
+        "tool_format should be resolved before calling chat()"
+    )
 
     # init
     # Mode detection for confirmation hooks is now handled inside init_hooks()
@@ -516,14 +525,12 @@ def step(
 
 def prompt_user(value=None) -> str:  # pragma: no cover
     print_bell()
-    # Flush stdin to clear any buffered input before prompting (only if stdin is a TTY)
-    if sys.stdin.isatty():
-        try:
-            import termios
-
-            termios.tcflush(sys.stdin, termios.TCIFLUSH)
-        except ImportError:
-            pass  # termios unavailable on Windows
+    # Flush stdin to clear any buffered input before prompting
+    if termios:
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    elif msvcrt:
+        while msvcrt.kbhit():  # type: ignore
+            msvcrt.getch()  # type: ignore
     response = ""
     # Get user name from config for the prompt display
     user_name = get_config().user.user.name
