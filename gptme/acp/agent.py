@@ -542,8 +542,8 @@ class GptmeAgent:
 
         Commands that are unsafe in ACP mode (exit, restart) are excluded.
         """
-        from acp.helpers import (
-            update_available_commands,  # type: ignore[import-not-found]
+        from acp.helpers import (  # type: ignore[import-not-found]
+            update_available_commands,
         )
         from acp.schema import AvailableCommand  # type: ignore[import-not-found]
 
