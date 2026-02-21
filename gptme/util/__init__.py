@@ -12,7 +12,6 @@ from functools import lru_cache
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
-from rich import print
 from rich.console import Console
 
 EMOJI_WARN = "⚠️"
@@ -55,7 +54,6 @@ def example_to_xml(s: str) -> str:
     """
     s = clean_example(s)
     orig = s
-    print(f"After clean_example: {s!r}")  # Debug print
 
     lines = s.split("\n")
     result = []
@@ -100,7 +98,6 @@ def example_to_xml(s: str) -> str:
         )
 
     s = "\n".join(result).strip()
-    print(f"Final result: {s!r}")  # Debug print
     assert s != orig, "Couldn't find place to put start of directive"
     return s
 

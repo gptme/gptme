@@ -528,7 +528,7 @@ def stream(
                     # Note: Server-side tool use (e.g., web search) comes through as
                     # regular ToolUseBlock with specific tool names, not special types
                     else:
-                        print(f"Unknown block type: {block}")
+                        logger.warning("Unknown block type: %s", block)
                 case "content_block_delta":
                     chunk = cast(anthropic.types.RawContentBlockDeltaEvent, chunk)
                     delta = chunk.delta
