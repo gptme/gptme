@@ -433,6 +433,8 @@ class LogManager:
         if not quiet:
             print("[yellow]Undoing messages:[/yellow]")
         for _ in range(n):
+            if not self.log:
+                break
             undid = self.log[-1]
             self.log = self.log.pop()
             if not quiet:

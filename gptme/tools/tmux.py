@@ -439,7 +439,14 @@ def execute_tmux(
         if command == "new-session":
             yield new_session(_args)
         elif command == "send-keys":
-            pane_id, keys = _args.split(maxsplit=1)
+            send_parts = _args.split(maxsplit=1)
+            if len(send_parts) < 2:
+                yield Message(
+                    "system",
+                    "Error: send-keys requires both pane_id and keys arguments",
+                )
+                continue
+            pane_id, keys = send_parts
             yield send_keys(pane_id, keys)
         elif command == "inspect-pane":
             # Use default cache directory for saving full output when truncated
