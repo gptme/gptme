@@ -39,10 +39,7 @@ def _check_device_override(devices) -> tuple[int, int] | None:
                 if device_info["max_output_channels"] > 0:
                     log.debug(f"Using device override: {device_info['name']}")
                     return device_index, int(device_info["default_samplerate"])
-                else:
-                    log.warning(
-                        f"Override device {device_index} has no output channels"
-                    )
+                log.warning(f"Override device {device_index} has no output channels")
             else:
                 log.warning(f"Override device index {device_index} out of range")
         except ValueError:
@@ -161,30 +158,29 @@ def get_output_device() -> tuple[int, int]:
 
     if system == "Darwin":  # macOS
         return _get_output_device_macos(devices)
-    elif system == "Linux":
+    if system == "Linux":
         return _get_output_device_linux(devices)
-    else:
-        # Windows or other platforms - use simple default logic
-        try:
-            default_output = sd.default.device[1]
-            if default_output is not None:
-                device_info = sd.query_devices(default_output)
-                if device_info["max_output_channels"] > 0:
-                    log.debug(f"Using system default: {device_info['name']}")
-                    return default_output, int(device_info["default_samplerate"])
-        except Exception:
-            pass
+    # Windows or other platforms - use simple default logic
+    try:
+        default_output = sd.default.device[1]
+        if default_output is not None:
+            device_info = sd.query_devices(default_output)
+            if device_info["max_output_channels"] > 0:
+                log.debug(f"Using system default: {device_info['name']}")
+                return default_output, int(device_info["default_samplerate"])
+    except Exception:
+        pass
 
-        # Fallback for other platforms
-        output_device = next(
-            (i for i, d in enumerate(devices) if d["max_output_channels"] > 0),
-            None,
-        )
-        if output_device is None:
-            raise RuntimeError(f"No suitable audio output device found on {system}")
+    # Fallback for other platforms
+    output_device = next(
+        (i for i, d in enumerate(devices) if d["max_output_channels"] > 0),
+        None,
+    )
+    if output_device is None:
+        raise RuntimeError(f"No suitable audio output device found on {system}")
 
-        device_info = sd.query_devices(output_device)
-        return output_device, int(device_info["default_samplerate"])
+    device_info = sd.query_devices(output_device)
+    return output_device, int(device_info["default_samplerate"])
 
 
 def resample_audio(data, orig_sr, target_sr):

@@ -489,14 +489,26 @@ def examples(tool_format):
 
 > User: start subagent to fix lints in parallel
 > Assistant: Let's start a subagent in a new tmux session:
-{ToolUse("tmux", [], '''new-session gptme --non-interactive "fix lint 1"
-new-session gptme --non-interactive "fix lint 2"''').to_output(tool_format)}
+{
+        ToolUse(
+            "tmux",
+            [],
+            '''new-session gptme --non-interactive "fix lint 1"
+new-session gptme --non-interactive "fix lint 2"''',
+        ).to_output(tool_format)
+    }
 
 #### Running specific agent
 
 > User: Ask Bob about his latest work
 > Assistant: Sure! Let's start a tmux session running Bob (~/bob/):
-{ToolUse("tmux", [], "new-session cd ~/bob && gptme --non-interactive 'What is your latest work?'").to_output(tool_format)}
+{
+        ToolUse(
+            "tmux",
+            [],
+            "new-session cd ~/bob && gptme --non-interactive 'What is your latest work?'",
+        ).to_output(tool_format)
+    }
 
 #### Managing a dev server
 
@@ -533,7 +545,7 @@ new-session gptme --non-interactive "fix lint 2"''').to_output(tool_format)}
 > System: Running `ipython` in session 2.
 {ToolUse("output", [], "(output from ipython shown here)").to_output()}
 > User: Run 'print("Hello, world!")' in the ipython session
-{ToolUse("tmux", [], f'send-keys 2 {escaped_hello_world} Enter').to_output(tool_format)}
+{ToolUse("tmux", [], f"send-keys 2 {escaped_hello_world} Enter").to_output(tool_format)}
 
 #### Listing active sessions
 

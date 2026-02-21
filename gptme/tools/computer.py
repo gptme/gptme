@@ -191,11 +191,11 @@ def _scale_coordinates(
         logger.info(f"Scaling from API ({x},{y}) to physical ({scaled_x},{scaled_y})")
         logger.info(f"Scale factors: x={x_scale:.3f}, y={y_scale:.3f}")
         return scaled_x, scaled_y
-    else:  # _ScalingSource.COMPUTER
-        # Scale down from physical screen coordinates to API coordinates
-        x_scale = api_width / physical_width
-        y_scale = api_height / physical_height
-        return round(x * x_scale), round(y * y_scale)
+    # _ScalingSource.COMPUTER
+    # Scale down from physical screen coordinates to API coordinates
+    x_scale = api_width / physical_width
+    y_scale = api_height / physical_height
+    return round(x * x_scale), round(y * y_scale)
 
 
 def _run_xdotool(cmd: str, display: str | None = None) -> str:
@@ -498,7 +498,7 @@ def computer(
         # Show the API space coordinates in the output, not the physical ones
         print(f"Moved mouse to {coordinate[0]},{coordinate[1]}")
         return None
-    elif action in ("key", "type"):
+    if action in ("key", "type"):
         if not text:
             raise ValueError(f"text is required for {action}")
 
@@ -518,7 +518,7 @@ def computer(
                 _linux_type(text, display)
                 print(f"Typed text: {text}")
         return None
-    elif action == "double_click":
+    if action == "double_click":
         if IS_MACOS:
             # Get current position and double-click using cliclick's dc command
             try:
@@ -538,7 +538,7 @@ def computer(
             _run_xdotool("click --repeat 2 --delay 100 1", display)
         print("Performed double_click")
         return None
-    elif action in ("left_click", "right_click", "middle_click"):
+    if action in ("left_click", "right_click", "middle_click"):
         click_map = {
             "left_click": 1,
             "right_click": 3,
@@ -559,7 +559,7 @@ def computer(
 
         print(f"Performed {action}")
         return None
-    elif action == "screenshot":
+    if action == "screenshot":
         path = screenshot()  # Use existing screenshot function
 
         # Scale if needed
@@ -573,10 +573,9 @@ def computer(
                 check=True,
             )
             return view_image(path)
-        else:
-            print("Error: Screenshot failed")
+        print("Error: Screenshot failed")
         return None
-    elif action == "cursor_position":
+    if action == "cursor_position":
         if IS_MACOS:
             try:
                 output = subprocess.run(

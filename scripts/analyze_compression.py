@@ -60,7 +60,7 @@ def analyze_conversations_incremental(limit: int = 100, verbose: bool = False) -
 
     for i, conv in enumerate(conversations):
         if verbose:
-            print(f"[{i+1}/{len(conversations)}] Analyzing: {conv.name}")
+            print(f"[{i + 1}/{len(conversations)}] Analyzing: {conv.name}")
 
         try:
             log = Log.read_jsonl(conv.path)
@@ -157,7 +157,7 @@ def analyze_conversations(limit: int = 100, verbose: bool = False) -> dict:
 
     for i, conv in enumerate(conversations):
         if verbose:
-            print(f"[{i+1}/{len(conversations)}] Analyzing: {conv.name}")
+            print(f"[{i + 1}/{len(conversations)}] Analyzing: {conv.name}")
 
         try:
             log = Log.read_jsonl(conv.path)
@@ -317,14 +317,13 @@ def classify_redundancy(ratio: float) -> tuple[str, str]:
     """
     if ratio < 0.2:
         return ("HIGHLY_REDUNDANT", "Aggressive compression (90% reduction)")
-    elif ratio < 0.3:
+    if ratio < 0.3:
         return ("REDUNDANT", "Strong compression (70% reduction)")
-    elif ratio < 0.5:
+    if ratio < 0.5:
         return ("MODERATE", "Light compression (30% reduction)")
-    elif ratio < 0.7:
+    if ratio < 0.7:
         return ("UNIQUE", "Preserve (minimal compression)")
-    else:
-        return ("NOVEL", "Preserve completely")
+    return ("NOVEL", "Preserve completely")
 
 
 def analyze_distribution(results: dict) -> dict:

@@ -12,12 +12,11 @@ def _detect_model():
     config = get_config()
     if model := config.get_env("MODEL"):
         return model
-    elif config.get_env("OPENAI_API_KEY"):
+    if config.get_env("OPENAI_API_KEY"):
         return "openai"
-    elif config.get_env("ANTHROPIC_API_KEY"):
+    if config.get_env("ANTHROPIC_API_KEY"):
         return "anthropic"
-    else:
-        pytest.skip("No API key found for OpenAI or Anthropic")
+    pytest.skip("No API key found for OpenAI or Anthropic")
 
 
 @pytest.mark.slow

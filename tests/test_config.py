@@ -853,13 +853,13 @@ def test_user_config_local_toml(tmp_path):
     # Create main config with preferences (committable to dotfiles)
     main_config = tmp_path / "config.toml"
     main_config.write_text(
-        '[prompt]\nabout_user = "I am a developer."\n\n' "[env]\n" 'EDITOR = "vim"\n'
+        '[prompt]\nabout_user = "I am a developer."\n\n[env]\nEDITOR = "vim"\n'
     )
 
     # Create local config with secrets (gitignored)
     local_config = tmp_path / "config.local.toml"
     local_config.write_text(
-        "[env]\n" 'OPENAI_API_KEY = "sk-secret-123"\n' 'EDITOR = "nvim"\n'
+        '[env]\nOPENAI_API_KEY = "sk-secret-123"\nEDITOR = "nvim"\n'
     )
 
     user_config = load_user_config(str(main_config))
@@ -887,7 +887,7 @@ def test_user_config_local_toml_mcp_merge(tmp_path):
 
     local_config = tmp_path / "config.local.toml"
     local_config.write_text(
-        "[[mcp.servers]]\n" 'name = "my-server"\n' 'env = { API_KEY = "secret-key" }\n'
+        '[[mcp.servers]]\nname = "my-server"\nenv = { API_KEY = "secret-key" }\n'
     )
 
     config = Config(user=load_user_config(str(main_config)))

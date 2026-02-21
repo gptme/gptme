@@ -181,17 +181,16 @@ def cli_elicit(request: ElicitationRequest) -> ElicitationResponse:
     try:
         if request.type == "secret":
             return _cli_secret(request)
-        elif request.type == "choice":
+        if request.type == "choice":
             return _cli_choice(request)
-        elif request.type == "multi_choice":
+        if request.type == "multi_choice":
             return _cli_multi_choice(request)
-        elif request.type == "confirmation":
+        if request.type == "confirmation":
             return _cli_confirmation(request)
-        elif request.type == "form":
+        if request.type == "form":
             return _cli_form(request)
-        else:
-            # Default: free-form text
-            return _cli_text(request)
+        # Default: free-form text
+        return _cli_text(request)
     except (KeyboardInterrupt, EOFError):
         return ElicitationResponse.cancel()
 

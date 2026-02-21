@@ -506,8 +506,7 @@ class LogManager:
 
         if diff:
             return "\n".join(diff)
-        else:
-            return None
+        return None
 
     # ==================== View Branch Methods ====================
     # Views are compacted versions of the conversation stored separately.
@@ -616,7 +615,7 @@ def prepare_messages(
     if (len_from := len_tokens(msgs, model.model)) != (
         len_to := len_tokens(msgs_reduced, model.model)
     ):
-        logger.info(f"Reduced log from {len_from//1} to {len_to//1} tokens")
+        logger.info(f"Reduced log from {len_from // 1} to {len_to // 1} tokens")
     msgs_limited = limit_log(msgs_reduced)
     if len(msgs_reduced) != len(msgs_limited):
         logger.info(

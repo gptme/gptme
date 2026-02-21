@@ -308,12 +308,12 @@ def record_llm_request(
     logger.debug(
         f"tokens in:  {input_tokens}"
         + (
-            f" + {cache_creation_tokens} cache create ({100*(cache_creation_tokens or 0)/(total_in):.1f}%)"
+            f" + {cache_creation_tokens} cache create ({100 * (cache_creation_tokens or 0) / (total_in):.1f}%)"
             if cache_creation_tokens
             else ""
         )
         + (
-            f" + {cache_read_tokens} cache read ({100*(cache_read_tokens or 0)/(total_in):.1f}%)"
+            f" + {cache_read_tokens} cache read ({100 * (cache_read_tokens or 0) / (total_in):.1f}%)"
             if cache_read_tokens
             else ""
         )

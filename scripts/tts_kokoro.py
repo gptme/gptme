@@ -82,7 +82,7 @@ class KokoroTTSBackend:
                 "am_santa",
             ]
         # British English voices
-        elif lang == "b":
+        if lang == "b":
             return [
                 "bf_alice",
                 "bf_emma",
@@ -94,10 +94,10 @@ class KokoroTTSBackend:
                 "bm_lewis",
             ]
         # Japanese voices
-        elif lang == "j":
+        if lang == "j":
             return ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"]
         # Mandarin Chinese voices
-        elif lang == "z":
+        if lang == "z":
             return [
                 "zf_xiaobei",
                 "zf_xiaoni",
@@ -109,19 +109,19 @@ class KokoroTTSBackend:
                 "zm_yunyang",
             ]
         # Spanish voices
-        elif lang == "e":
+        if lang == "e":
             return ["ef_dora", "em_alex", "em_santa"]
         # French voices
-        elif lang == "f":
+        if lang == "f":
             return ["ff_siwis"]
         # Hindi voices
-        elif lang == "h":
+        if lang == "h":
             return ["hf_alpha", "hf_beta", "hm_omega", "hm_psi"]
         # Italian voices
-        elif lang == "i":
+        if lang == "i":
             return ["if_sara", "im_nicola"]
         # Brazilian Portuguese voices
-        elif lang == "p":
+        if lang == "p":
             return ["pf_dora", "pm_alex", "pm_santa"]
 
         return ["af_heart"]  # Default fallback

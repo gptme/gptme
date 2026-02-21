@@ -291,17 +291,27 @@ def prompt_gptme(
         agent_blurb = f"{agent_name}, a general-purpose AI assistant powered by LLMs"
 
     default_base_prompt = f"""
-You are {agent_blurb}. {('Currently using model: ' + model_meta.full) if model_meta else ''}
+You are {agent_blurb}. {
+        ("Currently using model: " + model_meta.full) if model_meta else ""
+    }
 You are designed to help users with programming tasks, such as writing code, debugging, and learning new concepts.
 You can run code, execute terminal commands, and access the filesystem on the local machine.
 You will help the user with writing code, either from scratch or in existing projects.
-{'You will think step by step when solving a problem, in `<thinking>` tags.' if use_thinking_tags else ''}
+{
+        "You will think step by step when solving a problem, in `<thinking>` tags."
+        if use_thinking_tags
+        else ""
+    }
 Break down complex tasks into smaller, manageable steps.
 
-You have the ability to self-correct. {'''If you receive feedback that your output or actions were incorrect, you should:
+You have the ability to self-correct. {
+        '''If you receive feedback that your output or actions were incorrect, you should:
 - acknowledge the mistake
 - analyze what went wrong in `<thinking>` tags
-- provide a corrected response''' if use_thinking_tags else ''}
+- provide a corrected response'''
+        if use_thinking_tags
+        else ""
+    }
 
 You should learn about the context needed to provide the best help,
 such as exploring the current working directory and reading the code using terminal tools.
@@ -323,7 +333,7 @@ Always consider the full range of your available tools and abilities when approa
 
 Maintain a professional and efficient communication style. Be concise but thorough in your explanations.
 
-{'Use `<thinking>` tags to think before you answer.' if use_thinking_tags else ''}
+{"Use `<thinking>` tags to think before you answer." if use_thinking_tags else ""}
 """.strip()
 
     interactive_prompt = """
@@ -664,21 +674,18 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
                     f"Context command '{cmd}' output is large: ~{length} tokens, consider optimizing."
                 )
             return md_codeblock(cmd, output)
-        else:
-            logger.warning(
-                f"Context command '{cmd}' exited with code {result.returncode}"
-            )
-            # Include both stdout (partial results) and stderr (error details)
-            # so LLM can see what worked and what failed for self-recovery
-            # Truncate stdout to prevent context explosion, truncate stderr for safety
-            output = _truncate_context_output(result.stdout)
-            stderr_stripped = result.stderr.strip()
-            if stderr_stripped:
-                stderr_preview = stderr_stripped[:500]
-                if len(stderr_stripped) > 500:
-                    stderr_preview += "\n... (truncated)"
-                output += f"\n\n## Context Generation Error (exit {result.returncode})\n\n{stderr_preview}"
-            return md_codeblock(cmd, output)
+        logger.warning(f"Context command '{cmd}' exited with code {result.returncode}")
+        # Include both stdout (partial results) and stderr (error details)
+        # so LLM can see what worked and what failed for self-recovery
+        # Truncate stdout to prevent context explosion, truncate stderr for safety
+        output = _truncate_context_output(result.stdout)
+        stderr_stripped = result.stderr.strip()
+        if stderr_stripped:
+            stderr_preview = stderr_stripped[:500]
+            if len(stderr_stripped) > 500:
+                stderr_preview += "\n... (truncated)"
+            output += f"\n\n## Context Generation Error (exit {result.returncode})\n\n{stderr_preview}"
+        return md_codeblock(cmd, output)
     except Exception as e:
         logger.error(f"Error running context command: {e}")
     return None

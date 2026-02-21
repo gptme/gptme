@@ -77,10 +77,7 @@ Output ONLY valid JSON, no explanation."""
 
 def _detect_options_heuristic(content: str) -> bool:
     """Use heuristics to detect if message might contain selectable options."""
-    for pattern in COMPILED_PATTERNS:
-        if pattern.search(content):
-            return True
-    return False
+    return any(pattern.search(content) for pattern in COMPILED_PATTERNS)
 
 
 def _parse_options_with_llm(content: str) -> dict | None:

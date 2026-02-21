@@ -561,7 +561,7 @@ def auto_compact_log(
                 compression_tokens_saved += compression_saved
                 logger.debug(
                     f"Compressed message {idx}: {msg_tokens} -> {compressed_tokens} tokens "
-                    f"({compression_saved} saved, {(compression_saved/msg_tokens)*100:.1f}% reduction)"
+                    f"({compression_saved} saved, {(compression_saved / msg_tokens) * 100:.1f}% reduction)"
                 )
 
     # Check if we're now within limits

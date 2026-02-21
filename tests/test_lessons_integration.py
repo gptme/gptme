@@ -260,23 +260,23 @@ class TestDocsLessonsAutoInclude:
             Message(role="user", content="How do I use the patch tool?"),
         ]
 
-        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-            with patch("gptme.tools.lessons.get_config") as mock_config:
-                # Setup mocks
-                mock_get_index.return_value = docs_lesson_index
-                self._configure_mock_config(mock_config.return_value)
+        with (
+            patch("gptme.tools.lessons._get_lesson_index") as mock_get_index,
+            patch("gptme.tools.lessons.get_config") as mock_config,
+        ):
+            # Setup mocks
+            mock_get_index.return_value = docs_lesson_index
+            self._configure_mock_config(mock_config.return_value)
 
-                messages = list(
-                    auto_include_lessons_hook(self._create_manager(log)) or []
-                )
+            messages = list(auto_include_lessons_hook(self._create_manager(log)) or [])
 
-                assert len(messages) > 0, "Should include lessons"
+            assert len(messages) > 0, "Should include lessons"
 
-                lesson_msg = messages[0]
-                assert isinstance(lesson_msg, Message)
-                assert lesson_msg.role == "system"
-                assert "# Relevant Lessons" in lesson_msg.content
-                assert "Patch" in lesson_msg.content or "patch" in lesson_msg.content
+            lesson_msg = messages[0]
+            assert isinstance(lesson_msg, Message)
+            assert lesson_msg.role == "system"
+            assert "# Relevant Lessons" in lesson_msg.content
+            assert "Patch" in lesson_msg.content or "patch" in lesson_msg.content
 
     def test_auto_include_with_tool_usage(self, docs_lesson_index):
         """Test auto-include based on recent tool usage."""
@@ -286,17 +286,17 @@ class TestDocsLessonsAutoInclude:
             Message(role="user", content="Looks good"),
         ]
 
-        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-            with patch("gptme.tools.lessons.get_config") as mock_config:
-                # Setup mocks
-                mock_get_index.return_value = docs_lesson_index
-                self._configure_mock_config(mock_config.return_value)
+        with (
+            patch("gptme.tools.lessons._get_lesson_index") as mock_get_index,
+            patch("gptme.tools.lessons.get_config") as mock_config,
+        ):
+            # Setup mocks
+            mock_get_index.return_value = docs_lesson_index
+            self._configure_mock_config(mock_config.return_value)
 
-                messages = list(
-                    auto_include_lessons_hook(self._create_manager(log)) or []
-                )
+            messages = list(auto_include_lessons_hook(self._create_manager(log)) or [])
 
-                assert len(messages) > 0, "Should include lessons based on tool usage"
+            assert len(messages) > 0, "Should include lessons based on tool usage"
 
     def test_deduplication_from_history(self, docs_lesson_index):
         """Test that lessons aren't included twice."""
@@ -316,23 +316,23 @@ class TestDocsLessonsAutoInclude:
             Message(role="user", content="Use patch again"),
         ]
 
-        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-            with patch("gptme.tools.lessons.get_config") as mock_config:
-                # Setup mocks
-                mock_get_index.return_value = docs_lesson_index
-                self._configure_mock_config(mock_config.return_value)
+        with (
+            patch("gptme.tools.lessons._get_lesson_index") as mock_get_index,
+            patch("gptme.tools.lessons.get_config") as mock_config,
+        ):
+            # Setup mocks
+            mock_get_index.return_value = docs_lesson_index
+            self._configure_mock_config(mock_config.return_value)
 
-                messages = list(
-                    auto_include_lessons_hook(self._create_manager(log)) or []
-                )
+            messages = list(auto_include_lessons_hook(self._create_manager(log)) or [])
 
-                # Should not include patch lesson again since it's in history
-                if messages:
-                    assert isinstance(messages[0], Message)
-                    assert (
-                        str(patch_lesson.path) not in messages[0].content
-                        or "# Relevant Lessons" not in messages[0].content
-                    ), "Should not include already-included lessons"
+            # Should not include patch lesson again since it's in history
+            if messages:
+                assert isinstance(messages[0], Message)
+                assert (
+                    str(patch_lesson.path) not in messages[0].content
+                    or "# Relevant Lessons" not in messages[0].content
+                ), "Should not include already-included lessons"
 
 
 class TestDocsLessonsREADME:

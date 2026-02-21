@@ -446,11 +446,19 @@ def examples(tool_format):
     return f"""
 > User: read PR with full context including review comments
 > Assistant:
-{ToolUse("gh", ["pr", "view", "https://github.com/owner/repo/pull/123"], None).to_output(tool_format)}
+{
+        ToolUse(
+            "gh", ["pr", "view", "https://github.com/owner/repo/pull/123"], None
+        ).to_output(tool_format)
+    }
 
 > User: check CI status for this PR
 > Assistant:
-{ToolUse("gh", ["pr", "status", "https://github.com/owner/repo/pull/123"], None).to_output(tool_format)}
+{
+        ToolUse(
+            "gh", ["pr", "status", "https://github.com/owner/repo/pull/123"], None
+        ).to_output(tool_format)
+    }
 > System: PR #123 checks (abc1234):
 > System: Total: 6 checks
 > System: ✅ 4 passed
@@ -464,7 +472,13 @@ def examples(tool_format):
 
 > User: check status of specific commit abc1234
 > Assistant:
-{ToolUse("gh", ["pr", "status", "https://github.com/owner/repo/pull/123", "abc1234"], None).to_output(tool_format)}
+{
+        ToolUse(
+            "gh",
+            ["pr", "status", "https://github.com/owner/repo/pull/123", "abc1234"],
+            None,
+        ).to_output(tool_format)
+    }
 
 > User: show me the failed build logs
 > Assistant:
@@ -472,7 +486,11 @@ def examples(tool_format):
 
 > User: wait for CI checks to complete on a PR
 > Assistant:
-{ToolUse("gh", ["pr", "checks", "https://github.com/owner/repo/pull/123"], None).to_output(tool_format)}
+{
+        ToolUse(
+            "gh", ["pr", "checks", "https://github.com/owner/repo/pull/123"], None
+        ).to_output(tool_format)
+    }
 > System: Waiting for checks on commit abc1234...
 > System: [12:34:56] ✅ 4 passed, ❌ 2 failed, 🔄 3 in progress
 > System: ...
@@ -480,10 +498,16 @@ def examples(tool_format):
 
 > User: create a public repo from the current directory, and push. Note that --confirm and -y are deprecated, and no longer needed.
 > Assistant:
-{ToolUse("shell", [], '''
+{
+        ToolUse(
+            "shell",
+            [],
+            '''
 REPO=$(basename $(pwd))
 gh repo create $REPO --public --source . --push
-'''.strip()).to_output(tool_format)}
+'''.strip(),
+        ).to_output(tool_format)
+    }
 
 > User: show issues
 > Assistant:
@@ -491,7 +515,11 @@ gh repo create $REPO --public --source . --push
 
 > User: read issue with comments
 > Assistant:
-{ToolUse("shell", [], "gh issue view $ISSUE --repo $REPO --comments").to_output(tool_format)}
+{
+        ToolUse("shell", [], "gh issue view $ISSUE --repo $REPO --comments").to_output(
+            tool_format
+        )
+    }
 
 > User: show recent workflows
 > Assistant:

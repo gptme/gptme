@@ -117,19 +117,18 @@ def _get_next_milestone(elapsed_minutes: int) -> int | None:
     """
     if elapsed_minutes < 1:
         return None
-    elif elapsed_minutes < 5:
+    if elapsed_minutes < 5:
         return 1
-    elif elapsed_minutes < 10:
+    if elapsed_minutes < 10:
         return 5
-    elif elapsed_minutes < 15:
+    if elapsed_minutes < 15:
         return 10
-    elif elapsed_minutes < 20:
+    if elapsed_minutes < 20:
         return 15
-    elif elapsed_minutes < 30:
+    if elapsed_minutes < 30:
         return 20
-    else:
-        # Every 10 minutes after 20
-        return (elapsed_minutes // 10) * 10
+    # Every 10 minutes after 20
+    return (elapsed_minutes // 10) * 10
 
 
 def register() -> None:

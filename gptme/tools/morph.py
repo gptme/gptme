@@ -42,8 +42,11 @@ DO NOT omit spans of pre-existing code without using the // ... existing code ..
 
 
 def examples(tool_format) -> str:
-    return f"""{ToolUse("morph", ["example.py"],
-'''
+    return f"""{
+        ToolUse(
+            "morph",
+            ["example.py"],
+            '''
 // ... existing code ...
 FIRST_EDIT
 // ... existing code ...
@@ -51,7 +54,9 @@ SECOND_EDIT
 // ... existing code ...
 THIRD_EDIT
 // ... existing code ...
-'''.strip()).to_output(tool_format)}"""
+'''.strip(),
+        ).to_output(tool_format)
+    }"""
 
 
 def is_openrouter_available() -> bool:

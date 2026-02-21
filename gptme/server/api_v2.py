@@ -497,11 +497,10 @@ def api_conversation_config(conversation_id: str):
     if chat_config_path.exists():
         chat_config = ChatConfig.from_logdir(logdir)
         return flask.jsonify(chat_config.to_dict())
-    else:
-        return (
-            flask.jsonify({"error": f"Chat config not found: {conversation_id}"}),
-            404,
-        )
+    return (
+        flask.jsonify({"error": f"Chat config not found: {conversation_id}"}),
+        404,
+    )
 
 
 @v2_api.route(

@@ -280,10 +280,7 @@ def _is_invalid_title(name: str) -> bool:
             return True
 
     # Reject if it's too long to be a proper title (likely an explanation)
-    if len(name.split()) > 8:
-        return True
-
-    return False
+    return len(name.split()) > 8
 
 
 def _starts_with_date(name: str) -> bool:

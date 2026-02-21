@@ -128,14 +128,13 @@ def _get_pdf_to_image_hints() -> str:
             "```\n\n"
             "Options: `pages=(1, 3)` for specific pages, `dpi=200` for higher resolution."
         )
-    else:
-        return (
-            "**No PDF-to-image tools detected.** Install one of:\n"
-            "- `pdftoppm` (recommended): `sudo apt install poppler-utils` or `brew install poppler`\n"
-            "- `convert` (ImageMagick): `sudo apt install imagemagick` or `brew install imagemagick`\n"
-            "- `vips`: `sudo apt install libvips-tools` or `brew install vips`\n\n"
-            "After installing, use `pdf_to_images()` to convert, then vision to analyze."
-        )
+    return (
+        "**No PDF-to-image tools detected.** Install one of:\n"
+        "- `pdftoppm` (recommended): `sudo apt install poppler-utils` or `brew install poppler`\n"
+        "- `convert` (ImageMagick): `sudo apt install imagemagick` or `brew install imagemagick`\n"
+        "- `vips`: `sudo apt install libvips-tools` or `brew install vips`\n\n"
+        "After installing, use `pdf_to_images()` to convert, then vision to analyze."
+    )
 
 
 def pdf_to_images(
@@ -193,17 +192,16 @@ def pdf_to_images(
     # Try tools in order of preference
     if _has_pdftoppm():
         return _convert_with_pdftoppm(pdf_path, output_prefix, pages, dpi)
-    elif _has_imagemagick():
+    if _has_imagemagick():
         return _convert_with_imagemagick(pdf_path, output_prefix, pages, dpi)
-    elif _has_vips():
+    if _has_vips():
         return _convert_with_vips(pdf_path, output_prefix, pages, dpi)
-    else:
-        raise RuntimeError(
-            "No PDF-to-image tools available. Install one of:\n"
-            "- pdftoppm: sudo apt install poppler-utils (or brew install poppler)\n"
-            "- convert: sudo apt install imagemagick (or brew install imagemagick)\n"
-            "- vips: sudo apt install libvips-tools (or brew install vips)"
-        )
+    raise RuntimeError(
+        "No PDF-to-image tools available. Install one of:\n"
+        "- pdftoppm: sudo apt install poppler-utils (or brew install poppler)\n"
+        "- convert: sudo apt install imagemagick (or brew install imagemagick)\n"
+        "- vips: sudo apt install libvips-tools (or brew install vips)"
+    )
 
 
 def _convert_with_pdftoppm(
@@ -232,7 +230,7 @@ def _convert_with_imagemagick(
 
     # ImageMagick uses 0-indexed pages
     if pages:
-        page_spec = f"[{pages[0]-1}-{pages[1]-1}]"
+        page_spec = f"[{pages[0] - 1}-{pages[1] - 1}]"
         input_spec = f"{pdf_path}{page_spec}"
     else:
         input_spec = str(pdf_path)
@@ -261,7 +259,7 @@ def _convert_with_vips(
         page_range = range(100)
 
     for i, page_num in enumerate(page_range):
-        output_file = output_prefix.parent / f"{output_prefix.name}-{i+1}.png"
+        output_file = output_prefix.parent / f"{output_prefix.name}-{i + 1}.png"
         cmd = [
             "vips",
             "pdfload",
@@ -446,7 +444,7 @@ def _read_pdf_url(url: str, max_pages: int | None = None) -> str:
         for i, page in enumerate(reader.pages[:pages_to_read]):
             page_text = page.extract_text()
             if page_text.strip():  # Only add non-empty pages
-                text_parts.append(f"--- Page {i+1} ---\n{page_text}")
+                text_parts.append(f"--- Page {i + 1} ---\n{page_text}")
 
         if not text_parts:
             return (
@@ -503,7 +501,7 @@ def read_url(url: str, max_pages: int | None = None) -> str:
     assert browser
     if browser == "playwright":
         return read_url_playwright(url)
-    elif browser == "lynx":
+    if browser == "lynx":
         return read_url_lynx(url)
 
 
@@ -519,8 +517,7 @@ def search(query: str, engine: EngineType = "perplexity") -> str:
     if engine == "perplexity":
         if has_perplexity:
             return search_perplexity(query)
-        else:
-            return "Error: Perplexity search not available. Set PERPLEXITY_API_KEY or OPENROUTER_API_KEY environment variable or add it to ~/.config/gptme/config.toml"
+        return "Error: Perplexity search not available. Set PERPLEXITY_API_KEY or OPENROUTER_API_KEY environment variable or add it to ~/.config/gptme/config.toml"
     raise ValueError(f"Unknown search engine: {engine}")
 
 
@@ -528,7 +525,7 @@ def search_playwright(query: str, engine: EngineType = "google") -> str:
     """Search for a query on a search engine using Playwright."""
     if engine == "google":
         return search_google(query)
-    elif engine == "duckduckgo":
+    if engine == "duckduckgo":
         return search_duckduckgo(query)
     raise ValueError(f"Unknown search engine: {engine}")
 

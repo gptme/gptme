@@ -584,7 +584,6 @@ def get_service_manager() -> ServiceManager | None:
 
     if manager_type == "systemd":
         return SystemdManager()
-    elif manager_type == "launchd":
+    if manager_type == "launchd":
         return LaunchdManager()
-    else:
-        return None
+    return None

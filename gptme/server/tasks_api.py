@@ -332,9 +332,9 @@ def determine_task_status(
 
             if pr_merged or pr_status == "MERGED":
                 return "completed"
-            elif pr_status == "CLOSED":
+            if pr_status == "CLOSED":
                 return "failed"  # Closed without merge
-            elif pr_status == "OPEN":
+            if pr_status == "OPEN":
                 # PR is open, waiting for review
                 return "pending"
 
@@ -643,9 +643,8 @@ def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
                 return workspace
 
         return repo_path
-    else:
-        # Return empty workspace
-        return workspace
+    # Return empty workspace
+    return workspace
 
 
 # API Endpoints

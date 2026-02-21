@@ -76,14 +76,13 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
                 if current_method != method:
                     logger.info(f"Using {current_method} method instead of {method}")
                 return result.stdout.strip()
-            else:
-                logger.debug(
-                    f"Method {current_method} output too long, trying to filter by depth..."
-                )
-                # Try filtering by depth
-                filtered = _reduce_tree_output_by_depth(result.stdout)
-                if filtered:
-                    return filtered
+            logger.debug(
+                f"Method {current_method} output too long, trying to filter by depth..."
+            )
+            # Try filtering by depth
+            filtered = _reduce_tree_output_by_depth(result.stdout)
+            if filtered:
+                return filtered
 
         except subprocess.TimeoutExpired:
             logger.debug(f"Method {current_method} timed out")

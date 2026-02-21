@@ -42,10 +42,16 @@ def examples(tool_format):
 
 > User: I want to start a new project
 > Assistant: Let me gather some information about your project:
-{ToolUse("form", [], '''name: Project name?
+{
+        ToolUse(
+            "form",
+            [],
+            '''name: Project name?
 description: Brief description?
 language: Primary language [python, javascript, rust, go, other]
-priority: Priority level [low, medium, high]''').to_output(tool_format)}
+priority: Priority level [low, medium, high]''',
+        ).to_output(tool_format)
+    }
 > System: Form submitted:
 ```json
 {{"name": "my-awesome-project", "description": "A CLI tool for productivity", "language": "python", "priority": "high"}}
@@ -55,8 +61,14 @@ priority: Priority level [low, medium, high]''').to_output(tool_format)}
 
 > User: Deploy to production
 > Assistant: Please confirm the deployment details:
-{ToolUse("form", [], '''environment: Target environment [staging, production]
-confirm: Proceed with deployment? [yes/no]''').to_output(tool_format)}
+{
+        ToolUse(
+            "form",
+            [],
+            '''environment: Target environment [staging, production]
+confirm: Proceed with deployment? [yes/no]''',
+        ).to_output(tool_format)
+    }
 > System: Form submitted:
 ```json
 {{"environment": "production", "confirm": true}}

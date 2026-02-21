@@ -39,7 +39,7 @@ match:
 status: active
 ---
 
-# {name.replace('-', ' ').title()}
+# {name.replace("-", " ").title()}
 
 ## Rule
 Test rule for {name}.

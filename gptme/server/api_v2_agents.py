@@ -107,10 +107,9 @@ def api_agents_put():
         # Determine appropriate HTTP status code
         if "already exists" in error_msg:
             return flask.jsonify({"error": f"Folder/path already exists: {path}"}), 400
-        elif "timed out" in error_msg.lower():
+        if "timed out" in error_msg.lower():
             return flask.jsonify({"error": error_msg}), 504
-        else:
-            return flask.jsonify({"error": error_msg}), 500
+        return flask.jsonify({"error": error_msg}), 500
 
     # Create initial conversation using shared module
     try:

@@ -119,11 +119,10 @@ def gptme_tool_to_acp_kind(tool_name: str) -> ToolKind:
 
     if tool_name in read_tools:
         return ToolKind.READ
-    elif tool_name in edit_tools:
+    if tool_name in edit_tools:
         return ToolKind.EDIT
-    elif tool_name in execute_tools:
+    if tool_name in execute_tools:
         return ToolKind.EXECUTE
-    elif tool_name in search_tools:
+    if tool_name in search_tools:
         return ToolKind.SEARCH
-    else:
-        return ToolKind.OTHER
+    return ToolKind.OTHER

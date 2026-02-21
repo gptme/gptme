@@ -239,7 +239,7 @@ def process_conversation(
         print(f"\nTop {top_messages} longest messages after processing:")
         message_sizes.sort(reverse=True)  # Sort by size, largest first
         for i, (size, role, preview) in enumerate(message_sizes[:top_messages]):
-            print(f"{i+1}. {size} bytes: {role}: {preview}")
+            print(f"{i + 1}. {size} bytes: {role}: {preview}")
 
     # Write output unless dry run
     if not dry_run:
@@ -256,9 +256,8 @@ def process_conversation(
             tomli_w.dump(output_data, f)
         print(f"Processed file written to: {output_file}")
         return output_file
-    else:
-        print("Dry run - no file written")
-        return None
+    print("Dry run - no file written")
+    return None
 
 
 def main():

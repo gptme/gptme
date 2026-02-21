@@ -29,17 +29,21 @@ class TestDetectServiceManager:
 
     def test_detect_linux_systemd(self):
         """Test detection on Linux with systemd."""
-        with patch("platform.system", return_value="Linux"):
-            with patch("pathlib.Path.exists", return_value=True):
-                result = detect_service_manager()
-                assert result == "systemd"
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            result = detect_service_manager()
+            assert result == "systemd"
 
     def test_detect_linux_no_systemd(self):
         """Test detection on Linux without systemd."""
-        with patch("platform.system", return_value="Linux"):
-            with patch("pathlib.Path.exists", return_value=False):
-                result = detect_service_manager()
-                assert result == "none"
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
+            result = detect_service_manager()
+            assert result == "none"
 
     def test_detect_macos(self):
         """Test detection on macOS."""
@@ -377,11 +381,13 @@ class TestLaunchdManager:
         workspace = tmp_path / "my-agent"
         workspace.mkdir()
 
-        with patch.object(
-            manager, "_run_launchctl", return_value=MagicMock(returncode=0)
+        with (
+            patch.object(
+                manager, "_run_launchctl", return_value=MagicMock(returncode=0)
+            ),
+            patch.object(manager, "_is_loaded", return_value=False),
         ):
-            with patch.object(manager, "_is_loaded", return_value=False):
-                result = manager.install("test", workspace, schedule="*:00/30")
+            result = manager.install("test", workspace, schedule="*:00/30")
 
         assert result is True
         plist_path = manager._plist_path("test")
@@ -505,11 +511,13 @@ class TestLaunchdManager:
         plist_path = manager._plist_path("test")
         plist_path.write_bytes(plistlib.dumps({"Label": "org.gptme.agent.test"}))
 
-        with patch.object(manager, "_is_loaded", return_value=True):
-            with patch.object(
+        with (
+            patch.object(manager, "_is_loaded", return_value=True),
+            patch.object(
                 manager, "_run_launchctl", return_value=MagicMock(returncode=0)
-            ):
-                result = manager.uninstall("test")
+            ),
+        ):
+            result = manager.uninstall("test")
 
         assert result is True
         assert not plist_path.exists()

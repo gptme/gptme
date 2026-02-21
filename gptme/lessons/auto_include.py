@@ -102,8 +102,7 @@ def auto_include_lessons(
         # Assume first message is system prompt
         if messages and messages[0].role == "system":
             return [messages[0], lesson_msg] + messages[1:]
-        else:
-            return [lesson_msg] + messages
+        return [lesson_msg] + messages
 
     except Exception as e:
         logger.warning(f"Failed to include lessons: {e}")

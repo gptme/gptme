@@ -45,13 +45,19 @@ The $PATH parameter MUST be on the same line as the code block start, not on the
 
 The patch block should be written in the following format:
 
-{ToolUse("patch", ["$PATH"], '''
+{
+        ToolUse(
+            "patch",
+            ["$PATH"],
+            '''
 <<<<<<< ORIGINAL
 $ORIGINAL_CONTENT
 =======
 $UPDATED_CONTENT
 >>>>>>> UPDATED
-'''.strip()).to_output("markdown")}
+'''.strip(),
+        ).to_output("markdown")
+    }
 """,
     "tool": "The `patch` parameter must be a string containing conflict markers without any code block.",
 }
@@ -284,7 +290,7 @@ def apply(codeblock: str, content: str) -> str:
             else:
                 status = f"Hunk {i}/{total_hunks} failed"
                 if i > 1:
-                    status += f" ({i-1} hunk(s) applied successfully before failure)"
+                    status += f" ({i - 1} hunk(s) applied successfully before failure)"
                 raise ValueError(
                     f"{status}: {error_msg}\n"
                     f"Failed hunk starts with: {original_preview!r}"

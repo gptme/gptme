@@ -108,14 +108,13 @@ def reply(
             agent_name=agent_name,
             output_schema=output_schema,
         )
-    else:
-        rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
-        response, metadata = _chat_complete(
-            generation_msgs, model, tools, output_schema=output_schema
-        )
-        rprint(" " * shutil.get_terminal_size().columns, end="\r")
-        rprint(f"{prompt_assistant(agent_name)}: {response}")
-        return Message("assistant", response, metadata=metadata)
+    rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
+    response, metadata = _chat_complete(
+        generation_msgs, model, tools, output_schema=output_schema
+    )
+    rprint(" " * shutil.get_terminal_size().columns, end="\r")
+    rprint(f"{prompt_assistant(agent_name)}: {response}")
+    return Message("assistant", response, metadata=metadata)
 
 
 def get_provider_from_model(model: str) -> Provider:
@@ -158,11 +157,11 @@ def _chat_complete(
     # Custom providers are OpenAI-compatible, so route them through the OpenAI path
     if provider in PROVIDERS_OPENAI or is_custom_provider(provider):
         return chat_openai(messages, model, tools, output_schema=output_schema)
-    elif provider == "anthropic":
+    if provider == "anthropic":
         return chat_anthropic(
             messages, _get_base_model(model), tools, output_schema=output_schema
         )
-    elif provider == "openai-subscription":
+    if provider == "openai-subscription":
         content = chat_subscription(messages, _get_base_model(model), tools)
         return content, {"model": model}
 
@@ -203,23 +202,22 @@ def _stream(
     if provider in PROVIDERS_OPENAI or is_custom_provider(provider):
         gen = stream_openai(messages, model, tools, output_schema=output_schema)
         return _StreamWithMetadata(gen, model)
-    elif provider == "anthropic":
+    if provider == "anthropic":
         gen = stream_anthropic(
             messages, _get_base_model(model), tools, output_schema=output_schema
         )
         return _StreamWithMetadata(gen, model)
-    elif provider == "openai-subscription":
+    if provider == "openai-subscription":
         gen = stream_subscription(messages, _get_base_model(model), tools)
         return _StreamWithMetadata(gen, model)
-    else:
-        # Note: Validation-only fallback for streaming is complex
-        # For now, unsupported providers don't support output_schema in streaming mode
-        if output_schema is not None:
-            logger = logging.getLogger(__name__)
-            logger.warning(
-                f"Provider {provider} does not support output_schema in streaming mode"
-            )
-        raise ValueError(f"Unsupported provider: {provider}")
+    # Note: Validation-only fallback for streaming is complex
+    # For now, unsupported providers don't support output_schema in streaming mode
+    if output_schema is not None:
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"Provider {provider} does not support output_schema in streaming mode"
+        )
+    raise ValueError(f"Unsupported provider: {provider}")
 
 
 @trace_function(name="llm.reply_stream", attributes={"component": "llm"})
@@ -451,11 +449,11 @@ def get_model_from_api_key(api_key: str) -> tuple[str, Provider, str] | None:
 
     if api_key.startswith("sk-ant-"):
         return api_key, "anthropic", "ANTHROPIC_API_KEY"
-    elif api_key.startswith("sk-or-"):
+    if api_key.startswith("sk-or-"):
         return api_key, "openrouter", "OPENROUTER_API_KEY"
-    elif api_key.startswith("sk-"):
+    if api_key.startswith("sk-"):
         return api_key, "openai", "OPENAI_API_KEY"
-    elif api_key.startswith("AIza"):
+    if api_key.startswith("AIza"):
         return api_key, "gemini", "GEMINI_API_KEY"
 
     return None
@@ -479,5 +477,4 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         from .llm_openai import get_available_models as get_openai_models
 
         return get_openai_models(provider)
-    else:
-        raise ValueError(f"Provider {provider} does not support listing models")
+    raise ValueError(f"Provider {provider} does not support listing models")

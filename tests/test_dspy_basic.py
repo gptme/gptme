@@ -200,9 +200,8 @@ def test_cli_argument_parsing():
     """Test CLI argument parsing without actually running commands."""
 
     # Test help command
-    with patch.object(sys, "argv", ["cli.py", "--help"]):
-        with pytest.raises(SystemExit):
-            main()
+    with patch.object(sys, "argv", ["cli.py", "--help"]), pytest.raises(SystemExit):
+        main()
 
     # Test show-prompt command parsing - verify it runs successfully
     with patch.object(sys, "argv", ["cli.py", "show-prompt", "--model", "test-model"]):

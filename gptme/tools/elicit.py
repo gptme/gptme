@@ -56,37 +56,73 @@ def examples(tool_format):
 
 > User: Set up the OpenAI integration
 > Assistant: I need your OpenAI API key to proceed. It will not be stored in the conversation.
-{ToolUse("elicit", [], json.dumps({
-    "type": "secret",
-    "prompt": "Enter your OpenAI API key:",
-    "description": "Required for the OpenAI integration. Will not be logged."
-}, indent=2)).to_output(tool_format)}
+{
+        ToolUse(
+            "elicit",
+            [],
+            json.dumps(
+                {
+                    "type": "secret",
+                    "prompt": "Enter your OpenAI API key:",
+                    "description": "Required for the OpenAI integration. Will not be logged.",
+                },
+                indent=2,
+            ),
+        ).to_output(tool_format)
+    }
 > System: User provided secret value (not shown)
 
 ### Ask user to choose an option
 
 > User: Which database should we use?
 > Assistant: Let me ask the user their preference.
-{ToolUse("elicit", [], json.dumps({
-    "type": "choice",
-    "prompt": "Which database should we use?",
-    "options": ["PostgreSQL", "SQLite", "MySQL", "MongoDB"]
-}, indent=2)).to_output(tool_format)}
+{
+        ToolUse(
+            "elicit",
+            [],
+            json.dumps(
+                {
+                    "type": "choice",
+                    "prompt": "Which database should we use?",
+                    "options": ["PostgreSQL", "SQLite", "MySQL", "MongoDB"],
+                },
+                indent=2,
+            ),
+        ).to_output(tool_format)
+    }
 > System: User selected: PostgreSQL
 
 ### Collect project setup information via form
 
 > User: Set up a new project
 > Assistant: Let me gather some details about the project.
-{ToolUse("elicit", [], json.dumps({
-    "type": "form",
-    "prompt": "New project setup:",
-    "fields": [
-        {"name": "name", "prompt": "Project name?", "type": "text"},
-        {"name": "language", "prompt": "Primary language?", "type": "choice", "options": ["python", "typescript", "rust"]},
-        {"name": "tests", "prompt": "Include tests?", "type": "boolean"}
-    ]
-}, indent=2)).to_output(tool_format)}
+{
+        ToolUse(
+            "elicit",
+            [],
+            json.dumps(
+                {
+                    "type": "form",
+                    "prompt": "New project setup:",
+                    "fields": [
+                        {"name": "name", "prompt": "Project name?", "type": "text"},
+                        {
+                            "name": "language",
+                            "prompt": "Primary language?",
+                            "type": "choice",
+                            "options": ["python", "typescript", "rust"],
+                        },
+                        {
+                            "name": "tests",
+                            "prompt": "Include tests?",
+                            "type": "boolean",
+                        },
+                    ],
+                },
+                indent=2,
+            ),
+        ).to_output(tool_format)
+    }
 > System: Form submitted: {{"name": "my-project", "language": "python", "tests": true}}
 """.strip()
 

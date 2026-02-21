@@ -18,10 +18,9 @@ def test_get_tree_output_different_methods(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
-        else:
-            return subprocess.CompletedProcess(
-                args[0], returncode=0, stdout="output", stderr=""
-            )
+        return subprocess.CompletedProcess(
+            args[0], returncode=0, stdout="output", stderr=""
+        )
 
     monkeypatch.setattr("gptme.util.tree.subprocess.run", mock_run)
 
@@ -79,19 +78,16 @@ def test_get_tree_output_fallback_when_tree_missing(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
-        elif isinstance(args[0], list) and args[0][0] == "tree":
+        if isinstance(args[0], list) and args[0][0] == "tree":
             # tree command fails (not installed)
             return subprocess.CompletedProcess(
                 args[0], returncode=127, stdout="", stderr="tree: command not found"
             )
-        elif isinstance(args[0], list) and args[0][:2] == ["git", "ls-files"]:
+        if isinstance(args[0], list) and args[0][:2] == ["git", "ls-files"]:
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="file1.txt\nfile2.txt", stderr=""
             )
-        else:
-            return subprocess.CompletedProcess(
-                args[0], returncode=0, stdout="", stderr=""
-            )
+        return subprocess.CompletedProcess(args[0], returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("gptme.util.tree.subprocess.run", mock_run)
 
@@ -125,7 +121,7 @@ def test_get_tree_output_not_git_repo(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(
                 args[0], returncode=1, stdout="", stderr="not a git repository"
             )
-        elif isinstance(args[0], list) and args[0][:2] == ["ls", "-R"]:
+        if isinstance(args[0], list) and args[0][:2] == ["ls", "-R"]:
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="file1.txt\nfile2.txt", stderr=""
             )
@@ -161,10 +157,10 @@ def test_get_tree_output_command_fails(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
-        else:  # all methods fail
-            return subprocess.CompletedProcess(
-                args[0], returncode=1, stdout="", stderr="command failed"
-            )
+        # all methods fail
+        return subprocess.CompletedProcess(
+            args[0], returncode=1, stdout="", stderr="command failed"
+        )
 
     monkeypatch.setattr("gptme.util.tree.subprocess.run", mock_run)
 
@@ -187,11 +183,10 @@ def test_get_tree_output_too_long(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
-        else:
-            long_output = "file.txt\n" * 5000  # > 20000 characters
-            return subprocess.CompletedProcess(
-                args[0], returncode=0, stdout=long_output, stderr=""
-            )
+        long_output = "file.txt\n" * 5000  # > 20000 characters
+        return subprocess.CompletedProcess(
+            args[0], returncode=0, stdout=long_output, stderr=""
+        )
 
     monkeypatch.setattr("gptme.util.tree.subprocess.run", mock_run)
 
@@ -219,10 +214,9 @@ def test_get_tree_output_success(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
-        else:
-            return subprocess.CompletedProcess(
-                args[0], returncode=0, stdout=expected_output, stderr=""
-            )
+        return subprocess.CompletedProcess(
+            args[0], returncode=0, stdout=expected_output, stderr=""
+        )
 
     monkeypatch.setattr("gptme.util.tree.subprocess.run", mock_run)
 

@@ -184,10 +184,10 @@ def create_trajectory_feedback_metric(
 
         # Generate concise feedback
         feedback = f"""=== TRAJECTORY ANALYSIS ===
-Tool Usage: {analysis['tool_usage']['effectiveness']} ({analysis['tool_usage']['tool_calls']} calls)
-Reasoning: {analysis['reasoning']['quality']} (avg {analysis['reasoning']['avg_length']:.0f} chars)
-Error Handling: {analysis['error_handling']['effectiveness']} ({analysis['error_handling']['recoveries']}/{analysis['error_handling']['errors']} recovered)
-Task Completion: {analysis['task_completion']['success_rate']:.1%} success rate
+Tool Usage: {analysis["tool_usage"]["effectiveness"]} ({analysis["tool_usage"]["tool_calls"]} calls)
+Reasoning: {analysis["reasoning"]["quality"]} (avg {analysis["reasoning"]["avg_length"]:.0f} chars)
+Error Handling: {analysis["error_handling"]["effectiveness"]} ({analysis["error_handling"]["recoveries"]}/{analysis["error_handling"]["errors"]} recovered)
+Task Completion: {analysis["task_completion"]["success_rate"]:.1%} success rate
 
 === RECOMMENDATIONS ==="""
 

@@ -59,10 +59,10 @@ def get_package_install_command(package: str, env_type: str | None = None) -> st
 
     if env_type == "pipx":
         return f"pipx inject gptme {package}"
-    elif env_type == "uvx":
+    if env_type == "uvx":
         # uvx runs in ephemeral environments, use uv pip with --system
         return f"uv pip install {package}"
-    elif env_type == "venv":
+    if env_type == "venv":
         return f"pip install {package}"
-    else:  # system
-        return f"pip install --user {package}"
+    # system
+    return f"pip install --user {package}"

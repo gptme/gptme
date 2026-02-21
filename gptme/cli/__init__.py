@@ -20,15 +20,15 @@ def __getattr__(name: str):
         from .main import main as _main
 
         return _main
-    elif name == "doctor_main":
+    if name == "doctor_main":
         from .doctor import main as doctor_main
 
         return doctor_main
-    elif name == "onboard_main":
+    if name == "onboard_main":
         from .onboard import main as onboard_main
 
         return onboard_main
-    elif name == "util_main":
+    if name == "util_main":
         from .util import main as util_main
 
         return util_main

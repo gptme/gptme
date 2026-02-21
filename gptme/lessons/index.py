@@ -32,8 +32,7 @@ def _get_cached_lesson(path: Path) -> Lesson | None:
         if current_mtime == cached_mtime:
             logger.debug(f"Cache hit: {path.name}")
             return cached_lesson
-        else:
-            logger.debug(f"Cache invalidated (mtime changed): {path.name}")
+        logger.debug(f"Cache invalidated (mtime changed): {path.name}")
     except FileNotFoundError:
         # File was deleted, remove from cache
         logger.debug(f"Cache invalidated (file deleted): {path.name}")

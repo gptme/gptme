@@ -73,6 +73,6 @@ def search(query: str, engine: str = "duckduckgo") -> str:
             f"https://www.google.com/search?q={query}&hl=en",
             cookies={"CONSENT+": "YES+42"},
         )
-    elif engine == "duckduckgo":
+    if engine == "duckduckgo":
         return read_url(f"https://lite.duckduckgo.com/lite/?q={query}")
     raise ValueError(f"Unknown search engine: {engine}")

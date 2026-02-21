@@ -28,18 +28,30 @@ def examples(tool_format):
 
 > User: What should we do next?
 > Assistant: Let me present you with some options:
-{ToolUse("choice", [], '''What would you like to do next?
+{
+        ToolUse(
+            "choice",
+            [],
+            '''What would you like to do next?
 Write documentation
 Fix bugs
 Add new features
-Run tests''').to_output(tool_format)}
+Run tests''',
+        ).to_output(tool_format)
+    }
 > System: User selected: Add new features
 
 > User: What should we do next?
 > Assistant: Let me present you with some options:
-{ToolUse("choice", [], '''Example question?
+{
+        ToolUse(
+            "choice",
+            [],
+            '''Example question?
 1. Option one
-2. Option two''').to_output(tool_format)}
+2. Option two''',
+        ).to_output(tool_format)
+    }
 > System: User selected: Option two
 """.strip()
 
@@ -64,7 +76,7 @@ def parse_options_from_content(content: str) -> tuple[str | None, list[str]]:
 
 def parse_options_from_kwargs(kwargs: dict[str, str]) -> tuple[str | None, list[str]]:
     """Parse options from args and kwargs, returning (question, options)."""
-    question = kwargs.get("question", None)
+    question = kwargs.get("question")
     options_str = kwargs.get("options", "")
     options = [opt.strip() for opt in options_str.split("\n") if opt.strip()]
     if not question:

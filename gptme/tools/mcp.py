@@ -381,11 +381,10 @@ def _cmd_mcp_info(name: str) -> str:
 
     if local_info:
         return local_info
-    else:
-        result = get_mcp_server_info(name)
-        if "not found" in result.lower():
-            result = f"Server '{name}' not configured locally.\n\n" + result
-        return result
+    result = get_mcp_server_info(name)
+    if "not found" in result.lower():
+        result = f"Server '{name}' not configured locally.\n\n" + result
+    return result
 
 
 def _cmd_mcp_list() -> str:

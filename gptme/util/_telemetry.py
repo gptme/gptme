@@ -91,9 +91,8 @@ class TelemetryConnectionErrorFilter(logging.Filter):
                             f"({count} occurrences): {exc_value}"
                         )
                     return True
-                else:
-                    # Suppress duplicate within cooldown period
-                    return False
+                # Suppress duplicate within cooldown period
+                return False
 
         return True
 
@@ -113,15 +112,13 @@ class NotGivenAttributeFilter(logging.Filter):
         Returns False to drop the record, True to allow it through.
         """
         # Check if this is a NotGiven type warning
-        if (
+        # Suppress this specific warning - it's noise from sentinel values
+        return not (
             record.name.startswith("opentelemetry.")
             and record.levelno == logging.WARNING
             and "NotGiven" in record.getMessage()
             and "Invalid type" in record.getMessage()
-        ):
-            # Suppress this specific warning - it's noise from sentinel values
-            return False
-        return True
+        )
 
 
 # Global variables to track telemetry state

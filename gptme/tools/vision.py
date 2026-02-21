@@ -33,7 +33,7 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
     with Image.open(image_path) as img:
         dimensions: tuple[int, int] = (img.size[0], img.size[1])
         msg_parts = [
-            f"Image size: {dimensions[0]}x{dimensions[1]}, {file_size/1024:.1f}KB"
+            f"Image size: {dimensions[0]}x{dimensions[1]}, {file_size / 1024:.1f}KB"
         ]
 
         if file_size <= MAX_SIZE:
@@ -53,7 +53,7 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             out.save(tmp.name, "JPEG", quality=85)
             compressed_size = Path(tmp.name).stat().st_size
-            msg_parts.append(f"Compressed to: {compressed_size/1024:.1f}KB")
+            msg_parts.append(f"Compressed to: {compressed_size / 1024:.1f}KB")
 
             # If compression alone wasn't enough, scale down and compress
             if compressed_size > MAX_SIZE:
@@ -69,7 +69,7 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
                 scaled_img = out.resize(new_size, Image.Resampling.LANCZOS)
                 scaled_img.save(tmp.name, "JPEG", quality=85)
                 final_size = Path(tmp.name).stat().st_size
-                msg_parts.append(f"Final size after scaling: {final_size/1024:.1f}KB")
+                msg_parts.append(f"Final size after scaling: {final_size / 1024:.1f}KB")
                 dimensions = new_size
 
             scaled_path = Path(tmp.name)

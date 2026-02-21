@@ -61,15 +61,15 @@ def _extract_content_text(
     """
     if isinstance(item, str):
         return item
-    elif isinstance(item, mcp_types.TextContent):
+    if isinstance(item, mcp_types.TextContent):
         return item.text
-    elif isinstance(item, mcp_types.ImageContent):
+    if isinstance(item, mcp_types.ImageContent):
         return f"[Image: {item.mimeType}]"
-    elif isinstance(item, mcp_types.AudioContent):
+    if isinstance(item, mcp_types.AudioContent):
         return f"[Audio: {item.mimeType}]"
-    elif isinstance(item, mcp_types.ResourceLink):
+    if isinstance(item, mcp_types.ResourceLink):
         return f"[Resource Link: {item.uri}]"
-    elif isinstance(item, mcp_types.EmbeddedResource):
+    if isinstance(item, mcp_types.EmbeddedResource):
         resource = item.resource
         uri = str(resource.uri)
         # TextResourceContents has text, BlobResourceContents has blob
@@ -754,23 +754,22 @@ def list_mcp_roots(server_name: str | None = None) -> str:
         for root in roots:
             output.append(f"- **{root.name or '(unnamed)'}**: `{root.uri}`")
         return "\n".join(output)
-    else:
-        # List roots for all loaded servers
-        all_clients = {**_mcp_clients, **_dynamic_servers}
-        if not all_clients:
-            return "No MCP servers loaded."
+    # List roots for all loaded servers
+    all_clients = {**_mcp_clients, **_dynamic_servers}
+    if not all_clients:
+        return "No MCP servers loaded."
 
-        output = ["# Configured Roots\n"]
-        for name, client in all_clients.items():
-            roots = client.get_roots()
-            output.append(f"## {name}")
-            if roots:
-                for root in roots:
-                    output.append(f"- **{root.name or '(unnamed)'}**: `{root.uri}`")
-            else:
-                output.append("_No roots configured_")
-            output.append("")
-        return "\n".join(output)
+    output = ["# Configured Roots\n"]
+    for name, client in all_clients.items():
+        roots = client.get_roots()
+        output.append(f"## {name}")
+        if roots:
+            for root in roots:
+                output.append(f"- **{root.name or '(unnamed)'}**: `{root.uri}`")
+        else:
+            output.append("_No roots configured_")
+        output.append("")
+    return "\n".join(output)
 
 
 def add_mcp_root(server_name: str, uri: str, name: str | None = None) -> str:
@@ -798,8 +797,7 @@ def add_mcp_root(server_name: str, uri: str, name: str | None = None) -> str:
         added = client.add_root(uri, name)
         if added:
             return f"Added root '{name or uri}' to server '{server_name}'."
-        else:
-            return f"Root '{uri}' already exists for server '{server_name}'."
+        return f"Root '{uri}' already exists for server '{server_name}'."
     except Exception as e:
         logger.error(f"Failed to add root to {server_name}: {e}")
         return f"Error adding root: {e}"
@@ -828,8 +826,7 @@ def remove_mcp_root(server_name: str, uri: str) -> str:
         removed = client.remove_root(uri)
         if removed:
             return f"Removed root '{uri}' from server '{server_name}'."
-        else:
-            return f"Root '{uri}' not found in server '{server_name}'."
+        return f"Root '{uri}' not found in server '{server_name}'."
     except Exception as e:
         logger.error(f"Failed to remove root from {server_name}: {e}")
         return f"Error removing root: {e}"
@@ -1015,15 +1012,14 @@ def get_mcp_elicitation_status(server_name: str | None = None) -> str:
         enabled = client.has_elicitation_callback()
         status = "✅ Enabled" if enabled else "❌ Disabled"
         return f"Elicitation for '{server_name}': {status}"
-    else:
-        # Show status for all loaded servers
-        all_clients = {**_mcp_clients, **_dynamic_servers}
-        if not all_clients:
-            return "No MCP servers loaded."
+    # Show status for all loaded servers
+    all_clients = {**_mcp_clients, **_dynamic_servers}
+    if not all_clients:
+        return "No MCP servers loaded."
 
-        output = ["# Elicitation Status\n"]
-        for name, client in all_clients.items():
-            enabled = client.has_elicitation_callback()
-            status = "✅ Enabled" if enabled else "❌ Disabled"
-            output.append(f"- **{name}**: {status}")
-        return "\n".join(output)
+    output = ["# Elicitation Status\n"]
+    for name, client in all_clients.items():
+        enabled = client.has_elicitation_callback()
+        status = "✅ Enabled" if enabled else "❌ Disabled"
+        output.append(f"- **{name}**: {status}")
+    return "\n".join(output)

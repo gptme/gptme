@@ -92,21 +92,25 @@ def test_detect_venv_from_env_var(tmp_path):
 
 def test_detect_venv_from_env_var_missing():
     """No VIRTUAL_ENV and no .venv in cwd should return None."""
-    with patch.dict(os.environ, {}, clear=True):
-        # Use a directory that definitely has no .venv
-        with patch("gptme.tools.python.Path.cwd", return_value=Path("/nonexistent")):
-            result = _detect_venv()
-            assert result is None
+    # Use a directory that definitely has no .venv
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("gptme.tools.python.Path.cwd", return_value=Path("/nonexistent")),
+    ):
+        result = _detect_venv()
+        assert result is None
 
 
 def test_detect_venv_from_cwd(tmp_path):
     """Should detect .venv directory in cwd."""
     venv_dir = tmp_path / ".venv"
     venv_dir.mkdir()
-    with patch.dict(os.environ, {}, clear=True):
-        with patch("gptme.tools.python.Path.cwd", return_value=tmp_path):
-            result = _detect_venv()
-            assert result == venv_dir
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("gptme.tools.python.Path.cwd", return_value=tmp_path),
+    ):
+        result = _detect_venv()
+        assert result == venv_dir
 
 
 def test_detect_venv_env_var_takes_priority(tmp_path):
@@ -115,10 +119,12 @@ def test_detect_venv_env_var_takes_priority(tmp_path):
     env_venv.mkdir()
     cwd_venv = tmp_path / ".venv"
     cwd_venv.mkdir()
-    with patch.dict(os.environ, {"VIRTUAL_ENV": str(env_venv)}):
-        with patch("gptme.tools.python.Path.cwd", return_value=tmp_path):
-            result = _detect_venv()
-            assert result == env_venv
+    with (
+        patch.dict(os.environ, {"VIRTUAL_ENV": str(env_venv)}),
+        patch("gptme.tools.python.Path.cwd", return_value=tmp_path),
+    ):
+        result = _detect_venv()
+        assert result == env_venv
 
 
 def test_get_venv_site_packages(tmp_path):

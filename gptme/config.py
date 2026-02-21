@@ -454,10 +454,9 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
         logger.info(f"Created config file at {path}")
         doc = tomlkit.loads(toml)
         return doc
-    else:
-        with open(path) as config_file:
-            doc = tomlkit.load(config_file)
-        return doc
+    with open(path) as config_file:
+        doc = tomlkit.load(config_file)
+    return doc
 
 
 def set_config_value(key: str, value: str) -> None:  # pragma: no cover

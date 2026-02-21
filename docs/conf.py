@@ -63,13 +63,18 @@ class ChatDirective(Directive):
         # set up table
         src = f'''
 <table style="width: 100%; margin-bottom: 1em">
-  {"".join(f"""
+  {
+            "".join(
+                f"""
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; {msg["role_style"]}">{msg["role"]}</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">{msg["content"]}</pre>
   </td>
-</tr>""" for msg in msgs)}
+</tr>"""
+                for msg in msgs
+            )
+        }
 </table>
 '''.strip()
 

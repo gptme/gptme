@@ -358,8 +358,7 @@ class ToolSpec:
                 )
                 + "\n```"
             )
-        else:
-            return "None"
+        return "None"
 
 
 @dataclass(frozen=True)
@@ -504,13 +503,12 @@ class ToolUse:
                 start=codeblock.start,
                 _format="markdown",
             )
-        else:
-            # no_op_langs = ["csv", "json", "html", "xml", "stdout", "stderr", "result"]
-            # if codeblock.lang and codeblock.lang not in no_op_langs:
-            #     logger.warning(
-            #         f"Unknown codeblock type '{codeblock.lang}', neither supported language or filename."
-            #     )
-            return None
+        # no_op_langs = ["csv", "json", "html", "xml", "stdout", "stderr", "result"]
+        # if codeblock.lang and codeblock.lang not in no_op_langs:
+        #     logger.warning(
+        #         f"Unknown codeblock type '{codeblock.lang}', neither supported language or filename."
+        #     )
+        return None
 
     @classmethod
     def iter_from_content(
@@ -670,9 +668,9 @@ class ToolUse:
     def to_output(self, tool_format: ToolFormat = "markdown") -> str:
         if tool_format == "markdown":
             return self._to_markdown()
-        elif tool_format == "xml":
+        if tool_format == "xml":
             return self._to_xml()
-        elif tool_format == "tool":
+        if tool_format == "tool":
             return self._to_toolcall()
 
     def _to_markdown(self) -> str:
@@ -705,7 +703,7 @@ class ToolUse:
 
         if self.kwargs is not None:
             return self.kwargs
-        elif self.args is not None and self.content is not None:
+        if self.args is not None and self.content is not None:
             # match positional args with kwargs
             if tool := get_tool(self.tool):
                 if self.args:

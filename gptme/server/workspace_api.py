@@ -216,9 +216,8 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
         if path.is_file():
             # Return single file metadata
             return flask.jsonify(WorkspaceFile(path, workspace).to_dict())
-        else:
-            # Return directory listing
-            return flask.jsonify(list_directory(path, workspace, show_hidden))
+        # Return directory listing
+        return flask.jsonify(list_directory(path, workspace, show_hidden))
 
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
@@ -271,12 +270,11 @@ def preview_file(conversation_id: str, filepath: str):
             with open(path) as f:
                 content = f.read()
             return flask.jsonify({"type": "text", "content": content})
-        elif mime_type and mime_type.startswith("image/"):
+        if mime_type and mime_type.startswith("image/"):
             # Images
             return flask.send_file(path, mimetype=mime_type)
-        else:
-            # Binary files - return only metadata
-            return flask.jsonify({"type": "binary", "metadata": wfile.to_dict()})
+        # Binary files - return only metadata
+        return flask.jsonify({"type": "binary", "metadata": wfile.to_dict()})
 
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400

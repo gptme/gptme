@@ -24,7 +24,7 @@ def copy() -> bool:
                 print("wl-copy failed to copy to clipboard.")
                 return False
             return True
-        elif "xclip" in installed:
+        if "xclip" in installed:
             output = subprocess.run(
                 ["xclip", "-selection", "clipboard"], input=text, text=True
             )
@@ -32,10 +32,9 @@ def copy() -> bool:
                 print("xclip failed to copy to clipboard.")
                 return False
             return True
-        else:
-            print("No clipboard utility found. Please install xclip or wl-clipboard.")
-            return False
-    elif platform.system() == "Darwin":
+        print("No clipboard utility found. Please install xclip or wl-clipboard.")
+        return False
+    if platform.system() == "Darwin":
         output = subprocess.run(["pbcopy"], input=text, text=True)
         if output.returncode != 0:
             print("pbcopy failed to copy to clipboard.")

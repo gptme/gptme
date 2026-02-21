@@ -78,16 +78,15 @@ def screenshot(path: Path | None = None) -> Path:
     if IS_MACOS:
         subprocess.run(["screencapture", str(path)], check=True)
         return path
-    elif os.name == "posix":
+    if os.name == "posix":
         # TODO: add support for specifying window/fullscreen?
         if shutil.which("gnome-screenshot"):
             subprocess.run(["gnome-screenshot", "-f", str(path)], check=True)
             return path
-        elif not IS_WAYLAND and shutil.which("scrot"):
+        if not IS_WAYLAND and shutil.which("scrot"):
             subprocess.run(["scrot", "--overwrite", str(path)], check=True)
             return path
-        else:
-            raise NotImplementedError("No supported screenshot method available")
+        raise NotImplementedError("No supported screenshot method available")
     else:
         raise NotImplementedError(
             "Screenshot functionality is only available on macOS and Linux."

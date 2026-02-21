@@ -156,12 +156,11 @@ def api_conversation_file(logfile: str, filename: str):
         if (workspace / filename).resolve().is_file():
             return flask.send_from_directory(workspace, filename)
         # NOTE: <path:filename> strips leading slashes, so we need to re-add them
-        elif (path := Path("/") / filename).is_file():
+        if (path := Path("/") / filename).is_file():
             if not allow_root:
                 raise ValueError("Access denied: Path outside workspace")
             return flask.send_file(path)
-        else:
-            return flask.jsonify({"error": "File not found"}), 404
+        return flask.jsonify({"error": "File not found"}), 404
     except (ValueError, RuntimeError) as e:
         logger.exception("Error accessing conversation file")
         error_msg = str(e) if _is_debug_errors_enabled() else "Access denied"

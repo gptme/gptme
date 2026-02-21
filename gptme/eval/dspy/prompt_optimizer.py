@@ -43,12 +43,11 @@ class ModelNameMapper:
         """Get a more powerful model for reflection tasks."""
         if base_model.startswith("anthropic/"):
             return "claude-sonnet-4-5"
-        elif base_model.startswith("openai/"):
+        if base_model.startswith("openai/"):
             return "gpt-5"
-        elif "gemini" in base_model or base_model.startswith("google/"):
+        if "gemini" in base_model or base_model.startswith("google/"):
             return "google/gemini-3-pro-preview"
-        else:
-            return ModelNameMapper.to_dspy_format(base_model)
+        return ModelNameMapper.to_dspy_format(base_model)
 
 
 class PromptDataset:
@@ -412,14 +411,14 @@ class PromptOptimizer:
                 max_labeled_demos=self.max_demos * 2,
                 num_candidates=self.num_trials,
             )
-        elif self.optimizer_type.lower() == "bootstrap":
+        if self.optimizer_type.lower() == "bootstrap":
             metric = create_composite_metric(eval_specs=eval_specs)
             return BootstrapFewShot(
                 metric=metric,
                 max_bootstrapped_demos=self.max_demos,
                 max_rounds=self.num_trials,
             )
-        elif self.optimizer_type.lower() == "gepa":
+        if self.optimizer_type.lower() == "gepa":
             trajectory_metric = create_trajectory_feedback_metric(eval_specs=eval_specs)
             self._trajectory_metric = trajectory_metric  # Store for evaluation
             reflection_model = ModelNameMapper.get_reflection_model(self.model)
@@ -446,7 +445,7 @@ class PromptOptimizer:
                 gepa_kwargs["auto"] = "light"
 
             return GEPA(**gepa_kwargs)
-        elif self.optimizer_type.lower() == "hybrid":
+        if self.optimizer_type.lower() == "hybrid":
             # Phase 4.1: Hybrid multi-stage optimization
             composite_metric = create_composite_metric(eval_specs=eval_specs)
             trajectory_metric = create_trajectory_feedback_metric(eval_specs=eval_specs)
@@ -465,8 +464,7 @@ class PromptOptimizer:
                 num_threads=self.num_threads,
                 auto_stage=auto_stage,
             )
-        else:
-            raise ValueError(f"Unknown optimizer type: {self.optimizer_type}")
+        raise ValueError(f"Unknown optimizer type: {self.optimizer_type}")
 
     def _evaluate_prompt(self, prompt: str, val_data: PromptDataset) -> dict[str, Any]:
         """Evaluate a prompt against validation data with individual metric breakdowns."""

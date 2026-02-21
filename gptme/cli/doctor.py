@@ -470,12 +470,11 @@ def print_results(results: list[CheckResult], summary: dict, verbose: bool = Fal
     if summary["error"] > 0:
         console.print("\n[red]❌ Some issues need attention[/red]")
         return 1
-    elif summary["warning"] > 0:
+    if summary["warning"] > 0:
         console.print("\n[yellow]⚠️ System operational with some warnings[/yellow]")
         return 0
-    else:
-        console.print("\n[green]✅ All systems operational[/green]")
-        return 0
+    console.print("\n[green]✅ All systems operational[/green]")
+    return 0
 
 
 @click.command()

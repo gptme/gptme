@@ -191,9 +191,9 @@ def _get_ext_for_tool(tool_use: "ToolUse") -> str | None:
     if tool_use.tool in ("save", "append", "patch") and tool_use.args:
         path = Path(tool_use.args[0])
         return path.suffix.lstrip(".") or None
-    elif tool_use.tool in ("python", "ipython"):
+    if tool_use.tool in ("python", "ipython"):
         return "py"
-    elif tool_use.tool == "shell":
+    if tool_use.tool == "shell":
         return "sh"
     return None
 

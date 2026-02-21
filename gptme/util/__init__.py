@@ -26,18 +26,15 @@ def epoch_to_age(epoch, incl_date=False):
     age = datetime.now() - datetime.fromtimestamp(epoch)
     if age < timedelta(minutes=1):
         return "just now"
-    elif age < timedelta(hours=1):
+    if age < timedelta(hours=1):
         return f"{age.seconds // 60} minutes ago"
-    elif age < timedelta(days=1):
+    if age < timedelta(days=1):
         return f"{age.seconds // 3600} hours ago"
-    elif age < timedelta(days=2):
+    if age < timedelta(days=2):
         return "yesterday"
-    else:
-        return f"{age.days} days ago" + (
-            " ({datetime.fromtimestamp(epoch).strftime('%Y-%m-%d')})"
-            if incl_date
-            else ""
-        )
+    return f"{age.days} days ago" + (
+        " ({datetime.fromtimestamp(epoch).strftime('%Y-%m-%d')})" if incl_date else ""
+    )
 
 
 def clean_example(s: str, strict=False, quote=False) -> str:

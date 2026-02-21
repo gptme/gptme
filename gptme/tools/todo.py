@@ -203,9 +203,8 @@ def _todo(operation: str, *args: str) -> str:
     operation = operation.lower()
     if operation == "read":
         return _todoread()
-    else:
-        # Treat as a write operation (add, update, remove, clear)
-        return _todowrite(operation, *args)
+    # Treat as a write operation (add, update, remove, clear)
+    return _todowrite(operation, *args)
 
 
 def _todoread() -> str:
@@ -229,7 +228,7 @@ def _todowrite(operation: str, *args: str) -> str:
 
         return f"Added todo {todo_id}: {todo_text}"
 
-    elif operation == "update":
+    if operation == "update":
         if len(args) < 2:
             return 'Error: update requires ID and state/text. Usage: update ID state OR update ID "new text"'
 
@@ -245,12 +244,11 @@ def _todowrite(operation: str, *args: str) -> str:
             _current_todos[todo_id]["state"] = update_value
             _current_todos[todo_id]["updated"] = datetime.now().isoformat()
             return f"Updated todo {todo_id} state to: {update_value}"
-        else:
-            _current_todos[todo_id]["text"] = update_value
-            _current_todos[todo_id]["updated"] = datetime.now().isoformat()
-            return f"Updated todo {todo_id} text to: {update_value}"
+        _current_todos[todo_id]["text"] = update_value
+        _current_todos[todo_id]["updated"] = datetime.now().isoformat()
+        return f"Updated todo {todo_id} text to: {update_value}"
 
-    elif operation == "remove":
+    if operation == "remove":
         if not args:
             return "Error: remove requires ID. Usage: remove ID"
 
@@ -262,7 +260,7 @@ def _todowrite(operation: str, *args: str) -> str:
         del _current_todos[todo_id]
         return f"Removed todo {todo_id}: {todo_text}"
 
-    elif operation == "clear":
+    if operation == "clear":
         if args and args[0].lower() == "completed":
             # Clear only completed todos
             completed_ids = [
@@ -274,16 +272,12 @@ def _todowrite(operation: str, *args: str) -> str:
                 del _current_todos[todo_id]
             count = len(completed_ids)
             return f"Cleared {count} completed todos"
-        else:
-            # Clear all todos
-            count = len(_current_todos)
-            _current_todos.clear()
-            return f"Cleared {count} todos"
+        # Clear all todos
+        count = len(_current_todos)
+        _current_todos.clear()
+        return f"Cleared {count} todos"
 
-    else:
-        return (
-            f"Error: Unknown operation '{operation}'. Use: add, update, remove, clear"
-        )
+    return f"Error: Unknown operation '{operation}'. Use: add, update, remove, clear"
 
 
 def execute_todo(
@@ -356,19 +350,31 @@ def examples_todo(tool_format):
 ...
 
 > Assistant: I'll break this complex task into steps.
-{ToolUse("todo", ["write"], '''
+{
+        ToolUse(
+            "todo",
+            ["write"],
+            '''
 add "Set up project structure"
 add "Implement core functionality"
-'''.strip()).to_output(tool_format)}
+'''.strip(),
+        ).to_output(tool_format)
+    }
 
 > Assistant: Starting the first task.
 {ToolUse("todo", ["write"], "update 1 in_progress").to_output(tool_format)}
 
 > Assistant: Completed the project setup.
-{ToolUse("todo", ["write"], '''
+{
+        ToolUse(
+            "todo",
+            ["write"],
+            '''
 update 1 completed
 update 2 in_progress
-'''.strip()).to_output(tool_format)}
+'''.strip(),
+        ).to_output(tool_format)
+    }
 
 > Assistant: Clearing completed todos to focus on remaining work.
 {ToolUse("todo", ["write"], "clear completed").to_output(tool_format)}

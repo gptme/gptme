@@ -918,7 +918,7 @@ def api_conversation_tool_confirm(conversation_id: str):
         )
         return flask.jsonify({"status": "ok", "message": "Tool confirmed"})
 
-    elif action == "edit":
+    if action == "edit":
         # Edit and then execute the tool
         edited_content = req_json.get("content")
         if not edited_content:

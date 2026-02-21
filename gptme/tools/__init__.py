@@ -330,7 +330,4 @@ def get_tool(tool_name: str) -> ToolSpec | None:
 
 def has_tool(tool_name: str) -> bool:
     """Returns True if a tool is loaded."""
-    for tool in _get_loaded_tools():
-        if tool.name == tool_name:
-            return True
-    return False
+    return any(tool.name == tool_name for tool in _get_loaded_tools())

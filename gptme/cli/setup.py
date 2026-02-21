@@ -120,54 +120,52 @@ def _check_completions_file(completions_file: Path, source_file: Path) -> bool:
         current_target = completions_file.resolve()
         if current_target == source_file.resolve():
             return False
-        else:
-            console.print(
-                "[yellow]⚠️  Fish completions symlink points to outdated location[/yellow]"
-            )
-            console.print(f"   Current: [dim]{current_target}[/dim]")
-            console.print(f"   Expected: [dim]{source_file}[/dim]")
-
-            if Confirm.ask(
-                "Update completions to point to current installation?", default=True
-            ):
-                try:
-                    completions_file.unlink()
-                    _install_fish_completions(completions_file, source_file)
-                except OSError as e:
-                    console.print(f"[red]❌ Failed to update completions: {e}[/red]")
-            else:
-                console.print("[yellow]⚠️  Completions may be outdated[/yellow]")
-            return True
-    else:
-        # Regular file - check if it's the same content or offer to replace with symlink
         console.print(
-            f"[yellow]⚠️  Fish completions file exists but is not a symlink[/yellow] [dim]({path_with_tilde(completions_file)})[/dim]"
+            "[yellow]⚠️  Fish completions symlink points to outdated location[/yellow]"
         )
+        console.print(f"   Current: [dim]{current_target}[/dim]")
+        console.print(f"   Expected: [dim]{source_file}[/dim]")
 
-        # Check if content matches
-        try:
-            if completions_file.read_text() == source_file.read_text():
-                console.print("   [green]Content matches current version[/green]")
-                if Confirm.ask(
-                    "Replace with symlink to automatically stay updated?",
-                    default=False,
-                ):
-                    completions_file.unlink()
-                    _install_fish_completions(completions_file, source_file)
-            else:
-                console.print("   [red]Content differs from current version[/red]")
-                if Confirm.ask("Replace with current version?", default=True):
-                    completions_file.unlink()
-                    _install_fish_completions(completions_file, source_file)
-                return True
-        except OSError:
-            console.print("   [red]Could not read completions file[/red]")
+        if Confirm.ask(
+            "Update completions to point to current installation?", default=True
+        ):
+            try:
+                completions_file.unlink()
+                _install_fish_completions(completions_file, source_file)
+            except OSError as e:
+                console.print(f"[red]❌ Failed to update completions: {e}[/red]")
+        else:
+            console.print("[yellow]⚠️  Completions may be outdated[/yellow]")
+        return True
+    # Regular file - check if it's the same content or offer to replace with symlink
+    console.print(
+        f"[yellow]⚠️  Fish completions file exists but is not a symlink[/yellow] [dim]({path_with_tilde(completions_file)})[/dim]"
+    )
+
+    # Check if content matches
+    try:
+        if completions_file.read_text() == source_file.read_text():
+            console.print("   [green]Content matches current version[/green]")
+            if Confirm.ask(
+                "Replace with symlink to automatically stay updated?",
+                default=False,
+            ):
+                completions_file.unlink()
+                _install_fish_completions(completions_file, source_file)
+        else:
+            console.print("   [red]Content differs from current version[/red]")
             if Confirm.ask("Replace with current version?", default=True):
                 completions_file.unlink()
                 _install_fish_completions(completions_file, source_file)
             return True
+    except OSError:
+        console.print("   [red]Could not read completions file[/red]")
+        if Confirm.ask("Replace with current version?", default=True):
+            completions_file.unlink()
+            _install_fish_completions(completions_file, source_file)
+        return True
 
-        return False
+    return False
 
 
 def _install_fish_completions(fish_completions_file: Path, source_file: Path):
@@ -568,7 +566,7 @@ def _check_dependency(name: str, check_type: str) -> bool:
     """Check if a dependency is available."""
     if check_type == "command":
         return shutil.which(name) is not None
-    elif check_type == "python":
+    if check_type == "python":
         try:
             return importlib.util.find_spec(name) is not None
         except ImportError:

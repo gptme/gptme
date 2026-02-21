@@ -371,10 +371,16 @@ def examples(tool_format):
 > Assistant: To list the files in the current directory, use `ls`:
 {ToolUse("shell", [], "ls").to_output(tool_format)}
 > System: Ran command: `ls`
-{ToolUse("shell", [], '''
+{
+        ToolUse(
+            "shell",
+            [],
+            '''
 file1.txt
 file2.txt
-'''.strip()).to_output()}
+'''.strip(),
+        ).to_output()
+    }
 
 #### The assistant can learn context by exploring the filesystem
 
@@ -382,10 +388,16 @@ file2.txt
 > Assistant: Lets start by checking the files
 {ToolUse("shell", [], "git ls-files").to_output(tool_format)}
 > System:
-{ToolUse("stdout", [], '''
+{
+        ToolUse(
+            "stdout",
+            [],
+            '''
 README.md
 main.py
-'''.strip()).to_output()}
+'''.strip(),
+        ).to_output()
+    }
 > Assistant: Now lets check the README
 {ToolUse("shell", [], "cat README.md").to_output(tool_format)}
 > System:
@@ -401,25 +413,40 @@ main.py
 
 > User: Create a new vue project with typescript and pinia named fancy-project
 > Assistant: Sure! Let's create a new vue project with TypeScript and Pinia named fancy-project:
-{ToolUse("shell",
-    [],
-    "npm init vue@latest fancy-project --yes -- --typescript --pinia"
-).to_output()}
+{
+        ToolUse(
+            "shell",
+            [],
+            "npm init vue@latest fancy-project --yes -- --typescript --pinia",
+        ).to_output()
+    }
 > System:
-{ToolUse("stdout", [], '''
+{
+        ToolUse(
+            "stdout",
+            [],
+            '''
 > npx
 > create-vue
 
 Vue.js - The Progressive JavaScript Framework
 
 Scaffolding project in ./fancy-project...
-'''.strip()).to_output()}
+'''.strip(),
+        ).to_output()
+    }
 
 #### Proper quoting for complex content
 
 > User: add a comment with backticks and special characters
 > Assistant: When passing complex content with special characters, use single quotes to prevent shell interpretation:
-{ToolUse("shell", [], "echo 'Content with `backticks` and $variables that should not be interpreted' > example.txt").to_output(tool_format)}
+{
+        ToolUse(
+            "shell",
+            [],
+            "echo 'Content with `backticks` and $variables that should not be interpreted' > example.txt",
+        ).to_output(tool_format)
+    }
 
 #### Background jobs for long-running commands
 
@@ -686,8 +713,7 @@ class ShellSession:
                 return self._run_pipe(
                     command, output=output, tries=tries + 1, timeout=timeout
                 )
-            else:
-                raise
+            raise
 
         self.process.stdin.flush()
 
@@ -1023,10 +1049,7 @@ def is_allowlisted(cmd: str) -> bool:
     # Check for file redirections (>, >>)
     # File redirections with allowlisted commands can be used to write malicious content
     # Example: echo "malicious_code" > /tmp/exploit.sh
-    if _has_file_redirection(cmd):
-        return False
-
-    return True
+    return not _has_file_redirection(cmd)
 
 
 def shell_allowlist_hook(
@@ -1153,10 +1176,7 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
 
 def _is_in_quoted_region(pos: int, quoted_regions: list[tuple[int, int]]) -> bool:
     """Check if a position is within any quoted region."""
-    for start, end in quoted_regions:
-        if start <= pos < end:
-            return True
-    return False
+    return any(start <= pos < end for start, end in quoted_regions)
 
 
 def _find_first_unquoted_pipe(command: str) -> int | None:
@@ -1571,10 +1591,9 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
                 codes_str = ", ".join(sorted(blocking_codes))
                 message = f"Shellcheck found critical issues that prevent execution:\n```\n{output}```\n\nBlocking codes: {codes_str}"
                 return True, True, message
-            else:
-                # Non-critical warnings
-                message = f"Shellcheck found potential issues:\n```\n{output}```"
-                return True, False, message
+            # Non-critical warnings
+            message = f"Shellcheck found potential issues:\n```\n{output}```"
+            return True, False, message
 
         return False, False, ""
     except (subprocess.TimeoutExpired, Exception):

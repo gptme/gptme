@@ -361,18 +361,16 @@ class TaskComplexity:
             # Pure length classification (maintains existing behavior)
             if length < 200:
                 return TaskComplexity.SIMPLE
-            elif length < 1000:
+            if length < 1000:
                 return TaskComplexity.MEDIUM
-            else:
-                return TaskComplexity.COMPLEX
+            return TaskComplexity.COMPLEX
 
         # Enhanced classification with features
         if score <= 1:
             return TaskComplexity.SIMPLE
-        elif score <= 3:
+        if score <= 3:
             return TaskComplexity.MEDIUM
-        else:
-            return TaskComplexity.COMPLEX
+        return TaskComplexity.COMPLEX
 
 
 def select_optimization_strategy(
@@ -663,10 +661,10 @@ class HybridOptimizer:
         num_stages = len(strategy.stages)
         if num_stages == 1:
             return self._run_1stage(student, trainset)
-        elif num_stages == 2:
+        if num_stages == 2:
             return self._run_2stage(student, trainset)
-        else:  # 3 stages
-            return self._run_3stage(student, trainset)
+        # 3 stages
+        return self._run_3stage(student, trainset)
 
     def _analyze_trainset_complexity(self, trainset: list[dspy.Example]) -> str:
         """Analyze overall trainset complexity."""
@@ -676,11 +674,10 @@ class HybridOptimizer:
         if complexities.count(TaskComplexity.COMPLEX) > len(trainset) / 2:
             return TaskComplexity.COMPLEX
         # If majority are simple, classify as simple
-        elif complexities.count(TaskComplexity.SIMPLE) > len(trainset) / 2:
+        if complexities.count(TaskComplexity.SIMPLE) > len(trainset) / 2:
             return TaskComplexity.SIMPLE
         # Otherwise, medium
-        else:
-            return TaskComplexity.MEDIUM
+        return TaskComplexity.MEDIUM
 
     def _run_1stage(
         self, student: dspy.Module, trainset: list[dspy.Example]

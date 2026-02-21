@@ -144,7 +144,7 @@ class PRViewer:
 
         # Add the diff header (including context lines in the count)
         num_lines = end - start
-        diff_lines.append(f"@@ -{start+1},{num_lines} +{start+1},{num_lines} @@")
+        diff_lines.append(f"@@ -{start + 1},{num_lines} +{start + 1},{num_lines} @@")
 
         # Add context and changes
         for i in range(start, end):

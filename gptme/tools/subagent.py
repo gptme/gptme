@@ -168,7 +168,7 @@ class Subagent:
         """Check if the subagent is still running."""
         if self.execution_mode == "subprocess" and self.process:
             return self.process.poll() is None
-        elif self.thread:
+        if self.thread:
             return self.thread.is_alive()
         return False
 

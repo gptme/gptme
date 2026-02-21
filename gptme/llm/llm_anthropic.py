@@ -164,13 +164,11 @@ def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) ->
     env_reasoning = os.environ.get(ENV_REASONING)
     if env_reasoning and env_reasoning.lower() in ("1", "true", "yes"):
         return True
-    elif env_reasoning and env_reasoning.lower() in ("0", "false", "no"):
+    if env_reasoning and env_reasoning.lower() in ("0", "false", "no"):
         return False
 
     # Enable thinking for supported models regardless of tool use
-    if not model_meta.supports_reasoning:
-        return False
-    return True
+    return model_meta.supports_reasoning
 
 
 def _handle_anthropic_transient_error(e, attempt, max_retries, base_delay):

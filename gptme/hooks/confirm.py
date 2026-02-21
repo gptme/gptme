@@ -192,9 +192,8 @@ def get_confirmation(
             if default_confirm:
                 logger.debug("No tool_use in context, auto-confirming")
                 return ConfirmationResult.confirm()
-            else:
-                logger.debug("No tool_use in context, auto-skipping")
-                return ConfirmationResult.skip("No tool context available")
+            logger.debug("No tool_use in context, auto-skipping")
+            return ConfirmationResult.skip("No tool context available")
 
     # Get registered TOOL_CONFIRM hooks
     hooks = get_hooks(HookType.TOOL_CONFIRM)
@@ -206,9 +205,8 @@ def get_confirmation(
         if default_confirm:
             logger.debug("No confirmation hook registered, auto-confirming")
             return ConfirmationResult.confirm()
-        else:
-            logger.debug("No confirmation hook registered, auto-skipping")
-            return ConfirmationResult.skip("No confirmation hook registered")
+        logger.debug("No confirmation hook registered, auto-skipping")
+        return ConfirmationResult.skip("No confirmation hook registered")
 
     # Try hooks in priority order, falling through if a hook returns None
     for hook in enabled_hooks:
@@ -226,19 +224,18 @@ def get_confirmation(
 
             if isinstance(result, ConfirmationResult):
                 return result
-            elif isinstance(result, bool):
+            if isinstance(result, bool):
                 # Backward compatibility: simple boolean return
                 return (
                     ConfirmationResult.confirm()
                     if result
                     else ConfirmationResult.skip("Declined by user")
                 )
-            else:
-                logger.warning(
-                    f"Confirmation hook '{hook.name}' returned unexpected type: {type(result)}"
-                )
-                # Treat unexpected types as "pass through"
-                continue
+            logger.warning(
+                f"Confirmation hook '{hook.name}' returned unexpected type: {type(result)}"
+            )
+            # Treat unexpected types as "pass through"
+            continue
 
         except Exception as e:
             logger.exception(f"Error in confirmation hook '{hook.name}'")
@@ -249,6 +246,5 @@ def get_confirmation(
     if default_confirm:
         logger.debug("No hook handled confirmation, auto-confirming")
         return ConfirmationResult.confirm()
-    else:
-        logger.debug("No hook handled confirmation, auto-skipping")
-        return ConfirmationResult.skip("No confirmation hook handled the request")
+    logger.debug("No hook handled confirmation, auto-skipping")
+    return ConfirmationResult.skip("No confirmation hook handled the request")

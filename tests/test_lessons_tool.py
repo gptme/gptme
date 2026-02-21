@@ -151,48 +151,50 @@ class TestAutoIncludeLessonsHook:
         self, conversation_log, mock_config, sample_lesson
     ):
         """Test hook when no lessons match."""
-        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-            with patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class:
-                mock_index = MagicMock()
-                mock_index.lessons = [sample_lesson]
-                mock_get_index.return_value = mock_index
+        with (
+            patch("gptme.tools.lessons._get_lesson_index") as mock_get_index,
+            patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class,
+        ):
+            mock_index = MagicMock()
+            mock_index.lessons = [sample_lesson]
+            mock_get_index.return_value = mock_index
 
-                mock_matcher = MagicMock()
-                mock_matcher.match.return_value = []
-                mock_matcher_class.return_value = mock_matcher
+            mock_matcher = MagicMock()
+            mock_matcher.match.return_value = []
+            mock_matcher_class.return_value = mock_matcher
 
-                messages = list(
-                    auto_include_lessons_hook(self._create_manager(conversation_log))
-                    or []
-                )
-                assert len(messages) == 0
+            messages = list(
+                auto_include_lessons_hook(self._create_manager(conversation_log)) or []
+            )
+            assert len(messages) == 0
 
     def test_hook_includes_matching_lessons(
         self, conversation_log, mock_config, sample_lesson, sample_match
     ):
         """Test hook includes matching lessons."""
-        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-            with patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class:
-                mock_index = MagicMock()
-                mock_index.lessons = [sample_lesson]
-                mock_get_index.return_value = mock_index
+        with (
+            patch("gptme.tools.lessons._get_lesson_index") as mock_get_index,
+            patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class,
+        ):
+            mock_index = MagicMock()
+            mock_index.lessons = [sample_lesson]
+            mock_get_index.return_value = mock_index
 
-                mock_matcher = MagicMock()
-                mock_matcher.match.return_value = [sample_match]
-                mock_matcher_class.return_value = mock_matcher
+            mock_matcher = MagicMock()
+            mock_matcher.match.return_value = [sample_match]
+            mock_matcher_class.return_value = mock_matcher
 
-                messages = list(
-                    auto_include_lessons_hook(self._create_manager(conversation_log))
-                    or []
-                )
+            messages = list(
+                auto_include_lessons_hook(self._create_manager(conversation_log)) or []
+            )
 
-                assert len(messages) == 1
-                message = messages[0]
-                assert isinstance(message, Message)
-                assert message.role == "system"
-                assert "# Relevant Lessons" in message.content
-                assert "Patch Best Practices" in message.content
-                assert message.hide is True
+            assert len(messages) == 1
+            message = messages[0]
+            assert isinstance(message, Message)
+            assert message.role == "system"
+            assert "# Relevant Lessons" in message.content
+            assert "Patch Best Practices" in message.content
+            assert message.hide is True
 
     def test_hook_limits_max_lessons(self, conversation_log, mock_config):
         """Test hook respects max lessons limit."""
@@ -220,51 +222,53 @@ class TestAutoIncludeLessonsHook:
 
         mock_config.get_env.return_value = "3"  # Limit to 3
 
-        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-            with patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class:
-                mock_index = MagicMock()
-                mock_index.lessons = lessons
-                mock_get_index.return_value = mock_index
+        with (
+            patch("gptme.tools.lessons._get_lesson_index") as mock_get_index,
+            patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class,
+        ):
+            mock_index = MagicMock()
+            mock_index.lessons = lessons
+            mock_get_index.return_value = mock_index
 
-                mock_matcher = MagicMock()
-                mock_matcher.match.return_value = matches
-                mock_matcher_class.return_value = mock_matcher
+            mock_matcher = MagicMock()
+            mock_matcher.match.return_value = matches
+            mock_matcher_class.return_value = mock_matcher
 
-                messages = list(
-                    auto_include_lessons_hook(self._create_manager(conversation_log))
-                    or []
-                )
+            messages = list(
+                auto_include_lessons_hook(self._create_manager(conversation_log)) or []
+            )
 
-                assert len(messages) == 1
-                assert isinstance(messages[0], Message)
-                content = messages[0].content
+            assert len(messages) == 1
+            assert isinstance(messages[0], Message)
+            content = messages[0].content
 
-                # Should only include first 3 lessons
-                assert "Lesson 0" in content
-                assert "Lesson 1" in content
-                assert "Lesson 2" in content
-                assert "Lesson 9" not in content
+            # Should only include first 3 lessons
+            assert "Lesson 0" in content
+            assert "Lesson 1" in content
+            assert "Lesson 2" in content
+            assert "Lesson 9" not in content
 
     def test_hook_handles_invalid_max_lessons(self, conversation_log, mock_config):
         """Test hook with invalid max lessons config."""
         mock_config.get_env.return_value = "invalid"
 
-        with patch("gptme.tools.lessons._get_lesson_index") as mock_get_index:
-            with patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class:
-                mock_index = MagicMock()
-                mock_index.lessons = []
-                mock_get_index.return_value = mock_index
+        with (
+            patch("gptme.tools.lessons._get_lesson_index") as mock_get_index,
+            patch("gptme.tools.lessons.LessonMatcher") as mock_matcher_class,
+        ):
+            mock_index = MagicMock()
+            mock_index.lessons = []
+            mock_get_index.return_value = mock_index
 
-                mock_matcher = MagicMock()
-                mock_matcher.match.return_value = []
-                mock_matcher_class.return_value = mock_matcher
+            mock_matcher = MagicMock()
+            mock_matcher.match.return_value = []
+            mock_matcher_class.return_value = mock_matcher
 
-                # Should not raise error, should use default of 5
-                messages = list(
-                    auto_include_lessons_hook(self._create_manager(conversation_log))
-                    or []
-                )
-                assert len(messages) == 0
+            # Should not raise error, should use default of 5
+            messages = list(
+                auto_include_lessons_hook(self._create_manager(conversation_log)) or []
+            )
+            assert len(messages) == 0
 
     def test_hook_handles_exception(self, conversation_log, mock_config):
         """Test hook handles exceptions gracefully."""

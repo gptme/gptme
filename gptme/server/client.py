@@ -263,7 +263,7 @@ class GptmeApiClient:
                 if event.type == "generation_complete":
                     logger.info("Generation complete - success")
                     return (True, None)
-                elif event.type == "error":
+                if event.type == "error":
                     error_msg = event.data.get("error", "Unknown error")
                     logger.error(f"Conversation error: {error_msg}")
                     return (False, error_msg)

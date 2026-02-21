@@ -72,8 +72,7 @@ class GPTMe(Agent):
 
         if self.use_docker:
             return self._act_docker(store, prompt)
-        else:
-            return self._act_local(store, prompt)
+        return self._act_local(store, prompt)
 
     def _act_docker(self, store: FileStore, prompt: str) -> Files:
         """Execute gptme inside a Docker container for isolation."""

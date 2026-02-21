@@ -1022,8 +1022,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
                 # "strict": False,  # not supported by OpenRouter
             },
         }
-    else:
-        raise ValueError("Provider doesn't support tools API")
+    raise ValueError("Provider doesn't support tools API")
 
 
 @lru_cache(maxsize=1)

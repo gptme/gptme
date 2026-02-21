@@ -672,10 +672,7 @@ def get_model(model: str) -> ModelMeta:
     if custom_provider:
         if custom_provider.default_model:
             return get_model(f"{model}/{custom_provider.default_model}")
-        else:
-            raise ValueError(
-                f"Custom provider '{model}' has no default_model configured"
-            )
+        raise ValueError(f"Custom provider '{model}' has no default_model configured")
 
     # Check if model starts with a custom provider prefix
     if "/" in model:
@@ -770,60 +767,54 @@ def get_model(model: str) -> ModelMeta:
                     context=200_000,
                     supports_reasoning=True,
                 )
-            else:
-                # Generic fallback for other providers
-                return ModelMeta(provider, model_name, context=128_000)
-        else:
-            # Unknown provider
-            logger.warning(f"Unknown model {model}, using fallback metadata")
-            return ModelMeta(provider="unknown", model=model, context=128_000)
-    else:
-        # try to find model in all providers, starting with static models
-        for provider in cast(list[Provider], MODELS.keys()):
-            if model in MODELS[provider]:
-                return ModelMeta(provider, model, **MODELS[provider][model])
-
-        # For model name without provider, also try dynamic fetching for openrouter
-        try:
-            openrouter_models = _get_models_for_provider(
-                "openrouter", dynamic_fetch=True
-            )
-            # Strip @ suffix for comparison (e.g., "z-ai/glm-5@z-ai" -> "z-ai/glm-5")
-            base_model = model.split("@")[0] if "@" in model else model
-            for model_meta in openrouter_models:
-                if model_meta.model == model or model_meta.model == base_model:
-                    return ModelMeta(
-                        provider=model_meta.provider,
-                        model=model,  # Preserve original name with suffix
-                        context=model_meta.context,
-                        max_output=model_meta.max_output,
-                        supports_streaming=model_meta.supports_streaming,
-                        supports_vision=model_meta.supports_vision,
-                        supports_reasoning=model_meta.supports_reasoning,
-                        price_input=model_meta.price_input,
-                        price_output=model_meta.price_output,
-                        knowledge_cutoff=model_meta.knowledge_cutoff,
-                    )
-        except Exception as e:
-            logger.debug("Failed to fetch OpenRouter models for %s: %s", model, e)
-
+            # Generic fallback for other providers
+            return ModelMeta(provider, model_name, context=128_000)
+        # Unknown provider
         logger.warning(f"Unknown model {model}, using fallback metadata")
         return ModelMeta(provider="unknown", model=model, context=128_000)
+    # try to find model in all providers, starting with static models
+    for provider in cast(list[Provider], MODELS.keys()):
+        if model in MODELS[provider]:
+            return ModelMeta(provider, model, **MODELS[provider][model])
+
+    # For model name without provider, also try dynamic fetching for openrouter
+    try:
+        openrouter_models = _get_models_for_provider("openrouter", dynamic_fetch=True)
+        # Strip @ suffix for comparison (e.g., "z-ai/glm-5@z-ai" -> "z-ai/glm-5")
+        base_model = model.split("@")[0] if "@" in model else model
+        for model_meta in openrouter_models:
+            if model_meta.model == model or model_meta.model == base_model:
+                return ModelMeta(
+                    provider=model_meta.provider,
+                    model=model,  # Preserve original name with suffix
+                    context=model_meta.context,
+                    max_output=model_meta.max_output,
+                    supports_streaming=model_meta.supports_streaming,
+                    supports_vision=model_meta.supports_vision,
+                    supports_reasoning=model_meta.supports_reasoning,
+                    price_input=model_meta.price_input,
+                    price_output=model_meta.price_output,
+                    knowledge_cutoff=model_meta.knowledge_cutoff,
+                )
+    except Exception as e:
+        logger.debug("Failed to fetch OpenRouter models for %s: %s", model, e)
+
+    logger.warning(f"Unknown model {model}, using fallback metadata")
+    return ModelMeta(provider="unknown", model=model, context=128_000)
 
 
 def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
     if provider == "openai":
         return "gpt-5"
-    elif provider == "openrouter":
+    if provider == "openrouter":
         return "meta-llama/llama-3.1-405b-instruct"
-    elif provider == "gemini":
+    if provider == "gemini":
         return "gemini-2.5-pro"
-    elif provider == "anthropic":
+    if provider == "anthropic":
         return "claude-sonnet-4-6"
-    elif provider == "xai":
+    if provider == "xai":
         return "grok-4"
-    else:
-        raise ValueError(f"Provider {provider} did not have a recommended model")
+    raise ValueError(f"Provider {provider} did not have a recommended model")
 
 
 def get_summary_model(provider: Provider) -> str | None:  # pragma: no cover
@@ -834,23 +825,22 @@ def get_summary_model(provider: Provider) -> str | None:  # pragma: no cover
     """
     if provider == "openai":
         return "gpt-5-mini"
-    elif provider == "openrouter":
+    if provider == "openrouter":
         return "meta-llama/llama-3.1-8b-instruct"
-    elif provider == "gemini":
+    if provider == "gemini":
         return "gemini-2.5-flash"
-    elif provider == "anthropic":
+    if provider == "anthropic":
         return "claude-haiku-4-5"
-    elif provider == "deepseek":
+    if provider == "deepseek":
         return "deepseek-chat"
-    elif provider == "xai":
+    if provider == "xai":
         return "grok-4-1-fast"
-    elif provider == "local":
+    if provider == "local":
         # Local providers don't have predefined summary models
         # Return None to signal "use the same model"
         return None
-    else:
-        # Unknown providers - return None rather than raising
-        return None
+    # Unknown providers - return None rather than raising
+    return None
 
 
 def _get_models_for_provider(

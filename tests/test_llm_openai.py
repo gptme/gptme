@@ -399,10 +399,12 @@ def test_timeout_invalid_value(monkeypatch):
     # Get config instance
     config = get_config()
 
-    with patch("openai.OpenAI"):
-        # Should raise ValueError on invalid config
-        with pytest.raises(ValueError, match="Invalid LLM_API_TIMEOUT"):
-            llm_openai.init("openai", config)
+    # Should raise ValueError on invalid config
+    with (
+        patch("openai.OpenAI"),
+        pytest.raises(ValueError, match="Invalid LLM_API_TIMEOUT"),
+    ):
+        llm_openai.init("openai", config)
 
 
 def test_message_conversion_gpt5_with_tool_results():
@@ -898,10 +900,9 @@ class TestOpenAIRetryLogic:
 
         # Should NOT retry when error occurs after yielding (would cause duplicates)
         collected = []
-        with pytest.raises(RateLimitError):
-            with patch("time.sleep"):
-                for chunk in gen_fails_after_yield():
-                    collected.append(chunk)
+        with pytest.raises(RateLimitError), patch("time.sleep"):
+            for chunk in gen_fails_after_yield():
+                collected.append(chunk)
 
         # Should have received chunks before error, and NOT duplicated
         assert collected == [

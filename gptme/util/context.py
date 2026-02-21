@@ -133,7 +133,7 @@ def _check_content_size(content: str, source: str) -> str:
             content[: CONTENT_SIZE_WARN_THRESHOLD - len(truncation_note)]
             + truncation_note
         )
-    elif size > CONTENT_SIZE_INFO_THRESHOLD:
+    if size > CONTENT_SIZE_INFO_THRESHOLD:
         # Log info for large-ish content
         logger.info(f"Content from {source} is large: {size:,} chars")
 

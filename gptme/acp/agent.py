@@ -235,15 +235,12 @@ class GptmeAgent:
                     self._permission_policies[session_id] = {}
                 self._permission_policies[session_id][tool_call.kind.value] = "allow"
                 return True
-            elif option_id == "reject-always":
+            if option_id == "reject-always":
                 if session_id not in self._permission_policies:
                     self._permission_policies[session_id] = {}
                 self._permission_policies[session_id][tool_call.kind.value] = "reject"
                 return False
-            elif option_id == "allow-once":
-                return True
-            else:
-                return False
+            return option_id == "allow-once"
 
         except Exception as e:
             logger.warning(f"Permission request failed: {e}, auto-allowing")

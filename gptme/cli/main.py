@@ -658,10 +658,9 @@ def pick_log(limit=20) -> Path:  # pragma: no cover
     _, index = pick(options, title)
     if index == 0:
         return get_logdir("random")
-    elif index == len(options) - 1:
+    if index == len(options) - 1:
         return pick_log(limit + 100)
-    else:
-        return get_logdir(convs[index - 1].id)
+    return get_logdir(convs[index - 1].id)
 
 
 def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
@@ -678,8 +677,7 @@ def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
 def get_logdir_resume() -> Path:
     if conv := next(get_user_conversations(), None):
         return Path(conv.path).parent
-    else:
-        raise ValueError("No previous conversations to resume")
+    raise ValueError("No previous conversations to resume")
 
 
 def _read_stdin() -> str:

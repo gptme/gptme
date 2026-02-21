@@ -299,13 +299,19 @@ def examples(tool_format):
 
 > User: compute fib 10
 > Assistant: To compute the 10th Fibonacci number, we can run the following code:
-{ToolUse("ipython", [], '''
+{
+        ToolUse(
+            "ipython",
+            [],
+            '''
 def fib(n):
     if n <= 1:
         return n
     return fib(n - 1) + fib(n - 2)
 fib(10)
-'''.strip()).to_output(tool_format)}
+'''.strip(),
+        ).to_output(tool_format)
+    }
 > System: Executed code block.
 {ToolUse("result", [], "55").to_output()}
 """.strip()

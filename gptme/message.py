@@ -59,10 +59,9 @@ def _format_toml_value(value: object) -> str:
     """Format a value for TOML inline table, properly escaping strings."""
     if isinstance(value, str):
         return f'"{escape_string(value)}"'
-    elif isinstance(value, float):
+    if isinstance(value, float):
         return f"{value:.6f}"
-    else:
-        return str(value)
+    return str(value)
 
 
 def _format_metadata_toml(metadata: MessageMetadata) -> str:
@@ -271,7 +270,7 @@ timestamp = "{self.timestamp.isoformat()}"
             files=[parse_file_reference(f) for f in msg.get("files", [])],
             file_hashes=msg.get("file_hashes", {}),
             timestamp=isoparse(msg["timestamp"]),
-            call_id=msg.get("call_id", None),
+            call_id=msg.get("call_id"),
             metadata=metadata,
         )
 

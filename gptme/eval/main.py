@@ -270,12 +270,11 @@ def aggregate_and_display_results(result_files: list[str]):
 
     def get_status_emoji(passed, total):
         percentage = (passed / total) * 100
-        if 80 <= percentage:
+        if percentage >= 80:
             return "✅"
-        elif 20 <= percentage < 80:
+        if 20 <= percentage < 80:
             return "🔶"
-        else:
-            return "❌"
+        return "❌"
 
     for config, results in sorted(all_results.items(), key=lambda x: str(x[0])):
         row = [config.model.replace("openrouter/", ""), config.tool_format]

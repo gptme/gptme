@@ -536,7 +536,7 @@ def _update_schema_refs(all_schemas: dict[str, Any]) -> dict[str, Any]:
                 ref_name = obj["$ref"].split("/")[-1]
                 obj["$ref"] = f"#/components/schemas/{ref_name}"
             return {k: update_refs(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
+        if isinstance(obj, list):
             return [update_refs(item) for item in obj]
         return obj
 
@@ -599,10 +599,9 @@ def _convert_to_openapi_nullable(schema: dict) -> dict:
 
         # Recursively process all dictionary values
         return {k: _convert_to_openapi_nullable(v) for k, v in schema.items()}
-    elif isinstance(schema, list):
+    if isinstance(schema, list):
         return [_convert_to_openapi_nullable(item) for item in schema]
-    else:
-        return schema
+    return schema
 
 
 def _process_route_parameters(

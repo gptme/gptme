@@ -47,30 +47,29 @@ def validate_api_key(
     try:
         if provider == "openai":
             return _validate_openai(api_key, timeout)
-        elif provider == "anthropic":
+        if provider == "anthropic":
             return _validate_anthropic(api_key, timeout)
-        elif provider == "openrouter":
+        if provider == "openrouter":
             return _validate_openrouter(api_key, timeout)
-        elif provider in ("google", "gemini"):
+        if provider in ("google", "gemini"):
             return _validate_google(api_key, timeout)
-        elif provider == "groq":
+        if provider == "groq":
             return _validate_groq(api_key, timeout)
-        elif provider == "deepseek":
+        if provider == "deepseek":
             return _validate_deepseek(api_key, timeout)
-        elif provider == "xai":
+        if provider == "xai":
             return _validate_xai(api_key, timeout)
-        elif provider == "azure":
+        if provider == "azure":
             # Azure requires endpoint configuration, skip validation
             logger.info("Azure API key validation skipped (requires endpoint config)")
             return True, ""
-        elif provider in ("nvidia", "local"):
+        if provider in ("nvidia", "local"):
             # Local models don't need API key validation
             logger.info(f"{provider} provider doesn't require API key validation")
             return True, ""
-        else:
-            # Unknown or custom provider, skip validation
-            logger.info(f"No validation available for provider: {provider}")
-            return True, ""
+        # Unknown or custom provider, skip validation
+        logger.info(f"No validation available for provider: {provider}")
+        return True, ""
     except requests.exceptions.Timeout:
         return False, "Request timed out. Please check your network connection."
     except requests.exceptions.ConnectionError:
@@ -90,13 +89,12 @@ def _validate_openai(api_key: str, timeout: int) -> tuple[bool, str]:
 
     if response.status_code == 200:
         return True, ""
-    elif response.status_code == 401:
+    if response.status_code == 401:
         return False, "Invalid API key. Please check your key and try again."
-    elif response.status_code == 429:
+    if response.status_code == 429:
         # Rate limited but key is valid
         return True, ""
-    else:
-        return False, f"API returned status {response.status_code}"
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -119,9 +117,9 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
 
     if response.status_code == 200:
         return True, ""
-    elif response.status_code == 401:
+    if response.status_code == 401:
         return False, "Invalid API key. Please check your key and try again."
-    elif response.status_code == 400:
+    if response.status_code == 400:
         # Bad request means key is valid but request format was wrong (expected)
         try:
             error_data = response.json()
@@ -130,11 +128,10 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
         if "authentication" in error_data.get("error", {}).get("message", "").lower():
             return False, "Invalid API key. Please check your key and try again."
         return True, ""  # Key is valid, request format was just wrong
-    elif response.status_code == 429:
+    if response.status_code == 429:
         # Rate limited but key is valid
         return True, ""
-    else:
-        return False, f"API returned status {response.status_code}"
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -151,12 +148,11 @@ def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
 
     if response.status_code == 200:
         return True, ""
-    elif response.status_code == 401:
+    if response.status_code == 401:
         return False, "Invalid API key. Please check your key and try again."
-    elif response.status_code == 429:
+    if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    else:
-        return False, f"API returned status {response.status_code}"
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -168,7 +164,7 @@ def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
 
     if response.status_code == 200:
         return True, ""
-    elif response.status_code == 400:
+    if response.status_code == 400:
         try:
             error = response.json().get("error", {})
         except Exception:
@@ -176,10 +172,9 @@ def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
         if error.get("status") == "INVALID_ARGUMENT":
             return False, "Invalid API key. Please check your key and try again."
         return False, error.get("message", "Unknown error")
-    elif response.status_code == 403:
+    if response.status_code == 403:
         return False, "API key forbidden. It may lack required permissions."
-    else:
-        return False, f"API returned status {response.status_code}"
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_groq(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -192,12 +187,11 @@ def _validate_groq(api_key: str, timeout: int) -> tuple[bool, str]:
 
     if response.status_code == 200:
         return True, ""
-    elif response.status_code == 401:
+    if response.status_code == 401:
         return False, "Invalid API key. Please check your key and try again."
-    elif response.status_code == 429:
+    if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    else:
-        return False, f"API returned status {response.status_code}"
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_deepseek(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -210,12 +204,11 @@ def _validate_deepseek(api_key: str, timeout: int) -> tuple[bool, str]:
 
     if response.status_code == 200:
         return True, ""
-    elif response.status_code == 401:
+    if response.status_code == 401:
         return False, "Invalid API key. Please check your key and try again."
-    elif response.status_code == 429:
+    if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    else:
-        return False, f"API returned status {response.status_code}"
+    return False, f"API returned status {response.status_code}"
 
 
 def _validate_xai(api_key: str, timeout: int) -> tuple[bool, str]:
@@ -228,9 +221,8 @@ def _validate_xai(api_key: str, timeout: int) -> tuple[bool, str]:
 
     if response.status_code == 200:
         return True, ""
-    elif response.status_code == 401:
+    if response.status_code == 401:
         return False, "Invalid API key. Please check your key and try again."
-    elif response.status_code == 429:
+    if response.status_code == 429:
         return True, ""  # Rate limited but key is valid
-    else:
-        return False, f"API returned status {response.status_code}"
+    return False, f"API returned status {response.status_code}"

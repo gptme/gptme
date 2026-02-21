@@ -1072,7 +1072,7 @@ def test_quintuple_backticks_contain_quad():
 
 def test_quad_backticks_not_closed_by_triple():
     """Quad backticks should not be closed by triple backticks."""
-    markdown = "````text\n" "line 1\n" "```\n" "line 2\n" "````"
+    markdown = "````text\nline 1\n```\nline 2\n````"
     blocks = Codeblock.iter_from_markdown(markdown)
     assert len(blocks) == 1
     assert blocks[0].lang == "text"

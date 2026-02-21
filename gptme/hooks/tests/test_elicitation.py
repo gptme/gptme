@@ -233,27 +233,31 @@ class TestCliElicit:
 
     def test_choice_fallback_without_questionary(self):
         """Choice elicitation works without questionary via numbered list fallback."""
-        with patch.dict("sys.modules", {"questionary": None}):
-            with patch("builtins.input", return_value="2"):
-                req = ElicitationRequest(
-                    type="choice",
-                    prompt="Pick one:",
-                    options=["Apple", "Banana", "Cherry"],
-                )
-                resp = cli_elicit(req)
-                assert resp.value == "Banana"
+        with (
+            patch.dict("sys.modules", {"questionary": None}),
+            patch("builtins.input", return_value="2"),
+        ):
+            req = ElicitationRequest(
+                type="choice",
+                prompt="Pick one:",
+                options=["Apple", "Banana", "Cherry"],
+            )
+            resp = cli_elicit(req)
+            assert resp.value == "Banana"
 
     def test_multi_choice_fallback_without_questionary(self):
         """Multi-choice works without questionary via comma-separated fallback."""
-        with patch.dict("sys.modules", {"questionary": None}):
-            with patch("builtins.input", return_value="1, 3"):
-                req = ElicitationRequest(
-                    type="multi_choice",
-                    prompt="Pick multiple:",
-                    options=["Apple", "Banana", "Cherry"],
-                )
-                resp = cli_elicit(req)
-                assert resp.values == ["Apple", "Cherry"]
+        with (
+            patch.dict("sys.modules", {"questionary": None}),
+            patch("builtins.input", return_value="1, 3"),
+        ):
+            req = ElicitationRequest(
+                type="multi_choice",
+                prompt="Pick multiple:",
+                options=["Apple", "Banana", "Cherry"],
+            )
+            resp = cli_elicit(req)
+            assert resp.values == ["Apple", "Cherry"]
 
     def test_form_collects_all_fields(self):
         """Form elicitation collects all fields."""

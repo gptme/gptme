@@ -100,8 +100,7 @@ def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
 
     if content_staged != msg.content:
         return msg.replace(content=content_staged)
-    else:
-        return None
+    return None
 
 
 _DETAILS_OPEN_RE = re.compile(r"<details[^>]*>", re.IGNORECASE)

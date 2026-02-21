@@ -212,8 +212,7 @@ def generate_audio_cli(
 
             shutil.copy2(result, output_path)
             return output_path
-        else:
-            return result
+        return result
 
     except Exception as e:
         log.error(f"Error generating audio: {e}")

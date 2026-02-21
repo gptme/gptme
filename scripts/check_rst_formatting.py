@@ -113,7 +113,7 @@ def check_file(file_path):
 
                     # Only report if the previous line is part of the parent list
                     if prev_is_list:
-                        context = f"{lines[last_list_line]}\n{lines[i-1]}\n{line}"
+                        context = f"{lines[last_list_line]}\n{lines[i - 1]}\n{line}"
                         issues.append(("nested", last_list_line + 1, i + 1, context))
 
             # Check if bullet list needs blank line before it
