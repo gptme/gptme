@@ -82,6 +82,43 @@ def test_read_url_cookie_file():
         assert captured_cmd is not None
 
 
+def test_search_google_consent_cookies():
+    """Test that Google search passes correct consent cookies."""
+    captured_cmd = None
+    captured_cookies = None
+
+    def mock_run(cmd, **kwargs):
+        nonlocal captured_cmd, captured_cookies
+        captured_cmd = cmd
+
+        # Extract and read cookie file
+        cookie_args = [arg for arg in cmd if arg.startswith("-cookie_file=")]
+        if cookie_args:
+            cookie_path = cookie_args[0].split("=", 1)[1]
+            with open(cookie_path) as f:
+                captured_cookies = f.read()
+
+        from unittest.mock import MagicMock
+
+        result = MagicMock()
+        result.stdout = b"search results"
+        return result
+
+    with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
+        result = search("test query", "google")
+        assert result == "search results"
+        assert captured_cmd is not None
+        # Verify URL includes gl=us to avoid consent redirects
+        assert "gl=us" in captured_cmd[2]
+        assert "hl=en" in captured_cmd[2]
+        # Verify SOCS cookie (newer Google consent format)
+        assert captured_cookies is not None
+        assert "SOCS" in captured_cookies
+        # Verify CONSENT cookie (fallback for older consent)
+        assert "CONSENT" in captured_cookies
+        assert "PENDING+987" in captured_cookies
+
+
 def test_read_url_no_cookies():
     """Test that no cookie file is created when cookies is None."""
     captured_cmd = None

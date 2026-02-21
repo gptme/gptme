@@ -67,11 +67,14 @@ def read_url(url: str, cookies: dict | None = None) -> str:
 
 def search(query: str, engine: str = "duckduckgo") -> str:
     if engine == "google":
-        # TODO: we need to figure out a way to remove the consent banner to access google search results
-        #       otherwise google is not usable
+        # Use SOCS cookie (newer Google consent format) to bypass GDPR banner,
+        # and gl=us to avoid region-specific consent redirects.
         return read_url(
-            f"https://www.google.com/search?q={query}&hl=en",
-            cookies={"CONSENT+": "YES+42"},
+            f"https://www.google.com/search?q={query}&hl=en&gl=us",
+            cookies={
+                "SOCS": "CAISHAgBEhJnd3NfMjAyMzA4MTAtMF9SQzIaAmVuIAEaBgiA_LyaBg",
+                "CONSENT": "PENDING+987",
+            },
         )
     if engine == "duckduckgo":
         return read_url(f"https://lite.duckduckgo.com/lite/?q={query}")
