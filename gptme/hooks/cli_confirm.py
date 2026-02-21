@@ -5,8 +5,21 @@ that was previously implemented in ask_execute.py.
 """
 
 import logging
+import os
 import sys
-import termios
+
+try:
+    import termios
+except ImportError:
+    termios = None  # type: ignore
+
+msvcrt = None
+if os.name == "nt":
+    try:
+        import msvcrt  # type: ignore
+    except ImportError:
+        pass
+
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -88,7 +101,11 @@ def cli_confirm_hook(
 
     # Build the confirmation prompt
     print_bell()  # Ring the bell before asking
-    termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    if termios:
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    elif msvcrt:
+        while msvcrt.kbhit():  # type: ignore
+            msvcrt.getch()  # type: ignore
 
     # Build choice string with available options
     choicestr = "[Y/n"

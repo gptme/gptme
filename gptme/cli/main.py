@@ -15,7 +15,11 @@ from typing import Literal
 
 import click
 from click.core import ParameterSource
-from pick import pick
+
+try:
+    from pick import pick
+except ImportError:
+    pick = None  # type: ignore
 
 import gptme
 
@@ -637,7 +641,10 @@ def pick_log(limit=20) -> Path:  # pragma: no cover
     #     return "-test-" in name or name.startswith("test-")
     # prev_conv_files = [f for f in prev_conv_files if not is_test(f.parent.name)]
 
-    terminal_width = os.get_terminal_size().columns
+    try:
+        terminal_width = os.get_terminal_size().columns
+    except OSError:
+        terminal_width = 80  # Default fallback for Windows/non-TTY
 
     prev_convs: list[str] = []
     for conv in convs:

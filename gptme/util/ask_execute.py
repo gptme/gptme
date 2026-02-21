@@ -6,6 +6,19 @@ via the hook system. Tools use `from ..hooks import confirm` for secondary
 confirmation questions.
 """
 
+import os
+import sys
+try:
+    import termios
+except ImportError:
+    termios = None  # type: ignore
+
+msvcrt = None
+if os.name == "nt":
+    try:
+        import msvcrt  # type: ignore
+    except ImportError:
+        pass
 from collections.abc import Callable, Generator
 from pathlib import Path
 
@@ -19,11 +32,21 @@ from .clipboard import set_copytext
 console = Console(log_path=False)
 
 
+def _flush_stdin():
+    """Flush stdin to clear any buffered input before prompting."""
+    if termios:
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    elif msvcrt:
+        while msvcrt.kbhit():  # type: ignore
+            msvcrt.getch()  # type: ignore
+
+
 def print_confirmation_help(copiable: bool, editable: bool, default: bool = True):
     """Print help text for confirmation options.
 
     This is shared with cli_confirm_hook.
     """
+    _flush_stdin()
     lines = [
         "Options:",
         " y - execute the code",

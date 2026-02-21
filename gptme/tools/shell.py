@@ -13,7 +13,12 @@ import atexit
 import logging
 import os
 import re
-import select
+
+try:
+    import select
+except ImportError:
+    select = None  # type: ignore
+
 import shlex
 import shutil
 import signal
@@ -488,6 +493,7 @@ class ShellSession:
     stderr_fd: int
     delimiter: str
     start_marker: str  # Fix for Issue #408: Add start marker to prevent output mixing
+    _is_windows: bool = os.name == "nt"
 
     def __init__(self) -> None:
         self._init()
@@ -682,18 +688,42 @@ class ShellSession:
 
         # Issue #408: Drain any leftover stderr from previous commands BEFORE sending new command
         # This ensures we don't mix stderr from previous commands with the current one
-        while True:
-            pre_drain_rlist, _, _ = select.select([self.stderr_fd], [], [], 0.05)
-            if not pre_drain_rlist:
-                break
-            pre_drain_data = os.read(self.stderr_fd, 2**16).decode(
-                "utf-8", errors="replace"
-            )
-            if not pre_drain_data:
-                break
-            # Discard leftover stderr from previous commands
-            if pre_drain_data.strip():
-                logger.debug(f"Shell: Pre-command stderr drain: {pre_drain_data[:80]}")
+        if self._is_windows:
+            # Windows: use a simple read with timeout (no fcntl on Windows)
+            import threading
+
+            stderr_drained = []
+
+            def drain_stderr():
+                fd = self.stderr_fd.fileno() if hasattr(self.stderr_fd, 'fileno') else self.stderr_fd
+                try:
+                    while True:
+                        data = os.read(fd, 2**16).decode("utf-8", errors="replace")
+                        if not data:
+                            break
+                        stderr_drained.append(data)
+                except Exception:
+                    pass
+
+            drain_thread = threading.Thread(target=drain_stderr)
+            drain_thread.start()
+            drain_thread.join(timeout=0.05)
+            for data in stderr_drained:
+                if data.strip():
+                    logger.debug(f"Shell: Pre-command stderr drain: {data[:80]}")
+        else:
+            while True:
+                pre_drain_rlist, _, _ = select.select([self.stderr_fd], [], [], 0.05)
+                if not pre_drain_rlist:
+                    break
+                pre_drain_data = os.read(self.stderr_fd, 2**16).decode(
+                    "utf-8", errors="replace"
+                )
+                if not pre_drain_data:
+                    break
+                # Discard leftover stderr from previous commands
+                if pre_drain_data.strip():
+                    logger.debug(f"Shell: Pre-command stderr drain: {pre_drain_data[:80]}")
 
         # Generate unique command ID to prevent output mixing (Issue #408)
         cmd_id = f"{time.time_ns()}"
@@ -724,6 +754,117 @@ class ShellSession:
         stderr: list[str] = []
         return_code: int | None = None
         start_time = time.time() if timeout else None
+
+        if self._is_windows:
+            # Windows implementation using threads
+            import threading
+            from threading import Thread
+            from queue import Queue, Empty
+
+            stdout_queue: Queue[str] = Queue()
+            stderr_queue: Queue[str] = Queue()
+            stop_event = threading.Event()
+
+            def read_stream(fd, queue):
+                while not stop_event.is_set():
+                    try:
+                        data = os.read(fd, 2**16).decode("utf-8")
+                        if not data:
+                            break
+                        queue.put(data)
+                        if self.delimiter in data:
+                            break
+                    except Exception:
+                        break
+
+            t_stdout = Thread(target=read_stream, args=(self.stdout_fd, stdout_queue))
+            t_stderr = Thread(target=read_stream, args=(self.stderr_fd, stderr_queue))
+            t_stdout.daemon = True
+            t_stderr.daemon = True
+            t_stdout.start()
+            t_stderr.start()
+
+            try:
+                while not stop_event.is_set():
+                    if timeout and start_time:
+                        elapsed = time.time() - start_time
+                        if elapsed >= timeout:
+                            logger.info(f"Command timed out after {timeout} seconds")
+                            try:
+                                self.process.terminate()
+                                time.sleep(0.1)
+                                if self.process.poll() is None:
+                                    self.process.kill()
+                            except Exception as e:
+                                logger.warning(f"Error terminating timed-out process: {e}")
+                            stop_event.set()
+                            return (
+                                -124,
+                                "".join(stdout).strip(),
+                                "".join(stderr).strip(),
+                            )
+
+                    try:
+                        data = stdout_queue.get(timeout=0.1)
+                        lines = data.splitlines(keepends=True)
+                        for line in lines:
+                            # Issue #408: Skip stdout until we see the start marker
+                            if not seen_start_marker:
+                                if start_marker_pattern in line:
+                                    seen_start_marker = True
+                                    logger.debug(
+                                        f"Shell: Start marker detected: {start_marker_pattern[:50]}"
+                                    )
+                                else:
+                                    # Discard output before start marker
+                                    if line.strip():
+                                        logger.debug(
+                                            f"Shell: Discarding pre-marker output: {line[:80]}"
+                                        )
+                                continue
+
+                            if "ReturnCode:" in line and self.delimiter in line:
+                                re_returncode = re.compile(r"ReturnCode:(\d+)")
+                                if match := re_returncode.search(line):
+                                    return_code = int(match.group(1))
+                                if command.startswith("cd ") and return_code == 0:
+                                    ex, pwd, _ = self._run("pwd", output=False)
+                                    assert ex == 0
+                                    os.chdir(pwd.strip())
+                                stop_event.set()
+                                return (
+                                    return_code,
+                                    "".join(stdout).strip(),
+                                    "".join(stderr).strip(),
+                                )
+                            stdout.append(line)
+                            if output:
+                                print(line, end="", file=sys.stdout)
+                    except Empty:
+                        pass
+
+                    try:
+                        data = stderr_queue.get(timeout=0.1)
+                        lines = data.splitlines(keepends=True)
+                        for line in lines:
+                            stderr.append(line)
+                            if output:
+                                print(line, end="", file=sys.stderr)
+                    except Empty:
+                        pass
+
+                    if not t_stdout.is_alive() and not t_stderr.is_alive():
+                        break
+            except KeyboardInterrupt:
+                print()
+                logger.info("Process interrupted during output reading")
+                partial_stdout = "".join(stdout).strip()
+                partial_stderr = "".join(stderr).strip()
+                raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
+            finally:
+                stop_event.set()
+                t_stdout.join(timeout=0.1)
+                t_stderr.join(timeout=0.1)
 
         try:
             while True:
@@ -872,11 +1013,18 @@ class ShellSession:
 
         # Terminate the process
         try:
-            pgid = os.getpgid(self.process.pid)
-            os.killpg(pgid, signal.SIGTERM)
-            self.process.wait(timeout=0.2)
-            if self.process.poll() is None:
-                os.killpg(pgid, signal.SIGKILL)
+            if self._is_windows:
+                # Windows: use simple terminate/kill
+                self.process.terminate()
+                self.process.wait(timeout=0.2)
+                if self.process.poll() is None:
+                    self.process.kill()
+            else:
+                pgid = os.getpgid(self.process.pid)
+                os.killpg(pgid, signal.SIGTERM)
+                self.process.wait(timeout=0.2)
+                if self.process.poll() is None:
+                    os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
             # Process already exited; this can happen due to cleanup races.
             pass

@@ -1,6 +1,18 @@
+import os
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore
+
+msvcrt = None
+if os.name == "nt":
+    try:
+        import msvcrt  # type: ignore
+    except ImportError:
+        pass
 import json
 import logging
-import os
 import shutil
 import textwrap
 from collections.abc import Generator
@@ -141,12 +153,33 @@ class LogManager:
         # Create and optionally lock the directory
         self.logdir.mkdir(parents=True, exist_ok=True)
         is_pytest = "PYTEST_CURRENT_TEST" in os.environ
-        if lock and not is_pytest and os.name != "nt":
+        if lock and not is_pytest:
             self._lockfile = self.logdir / ".lock"
             self._lockfile.touch(exist_ok=True)
             self._lock_fd = self._lockfile.open("r+")
 
-            self._acquire_lock()
+            # Try to acquire an exclusive lock
+            lock_acquired = False
+            try:
+                if fcntl:
+                    fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    lock_acquired = True
+                elif os.name == "nt":
+                    msvcrt.locking(self._lock_fd.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore
+                    lock_acquired = True
+            except (BlockingIOError, OSError):
+                # Lock acquisition failed - another instance is using it
+                self._lock_fd.close()
+                self._lock_fd = None
+                raise RuntimeError(
+                    f"Another gptme instance is using {self.logdir}"
+                ) from None
+
+            if lock_acquired:
+                # Register cleanup handler to release lock on exit
+                import atexit
+
+                atexit.register(self._release_lock)
 
         # load branches from adjacent files
         self._branches = {self.current_branch: Log(log or [])}
@@ -187,7 +220,10 @@ class LogManager:
         - PID tracking for debugging
         """
         import atexit
-        import fcntl
+
+        if fcntl is None:
+            # No fcntl available (Windows), lock is already acquired in __init__
+            return
 
         assert self._lock_fd is not None, "_acquire_lock called without open fd"
 
@@ -258,10 +294,12 @@ class LogManager:
     def _release_lock(self):
         """Release the lock and close the file descriptor"""
         if self._lock_fd:
-            import fcntl
-
             try:
-                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                if os.name == "nt" and msvcrt:
+                    # On Windows, lock is automatically released on file close
+                    pass
+                elif fcntl:
+                    fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
                 self._lock_fd.close()
                 self._lock_fd = None
                 # logger.debug(f"Released lock on {self.logdir}")
