@@ -666,7 +666,8 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
     for conv_fn in _conversation_files():
         log = Log.read_jsonl(conv_fn, limit=1)
         # TODO: can we avoid reading the entire file? maybe wont even be used, due to user convo filtering
-        len_msgs = 1 + conv_fn.read_text().count("}\n{")
+        text = conv_fn.read_text()
+        len_msgs = (1 + text.count("}\n{")) if text.strip() else 0
         assert len(log) <= 1
         modified = conv_fn.stat().st_mtime
         first_timestamp = log[0].timestamp.timestamp() if log else modified
