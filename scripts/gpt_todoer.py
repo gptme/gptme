@@ -47,7 +47,7 @@ def _load_todos():
     if len(_todos) == 0:
         if os.path.exists("TODO"):
             with open("TODO") as f:
-                _todos = [line.strip() for line in f.readlines()]
+                _todos = [line.strip() for line in f]
         else:
             return ["[ ] Find TODOs, prioritise them, and add the top ones"]
     return _todos

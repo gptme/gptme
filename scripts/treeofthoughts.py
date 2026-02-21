@@ -124,7 +124,7 @@ def main():
             progress += 1
             print(f"Progress: {progress}")
             continue
-        elif action == "undo":
+        if action == "undo":
             log = log.pop()
             progress = max(0, progress - 1)
             print(f"Undoing last step. Progress: {progress}")
