@@ -441,6 +441,45 @@ def get_prompt_session() -> PromptSession:
             """Insert newline on Meta-ENTER (Esc+Enter)."""
             event.current_buffer.insert_text("\n")
 
+        @kb.add("c-v")  # Ctrl+V for pasting images or text
+        def _(event):
+            """Paste image from clipboard on Ctrl+V, fallback to text paste."""
+            import re
+
+            from ..util.clipboard import paste_image, paste_text
+
+            # First, try to get an image from clipboard
+            image_result = paste_image()
+            if image_result:
+                text_to_insert = f"View this image: {image_result}"
+                event.current_buffer.insert_text(text_to_insert)
+                return
+
+            # No image - check if clipboard text is an image URL or path
+            text = paste_text()
+            if text:
+                text_stripped = text.strip()
+                if re.match(r"https?://", text_stripped):
+                    is_likely_image = any(
+                        ext in text_stripped.lower()
+                        for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
+                    )
+                    if is_likely_image:
+                        text_to_insert = f"View this image: {text_stripped}"
+                        event.current_buffer.insert_text(text_to_insert)
+                        return
+                elif (
+                    Path(text_stripped).suffix.lower()
+                    in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg")
+                    and Path(text_stripped).exists()
+                ):
+                    text_to_insert = f"View this image: {text_stripped}"
+                    event.current_buffer.insert_text(text_to_insert)
+                    return
+
+                # Default: paste text as-is
+                event.current_buffer.insert_text(text)
+
         @kb.add("enter")
         def _(event):
             """Submit on Enter, unless in bracket-delimited multiline mode.
