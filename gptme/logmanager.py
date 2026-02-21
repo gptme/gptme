@@ -289,7 +289,10 @@ class LogManager:
     def log(self, value: Log | list[Message]) -> None:
         if isinstance(value, list):
             value = Log(value)
-        self._branches[self.current_branch] = value
+        if self.current_view is not None:
+            self._views[self.current_view] = value
+        else:
+            self._branches[self.current_branch] = value
 
     @property
     def logfile(self) -> Path:
@@ -362,8 +365,13 @@ class LogManager:
         # create directory if it doesn't exist
         Path(self.logfile).parent.mkdir(parents=True, exist_ok=True)
 
-        # write current branch
-        self.log.write_jsonl(self.logfile)
+        # write current branch (or main branch if on a view)
+        # When on a view, conversation.jsonl must always contain the full main
+        # branch history — the view is persisted separately in views/ directory.
+        if self.current_view is not None:
+            self._branches["main"].write_jsonl(self.logfile)
+        else:
+            self.log.write_jsonl(self.logfile)
 
         # write other branches
         if branches:

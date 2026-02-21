@@ -170,6 +170,96 @@ def test_check_for_modifications_prevents_precommit_rerun_loop():
     assert check_for_modifications(log) is False
 
 
+def test_view_write_preserves_main_history(tmp_path: Path, monkeypatch):
+    """Regression test: writing while on a compacted view must preserve the full
+    main branch in conversation.jsonl, not overwrite it with compacted content."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    log = LogManager(logdir=tmp_path / "logs" / "test-conv")
+
+    # Build a conversation with several messages
+    log.append(Message("user", "first message"))
+    log.append(Message("assistant", "first reply"))
+    log.append(Message("user", "second message"))
+    log.append(Message("assistant", "second reply"))
+
+    # Create a compacted view with fewer messages
+    compacted = Log([Message("system", "compacted summary")])
+    log.create_view("compacted-001", compacted)
+    log.switch_view("compacted-001")
+
+    # Append a new message while on the view (triggers dual-write + write())
+    log.append(Message("user", "new message after compact"))
+
+    # Read conversation.jsonl — it should contain the FULL main branch history,
+    # not the compacted view
+    main_file = log.logfile
+    persisted = Log.read_jsonl(main_file)
+    contents = [m.content for m in persisted]
+    assert "first message" in contents, "Main history lost after view write"
+    assert "first reply" in contents, "Main history lost after view write"
+    assert "second message" in contents, "Main history lost after view write"
+    assert "new message after compact" in contents, "New message not in main"
+
+    # The compacted view should be in views/
+    view_file = tmp_path / "logs" / "test-conv" / "views" / "compacted-001.jsonl"
+    assert view_file.exists()
+    view_log = Log.read_jsonl(view_file)
+    view_contents = [m.content for m in view_log]
+    assert "compacted summary" in view_contents
+    assert "new message after compact" in view_contents
+
+
+def test_view_log_setter_updates_view(tmp_path: Path, monkeypatch):
+    """Regression test: the log setter should update the view when current_view
+    is set, not silently update the branch."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    mgr = LogManager(logdir=tmp_path / "logs" / "test-conv")
+
+    mgr.append(Message("user", "hello"))
+    mgr.append(Message("assistant", "hi"))
+
+    # Create and switch to a view
+    view_log = Log([Message("system", "compacted")])
+    mgr.create_view("compacted-001", view_log)
+    mgr.switch_view("compacted-001")
+
+    # Use the setter (as edit() and undo() do internally)
+    new_view = Log([Message("system", "updated compacted")])
+    mgr.log = new_view
+
+    # The getter should return the updated view
+    assert mgr.log[0].content == "updated compacted"
+    # The view dict should be updated
+    assert mgr._views["compacted-001"][0].content == "updated compacted"
+    # The main branch should NOT be affected
+    assert mgr._branches["main"][0].content == "hello"
+
+
+def test_view_undo_works_on_view():
+    """Test that undo() while on a view modifies the view, not the branch."""
+    mgr = LogManager()
+    mgr.append(Message("user", "hello"))
+    mgr.append(Message("assistant", "hi"))
+
+    # Create view with some messages
+    view_log = Log(
+        [
+            Message("system", "summary"),
+            Message("user", "follow-up"),
+            Message("assistant", "response"),
+        ]
+    )
+    mgr.create_view("compacted-001", view_log)
+    mgr.switch_view("compacted-001")
+
+    # Undo should remove from the view
+    mgr.undo(quiet=True)
+    assert len(mgr.log) == 2  # summary + follow-up
+    assert mgr.log[-1].content == "follow-up"
+    # Main branch should be unaffected
+    assert len(mgr._branches["main"]) == 2  # hello + hi
+
+
 def test_read_jsonl_malformed(tmp_path):
     """Test that malformed JSON lines are skipped gracefully."""
     jsonl_file = tmp_path / "test.jsonl"
