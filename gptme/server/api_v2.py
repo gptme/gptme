@@ -27,7 +27,7 @@ from gptme.prompts import get_prompt
 
 from ..commands import handle_cmd
 from ..dirs import get_logs_dir
-from ..logmanager import LogManager, get_user_conversations
+from ..logmanager import Log, LogManager, get_user_conversations
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
@@ -300,7 +300,8 @@ def api_conversation_post(conversation_id: str):
     # Check if the message is a slash command (e.g. /help, /model, /tools)
     if msg.role == "user" and is_message_command(msg.content):
         # Block commands that are unsafe in server context (would crash or block server)
-        cmd_name = msg.content.lstrip("/").split()[0]
+        parts = msg.content.lstrip("/").split()
+        cmd_name = parts[0] if parts else ""
         server_blocked_commands = {"exit", "restart"}
         if cmd_name in server_blocked_commands:
             return flask.jsonify(
@@ -535,21 +536,26 @@ def api_conversation_config_patch(conversation_id: str):
     # Update system prompt with new tools
     manager = LogManager.load(conversation_id, lock=False)
     if len(manager.log.messages) >= 1 and manager.log.messages[0].role == "system":
-        # Remove existing system messages and replace with new ones
-        while manager.log.messages and manager.log.messages[0].role == "system":
-            manager.log.messages.pop(0)
+        # Remove leading system messages and replace with new ones
+        # Use immutable Log interface instead of mutating the frozen dataclass's list
+        first_non_system = 0
+        for m in manager.log.messages:
+            if m.role != "system":
+                break
+            first_non_system += 1
+        remaining_msgs = list(manager.log.messages[first_non_system:])
 
-        # Insert new system messages at the beginning
-        new_system_msgs = get_prompt(
-            tools=tools,
-            tool_format=chat_config.tool_format or "markdown",
-            interactive=chat_config.interactive,
-            model=chat_config.model,
-            workspace=chat_config.workspace,
-            agent_path=chat_config.agent,
+        new_system_msgs = list(
+            get_prompt(
+                tools=tools,
+                tool_format=chat_config.tool_format or "markdown",
+                interactive=chat_config.interactive,
+                model=chat_config.model,
+                workspace=chat_config.workspace,
+                agent_path=chat_config.agent,
+            )
         )
-        for i, msg in enumerate(new_system_msgs):
-            manager.log.messages.insert(i, msg)
+        manager.log = Log(new_system_msgs + remaining_msgs)
     manager.write()
 
     return flask.jsonify(
