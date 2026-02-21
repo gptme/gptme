@@ -1,0 +1,89 @@
+
+--- Start of generation ---
+[04:02:41] Using model: anthropic/claude-sonnet-4-6                             
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-02-21-gptme-evals-anthropic--claude-so
+           nnet-4-6-xml-1fbde77b                                                
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-02-21-gptme-evals-anthropic--claude-so
+           nnet-4-6-xml-1fbde77b/workspace                                      
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: initialize a git repository, write a main.py file, and commit it
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Let me initialize a git repository, create a main.py file, and commit it.
+</think>        </think>
+
+<tool-use>
+<shell>
+git init && cat > /app/main.py << 'EOF'
+def main():
+    print("Hello, World!")
+
+if __name__ == "__main__":
+    main()
+EOF
+git add main.py && git commit -m "Initial commit: add main.py"
+</shell>
+</tool-use>                                                                                Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2026-02-21-gptme-evals-anthropic--claude-sonnet-4-6-xml-1fbde77b/workspace/.git/
+System: 
+Ran command: `git init && cat > /app/main.py << 'EOF'... (8 lines)`
+
+`Initialized empty Git repository in 
+/home/appuser/.local/share/gptme/logs/2026-02-21-gptme-evals-anthropic--claude-s
+onnet-4-6-xml-1fbde77b/workspace/.git/`
+
+`bash: line 23: /app/main.py: Permission denied`
+
+Return code: 1
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The working directory is /app but I don't have write permission there. Let me check the actual working directory and use the correct path.
+</think>        </think>
+
+<tool-use>
+<shell>
+pwd
+</shell>
+</tool-use>                                                                                /home/appuser/.local/share/gptme/logs/2026-02-21-gptme-evals-anthropic--claude-sonnet-4-6-xml-1fbde77b/workspace
+System: 
+Ran allowlisted command: `pwd`
+
+`/home/appuser/.local/share/gptme/logs/2026-02-21-gptme-evals-anthropic--claude-
+sonnet-4-6-xml-1fbde77b/workspace`
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The actual working directory is different from what was shown. Let me use the correct path.
+</think>        </think>
+
+<tool-use>
+<shell>
+cat > main.py << 'EOF'
+def main():
+    print("Hello, World!")
+
+if __name__ == "__main__":
+    main()
+EOF
+git add main.py && git commit -m "Initial commit: add main.py"
+</shell>
+</tool-use>                                                                                [main (root-commit) 694a9d8] Initial commit: add main.py
+ 1 file changed, 5 insertions(+)
+ create mode 100644 main.py
+System: 
+Ran command: `cat > main.py << 'EOF'... (8 lines)`
+
+```stdout
+ Initial commit: add main.py
+ 1 file changed, 5 insertions(+)
+ create mode 100644 main.py
+```
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Done.
+</think>        </think>
+
+Done. Initialized a git repo, wrote `main.py`, and committed it.                                                                                [04:02:54] Session: $0.03 | 4 turns | 2k context | 26% cached                   
+--- Finished generation ---
+
