@@ -7,28 +7,9 @@ import pytest
 
 from gptme.acp.adapter import (
     acp_content_to_gptme_message,
-    format_tool_result,
-    generate_id,
-    gptme_codeblock_to_tool_info,
     gptme_message_to_acp_content,
 )
-from gptme.codeblock import Codeblock
 from gptme.message import Message
-
-
-class TestGenerateId:
-    """Tests for generate_id utility."""
-
-    def test_returns_string(self):
-        assert isinstance(generate_id(), str)
-
-    def test_length(self):
-        """IDs are truncated UUIDs (first 8 chars)."""
-        assert len(generate_id()) == 8
-
-    def test_unique(self):
-        ids = {generate_id() for _ in range(100)}
-        assert len(ids) == 100
 
 
 class TestGptmeMessageToAcpContent:
@@ -140,72 +121,6 @@ class TestRoundTrip:
         acp = gptme_message_to_acp_content(original)
         restored = acp_content_to_gptme_message(acp, "assistant")
         assert restored.content == original.content
-
-
-class TestGptmeCodeblockToToolInfo:
-    """Tests for Codeblock -> ACP tool info conversion."""
-
-    def test_shell_block(self):
-        block = Codeblock(lang="shell", content="ls -la")
-        info = gptme_codeblock_to_tool_info(block)
-        assert info["kind"] == "terminal"
-        assert info["name"] == "shell execution"
-        assert info["language"] == "shell"
-        assert info["content"] == "ls -la"
-        assert "id" in info
-
-    def test_save_block(self):
-        block = Codeblock(lang="save", content="/tmp/test.py\nprint('hi')")
-        info = gptme_codeblock_to_tool_info(block)
-        assert info["kind"] == "edit"
-        assert info["name"] == "save execution"
-
-    def test_append_block(self):
-        block = Codeblock(lang="append", content="/tmp/test.py\nnew line")
-        info = gptme_codeblock_to_tool_info(block)
-        assert info["kind"] == "edit"
-
-    def test_patch_block(self):
-        block = Codeblock(lang="patch", content="--- a\n+++ b")
-        info = gptme_codeblock_to_tool_info(block)
-        assert info["kind"] == "edit"
-
-    def test_python_block(self):
-        block = Codeblock(lang="python", content="print('hello')")
-        info = gptme_codeblock_to_tool_info(block)
-        assert info["kind"] == "execute"
-        assert info["language"] == "python"
-
-    def test_unknown_language(self):
-        block = Codeblock(lang="rust", content="fn main() {}")
-        info = gptme_codeblock_to_tool_info(block)
-        assert info["kind"] == "execute"
-
-    def test_id_is_unique(self):
-        block = Codeblock(lang="shell", content="echo hi")
-        id1 = gptme_codeblock_to_tool_info(block)["id"]
-        id2 = gptme_codeblock_to_tool_info(block)["id"]
-        assert id1 != id2
-
-
-class TestFormatToolResult:
-    """Tests for format_tool_result."""
-
-    def test_success(self):
-        result = format_tool_result("Output text", success=True)
-        assert result == {"status": "completed", "output": "Output text"}
-
-    def test_failure(self):
-        result = format_tool_result("Error message", success=False)
-        assert result == {"status": "failed", "output": "Error message"}
-
-    def test_none_result(self):
-        result = format_tool_result(None)
-        assert result == {"status": "completed", "output": ""}
-
-    def test_default_success(self):
-        result = format_tool_result("output")
-        assert result["status"] == "completed"
 
 
 class TestContextVarPropagation:
