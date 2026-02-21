@@ -165,6 +165,7 @@ class LogManager:
                     fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 elif os.name == "nt":
                     msvcrt.locking(self._lock_fd.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore
+            except (BlockingIOError, OSError):
                 # logger.debug(f"Acquired lock on {self.logdir}")
 
                 # Register cleanup handler to release lock on exit
