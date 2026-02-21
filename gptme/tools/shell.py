@@ -689,18 +689,22 @@ class ShellSession:
         # Issue #408: Drain any leftover stderr from previous commands BEFORE sending new command
         # This ensures we don't mix stderr from previous commands with the current one
         if self._is_windows:
-            # Windows: use non-blocking read in a loop
+            # Windows: use a simple read with timeout (no fcntl on Windows)
             import threading
+
             stderr_drained = []
+
             def drain_stderr():
-                while True:
-                    try:
-                        data = os.read(self.stderr_fd, 2**16).decode("utf-8", errors="replace")
+                fd = self.stderr_fd.fileno() if hasattr(self.stderr_fd, 'fileno') else self.stderr_fd
+                try:
+                    while True:
+                        data = os.read(fd, 2**16).decode("utf-8", errors="replace")
                         if not data:
                             break
                         stderr_drained.append(data)
-                    except Exception:
-                        break
+                except Exception:
+                    pass
+
             drain_thread = threading.Thread(target=drain_stderr)
             drain_thread.start()
             drain_thread.join(timeout=0.05)
