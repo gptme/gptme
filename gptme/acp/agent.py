@@ -553,8 +553,8 @@ class GptmeAgent:
         Returns:
             PromptResponse with appropriate stop_reason
         """
+        import contextlib
         import io
-        import sys
 
         from ..commands import handle_cmd
 
@@ -578,14 +578,10 @@ class GptmeAgent:
         captured = io.StringIO()
         response_msgs: list[Message] = []
         try:
-            old_stdout = sys.stdout
-            sys.stdout = captured
-            try:
+            with contextlib.redirect_stdout(captured):
                 for resp in handle_cmd(msg.content, log):
                     log.append(resp)
                     response_msgs.append(resp)
-            finally:
-                sys.stdout = old_stdout
         except Exception as e:
             logger.exception(f"Error executing slash command {msg.content!r}: {e}")
             error_text = f"Error executing command: {e}"
