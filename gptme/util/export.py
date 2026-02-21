@@ -20,11 +20,11 @@ def export_chat_to_html(name: str, chat_data: Log, output_path: Path) -> None:
     current_dir = Path(__file__).parent
     template_dir = current_dir.parent / "server" / "static"
 
-    with open(template_dir / "index.html") as f:
+    with open(template_dir / "index.html", encoding="utf-8") as f:
         html_template = f.read()
-    with open(template_dir / "style.css") as f:
+    with open(template_dir / "style.css", encoding="utf-8") as f:
         css = f.read()
-    with open(template_dir / "main.js") as f:
+    with open(template_dir / "main.js", encoding="utf-8") as f:
         js = f.read()
 
     # No need to modify JavaScript since it now handles embedded data
@@ -124,5 +124,5 @@ window.CHAT_DATA = {chat_data_json};
     )
 
     # Write the file
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(standalone_html)

@@ -12,7 +12,7 @@ actions = [
     "crawling",
     "sneaking",
     "sprinting",
-    "sneaking",
+    "climbing",
     "dancing",
     "singing",
     "laughing",
