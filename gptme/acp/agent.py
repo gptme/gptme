@@ -429,7 +429,9 @@ class GptmeAgent:
                     "Ensure API keys are set in environment or config.toml."
                 )
                 logger.error(self._init_error)
-                return InitializeResponse(protocol_version=protocol_version)  # type: ignore[misc]
+                return _check_acp_import(InitializeResponse, "InitializeResponse")(
+                    protocol_version=protocol_version
+                )  # type: ignore[misc]
 
             self._initialized = True
             # Capture the resolved model (from config/env/auto-detect)
