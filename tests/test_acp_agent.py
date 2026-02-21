@@ -766,3 +766,64 @@ class TestHandleSlashCommand:
 
         assert result["stop_reason"] == "end_turn"
         agent._conn.session_update.assert_awaited_once()
+
+
+class TestSendAvailableCommands:
+    """Tests for _send_available_commands method.
+
+    Validates that the agent advertises available slash commands
+    to ACP clients via the AvailableCommandsUpdate notification.
+    """
+
+    def test_sends_available_commands(self):
+        """Should send AvailableCommandsUpdate with command list."""
+        agent = _make_agent_with_conn()
+        _run(agent._send_available_commands("session_1"))
+
+        agent._conn.session_update.assert_awaited_once()
+        call_kwargs = agent._conn.session_update.call_args.kwargs
+        assert call_kwargs["session_id"] == "session_1"
+        assert call_kwargs["source"] == "gptme"
+
+        update = call_kwargs["update"]
+        # Check it's an AvailableCommandsUpdate
+        assert hasattr(update, "available_commands")
+        commands = update.available_commands
+        assert len(commands) > 0
+
+    def test_excludes_blocked_commands(self):
+        """Blocked commands (exit, restart) should not be advertised."""
+        agent = _make_agent_with_conn()
+        _run(agent._send_available_commands("session_1"))
+
+        call_kwargs = agent._conn.session_update.call_args.kwargs
+        update = call_kwargs["update"]
+        command_names = {cmd.name for cmd in update.available_commands}
+
+        assert "exit" not in command_names
+        assert "restart" not in command_names
+
+    def test_includes_common_commands(self):
+        """Common commands like help, model, tools should be advertised."""
+        agent = _make_agent_with_conn()
+        _run(agent._send_available_commands("session_1"))
+
+        call_kwargs = agent._conn.session_update.call_args.kwargs
+        update = call_kwargs["update"]
+        command_names = {cmd.name for cmd in update.available_commands}
+
+        assert "help" in command_names
+        assert "model" in command_names
+        assert "tools" in command_names
+
+    def test_commands_have_descriptions(self):
+        """Each advertised command should have a non-empty description."""
+        agent = _make_agent_with_conn()
+        _run(agent._send_available_commands("session_1"))
+
+        call_kwargs = agent._conn.session_update.call_args.kwargs
+        update = call_kwargs["update"]
+
+        for cmd in update.available_commands:
+            assert cmd.name, "Command must have a name"
+            assert cmd.description, f"Command '{cmd.name}' must have a description"

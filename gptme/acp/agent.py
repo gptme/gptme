@@ -526,8 +526,47 @@ class GptmeAgent:
             # Keep _init_error set so prompt() can still surface it for retries
             # (the user may send a message before the notification is seen)
 
+        # Advertise available slash commands so ACP clients can show autocomplete.
+        # This is part 1 of the ACP command spec (part 2 is execution in prompt()).
+        if self._conn:
+            await self._send_available_commands(session_id)
+
         assert NewSessionResponse is not None
         return NewSessionResponse(session_id=session_id)
+
+    async def _send_available_commands(self, session_id: str) -> None:
+        """Send AvailableCommandsUpdate to advertise slash commands.
+
+        Tells ACP clients (Zed, JetBrains) which slash commands are available
+        so they can show autocomplete suggestions when the user types '/'.
+
+        Commands that are unsafe in ACP mode (exit, restart) are excluded.
+        """
+        from acp.helpers import (
+            update_available_commands,  # type: ignore[import-not-found]
+        )
+        from acp.schema import AvailableCommand  # type: ignore[import-not-found]
+
+        from ..commands.meta import action_descriptions
+
+        # Same blocklist as _handle_slash_command
+        acp_blocked_commands = {"exit", "restart"}
+
+        commands = [
+            AvailableCommand(name=name, description=desc)
+            for name, desc in action_descriptions.items()
+            if name not in acp_blocked_commands
+        ]
+
+        update = update_available_commands(commands)
+        await self._conn.session_update(
+            session_id=session_id,
+            update=update,
+            source="gptme",
+        )
+        logger.info(
+            f"ACP: advertised {len(commands)} slash commands for session {session_id}"
+        )
 
     async def _handle_slash_command(
         self,
