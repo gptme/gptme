@@ -9,6 +9,7 @@ import pytest
 
 from gptme.tools.tmux import (
     _capture_pane,
+    execute_tmux,
     get_sessions,
     kill_session,
     list_sessions,
@@ -20,6 +21,26 @@ from gptme.tools.tmux import (
 pytestmark = pytest.mark.skipif(
     shutil.which("tmux") is None, reason="tmux not available"
 )
+
+
+@pytest.mark.skipif(False, reason="")  # override pytestmark — no tmux needed
+class TestExecuteParsing:
+    """Tests for execute_tmux argument parsing (no real tmux needed)."""
+
+    pytestmark: list[pytest.MarkDecorator] = []  # clear module-level skipif
+
+    def test_send_keys_missing_keys_argument(self):
+        """Regression: send-keys with only pane_id should error, not crash."""
+        msgs = list(execute_tmux("send-keys pane_0", args=[], kwargs=None))
+        assert len(msgs) == 1
+        assert "Error" in msgs[0].content
+        assert "send-keys" in msgs[0].content
+
+    def test_send_keys_missing_all_arguments(self):
+        """send-keys with no arguments should error."""
+        msgs = list(execute_tmux("send-keys", args=[], kwargs=None))
+        assert len(msgs) == 1
+        assert "Error" in msgs[0].content
 
 
 def _get_worker_id() -> str:

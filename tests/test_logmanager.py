@@ -170,6 +170,24 @@ def test_check_for_modifications_prevents_precommit_rerun_loop():
     assert check_for_modifications(log) is False
 
 
+def test_undo_more_than_log_length():
+    """Regression: undo(n) where n > len(log) should not crash."""
+    log = LogManager()
+    log.append(Message("user", "hello"))
+    log.append(Message("assistant", "world"))
+    # undo more messages than exist — should stop gracefully, not IndexError
+    log.undo(n=10, quiet=True)
+    assert len(log.log) == 0
+
+
+def test_undo_on_empty_log():
+    """Regression: undo on empty log should print warning, not crash."""
+    log = LogManager()
+    # should return early with "Nothing to undo"
+    log.undo(quiet=True)
+    assert len(log.log) == 0
+
+
 def test_read_jsonl_malformed(tmp_path):
     """Test that malformed JSON lines are skipped gracefully."""
     jsonl_file = tmp_path / "test.jsonl"
