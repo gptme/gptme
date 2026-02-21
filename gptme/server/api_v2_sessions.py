@@ -575,11 +575,12 @@ def _start_step_thread(
 ):
     """Start a step execution in a background thread."""
 
+    # Mark as generating before starting thread to avoid race condition
+    # where interrupt is called before the thread sets generating=True
+    session.generating = True
+
     def step_thread() -> None:
         try:
-            # Mark session as generating
-            session.generating = True
-
             step(
                 conversation_id=conversation_id,
                 session=session,
@@ -1087,11 +1088,9 @@ def api_conversation_interrupt(conversation_id: str):
         return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
 
     if not session.generating and not session.pending_tools:
-        return (
-            flask.jsonify(
-                {"error": "No active generation or tool execution to interrupt"}
-            ),
-            400,
+        # Idempotent: if nothing is generating, treat as already interrupted
+        return flask.jsonify(
+            {"status": "ok", "message": "Already interrupted or not generating"}
         )
 
     # Mark session as not generating
