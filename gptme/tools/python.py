@@ -263,7 +263,7 @@ def get_installed_python_libraries() -> list[str]:
         if importlib.util.find_spec(candidate):
             installed.add(candidate)
 
-    return list(sorted(installed))
+    return sorted(installed)
 
 
 def get_functions():

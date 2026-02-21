@@ -259,7 +259,7 @@ timestamp = "{self.timestamp.isoformat()}"
 
         # Parse metadata if present
         metadata: MessageMetadata | None = None
-        if "metadata" in msg and msg["metadata"]:
+        if msg.get("metadata"):
             metadata = MessageMetadata(**msg["metadata"])
 
         return cls(
@@ -343,7 +343,7 @@ def format_msgs(
                         block = escape_markup(block)
                     output += textwrap.indent(block, prefix=indent * " ")
                     continue
-                elif highlight:
+                if highlight:
                     lang = block.split("\n", 1)[0]
                     content = block.split("\n", 1)[-1]
                     fmt = "underline blue"
@@ -419,8 +419,7 @@ def _fix_toml_content(content: str) -> str:
     closing delimiter. This function removes that artifact while preserving
     all other whitespace.
     """
-    if content.endswith("\n"):
-        content = content[:-1]
+    content = content.removesuffix("\n")
     return content
 
 

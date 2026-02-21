@@ -128,7 +128,7 @@ def select_relevant_files(
 
     # Gather all candidate files
     # 1. Mentioned files
-    candidates = {f: 0 for f in mentioned_files}
+    candidates = dict.fromkeys(mentioned_files, 0)
 
     # 2. Workspace files (if available)
     if workspace:

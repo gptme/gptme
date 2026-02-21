@@ -198,7 +198,7 @@ def api_conversation_put(logfile: str):
 
     # Start with system messages
     msgs = get_prompt(
-        tools=[t for t in get_toolchain(chat_config.tools)],
+        tools=list(get_toolchain(chat_config.tools)),
         interactive=chat_config.interactive,
         tool_format=chat_config.tool_format or "markdown",
         model=chat_config.model,

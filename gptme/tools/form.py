@@ -98,7 +98,7 @@ def parse_field(line: str) -> dict | None:
         options = [opt.strip() for opt in options_str.split(",")]
 
         # Check if it's a boolean field [yes/no]
-        if set(opt.lower() for opt in options) == {"yes", "no"}:
+        if {opt.lower() for opt in options} == {"yes", "no"}:
             return {
                 "name": name,
                 "prompt": prompt or f"{name}?",

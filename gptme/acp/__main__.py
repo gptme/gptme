@@ -87,7 +87,7 @@ def _capture_stdio_transport() -> tuple[IO[bytes], IO[bytes]]:
 
     # 3. Rebuild Python's sys.stdout on the now-redirected fd 1
     #    so even sys.stdout.write() goes to stderr
-    sys.stdout = open(1, "w", buffering=1, closefd=False)  # noqa: SIM115
+    sys.stdout = open(1, "w", buffering=1, closefd=False)
 
     # 4. Return raw binary file objects for the JSON-RPC transport
     real_stdin = os.fdopen(real_stdin_fd, "rb", buffering=0)

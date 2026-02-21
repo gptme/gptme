@@ -992,8 +992,7 @@ def get_shell_command(
     if code is not None and args is not None:
         assert not args
         cmd = code.strip()
-        if cmd.startswith("$ "):
-            cmd = cmd[len("$ ") :]
+        cmd = cmd.removeprefix("$ ")
     elif kwargs is not None:
         cmd = kwargs.get("command", "")
     else:
@@ -1486,7 +1485,7 @@ def execute_shell_impl(
     yield Message("system", msg)
 
     if interrupted:
-        raise KeyboardInterrupt() from None
+        raise KeyboardInterrupt from None
 
 
 def get_path_fn(*args, **kwargs) -> Path | None:

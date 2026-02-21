@@ -72,8 +72,7 @@ class Log:
 
     def write_jsonl(self, path: PathLike) -> None:
         with open(path, "w") as file:
-            for msg in self.messages:
-                file.write(json.dumps(msg.to_dict()) + "\n")
+            file.writelines(json.dumps(msg.to_dict()) + "\n" for msg in self.messages)
 
     def print(self, show_hidden: bool = False):
         print_msg(self.messages, oneline=False, show_hidden=show_hidden)
@@ -629,8 +628,8 @@ def _conversation_files() -> list[Path]:
     # NOTE: only returns the main conversation, not branches (to avoid duplicates)
     # returns the conversation files sorted by modified time (newest first)
     logsdir = get_logs_dir()
-    return list(
-        sorted(logsdir.glob("*/conversation.jsonl"), key=lambda f: -f.stat().st_mtime)
+    return sorted(
+        logsdir.glob("*/conversation.jsonl"), key=lambda f: -f.stat().st_mtime
     )
 
 
@@ -802,7 +801,7 @@ def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
     from .util.uri import parse_file_reference
 
     with open(path) as file:
-        for line in file.readlines():
+        for line in file:
             line = line.strip()
             if not line:
                 continue

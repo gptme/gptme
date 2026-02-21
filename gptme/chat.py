@@ -201,16 +201,15 @@ def _run_chat_loop(
                     if _should_prompt_for_input(manager.log):
                         # User wants to exit
                         break
-                    else:
-                        # Don't prompt for input, generate response directly (crash recovery, etc.)
-                        # Process existing log without adding new message
-                        _process_message_conversation(
-                            manager,
-                            stream,
-                            tool_format,
-                            model,
-                            output_schema,
-                        )
+                    # Don't prompt for input, generate response directly (crash recovery, etc.)
+                    # Process existing log without adding new message
+                    _process_message_conversation(
+                        manager,
+                        stream,
+                        tool_format,
+                        model,
+                        output_schema,
+                    )
                 else:
                     # Normal case: user provided input
                     msg = user_input

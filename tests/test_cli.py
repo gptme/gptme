@@ -402,10 +402,10 @@ def test_subagent(args: list[str], runner: CliRunner):
     # apparently this is not obviously 610
     accepteds = ["377", "610"]
     assert any(
-        [accepted in result.output for accepted in accepteds]
+        accepted in result.output for accepted in accepteds
     ), f"Accepteds '{accepteds}' not in output: {result.output}"
     assert any(
-        [accepted in "```".join(result.output.split("```")) for accepted in accepteds]
+        accepted in "```".join(result.output.split("```")) for accepted in accepteds
     ), "more complex case, not sure if needed"
 
 

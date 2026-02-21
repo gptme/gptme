@@ -578,7 +578,7 @@ def create_task_conversation(task: Task) -> str:
 
     # Create initial system messages
     messages = get_prompt(
-        tools=[t for t in get_toolchain(None)],
+        tools=list(get_toolchain(None)),
         interactive=True,
         tool_format="markdown",
         model=None,

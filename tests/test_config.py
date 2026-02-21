@@ -636,7 +636,7 @@ tool_format = "xml"
 tools = ["shell", "python"]
 stream = true
 interactive = true
-workspace = "{str(workspace)}"
+workspace = "{workspace!s}"
 
 [env]
 """

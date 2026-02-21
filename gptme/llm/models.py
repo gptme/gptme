@@ -873,7 +873,7 @@ def _get_models_for_provider(
             # Custom providers have no static fallback
     else:
         # Use static models
-        if provider in MODELS and MODELS[provider]:
+        if MODELS.get(provider):
             static_models = [
                 get_model(f"{provider}/{name}") for name in MODELS[provider]
             ]

@@ -87,10 +87,9 @@ def screenshot(path: Path | None = None) -> Path:
             subprocess.run(["scrot", "--overwrite", str(path)], check=True)
             return path
         raise NotImplementedError("No supported screenshot method available")
-    else:
-        raise NotImplementedError(
-            "Screenshot functionality is only available on macOS and Linux."
-        )
+    raise NotImplementedError(
+        "Screenshot functionality is only available on macOS and Linux."
+    )
 
 
 tool = ToolSpec(

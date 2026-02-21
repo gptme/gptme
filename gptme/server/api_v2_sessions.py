@@ -551,7 +551,7 @@ def start_tool_execution(
             logger.exception(f"Error executing tool {tooluse.__class__.__name__}: {e}")
             tool_exec.status = ToolStatus.FAILED
 
-            msg = Message("system", f"Error: {str(e)}")
+            msg = Message("system", f"Error: {e!s}")
             _append_and_notify(manager, session, msg)
 
         # This implements auto-stepping similar to the CLI behavior

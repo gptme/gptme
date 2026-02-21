@@ -97,9 +97,8 @@ def serve(
             raise ModelConfigurationError(
                 f"Model configuration missing: {error_msg}"
             ) from e
-        else:
-            # Re-raise other exceptions unchanged
-            raise
+        # Re-raise other exceptions unchanged
+        raise
     except ModelConfigurationError:
         # Handle model configuration errors with fallback
         fallback_model = DEFAULT_FALLBACK_MODEL

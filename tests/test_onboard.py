@@ -18,7 +18,7 @@ class TestDetectProviders:
             "OPENROUTER_API_KEY",
             "GEMINI_API_KEY",
         ]
-        with patch.dict(os.environ, {k: "" for k in env_vars}, clear=False):
+        with patch.dict(os.environ, dict.fromkeys(env_vars, ""), clear=False):
             # Explicitly delete the keys
             for k in env_vars:
                 os.environ.pop(k, None)

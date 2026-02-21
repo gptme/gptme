@@ -138,7 +138,7 @@ def test_v2_create_conversation_default_system_prompt(
 
     # Check that the system prompt is the default one
     prompt_msgs = get_prompt(
-        tools=[t for t in get_toolchain(None)],
+        tools=list(get_toolchain(None)),
         interactive=True,
         tool_format="markdown",
         model=None,

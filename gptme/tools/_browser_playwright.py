@@ -68,8 +68,7 @@ def _execute_with_retry(
                 logger.info("Browser connection failed, restarting browser...")
                 _restart_browser()
                 continue
-            else:
-                break
+            break
 
     # last_error will never be None here since we only break after setting it
     assert last_error is not None

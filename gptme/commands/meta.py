@@ -147,7 +147,7 @@ def cmd_plugin(ctx: CommandContext) -> None:
 
     if not ctx.args:
         print("Usage: /plugin <list|info> [name]")
-        print("")
+        print()
         print("Commands:")
         print("  list       Show all discovered plugins")
         print("  info NAME  Show details about a specific plugin")
@@ -165,9 +165,9 @@ def cmd_plugin(ctx: CommandContext) -> None:
 
         if not plugin_paths:
             print("No plugin paths configured.")
-            print("")
+            print()
             print("Add plugin paths to your gptme.toml:")
-            print("")
+            print()
             print("[plugins]")
             print('paths = ["path/to/plugin1", "path/to/plugin2"]')
             return
@@ -243,7 +243,7 @@ def cmd_plugin(ctx: CommandContext) -> None:
             install_cmd = get_install_instructions(pyproject_path.parent, env_type)
             print(f"\n  To install dependencies ({env_type} environment):")
             print(f"    {install_cmd}")
-            print("")
+            print()
             print("  Note: Installation must be done manually to respect your")
             print("        environment (pipx/uvx/venv/system).")
 

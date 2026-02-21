@@ -123,14 +123,13 @@ class BrowserThread:
                                     if launch_browser():
                                         logger.info("Browser restarted successfully")
                                         continue  # Retry command
-                                    else:
-                                        # Create informative error about restart failure
-                                        restart_error = RuntimeError(
-                                            f"Browser restart failed after connection error in {command_name}: {e}"
-                                        )
-                                        with self.lock:
-                                            self.results[cmd_id] = (None, restart_error)
-                                        break  # Exit retry loop immediately
+                                    # Create informative error about restart failure
+                                    restart_error = RuntimeError(
+                                        f"Browser restart failed after connection error in {command_name}: {e}"
+                                    )
+                                    with self.lock:
+                                        self.results[cmd_id] = (None, restart_error)
+                                    break  # Exit retry loop immediately
                             else:
                                 logger.exception("Unexpected error in browser thread")
 

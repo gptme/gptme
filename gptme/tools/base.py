@@ -46,7 +46,7 @@ ToolFormat: TypeAlias = Literal["markdown", "xml", "tool"]
 tool_format: ToolFormat = "markdown"
 
 # Match tool name and start of JSON
-toolcall_re = re.compile(r"^@(\w+)\(([\w\-:\.]+)\):\s*({.*)", re.M | re.S)
+toolcall_re = re.compile(r"^@(\w+)\(([\w\-:\.]+)\):\s*({.*)", re.MULTILINE | re.DOTALL)
 
 
 def find_json_end(s: str, start: int) -> int | None:
@@ -769,7 +769,7 @@ def load_from_file(path: Path) -> list[ToolSpec]:
     if resolved_path.suffix != ".py":
         raise ValueError(f"Tool file must be a .py file: {path}")
 
-    tools_before = set([t.name for t in get_tools()])
+    tools_before = {t.name for t in get_tools()}
 
     # import the python file
     script_dir = resolved_path.parent
@@ -777,7 +777,7 @@ def load_from_file(path: Path) -> list[ToolSpec]:
         sys.path.append(str(script_dir))
     importlib.import_module(resolved_path.stem)
 
-    tools_after = set([t.name for t in get_tools()])
+    tools_after = {t.name for t in get_tools()}
     tools_new = tools_after - tools_before
     print(f"Loaded tools {tools_new} from {path}")
     return [tool for tool_name in tools_new if (tool := get_tool(tool_name))]

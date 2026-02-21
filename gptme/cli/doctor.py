@@ -67,9 +67,7 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
 
     # Get configured providers
     available_providers = list_available_providers()
-    available_provider_map = {
-        provider: source for provider, source in available_providers
-    }
+    available_provider_map = dict(available_providers)
     config = get_config()
 
     # Special case env var names (only azure differs from the default pattern)

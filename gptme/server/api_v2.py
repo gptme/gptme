@@ -196,7 +196,7 @@ def api_conversation_put(conversation_id: str):
     prompt = req_json.get("prompt", "full")
 
     msgs = get_prompt(
-        tools=[t for t in get_toolchain(chat_config.tools)],
+        tools=list(get_toolchain(chat_config.tools)),
         interactive=chat_config.interactive,
         tool_format=chat_config.tool_format or "markdown",
         model=chat_config.model,

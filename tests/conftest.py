@@ -15,7 +15,7 @@ import pytest
 import requests
 
 from gptme.config import get_config
-from gptme.init import init  # noqa
+from gptme.init import init
 from gptme.tools import clear_tools
 from gptme.tools import shell as shell_module
 from gptme.tools.rag import _has_gptme_rag

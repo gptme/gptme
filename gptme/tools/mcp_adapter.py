@@ -139,8 +139,7 @@ def _call_mcp_tool_with_retry(
                 logger.info(f"MCP connection failed for {server_name}, restarting...")
                 _restart_mcp_client(server_name, config)
                 continue
-            else:
-                break
+            break
 
     # last_error will never be None here since we only break after setting it
     assert last_error is not None

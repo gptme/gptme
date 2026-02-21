@@ -868,8 +868,7 @@ def _parse_context_files(content: str) -> list[str]:
             # Filter out common false positives
             if path and not path.startswith("http") and not path.startswith("#"):
                 # Normalize path
-                if path.startswith("./"):
-                    path = path[2:]
+                path = path.removeprefix("./")
                 file_paths.append(path)
 
     # Remove duplicates while preserving order

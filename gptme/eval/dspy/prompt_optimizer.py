@@ -168,7 +168,7 @@ class GptmeModule(dspy.Module):
 
         except Exception as e:
             logger.error(f"Error in GptmeModule forward: {e}")
-            return dspy.Prediction(response=f"Error: {str(e)}", messages=[])
+            return dspy.Prediction(response=f"Error: {e!s}", messages=[])
 
 
 class PromptImprovementModule(dspy.Module):

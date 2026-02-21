@@ -126,7 +126,7 @@ def run_precommit_checks() -> tuple[bool, str | None]:
     except subprocess.CalledProcessError as e:
         # if exit code is 130, it means the user interrupted the process
         if e.returncode == 130:
-            raise KeyboardInterrupt() from None
+            raise KeyboardInterrupt from None
         # If no pre-commit config found
         # Can happen in nested git repos, since we check parent dirs but pre-commit only checks the current repo.
         if ".pre-commit-config.yaml is not a file" in e.stdout:

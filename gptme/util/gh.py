@@ -423,7 +423,7 @@ def get_github_pr_content(url: str) -> str | None:
                                 if line.strip().startswith("```suggestion"):
                                     in_suggestion = True
                                     continue
-                                elif line.strip() == "```" and in_suggestion:
+                                if line.strip() == "```" and in_suggestion:
                                     if suggestion_lines:
                                         content += (
                                             "\nSuggested change:\n```"

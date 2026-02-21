@@ -256,7 +256,7 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
         # We need to load tools first
         config = get_config()
 
-        tool_modules: list[str] = list()
+        tool_modules: list[str] = []
         env_tool_modules = config.get_env("TOOL_MODULES", "gptme.tools")
 
         if env_tool_modules:

@@ -284,7 +284,7 @@ class ProjectConfig:
 
     def merge(self, other: Self) -> Self:
         """Merge another ProjectConfig into this one."""
-        return replace(self, **{k: v for k, v in other.to_dict().items()})
+        return replace(self, **dict(other.to_dict().items()))
 
     def to_dict(self) -> dict:
         """Convert ProjectConfig to a dictionary. Returns a dict with non-'mcp' and non-'env' keys nested under a 'project' key, and 'env' and 'mcp' as top-level keys."""
@@ -783,9 +783,8 @@ class ChatConfig:
                         "Cannot change workspace when directory is in use. "
                         "Please move or rename the existing directory first."
                     )
-                else:
-                    # It's a file or symlink, safe to remove
-                    workspace_path.unlink()
+                # It's a file or symlink, safe to remove
+                workspace_path.unlink()
             workspace_path.symlink_to(self.workspace)
         # If workspace IS the log workspace, no symlink needed - directory already exists
 

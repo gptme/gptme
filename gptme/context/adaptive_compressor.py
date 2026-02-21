@@ -240,7 +240,7 @@ def extractive_compress(
 
     # Reconstruct in original order
     # Combine marker sentences and selected scoreable sentences
-    all_kept = [(idx, sent) for idx, sent in marker_sentences]
+    all_kept = list(marker_sentences)
     all_kept.extend(
         [(idx, sent) for idx, sent in scoreable_sentences if idx in selected_indices]
     )

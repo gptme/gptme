@@ -57,7 +57,7 @@ def test_fd_redirect_catches_print():
         # Redirect fd 1 to write end of pipe (simulating os.dup2(2, 1))
         os.dup2(w_fd, 1)
         os.close(w_fd)
-        sys.stdout = open(1, "w", buffering=1, closefd=False)  # noqa: SIM115
+        sys.stdout = open(1, "w", buffering=1, closefd=False)
 
         print("test message", flush=True)
 

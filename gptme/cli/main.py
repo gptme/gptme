@@ -328,7 +328,7 @@ def main(
 
         if additive_mode:
             # Strip '+' prefix from all tools
-            additional_tools = [t[1:] if t.startswith("+") else t for t in tools_list]
+            additional_tools = [t.removeprefix("+") for t in tools_list]
             # Filter out empty strings (e.g., from '+' alone)
             additional_tools = [t for t in additional_tools if t]
 
