@@ -506,6 +506,28 @@ class GptmeAgent:
         self._registry.create(session_id, log=log)
         logger.info(f"ACP NewSession: session_id={session_id}, cwd={cwd}")
 
+        # Surface session info proactively on session open, so the user sees
+        # which model and workspace are active immediately in the Zed ACP panel.
+        # Uses session/update notifications — the protocol-correct mechanism for
+        # unsolicited agent messages.
+        if self._conn:
+            from acp import (  # type: ignore[import-not-found]
+                text_block,
+                update_agent_message,
+            )
+
+            model_info = session_model or "default"
+            workspace_info = str(cwd) if cwd else "none"
+            info_text = (
+                f"ℹ️ Using model: {model_info}\nUsing workspace: {workspace_info}"
+            )
+            info_chunk = update_agent_message(text_block(info_text))
+            await self._conn.session_update(
+                session_id=session_id,
+                update=info_chunk,
+                source="gptme",
+            )
+
         # Surface initialization errors proactively on session open, so the user
         # sees feedback immediately in the Zed ACP panel rather than only after
         # sending their first prompt. Uses session/update notifications which are
