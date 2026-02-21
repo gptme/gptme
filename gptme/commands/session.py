@@ -87,9 +87,11 @@ def _complete_delete(partial: str, prev_args: list[str]) -> list[tuple[str, str]
 
     # Get recent conversations
     conversations = list_conversations(limit=20)
-    for conv in conversations:
-        if conv.id.startswith(partial) or conv.name.lower().startswith(partial.lower()):
-            completions.append((conv.id, conv.name or ""))
+    completions.extend(
+        (conv.id, conv.name or "")
+        for conv in conversations
+        if conv.id.startswith(partial) or conv.name.lower().startswith(partial.lower())
+    )
 
     return completions
 

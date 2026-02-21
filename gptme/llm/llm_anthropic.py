@@ -606,10 +606,11 @@ def _extract_thinking_content(content: str | list) -> tuple[str, str]:
     # Handle list content (e.g., [{"type": "text", "text": "..."}])
     text_content = ""
     if isinstance(content, list):
-        text_parts = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                text_parts.append(item.get("text", ""))
+        text_parts = [
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
         text_content = "\n".join(text_parts)
     elif isinstance(content, str):
         text_content = content
@@ -682,15 +683,15 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                     final_content.append(part)
 
             # Add tool uses in Anthropic format
-            for tooluse in tool_uses:
-                final_content.append(
-                    {
-                        "type": "tool_use",
-                        "id": tooluse.call_id or "",
-                        "name": tooluse.tool,
-                        "input": tooluse.kwargs or {},
-                    }
-                )
+            final_content.extend(
+                {
+                    "type": "tool_use",
+                    "id": tooluse.call_id or "",
+                    "name": tooluse.tool,
+                    "input": tooluse.kwargs or {},
+                }
+                for tooluse in tool_uses
+            )
 
             if final_content:
                 modified_message["content"] = final_content

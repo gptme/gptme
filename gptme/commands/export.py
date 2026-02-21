@@ -27,19 +27,20 @@ def _complete_replay(partial: str, _prev_args: list[str]) -> list[tuple[str, str
     """Complete replay command options."""
     from ..tools import get_tools  # fmt: skip
 
-    completions: list[tuple[str, str]] = []
     options = [
         ("last", "Replay only the last assistant message"),
         ("all", "Replay all assistant messages"),
     ]
-    for opt, desc in options:
-        if opt.startswith(partial.lower()):
-            completions.append((opt, desc))
+    completions: list[tuple[str, str]] = [
+        (opt, desc) for opt, desc in options if opt.startswith(partial.lower())
+    ]
 
     # Also suggest tool names
-    for tool in get_tools():
-        if tool.name.startswith(partial.lower()):
-            completions.append((tool.name, f"Replay all {tool.name} operations"))
+    completions.extend(
+        (tool.name, f"Replay all {tool.name} operations")
+        for tool in get_tools()
+        if tool.name.startswith(partial.lower())
+    )
 
     return completions
 

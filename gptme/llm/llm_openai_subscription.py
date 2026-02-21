@@ -460,15 +460,15 @@ def _messages_to_responses_input(messages: list[Message]) -> list[dict[str, Any]
                 msg.content, tool_format_override="tool"
             )
             # Emit function_call items for each tool use found
-            for tooluse in tool_uses:
-                items.append(
-                    {
-                        "type": "function_call",
-                        "name": tooluse.tool,
-                        "call_id": tooluse.call_id or "",
-                        "arguments": json.dumps(tooluse.kwargs or {}),
-                    }
-                )
+            items.extend(
+                {
+                    "type": "function_call",
+                    "name": tooluse.tool,
+                    "call_id": tooluse.call_id or "",
+                    "arguments": json.dumps(tooluse.kwargs or {}),
+                }
+                for tooluse in tool_uses
+            )
             # Emit remaining text content as a message (if any)
             text = "".join(
                 p["text"] if isinstance(p, dict) else str(p) for p in content_parts

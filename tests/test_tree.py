@@ -229,7 +229,7 @@ def test_reduce_tree_output_by_depth():
     from gptme.util.tree import _reduce_tree_output_by_depth
 
     # Test with output that needs reduction
-    output = "\n".join(
+    output = "\n".join(  # noqa: FLY002
         [
             "file1.txt",
             "dir1/file2.txt",

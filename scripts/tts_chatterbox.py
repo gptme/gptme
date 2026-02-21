@@ -37,10 +37,11 @@ def _list_voices(voice_sample_dir: str | Path) -> list[str]:
     if not voice_sample_dir.exists():
         return []
 
-    voices = []
-    for file_path in voice_sample_dir.iterdir():
-        if file_path.is_file() and file_path.suffix.lower() in audio_extensions:
-            voices.append(file_path.name)
+    voices = [
+        file_path.name
+        for file_path in voice_sample_dir.iterdir()
+        if file_path.is_file() and file_path.suffix.lower() in audio_extensions
+    ]
 
     return sorted(voices)
 

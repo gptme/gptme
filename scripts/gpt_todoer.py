@@ -78,9 +78,9 @@ def _load_roam_todos(filter: str = "") -> str:
     if rg.returncode != 0:
         stderr_stripped = "\n".join(rg.stderr.decode("utf-8").split("\n")[:5])
         raise Exception(f"Error running rg: {stderr_stripped}...")
-    for line in rg.stdout.decode("utf-8").split("\n"):
-        if line.strip():
-            todos.append(line.strip())
+    todos = [
+        line.strip() for line in rg.stdout.decode("utf-8").split("\n") if line.strip()
+    ]
     if filter and filter not in ["TODO", "None", "N/A"]:
         todos = [todo for todo in todos if filter.lower() in todo.lower()]
     if len(todos) > 20:

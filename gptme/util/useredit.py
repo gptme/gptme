@@ -24,7 +24,7 @@ def edit_text_with_editor(initial_text: str, ext=None) -> str:  # pragma: no cov
     editor = os.environ.get("EDITOR", "nano")
 
     # Open the file in the user's editor.
-    logger.debug("Running editor:", [editor, temp_filename])
+    logger.debug("Running editor: %s", [editor, temp_filename])
     p = subprocess.run([editor, temp_filename], check=False)
     # now, we wait
 

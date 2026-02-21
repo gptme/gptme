@@ -390,8 +390,9 @@ def main(
             if tool_format
             else ["markdown", "xml", "tool"]
         )
-        for fmt in formats:
-            model_configs.append(ModelConfig(model=model_spec, tool_format=fmt))
+        model_configs.extend(
+            ModelConfig(model=model_spec, tool_format=fmt) for fmt in formats
+        )
 
     results_files = []
     for f in eval_names_or_result_files:

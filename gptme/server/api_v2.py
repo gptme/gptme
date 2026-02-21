@@ -432,7 +432,7 @@ def api_models():
     default_model = get_default_model()
 
     # Get available models
-    models_data = []
+    models_data: list[dict] = []
 
     # If proxy is configured (like gptme.ai), show supported providers
     # The proxy now supports both OpenAI and Anthropic models
@@ -444,22 +444,22 @@ def api_models():
     for provider in providers_to_check:
         provider_models = _get_models_for_provider(provider, dynamic_fetch=True)
         models = _apply_model_filters(provider_models, include_deprecated=False)
-        for model in models:
-            models_data.append(
-                {
-                    "id": model.full,
-                    "provider": model.provider,
-                    "model": model.model,
-                    "context": model.context,
-                    "max_output": model.max_output,
-                    "supports_streaming": model.supports_streaming,
-                    "supports_vision": model.supports_vision,
-                    "supports_reasoning": model.supports_reasoning,
-                    "price_input": model.price_input,
-                    "price_output": model.price_output,
-                    "deprecated": model.deprecated,
-                }
-            )
+        models_data.extend(
+            {
+                "id": model.full,
+                "provider": model.provider,
+                "model": model.model,
+                "context": model.context,
+                "max_output": model.max_output,
+                "supports_streaming": model.supports_streaming,
+                "supports_vision": model.supports_vision,
+                "supports_reasoning": model.supports_reasoning,
+                "price_input": model.price_input,
+                "price_output": model.price_output,
+                "deprecated": model.deprecated,
+            }
+            for model in models
+        )
 
     return flask.jsonify(
         {

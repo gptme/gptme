@@ -750,8 +750,9 @@ def list_mcp_roots(server_name: str | None = None) -> str:
             return f"No roots configured for server '{server_name}'."
 
         output = [f"# Roots for {server_name}\n"]
-        for root in roots:
-            output.append(f"- **{root.name or '(unnamed)'}**: `{root.uri}`")
+        output.extend(
+            f"- **{root.name or '(unnamed)'}**: `{root.uri}`" for root in roots
+        )
         return "\n".join(output)
     # List roots for all loaded servers
     all_clients = {**_mcp_clients, **_dynamic_servers}

@@ -276,7 +276,7 @@ def _infer_request_body(func: Callable) -> type[BaseModel] | None:
 
         # Look for parameters that are BaseModel subclasses (excluding path params)
         sig = inspect.signature(func)
-        for param_name, _param in sig.parameters.items():
+        for param_name in sig.parameters:
             if param_name in ("logfile", "filename"):  # Skip path parameters
                 continue
 
@@ -323,20 +323,18 @@ def _convert_flask_path_to_openapi(flask_path: str) -> str:
 
 def _infer_parameters(func: Callable, rule_string: str) -> list[dict[str, Any]]:
     """Infer parameters from Flask route and function signature."""
-    parameters = []
-
     # Extract path parameters from route - handle all Flask parameter types
     path_params = re.findall(r"<(?:\w+:)?(\w+)>", rule_string)
-    for param in path_params:
-        parameters.append(
-            {
-                "name": param,
-                "in": "path",
-                "required": True,
-                "schema": {"type": "string"},
-                "description": f"{param.replace('_', ' ').title()} identifier",
-            }
-        )
+    parameters = [
+        {
+            "name": param,
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": f"{param.replace('_', ' ').title()} identifier",
+        }
+        for param in path_params
+    ]
 
     # Try to infer query parameters from function signature
     try:
@@ -617,9 +615,11 @@ def _process_route_parameters(
     manual_param_names = {p["name"] for p in manual_parameters}
 
     # Add inferred path parameters that aren't manually overridden
-    for param in inferred_parameters:
-        if param["name"] not in manual_param_names:
-            final_parameters.append(param)
+    final_parameters = [
+        param
+        for param in inferred_parameters
+        if param["name"] not in manual_param_names
+    ]
 
     # Add manual parameters
     final_parameters.extend(manual_parameters)

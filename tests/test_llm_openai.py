@@ -902,7 +902,7 @@ class TestOpenAIRetryLogic:
         collected = []
         with pytest.raises(RateLimitError), patch("time.sleep"):
             for chunk in gen_fails_after_yield():
-                collected.append(chunk)
+                collected.append(chunk)  # noqa: PERF402
 
         # Should have received chunks before error, and NOT duplicated
         assert collected == [

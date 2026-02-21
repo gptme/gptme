@@ -409,11 +409,11 @@ class LessonIndex:
         Returns:
             List of matching lessons
         """
-        results = []
-
-        for lesson in self.lessons:
-            if any(kw in lesson.metadata.keywords for kw in keywords):
-                results.append(lesson)
+        results = [
+            lesson
+            for lesson in self.lessons
+            if any(kw in lesson.metadata.keywords for kw in keywords)
+        ]
 
         return results
 

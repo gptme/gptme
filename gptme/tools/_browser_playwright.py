@@ -150,13 +150,14 @@ def read_logs() -> str:
 
     if _last_logs["logs"]:
         result.append("\n=== Console Logs ===")
-        for log in _last_logs["logs"]:
-            result.append(f"[{log['type'].upper()}] {log['text']} ({log['location']})")
+        result.extend(
+            f"[{log['type'].upper()}] {log['text']} ({log['location']})"
+            for log in _last_logs["logs"]
+        )
 
     if _last_logs["errors"]:
         result.append("\n=== Page Errors ===")
-        for error in _last_logs["errors"]:
-            result.append(error)
+        result.extend(_last_logs["errors"])
 
     if not _last_logs["logs"] and not _last_logs["errors"]:
         result.append("\nNo logs or errors captured.")
@@ -250,8 +251,6 @@ class Element:
 
 
 def _list_clickable_elements(page, selector=None) -> list[Element]:
-    elements = []
-
     # filter by selector
     if selector:
         selector = f"{selector} button, {selector} a"
@@ -260,10 +259,7 @@ def _list_clickable_elements(page, selector=None) -> list[Element]:
 
     # List all clickable buttons
     clickable = page.query_selector_all(selector)
-    for el in clickable:
-        elements.append(Element.from_element(el))
-
-    return elements
+    return [Element.from_element(el) for el in clickable]
 
 
 @dataclass

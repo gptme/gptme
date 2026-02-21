@@ -115,11 +115,12 @@ def _find_details_blocks(content: str) -> list[tuple[int, int]]:
     start = 0
 
     # Merge open/close tags into a sorted event list
-    events: list[tuple[int, str, int]] = []  # (pos, type, end_pos)
-    for m in _DETAILS_OPEN_RE.finditer(content):
-        events.append((m.start(), "open", m.end()))
-    for m in _DETAILS_CLOSE_RE.finditer(content):
-        events.append((m.start(), "close", m.end()))
+    events: list[tuple[int, str, int]] = [
+        (m.start(), "open", m.end()) for m in _DETAILS_OPEN_RE.finditer(content)
+    ]
+    events.extend(
+        (m.start(), "close", m.end()) for m in _DETAILS_CLOSE_RE.finditer(content)
+    )
     events.sort(key=lambda e: e[0])
 
     for pos, kind, end_pos in events:

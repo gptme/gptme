@@ -329,10 +329,11 @@ def classify_redundancy(ratio: float) -> tuple[str, str]:
 def analyze_distribution(results: dict) -> dict:
     """Analyze the distribution of compression ratios."""
     # Collect all ratios from trajectory
-    all_ratios = []
-    for conv in results["conversations"]:
-        for point in conv.get("trajectory", []):
-            all_ratios.append(point["ratio"])
+    all_ratios = [
+        point["ratio"]
+        for conv in results["conversations"]
+        for point in conv.get("trajectory", [])
+    ]
 
     if not all_ratios:
         return {}

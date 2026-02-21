@@ -725,24 +725,23 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             )
 
             # Format tool uses for OpenAI API with explicit typing
-            tool_calls: list[ToolCall] = []
-            for tooluse in tool_uses:
-                tool_calls.append(
-                    cast(
-                        ToolCall,
-                        {
-                            "id": tooluse.call_id or "",
-                            "type": "function",
-                            "function": cast(
-                                ToolCallFunction,
-                                {
-                                    "name": tooluse.tool,
-                                    "arguments": json.dumps(tooluse.kwargs or {}),
-                                },
-                            ),
-                        },
-                    )
+            tool_calls: list[ToolCall] = [
+                cast(
+                    ToolCall,
+                    {
+                        "id": tooluse.call_id or "",
+                        "type": "function",
+                        "function": cast(
+                            ToolCallFunction,
+                            {
+                                "name": tooluse.tool,
+                                "arguments": json.dumps(tooluse.kwargs or {}),
+                            },
+                        ),
+                    },
                 )
+                for tooluse in tool_uses
+            ]
 
             if content:
                 modified_message["content"] = content

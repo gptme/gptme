@@ -622,9 +622,9 @@ class GptmeAgent:
         stdout_output = captured.getvalue()
         if stdout_output:
             output_parts.append(stdout_output.rstrip())
-        for resp_msg in response_msgs:
-            if resp_msg.content:
-                output_parts.append(resp_msg.content)
+        output_parts.extend(
+            resp_msg.content for resp_msg in response_msgs if resp_msg.content
+        )
 
         output = "\n".join(output_parts) if output_parts else f"/{cmd_name}: done"
 

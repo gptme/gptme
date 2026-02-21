@@ -304,7 +304,7 @@ def test_retry_generator_only_retries_before_yield():
         collected = []
         try:
             for chunk in gen_fails_after_yield():
-                collected.append(chunk)
+                collected.append(chunk)  # noqa: PERF402
         except Exception:
             pass  # Expected to raise
 

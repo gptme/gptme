@@ -164,10 +164,11 @@ def _extract_message_content(log: list[Message], limit: int = 10) -> str:
     Returns:
         Combined message content string
     """
-    messages = []
-    for msg in reversed(log[-limit:]):
-        if msg.role in ("user", "assistant"):
-            messages.append(msg.content)
+    messages = [
+        msg.content
+        for msg in reversed(log[-limit:])
+        if msg.role in ("user", "assistant")
+    ]
 
     # Combine messages (most recent first, so reverse to get chronological)
     combined = " ".join(reversed(messages))

@@ -581,8 +581,5 @@ class PromptOptimizer:
 def get_current_gptme_prompt(interactive: bool, model: str) -> str:
     """Get the current gptme system prompt."""
     messages = list(prompt_gptme(interactive, model))
-    prompt_parts = []
-    for msg in messages:
-        if msg.role == "system":
-            prompt_parts.append(msg.content)
+    prompt_parts = [msg.content for msg in messages if msg.role == "system"]
     return "\n\n".join(prompt_parts)

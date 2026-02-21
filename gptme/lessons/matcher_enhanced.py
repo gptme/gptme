@@ -98,13 +98,15 @@ class EnhancedLessonMatcher(LessonMatcher):
             )
 
             # Determine what matched
-            matched_by = []
+            matched_by: list[str] = []
             if self.selector_config.strategy == "rule":
                 # For rule-based, show keyword matches (with wildcard support)
                 message_lower = context.message.lower()
-                for keyword in item.lesson.metadata.keywords:
-                    if _match_keyword(keyword, message_lower):
-                        matched_by.append(f"keyword:{keyword}")
+                matched_by.extend(
+                    f"keyword:{keyword}"
+                    for keyword in item.lesson.metadata.keywords
+                    if _match_keyword(keyword, message_lower)
+                )
             elif self.selector_config.strategy == "llm":
                 matched_by.append("llm:semantic-match")
             else:  # hybrid

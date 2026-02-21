@@ -125,9 +125,11 @@ def _complete_plugin(partial: str, prev_args: list[str]) -> list[tuple[str, str]
                 Path(p).expanduser().resolve() for p in config.project.plugins.paths
             ]
             plugins = discover_plugins(plugin_paths)
-            for plugin in plugins:
-                if plugin.name.startswith(partial):
-                    completions.append((plugin.name, str(plugin.path)))
+            completions.extend(
+                (plugin.name, str(plugin.path))
+                for plugin in plugins
+                if plugin.name.startswith(partial)
+            )
 
     return completions
 

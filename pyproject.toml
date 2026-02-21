@@ -203,6 +203,10 @@ select = [
     "I",      # isort
     "C4",     # flake8-comprehensions
     "FURB",   # refurb
+    "FLY",    # flynt (f-string over join)
+    "ISC",    # implicit-str-concat
+    "PLE",    # pylint errors
+    "PERF",   # perflint
     "RSE102", # unnecessary-paren-on-raise-exception
     "SIM103", "SIM110", "SIM117", "SIM118", "SIM300", "SIM910",  # flake8-simplify
     "PIE790", # flake8-pie
@@ -210,7 +214,7 @@ select = [
     "RUF010", "RUF019", "RUF100",  # ruff-specific
     "PLW1510",  # subprocess-run-without-check
 ]
-ignore = ["E402", "E501", "B905"]
+ignore = ["E402", "E501", "B905", "PERF203"]  # PERF203: try-except-in-loop often intentional
 #fixable = ["ALL"]
 #unfixable = ["B"]
 

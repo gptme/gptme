@@ -505,11 +505,8 @@ class LogManager:
 
         # output the continuing messages on the current branch as +
         # and the continuing messages on the other branch as -
-        diff = []
-        for msg in self.log[diff_i:]:
-            diff.append(f"+ {msg.format()}")
-        for msg in self._branches[branch][diff_i:]:
-            diff.append(f"- {msg.format()}")
+        diff = [f"+ {msg.format()}" for msg in self.log[diff_i:]]
+        diff.extend(f"- {msg.format()}" for msg in self._branches[branch][diff_i:])
 
         if diff:
             return "\n".join(diff)

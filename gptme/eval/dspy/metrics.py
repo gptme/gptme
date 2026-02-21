@@ -58,13 +58,13 @@ class TrajectoryAnalyzer:
     def _analyze_tool_usage(self) -> dict[str, Any]:
         """Simplified tool usage analysis."""
         if self._messages:
-            tool_calls = []
-            for message in self._messages:
-                if message.role == "assistant" and message.content:
-                    codeblocks = Codeblock.iter_from_markdown(message.content)
-                    for cb in codeblocks:
-                        if tool := get_tool_for_langtag(cb.lang):
-                            tool_calls.append(tool.name)
+            tool_calls = [
+                tool.name
+                for message in self._messages
+                if message.role == "assistant" and message.content
+                for cb in Codeblock.iter_from_markdown(message.content)
+                if (tool := get_tool_for_langtag(cb.lang))
+            ]
 
             return {
                 "tool_calls": len(tool_calls),
