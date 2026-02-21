@@ -94,7 +94,7 @@ def paste_image() -> Path | None:
             save_dir.mkdir(parents=True, exist_ok=True)
             from datetime import datetime
 
-            filename = f"paste_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            filename = f"paste_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png"
             save_path = save_dir / filename
             img.save(str(save_path), "PNG")
             return save_path
@@ -134,6 +134,20 @@ def paste_text() -> str | None:
             )
             if result.returncode == 0:
                 return result.stdout
+        elif platform.system() == "Windows":
+            import ctypes
+
+            CF_TEXT = 1
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            user32.OpenClipboard(0)
+            try:
+                if user32.IsClipboardFormatAvailable(CF_TEXT):
+                    data = user32.GetClipboardData(CF_TEXT)
+                    text_data = ctypes.c_char_p(data)
+                    if text_data.value:
+                        return text_data.value.decode("utf-8", errors="replace")
+            finally:
+                user32.CloseClipboard()
     except Exception:
         pass
     return None
