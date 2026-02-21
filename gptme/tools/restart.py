@@ -114,28 +114,7 @@ def _do_restart(conversation_name: str | None = None):
                 # Flag with inline value (--flag=value), keep it
                 # But skip if it's a persisted flag (loaded from chat config)
                 flag_name = arg.split("=")[0]
-                _PERSISTED_FLAGS_INLINE = {
-                    "--name",
-                    "--resume",
-                    "-r",
-                    "-m",
-                    "--model",
-                    "-t",
-                    "--tools",
-                    "--tool-format",
-                    "--stream",
-                    "--no-stream",
-                    "-n",
-                    "--non-interactive",
-                    "--agent-path",
-                    "-w",
-                    "--workspace",
-                    "--multi-tool",
-                    "--no-multi-tool",
-                    "--context-mode",
-                    "--context-include",
-                }
-                if flag_name not in _PERSISTED_FLAGS_INLINE:
+                if flag_name not in _PERSISTED_FLAGS:
                     filtered_args.append(arg)
             else:
                 # Boolean flag (no value), keep it

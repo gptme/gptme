@@ -31,9 +31,6 @@ This will be read by a less intelligent model, which will quickly apply the edit
 
 When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged code in between edited lines.
 
-This will be read by a less intelligent model, which will quickly apply the edit. You should make it clear what the edit is, while also minimizing the unchanged code you write.
-When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged code in between edited lines.
-
 You should bias towards repeating as few lines of the original file as possible to convey the change.
 NEVER show unmodified code in the edit, unless sufficient context of unchanged lines around the code you're editing is needed to resolve ambiguity.
 If you plan on deleting a section, you must provide surrounding context to indicate the deletion.

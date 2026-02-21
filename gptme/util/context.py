@@ -301,8 +301,7 @@ def git_branch() -> str | None:
                 text=True,
                 check=True,
             )
-            if branch.returncode == 0:
-                return branch.stdout.strip()
+            return branch.stdout.strip()
         except subprocess.CalledProcessError:
             logger.error("Failed to get git branch")
             return None
@@ -357,9 +356,8 @@ def git_status() -> str | None:
         git_status = subprocess.run(
             ["git", "status", "-vv"], capture_output=True, text=True, check=True
         )
-        if git_status.returncode == 0:
-            logger.debug("Including git status in context")
-            return md_codeblock("git status -vv", git_status.stdout)
+        logger.debug("Including git status in context")
+        return md_codeblock("git status -vv", git_status.stdout)
     except (subprocess.CalledProcessError, FileNotFoundError):
         logger.debug("Not in a git repository or git not available")
     return None

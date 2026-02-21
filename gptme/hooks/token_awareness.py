@@ -208,7 +208,7 @@ def add_token_usage_warning(
             yield Message(
                 "system",
                 f"<system_warning>Token usage: {used}/{budget}; {remaining} remaining</system_warning>",
-                # hide=True,
+                hide=True,
             )
 
             logger.debug(
