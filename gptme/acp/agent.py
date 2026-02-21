@@ -529,6 +529,98 @@ class GptmeAgent:
         assert NewSessionResponse is not None
         return NewSessionResponse(session_id=session_id)
 
+    async def _handle_slash_command(
+        self,
+        msg: Message,
+        log: LogManager,
+        session_id: str,
+        text_block: Any,
+        update_agent_message: Any,
+    ) -> Any:
+        """Execute a slash command and stream the output back to the ACP client.
+
+        Some commands are unsafe in an ACP context (e.g. /exit would kill the server,
+        /restart would restart the process). These are blocked and a helpful message is
+        returned instead.
+
+        Args:
+            msg: The user message containing the slash command
+            log: The session's LogManager
+            session_id: The ACP session ID
+            text_block: ACP text_block factory
+            update_agent_message: ACP update_agent_message factory
+
+        Returns:
+            PromptResponse with appropriate stop_reason
+        """
+        import io
+        import sys
+
+        from ..commands import handle_cmd
+
+        cmd_name = msg.content.lstrip("/").split()[0]
+
+        # Block commands that are unsafe in server/ACP context
+        acp_blocked_commands = {"exit", "restart"}
+        if cmd_name in acp_blocked_commands:
+            output = f"The /{cmd_name} command is not available in ACP mode."
+            error_chunk = update_agent_message(text_block(output))
+            if self._conn:
+                await self._conn.session_update(
+                    session_id=session_id,
+                    update=error_chunk,
+                    source="gptme",
+                )
+            assert PromptResponse is not None
+            return PromptResponse(stop_reason="end_turn")
+
+        # Capture stdout from commands that use print() (e.g. /help, /tools)
+        captured = io.StringIO()
+        response_msgs: list[Message] = []
+        try:
+            old_stdout = sys.stdout
+            sys.stdout = captured
+            try:
+                for resp in handle_cmd(msg.content, log):
+                    log.append(resp)
+                    response_msgs.append(resp)
+            finally:
+                sys.stdout = old_stdout
+        except Exception as e:
+            logger.exception(f"Error executing slash command {msg.content!r}: {e}")
+            error_text = f"Error executing command: {e}"
+            error_chunk = update_agent_message(text_block(error_text))
+            if self._conn:
+                await self._conn.session_update(
+                    session_id=session_id,
+                    update=error_chunk,
+                    source="gptme",
+                )
+            assert PromptResponse is not None
+            return PromptResponse(stop_reason="cancelled")
+
+        # Combine captured stdout with any yielded system messages
+        output_parts: list[str] = []
+        stdout_output = captured.getvalue()
+        if stdout_output:
+            output_parts.append(stdout_output.rstrip())
+        for resp_msg in response_msgs:
+            if resp_msg.content:
+                output_parts.append(resp_msg.content)
+
+        output = "\n".join(output_parts) if output_parts else f"/{cmd_name}: done"
+
+        chunk = update_agent_message(text_block(output))
+        if self._conn:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=chunk,
+                source="gptme",
+            )
+
+        assert PromptResponse is not None
+        return PromptResponse(stop_reason="end_turn")
+
     async def prompt(
         self,
         prompt: list[Any],
@@ -604,6 +696,16 @@ class GptmeAgent:
         logger.info(
             f"ACP Prompt: session={session_id[:8]}, content={content_preview}..."
         )
+
+        # Handle slash commands before passing to the LLM.
+        # Commands like /help, /model, /tools are handled locally and their output
+        # is streamed back to the ACP client as a system message.
+        from ..util.content import is_message_command  # fmt: skip
+
+        if is_message_command(msg.content):
+            return await self._handle_slash_command(
+                msg, log, session_id, text_block, update_agent_message
+            )
 
         try:
             # Import chat step

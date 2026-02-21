@@ -632,3 +632,137 @@ class TestPerSessionModel:
         model_with_routing = "z-ai/glm-5@together"
         _run(agent.set_session_model(model_id=model_with_routing, session_id="s1"))
         assert agent._session_models["s1"] == model_with_routing
+
+
+def _make_mock_acp_factories():
+    """Create mock ACP text_block and update_agent_message factories.
+
+    These return plain dicts so tests can inspect the output without
+    needing the real ACP package installed.
+    """
+
+    def text_block(text: str) -> dict:
+        return {"type": "text", "text": text}
+
+    def update_agent_message(block: dict) -> dict:
+        return {"sessionUpdate": "agent_message", "content": [block]}
+
+    return text_block, update_agent_message
+
+
+def _make_mock_log():
+    """Create a minimal mock LogManager that _handle_slash_command can use."""
+    log = MagicMock()
+    log.append = MagicMock()
+    log.undo = MagicMock()
+    log.write = MagicMock()
+    log.log = MagicMock()
+    log.workspace = None
+    return log
+
+
+class TestHandleSlashCommand:
+    """Tests for _handle_slash_command method.
+
+    These tests verify that slash commands are detected and handled correctly
+    without requiring the full ACP package to be installed.
+    """
+
+    def _make_agent_with_conn(self):
+        agent = GptmeAgent()
+        conn = MagicMock()
+        conn.session_update = AsyncMock()
+        agent._conn = conn
+        # Inject PromptResponse mock so the method can construct a response
+        import gptme.acp.agent as agent_mod
+
+        agent_mod.PromptResponse = MagicMock(
+            side_effect=lambda stop_reason: {"stop_reason": stop_reason}
+        )
+        return agent
+
+    def test_blocked_command_exit(self):
+        """The /exit command should be blocked in ACP context."""
+        agent = self._make_agent_with_conn()
+        log = _make_mock_log()
+        text_block, update_agent_message = _make_mock_acp_factories()
+
+        from gptme.message import Message
+
+        msg = Message("user", "/exit")
+        result = _run(
+            agent._handle_slash_command(
+                msg, log, "session_1", text_block, update_agent_message
+            )
+        )
+
+        # Should return end_turn, not cancelled
+        assert result["stop_reason"] == "end_turn"
+        # Should send a message about the command being unavailable
+        agent._conn.session_update.assert_awaited_once()
+        call_kwargs = agent._conn.session_update.call_args.kwargs
+        update = call_kwargs["update"]
+        assert "exit" in update["content"][0]["text"].lower()
+        assert "not available" in update["content"][0]["text"].lower()
+
+    def test_blocked_command_restart(self):
+        """The /restart command should be blocked in ACP context."""
+        agent = self._make_agent_with_conn()
+        log = _make_mock_log()
+        text_block, update_agent_message = _make_mock_acp_factories()
+
+        from gptme.message import Message
+
+        msg = Message("user", "/restart")
+        result = _run(
+            agent._handle_slash_command(
+                msg, log, "session_1", text_block, update_agent_message
+            )
+        )
+
+        assert result["stop_reason"] == "end_turn"
+        agent._conn.session_update.assert_awaited_once()
+        call_kwargs = agent._conn.session_update.call_args.kwargs
+        update = call_kwargs["update"]
+        assert "restart" in update["content"][0]["text"].lower()
+
+    def test_help_command_returns_output(self):
+        """The /help command should return command list output."""
+        agent = self._make_agent_with_conn()
+        log = _make_mock_log()
+        text_block, update_agent_message = _make_mock_acp_factories()
+
+        from gptme.message import Message
+
+        msg = Message("user", "/help")
+        result = _run(
+            agent._handle_slash_command(
+                msg, log, "session_1", text_block, update_agent_message
+            )
+        )
+
+        assert result["stop_reason"] == "end_turn"
+        agent._conn.session_update.assert_awaited_once()
+        call_kwargs = agent._conn.session_update.call_args.kwargs
+        update = call_kwargs["update"]
+        # /help prints the available commands list
+        output = update["content"][0]["text"]
+        assert "Available commands" in output or "/help" in output
+
+    def test_unknown_command_returns_end_turn(self):
+        """An unknown command should return end_turn (handle_cmd prints 'Unknown command')."""
+        agent = self._make_agent_with_conn()
+        log = _make_mock_log()
+        text_block, update_agent_message = _make_mock_acp_factories()
+
+        from gptme.message import Message
+
+        msg = Message("user", "/nonexistentcommand")
+        result = _run(
+            agent._handle_slash_command(
+                msg, log, "session_1", text_block, update_agent_message
+            )
+        )
+
+        assert result["stop_reason"] == "end_turn"
+        agent._conn.session_update.assert_awaited_once()
