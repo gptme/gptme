@@ -42,7 +42,7 @@ click-default-group = "^1.2.4"
 python-dotenv = "^1.0.0"
 rich = "^13.5.2"
 tabulate = "*"
-pick = "^2.2.0"
+pick = {version = "^2.2.0", markers = "sys_platform != 'win32'"}
 tiktoken = ">=0.7"
 tomlkit = "*"
 typing-extensions = "*"

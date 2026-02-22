@@ -6,6 +6,18 @@ import threading
 from collections.abc import Generator
 from pathlib import Path
 
+try:
+    import termios
+except ImportError:
+    termios = None  # type: ignore[assignment]
+
+_msvcrt: object = None
+if os.name == "nt":
+    try:
+        import msvcrt as _msvcrt  # type: ignore[assignment]
+    except ImportError:
+        pass
+
 from .commands import execute_cmd
 from .config import ChatConfig, get_config
 from .constants import (
@@ -515,14 +527,12 @@ def step(
 
 def prompt_user(value=None) -> str:  # pragma: no cover
     print_bell()
-    # Flush stdin to clear any buffered input before prompting (only if stdin is a TTY)
-    if sys.stdin.isatty():
-        try:
-            import termios
-
-            termios.tcflush(sys.stdin, termios.TCIFLUSH)
-        except ImportError:
-            pass  # termios unavailable on Windows
+    # Flush stdin to clear any buffered input before prompting
+    if termios and sys.stdin.isatty():
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    elif _msvcrt:
+        while _msvcrt.kbhit():  # type: ignore[attr-defined]
+            _msvcrt.getch()  # type: ignore[attr-defined]
     response = ""
     # Get user name from config for the prompt display
     user_name = get_config().user.user.name

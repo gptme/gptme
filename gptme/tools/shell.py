@@ -13,7 +13,6 @@ import atexit
 import logging
 import os
 import re
-import select
 import shlex
 import shutil
 import signal
@@ -22,6 +21,13 @@ import sys
 import tempfile
 import threading
 import time
+
+try:
+    import select
+except ImportError:
+    select = None  # type: ignore[assignment]
+
+_is_windows = os.name == "nt"
 from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -87,19 +93,43 @@ class BackgroundJob:
         stderr_fd = self.process.stderr.fileno() if self.process.stderr else -1
         fds = [fd for fd in [stdout_fd, stderr_fd] if fd >= 0]
 
-        while not self._stop_event.is_set() and self.process.poll() is None:
-            try:
-                readable, _, _ = select.select(fds, [], [], 0.1)
-                for fd in readable:
-                    data = os.read(fd, 4096).decode("utf-8", errors="replace")
-                    if data:
-                        with self._buffer_lock:
-                            if fd == stdout_fd:
-                                self._append_to_buffer(self.stdout_buffer, data)
-                            else:
-                                self._append_to_buffer(self.stderr_buffer, data)
-            except (OSError, ValueError):
-                break
+        if _is_windows:
+            # Windows: use non-blocking reads with polling
+            for fd in fds:
+                try:
+                    os.set_blocking(fd, False)
+                except OSError:
+                    pass
+            while not self._stop_event.is_set() and self.process.poll() is None:
+                for fd in fds:
+                    try:
+                        data = os.read(fd, 4096).decode("utf-8", errors="replace")
+                        if data:
+                            with self._buffer_lock:
+                                if fd == stdout_fd:
+                                    self._append_to_buffer(self.stdout_buffer, data)
+                                else:
+                                    self._append_to_buffer(self.stderr_buffer, data)
+                    except BlockingIOError:
+                        pass
+                    except (OSError, ValueError):
+                        return
+                time.sleep(0.1)
+        else:
+            assert select is not None
+            while not self._stop_event.is_set() and self.process.poll() is None:
+                try:
+                    readable, _, _ = select.select(fds, [], [], 0.1)
+                    for fd in readable:
+                        data = os.read(fd, 4096).decode("utf-8", errors="replace")
+                        if data:
+                            with self._buffer_lock:
+                                if fd == stdout_fd:
+                                    self._append_to_buffer(self.stdout_buffer, data)
+                                else:
+                                    self._append_to_buffer(self.stderr_buffer, data)
+                except (OSError, ValueError):
+                    break
 
         # Final read after process exits
         if self.process.stdout:
@@ -178,12 +208,15 @@ def start_background_job(command: str) -> BackgroundJob:
     job_id = _get_next_job_id()
 
     # Start process with separate stdout/stderr pipes
+    popen_kwargs: dict = {}
+    if not _is_windows:
+        popen_kwargs["start_new_session"] = True
     process = subprocess.Popen(
         ["bash", "-c", command],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
-        start_new_session=True,
+        **popen_kwargs,
     )
 
     job = BackgroundJob(
@@ -496,14 +529,23 @@ class ShellSession:
         atexit.register(self.close)
 
     def _init(self):
+        # Choose shell and process group settings based on platform
+        if _is_windows:
+            shell_cmd = ["bash"]  # Expect MSYS2/Git Bash on Windows
+            popen_kwargs: dict = {}  # No start_new_session on Windows
+        else:
+            shell_cmd = ["bash"]
+            popen_kwargs = {
+                "start_new_session": True,  # Create new process group for proper signal handling
+            }
         self.process = subprocess.Popen(
-            ["bash"],
+            shell_cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,  # Unbuffered
             universal_newlines=True,
-            start_new_session=True,  # Create new process group for proper signal handling
+            **popen_kwargs,
         )
         assert self.process.stdout is not None
         assert self.process.stderr is not None
@@ -541,6 +583,8 @@ class ShellSession:
 
     def _needs_tty(self, command: str) -> bool:
         """Check if a command needs a TTY (e.g. sudo password prompt) and we're interactive."""
+        if _is_windows:
+            return False  # No /dev/tty on Windows
         if not sys.stdin.isatty():
             return False
         # Check for sudo without -S (stdin password) or -n (non-interactive)
@@ -682,18 +726,42 @@ class ShellSession:
 
         # Issue #408: Drain any leftover stderr from previous commands BEFORE sending new command
         # This ensures we don't mix stderr from previous commands with the current one
-        while True:
-            pre_drain_rlist, _, _ = select.select([self.stderr_fd], [], [], 0.05)
-            if not pre_drain_rlist:
-                break
-            pre_drain_data = os.read(self.stderr_fd, 2**16).decode(
-                "utf-8", errors="replace"
-            )
-            if not pre_drain_data:
-                break
-            # Discard leftover stderr from previous commands
-            if pre_drain_data.strip():
-                logger.debug(f"Shell: Pre-command stderr drain: {pre_drain_data[:80]}")
+        if _is_windows:
+            # Windows: use non-blocking read to drain stderr
+            try:
+                os.set_blocking(self.stderr_fd, False)
+                while True:
+                    try:
+                        pre_drain_data = os.read(self.stderr_fd, 2**16).decode(
+                            "utf-8", errors="replace"
+                        )
+                        if not pre_drain_data:
+                            break
+                        if pre_drain_data.strip():
+                            logger.debug(
+                                f"Shell: Pre-command stderr drain: {pre_drain_data[:80]}"
+                            )
+                    except BlockingIOError:
+                        break
+                os.set_blocking(self.stderr_fd, True)
+            except OSError:
+                pass
+        else:
+            assert select is not None
+            while True:
+                pre_drain_rlist, _, _ = select.select([self.stderr_fd], [], [], 0.05)
+                if not pre_drain_rlist:
+                    break
+                pre_drain_data = os.read(self.stderr_fd, 2**16).decode(
+                    "utf-8", errors="replace"
+                )
+                if not pre_drain_data:
+                    break
+                # Discard leftover stderr from previous commands
+                if pre_drain_data.strip():
+                    logger.debug(
+                        f"Shell: Pre-command stderr drain: {pre_drain_data[:80]}"
+                    )
 
         # Generate unique command ID to prevent output mixing (Issue #408)
         cmd_id = f"{time.time_ns()}"
@@ -725,6 +793,186 @@ class ShellSession:
         return_code: int | None = None
         start_time = time.time() if timeout else None
 
+        if _is_windows:
+            return self._read_output_windows(
+                command,
+                output,
+                stdout,
+                stderr,
+                return_code,
+                seen_start_marker,
+                start_marker_pattern,
+                start_time,
+                timeout,
+            )
+        return self._read_output_unix(
+            command,
+            output,
+            stdout,
+            stderr,
+            return_code,
+            seen_start_marker,
+            start_marker_pattern,
+            start_time,
+            timeout,
+        )
+
+    def _read_output_windows(
+        self,
+        command: str,
+        output: bool,
+        stdout: list[str],
+        stderr: list[str],
+        return_code: int | None,
+        seen_start_marker: bool,
+        start_marker_pattern: str,
+        start_time: float | None,
+        timeout: float | None,
+    ) -> tuple[int | None, str, str]:
+        """Read command output on Windows using threads with non-blocking I/O."""
+        from queue import Empty, Queue
+
+        stdout_queue: Queue[str] = Queue()
+        stderr_queue: Queue[str] = Queue()
+        stop_event = threading.Event()
+
+        def read_stream(fd: int, queue: Queue[str]) -> None:
+            try:
+                os.set_blocking(fd, False)
+            except OSError:
+                pass
+            while not stop_event.is_set():
+                try:
+                    data = os.read(fd, 2**16).decode("utf-8", errors="replace")
+                    if not data:
+                        break
+                    queue.put(data)
+                except BlockingIOError:
+                    time.sleep(0.01)
+                except OSError:
+                    break
+
+        t_stdout = threading.Thread(
+            target=read_stream, args=(self.stdout_fd, stdout_queue), daemon=True
+        )
+        t_stderr = threading.Thread(
+            target=read_stream, args=(self.stderr_fd, stderr_queue), daemon=True
+        )
+        t_stdout.start()
+        t_stderr.start()
+
+        re_returncode = re.compile(r"ReturnCode:(\d+)")
+
+        try:
+            while not stop_event.is_set():
+                # Check timeout
+                if timeout and start_time:
+                    elapsed = time.time() - start_time
+                    if elapsed >= timeout:
+                        logger.info(f"Command timed out after {timeout} seconds")
+                        self._terminate_process()
+                        stop_event.set()
+                        return (
+                            -124,
+                            "".join(stdout).strip(),
+                            "".join(stderr).strip(),
+                        )
+
+                # Drain stdout queue
+                try:
+                    data = stdout_queue.get(timeout=0.1)
+                    lines = data.splitlines(keepends=True)
+                    for line in lines:
+                        if not seen_start_marker:
+                            if start_marker_pattern in line:
+                                seen_start_marker = True
+                                logger.debug(
+                                    f"Shell: Start marker detected: {start_marker_pattern[:50]}"
+                                )
+                            else:
+                                if line.strip():
+                                    logger.debug(
+                                        f"Shell: Discarding pre-marker output: {line[:80]}"
+                                    )
+                            continue
+
+                        if "ReturnCode:" in line and self.delimiter in line:
+                            logger.debug(
+                                f"Shell: Delimiter detected in line: {line.strip()[:200]}"
+                            )
+                            if match := re_returncode.search(line):
+                                return_code = int(match.group(1))
+                            if command.startswith("cd ") and return_code == 0:
+                                ex, pwd, _ = self._run("pwd", output=False)
+                                if ex == 0:
+                                    os.chdir(pwd.strip())
+
+                            # Drain remaining stderr
+                            stop_event.set()
+                            time.sleep(0.05)
+                            while not stderr_queue.empty():
+                                try:
+                                    err_data = stderr_queue.get_nowait()
+                                    stderr.append(err_data)
+                                    if output:
+                                        print(err_data, end="", file=sys.stderr)
+                                except Empty:
+                                    break
+                            return (
+                                return_code,
+                                "".join(stdout).strip(),
+                                "".join(stderr).strip(),
+                            )
+
+                        stdout.append(line)
+                        if output:
+                            print(line, end="", file=sys.stdout)
+                except Empty:
+                    pass
+
+                # Drain stderr queue
+                try:
+                    data = stderr_queue.get_nowait()
+                    lines = data.splitlines(keepends=True)
+                    for line in lines:
+                        stderr.append(line)
+                        if output:
+                            print(line, end="", file=sys.stderr)
+                except Empty:
+                    pass
+
+                # If both reader threads are dead, stop
+                if not t_stdout.is_alive() and not t_stderr.is_alive():
+                    break
+
+        except KeyboardInterrupt:
+            print()
+            logger.info("Process interrupted during output reading")
+            partial_stdout = "".join(stdout).strip()
+            partial_stderr = "".join(stderr).strip()
+            raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
+        finally:
+            stop_event.set()
+            t_stdout.join(timeout=0.5)
+            t_stderr.join(timeout=0.5)
+
+        # Fallback: if we get here without finding delimiter, return what we have
+        return (return_code, "".join(stdout).strip(), "".join(stderr).strip())
+
+    def _read_output_unix(
+        self,
+        command: str,
+        output: bool,
+        stdout: list[str],
+        stderr: list[str],
+        return_code: int | None,
+        seen_start_marker: bool,
+        start_marker_pattern: str,
+        start_time: float | None,
+        timeout: float | None,
+    ) -> tuple[int | None, str, str]:
+        """Read command output on Unix using select()."""
+        assert select is not None
         try:
             while True:
                 # Calculate remaining timeout
@@ -766,7 +1014,8 @@ class ShellSession:
 
                 for fd in rlist:
                     assert fd in [self.stdout_fd, self.stderr_fd]
-                    # We use a higher value, because there is a bug which leads to spaces at the boundary
+                    # We use a higher value, because there is a bug which leads to
+                    # spaces at the boundary
                     # 2**12 = 4096
                     # 2**16 = 65536
                     data = os.read(fd, 2**16).decode("utf-8", errors="replace")
@@ -779,51 +1028,53 @@ class ShellSession:
                             if start_marker_pattern in line:
                                 seen_start_marker = True
                                 logger.debug(
-                                    f"Shell: Start marker detected: {start_marker_pattern[:50]}"
+                                    f"Shell: Start marker detected: "
+                                    f"{start_marker_pattern[:50]}"
                                 )
                             else:
-                                # Discard output before start marker (leftover from previous commands)
+                                # Discard output before start marker (leftover
+                                # from previous commands)
                                 if line.strip():  # Only log non-empty lines
                                     logger.debug(
-                                        f"Shell: Discarding pre-marker output: {line[:80]}"
+                                        f"Shell: Discarding pre-marker output: "
+                                        f"{line[:80]}"
                                     )
                             continue
 
                         if "ReturnCode:" in line and self.delimiter in line:
-                            # Diagnostic logging for Issue #408: Log delimiter detection
+                            # Diagnostic logging for Issue #408
                             logger.debug(
-                                f"Shell: Delimiter detected in line: {line.strip()[:200]}"
+                                f"Shell: Delimiter detected in line: "
+                                f"{line.strip()[:200]}"
                             )
 
-                            # Capture last stdout before delimiter to detect unexpected content
+                            # Capture last stdout before delimiter
                             if stdout:
-                                # Get last 3 lines or all if fewer
                                 last_lines = stdout[-3:] if len(stdout) >= 3 else stdout
                                 last_stdout = "".join(last_lines).strip()[:300]
                                 logger.debug(
-                                    f"Shell: Last stdout before delimiter: {last_stdout}"
+                                    f"Shell: Last stdout before delimiter: "
+                                    f"{last_stdout}"
                                 )
 
                             if match := re_returncode.search(line):
                                 return_code = int(match.group(1))
-                            # if command is cd and successful, we need to change the directory
+                            # if command is cd, update working directory
                             if command.startswith("cd ") and return_code == 0:
                                 ex, pwd, _ = self._run("pwd", output=False)
                                 if ex != 0:
                                     logger.warning(
-                                        "pwd failed after cd, cannot update working directory"
+                                        "pwd failed after cd, cannot update "
+                                        "working directory"
                                     )
                                 else:
                                     os.chdir(pwd.strip())
 
-                            # Issue #408: Drain any remaining stderr before returning
-                            # This prevents stderr from leaking to the next command
-                            # Use multiple attempts with longer initial timeout to ensure
-                            # stderr has time to arrive from bash
+                            # Issue #408: Drain any remaining stderr before
+                            # returning. Use multiple attempts to ensure stderr
+                            # has time to arrive from bash.
                             drain_empty_count = 0
-                            while (
-                                drain_empty_count < 2
-                            ):  # Require 2 empty reads to be sure
+                            while drain_empty_count < 2:
                                 drain_rlist, _, _ = select.select(
                                     [self.stderr_fd], [], [], 0.1
                                 )
@@ -836,7 +1087,6 @@ class ShellSession:
                                 if not drain_data:
                                     drain_empty_count += 1
                                     continue
-                                # Reset counter when we get data
                                 drain_empty_count = 0
                                 stderr.append(drain_data)
                                 if output:
@@ -859,11 +1109,30 @@ class ShellSession:
             print()
             # Handle interrupt at the source - return partial output and re-raise
             logger.info("Process interrupted during output reading")
-            # Return partial output with a special return code to indicate interruption
             partial_stdout = "".join(stdout).strip()
             partial_stderr = "".join(stderr).strip()
-            # Use -999 as a special code to indicate interruption
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
+
+    def _terminate_process(self) -> None:
+        """Terminate the shell process, platform-aware."""
+        try:
+            if _is_windows:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=0.2)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=1.0)
+            else:
+                pgid = os.getpgid(self.process.pid)
+                os.killpg(pgid, signal.SIGTERM)
+                time.sleep(0.1)
+                if self.process.poll() is None:
+                    os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except Exception as e:
+            logger.warning(f"Error terminating process: {e}")
 
     def close(self):
         # Close stdin to signal no more input
@@ -871,17 +1140,7 @@ class ShellSession:
             self.process.stdin.close()
 
         # Terminate the process
-        try:
-            pgid = os.getpgid(self.process.pid)
-            os.killpg(pgid, signal.SIGTERM)
-            self.process.wait(timeout=0.2)
-            if self.process.poll() is None:
-                os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
-            # Process already exited; this can happen due to cleanup races.
-            pass
-        except Exception as e:
-            logger.warning(f"Error terminating process during close: {e}")
+        self._terminate_process()
 
         # Close stdout/stderr AFTER process is terminated to prevent broken pipes
         if self.process.stdout:
@@ -1454,13 +1713,23 @@ def execute_shell_impl(
         # Terminate subprocess gracefully
         logger.info("Shell command interrupted, sending SIGINT to subprocess")
         try:
-            pgid = os.getpgid(shell.process.pid)
-            os.killpg(pgid, signal.SIGINT)
-            shell.process.wait(timeout=2.0)
+            if _is_windows:
+                shell.process.terminate()
+                shell.process.wait(timeout=2.0)
+            else:
+                pgid = os.getpgid(shell.process.pid)
+                os.killpg(pgid, signal.SIGINT)
+                shell.process.wait(timeout=2.0)
         except subprocess.TimeoutExpired:
             logger.info("Process didn't exit gracefully, terminating")
-            pgid = os.getpgid(shell.process.pid)
-            os.killpg(pgid, signal.SIGTERM)
+            try:
+                if _is_windows:
+                    shell.process.kill()
+                else:
+                    pgid = os.getpgid(shell.process.pid)
+                    os.killpg(pgid, signal.SIGTERM)
+            except Exception:
+                pass
         except Exception as e:
             logger.warning(f"Error terminating interrupted process: {e}")
 

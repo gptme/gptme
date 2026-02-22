@@ -3,6 +3,18 @@ import logging
 import os
 import shutil
 import textwrap
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
+
+_msvcrt: object = None
+if os.name == "nt":
+    try:
+        import msvcrt as _msvcrt  # type: ignore[assignment]
+    except ImportError:
+        pass
 from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -141,7 +153,7 @@ class LogManager:
         # Create and optionally lock the directory
         self.logdir.mkdir(parents=True, exist_ok=True)
         is_pytest = "PYTEST_CURRENT_TEST" in os.environ
-        if lock and not is_pytest and os.name != "nt":
+        if lock and not is_pytest:
             self._lockfile = self.logdir / ".lock"
             self._lockfile.touch(exist_ok=True)
             self._lock_fd = self._lockfile.open("r+")
@@ -185,21 +197,22 @@ class LogManager:
         - Same-process detection (for server mode)
         - Stale lock recovery (dead process left lock)
         - PID tracking for debugging
+
+        Uses fcntl on Unix, msvcrt on Windows.
         """
         import atexit
-        import fcntl
 
         assert self._lock_fd is not None, "_acquire_lock called without open fd"
 
         try:
-            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._platform_lock(self._lock_fd)
             # Lock acquired - write our PID (seek/truncate first to clear old content)
             self._lock_fd.seek(0)
             self._lock_fd.truncate()
             self._lock_fd.write(str(os.getpid()))
             self._lock_fd.flush()
             atexit.register(self._release_lock)
-        except BlockingIOError:
+        except (BlockingIOError, OSError, PermissionError):
             # Lock is held - check if it's us or another process
             lock_pid = self._read_lock_pid()
 
@@ -218,9 +231,10 @@ class LogManager:
                     self._lock_fd.close()
                     self._lock_fd = None
                     raise RuntimeError(
-                        f"Another gptme instance (PID {lock_pid}) is using {self.logdir}"
+                        f"Another gptme instance (PID {lock_pid}) is using "
+                        f"{self.logdir}"
                     )
-                except ProcessLookupError:
+                except (ProcessLookupError, OSError):
                     # Process is dead - stale lock, recover it
                     logger.warning(f"Removing stale lock from dead process {lock_pid}")
                     assert self._lock_fd is not None
@@ -229,7 +243,7 @@ class LogManager:
                     self._lockfile.touch(exist_ok=True)
                     self._lock_fd = self._lockfile.open("r+")
                     # Retry lock acquisition
-                    fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    self._platform_lock(self._lock_fd)
                     self._lock_fd.seek(0)
                     self._lock_fd.truncate()
                     self._lock_fd.write(str(os.getpid()))
@@ -243,6 +257,31 @@ class LogManager:
             raise RuntimeError(
                 f"Another gptme instance is using {self.logdir}"
             ) from None
+
+    @staticmethod
+    def _platform_lock(fd: TextIO) -> None:
+        """Acquire a non-blocking exclusive lock using platform-appropriate API."""
+        if fcntl is not None:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        elif _msvcrt is not None:
+            # msvcrt.locking operates on a byte range; lock 1 byte at position 0
+            _msvcrt.locking(fd.fileno(), _msvcrt.LK_NBLCK, 1)  # type: ignore[union-attr]
+        else:
+            # No locking available — proceed without lock
+            pass
+
+    @staticmethod
+    def _platform_unlock(fd: TextIO) -> None:
+        """Release a lock using platform-appropriate API."""
+        if fcntl is not None:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        elif _msvcrt is not None:
+            # Unlock the same byte range we locked
+            try:
+                fd.seek(0)
+                _msvcrt.locking(fd.fileno(), _msvcrt.LK_UNLCK, 1)  # type: ignore[union-attr]
+            except OSError:
+                pass  # Lock already released or file closed
 
     def _read_lock_pid(self) -> int | None:
         """Read PID from lock file, or None if unreadable."""
@@ -258,13 +297,10 @@ class LogManager:
     def _release_lock(self):
         """Release the lock and close the file descriptor"""
         if self._lock_fd:
-            import fcntl
-
             try:
-                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                self._platform_unlock(self._lock_fd)
                 self._lock_fd.close()
                 self._lock_fd = None
-                # logger.debug(f"Released lock on {self.logdir}")
             except (OSError, ValueError) as e:
                 logger.warning(f"Error releasing lock: {e}")
 
