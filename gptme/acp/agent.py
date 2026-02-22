@@ -567,7 +567,9 @@ class GptmeAgent:
             # Keep _init_error set so prompt() can still surface it for retries
             # (the user may send a message before the notification is seen)
 
-        # Advertise available slash commands for client-side autocomplete
+        # Advertise available slash commands for client-side autocomplete.
+        # This is critical for Zed: without it, Zed blocks slash commands
+        # client-side with "command is not supported" before they reach gptme.
         if self._conn and not self._init_error:
             try:
                 from acp.helpers import (  # type: ignore[import-not-found]
@@ -588,9 +590,16 @@ class GptmeAgent:
                     update=update_available_commands(acp_commands),
                     source="gptme",
                 )
+                logger.info(
+                    f"Sent AvailableCommandsUpdate with {len(acp_commands)} commands"
+                )
             except Exception as e:
-                # Non-fatal: clients still work without autocomplete
-                logger.debug(f"Failed to send available commands: {e}")
+                # Log at warning level — this failure means slash commands
+                # won't work in Zed (it blocks them client-side without this)
+                logger.warning(
+                    f"Failed to send AvailableCommandsUpdate: {e}",
+                    exc_info=True,
+                )
 
         _NewSessionResponse = _check_acp_import(
             NewSessionResponse, "NewSessionResponse"
