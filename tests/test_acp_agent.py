@@ -662,10 +662,7 @@ class TestSendAvailableCommands:
         conn.session_update = AsyncMock(side_effect=RuntimeError("connection lost"))
         agent._conn = conn
 
-        try:
-            _run(agent._send_available_commands("session_1"))
-        except Exception:
-            pass
+        _run(agent._send_available_commands("session_1"))
 
         assert "session_1" not in agent._session_commands_advertised
 
