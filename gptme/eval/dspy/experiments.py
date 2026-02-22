@@ -6,7 +6,7 @@ Refactored to use composition and single responsibility principle.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -198,7 +198,7 @@ class ExperimentRunner:
             "tool_usage_score": baseline_results["tool_usage_score"],
             "judge_score": baseline_results["judge_score"],
             "num_examples": baseline_results["num_examples"],
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             "detailed_results": baseline_results,
         }
 
@@ -266,7 +266,7 @@ class OptimizationExperiment:
         self.results: dict[str, Any] = {
             "experiment_name": name,
             "model": model,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         }
 
     def run_baseline_evaluation(
@@ -307,7 +307,7 @@ class OptimizationExperiment:
             "base_prompt": base_prompt,
             "optimized_prompt": optimized_prompt,
             "results": optimization_results,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         }
 
         if "optimizations" not in self.results:
@@ -351,7 +351,7 @@ class OptimizationExperiment:
 
         self.results["comparisons"] = {
             "results": comparison_results,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             "num_examples": num_examples,
         }
 

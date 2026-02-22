@@ -8,7 +8,7 @@ import signal
 import sys
 import traceback
 import warnings
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
 from typing import Literal
@@ -353,7 +353,8 @@ def main(
         profile_dir = Path("profiles")
         profile_dir.mkdir(exist_ok=True)
         profile_path = (
-            profile_dir / f"gptme-{datetime.now().strftime('%Y%m%d-%H%M%S')}.prof"
+            profile_dir
+            / f"gptme-{datetime.now(tz=timezone.utc).strftime('%Y%m%d-%H%M%S')}.prof"
         )
 
         def save_profile():

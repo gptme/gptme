@@ -2,7 +2,7 @@
 
 import logging
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ...message import Message
@@ -137,7 +137,7 @@ def select_relevant_files(
                 candidates[f] = 0
 
     # Convert to FileItems with metadata
-    now = datetime.now().timestamp()
+    now = datetime.now(tz=timezone.utc).timestamp()
     file_items = []
 
     # Pre-calculate counts for mentioned files only (optimization)

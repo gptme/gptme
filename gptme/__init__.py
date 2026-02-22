@@ -6,4 +6,3 @@ from .message import Message
 from .prompts import get_prompt
 
 __all__ = ["chat", "LogManager", "Message", "get_prompt", "Codeblock", "__version__"]
-__version__ = __version__

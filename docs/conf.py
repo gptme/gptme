@@ -6,12 +6,12 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 import re
-from datetime import date
+from datetime import datetime, timezone
 
 from docutils import nodes
 from docutils.parsers.rst import Directive
 
-year = date.today().year
+year = datetime.now(tz=timezone.utc).year
 project = "gptme"
 copyright = f"{year}, Erik Bjäreholt"
 author = "Erik Bjäreholt"
