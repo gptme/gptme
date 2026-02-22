@@ -908,3 +908,17 @@ def test_user_config_no_local_toml(tmp_path):
     # Should work fine without config.local.toml
     config = Config(user=load_user_config(str(main_config)))
     assert config.user.prompt.about_user == "I am a developer."
+
+
+def test_cli_auto_envvar_prefix():
+    """Test that the main CLI command has auto_envvar_prefix='GPTME' set."""
+    from gptme.cli.main import main
+
+    # Verify the Click command has auto_envvar_prefix configured
+    assert main.context_settings.get("auto_envvar_prefix") == "GPTME"
+
+    # Verify key options would resolve to expected GPTME_* env var names
+    params = {p.name: p for p in main.params}
+    assert "model" in params, "CLI should have --model option"
+    assert "tool_format" in params, "CLI should have --tool-format option"
+    assert "workspace" in params, "CLI should have --workspace option"
