@@ -273,6 +273,64 @@ def test_message_conversion_with_tool_and_non_tool():
     ]
 
 
+def test_message_conversion_tool_response_with_image():
+    """Tool responses with image files should drop images (tool messages are text-only).
+
+    When a tool response (system + call_id) has image file attachments (e.g. from
+    view_image via ipython), _process_file must NOT change the role to "user" or
+    embed the images - OpenAI tool messages only support text content, and changing
+    the role would prevent _handle_tools from converting system+call_id to a proper
+    tool message.
+    """
+    import tempfile
+    from pathlib import Path
+
+    init_tools(allowlist=["save"])
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        # Write minimal PNG header (just needs to exist)
+        f.write(b"\x89PNG\r\n\x1a\n")
+        image_path = Path(f.name)
+
+    try:
+        messages = [
+            Message(role="user", content="Can you view this image?"),
+            Message(
+                role="assistant",
+                content='@ipython(call1): {"code": "view_image(\'/path/image.png\')"}',
+            ),
+            # Tool response with image file (like view_image returns)
+            Message(
+                role="system",
+                content="Viewing image at `/path/image.png`\nImage size: 100x100, 0.1KB",
+                call_id="call1",
+                files=[image_path],
+            ),
+        ]
+
+        tool_save = get_tool("save")
+        assert tool_save
+
+        model = get_model("openai/gpt-4o")
+        messages_dicts, _ = _prepare_messages_for_api(messages, model.full, [tool_save])
+
+        # The tool response should be a "tool" message with text-only content
+        # (images dropped, role not changed to "user")
+        tool_msg = messages_dicts[2]
+        assert tool_msg["role"] == "tool", "Tool response must have role='tool'"
+        assert tool_msg["tool_call_id"] == "call1"
+        # Content should be a list of text parts only, no image_url parts
+        content = tool_msg["content"]
+        assert isinstance(content, list), "Tool message content must be a list"
+        for part in content:
+            if isinstance(part, dict):
+                assert (
+                    part.get("type") != "image_url"
+                ), "Tool messages must not have images"
+    finally:
+        image_path.unlink(missing_ok=True)
+
+
 def test_timeout_default(monkeypatch):
     """Test that timeout uses NOT_GIVEN (client default) when LLM_API_TIMEOUT is not set."""
     from unittest.mock import Mock, patch
