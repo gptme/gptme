@@ -147,7 +147,13 @@ def main() -> int:
         )
         return 1
 
-    logger.info("Starting gptme ACP agent...")
+    try:
+        import importlib.metadata
+
+        _version = importlib.metadata.version("gptme")
+    except Exception:
+        _version = "unknown"
+    logger.info("Starting gptme ACP agent (v%s)...", _version)
 
     try:
         asyncio.run(_run_acp(real_stdin, real_stdout))
