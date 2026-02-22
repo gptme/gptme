@@ -348,8 +348,11 @@ def _replace_template_strings(path: Path, agent_name: str) -> None:
     to be replaced with the actual agent name. This performs the same replacements
     that fork.sh would do.
     """
+    skip_dirs = {"__pycache__", "node_modules", ".venv", ".git"}
     template_name = "gptme-agent"
     for filepath in path.rglob("*"):
+        if any(part in skip_dirs for part in filepath.parts):
+            continue
         if filepath.is_file() and not filepath.name.startswith("."):
             try:
                 content = filepath.read_text(encoding="utf-8")
