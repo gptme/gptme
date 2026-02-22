@@ -811,6 +811,18 @@ def _process_file(msg: dict[str, Any], model: ModelMeta) -> dict[str, Any]:
         The processed message dict with files converted to content parts.
         The returned dict conforms to MessageDict structure.
     """
+    # Tool response messages (system + call_id) cannot contain images:
+    # - OpenAI tool messages only support text content
+    # - Changing role to "user" would break _handle_tools which needs "system" role
+    # Drop any image files from tool responses; text content is preserved.
+    if "call_id" in msg:
+        msg.pop("files", None)
+        # Still convert content to list format for consistency
+        text = msg.get("content")
+        if not isinstance(text, list):
+            msg["content"] = [{"type": "text", "text": text}]
+        return msg
+
     message_content = msg.get("content")
 
     # combines a content message with a list of files
