@@ -812,3 +812,51 @@ class TestConnNullGuard:
 
         # Should not raise
         _run(agent._update_tool_call("s1", "call_1", ToolCallStatus.COMPLETED))
+
+
+class TestGetCommandsWithDescriptions:
+    """Tests for the get_commands_with_descriptions helper."""
+
+    def test_returns_nonempty_list(self):
+        """Should return a non-empty list of (name, description) tuples."""
+        from gptme.commands import get_commands_with_descriptions
+
+        commands = get_commands_with_descriptions()
+        assert len(commands) > 0
+        for name, desc in commands:
+            assert isinstance(name, str) and len(name) > 0
+            assert isinstance(desc, str) and len(desc) > 0
+
+    def test_includes_builtin_commands(self):
+        """Should include built-in commands like help, model, tools."""
+        from gptme.commands import get_commands_with_descriptions
+
+        names = {name for name, _ in get_commands_with_descriptions()}
+        assert "help" in names
+        assert "model" in names
+        assert "tools" in names
+
+    def test_descriptions_match_action_descriptions(self):
+        """Built-in command descriptions should match action_descriptions."""
+        from gptme.commands import get_commands_with_descriptions
+        from gptme.commands.meta import action_descriptions
+
+        cmd_dict = dict(get_commands_with_descriptions())
+        for name, desc in action_descriptions.items():
+            if name in cmd_dict:
+                assert cmd_dict[name] == desc
+
+    def test_sorted_by_name(self):
+        """Commands should be sorted alphabetically by name."""
+        from gptme.commands import get_commands_with_descriptions
+
+        commands = get_commands_with_descriptions()
+        names = [name for name, _ in commands]
+        assert names == sorted(names)
+
+    def test_no_duplicate_names(self):
+        """Each command name should appear only once."""
+        from gptme.commands import get_commands_with_descriptions
+
+        names = [name for name, _ in get_commands_with_descriptions()]
+        assert len(names) == len(set(names))

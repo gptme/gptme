@@ -195,6 +195,42 @@ def handle_cmd(
         print("Unknown command")
 
 
+def get_commands_with_descriptions() -> list[tuple[str, str]]:
+    """Get all registered commands with their descriptions.
+
+    Returns a sorted list of (name, description) tuples for all registered commands.
+    Uses action_descriptions for built-in commands, falls back to handler
+    docstrings for dynamically registered commands.
+    """
+    from .meta import action_descriptions
+
+    # Build a plain str->str lookup to avoid Literal key type constraints
+    desc_lookup: dict[str, str] = {str(k): v for k, v in action_descriptions.items()}
+
+    commands: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    for name in _command_registry:
+        if name in seen:
+            continue
+        seen.add(name)
+
+        if name in desc_lookup:
+            commands.append((name, desc_lookup[name]))
+        else:
+            # Fall back to handler docstring
+            handler = _command_registry[name]
+            doc = getattr(handler, "__doc__", None)
+            if not doc:
+                wrapped = getattr(handler, "__wrapped__", None)
+                if wrapped:
+                    doc = getattr(wrapped, "__doc__", None)
+            desc = doc.strip().split("\n")[0] if doc else f"/{name} command"
+            commands.append((name, desc))
+
+    return sorted(commands, key=lambda x: x[0])
+
+
 def get_user_commands() -> list[str]:
     """Returns a list of all user commands, including tool-registered commands"""
     # Get all registered commands (includes built-in + tool-registered)

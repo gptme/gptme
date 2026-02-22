@@ -567,6 +567,31 @@ class GptmeAgent:
             # Keep _init_error set so prompt() can still surface it for retries
             # (the user may send a message before the notification is seen)
 
+        # Advertise available slash commands for client-side autocomplete
+        if self._conn and not self._init_error:
+            try:
+                from acp.helpers import (
+                    update_available_commands,  # type: ignore[import-not-found]
+                )
+                from acp.schema import (
+                    AvailableCommand,  # type: ignore[import-not-found]
+                )
+
+                from ..commands import get_commands_with_descriptions
+
+                acp_commands = [
+                    AvailableCommand(name=f"/{name}", description=desc)
+                    for name, desc in get_commands_with_descriptions()
+                ]
+                await self._conn.session_update(
+                    session_id=session_id,
+                    update=update_available_commands(acp_commands),
+                    source="gptme",
+                )
+            except Exception as e:
+                # Non-fatal: clients still work without autocomplete
+                logger.debug(f"Failed to send available commands: {e}")
+
         _NewSessionResponse = _check_acp_import(
             NewSessionResponse, "NewSessionResponse"
         )
