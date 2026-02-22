@@ -7,7 +7,7 @@ complementing the existing persistent task management system in gptme-agent-temp
 Key principles:
 - Working Memory Layer: Ephemeral todos for current conversation context
 - Complements Persistent Tasks: Works alongside existing task files without conflicts
-- Simple State Model: pending, in_progress, completed
+- Simple State Model: pending, in_progress, completed, paused
 - Conversation Scoped: Resets between conversations, doesn't persist to disk
 - Auto-replay: Automatically restores todo state when resuming conversations
 """
@@ -81,7 +81,7 @@ def has_incomplete_todos() -> bool:
         True if there are any pending or in_progress todos.
     """
     for todo in _current_todos.values():
-        if todo["state"] in ("pending", "in_progress"):
+        if todo["state"] in ("pending", "in_progress", "paused"):
             return True
     return False
 
@@ -95,7 +95,7 @@ def get_incomplete_todos_summary() -> str:
     incomplete = [
         todo
         for todo in _current_todos.values()
-        if todo["state"] in ("pending", "in_progress")
+        if todo["state"] in ("pending", "in_progress", "paused")
     ]
     if not incomplete:
         return ""
@@ -107,7 +107,7 @@ def get_incomplete_todos_summary() -> str:
 
     lines = []
     for todo in incomplete:
-        state_emoji = "🔄" if todo["state"] == "in_progress" else "🔲"
+        state_emoji = {"in_progress": "🔄", "paused": "⏸️"}.get(todo["state"], "🔲")
         lines.append(f"  {state_emoji} {todo['text']}")
 
     return "\n".join(lines)
@@ -239,7 +239,7 @@ def _todowrite(operation: str, *args: str) -> str:
         update_value = " ".join(args[1:]).strip("\"'")
 
         # Check if it's a state update or text update
-        valid_states = ["pending", "in_progress", "completed"]
+        valid_states = ["pending", "in_progress", "completed", "paused"]
         if update_value in valid_states:
             _current_todos[todo_id]["state"] = update_value
             _current_todos[todo_id]["updated"] = datetime.now().isoformat()
@@ -395,13 +395,13 @@ Subcommands:
 
 Write operations (in content block):
 - add "todo text" - Add a new todo item
-- update ID state - Update todo state (pending/in_progress/completed)
+- update ID state - Update todo state (pending/in_progress/completed/paused)
 - update ID "new text" - Update todo text
 - remove ID - Remove a todo item
 - clear - Clear all todos
 - clear completed - Clear only completed todos
 
-States: pending, in_progress, completed
+States: pending, in_progress, completed, paused
 
 Use this tool frequently for complex multi-step tasks to:
 - Break down large tasks into smaller steps

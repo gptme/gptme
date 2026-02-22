@@ -79,6 +79,27 @@ def test_todowrite_update_state():
     assert _current_todos["1"]["state"] == "completed"
 
 
+def test_todowrite_update_paused():
+    """Test updating todo state to paused."""
+    _todowrite("add", "Test", "todo")
+
+    # Update state to paused
+    result = _todowrite("update", "1", "paused")
+    assert "Updated todo 1 state to: paused" in result
+    assert _current_todos["1"]["state"] == "paused"
+
+    # Verify paused shows correct emoji in list
+    result = _todoread()
+    assert "⏸️" in result
+
+    # Verify paused counts as incomplete
+    from gptme.tools.todo import get_incomplete_todos_summary, has_incomplete_todos
+
+    assert has_incomplete_todos()
+    summary = get_incomplete_todos_summary()
+    assert "Test todo" in summary
+
+
 def test_todowrite_update_text():
     """Test updating todo text."""
     # Add a todo first
