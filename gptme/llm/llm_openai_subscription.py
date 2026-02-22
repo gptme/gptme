@@ -295,7 +295,7 @@ def oauth_authenticate() -> SubscriptionAuth:
     server.timeout = 120  # 2 minutes should be sufficient for browser auth
 
     print("\n🔐 Opening browser for OpenAI authentication...")
-    print(f"   If browser doesn't open, visit: {auth_url[:80]}...")
+    print(f"   If browser doesn't open, visit:\n   {auth_url}")
 
     def open_browser() -> None:
         time.sleep(0.5)
