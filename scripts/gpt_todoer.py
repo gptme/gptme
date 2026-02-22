@@ -73,6 +73,7 @@ def _load_roam_todos(filter: str = "") -> str:
             path_todos,
         ],
         capture_output=True,
+        check=False,
     )
     if rg.returncode != 0:
         stderr_stripped = "\n".join(rg.stderr.decode("utf-8").split("\n")[:5])

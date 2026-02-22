@@ -167,6 +167,7 @@ class PRViewer:
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(f"Failed to get PR info: {result.stderr}")
