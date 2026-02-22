@@ -11,14 +11,13 @@ import contextvars
 import logging
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ..config import get_project_config
 from ..init import init
 from ..llm.models import get_default_model, set_default_model
 from ..logmanager import LogManager
-from ..message import Message
 from ..prompts import get_prompt
 from ..session import SessionRegistry
 from ..tools import get_tools, set_tools
@@ -30,6 +29,9 @@ from .types import (
     ToolCallStatus,
     gptme_tool_to_acp_kind,
 )
+
+if TYPE_CHECKING:
+    from ..message import Message
 
 logger = logging.getLogger(__name__)
 

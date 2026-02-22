@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, cast
 
 import tomlkit
 from tomlkit import TOMLDocument
-from tomlkit.container import Container
 from tomlkit.exceptions import TOMLKitError
 from typing_extensions import Self
 
@@ -25,6 +24,8 @@ from .tools import get_toolchain
 from .util import path_with_tilde
 
 if TYPE_CHECKING:
+    from tomlkit.container import Container
+
     from .tools.base import ToolFormat
 
 logger = logging.getLogger(__name__)

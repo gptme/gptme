@@ -11,7 +11,7 @@ from gptme.tools.base import (
 
 
 @pytest.mark.parametrize(
-    "tool_format, args, content, kwargs, expected",
+    ("tool_format", "args", "content", "kwargs", "expected"),
     [
         (
             "markdown",
@@ -73,7 +73,7 @@ def test_tool_use_output_patch(tool_format, args, content, kwargs, expected):
 
 
 @pytest.mark.parametrize(
-    "content, expected_tool, expected_json",
+    ("content", "expected_tool", "expected_json"),
     [
         (
             '@tool(tool_uid): {"param": "value"}',

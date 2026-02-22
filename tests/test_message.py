@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from gptme.message import Message, msgs_to_toml, toml_to_msgs
-from gptme.util.uri import FilePath
+
+if TYPE_CHECKING:
+    from gptme.util.uri import FilePath
 
 
 def test_toml():

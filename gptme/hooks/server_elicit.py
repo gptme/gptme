@@ -23,12 +23,16 @@ import logging
 import threading
 import uuid
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .elicitation import ElicitationRequest, ElicitationResponse
 
 # Re-use the context variables from server_confirm - these are set by the server
 # before starting tool execution and are the same context for confirm+elicit
 from .server_confirm import current_conversation_id, current_session_id
+
+if TYPE_CHECKING:
+    from ..server.api_v2_common import ElicitPendingEvent
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +135,6 @@ def server_elicit_hook(
         return None
 
     try:
-        from ..server.api_v2_common import ElicitPendingEvent
         from ..server.api_v2_sessions import SessionManager
 
         # Create pending elicitation

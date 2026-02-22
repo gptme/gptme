@@ -17,11 +17,14 @@ from __future__ import annotations
 import logging
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 # Use the global console from gptme.util (redirected to stderr in ACP mode)
 # instead of creating a separate instance that would default to stdout.
 from gptme.util import console
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

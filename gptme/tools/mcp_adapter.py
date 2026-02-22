@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Callable, Generator
 from logging import getLogger
 from typing import TYPE_CHECKING
 
 import mcp.types as mcp_types
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
+
     from ..hooks.elicitation import ElicitationRequest, ElicitationResponse
 
 from gptme.config import Config, MCPServerConfig, get_config, set_config

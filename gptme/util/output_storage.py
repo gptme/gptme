@@ -88,11 +88,7 @@ def create_tool_result_summary(
     command_info = None
 
     for line in lines[:10]:  # Check first 10 lines
-        if (
-            line.startswith("Ran command:")
-            or line.startswith("Executed:")
-            or line.startswith("Command:")
-        ):
+        if line.startswith(("Ran command:", "Executed:", "Command:")):
             command_info = line.strip()
             break
 

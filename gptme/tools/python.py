@@ -30,7 +30,10 @@ from .base import (
 )
 
 if TYPE_CHECKING:
-    from IPython.core.interactiveshell import InteractiveShell  # fmt: skip
+    from IPython.core.interactiveshell import (
+        ExecutionResult,
+        InteractiveShell,  # fmt: skip
+    )
 
 
 logger = getLogger(__name__)
@@ -188,7 +191,6 @@ def execute_python(
     kwargs: dict[str, str] | None,
 ) -> Generator[Message, None, None]:
     """Executes a python codeblock and returns the output."""
-    from IPython.core.interactiveshell import ExecutionResult  # fmt: skip
 
     if code is not None and args is not None:
         code = code.strip()

@@ -9,7 +9,6 @@ initialization across execution contexts.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
@@ -18,6 +17,8 @@ from .config import Config, set_config
 from .init import init_hooks, init_tools
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .config import ChatConfig
     from .tools import ToolSpec
 

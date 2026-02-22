@@ -162,8 +162,7 @@ def collect(model: str):
 
     # write to jsonl
     with open("train.jsonl", "w") as f:
-        for conv_dict in convs_dicts:
-            f.write(json.dumps(conv_dict) + "\n")
+        f.writelines(json.dumps(conv_dict) + "\n" for conv_dict in convs_dicts)
     print("Wrote train.jsonl")
 
     # outputs = pipe(

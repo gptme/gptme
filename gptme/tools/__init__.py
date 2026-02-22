@@ -5,7 +5,6 @@ import inspect
 import logging
 import pkgutil
 import threading
-from collections.abc import Generator
 from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -26,6 +25,8 @@ from .base import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from ..logmanager import Log
 
 logger = logging.getLogger(__name__)

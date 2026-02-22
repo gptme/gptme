@@ -71,7 +71,7 @@ PATH_LEXER_CASES = [
 ]
 
 
-@pytest.mark.parametrize("text_template,expected_token", PATH_LEXER_CASES)
+@pytest.mark.parametrize(("text_template", "expected_token"), PATH_LEXER_CASES)
 def test_path_lexer(test_dir, text_template, expected_token, monkeypatch):
     """Test path highlighting in the lexer."""
     lexer = PathLexer()

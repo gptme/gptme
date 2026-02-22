@@ -12,7 +12,7 @@ import time
 from collections.abc import Generator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from .__version__ import __version__
 from .config import config_path, get_config, get_project_config
@@ -24,7 +24,9 @@ from .util import document_prompt_function
 from .util.content import extract_content_summary
 from .util.context import md_codeblock
 from .util.tree import get_tree_output
-from .util.uri import FilePath
+
+if TYPE_CHECKING:
+    from .util.uri import FilePath
 
 # Default files to include in context when no gptme.toml is present or files list is empty
 DEFAULT_CONTEXT_FILES = [

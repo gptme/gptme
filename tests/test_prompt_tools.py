@@ -5,7 +5,7 @@ from gptme.tools import ToolFormat, clear_tools, init_tools
 
 
 @pytest.mark.parametrize(
-    "tool_format, example, expected, not_expected",
+    ("tool_format", "example", "expected", "not_expected"),
     [
         (
             "markdown",

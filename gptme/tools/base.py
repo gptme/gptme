@@ -29,11 +29,11 @@ import json_repair
 from lxml import etree
 
 from ..codeblock import Codeblock
-from ..hooks import HookFunc
 from ..message import Message
 from ..util import clean_example, transform_examples_to_chat_directives
 
 if TYPE_CHECKING:
+    from ..hooks import HookFunc
     from ..logmanager import Log
 
 logger = logging.getLogger(__name__)
@@ -735,11 +735,7 @@ def get_path(
     """Get the path from args/kwargs for save, append, and patch."""
     if code is not None and args is not None:
         fn = " ".join(args)
-        if (
-            fn.startswith("save ")
-            or fn.startswith("append ")
-            or fn.startswith("patch ")
-        ):
+        if fn.startswith(("save ", "append ", "patch ")):
             fn = fn.split(" ", 1)[1]
     elif kwargs is not None:
         fn = kwargs.get("path", "")

@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from openai import OpenAI  # fmt: skip
     from openai.types.chat import ChatCompletionToolParam  # fmt: skip
 
-    from . import is_custom_provider  # fmt: skip
 
 # Dictionary to store clients for each provider (includes custom providers)
 clients: dict[Provider, "OpenAI"] = {}
