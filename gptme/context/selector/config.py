@@ -1,7 +1,7 @@
 """Configuration schema for context selector."""
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 
 @dataclass
@@ -30,7 +30,7 @@ class ContextSelectorConfig:
     file_recency_weight: float = 1.0
 
     @classmethod
-    def from_dict(cls, config_dict: dict) -> "ContextSelectorConfig":
+    def from_dict(cls, config_dict: dict[str, Any]) -> "ContextSelectorConfig":
         """Create config from dictionary (typically from gptme.toml)."""
         return cls(
             **{k: v for k, v in config_dict.items() if k in cls.__dataclass_fields__}
