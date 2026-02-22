@@ -13,6 +13,7 @@ Key functions:
 """
 
 import logging
+import re
 import shlex
 import shutil
 import subprocess
@@ -134,6 +135,7 @@ def create_workspace_from_template(
             # No fork command - move temp dir and create clean git history
             # (without this, the full template repo history would be included)
             shutil.move(str(temp_dir), str(path))
+            _replace_template_strings(path, agent_name)
             _reset_git_history(path, agent_name)
 
         # Merge project config with template config
@@ -336,6 +338,36 @@ def init_conversation(
     log.write()
 
     return conversation_id
+
+
+def _replace_template_strings(path: Path, agent_name: str) -> None:
+    """Replace template placeholder strings with the agent name in all text files.
+
+    When creating a workspace without a fork command, template files contain
+    placeholder strings like "gptme-agent-template" and "gptme-agent" that need
+    to be replaced with the actual agent name. This performs the same replacements
+    that fork.sh would do.
+    """
+    template_name = "gptme-agent"
+    for filepath in path.rglob("*"):
+        if filepath.is_file() and not filepath.name.startswith("."):
+            try:
+                content = filepath.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, PermissionError):
+                continue
+            original = content
+            # Replace "gptme-agent-template" first (more specific, avoids double-replace)
+            content = content.replace(f"{template_name}-template", agent_name)
+            # Then replace "gptme-agent"
+            content = content.replace(template_name, agent_name)
+            # Strip template comment blocks
+            content = re.sub(
+                r"<!--template-->.*?<!--/template-->", "", content, flags=re.DOTALL
+            )
+            if content != original:
+                filepath.write_text(content, encoding="utf-8")
+                logger.debug(f"Replaced template strings in {filepath}")
+    logger.info(f"Replaced template strings with '{agent_name}' in workspace")
 
 
 def _reset_git_history(path: Path, agent_name: str) -> None:
