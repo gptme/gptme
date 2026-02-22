@@ -208,18 +208,19 @@ def get_commands_with_descriptions() -> list[tuple[str, str]]:
     desc_lookup: dict[str, str] = {str(k): v for k, v in action_descriptions.items()}
 
     commands: list[tuple[str, str]] = []
-    seen: set[str] = set()
+    seen_handlers: set[int] = set()  # Track handler object IDs to skip aliases
 
     for name in _command_registry:
-        if name in seen:
+        handler = _command_registry[name]
+        handler_id = id(handler)
+        if handler_id in seen_handlers:
             continue
-        seen.add(name)
+        seen_handlers.add(handler_id)
 
         if name in desc_lookup:
             commands.append((name, desc_lookup[name]))
         else:
             # Fall back to handler docstring
-            handler = _command_registry[name]
             doc = getattr(handler, "__doc__", None)
             if not doc:
                 wrapped = getattr(handler, "__wrapped__", None)

@@ -570,11 +570,11 @@ class GptmeAgent:
         # Advertise available slash commands for client-side autocomplete
         if self._conn and not self._init_error:
             try:
-                from acp.helpers import (
-                    update_available_commands,  # type: ignore[import-not-found]
+                from acp.helpers import (  # type: ignore[import-not-found]
+                    update_available_commands,
                 )
-                from acp.schema import (
-                    AvailableCommand,  # type: ignore[import-not-found]
+                from acp.schema import (  # type: ignore[import-not-found]
+                    AvailableCommand,
                 )
 
                 from ..commands import get_commands_with_descriptions
