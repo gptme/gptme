@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from typing import (
+    TYPE_CHECKING,
     Literal,
     TypedDict,
     cast,
@@ -13,6 +14,9 @@ from typing import (
 from typing_extensions import NotRequired
 
 from .llm_openai_models import OPENAI_MODELS
+
+if TYPE_CHECKING:
+    from ..tools.base import ToolFormat
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +109,7 @@ class ModelMeta:
     deprecated: bool = False
 
     # preferred tool format for this model (used as fallback when not explicitly set)
-    default_tool_format: str | None = None
+    default_tool_format: "ToolFormat | None" = None
 
     @property
     def full(self) -> str:
@@ -132,7 +136,7 @@ class _ModelDictMeta(TypedDict):
     deprecated: NotRequired[bool]
 
     # preferred tool format for this model
-    default_tool_format: NotRequired[str]
+    default_tool_format: NotRequired["ToolFormat"]
 
 
 # default model - using ContextVar for thread safety
