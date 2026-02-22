@@ -26,6 +26,9 @@ MODEL_ALIASES: dict[str, dict[str, str]] = {
         "claude-opus-4-1": "claude-opus-4-1-20250805",
         "claude-opus-4-0": "claude-opus-4-20250514",
         "claude-sonnet-4-0": "claude-sonnet-4-20250514",
+        "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
+        "claude-opus-4-5": "claude-opus-4-5-20251101",
+        "claude-haiku-4-5": "claude-haiku-4-5-20251001",
     },
 }
 
@@ -183,7 +186,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
                 2026, 1, 1
             ),  # training cutoff Jan 2026, reliable Aug 2025
         },
-        "claude-opus-4-5": {
+        "claude-opus-4-5-20251101": {
             "context": 200_000,
             "max_output": 64_000,
             "price_input": 5,
@@ -194,7 +197,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
                 2025, 8, 1
             ),  # training cutoff Aug 2025, reliable May 2025
         },
-        "claude-sonnet-4-5": {
+        "claude-sonnet-4-5-20250929": {
             "context": 200_000,
             "max_output": 64_000,
             "price_input": 3,
@@ -205,7 +208,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
                 2025, 7, 1
             ),  # training cutoff Jul 2025, reliable Jan 2025
         },
-        "claude-haiku-4-5": {
+        "claude-haiku-4-5-20251001": {
             "context": 200_000,
             "max_output": 64_000,
             "price_input": 1,
@@ -243,22 +246,13 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
         "claude-3-7-sonnet-20250219": {
             "context": 200_000,
-            # TODO: supports beta header `output-128k-2025-02-19` for 128k output option
             "max_output": 8192,
             "price_input": 3,
             "price_output": 15,
             "supports_vision": True,
             "supports_reasoning": True,
             "knowledge_cutoff": datetime(2024, 10, 1),
-        },
-        "claude-3-7-sonnet-latest": {
-            "context": 200_000,
-            "max_output": 8192,
-            "price_input": 3,
-            "price_output": 15,
-            "supports_vision": True,
-            "supports_reasoning": True,
-            "knowledge_cutoff": datetime(2024, 10, 1),
+            "deprecated": True,  # superseded by claude-sonnet-4+
         },
         "claude-3-5-sonnet-20241022": {
             "context": 200_000,
@@ -267,6 +261,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_vision": True,
             "knowledge_cutoff": datetime(2024, 4, 1),
+            "deprecated": True,  # superseded by claude-sonnet-4+
         },
         "claude-3-5-sonnet-20240620": {
             "context": 200_000,
@@ -277,14 +272,6 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "knowledge_cutoff": datetime(2024, 4, 1),
             "deprecated": True,  # superseded by claude-3-5-sonnet-20241022
         },
-        "claude-3-5-sonnet-latest": {
-            "context": 200_000,
-            "max_output": 8192,
-            "price_input": 3,
-            "price_output": 15,
-            "supports_vision": True,
-            "knowledge_cutoff": datetime(2024, 4, 1),
-        },
         "claude-3-5-haiku-20241022": {
             "context": 200_000,
             "max_output": 8192,
@@ -292,14 +279,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 5,
             "supports_vision": True,
             "knowledge_cutoff": datetime(2024, 4, 1),
-        },
-        "claude-3-5-haiku-latest": {
-            "context": 200_000,
-            "max_output": 8192,
-            "price_input": 1,
-            "price_output": 5,
-            "supports_vision": True,
-            "knowledge_cutoff": datetime(2024, 4, 1),
+            "deprecated": True,  # superseded by claude-haiku-4-5
         },
         "claude-3-haiku-20240307": {
             "context": 200_000,
