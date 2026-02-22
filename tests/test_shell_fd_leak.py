@@ -25,15 +25,15 @@ def test_shell_session_pipes_closed_after_close():
     # After close, these file descriptors should be closed
     # Trying to use them should raise OSError (bad file descriptor)
     if stdout_fd is not None:
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, match="Bad file descriptor"):
             os.fstat(stdout_fd)
 
     if stderr_fd is not None:
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, match="Bad file descriptor"):
             os.fstat(stderr_fd)
 
     if stdin_fd is not None:
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, match="Bad file descriptor"):
             os.fstat(stdin_fd)
 
 
@@ -59,7 +59,7 @@ def test_conversation_shell_cleanup():
 
     # File descriptors should be closed
     if stdout_fd is not None:
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, match="Bad file descriptor"):
             os.fstat(stdout_fd)
 
 

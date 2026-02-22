@@ -212,7 +212,9 @@ invalid: yaml: syntax:
 """
             lesson_file.write_text(content)
 
-            with pytest.raises(ValueError) as exc_info:
+            with pytest.raises(
+                ValueError, match="Invalid YAML frontmatter"
+            ) as exc_info:
                 parse_lesson(lesson_file)
             assert "Invalid YAML frontmatter" in str(exc_info.value)
 

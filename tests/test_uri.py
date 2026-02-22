@@ -43,11 +43,11 @@ class TestURI:
 
     def test_uri_invalid(self):
         """Test that invalid URIs raise ValueError."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid URI"):
             URI("not-a-uri")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid URI"):
             URI("/local/path")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid URI"):
             URI("relative/path.txt")
 
     def test_uri_equality(self):

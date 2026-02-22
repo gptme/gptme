@@ -49,7 +49,7 @@ def test_init_tools_allowlist_from_env():
 
 
 def test_init_tools_fails():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not found"):
         init_tools(allowlist=["save", "missing_tool"])
 
 

@@ -15,11 +15,11 @@ from pathlib import Path
 from .. import llm as _llm  # noqa: F401
 
 # Import command modules to register their commands
-from . import (
-    export,  # noqa: F401
-    llm,  # noqa: F401
-    meta,  # noqa: F401
-    session,  # noqa: F401
+from . import (  # noqa: F401
+    export,
+    llm,
+    meta,
+    session,
 )
 
 # Re-export core types and functions from base

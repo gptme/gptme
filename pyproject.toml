@@ -210,7 +210,7 @@ select = [
     "RUF010", "RUF019", "RUF100",  # ruff-specific
     "PLW1510",  # subprocess-run-without-check
     "TCH001", "TCH002", "TCH003", "TCH004",  # flake8-type-checking
-    "PT003", "PT006", "PT022",  # pytest style (auto-fixable subset)
+    "PT003", "PT006", "PT011", "PT022",  # pytest style
 ]
 ignore = ["E402", "E501", "B905"]
 #fixable = ["ALL"]

@@ -98,7 +98,7 @@ def test_recover_from_master_context_invalid_json():
 
     try:
         byte_range = MessageByteRange(message_idx=0, byte_start=0, byte_end=22)
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError, match="Invalid JSON at byte range") as excinfo:
             recover_from_master_context(path, byte_range)
         assert "Invalid JSON at byte range" in str(excinfo.value)
     finally:
@@ -118,7 +118,7 @@ def test_recover_from_master_context_missing_content():
             data = rf.read()
         byte_range = MessageByteRange(message_idx=0, byte_start=0, byte_end=len(data))
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError, match="has no 'content' field") as excinfo:
             recover_from_master_context(path, byte_range)
         assert "has no 'content' field" in str(excinfo.value)
     finally:

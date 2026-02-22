@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-import tomlkit  # noqa
 
 from gptme.config import ChatConfig, MCPConfig
 from gptme.llm.models import ModelMeta, get_default_model
