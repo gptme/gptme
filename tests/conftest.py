@@ -198,6 +198,7 @@ def cleanup_tmux_sessions():
         try:
             result = subprocess.run(
                 ["tmux", "list-sessions", "-F", "#{session_name}"],
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -210,6 +211,7 @@ def cleanup_tmux_sessions():
                     if simple_session_pattern.match(session):
                         subprocess.run(
                             ["tmux", "kill-session", "-t", session],
+                            check=False,
                             capture_output=True,
                             timeout=5,
                         )

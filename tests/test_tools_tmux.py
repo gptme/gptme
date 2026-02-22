@@ -80,6 +80,7 @@ def cleanup_sessions(worker_id):
             if session.startswith(f"gptme_{worker_id}_"):
                 subprocess.run(
                     ["tmux", "kill-session", "-t", session],
+                    check=False,
                     capture_output=True,
                 )
 
@@ -105,6 +106,7 @@ def cleanup_new_session_sessions():
                 if re.fullmatch(r"gptme_\d+", session):
                     subprocess.run(
                         ["tmux", "kill-session", "-t", session],
+                        check=False,
                         capture_output=True,
                     )
 

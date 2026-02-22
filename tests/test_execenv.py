@@ -225,6 +225,7 @@ class TestDockerGPTMeEnvIntegration:
         try:
             result = subprocess.run(
                 ["docker", "info"],
+                check=False,
                 capture_output=True,
                 timeout=10,
             )
@@ -240,6 +241,7 @@ class TestDockerGPTMeEnvIntegration:
 
         result = subprocess.run(
             ["docker", "images", "-q", "gptme-eval:latest"],
+            check=False,
             capture_output=True,
             text=True,
         )
