@@ -153,7 +153,7 @@ def docker_reexec(argv: list[str]) -> None:
     logger.info(f"Re-executing inside Docker: {' '.join(redact_env_args(docker_cmd))}")
 
     # Run and exit with same code
-    result = subprocess.run(docker_cmd)
+    result = subprocess.run(docker_cmd, check=False)
     sys.exit(result.returncode)
 
 
@@ -531,6 +531,7 @@ def write_results(model_results: dict[ModelConfig, list[EvalResult]]):
     # TODO: don't assume we are in the gptme repo, use other version identifiers if available
     commit_hash = subprocess.run(
         ["git", "describe", "--always", "--dirty", "--exclude", "'*'"],
+        check=False,
         text=True,
         capture_output=True,
     ).stdout.strip()

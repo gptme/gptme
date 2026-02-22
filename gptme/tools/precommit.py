@@ -216,7 +216,11 @@ def run_precommit_on_file(
     try:
         # Check if pre-commit is available
         check_result = subprocess.run(
-            ["pre-commit", "--version"], capture_output=True, text=True, timeout=5
+            ["pre-commit", "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if check_result.returncode != 0:
             logger.debug("pre-commit not available, skipping hook")
@@ -232,6 +236,7 @@ def run_precommit_on_file(
         # Run pre-commit on the specific file
         result = subprocess.run(
             ["pre-commit", "run", "--files", str(path)],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,

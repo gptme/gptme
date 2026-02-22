@@ -91,7 +91,11 @@ def play_with_system_command_blocking(file_path: Path, volume: float = 1.0) -> b
 def stop_system_audio():
     """Stop any running subprocess audio players."""
     try:
-        subprocess.run(["pkill", "-f", "paplay"], capture_output=True, timeout=2)
-        subprocess.run(["pkill", "-f", "ffplay"], capture_output=True, timeout=2)
+        subprocess.run(
+            ["pkill", "-f", "paplay"], check=False, capture_output=True, timeout=2
+        )
+        subprocess.run(
+            ["pkill", "-f", "ffplay"], check=False, capture_output=True, timeout=2
+        )
     except Exception:
         pass

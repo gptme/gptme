@@ -1563,6 +1563,7 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
 
         result = subprocess.run(
             shellcheck_cmd,
+            check=False,
             capture_output=True,
             text=True,
             timeout=5,

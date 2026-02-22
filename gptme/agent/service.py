@@ -121,7 +121,7 @@ class SystemdManager(ServiceManager):
     def _run_systemctl(self, *args: str) -> subprocess.CompletedProcess:
         """Run systemctl with user flag."""
         cmd = ["systemctl", "--user", *args]
-        return subprocess.run(cmd, capture_output=True, text=True)
+        return subprocess.run(cmd, check=False, capture_output=True, text=True)
 
     def install(
         self,
@@ -293,7 +293,7 @@ WantedBy=timers.target
             # For follow mode, we need to exec
             os.execvp("journalctl", cmd)
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
         return result.stdout
 
     def list_agents(self) -> list[str]:
@@ -415,7 +415,7 @@ class LaunchdManager(ServiceManager):
     def _run_launchctl(self, *args: str) -> subprocess.CompletedProcess:
         """Run launchctl command."""
         cmd = ["launchctl", *args]
-        return subprocess.run(cmd, capture_output=True, text=True)
+        return subprocess.run(cmd, check=False, capture_output=True, text=True)
 
     def _is_loaded(self, name: str) -> bool:
         """Check if the agent plist is currently loaded."""
@@ -564,6 +564,7 @@ class LaunchdManager(ServiceManager):
         # Get last N lines
         result = subprocess.run(
             ["tail", "-n", str(lines), str(log_path)],
+            check=False,
             capture_output=True,
             text=True,
         )

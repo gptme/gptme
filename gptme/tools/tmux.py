@@ -113,6 +113,7 @@ def _run_tmux_command(cmd: list[str]) -> subprocess.CompletedProcess:
 def get_sessions() -> list[str]:
     output = subprocess.run(
         ["tmux", "has"],
+        check=False,
         capture_output=True,
         text=True,
     )
@@ -120,6 +121,7 @@ def get_sessions() -> list[str]:
         return []
     output = subprocess.run(
         ["tmux", "list-sessions"],
+        check=False,
         capture_output=True,
         text=True,
     )
@@ -138,6 +140,7 @@ def _capture_pane(pane_id: str) -> str:
         # -S -: start from beginning of scrollback
         # -E -: end at bottom of scrollback
         ["tmux", "capture-pane", "-p", "-S", "-", "-E", "-", "-t", pane_id],
+        check=False,
         capture_output=True,
         text=True,
     )
@@ -223,6 +226,7 @@ def send_keys(pane_id: str, keys: str) -> Message:
         key_args = [keys]
     result = subprocess.run(
         ["tmux", "send-keys", "-t", pane_id, *key_args],
+        check=False,
         capture_output=True,
         text=True,
     )

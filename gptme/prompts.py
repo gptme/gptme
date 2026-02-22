@@ -655,6 +655,7 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
         start = time.time()
         result = subprocess.run(
             cmd,
+            check=False,
             cwd=workspace,
             shell=True,
             capture_output=True,

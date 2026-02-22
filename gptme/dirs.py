@@ -106,6 +106,7 @@ def get_workspace() -> Path:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
+            check=False,
             capture_output=True,
             text=True,
             timeout=5,
@@ -117,6 +118,7 @@ def get_workspace() -> Path:
                 try:
                     super_result = subprocess.run(
                         ["git", "rev-parse", "--show-superproject-working-tree"],
+                        check=False,
                         capture_output=True,
                         text=True,
                         timeout=5,

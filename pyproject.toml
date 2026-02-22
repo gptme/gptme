@@ -208,6 +208,7 @@ select = [
     "PIE790", # flake8-pie
     "RET501", "RET505", "RET506", "RET507", "RET508",  # flake8-return
     "RUF010", "RUF019", "RUF100",  # ruff-specific
+    "PLW1510",  # subprocess-run-without-check
 ]
 ignore = ["E402", "E501", "B905"]
 #fixable = ["ALL"]

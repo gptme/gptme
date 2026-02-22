@@ -27,6 +27,7 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--is-inside-work-tree"],
+            check=False,
             cwd=workspace,
             capture_output=True,
             text=True,
@@ -62,6 +63,7 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
         try:
             result = subprocess.run(
                 shlex.split(methods[current_method]),
+                check=False,
                 cwd=workspace,
                 capture_output=True,
                 text=True,
