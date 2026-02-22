@@ -1032,6 +1032,21 @@ def reload_config() -> Config:
     return config
 
 
+def _get_model_default_tool_format(model: str | None) -> str | None:
+    """Get the model's preferred tool format, if any.
+
+    Returns the default_tool_format from ModelMeta, or None if not set."""
+    if not model:
+        return None
+    try:
+        from .llm.models import get_model
+
+        meta = get_model(model)
+        return meta.default_tool_format
+    except Exception:
+        return None
+
+
 def setup_config_from_cli(
     workspace: Path,
     logdir: Path,
@@ -1121,10 +1136,20 @@ def setup_config_from_cli(
         # When resuming, use saved conversation tool_format unless CLI override provided
         resolved_tool_format = existing_chat_config.tool_format
     else:
-        # Fall back to env/config for new conversations or when no saved tool_format
-        resolved_tool_format = (
-            cast("ToolFormat", config.get_env("TOOL_FORMAT")) or "markdown"
-        )
+        # Fall back to env/config, then model default, then "markdown"
+        env_tool_format = config.get_env("TOOL_FORMAT")
+        model_tool_format = _get_model_default_tool_format(resolved_model)
+        if env_tool_format:
+            resolved_tool_format = cast("ToolFormat", env_tool_format)
+        elif model_tool_format:
+            resolved_tool_format = cast("ToolFormat", model_tool_format)
+            logger.info(
+                "Using model default tool_format=%s for %s",
+                model_tool_format,
+                resolved_model,
+            )
+        else:
+            resolved_tool_format = "markdown"
 
     # Handle agent_path with similar precedence
     resolved_agent_path: Path | None = agent_path

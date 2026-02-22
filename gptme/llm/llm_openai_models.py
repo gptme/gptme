@@ -17,6 +17,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "supports_vision": True,
         "supports_reasoning": True,
         "knowledge_cutoff": datetime(2024, 9, 30),
+        "default_tool_format": "tool",
     },
     "gpt-5-mini": {
         "context": 400_000,
@@ -26,6 +27,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "supports_vision": True,
         "supports_reasoning": True,
         "knowledge_cutoff": datetime(2024, 5, 31),
+        "default_tool_format": "tool",
     },
     "gpt-5-nano": {
         "context": 400_000,
@@ -35,6 +37,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "supports_vision": True,
         "supports_reasoning": True,
         "knowledge_cutoff": datetime(2024, 5, 31),
+        "default_tool_format": "tool",
     },
     # GPT-4.1
     "gpt-4.1": {
@@ -44,6 +47,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 8,
         "supports_vision": True,
         "knowledge_cutoff": datetime(2024, 6, 1),
+        "default_tool_format": "tool",
     },
     "gpt-4.1-mini": {
         "context": 1_047_576,
@@ -52,6 +56,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 1.6,
         "supports_vision": True,
         "knowledge_cutoff": datetime(2024, 6, 1),
+        "default_tool_format": "tool",
     },
     "gpt-4.1-nano": {
         "context": 1_047_576,
@@ -60,6 +65,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 0.4,
         "supports_vision": True,
         "knowledge_cutoff": datetime(2024, 6, 1),
+        "default_tool_format": "tool",
     },
     # GPT-4o
     "gpt-4o": {
@@ -69,6 +75,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "supports_vision": True,
         # October 2023
         "knowledge_cutoff": datetime(2023, 10, 1),
+        "default_tool_format": "tool",
     },
     "gpt-4o-2024-08-06": {
         "context": 128_000,
@@ -91,6 +98,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 0.6,
         "supports_vision": True,
         "knowledge_cutoff": datetime(2023, 10, 1),
+        "default_tool_format": "tool",
     },
     "gpt-4o-mini-2024-07-18": {
         "context": 128_000,
@@ -107,6 +115,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 4.4,
         "supports_vision": True,
         "supports_reasoning": True,
+        "default_tool_format": "tool",
     },
     # OpenAI o3
     "o3": {
@@ -116,6 +125,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 8,
         "supports_vision": True,
         "supports_reasoning": True,
+        "default_tool_format": "tool",
     },
     "o3-mini": {
         "context": 200_000,
@@ -123,6 +133,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 1.1,
         "price_output": 4.4,
         "supports_reasoning": True,
+        "default_tool_format": "tool",
     },
     # OpenAI o1
     "o1": {

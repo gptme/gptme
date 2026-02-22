@@ -104,6 +104,9 @@ class ModelMeta:
     # whether the model is deprecated/sunset by the provider
     deprecated: bool = False
 
+    # preferred tool format for this model (used as fallback when not explicitly set)
+    default_tool_format: str | None = None
+
     @property
     def full(self) -> str:
         # For unknown providers (including custom providers), the model field
@@ -128,6 +131,9 @@ class _ModelDictMeta(TypedDict):
     knowledge_cutoff: NotRequired[datetime]
     deprecated: NotRequired[bool]
 
+    # preferred tool format for this model
+    default_tool_format: NotRequired[str]
+
 
 # default model - using ContextVar for thread safety
 _default_model_var: ContextVar[ModelMeta | None] = ContextVar(
@@ -141,6 +147,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
     # All models share same specs; price is 0 since using existing subscription
     # Reasoning level suffix (e.g., :high) is stripped at lookup time in get_model()
+    # These models work best with native tool calling ("tool" format)
     "openai-subscription": {
         model: {
             "context": 128_000,
@@ -150,6 +157,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_streaming": True,
             "supports_vision": True,
             "supports_reasoning": True,
+            "default_tool_format": "tool",
         }
         for model in [
             "gpt-5.3-codex",
