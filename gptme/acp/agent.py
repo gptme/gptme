@@ -105,6 +105,10 @@ class GptmeAgent:
         self._tool_calls: dict[str, dict[str, ToolCall]] = {}
         # Phase 2: Permission policies per session (allow_always, reject_always)
         self._permission_policies: dict[str, dict[str, str]] = {}
+        # Track sessions where AvailableCommandsUpdate was successfully sent.
+        # Used to resend on first prompt() if new_session() notification was lost
+        # (race condition: Zed may not set up listener until after NewSessionResponse).
+        self._session_commands_advertised: set[str] = set()
 
     def on_connect(self, conn: Any) -> None:
         """Called when a client connects.
@@ -567,35 +571,54 @@ class GptmeAgent:
             # Keep _init_error set so prompt() can still surface it for retries
             # (the user may send a message before the notification is seen)
 
-        # Advertise available slash commands for client-side autocomplete
-        if self._conn and not self._init_error:
-            try:
-                from acp.helpers import (  # type: ignore[import-not-found]
-                    update_available_commands,
-                )
-                from acp.schema import (  # type: ignore[import-not-found]
-                    AvailableCommand,
-                )
-
-                from ..commands import get_commands_with_descriptions
-
-                acp_commands = [
-                    AvailableCommand(name=f"/{name}", description=desc)
-                    for name, desc in get_commands_with_descriptions()
-                ]
-                await self._conn.session_update(
-                    session_id=session_id,
-                    update=update_available_commands(acp_commands),
-                    source="gptme",
-                )
-            except Exception as e:
-                # Non-fatal: clients still work without autocomplete
-                logger.debug(f"Failed to send available commands: {e}")
+        # Advertise available slash commands for client-side autocomplete.
+        # NOTE: This is also called at the start of prompt() as a fallback for
+        # clients (like Zed) that may not receive session/update notifications
+        # sent before NewSessionResponse is returned (race condition on session open).
+        await self._send_available_commands(session_id)
 
         _NewSessionResponse = _check_acp_import(
             NewSessionResponse, "NewSessionResponse"
         )
         return _NewSessionResponse(session_id=session_id)
+
+    async def _send_available_commands(self, session_id: str) -> None:
+        """Send AvailableCommandsUpdate notification to advertise slash commands.
+
+        Called during new_session() and as a fallback at the start of the first
+        prompt() call. The fallback handles a race condition where some clients
+        (e.g. Zed) may not receive session/update notifications sent before
+        NewSessionResponse is returned.
+        """
+        if not self._conn or session_id in self._session_commands_advertised:
+            return
+        try:
+            from acp.helpers import (  # type: ignore[import-not-found]
+                update_available_commands,
+            )
+            from acp.schema import (  # type: ignore[import-not-found]
+                AvailableCommand,
+            )
+
+            from ..commands import get_commands_with_descriptions
+
+            acp_commands = [
+                AvailableCommand(name=f"/{name}", description=desc)
+                for name, desc in get_commands_with_descriptions()
+            ]
+            await self._conn.session_update(
+                session_id=session_id,
+                update=update_available_commands(acp_commands),
+                source="gptme",
+            )
+            self._session_commands_advertised.add(session_id)
+            logger.info(
+                f"ACP AvailableCommandsUpdate: sent {len(acp_commands)} commands"
+                f" for session {session_id[:8]}"
+            )
+        except Exception as e:
+            # Non-fatal: clients still work without autocomplete
+            logger.warning(f"Failed to send available commands: {e}", exc_info=True)
 
     async def _handle_slash_command(
         self,
@@ -742,6 +765,11 @@ class GptmeAgent:
         if self._tools is not None:
             set_tools(self._tools)
 
+        # Resend AvailableCommandsUpdate if not yet acknowledged for this session.
+        # Handles race condition: some clients (e.g. Zed) may not receive
+        # session/update notifications sent before NewSessionResponse returns.
+        await self._send_available_commands(session_id)
+
         session = self._registry.get(session_id)
         if not session:
             logger.error(f"Unknown session: {session_id}")
@@ -859,6 +887,7 @@ class GptmeAgent:
         self._session_models.pop(session_id, None)
         self._tool_calls.pop(session_id, None)
         self._permission_policies.pop(session_id, None)
+        self._session_commands_advertised.discard(session_id)
         self._registry.remove(session_id)
 
     async def cancel(

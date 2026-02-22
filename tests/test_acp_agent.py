@@ -59,6 +59,7 @@ class TestGptmeAgentInit:
         assert agent._model is None
         assert agent._tool_calls == {}
         assert agent._permission_policies == {}
+        assert agent._session_commands_advertised == set()
 
     def test_on_connect(self):
         agent = GptmeAgent()
@@ -512,6 +513,7 @@ class TestCleanupSession:
             )
         }
         agent._permission_policies[sid] = {"execute": "allow"}
+        agent._session_commands_advertised.add(sid)
         agent._registry.create(sid)
 
         agent._cleanup_session(sid)
@@ -519,6 +521,7 @@ class TestCleanupSession:
         assert sid not in agent._session_models
         assert sid not in agent._tool_calls
         assert sid not in agent._permission_policies
+        assert sid not in agent._session_commands_advertised
         assert agent._registry.get(sid) is None
 
     def test_cleanup_idempotent_on_unknown_session(self):
@@ -632,6 +635,47 @@ class TestPerSessionModel:
         model_with_routing = "z-ai/glm-5@together"
         _run(agent.set_session_model(model_id=model_with_routing, session_id="s1"))
         assert agent._session_models["s1"] == model_with_routing
+
+
+class TestSendAvailableCommands:
+    """Tests for _send_available_commands method."""
+
+    def test_no_connection_returns_without_error(self):
+        """Without a connection, _send_available_commands should return silently."""
+        agent = GptmeAgent()
+        assert agent._conn is None
+        # Should not raise
+        _run(agent._send_available_commands("session_1"))
+        assert "session_1" not in agent._session_commands_advertised
+
+    def test_already_advertised_skips(self):
+        """If session already advertised, should not call session_update again."""
+        agent = _make_agent_with_conn()
+        agent._session_commands_advertised.add("session_1")
+        _run(agent._send_available_commands("session_1"))
+        agent._conn.session_update.assert_not_awaited()
+
+    def test_failure_does_not_add_to_advertised(self):
+        """If send fails, session should not be added to _session_commands_advertised."""
+        agent = GptmeAgent()
+        conn = MagicMock()
+        conn.session_update = AsyncMock(side_effect=RuntimeError("connection lost"))
+        agent._conn = conn
+
+        _run(agent._send_available_commands("session_1"))
+
+        assert "session_1" not in agent._session_commands_advertised
+
+    def test_cleanup_removes_from_advertised(self):
+        """_cleanup_session should remove session from _session_commands_advertised."""
+        agent = GptmeAgent()
+        agent._session_commands_advertised.add("s1")
+        agent._session_commands_advertised.add("s2")
+
+        agent._cleanup_session("s1")
+
+        assert "s1" not in agent._session_commands_advertised
+        assert "s2" in agent._session_commands_advertised
 
 
 def _make_mock_acp_factories():
