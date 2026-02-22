@@ -169,3 +169,19 @@ def test_parse_tool_use_ipython_kimi_k2():
     call = """@ipython(functions.ipython:0): {"code": "import numpy as np\nimport pandas as pd\n\n# Create a simple dataset\ndata = {\n    'name': ['Alice', 'Bob', 'Charlie', 'Diana'],\n    'age': [25, 30, 35, 28],\n    'salary': [50000, 60000, 75000, 55000]\n}\ndf = pd.DataFrame(data)\n\n# Display the dataframe\nprint(\"Employee Data:\")\nprint(df)\n\n# Calculate some statistics\nprint(\"\\nStatistics:\")\nprint(f\"Average age: {df['age'].mean()}\")\nprint(f\"Average salary: ${df['salary'].mean():,.2f}\")\nprint(f\"Salary range: ${df['salary'].min():,.0f} - ${df['salary'].max():,.0f}\")"}"""
     tooluses = list(ToolUse.iter_from_content(call))
     assert tooluses
+
+
+def test_parse_multiple_tool_calls():
+    """Multiple tool calls in a single message (e.g., from native OpenAI tool calling)."""
+    set_tool_format("tool")
+    # Simulate two tool calls in one assistant message, as would come from
+    # OpenAI's native tool calling API when the model makes multiple calls.
+    content = '@shell(call_id1): {"cmd": "ls"}\n@shell(call_id2): {"cmd": "pwd"}'
+    tooluses = list(ToolUse.iter_from_content(content))
+    assert len(tooluses) == 2
+    assert tooluses[0].call_id == "call_id1"
+    assert tooluses[1].call_id == "call_id2"
+    assert tooluses[0].kwargs == {"cmd": "ls"}
+    assert tooluses[1].kwargs == {"cmd": "pwd"}
+    # Check ordering by start position
+    assert tooluses[0].start < tooluses[1].start  # type: ignore
