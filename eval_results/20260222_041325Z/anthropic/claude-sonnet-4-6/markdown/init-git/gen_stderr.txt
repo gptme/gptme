@@ -1,0 +1,1 @@
+bash: line 23: /app/main.py: Permission denied
