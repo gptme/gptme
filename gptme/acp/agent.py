@@ -736,7 +736,7 @@ class GptmeAgent:
                     content = gptme_message_to_acp_content(response_msg)
                     for block in content:
                         text = block.get("text", "")
-                        if text:
+                        if text and self._conn:
                             chunk = update_agent_message(text_block(text))
                             await self._conn.session_update(
                                 session_id=session_id,
@@ -755,11 +755,12 @@ class GptmeAgent:
             await self._complete_pending_tool_calls(session_id, success=False)
             # Send error message
             error_chunk = update_agent_message(text_block(f"Error: {e}"))
-            await self._conn.session_update(
-                session_id=session_id,
-                update=error_chunk,
-                source="gptme",
-            )
+            if self._conn:
+                await self._conn.session_update(
+                    session_id=session_id,
+                    update=error_chunk,
+                    source="gptme",
+                )
             assert PromptResponse is not None
             return PromptResponse(stop_reason="cancelled")
 

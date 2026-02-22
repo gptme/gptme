@@ -766,3 +766,49 @@ class TestHandleSlashCommand:
 
         assert result["stop_reason"] == "end_turn"
         agent._conn.session_update.assert_awaited_once()
+
+
+class TestConnNullGuard:
+    """Tests for connection null guards in prompt error paths.
+
+    Ensures that session_update calls are guarded against self._conn being None,
+    which can happen if the client disconnects or if prompt() is called before
+    on_connect().
+    """
+
+    def test_complete_pending_tool_calls_no_conn(self):
+        """_complete_pending_tool_calls should work without a connection."""
+        agent = GptmeAgent()
+        # Populate a pending tool call
+        tc = ToolCall(
+            tool_call_id="call_1",
+            title="Test",
+            kind=ToolKind.EXECUTE,
+            status=ToolCallStatus.IN_PROGRESS,
+        )
+        agent._tool_calls["s1"] = {"call_1": tc}
+
+        # Should not raise even without self._conn
+        _run(agent._complete_pending_tool_calls("s1", success=False))
+
+    def test_report_tool_call_no_conn_stores_nothing(self):
+        """_report_tool_call without connection should not store the call."""
+        agent = GptmeAgent()
+        assert agent._conn is None
+
+        tc = ToolCall(
+            tool_call_id="call_orphan",
+            title="Orphan",
+            kind=ToolKind.EXECUTE,
+        )
+        _run(agent._report_tool_call("s1", tc))
+        # Early return means no storage
+        assert "s1" not in agent._tool_calls
+
+    def test_update_tool_call_no_conn_silently_returns(self):
+        """_update_tool_call without connection should not raise."""
+        agent = GptmeAgent()
+        assert agent._conn is None
+
+        # Should not raise
+        _run(agent._update_tool_call("s1", "call_1", ToolCallStatus.COMPLETED))
