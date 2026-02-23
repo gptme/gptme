@@ -230,6 +230,14 @@ def _extract_codeblocks(
                                     # Looks like a real nested block
                                     nesting_depth += 1
                                     content_lines.append(line)
+                                elif streaming:
+                                    # In streaming mode, be conservative: treat bare fence
+                                    # followed by content as a nested block opener even without
+                                    # confirmed closing pattern. This prevents incorrectly
+                                    # extracting incomplete blocks when later bare fences
+                                    # would close this nested block but leave the outer unclosed.
+                                    nesting_depth += 1
+                                    content_lines.append(line)
                                 else:
                                     # No matching fence found, treat as literal content
                                     content_lines.append(line)
