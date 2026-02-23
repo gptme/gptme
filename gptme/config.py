@@ -950,12 +950,20 @@ class Config:
         return mcp
 
     def get_env(self, key: str, default: str | None = None) -> str | None:
-        """Gets an environment variable, checks the config file if it's not set in the environment."""
+        """Gets an environment variable, checks the config file if it's not set in the environment.
+
+        Checks both ``GPTME_<KEY>`` and ``<KEY>`` forms for environment variables,
+        with the prefixed form taking precedence. Config file lookups always use
+        the bare (unprefixed) key.
+        """
+        prefixed = f"GPTME_{key}" if not key.startswith("GPTME_") else key
+        bare = key.removeprefix("GPTME_") if key.startswith("GPTME_") else key
         return (
-            os.environ.get(key)
-            or (self.chat and self.chat.env.get(key))
-            or (self.project and self.project.env.get(key))
-            or self.user.env.get(key)
+            os.environ.get(prefixed)
+            or os.environ.get(bare)
+            or (self.chat and self.chat.env.get(bare))
+            or (self.project and self.project.env.get(bare))
+            or self.user.env.get(bare)
             or default
         )
 
