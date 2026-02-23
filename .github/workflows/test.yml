@@ -66,6 +66,20 @@ jobs:
         MODEL: local/test
       run: make test
 
+    - name: Upload coverage reports to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        flags: no-api
+
+    - name: Upload test results to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        report_type: test_results
+
   test:
     name: Test with `${{ matrix.extras }}` and ${{ matrix.model }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -150,6 +164,7 @@ jobs:
         command: make test SLOW=true
 
     - name: Upload coverage reports to Codecov
+      if: ${{ !cancelled() }}
       uses: codecov/codecov-action@v5
       env:
         MODEL: ${{ matrix.model }}
@@ -160,6 +175,7 @@ jobs:
 
     - name: Upload test results to Codecov
       if: ${{ !cancelled() }}
-      uses: codecov/test-results-action@v1
+      uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+        report_type: test_results
