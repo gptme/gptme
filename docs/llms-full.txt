@@ -2584,6 +2584,20 @@ Besides the configuration files, gptme supports several environment variables to
 
 All boolean flags accept "1", "true" (case-insensitive) as truthy values.
 
+.. rubric:: CLI Options via Environment Variables
+
+All CLI options can also be set via environment variables with the ``GPTME_`` prefix.
+The variable name is derived from the parameter name in uppercase.
+
+Common examples:
+
+- ``GPTME_MODEL`` - Set the model (equivalent to ``--model``)
+- ``GPTME_TOOL_FORMAT`` - Set the tool format (equivalent to ``--tool-format``)
+- ``GPTME_WORKSPACE`` - Set the workspace (equivalent to ``--workspace``)
+- ``GPTME_TOOL_ALLOWLIST`` - Set allowed tools (equivalent to ``--tools``)
+
+CLI arguments take precedence over environment variables, which take precedence over config file values.
+
 Cross-Conversation Context
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 

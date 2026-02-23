@@ -658,6 +658,17 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_LOGS_HOME</span></code> - Override the default logs folder location</p></li>
 </ul>
 <p>All boolean flags accept “1”, “true” (case-insensitive) as truthy values.</p>
+<p class="rubric">CLI Options via Environment Variables</p>
+<p>All CLI options can also be set via environment variables with the <code class="docutils literal notranslate"><span class="pre">GPTME_</span></code> prefix.
+The variable name is derived from the parameter name in uppercase.</p>
+<p>Common examples:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_MODEL</span></code> - Set the model (equivalent to <code class="docutils literal notranslate"><span class="pre">--model</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TOOL_FORMAT</span></code> - Set the tool format (equivalent to <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_WORKSPACE</span></code> - Set the workspace (equivalent to <code class="docutils literal notranslate"><span class="pre">--workspace</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TOOL_ALLOWLIST</span></code> - Set allowed tools (equivalent to <code class="docutils literal notranslate"><span class="pre">--tools</span></code>)</p></li>
+</ul>
+<p>CLI arguments take precedence over environment variables, which take precedence over config file values.</p>
 <section id="cross-conversation-context">
 <h3>Cross-Conversation Context<a class="headerlink" href="#cross-conversation-context" title="Link to this heading">#</a></h3>
 <p>When <code class="docutils literal notranslate"><span class="pre">GPTME_CHAT_HISTORY=true</span></code> is set, gptme will automatically include summaries from recent conversations in new chat sessions, providing continuity across conversations.</p>
