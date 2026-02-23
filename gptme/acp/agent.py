@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import hashlib
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..config import get_project_config
+from ..config import ChatConfig, get_project_config
 from ..dirs import get_logs_dir
 from ..init import init
 from ..llm.models import get_default_model, set_default_model
@@ -83,6 +84,16 @@ def _import_acp() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _cwd_session_id(cwd: str) -> str:
+    """Derive a deterministic session ID from a workspace path.
+
+    Returns a stable ID like ``acp-<hash8>`` so that the same CWD always
+    maps to the same session, enabling session resume across editor restarts.
+    """
+    h = hashlib.sha256(str(Path(cwd).resolve()).encode()).hexdigest()[:8]
+    return f"acp-{h}"
 
 
 class GptmeAgent:
@@ -472,7 +483,12 @@ class GptmeAgent:
         mcp_servers: list[Any],
         **kwargs: Any,
     ) -> Any:
-        """Create a new gptme session.
+        """Create or resume a gptme session for the given workspace.
+
+        When a CWD is provided, derives a deterministic session ID from the
+        workspace path so that reconnecting clients (e.g. editor restart)
+        automatically resume the previous conversation instead of creating
+        a new one.
 
         Args:
             cwd: Working directory for the session
@@ -507,11 +523,48 @@ class GptmeAgent:
                     f"ACP NewSession: using per-project model {session_model!r} from {cwd}/gptme.toml"
                 )
 
-        # Use conversation ID as session ID for persistence.
-        # This makes sessions discoverable by list_sessions and resumable
-        # by load_session across ACP server restarts.
         logs_dir = get_logs_dir()
-        session_id = generate_conversation_id(name=None, logs_dir=logs_dir)
+        resumed = False
+
+        # --- Session resume: derive a deterministic ID from CWD ---
+        # This ensures the same workspace always maps to the same session,
+        # so editor restarts resume the previous conversation.
+        if cwd:
+            session_id = _cwd_session_id(cwd)
+            logdir = logs_dir / session_id
+            logfile = logdir / "conversation.jsonl"
+
+            # Already loaded in this server process?
+            existing = self._registry.get(session_id)
+            if existing and existing.log is not None:
+                logger.info(
+                    f"ACP NewSession: reusing in-memory session {session_id} for {cwd}"
+                )
+                resumed = True
+                log = existing.log
+            elif logfile.exists():
+                # Resume from disk
+                try:
+                    log = LogManager.load(
+                        logdir=logdir,
+                        create=False,
+                        lock=False,
+                    )
+                    resumed = True
+                    n_msgs = len(log.log)
+                    logger.info(
+                        f"ACP NewSession: resumed session {session_id} from disk "
+                        f"({n_msgs} messages) for {cwd}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"ACP NewSession: failed to load {session_id}: {e}, "
+                        "creating fresh session"
+                    )
+                    resumed = False
+        else:
+            session_id = generate_conversation_id(name=None, logs_dir=logs_dir)
+
         logdir = logs_dir / session_id
 
         # Store per-session model for use in prompt() and other handlers
@@ -521,27 +574,49 @@ class GptmeAgent:
         if session_model and session_model != self._model:
             set_default_model(session_model)
 
-        # Get tools and initial prompt
-        tools = get_tools()
-        initial_msgs = get_prompt(
-            tools=tools,
-            tool_format="markdown",
-            prompt="full",
-            interactive=False,
-            model=session_model,
-            workspace=Path(cwd) if cwd else None,
-        )
+        if not resumed:
+            # Get tools and initial prompt for a fresh session
+            tools = get_tools()
+            initial_msgs = get_prompt(
+                tools=tools,
+                tool_format="markdown",
+                prompt="full",
+                interactive=False,
+                model=session_model,
+                workspace=Path(cwd) if cwd else None,
+            )
 
-        # Create LogManager for this session
-        log = LogManager.load(
-            logdir=logdir,
-            initial_msgs=initial_msgs,
-            create=True,
-            lock=False,
-        )
+            log = LogManager.load(
+                logdir=logdir,
+                initial_msgs=initial_msgs,
+                create=True,
+                lock=False,
+            )
 
-        self._registry.create(session_id, log=log, cwd=str(cwd) if cwd else None)
-        logger.info(f"ACP NewSession: session_id={session_id}, cwd={cwd}")
+        # Persist workspace metadata so list_sessions/list_conversations can
+        # find this session by CWD, and so resumed sessions resolve workspace.
+        if cwd:
+            chat_cfg = ChatConfig(
+                _logdir=logdir,
+                workspace=Path(cwd).resolve(),
+            )
+            try:
+                chat_cfg.save()
+            except Exception as e:
+                logger.debug(f"Failed to save ChatConfig for {session_id}: {e}")
+
+        # Register in the in-memory session registry (skip if already there)
+        if not self._registry.get(session_id):
+            self._registry.create(session_id, log=log, cwd=str(cwd) if cwd else None)
+        else:
+            # Touch existing session to update last_activity
+            existing = self._registry.get(session_id)
+            if existing:
+                existing.touch()
+
+        logger.info(
+            f"ACP NewSession: session_id={session_id}, cwd={cwd}, resumed={resumed}"
+        )
 
         # Schedule session-open notifications to run AFTER NewSessionResponse is
         # returned. Sending session/update notifications synchronously during
@@ -551,7 +626,9 @@ class GptmeAgent:
         # response to the socket before sending notifications.
         if self._conn:
             asyncio.create_task(
-                self._send_session_open_notifications(session_id, session_model, cwd)
+                self._send_session_open_notifications(
+                    session_id, session_model, cwd, resumed=resumed
+                )
             )
 
         _NewSessionResponse = _check_acp_import(
@@ -633,7 +710,12 @@ class GptmeAgent:
         )
 
     async def _send_session_open_notifications(
-        self, session_id: str, session_model: str | None, cwd: str
+        self,
+        session_id: str,
+        session_model: str | None,
+        cwd: str,
+        *,
+        resumed: bool = False,
     ) -> None:
         """Send session-open notifications after NewSessionResponse is returned.
 
@@ -662,7 +744,10 @@ class GptmeAgent:
         # Surface model and workspace info immediately in the ACP panel.
         model_info = session_model or "default"
         workspace_info = str(cwd) if cwd else "none"
-        info_text = f"ℹ️ Using model: {model_info}\nUsing workspace: {workspace_info}"
+        status = "Resumed session" if resumed else "New session"
+        info_text = (
+            f"ℹ️ {status}\nUsing model: {model_info}\nUsing workspace: {workspace_info}"
+        )
         info_chunk = update_agent_message(text_block(info_text))
         try:
             await self._conn.session_update(
