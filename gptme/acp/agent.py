@@ -42,6 +42,7 @@ InitializeResponse: type | None = None
 NewSessionResponse: type | None = None
 PromptResponse: type | None = None
 Client: type | None = None
+Implementation: type | None = None
 
 
 def _check_acp_import(cls: type | None, name: str) -> type:
@@ -59,7 +60,13 @@ def _check_acp_import(cls: type | None, name: str) -> type:
 
 def _import_acp() -> bool:
     """Import ACP modules lazily."""
-    global Agent, InitializeResponse, NewSessionResponse, PromptResponse, Client
+    global \
+        Agent, \
+        InitializeResponse, \
+        NewSessionResponse, \
+        PromptResponse, \
+        Client, \
+        Implementation
     try:
         from acp import (  # type: ignore[import-not-found]
             Agent as _Agent,
@@ -74,15 +81,27 @@ def _import_acp() -> bool:
             PromptResponse as _PromptResponse,
         )
         from acp.interfaces import Client as _Client  # type: ignore[import-not-found]
+        from acp.schema import (  # type: ignore[import-not-found]
+            Implementation as _Implementation,
+        )
 
         Agent = _Agent
         InitializeResponse = _InitializeResponse
         NewSessionResponse = _NewSessionResponse
         PromptResponse = _PromptResponse
         Client = _Client
+        Implementation = _Implementation
         return True
     except ImportError:
         return False
+
+
+def _agent_info() -> Any:
+    """Build the agentInfo for InitializeResponse."""
+    _Impl = _check_acp_import(Implementation, "Implementation")
+    from gptme import __version__
+
+    return _Impl(name="gptme-acp", version=__version__)
 
 
 class GptmeAgent:
@@ -448,7 +467,8 @@ class GptmeAgent:
                 )
                 logger.error(self._init_error)
                 return _check_acp_import(InitializeResponse, "InitializeResponse")(
-                    protocol_version=protocol_version
+                    protocol_version=protocol_version,
+                    agent_info=_agent_info(),
                 )  # type: ignore[misc]
 
             self._initialized = True
@@ -464,7 +484,10 @@ class GptmeAgent:
         _InitializeResponse = _check_acp_import(
             InitializeResponse, "InitializeResponse"
         )
-        return _InitializeResponse(protocol_version=protocol_version)
+        return _InitializeResponse(
+            protocol_version=protocol_version,
+            agent_info=_agent_info(),
+        )
 
     async def new_session(
         self,
