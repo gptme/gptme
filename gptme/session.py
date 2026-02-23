@@ -37,6 +37,7 @@ class BaseSession:
     id: str
     log: LogManager | None = None
     conversation_id: str | None = None
+    cwd: str | None = None
     active: bool = True
     created_at: datetime = field(default_factory=datetime.now)
     last_activity: datetime = field(default_factory=datetime.now)
@@ -73,6 +74,7 @@ class SessionRegistry:
         session_id: str,
         log: LogManager | None = None,
         conversation_id: str | None = None,
+        cwd: str | None = None,
     ) -> BaseSession:
         """Create a new session.
 
@@ -80,6 +82,7 @@ class SessionRegistry:
             session_id: Unique session identifier
             log: Optional LogManager instance for direct log access (ACP pattern)
             conversation_id: Optional conversation ID for deferred loading (Server pattern)
+            cwd: Optional working directory for the session
 
         Returns:
             The created session
@@ -94,6 +97,7 @@ class SessionRegistry:
             id=session_id,
             log=log,
             conversation_id=conversation_id,
+            cwd=cwd,
         )
         self._sessions[session_id] = session
         logger.info(f"Created session: {session_id}")
