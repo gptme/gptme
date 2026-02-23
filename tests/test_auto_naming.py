@@ -17,6 +17,10 @@ pytest.importorskip(
 @pytest.mark.timeout(30)
 @pytest.mark.slow
 @pytest.mark.requires_api
+@pytest.mark.skipif(
+    "glm" in os.getenv("MODEL", "").lower(),
+    reason="GLM models are too slow for 30s auto-naming timeout",
+)
 def test_auto_naming_generates_display_name(event_listener, wait_for_event):
     """Test that auto-naming generates a display name after the first assistant response."""
     port = event_listener["port"]
@@ -114,8 +118,9 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
 @pytest.mark.slow
 @pytest.mark.requires_api
 @pytest.mark.skipif(
-    "claude-haiku" in os.getenv("MODEL", "").lower(),
-    reason="Claude Haiku models output thinking tags in names",
+    "claude-haiku" in os.getenv("MODEL", "").lower()
+    or "glm" in os.getenv("MODEL", "").lower(),
+    reason="Claude Haiku outputs thinking tags; GLM is too slow for auto-naming timeout",
 )
 def test_auto_naming_meaningful_content(event_listener, wait_for_event):
     """Test that auto-naming generates contextually relevant names."""

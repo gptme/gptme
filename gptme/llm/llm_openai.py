@@ -817,10 +817,11 @@ def _process_file(msg: dict[str, Any], model: ModelMeta) -> dict[str, Any]:
     message_content = msg.get("content")
 
     # combines a content message with a list of files
+    # Note: don't add empty text items — some providers (e.g. Z.AI/GLM) reject them
     content: list[dict[str, Any]] = (
         message_content
         if isinstance(message_content, list)
-        else [{"type": "text", "text": message_content}]
+        else ([{"type": "text", "text": message_content}] if message_content else [])
     )
 
     has_images = False
@@ -1029,16 +1030,17 @@ def _transform_msgs_for_special_provider(
                     content = "\n".join(text_parts)
 
                 reasoning, cleaned_content = _extract_and_strip_reasoning(content)
-                openrouter_result.append(
-                    cast(
-                        MessageDict,
-                        {
-                            **msg,
-                            "reasoning_content": reasoning,
-                            "content": cleaned_content,
-                        },
-                    )
-                )
+                result_msg: dict[str, Any] = {
+                    **msg,
+                    "reasoning_content": reasoning,
+                }
+                if cleaned_content:
+                    result_msg["content"] = cleaned_content
+                else:
+                    # Remove empty content to avoid provider errors (e.g. Z.AI/GLM
+                    # rejects messages with empty text content)
+                    result_msg.pop("content", None)
+                openrouter_result.append(cast(MessageDict, result_msg))
             else:
                 openrouter_result.append(cast(MessageDict, msg))
         return openrouter_result
