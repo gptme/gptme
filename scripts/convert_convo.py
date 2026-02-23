@@ -32,7 +32,7 @@ Example usage:
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 
@@ -92,7 +92,7 @@ def convert_conversation(
             pinned = msg.get("pinned", False)
 
             # Format timestamp for filename if needed
-            dt = isoparse(timestamp) if timestamp else datetime.now()
+            dt = isoparse(timestamp) if timestamp else datetime.now(tz=timezone.utc)
             timestamp_str = dt.strftime("%Y%m%d-%H%M%S")
 
             # Create filename using format string

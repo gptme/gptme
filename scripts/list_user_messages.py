@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from gptme.logmanager import ConversationMeta, Log, get_user_conversations
 
@@ -25,8 +25,8 @@ def print_user_messages(conv: ConversationMeta):
     if not lines:
         return
     print(f"Conversation: {conv.name}")
-    print(f"Created:  {datetime.fromtimestamp(conv.created)}")
-    print(f"Modified: {datetime.fromtimestamp(conv.modified)}")
+    print(f"Created:  {datetime.fromtimestamp(conv.created, tz=timezone.utc)}")
+    print(f"Modified: {datetime.fromtimestamp(conv.modified, tz=timezone.utc)}")
     print("---")
     print("\n".join(lines))
     print("---")

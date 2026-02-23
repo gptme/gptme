@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -38,12 +38,14 @@ class BaseSession:
     log: LogManager | None = None
     conversation_id: str | None = None
     active: bool = True
-    created_at: datetime = field(default_factory=datetime.now)
-    last_activity: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    last_activity: datetime = field(
+        default_factory=lambda: datetime.now(tz=timezone.utc)
+    )
 
     def touch(self) -> None:
         """Update last activity timestamp."""
-        self.last_activity = datetime.now()
+        self.last_activity = datetime.now(tz=timezone.utc)
 
     def deactivate(self) -> None:
         """Mark session as inactive."""
@@ -143,7 +145,7 @@ class SessionRegistry:
         Returns:
             List of removed session IDs
         """
-        cutoff = datetime.now() - timedelta(minutes=max_age_minutes)
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(minutes=max_age_minutes)
         to_remove: list[str] = []
 
         for session_id, session in self._sessions.items():

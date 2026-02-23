@@ -13,7 +13,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -153,7 +153,7 @@ class SessionManager:
     @classmethod
     def clean_inactive_sessions(cls, max_age_minutes: int = 60) -> None:
         """Clean up inactive sessions."""
-        cutoff = datetime.now() - timedelta(minutes=max_age_minutes)
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(minutes=max_age_minutes)
         to_remove = []
 
         for session_id, session in cls._sessions.items():

@@ -3,7 +3,7 @@ Tests for auto-compacting functionality that handles conversations with massive 
 """
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -32,9 +32,15 @@ def create_test_conversation():
     tool_output = f"Ran command: `find /usr -type f`\n{repeated_content}"
 
     return [
-        Message("user", "Please run a command to list files", datetime.now()),
-        Message("assistant", "I'll run the ls command for you.", datetime.now()),
-        Message("system", tool_output, datetime.now()),
+        Message(
+            "user", "Please run a command to list files", datetime.now(tz=timezone.utc)
+        ),
+        Message(
+            "assistant",
+            "I'll run the ls command for you.",
+            datetime.now(tz=timezone.utc),
+        ),
+        Message("system", tool_output, datetime.now(tz=timezone.utc)),
     ]
 
 
@@ -49,9 +55,11 @@ def test_should_auto_compact_with_massive_tool_result():
 def test_should_auto_compact_with_small_messages():
     """Test that should_auto_compact doesn't trigger for small conversations."""
     small_messages = [
-        Message("user", "Hello", datetime.now()),
-        Message("assistant", "Hi there!", datetime.now()),
-        Message("system", "Command executed successfully.", datetime.now()),
+        Message("user", "Hello", datetime.now(tz=timezone.utc)),
+        Message("assistant", "Hi there!", datetime.now(tz=timezone.utc)),
+        Message(
+            "system", "Command executed successfully.", datetime.now(tz=timezone.utc)
+        ),
     ]
 
     # Should not trigger auto-compacting
@@ -104,7 +112,7 @@ def test_create_tool_result_summary():
 
     content = "Ran command: `ls -la`\n/usr/bin/file1.txt\n/usr/bin/file2.txt\n..."
     tokens = 1000
-    msg = Message("system", content, timestamp=datetime.now())
+    msg = Message("system", content, timestamp=datetime.now(tz=timezone.utc))
 
     summary = create_tool_result_summary(msg.content, tokens, None, "autocompact")
 
@@ -123,7 +131,7 @@ def test_create_tool_result_summary_with_error():
         "Ran command: `invalid_command`\nError: command not found\nFailed to execute"
     )
     tokens = 500
-    msg = Message("system", content, timestamp=datetime.now())
+    msg = Message("system", content, timestamp=datetime.now(tz=timezone.utc))
 
     summary = create_tool_result_summary(msg.content, tokens, None, "autocompact")
 
@@ -135,9 +143,11 @@ def test_create_tool_result_summary_with_error():
 def test_auto_compact_preserves_small_messages():
     """Test that auto-compacting preserves small messages unchanged."""
     small_messages = [
-        Message("user", "Hello", datetime.now()),
-        Message("assistant", "Hi there!", datetime.now()),
-        Message("system", "Command executed successfully.", datetime.now()),
+        Message("user", "Hello", datetime.now(tz=timezone.utc)),
+        Message("assistant", "Hi there!", datetime.now(tz=timezone.utc)),
+        Message(
+            "system", "Command executed successfully.", datetime.now(tz=timezone.utc)
+        ),
     ]
 
     compacted = list(auto_compact_log(small_messages))
@@ -309,13 +319,35 @@ def test_strip_reasoning_preserves_content_without_tags():
 def test_auto_compact_strips_reasoning_from_older_messages():
     """Test that auto_compact_log strips reasoning from older messages."""
     messages = [
-        Message("user", "First <think>old reasoning</think>", datetime.now()),
-        Message("assistant", "Second <think>old reasoning</think>", datetime.now()),
-        Message("user", "Third <think>old reasoning</think>", datetime.now()),
-        Message("assistant", "Fourth <think>old reasoning</think>", datetime.now()),
-        Message("user", "Fifth <think>old reasoning</think>", datetime.now()),
-        Message("assistant", "Recent <think>recent reasoning</think>", datetime.now()),
-        Message("user", "Most recent <think>recent reasoning</think>", datetime.now()),
+        Message(
+            "user", "First <think>old reasoning</think>", datetime.now(tz=timezone.utc)
+        ),
+        Message(
+            "assistant",
+            "Second <think>old reasoning</think>",
+            datetime.now(tz=timezone.utc),
+        ),
+        Message(
+            "user", "Third <think>old reasoning</think>", datetime.now(tz=timezone.utc)
+        ),
+        Message(
+            "assistant",
+            "Fourth <think>old reasoning</think>",
+            datetime.now(tz=timezone.utc),
+        ),
+        Message(
+            "user", "Fifth <think>old reasoning</think>", datetime.now(tz=timezone.utc)
+        ),
+        Message(
+            "assistant",
+            "Recent <think>recent reasoning</think>",
+            datetime.now(tz=timezone.utc),
+        ),
+        Message(
+            "user",
+            "Most recent <think>recent reasoning</think>",
+            datetime.now(tz=timezone.utc),
+        ),
     ]
 
     # Apply auto-compacting with reasoning_strip_age_threshold=5
@@ -335,9 +367,21 @@ def test_auto_compact_strips_reasoning_from_older_messages():
 def test_auto_compact_reasoning_strip_threshold_zero():
     """Test that threshold=0 strips reasoning from all messages."""
     messages = [
-        Message("user", "Message 1 <think>reasoning 1</think>", datetime.now()),
-        Message("assistant", "Message 2 <think>reasoning 2</think>", datetime.now()),
-        Message("user", "Message 3 <think>reasoning 3</think>", datetime.now()),
+        Message(
+            "user",
+            "Message 1 <think>reasoning 1</think>",
+            datetime.now(tz=timezone.utc),
+        ),
+        Message(
+            "assistant",
+            "Message 2 <think>reasoning 2</think>",
+            datetime.now(tz=timezone.utc),
+        ),
+        Message(
+            "user",
+            "Message 3 <think>reasoning 3</think>",
+            datetime.now(tz=timezone.utc),
+        ),
     ]
 
     # Apply with threshold=0 (strip all)

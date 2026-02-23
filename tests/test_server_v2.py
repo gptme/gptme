@@ -1,6 +1,6 @@
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -115,7 +115,7 @@ def test_v2_create_conversation_default_system_prompt(
                 {
                     "role": "user",
                     "content": "Hello, this is a test message.",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 }
             ]
         },

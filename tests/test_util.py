@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from gptme.util import (
     epoch_to_age,
@@ -14,7 +14,7 @@ def test_generate_name():
 
 
 def test_epoch_to_age():
-    epoch_today = datetime.now().timestamp()
+    epoch_today = datetime.now(tz=timezone.utc).timestamp()
     assert epoch_to_age(epoch_today) == "just now"
     epoch_yesterday = epoch_today - 24 * 60 * 60
     assert epoch_to_age(epoch_yesterday) == "yesterday"

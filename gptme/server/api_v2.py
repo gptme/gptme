@@ -7,7 +7,7 @@ Session management, tool execution, and agent creation are handled by separate m
 
 import logging
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import islice
 from typing import cast
 
@@ -217,7 +217,9 @@ def api_conversation_put(conversation_id: str):
                 400,
             )
         timestamp: datetime = (
-            isoparse(msg["timestamp"]) if "timestamp" in msg else datetime.now()
+            isoparse(msg["timestamp"])
+            if "timestamp" in msg
+            else datetime.now(tz=timezone.utc)
         )
         msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,7 +16,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 10,
         "supports_vision": True,
         "supports_reasoning": True,
-        "knowledge_cutoff": datetime(2024, 9, 30),
+        "knowledge_cutoff": datetime(2024, 9, 30, tzinfo=timezone.utc),
     },
     "gpt-5-mini": {
         "context": 400_000,
@@ -25,7 +25,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 2,
         "supports_vision": True,
         "supports_reasoning": True,
-        "knowledge_cutoff": datetime(2024, 5, 31),
+        "knowledge_cutoff": datetime(2024, 5, 31, tzinfo=timezone.utc),
     },
     "gpt-5-nano": {
         "context": 400_000,
@@ -34,7 +34,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 0.4,
         "supports_vision": True,
         "supports_reasoning": True,
-        "knowledge_cutoff": datetime(2024, 5, 31),
+        "knowledge_cutoff": datetime(2024, 5, 31, tzinfo=timezone.utc),
     },
     # GPT-4.1
     "gpt-4.1": {
@@ -43,7 +43,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 2,
         "price_output": 8,
         "supports_vision": True,
-        "knowledge_cutoff": datetime(2024, 6, 1),
+        "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },
     "gpt-4.1-mini": {
         "context": 1_047_576,
@@ -51,7 +51,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 0.4,
         "price_output": 1.6,
         "supports_vision": True,
-        "knowledge_cutoff": datetime(2024, 6, 1),
+        "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },
     "gpt-4.1-nano": {
         "context": 1_047_576,
@@ -59,7 +59,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 0.1,
         "price_output": 0.4,
         "supports_vision": True,
-        "knowledge_cutoff": datetime(2024, 6, 1),
+        "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },
     # GPT-4o
     "gpt-4o": {
@@ -68,20 +68,20 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 15,
         "supports_vision": True,
         # October 2023
-        "knowledge_cutoff": datetime(2023, 10, 1),
+        "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
     },
     "gpt-4o-2024-08-06": {
         "context": 128_000,
         "price_input": 2.5,
         "price_output": 10,
-        "knowledge_cutoff": datetime(2023, 10, 1),
+        "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
         "deprecated": True,
     },
     "gpt-4o-2024-05-13": {
         "context": 128_000,
         "price_input": 5,
         "price_output": 15,
-        "knowledge_cutoff": datetime(2023, 10, 1),
+        "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
         "deprecated": True,
     },
     # GPT-4o mini
@@ -90,13 +90,13 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 0.15,
         "price_output": 0.6,
         "supports_vision": True,
-        "knowledge_cutoff": datetime(2023, 10, 1),
+        "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
     },
     "gpt-4o-mini-2024-07-18": {
         "context": 128_000,
         "price_input": 0.15,
         "price_output": 0.6,
-        "knowledge_cutoff": datetime(2023, 10, 1),
+        "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
         "deprecated": True,
     },
     # OpenAI o4-mini

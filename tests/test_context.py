@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from gptme.message import Message
@@ -35,7 +35,7 @@ def test_embed_attached_file_content(tmp_path):
         "user",
         "check this file",
         files=[file],
-        timestamp=datetime.now() - timedelta(minutes=1),
+        timestamp=datetime.now(tz=timezone.utc) - timedelta(minutes=1),
     )
 
     # Modify file after message timestamp

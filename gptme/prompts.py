@@ -764,7 +764,7 @@ def prompt_chat_history() -> Generator[Message, None, None]:
                 # Add conversation metadata
                 summary_parts.append(f"## {conv.name}")
                 summary_parts.append(
-                    f"Modified: {datetime.fromtimestamp(conv.modified).strftime('%Y-%m-%d %H:%M')}"
+                    f"Modified: {datetime.fromtimestamp(conv.modified, tz=timezone.utc).strftime('%Y-%m-%d %H:%M')}"
                 )
 
                 # Always show first exchange to establish context

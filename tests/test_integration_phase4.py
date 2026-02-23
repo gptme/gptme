@@ -9,7 +9,7 @@ Tests the full workflow:
 
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -43,22 +43,22 @@ def conversation_about_git():
         Message(
             role="user",
             content="I need help with git workflow",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
         Message(
             role="assistant",
             content="I can help with git. What specific aspect?",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
         Message(
             role="user",
             content="How do I create a branch and push it correctly?",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
         Message(
             role="assistant",
             content="Let me show you the git worktree workflow",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
     ]
 
@@ -70,22 +70,22 @@ def conversation_about_shell():
         Message(
             role="user",
             content="I'm having issues with shell commands",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
         Message(
             role="assistant",
             content="What shell errors are you seeing?",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
         Message(
             role="user",
             content="Getting 'cd: too many arguments' error",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
         Message(
             role="assistant",
             content="This is likely a path quoting issue",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
     ]
 
@@ -97,22 +97,22 @@ def conversation_mixed_topics():
         Message(
             role="user",
             content="I need to commit my changes and then run some tests",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
         Message(
             role="assistant",
             content="First let's handle the git commit",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
         Message(
             role="user",
             content="Also, how do I quote paths with spaces in shell?",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
         Message(
             role="assistant",
             content="Use quotes around the path",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=timezone.utc),
         ),
     ]
 

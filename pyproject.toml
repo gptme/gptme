@@ -214,6 +214,7 @@ select = [
     "PLW1510",  # subprocess-run-without-check
     "TC001", "TC002", "TC003", "TC004",  # flake8-type-checking
     "PT003", "PT006", "PT011", "PT022",  # pytest style
+    "DTZ",    # flake8-datetimez (require timezone-aware datetimes)
 ]
 ignore = ["E402", "E501", "B905", "PERF203"]  # PERF203: try-except-in-loop often intentional
 #fixable = ["ALL"]

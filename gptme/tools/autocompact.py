@@ -9,7 +9,7 @@ import logging
 import re
 import time
 from collections.abc import Generator
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -1141,7 +1141,7 @@ def _get_compacted_name(conversation_name: str) -> str:
     if not base_name:  # Safety: if entire name was the suffix (shouldn't happen)
         base_name = conversation_name
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
     return f"{base_name}-compacted-{timestamp}"
 
 
