@@ -1,8 +1,10 @@
 name: spear-check
 
 on:
-  pull_request:
   push:
+    branches: [master]
+  pull_request:
+    branches: [master]
 
 jobs:
   spear:
@@ -12,5 +14,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: npm i -g god-spear
+      - run: npm i -g god-spear@0.2.0
       - run: spear check .spear-rules.json
