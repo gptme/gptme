@@ -81,6 +81,69 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         report_type: test_results
 
+  # Minimal install test: no extras, tests the most common user installation config
+  test-minimal:
+    name: Test without API keys or extras
+    runs-on: ubuntu-latest
+    env:
+      RELEASE: false
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      DEEPSEEK_API_KEY: ''
+      OPENROUTER_API_KEY: ''
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: 'recursive'
+    - name: Install apt dependencies
+      run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb
+
+    - name: Set up Xvfb
+      run: |
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
+    - name: Store cache ID in file .cache-id
+      id: cache-id
+      run: echo "minimal" > .cache-id
+
+    - name: Install poetry
+      run: pipx install poetry
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+        cache: 'poetry'
+        cache-dependency-path: |
+          poetry.lock
+          .cache-id
+
+    - name: Install dependencies (no extras)
+      run: |
+        make build
+        poetry install
+
+    - name: Run tests (no extras, fast only)
+      env:
+        TERM: xterm
+        MODEL: local/test
+      run: make test
+
+    - name: Upload coverage reports to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        flags: no-api,no-extras
+
+    - name: Upload test results to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        report_type: test_results
+
   # API tests: only run requires_api tests, across multiple cheap models
   # This replaces the previous matrix that ran ALL slow tests on each model
   test-api:
@@ -94,7 +157,7 @@ jobs:
         model:
           - 'openai/gpt-4o-mini'
           - 'anthropic/claude-haiku-4-5'
-          - 'openrouter/z-ai/glm-5'
+          - 'openrouter/z-ai/glm-5@z-ai'
 
     steps:
     - uses: actions/checkout@v6
