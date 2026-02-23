@@ -163,7 +163,9 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
         "web",
     ]
     has_relevant_content = any(keyword in name for keyword in relevant_keywords)
-    assert has_relevant_content, f"Generated name '{chat_config.name}' doesn't seem contextually relevant. Expected keywords: {relevant_keywords}"
+    assert has_relevant_content, (
+        f"Generated name '{chat_config.name}' doesn't seem contextually relevant. Expected keywords: {relevant_keywords}"
+    )
 
 
 # Unit tests for validation function

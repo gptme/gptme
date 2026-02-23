@@ -256,9 +256,9 @@ def test_code_context_extraction(mock_pr_with_context_response):
             for line in lines:
                 # Check that code lines don't start with diff markers
                 if line and not line.startswith("```"):
-                    assert not line.startswith(
-                        "@@"
-                    ), f"Line should not have @@ marker: {line}"
+                    assert not line.startswith("@@"), (
+                        f"Line should not have @@ marker: {line}"
+                    )
 
 
 def test_code_suggestion_extraction(mock_pr_with_suggestion_response):

@@ -179,9 +179,9 @@ def test_benchmark_cost_estimation():
 
     # Validate hybrid is cost-effective
     hybrid_monthly = costs["hybrid"] * total_selections * 30
-    assert (
-        hybrid_monthly < 10
-    ), f"Hybrid monthly cost should be <$10, got ${hybrid_monthly:.2f}"
+    assert hybrid_monthly < 10, (
+        f"Hybrid monthly cost should be <$10, got ${hybrid_monthly:.2f}"
+    )
 
 
 if __name__ == "__main__":

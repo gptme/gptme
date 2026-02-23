@@ -11,23 +11,23 @@ from gptme.util.generate_name import (
 
 def test_no_duplicate_actions():
     """All entries in the actions list should be unique."""
-    assert len(actions) == len(
-        set(actions)
-    ), f"Duplicate actions: {[a for a in actions if actions.count(a) > 1]}"
+    assert len(actions) == len(set(actions)), (
+        f"Duplicate actions: {[a for a in actions if actions.count(a) > 1]}"
+    )
 
 
 def test_no_duplicate_adjectives():
     """All entries in the adjectives list should be unique."""
-    assert len(adjectives) == len(
-        set(adjectives)
-    ), f"Duplicate adjectives: {[a for a in adjectives if adjectives.count(a) > 1]}"
+    assert len(adjectives) == len(set(adjectives)), (
+        f"Duplicate adjectives: {[a for a in adjectives if adjectives.count(a) > 1]}"
+    )
 
 
 def test_no_duplicate_nouns():
     """All entries in the nouns list should be unique."""
-    assert len(nouns) == len(
-        set(nouns)
-    ), f"Duplicate nouns: {[n for n in nouns if nouns.count(n) > 1]}"
+    assert len(nouns) == len(set(nouns)), (
+        f"Duplicate nouns: {[n for n in nouns if nouns.count(n) > 1]}"
+    )
 
 
 def test_generate_name_format():

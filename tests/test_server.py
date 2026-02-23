@@ -74,9 +74,9 @@ def test_api_conversation_generate(conv: str, client: FlaskClient):
     msgs_resps = response.get_json()
     assert msgs_resps is not None  # Ensure we got valid JSON
     # Make sure it is a list and not an error
-    assert isinstance(
-        msgs_resps, list
-    ), f"Response should be a list of messages, got: {msgs_resps}"
+    assert isinstance(msgs_resps, list), (
+        f"Response should be a list of messages, got: {msgs_resps}"
+    )
     # Assistant message + possible tool output
     assert len(msgs_resps) >= 1
 
@@ -143,9 +143,9 @@ def test_debug_errors_enabled(monkeypatch):
     # Test falsy values
     for value in ["0", "false", "no", ""]:
         monkeypatch.setenv("GPTME_DEBUG_ERRORS", value)
-        assert (
-            _is_debug_errors_enabled() is False
-        ), f"Should be False for value: {value}"
+        assert _is_debug_errors_enabled() is False, (
+            f"Should be False for value: {value}"
+        )
 
 
 def test_default_model_propagation():

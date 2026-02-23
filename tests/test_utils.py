@@ -33,9 +33,9 @@ def test_image_size_check_uses_raw_bytes(tmp_path: Path) -> None:
     )
 
     # Should succeed - file is within raw size limit
-    assert (
-        result is not None
-    ), f"0.8MB file should pass 1MB limit, but got error: {content_parts}"
+    assert result is not None, (
+        f"0.8MB file should pass 1MB limit, but got error: {content_parts}"
+    )
     data, media_type = result
     assert media_type == "image/png"
     assert data is not None

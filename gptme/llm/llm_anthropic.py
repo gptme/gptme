@@ -412,7 +412,7 @@ def chat(
         temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
         top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
-        tools=tools_dict if tools_dict else NOT_GIVEN,
+        tools=tools_dict or NOT_GIVEN,
         thinking=(
             {"type": "enabled", "budget_tokens": thinking_budget}
             if use_thinking
@@ -503,7 +503,7 @@ def stream(
         temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
         top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
-        tools=tools_dict if tools_dict else NOT_GIVEN,
+        tools=tools_dict or NOT_GIVEN,
         thinking=(
             {"type": "enabled", "budget_tokens": thinking_budget}
             if use_thinking

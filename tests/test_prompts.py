@@ -60,9 +60,9 @@ def test_get_prompt_instructions_only():
     # Without workspace context, should be <= full mode
     instructions_tokens = len_tokens(combined_content, "gpt-4")
     full_tokens = len_tokens(full_content, "gpt-4")
-    assert (
-        instructions_tokens <= full_tokens
-    ), f"instructions-only ({instructions_tokens}) should be <= full ({full_tokens})"
+    assert instructions_tokens <= full_tokens, (
+        f"instructions-only ({instructions_tokens}) should be <= full ({full_tokens})"
+    )
 
 
 def test_get_prompt_selective_tools_always_included():
@@ -153,7 +153,7 @@ files = ["../outside/secret.txt", "README.md"]
 
     # README should be attached, secret file should be blocked (path traversal)
     assert any("README.md" in f for f in attached_files), "README.md should be attached"
-    assert not any(
-        "secret.txt" in f for f in attached_files
-    ), "secret.txt should NOT be attached (path traversal)"
+    assert not any("secret.txt" in f for f in attached_files), (
+        "secret.txt should NOT be attached (path traversal)"
+    )
     assert "../outside/secret.txt" not in content, "Path traversal should be blocked"

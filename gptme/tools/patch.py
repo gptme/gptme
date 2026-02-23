@@ -291,8 +291,7 @@ def apply(codeblock: str, content: str) -> str:
             if i > 1:
                 status += f" ({i - 1} hunk(s) applied successfully before failure)"
             raise ValueError(
-                f"{status}: {error_msg}\n"
-                f"Failed hunk starts with: {original_preview!r}"
+                f"{status}: {error_msg}\nFailed hunk starts with: {original_preview!r}"
             ) from None
 
     return new_content

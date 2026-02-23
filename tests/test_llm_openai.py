@@ -322,18 +322,18 @@ def test_message_conversion_tool_response_with_image():
         assert isinstance(content, list), "Tool message content must be a list"
         for part in content:
             if isinstance(part, dict):
-                assert (
-                    part.get("type") != "image_url"
-                ), "Tool messages must not have images"
+                assert part.get("type") != "image_url", (
+                    "Tool messages must not have images"
+                )
 
         # A follow-up user message (index 3) should carry the image for vision models
-        assert (
-            len(messages_dicts) == 4
-        ), "Expected follow-up user message for tool response image"
+        assert len(messages_dicts) == 4, (
+            "Expected follow-up user message for tool response image"
+        )
         followup_msg = messages_dicts[3]
-        assert (
-            followup_msg["role"] == "user"
-        ), "Follow-up image message must be user role"
+        assert followup_msg["role"] == "user", (
+            "Follow-up image message must be user role"
+        )
         followup_content = followup_msg["content"]
         assert isinstance(followup_content, list)
         image_parts = [
@@ -380,9 +380,9 @@ def test_message_conversion_tool_response_with_image_no_vision():
         messages_dicts, _ = _prepare_messages_for_api(messages, model.full, [tool_save])
 
         # No follow-up user message should be added for non-vision models
-        assert (
-            len(messages_dicts) == 3
-        ), "Non-vision model should not generate follow-up image message"
+        assert len(messages_dicts) == 3, (
+            "Non-vision model should not generate follow-up image message"
+        )
         assert messages_dicts[2]["role"] == "tool"
     finally:
         image_path.unlink(missing_ok=True)
@@ -490,9 +490,9 @@ def test_timeout_all_providers(monkeypatch):
             # Verify timeout was passed
             if mock_openai.called:
                 call_kwargs = mock_openai.call_args[1]
-                assert (
-                    call_kwargs["timeout"] == 900.0
-                ), f"Provider {provider} didn't receive correct timeout"
+                assert call_kwargs["timeout"] == 900.0, (
+                    f"Provider {provider} didn't receive correct timeout"
+                )
 
 
 def test_timeout_invalid_value(monkeypatch):

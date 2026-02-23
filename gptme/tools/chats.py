@@ -174,7 +174,9 @@ def _format_message_with_context(
         highlighted = f"{prefix}{context}{suffix}"
         highlighted = re.sub(
             query,
-            lambda m: f"\033[1;31m{m.group(0)!r}\033[0m",  # not sure why !r is needed to avoid linting error
+            lambda m: (
+                f"\033[1;31m{m.group(0)!r}\033[0m"
+            ),  # not sure why !r is needed to avoid linting error
             highlighted,
             flags=re.DOTALL,
         )

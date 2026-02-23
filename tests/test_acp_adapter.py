@@ -188,16 +188,16 @@ class TestContextVarPropagation:
 
             # Without the fix: fresh context has var=None
             result_without_fix = fresh_ctx.run(var.get)
-            assert (
-                result_without_fix is None
-            ), "Fresh context should NOT have the var from initialize()"
+            assert result_without_fix is None, (
+                "Fresh context should NOT have the var from initialize()"
+            )
 
             # With the fix: re-set the var (simulating what agent.py does)
             stored_model = "model-value"  # stored as self._model in agent
             fresh_ctx.run(var.set, stored_model)
             result_with_fix = fresh_ctx.run(var.get)
-            assert (
-                result_with_fix == "model-value"
-            ), "After re-setting, the var should be available"
+            assert result_with_fix == "model-value", (
+                "After re-setting, the var should be available"
+            )
 
         asyncio.run(test_fresh_context_isolation())

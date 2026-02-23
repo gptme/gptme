@@ -553,9 +553,9 @@ def test_estimate_compaction_savings_includes_phase3():
 
     # Should have savings from assistant compression (not just reasoning)
     # Since we have no reasoning tags, savings should come from compression
-    assert (
-        estimated_savings > 0
-    ), f"Expected compression savings for long assistant message, got {estimated_savings}"
+    assert estimated_savings > 0, (
+        f"Expected compression savings for long assistant message, got {estimated_savings}"
+    )
 
 
 def test_should_auto_compact_respects_minimum_savings():
@@ -575,9 +575,9 @@ def test_should_auto_compact_respects_minimum_savings():
 
     # With minimal savings potential (no reasoning, no tool results, no long messages),
     # should return "summarize" (not "rule_based") even though we're "over limit"
-    assert (
-        result == "summarize"
-    ), "should_auto_compact should return 'summarize' when rule-based savings are below threshold"
+    assert result == "summarize", (
+        "should_auto_compact should return 'summarize' when rule-based savings are below threshold"
+    )
 
 
 def test_should_auto_compact_triggers_with_high_savings():
@@ -603,9 +603,9 @@ def test_should_auto_compact_triggers_with_high_savings():
     # 3. Over the low limit
     result = should_auto_compact(messages, limit=100)
 
-    assert (
-        result == "rule_based"
-    ), "should_auto_compact should return 'rule_based' when savings exceed threshold"
+    assert result == "rule_based", (
+        "should_auto_compact should return 'rule_based' when savings exceed threshold"
+    )
 
 
 def test_compact_resume_error_handling():
