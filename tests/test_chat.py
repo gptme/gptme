@@ -96,3 +96,29 @@ def test_find_potential_paths_punctuation():
     assert "/path/to/file" in paths
     assert "./local/path" in paths
     assert "https://example.com" in paths
+
+
+def test_find_potential_paths_ignores_xml_tags():
+    """Paths inside XML tags should not be extracted (e.g. user pastes tool output)."""
+    content = """
+Here is some user text mentioning /real/path/to/file.txt.
+
+<tool_use>
+<cmd>cat /path/inside/xml/tag.txt</cmd>
+</tool_use>
+
+<result>
+Contents from /another/xml/path.csv
+</result>
+
+Also check `./outside/xml.py` which should be found.
+"""
+    paths = _find_potential_paths(content)
+
+    # Paths outside XML tags should be found
+    assert "/real/path/to/file.txt" in paths
+    assert "./outside/xml.py" in paths
+
+    # Paths inside XML tags should be ignored
+    assert "/path/inside/xml/tag.txt" not in paths
+    assert "/another/xml/path.csv" not in paths

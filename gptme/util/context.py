@@ -554,6 +554,10 @@ def _find_potential_paths(content: str) -> list[str]:
 
     content_no_codeblocks = re.sub(re_codeblock, "", content)
 
+    # Also remove paths inside XML tags (e.g. user pastes XML/tool output into prompt)
+    re_xml_tags = r"<([a-zA-Z_][a-zA-Z0-9_-]*)(?:\s[^>]*)?>[\s\S]*?</\1>"
+    content_no_xml = re.sub(re_xml_tags, "", content_no_codeblocks)
+
     # List current directory contents for relative path matching
     cwd_files = [f.name for f in Path.cwd().iterdir()]
 
@@ -573,7 +577,7 @@ def _find_potential_paths(content: str) -> list[str]:
         )
 
     # First find backtick-wrapped content
-    for match in re.finditer(r"`([^`]+)`", content_no_codeblocks):
+    for match in re.finditer(r"`([^`]+)`", content_no_xml):
         word = match.group(1).strip()
         word = word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
         if is_path_like(word):
@@ -581,7 +585,7 @@ def _find_potential_paths(content: str) -> list[str]:
 
     # Then find non-backtick-wrapped words
     # Remove backtick-wrapped content first to avoid double-processing
-    content_no_backticks = re.sub(r"`[^`]+`", "", content_no_codeblocks)
+    content_no_backticks = re.sub(r"`[^`]+`", "", content_no_xml)
     for word in re.split(r"\s+", content_no_backticks):
         word = word.strip()
         word = word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
