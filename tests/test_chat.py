@@ -56,11 +56,13 @@ def test_find_potential_paths_empty():
     assert _find_potential_paths("just some text") == []
 
 
-def test_find_potential_paths_xml_tags():
-    """Test that paths inside XML tags are excluded."""
-    content = """
-Here's a real path: /real/path/to/file.txt
+def test_include_paths_skips_system_messages():
+    """Test that include_paths skips role=system messages (tool output) entirely."""
+    from gptme.message import Message
+    from gptme.util.context import include_paths
 
+    # A system message with path-like content (e.g. tool output)
+    content = """
 <tool_use>
 <cmd>cat /path/inside/tool/output.txt</cmd>
 </tool_use>
@@ -69,21 +71,15 @@ Here's a real path: /real/path/to/file.txt
 Content from /path/in/result/data.csv
 </result>
 
-<file path="/some/file.py">
-def hello():
-    pass
-</file>
-
-Also check ~/actual/path
+Also /some/path/in/system/message.txt
     """
 
-    paths = _find_potential_paths(content)
-    assert "/real/path/to/file.txt" in paths
-    assert "~/actual/path" in paths
-    # Paths inside XML tags should be excluded
-    assert "/path/inside/tool/output.txt" not in paths
-    assert "/path/in/result/data.csv" not in paths
-    assert "/some/file.py" not in paths
+    msg = Message("system", content)
+    result = include_paths(msg)
+
+    # system messages should be returned unchanged (no paths extracted)
+    assert result == msg
+    assert result.files == []
 
 
 def test_find_potential_paths_punctuation():
