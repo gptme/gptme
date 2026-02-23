@@ -101,6 +101,8 @@ class GptmeAgent:
         self._tools: list[Any] | None = None
         # Per-session model overrides (populated from per-project gptme.toml)
         self._session_models: dict[str, str | None] = {}
+        # Per-session mode (default: "default", can be "auto" for no-confirm)
+        self._session_modes: dict[str, str] = {}
         # Phase 2: Track active tool calls per session
         self._tool_calls: dict[str, dict[str, ToolCall]] = {}
         # Phase 2: Permission policies per session (allow_always, reject_always)
@@ -203,6 +205,14 @@ class GptmeAgent:
         """
         if not self._conn:
             # No connection - auto-allow for backward compatibility
+            return True
+
+        # In "auto" mode, skip permission prompts (like --no-confirm)
+        if self._session_modes.get(session_id) == "auto":
+            logger.debug(
+                f"Auto-approving {tool_call.kind.value} in auto mode "
+                f"(session={session_id})"
+            )
             return True
 
         # Check cached permission policies
@@ -546,7 +556,80 @@ class GptmeAgent:
         _NewSessionResponse = _check_acp_import(
             NewSessionResponse, "NewSessionResponse"
         )
-        return _NewSessionResponse(session_id=session_id)
+
+        # Build modes and models state for the session response.
+        modes = self._build_modes_state(session_id)
+        models = self._build_models_state(session_model)
+
+        return _NewSessionResponse(
+            session_id=session_id,
+            modes=modes,
+            models=models,
+        )
+
+    def _build_modes_state(self, session_id: str) -> Any:
+        """Build SessionModeState for the session response.
+
+        gptme supports two modes:
+        - default: Interactive mode (tools require confirmation)
+        - auto: Autonomous mode (tools run without confirmation, like --no-confirm)
+        """
+        try:
+            from acp.schema import (  # type: ignore[import-not-found]
+                SessionMode,
+                SessionModeState,
+            )
+        except ImportError:
+            return None
+
+        current_mode = self._session_modes.get(session_id, "default")
+        return SessionModeState(
+            available_modes=[
+                SessionMode(
+                    id="default",
+                    name="Default",
+                    description="Interactive mode — tools require confirmation before executing",
+                ),
+                SessionMode(
+                    id="auto",
+                    name="Auto",
+                    description="Autonomous mode — tools run without confirmation",
+                ),
+            ],
+            current_mode_id=current_mode,
+        )
+
+    def _build_models_state(self, session_model: str | None) -> Any:
+        """Build SessionModelState from gptme's model registry."""
+        try:
+            from acp.schema import (  # type: ignore[import-not-found]
+                ModelInfo,
+                SessionModelState,
+            )
+        except ImportError:
+            return None
+
+        from ..llm.models import MODELS
+
+        available: list[Any] = []
+        for provider, models_dict in MODELS.items():
+            for model_name, meta in models_dict.items():
+                if meta.get("deprecated", False):
+                    continue
+                model_id = f"{provider}/{model_name}"
+                available.append(
+                    ModelInfo(
+                        model_id=model_id,
+                        name=model_name,
+                        description=f"{provider} — context: {meta['context']:,} tokens",
+                    )
+                )
+
+        current = session_model or (self._model if self._model else "default")
+        return SessionModelState(
+            available_models=available,
+            current_model_id=current,
+        )
 
     async def _send_session_open_notifications(
         self, session_id: str, session_model: str | None, cwd: str
@@ -944,10 +1027,12 @@ class GptmeAgent:
     def _cleanup_session(self, session_id: str) -> None:
         """Remove all per-session state for a given session.
 
-        Cleans up _session_models, _tool_calls, and _permission_policies
-        to prevent unbounded memory growth from accumulated sessions.
+        Cleans up _session_models, _session_modes, _tool_calls, and
+        _permission_policies to prevent unbounded memory growth from
+        accumulated sessions.
         """
         self._session_models.pop(session_id, None)
+        self._session_modes.pop(session_id, None)
         self._tool_calls.pop(session_id, None)
         self._permission_policies.pop(session_id, None)
         self._session_commands_advertised.discard(session_id)
@@ -1028,11 +1113,21 @@ class GptmeAgent:
         session_id: str,
         **kwargs: Any,
     ) -> None:
-        """Set the mode for a session (not supported)."""
-        logger.warning(
-            f"set_session_mode not implemented: session={session_id}, mode={mode_id}"
-        )
-        return
+        """Set the mode for a session.
+
+        Supported modes:
+        - default: Interactive mode (tools require confirmation)
+        - auto: Autonomous mode (tools run without confirmation)
+        """
+        valid_modes = {"default", "auto"}
+        if mode_id not in valid_modes:
+            logger.warning(
+                f"set_session_mode: unknown mode {mode_id!r}, ignoring. "
+                f"Valid modes: {valid_modes}"
+            )
+            return
+        logger.info(f"set_session_mode: session={session_id}, mode={mode_id}")
+        self._session_modes[session_id] = mode_id
 
     async def ext_method(
         self,

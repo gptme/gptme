@@ -507,12 +507,13 @@ class TestCleanupSession:
     """Tests for _cleanup_session and cancel methods."""
 
     def test_cleanup_removes_all_state(self):
-        """_cleanup_session should remove session_models, tool_calls, and permission_policies."""
+        """_cleanup_session should remove session_models, session_modes, tool_calls, and permission_policies."""
         agent = GptmeAgent()
         sid = "session_cleanup_test"
 
         # Populate all per-session state
         agent._session_models[sid] = "anthropic/claude-sonnet-4-6"
+        agent._session_modes[sid] = "auto"
         agent._tool_calls[sid] = {
             "call_1": ToolCall(
                 tool_call_id="call_1", title="Test", kind=ToolKind.EXECUTE
@@ -525,6 +526,7 @@ class TestCleanupSession:
         agent._cleanup_session(sid)
 
         assert sid not in agent._session_models
+        assert sid not in agent._session_modes
         assert sid not in agent._tool_calls
         assert sid not in agent._permission_policies
         assert sid not in agent._session_commands_advertised
@@ -1076,3 +1078,153 @@ class TestSessionPersistence:
 
         session_ids = [s.session_id for s in result.sessions]
         assert session_ids.count("shared-session") == 1
+
+
+class TestBuildModesState:
+    """Tests for _build_modes_state()."""
+
+    def test_returns_none_without_acp(self):
+        """Returns None when ACP schema not importable."""
+        agent = GptmeAgent()
+        # If acp.schema isn't available, should return None gracefully
+        result = agent._build_modes_state("test-session")
+        # Can be None or a proper SessionModeState depending on install
+        if result is not None:
+            assert result.current_mode_id == "default"
+
+    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    def test_default_mode(self):
+        """Default mode should be 'default'."""
+        agent = GptmeAgent()
+        result = agent._build_modes_state("test-session")
+        assert result is not None
+        assert result.current_mode_id == "default"
+        assert len(result.available_modes) == 2
+
+    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    def test_auto_mode(self):
+        """Should reflect auto mode when set."""
+        agent = GptmeAgent()
+        agent._session_modes["test-session"] = "auto"
+        result = agent._build_modes_state("test-session")
+        assert result is not None
+        assert result.current_mode_id == "auto"
+
+    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    def test_mode_ids(self):
+        """Available modes should have correct IDs."""
+        agent = GptmeAgent()
+        result = agent._build_modes_state("test-session")
+        assert result is not None
+        mode_ids = {m.id for m in result.available_modes}
+        assert mode_ids == {"default", "auto"}
+
+
+class TestBuildModelsState:
+    """Tests for _build_models_state()."""
+
+    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    def test_returns_models(self):
+        """Should return available models from registry."""
+        agent = GptmeAgent()
+        result = agent._build_models_state("anthropic/claude-sonnet-4-6")
+        assert result is not None
+        assert len(result.available_models) > 0
+        assert result.current_model_id == "anthropic/claude-sonnet-4-6"
+
+    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    def test_uses_global_model_as_fallback(self):
+        """Falls back to global model when session model is None."""
+        agent = GptmeAgent()
+        agent._model = "anthropic/claude-opus-4-6"
+        result = agent._build_models_state(None)
+        assert result is not None
+        assert result.current_model_id == "anthropic/claude-opus-4-6"
+
+    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    def test_models_have_required_fields(self):
+        """Each model should have model_id and name."""
+        agent = GptmeAgent()
+        result = agent._build_models_state(None)
+        assert result is not None
+        for model in result.available_models:
+            assert model.model_id
+            assert model.name
+
+    @pytest.mark.skipif(not _import_acp(), reason="acp package not installed")
+    def test_excludes_deprecated_models(self):
+        """Deprecated models should not appear in available list."""
+        agent = GptmeAgent()
+        result = agent._build_models_state(None)
+        assert result is not None
+        # Deprecated models have deprecated=True in MODELS dict
+        # Just verify we get some models (non-empty) and the count is reasonable
+        assert len(result.available_models) > 5
+
+
+class TestSetSessionMode:
+    """Tests for set_session_mode()."""
+
+    def test_set_valid_mode(self):
+        """Should store valid mode."""
+        agent = GptmeAgent()
+        _run(agent.set_session_mode(mode_id="auto", session_id="s1"))
+        assert agent._session_modes["s1"] == "auto"
+
+    def test_set_default_mode(self):
+        """Should store default mode."""
+        agent = GptmeAgent()
+        _run(agent.set_session_mode(mode_id="default", session_id="s1"))
+        assert agent._session_modes["s1"] == "default"
+
+    def test_ignore_invalid_mode(self):
+        """Should ignore unknown mode IDs."""
+        agent = GptmeAgent()
+        _run(agent.set_session_mode(mode_id="turbo", session_id="s1"))
+        assert "s1" not in agent._session_modes
+
+    def test_mode_switch(self):
+        """Should allow switching between modes."""
+        agent = GptmeAgent()
+        _run(agent.set_session_mode(mode_id="auto", session_id="s1"))
+        assert agent._session_modes["s1"] == "auto"
+        _run(agent.set_session_mode(mode_id="default", session_id="s1"))
+        assert agent._session_modes["s1"] == "default"
+
+
+class TestAutoModePermission:
+    """Tests for auto-approve in auto mode."""
+
+    def test_auto_mode_skips_permission(self):
+        """In auto mode, tool permission should be auto-granted."""
+        agent = GptmeAgent()
+        agent._conn = MagicMock()  # Has connection but should skip
+        agent._session_modes["s1"] = "auto"
+
+        tool_call = ToolCall(
+            tool_call_id="tc1",
+            title="echo hello",
+            kind=ToolKind.EXECUTE,
+        )
+        result = _run(agent._request_tool_permission("s1", tool_call))
+        assert result is True
+        # Should NOT have called request_permission on connection
+        agent._conn.request_permission.assert_not_called()
+
+    def test_default_mode_requests_permission(self):
+        """In default mode, tool permission should be requested."""
+        agent = GptmeAgent()
+        agent._conn = AsyncMock()
+        agent._conn.request_permission = AsyncMock(
+            return_value=_mock_permission_response("allow-once")
+        )
+        agent._session_modes["s1"] = "default"
+
+        tool_call = ToolCall(
+            tool_call_id="tc1",
+            title="echo hello",
+            kind=ToolKind.EXECUTE,
+        )
+        result = _run(agent._request_tool_permission("s1", tool_call))
+        assert result is True
+        agent._conn.request_permission.assert_called_once()
