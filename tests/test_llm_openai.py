@@ -1272,3 +1272,55 @@ def test_transform_msgs_handles_string_list_content():
     # Should handle string list items
     assert "reasoning_content" in result[0]
     assert result[0]["reasoning_content"] == "Thinking"
+
+
+def test_transform_msgs_openrouter_removes_empty_content():
+    """Test that OpenRouter reasoning models remove content when it's empty after stripping
+    <think> tags, to avoid provider errors (e.g. Z.AI/GLM rejects empty text content).
+
+    Regression test for: 'messages[2].content[0].text:text cannot be empty'
+    """
+    from typing import Any
+
+    from gptme.llm.llm_openai import _transform_msgs_for_special_provider
+    from gptme.llm.models import ModelMeta
+
+    # Z.AI GLM model accessed via OpenRouter with reasoning support
+    openrouter_reasoning_model = ModelMeta(
+        provider="openrouter",
+        model="z-ai/glm-5",
+        context=131_072,
+        supports_reasoning=True,
+    )
+
+    # Assistant message where content is ONLY thinking (no actual text after stripping)
+    # This happens when GLM outputs <think>reasoning</think> with no text response
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "content": "<think>I should use IPython to compute primes</think>\n",
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {
+                        "name": "ipython",
+                        "arguments": '{"code": "print([p for p in range(2, 50)])"}',
+                    },
+                }
+            ],
+        },
+    ]
+
+    result = list(
+        _transform_msgs_for_special_provider(messages, openrouter_reasoning_model)
+    )
+
+    # Reasoning should be extracted
+    assert "reasoning_content" in result[0]
+    assert "IPython" in result[0]["reasoning_content"]
+
+    # Content should be REMOVED (not set to empty string) to avoid provider rejection
+    assert "content" not in result[0], (
+        "Empty content should be removed to avoid Z.AI/GLM rejection of empty text"
+    )
