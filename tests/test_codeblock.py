@@ -1,5 +1,3 @@
-import pytest
-
 from gptme.codeblock import Codeblock, _extract_codeblocks
 
 
