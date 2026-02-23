@@ -22,15 +22,19 @@ def test_init_tools():
 
 
 def test_init_tools_allowlist():
+    clear_tools()  # ensure clean state regardless of test ordering
     init_tools(allowlist=["save"])
     assert len(get_tools()) == 1
     assert get_tools()[0].name == "save"
 
+    clear_tools()  # clear before testing second allowlist
     init_tools(allowlist=["save", "patch"])
     assert len(get_tools()) == 2
 
 
 def test_init_tools_allowlist_from_env():
+    clear_tools()  # ensure clean state regardless of test ordering
+
     # Define the behavior for get_env based on the input key
     def mock_get_env(key, default=None):
         if key == "TOOL_ALLOWLIST":
