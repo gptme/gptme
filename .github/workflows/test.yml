@@ -149,6 +149,9 @@ jobs:
   test-api:
     name: API tests with ${{ matrix.model }}
     runs-on: ubuntu-latest
+    # Allow z-ai to fail without blocking CI — it uses a free external API
+    # that can be slow or unavailable, causing flaky timeouts unrelated to code changes.
+    continue-on-error: ${{ matrix.allow_failure == true }}
     env:
       RELEASE: false
     strategy:
@@ -157,7 +160,9 @@ jobs:
         model:
           - 'openai/gpt-4o-mini'
           - 'anthropic/claude-haiku-4-5'
-          - 'openrouter/z-ai/glm-5@z-ai'
+        include:
+          - model: 'openrouter/z-ai/glm-5@z-ai'
+            allow_failure: true
 
     steps:
     - uses: actions/checkout@v6

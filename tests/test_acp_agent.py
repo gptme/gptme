@@ -1259,3 +1259,158 @@ class TestAutoModePermission:
         result = _run(agent._request_tool_permission("s1", tool_call))
         assert result is True
         agent._conn.request_permission.assert_called_once()
+
+
+class TestCwdSessionId:
+    """Tests for _cwd_session_id deterministic session ID derivation."""
+
+    def test_imports(self):
+        """_cwd_session_id should be importable from acp.agent."""
+        from gptme.acp.agent import _cwd_session_id
+
+        assert callable(_cwd_session_id)
+
+    def test_returns_acp_prefix(self, tmp_path):
+        """Session ID should start with 'acp-'."""
+        from gptme.acp.agent import _cwd_session_id
+
+        sid = _cwd_session_id(str(tmp_path))
+        assert sid.startswith("acp-")
+
+    def test_deterministic(self, tmp_path):
+        """Same path should always produce the same session ID."""
+        from gptme.acp.agent import _cwd_session_id
+
+        sid1 = _cwd_session_id(str(tmp_path))
+        sid2 = _cwd_session_id(str(tmp_path))
+        assert sid1 == sid2
+
+    def test_different_paths_different_ids(self, tmp_path):
+        """Different paths should produce different session IDs."""
+        from gptme.acp.agent import _cwd_session_id
+
+        path_a = tmp_path / "project-a"
+        path_a.mkdir()
+        path_b = tmp_path / "project-b"
+        path_b.mkdir()
+
+        sid_a = _cwd_session_id(str(path_a))
+        sid_b = _cwd_session_id(str(path_b))
+        assert sid_a != sid_b
+
+    def test_resolves_path(self, tmp_path):
+        """Should resolve path before hashing (handles trailing slashes, symlinks)."""
+        from gptme.acp.agent import _cwd_session_id
+
+        # Path with trailing slash should resolve to same as without
+        sid_plain = _cwd_session_id(str(tmp_path))
+        sid_slash = _cwd_session_id(str(tmp_path) + "/")
+        assert sid_plain == sid_slash
+
+    def test_hash_length(self, tmp_path):
+        """Hash portion should be exactly 8 hex characters."""
+        from gptme.acp.agent import _cwd_session_id
+
+        sid = _cwd_session_id(str(tmp_path))
+        # Format: "acp-<hash8>"
+        assert len(sid) == len("acp-") + 8
+        hash_part = sid[len("acp-") :]
+        assert all(c in "0123456789abcdef" for c in hash_part)
+
+
+class TestNewSessionResume:
+    """Tests for session resume logic in new_session()."""
+
+    def test_session_id_deterministic_from_cwd(self, tmp_path):
+        """new_session with cwd produces the expected deterministic session ID."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from unittest.mock import patch
+
+        from gptme.acp.agent import _cwd_session_id
+
+        cwd = str(tmp_path)
+        expected_sid = _cwd_session_id(cwd)
+
+        agent = GptmeAgent()
+
+        with (
+            patch("gptme.acp.agent.get_logs_dir", return_value=tmp_path),
+            patch("gptme.acp.agent.get_prompt", return_value=[]),
+            patch("gptme.acp.agent.get_tools", return_value=[]),
+            patch("gptme.acp.agent.ChatConfig"),
+        ):
+            result = _run(agent.new_session(cwd=cwd, mcp_servers=[]))
+
+        assert result.session_id == expected_sid
+
+    def test_session_id_reused_in_memory(self, tmp_path):
+        """When same CWD is passed twice, the same in-memory session is reused."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import json
+        from unittest.mock import patch
+
+        from gptme.acp.agent import _cwd_session_id
+
+        cwd = str(tmp_path / "my-project")
+        (tmp_path / "my-project").mkdir()
+        expected_sid = _cwd_session_id(cwd)
+
+        # Create a minimal log dir so new_session can resume from disk
+        logdir = tmp_path / expected_sid
+        logdir.mkdir()
+        logfile = logdir / "conversation.jsonl"
+        entry = {
+            "role": "system",
+            "content": "hello",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+        }
+        logfile.write_text(json.dumps(entry) + "\n")
+
+        agent = GptmeAgent()
+
+        with (
+            patch("gptme.acp.agent.get_logs_dir", return_value=tmp_path),
+            patch("gptme.acp.agent.get_prompt", return_value=[]),
+            patch("gptme.acp.agent.get_tools", return_value=[]),
+            patch("gptme.acp.agent.ChatConfig"),
+        ):
+            result1 = _run(agent.new_session(cwd=cwd, mcp_servers=[]))
+            result2 = _run(agent.new_session(cwd=cwd, mcp_servers=[]))
+
+        # Both calls should return the same session ID
+        assert result1.session_id == result2.session_id == expected_sid
+
+    def test_send_session_open_notifications_resumed_flag(self):
+        """_send_session_open_notifications includes 'Resumed session' when resumed=True."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        agent = _make_agent_with_conn()
+        _run(
+            agent._send_session_open_notifications(
+                "session_1", "anthropic/claude-haiku-4-5", "/tmp", resumed=True
+            )
+        )
+        assert agent._conn.session_update.await_count >= 1
+        call_args = agent._conn.session_update.await_args_list[0]
+        update = call_args.kwargs.get("update") or call_args.args[0]
+        assert "Resumed session" in str(update)
+
+    def test_send_session_open_notifications_new_session_flag(self):
+        """_send_session_open_notifications includes 'New session' when resumed=False."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        agent = _make_agent_with_conn()
+        _run(
+            agent._send_session_open_notifications(
+                "session_1", "anthropic/claude-haiku-4-5", "/tmp", resumed=False
+            )
+        )
+        call_args = agent._conn.session_update.await_args_list[0]
+        update = call_args.kwargs.get("update") or call_args.args[0]
+        assert "New session" in str(update)
