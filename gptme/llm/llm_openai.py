@@ -798,10 +798,13 @@ def _merge_tool_results_with_same_call_id(
 
 
 def _process_file(msg: dict[str, Any], model: ModelMeta) -> dict[str, Any]:
-    """Process remaining file attachments (images only).
+    """Process remaining file attachments (images only) for non-tool-response messages.
 
     Text files are already embedded by embed_attached_file_content() in
     prepare_messages(). Only non-text files (images, binaries) remain here.
+
+    For tool response messages (call_id), use _process_msgs which handles
+    image forwarding via follow-up user messages.
 
     Args:
         msg: A message dict (expected to conform to MessageDict structure)
@@ -860,6 +863,61 @@ def _process_file(msg: dict[str, Any], model: ModelMeta) -> dict[str, Any]:
         msg["role"] = "user"
 
     return msg  # Conforms to MessageDict structure
+
+
+def _process_msgs(
+    msgs: Iterable[dict[str, Any]], model: ModelMeta
+) -> Iterable[dict[str, Any]]:
+    """Process all message file attachments, routing by message type.
+
+    For regular messages: delegates to _process_file to embed images in content.
+    For tool response messages (call_id): processes text content normally, then
+    forwards any images as a follow-up user message (since OpenAI tool messages
+    only support text content, but the model may still benefit from seeing images
+    produced by tools like screenshot).
+
+    Args:
+        msgs: Iterable of message dicts
+        model: Model metadata for checking vision support
+
+    Yields:
+        Processed message dicts, with possible extra follow-up user messages.
+    """
+    for msg in msgs:
+        if "call_id" in msg:
+            # Extract files before yielding the tool response
+            files = msg.pop("files", None) or []
+            text = msg.get("content")
+            if not isinstance(text, list):
+                msg["content"] = [{"type": "text", "text": text}]
+            yield msg
+
+            # Forward any images as a follow-up user message
+            if files and model.supports_vision:
+                followup_content: list[dict[str, Any]] = []
+                for f in files:
+                    result = process_image_file(
+                        f,
+                        followup_content,
+                        max_size_mb=20,
+                        expand_user=False,
+                        check_vision_support=lambda: model.supports_vision,
+                    )
+                    if result is not None:
+                        data, media_type = result
+                        followup_content.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{media_type};base64,{data}"
+                                },
+                            }
+                        )
+
+                if followup_content:
+                    yield {"role": "user", "content": followup_content}
+        else:
+            yield _process_file(msg, model)
 
 
 def _transform_msgs_for_special_provider(
@@ -1207,9 +1265,10 @@ def _prepare_messages_for_api(
     ):
         messages = list(_prep_deepseek_reasoner(messages))
 
-    # Process message dicts - internal functions use dict[str, Any] for flexibility
-    messages_dicts: Iterable[dict[str, Any]] = (
-        _process_file(msg, model_meta) for msg in msgs2dicts(messages)
+    # Process message dicts - _process_msgs handles both regular and tool response messages
+    # For tool responses with images, it emits a follow-up user message
+    messages_dicts: Iterable[dict[str, Any]] = _process_msgs(
+        msgs2dicts(messages), model_meta
     )
 
     tools_dict = [_spec2tool(tool, model_meta) for tool in tools] if tools else None

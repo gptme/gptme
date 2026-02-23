@@ -45,6 +45,9 @@ def init(
     global _init_done
     if _init_done:
         logger.warning("init() called twice, ignoring")
+        # Always update tool_format even on re-entry, as it may differ
+        # between conversations in the same process (e.g. test suite)
+        set_tool_format(tool_format)
         return
     _init_done = True
 

@@ -692,19 +692,24 @@ workspace = "{workspace!s}"
         ], "Should use CLI tools when provided"
 
         # Test 3: New conversation (no saved config) - should fall back to env/defaults
+        # Mock model default to None so we test the pure fallback to "markdown"
+        # (otherwise, if the default model has a default_tool_format, that takes precedence)
+        from unittest.mock import patch
+
         new_logdir = Path(tmpdir) / "new-conversation"
         new_logdir.mkdir()
 
-        config = setup_config_from_cli(
-            workspace=workspace,
-            logdir=new_logdir,
-            model=None,  # No CLI override
-            tool_allowlist=None,  # No CLI override
-            tool_format=None,  # No CLI override
-            stream=True,
-            interactive=True,
-            agent_path=None,
-        )
+        with patch("gptme.config._get_model_default_tool_format", return_value=None):
+            config = setup_config_from_cli(
+                workspace=workspace,
+                logdir=new_logdir,
+                model=None,  # No CLI override
+                tool_allowlist=None,  # No CLI override
+                tool_format=None,  # No CLI override
+                stream=True,
+                interactive=True,
+                agent_path=None,
+            )
 
         # For new conversations, should use defaults/env (tool_format defaults to "markdown")
         assert config.chat is not None, "Chat config should be loaded"

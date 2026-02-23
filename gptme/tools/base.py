@@ -528,10 +528,12 @@ class ToolUse:
         active_format = tool_format_override or tool_format
 
         # collect all tool uses
-        tool_uses = []
+        tool_uses: list[ToolUse] = []
         if active_format == "xml":
             tool_uses = list(cls._iter_from_xml(content))
-        if active_format == "markdown":
+        if active_format in ("markdown", "tool"):
+            # Always try markdown parsing: "tool" format also needs to parse
+            # markdown blocks for /impersonate content and user-provided tool calls
             tool_uses = list(cls._iter_from_markdown(content, streaming=streaming))
 
         # return them in the order they appear
@@ -543,28 +545,37 @@ class ToolUse:
         if active_format != "tool":
             return
 
-        # check if its a toolcall and extract valid JSON
-        if match := toolcall_re.search(content):
+        # Find all tool calls by iterating through the content.
+        # We can't use finditer() directly because the DOTALL pattern would consume
+        # everything from the first { to the end. Instead, we search from after
+        # each extracted JSON end position to handle multiple tool calls.
+        search_from = 0
+        while match := toolcall_re.search(content, search_from):
             tool_name = match.group(1)
             call_id = match.group(2)
-            if (json_str := extract_json(content, match)) is not None:
-                try:
-                    kwargs = json_repair.loads(json_str)
-                    if not isinstance(kwargs, dict):
-                        logger.debug(f"JSON repair result is not a dict: {kwargs}")
-                        return
-                    start_pos = content.find(f"@{tool_name}(")
-                    yield ToolUse(
-                        tool_name,
-                        None,
-                        None,
-                        kwargs=cast(dict[str, str], kwargs),
-                        call_id=call_id,
-                        start=start_pos,
-                        _format="tool",
-                    )
-                except json.JSONDecodeError:
-                    logger.debug(f"Failed to parse JSON: {json_str}")
+            json_start = match.start(3)
+            json_end = find_json_end(content, json_start)
+            if json_end is None:
+                # Incomplete JSON (e.g. during streaming), stop here
+                break
+            json_str = content[json_start:json_end]
+            search_from = json_end  # advance past this JSON for next iteration
+            try:
+                kwargs = json_repair.loads(json_str)
+                if not isinstance(kwargs, dict):
+                    logger.debug(f"JSON repair result is not a dict: {kwargs}")
+                    continue
+                yield ToolUse(
+                    tool_name,
+                    None,
+                    None,
+                    kwargs=cast(dict[str, str], kwargs),
+                    call_id=call_id,
+                    start=match.start(),
+                    _format="tool",
+                )
+            except json.JSONDecodeError:
+                logger.debug(f"Failed to parse JSON: {json_str}")
 
     @classmethod
     def _iter_from_markdown(
