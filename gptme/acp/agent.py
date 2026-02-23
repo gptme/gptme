@@ -865,18 +865,28 @@ class GptmeAgent:
         self,
         session_id: str,
         **kwargs: Any,
-    ) -> Any:
-        """Load an existing session (Phase 2 feature).
+    ) -> None:
+        """Attempt to load an existing session.
+
+        gptme ACP sessions are in-memory only and not persisted across restarts.
+        Returns None to signal the session is unavailable, letting the client
+        gracefully fall back to creating a new session via new_session().
+
+        Raising NotImplementedError here would cause a JSON-RPC internal error
+        (-32603) which breaks Zed's session lifecycle — the error state prevents
+        subsequent notifications (AvailableCommandsUpdate, model info) from being
+        processed by the client.
 
         Args:
             session_id: Session ID to load
 
         Returns:
-            Session data or error
+            None to indicate session is not available
         """
-        # Phase 2: Implement session persistence
-        logger.warning(f"load_session not yet implemented: {session_id}")
-        raise NotImplementedError("Session loading not yet implemented")
+        logger.info(
+            f"load_session: session {session_id[:8]} not available (sessions are in-memory only)"
+        )
+        return
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove all per-session state for a given session.

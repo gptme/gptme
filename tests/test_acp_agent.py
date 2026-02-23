@@ -491,10 +491,16 @@ class TestInitializeWithoutAcp:
         except RuntimeError as e:
             assert "agent-client-protocol" in str(e)
 
-    def test_load_session_not_implemented(self):
+    def test_load_session_returns_none(self):
+        """load_session returns None for unknown sessions (graceful fallback).
+
+        Returning None (instead of raising) lets ACP clients like Zed
+        gracefully fall back to new_session() without an RPC error that
+        would disrupt the session lifecycle.
+        """
         agent = GptmeAgent()
-        with pytest.raises(NotImplementedError, match="not yet implemented"):
-            _run(agent.load_session(session_id="fake_session"))
+        result = _run(agent.load_session(session_id="fake_session"))
+        assert result is None
 
 
 class TestCleanupSession:
