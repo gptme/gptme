@@ -1110,6 +1110,67 @@ class TestSessionPersistence:
         session_ids = [s.session_id for s in result.sessions]
         assert session_ids.count("shared-session") == 1
 
+    def test_load_session_returns_modes_and_models(self):
+        """load_session should include modes and models in the response."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        agent = GptmeAgent()
+        sid = "test-modes-models"
+        agent._registry.create(sid)
+
+        result = _run(agent.load_session(session_id=sid))
+        assert result is not None
+        # Verify modes are present
+        assert result.modes is not None
+        assert result.modes.current_mode_id == "default"
+        assert len(result.modes.available_modes) == 2
+        # Verify models are present
+        assert result.models is not None
+        assert len(result.models.available_models) > 0
+
+    def test_load_session_initializes_session_model(self):
+        """load_session should set up per-session model tracking."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        agent = GptmeAgent()
+        agent._model = "test-provider/test-model"
+        sid = "test-session-model-init"
+        agent._registry.create(sid)
+
+        _run(agent.load_session(session_id=sid))
+        # Per-session model should be initialized from global model
+        assert sid in agent._session_models
+        assert agent._session_models[sid] == "test-provider/test-model"
+
+    def test_load_session_from_disk_returns_modes_and_models(self, tmp_path):
+        """load_session from disk should include modes and models."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import json
+        from unittest.mock import patch
+
+        session_dir = tmp_path / "test-disk-modes"
+        session_dir.mkdir()
+        logfile = session_dir / "conversation.jsonl"
+        entry = {
+            "role": "system",
+            "content": "test message",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+        }
+        logfile.write_text(json.dumps(entry) + "\n")
+
+        agent = GptmeAgent()
+
+        with patch("gptme.acp.agent.get_logs_dir", return_value=tmp_path):
+            result = _run(agent.load_session(session_id="test-disk-modes"))
+
+        assert result is not None
+        assert result.modes is not None
+        assert result.models is not None
+
 
 class TestBuildModesState:
     """Tests for _build_modes_state()."""

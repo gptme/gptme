@@ -991,10 +991,7 @@ class GptmeAgent:
         # Check if already loaded in-memory
         if self._registry.get(session_id):
             logger.info(f"load_session: {session_id[:16]} already in registry")
-            _NewSessionResponse = _check_acp_import(
-                NewSessionResponse, "NewSessionResponse"
-            )
-            return _NewSessionResponse(session_id=session_id)
+            return self._build_load_session_response(session_id)
 
         # Try to load from persistent storage
         logs_dir = get_logs_dir()
@@ -1016,13 +1013,41 @@ class GptmeAgent:
                 f"load_session: restored {session_id[:16]} ({len(log.log)} messages)"
             )
 
-            _NewSessionResponse = _check_acp_import(
-                NewSessionResponse, "NewSessionResponse"
-            )
-            return _NewSessionResponse(session_id=session_id)
+            return self._build_load_session_response(session_id)
         except Exception as e:
             logger.warning(f"load_session: failed to load {session_id[:16]}: {e}")
             return None
+
+    def _build_load_session_response(self, session_id: str) -> Any:
+        """Build a NewSessionResponse for a loaded session with modes and models.
+
+        Ensures loaded sessions get the same modes/models state as new sessions,
+        and schedules deferred notifications (available commands, model info).
+        """
+        _NewSessionResponse = _check_acp_import(
+            NewSessionResponse, "NewSessionResponse"
+        )
+
+        # Initialize per-session model if not already set
+        session_model = self._session_models.setdefault(session_id, self._model)
+
+        # Build modes and models state (same as new_session)
+        modes = self._build_modes_state(session_id)
+        models = self._build_models_state(session_model)
+
+        # Schedule deferred notifications (commands, model info)
+        session = self._registry.get(session_id)
+        cwd = (session.cwd or "") if session else ""
+        if self._conn:
+            asyncio.create_task(
+                self._send_session_open_notifications(session_id, session_model, cwd)
+            )
+
+        return _NewSessionResponse(
+            session_id=session_id,
+            modes=modes,
+            models=models,
+        )
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove all per-session state for a given session.
