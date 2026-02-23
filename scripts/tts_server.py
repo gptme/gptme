@@ -31,7 +31,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from importlib.util import find_spec
 from pathlib import Path
 from textwrap import shorten
@@ -275,7 +275,7 @@ async def text_to_speech(
             )
 
         # Save audio to outputs directory with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
+        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S_%f")[
             :-3
         ]  # Remove last 3 digits of microseconds
         outputs_dir = Path("outputs")

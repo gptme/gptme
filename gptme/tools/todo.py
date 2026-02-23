@@ -16,7 +16,7 @@ import logging
 import shlex
 from collections import Counter
 from collections.abc import Generator
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dateutil.parser import isoparse
 
@@ -45,8 +45,8 @@ class TodoItem:
         self.id = id
         self.text = text
         self.state = state  # pending, in_progress, completed, paused
-        self.created = created or datetime.now()
-        self.updated = datetime.now()
+        self.created = created or datetime.now(tz=timezone.utc)
+        self.updated = datetime.now(tz=timezone.utc)
 
     def to_dict(self) -> dict:
         return {
@@ -242,10 +242,12 @@ def _todowrite(operation: str, *args: str) -> str:
         valid_states = ["pending", "in_progress", "completed", "paused"]
         if update_value in valid_states:
             _current_todos[todo_id]["state"] = update_value
-            _current_todos[todo_id]["updated"] = datetime.now().isoformat()
+            _current_todos[todo_id]["updated"] = datetime.now(
+                tz=timezone.utc
+            ).isoformat()
             return f"Updated todo {todo_id} state to: {update_value}"
         _current_todos[todo_id]["text"] = update_value
-        _current_todos[todo_id]["updated"] = datetime.now().isoformat()
+        _current_todos[todo_id]["updated"] = datetime.now(tz=timezone.utc).isoformat()
         return f"Updated todo {todo_id} text to: {update_value}"
 
     if operation == "remove":

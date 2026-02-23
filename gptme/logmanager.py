@@ -18,7 +18,7 @@ if os.name == "nt":
 from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import islice, zip_longest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -696,8 +696,12 @@ class ConversationMeta:
         output = f"{self.name} (id: {self.id})"
         if metadata:
             output += f"\nMessages: {self.messages}"
-            output += f"\nCreated:  {datetime.fromtimestamp(self.created)}"
-            output += f"\nModified: {datetime.fromtimestamp(self.modified)}"
+            output += (
+                f"\nCreated:  {datetime.fromtimestamp(self.created, tz=timezone.utc)}"
+            )
+            output += (
+                f"\nModified: {datetime.fromtimestamp(self.modified, tz=timezone.utc)}"
+            )
             if self.branches > 1:
                 output += f"\n({self.branches} branches)"
         return output

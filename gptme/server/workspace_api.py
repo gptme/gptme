@@ -5,7 +5,7 @@ Workspace API endpoints for browsing files in conversation workspaces.
 import logging
 import mimetypes
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, TypedDict
 
@@ -114,7 +114,9 @@ class WorkspaceFile:
             "path": self.relative_path,
             "type": "directory" if self.is_dir else "file",
             "size": stat.st_size,
-            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "modified": datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat(),
             "mime_type": self.mime_type,
         }
 

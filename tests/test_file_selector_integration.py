@@ -1,6 +1,6 @@
 """Tests for file context selector integration."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -27,7 +27,7 @@ def temp_files(tmp_path: Path) -> dict[str, Path]:
     # Set different modification times (simulate recency)
     import os
 
-    now = datetime.now().timestamp()
+    now = datetime.now(tz=timezone.utc).timestamp()
     files["recent_py"].touch()  # Most recent
     os.utime(files["old_py"], times=(now - 86400, now - 86400))  # 1 day old
     os.utime(files["config"], times=(now - 3600, now - 3600))  # 1 hour old

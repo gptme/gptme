@@ -38,7 +38,7 @@ import logging
 from collections.abc import Callable, Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, TypedDict
 
 from ..hooks import HookType, StopPropagation, register_hook
@@ -254,7 +254,7 @@ def _handle_cache_invalidated(
     state = _get_state()
 
     # Update state
-    state.last_invalidation = datetime.now()
+    state.last_invalidation = datetime.now(tz=timezone.utc)
     state.last_invalidation_reason = reason
     state.tokens_before_invalidation = tokens_before
     state.tokens_after_invalidation = tokens_after

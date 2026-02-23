@@ -7,7 +7,7 @@ and provides path reference for later retrieval.
 
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def save_large_output(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate filename with timestamp and content hash
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
     filename = f"{timestamp}-{content_hash}.txt"
     saved_path = output_dir / filename

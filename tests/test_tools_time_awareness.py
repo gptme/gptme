@@ -1,6 +1,6 @@
 """Tests for the time-awareness tool."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -56,7 +56,7 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
     log = Log()
 
     # Mock conversation start time to 30 minutes ago
-    now = datetime.now()
+    now = datetime.now(tz=timezone.utc)
     start_time = now - timedelta(minutes=30)
     conversation_start_times = _conversation_start_times_var.get()
     shown_milestones = _shown_milestones_var.get()
@@ -122,7 +122,7 @@ def test_milestone_progression(load_time_awareness_tool, tmp_path):
 
     workspace = tmp_path
     log = Log()
-    now = datetime.now()
+    now = datetime.now(tz=timezone.utc)
 
     # Set conversation start 25 minutes ago
     conversation_start_times = _conversation_start_times_var.get()
@@ -178,7 +178,7 @@ def test_time_format_hours(load_time_awareness_tool, tmp_path):
 
     workspace = tmp_path
     log = Log()
-    now = datetime.now()
+    now = datetime.now(tz=timezone.utc)
 
     # Set conversation start 125 minutes ago (2h 5min)
     conversation_start_times = _conversation_start_times_var.get()
@@ -217,7 +217,7 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
 
     workspace = tmp_path
     log = Log()
-    now = datetime.now()
+    now = datetime.now(tz=timezone.utc)
 
     # Test 30, 40, 50 minute marks
     for minutes in [30, 40, 50]:

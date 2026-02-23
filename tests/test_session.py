@@ -1,7 +1,7 @@
 """Tests for the shared session module."""
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -123,7 +123,9 @@ class TestSessionRegistry:
         # Make old-session appear old
         old_session = registry.get("old-session")
         assert old_session is not None
-        old_session.last_activity = datetime.now() - timedelta(minutes=120)
+        old_session.last_activity = datetime.now(tz=timezone.utc) - timedelta(
+            minutes=120
+        )
 
         # Cleanup with 60 minute threshold
         removed = registry.cleanup_inactive(max_age_minutes=60)

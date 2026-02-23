@@ -10,7 +10,7 @@ import json
 import logging
 import subprocess
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -696,13 +696,13 @@ def api_tasks_create():
 
     try:
         # Generate task ID
-        task_id = f"task-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        task_id = f"task-{datetime.now(tz=timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
         # Create task
         task = Task(
             id=task_id,
             content=req_json["content"],
-            created_at=datetime.now().isoformat(),
+            created_at=datetime.now(tz=timezone.utc).isoformat(),
             status="pending",
             target_type=req_json.get("target_type", "stdout"),
             target_repo=req_json.get("target_repo"),

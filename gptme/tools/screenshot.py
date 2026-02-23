@@ -6,7 +6,7 @@ import os
 import platform
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .base import ToolSpec, ToolUse
@@ -64,7 +64,7 @@ def screenshot(path: Path | None = None) -> Path:
     """
 
     if path is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
         path = OUTPUT_DIR / f"screenshot_{timestamp}.png"
         # Ensure OUTPUT_DIR exists
         path.parent.mkdir(parents=True, exist_ok=True)

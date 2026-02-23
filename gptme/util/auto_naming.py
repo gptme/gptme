@@ -1,7 +1,7 @@
 """Unified auto-naming system for conversations."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -53,13 +53,13 @@ def generate_conversation_name(
         logger.debug(f"Name '{name}' exists, retrying (attempt {attempt + 1})")
 
     # Final fallback with timestamp
-    timestamp = datetime.now().strftime("%H%M%S")
+    timestamp = datetime.now(tz=timezone.utc).strftime("%H%M%S")
     return f"{name}-{timestamp}"
 
 
 def generate_conversation_id(name: str | None, logs_dir: Path) -> str:
     """Generate a conversation ID for CLI usage with date prefix."""
-    datestr = datetime.now().strftime("%Y-%m-%d")
+    datestr = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
 
     if name == "random":
         name = None
@@ -81,7 +81,7 @@ def generate_conversation_id(name: str | None, logs_dir: Path) -> str:
         full_id = f"{datestr}-{name}-{attempt}"
         attempt += 1
         if attempt > 100:  # Safety valve
-            timestamp = datetime.now().strftime("%H%M%S")
+            timestamp = datetime.now(tz=timezone.utc).strftime("%H%M%S")
             full_id = f"{datestr}-{name}-{timestamp}"
             break
 
@@ -286,7 +286,7 @@ def _is_invalid_title(name: str) -> bool:
 def _starts_with_date(name: str) -> bool:
     """Check if name starts with a date in YYYY-MM-DD format."""
     try:
-        datetime.strptime(name[:10], "%Y-%m-%d")
+        datetime.strptime(name[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
         return True
     except (ValueError, IndexError):
         return False
