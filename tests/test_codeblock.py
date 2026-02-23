@@ -1158,23 +1158,23 @@ def test_save_with_bare_backticks_incremental_streaming():
 
     # Full content that should parse correctly when complete
     lines = [
-        f"Let's call save:\n",
-        f"\n",
+        "Let's call save:\n",
+        "\n",
         f"{fence}save filename.txt\n",
-        f"# Title\n",
-        f"\n",
-        f"Blah\n",
-        f"\n",
-        f"## Structure\n",
-        f"\n",
+        "# Title\n",
+        "\n",
+        "Blah\n",
+        "\n",
+        "## Structure\n",
+        "\n",
         f"{fence}\n",  # bare fence - opens nested block
-        f"tree-like listing\n",
+        "tree-like listing\n",
         f"{fence}\n",  # bare fence - closes nested block
-        f"\n",
-        f"## Last section\n",
-        f"That's all\n",
+        "\n",
+        "## Last section\n",
+        "That's all\n",
         f"{fence}\n",  # closes outer save block
-        f"\n",  # blank line confirming closure
+        "\n",  # blank line confirming closure
     ]
 
     # Simulate incremental streaming: feed content line-by-line
