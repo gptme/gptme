@@ -528,10 +528,12 @@ class ToolUse:
         active_format = tool_format_override or tool_format
 
         # collect all tool uses
-        tool_uses = []
+        tool_uses: list[ToolUse] = []
         if active_format == "xml":
             tool_uses = list(cls._iter_from_xml(content))
-        if active_format == "markdown":
+        if active_format in ("markdown", "tool"):
+            # Always try markdown parsing: "tool" format also needs to parse
+            # markdown blocks for /impersonate content and user-provided tool calls
             tool_uses = list(cls._iter_from_markdown(content, streaming=streaming))
 
         # return them in the order they appear
