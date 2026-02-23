@@ -112,8 +112,14 @@ def auto_reply_hook(
         return
 
     tool_uses = list(ToolUse.iter_from_content(last_assistant_msg.content))
-    if tool_uses:
-        return  # Has tools, no need to prompt
+    logger.debug(
+        f"auto_reply_hook: tool_uses={[(tu.tool, tu.is_runnable) for tu in tool_uses]}"
+    )
+    logger.debug(
+        f"auto_reply_hook: last_assistant_content={last_assistant_msg.content[:200]!r}"
+    )
+    if any(tu.is_runnable for tu in tool_uses):
+        return  # Has runnable tools, no need to prompt
 
     # Count consecutive auto-replies
     auto_reply_count = 0
@@ -121,8 +127,9 @@ def auto_reply_hook(
         if msg.role == "user" and "use the `complete` tool" in msg.content:
             auto_reply_count += 1
         elif msg.role == "assistant":
-            # Stop counting when we hit an assistant message with tools
-            if list(ToolUse.iter_from_content(msg.content)):
+            # Stop counting when we hit an assistant message with runnable tools
+            # (non-runnable tool calls like disabled tools don't count)
+            if any(tu.is_runnable for tu in ToolUse.iter_from_content(msg.content)):
                 break
         else:
             break

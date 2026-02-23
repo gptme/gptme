@@ -1127,6 +1127,7 @@ def setup_config_from_cli(
                 resolved_tool_allowlist.append("complete")
         elif "complete" not in resolved_tool_allowlist:
             resolved_tool_allowlist.append("complete")
+        logger.debug("Added 'complete' tool to allowlist for non-interactive mode")
 
     # Handle tool_format with similar precedence
     if tool_format is not None:
