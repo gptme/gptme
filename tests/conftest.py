@@ -14,6 +14,7 @@ from contextlib import contextmanager
 import pytest
 import requests
 
+import gptme.init as _gptme_init
 from gptme.config import get_config
 from gptme.init import init
 from gptme.tools import clear_tools
@@ -108,6 +109,10 @@ def reduce_anthropic_retries(monkeypatch):
 def clear_tools_before():
     # Clear all tools and cache to prevent test conflicts
     clear_tools()
+    # Reset init state so tools are fully re-registered on next init() call.
+    # Without this, the _init_done guard prevents init_tools() from re-running
+    # after clear_tools(), leaving get_tool() returning None for all tools.
+    _gptme_init._init_done = False
 
 
 @pytest.fixture(autouse=True)
