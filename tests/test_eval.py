@@ -23,6 +23,10 @@ def _detect_model():
 
 @pytest.mark.slow
 @pytest.mark.requires_api
+@pytest.mark.skipif(
+    "glm" in os.getenv("MODEL", "").lower(),
+    reason="GLM models don't reliably call the complete tool",
+)
 def test_eval_cli():
     model = _detect_model()
     runner = CliRunner()
