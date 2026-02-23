@@ -796,7 +796,12 @@ class GptmeAgent:
         output_parts: list[str] = []
         stdout_output = captured.getvalue()
         if stdout_output:
-            output_parts.append(stdout_output.rstrip())
+            # Wrap multi-line stdout in a code block to preserve formatting
+            # (e.g. /help, /tools output rendered as Markdown in ACP panels)
+            text = stdout_output.rstrip()
+            if "\n" in text:
+                text = f"```\n{text}\n```"
+            output_parts.append(text)
         output_parts.extend(
             resp_msg.content for resp_msg in response_msgs if resp_msg.content
         )
