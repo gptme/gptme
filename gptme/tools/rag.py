@@ -210,6 +210,7 @@ def get_rag_context(
 
     # Post-process the context with an LLM (if enabled)
     if should_post_process:
+        assert rag_config.post_process_model is not None
         post_process_msgs = [
             Message(
                 role="system",
@@ -222,9 +223,9 @@ def get_rag_context(
             ),
         ]
         start = time.monotonic()
-        rag_result = _chat_complete(
+        rag_result, _metadata = _chat_complete(
             messages=post_process_msgs,
-            model=rag_config.post_process_model,  # type: ignore[arg-type]
+            model=rag_config.post_process_model,
             tools=[],
         )
         logger.info(f"Ran RAG post-process in {time.monotonic() - start:.2f}s")
