@@ -556,9 +556,7 @@ def _find_potential_paths(content: str) -> list[str]:
 
     # Remove content inside XML tags to avoid matching paths in tool output
     # Handles tags like <tool_use>, <result>, <file>, etc.
-    re_xml_tags = (
-        r"<[a-zA-Z_][a-zA-Z0-9_-]*(?:\s[^>]*)?>[\s\S]*?</[a-zA-Z_][a-zA-Z0-9_-]*>"
-    )
+    re_xml_tags = r"<([a-zA-Z_][a-zA-Z0-9_-]*)(?:\s[^>]*)?>[\s\S]*?</\1>"
     content_no_codeblocks = re.sub(re_xml_tags, "", content_no_codeblocks)
 
     # List current directory contents for relative path matching
