@@ -501,20 +501,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     228341 |     mcp.types
-     230457 |   gptme.tools.mcp_adapter
-     296903 |             openai.types
-     362443 |           openai
-     430479 |         gptme.llm.llm_openai
-     538631 | gptme.cli.main
-     691508 |       gptme.llm
-     693377 |     gptme.commands
-     798904 |   gptme.chat
-     852890 | gptme
+     225014 |     mcp.types
+     227064 |   gptme.tools.mcp_adapter
+     299052 |             openai.types
+     365050 |           openai
+     432939 |         gptme.llm.llm_openai
+     461927 | gptme.cli.main
+     699168 |       gptme.llm
+     701078 |     gptme.commands
+     807043 |   gptme.chat
+     863733 | gptme
 
-real	0m2.244s
-user	0m1.729s
-sys	0m0.256s
+real	0m2.036s
+user	0m1.713s
+sys	0m0.266s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -523,8 +523,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      1.988 s ±  0.031 s    [User: 1.768 s, System: 0.205 s]
-  Range (min … max):    1.956 s …  2.037 s    5 runs
+  Time (mean ± σ):      2.019 s ±  0.108 s    [User: 1.765 s, System: 0.207 s]
+  Range (min … max):    1.941 s …  2.206 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1548,7 +1548,7 @@ Clone found (python):
 │ Total:     │ 223            │ 57159       │ 364143       │ 26           │ 384 (0.67%)      │ 3075 (0.84%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 26 clones.
-Detection time:: 3.705s
+Detection time:: 3.516s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
