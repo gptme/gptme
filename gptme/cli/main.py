@@ -128,7 +128,7 @@ The interface provides /commands during a conversation:
 {commands_help}"""
 
 
-@click.command(help=docstring)
+@click.command(help=docstring, context_settings={"auto_envvar_prefix": "GPTME"})
 @click.pass_context
 @click.argument(
     "prompts",
