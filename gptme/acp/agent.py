@@ -1027,10 +1027,12 @@ class GptmeAgent:
     def _cleanup_session(self, session_id: str) -> None:
         """Remove all per-session state for a given session.
 
-        Cleans up _session_models, _tool_calls, and _permission_policies
-        to prevent unbounded memory growth from accumulated sessions.
+        Cleans up _session_models, _session_modes, _tool_calls, and
+        _permission_policies to prevent unbounded memory growth from
+        accumulated sessions.
         """
         self._session_models.pop(session_id, None)
+        self._session_modes.pop(session_id, None)
         self._tool_calls.pop(session_id, None)
         self._permission_policies.pop(session_id, None)
         self._session_commands_advertised.discard(session_id)

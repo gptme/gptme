@@ -507,12 +507,13 @@ class TestCleanupSession:
     """Tests for _cleanup_session and cancel methods."""
 
     def test_cleanup_removes_all_state(self):
-        """_cleanup_session should remove session_models, tool_calls, and permission_policies."""
+        """_cleanup_session should remove session_models, session_modes, tool_calls, and permission_policies."""
         agent = GptmeAgent()
         sid = "session_cleanup_test"
 
         # Populate all per-session state
         agent._session_models[sid] = "anthropic/claude-sonnet-4-6"
+        agent._session_modes[sid] = "auto"
         agent._tool_calls[sid] = {
             "call_1": ToolCall(
                 tool_call_id="call_1", title="Test", kind=ToolKind.EXECUTE
@@ -525,6 +526,7 @@ class TestCleanupSession:
         agent._cleanup_session(sid)
 
         assert sid not in agent._session_models
+        assert sid not in agent._session_modes
         assert sid not in agent._tool_calls
         assert sid not in agent._permission_policies
         assert sid not in agent._session_commands_advertised
