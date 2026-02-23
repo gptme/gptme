@@ -73,7 +73,7 @@ def cmd_impersonate(ctx: CommandContext) -> Generator["Message", None, None]:
     from ..message import Message  # fmt: skip
     from ..tools import execute_msg  # fmt: skip
 
-    content = ctx.full_args if ctx.full_args else input("[impersonate] Assistant: ")
+    content = ctx.full_args or input("[impersonate] Assistant: ")
     msg = Message("assistant", content)
     yield msg
     yield from execute_msg(msg)

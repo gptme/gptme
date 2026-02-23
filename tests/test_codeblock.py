@@ -220,9 +220,9 @@ Done!
     content = blocks[0].content
     assert "**Output Format:**" in content
     assert "key: value" in content
-    assert (
-        "Done!" in content
-    ), "Content was cut off prematurely - nested block was treated as closing delimiter"
+    assert "Done!" in content, (
+        "Content was cut off prematurely - nested block was treated as closing delimiter"
+    )
 
 
 def test_extract_codeblocks_incomplete_streaming():
@@ -283,9 +283,9 @@ echo "hello"
 echo "hello"
 {fence}"""
     blocks = list(_extract_codeblocks(markdown_without_blank, streaming=True))
-    assert (
-        len(blocks) == 0
-    ), "Should NOT extract block when streaming=True without blank line"
+    assert len(blocks) == 0, (
+        "Should NOT extract block when streaming=True without blank line"
+    )
 
     # Case 3: Streaming=False, WITH blank line (positive case)
     # Should extract normally
@@ -296,9 +296,9 @@ echo "hello"
     # Case 4: Streaming=False, WITHOUT blank line (positive case)
     # Should extract because message is complete (not streaming)
     blocks = list(_extract_codeblocks(markdown_without_blank, streaming=False))
-    assert (
-        len(blocks) == 1
-    ), "Should extract block when streaming=False even without blank line"
+    assert len(blocks) == 1, (
+        "Should extract block when streaming=False even without blank line"
+    )
     assert blocks[0].lang == "shell"
     assert blocks[0].content == 'echo "hello"'
 
@@ -326,9 +326,9 @@ Done!
 
     # During streaming: should NOT extract without blank line
     blocks = list(_extract_codeblocks(nested_markdown, streaming=True))
-    assert (
-        len(blocks) == 0
-    ), "Should NOT extract nested block during streaming without blank line"
+    assert len(blocks) == 0, (
+        "Should NOT extract nested block during streaming without blank line"
+    )
 
     # After completion: should extract
     blocks = list(_extract_codeblocks(nested_markdown, streaming=False))
@@ -352,9 +352,9 @@ Done!
 """
 
     blocks = list(_extract_codeblocks(nested_with_blank, streaming=True))
-    assert (
-        len(blocks) == 1
-    ), "Should extract nested block with blank line during streaming"
+    assert len(blocks) == 1, (
+        "Should extract nested block with blank line during streaming"
+    )
     assert "npm install" in blocks[0].content
     assert "Done!" in blocks[0].content
 
@@ -373,14 +373,14 @@ def test_extract_patch_codeblock_with_nested_backticks():
 
     # The file has a blank line after the closing ```, so it should extract in streaming mode
     blocks = list(_extract_codeblocks(content, streaming=True))
-    assert (
-        len(blocks) == 1
-    ), f"Expected 1 patch block in streaming mode, got {len(blocks)}"
+    assert len(blocks) == 1, (
+        f"Expected 1 patch block in streaming mode, got {len(blocks)}"
+    )
 
     block = blocks[0]
-    assert block.lang.startswith(
-        "patch "
-    ), f"Expected patch block, got lang='{block.lang}'"
+    assert block.lang.startswith("patch "), (
+        f"Expected patch block, got lang='{block.lang}'"
+    )
 
     # The content should include all the patch markers and nested code blocks
     assert "<<<<<<< ORIGINAL" in block.content
@@ -393,15 +393,15 @@ def test_extract_patch_codeblock_with_nested_backticks():
     # Test without blank line - should NOT extract in streaming mode
     content_no_blank = content.rstrip()  # Remove trailing whitespace
     blocks = list(_extract_codeblocks(content_no_blank, streaming=True))
-    assert (
-        len(blocks) == 0
-    ), f"Should not extract during streaming without blank line, got {len(blocks)} blocks"
+    assert len(blocks) == 0, (
+        f"Should not extract during streaming without blank line, got {len(blocks)} blocks"
+    )
 
     # But should extract in non-streaming mode
     blocks = list(_extract_codeblocks(content_no_blank, streaming=False))
-    assert (
-        len(blocks) == 1
-    ), f"Expected 1 patch block in non-streaming mode, got {len(blocks)}"
+    assert len(blocks) == 1, (
+        f"Expected 1 patch block in non-streaming mode, got {len(blocks)}"
+    )
 
 
 def test_multiple_sequential_nested_blocks():

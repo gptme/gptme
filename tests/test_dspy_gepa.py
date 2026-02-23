@@ -51,9 +51,9 @@ def test_gepa_integration():
     prediction = module("Write hello.py that prints Hello World", "", test_eval_spec)
 
     # Verify evaluation ran
-    assert hasattr(
-        prediction, "eval_result"
-    ), "Should have eval_result from gptme evaluation"
+    assert hasattr(prediction, "eval_result"), (
+        "Should have eval_result from gptme evaluation"
+    )
 
     # Test metric with the prediction
     example = dspy.Example(

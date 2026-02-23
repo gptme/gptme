@@ -140,7 +140,7 @@ def execute_mcp(
                 return
 
             name = parts[1]
-            config_override = command_args if command_args else None
+            config_override = command_args or None
 
             # Ask for confirmation
             if not confirm(f"Load MCP server '{name}'?"):

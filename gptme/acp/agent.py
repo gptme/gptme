@@ -625,7 +625,7 @@ class GptmeAgent:
                     )
                 )
 
-        current = session_model or (self._model if self._model else "default")
+        current = session_model or (self._model or "default")
         return SessionModelState(
             available_models=available,
             current_model_id=current,
@@ -1012,8 +1012,7 @@ class GptmeAgent:
             )
             self._registry.create(session_id, log=log)
             logger.info(
-                f"load_session: restored {session_id[:16]} "
-                f"({len(log.log)} messages)"
+                f"load_session: restored {session_id[:16]} ({len(log.log)} messages)"
             )
 
             _NewSessionResponse = _check_acp_import(

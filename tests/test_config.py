@@ -657,15 +657,15 @@ workspace = "{workspace!s}"
         )
 
         assert config.chat is not None, "Chat config should be loaded"
-        assert (
-            config.chat.model == "openrouter/test-model"
-        ), "Should use saved model when no CLI override"
-        assert (
-            config.chat.tool_format == "xml"
-        ), "Should use saved tool_format when no CLI override"
-        assert config.chat.tools is not None and (
-            "shell" in config.chat.tools
-        ), "Should use saved tools when no CLI override"
+        assert config.chat.model == "openrouter/test-model", (
+            "Should use saved model when no CLI override"
+        )
+        assert config.chat.tool_format == "xml", (
+            "Should use saved tool_format when no CLI override"
+        )
+        assert config.chat.tools is not None and ("shell" in config.chat.tools), (
+            "Should use saved tools when no CLI override"
+        )
 
         # Test 2: Resume with CLI overrides - should use CLI values
         config = setup_config_from_cli(
@@ -680,12 +680,12 @@ workspace = "{workspace!s}"
         )
 
         assert config.chat is not None, "Chat config should be loaded"
-        assert (
-            config.chat.model == "anthropic/claude-3-sonnet"
-        ), "Should use CLI model when provided"
-        assert (
-            config.chat.tool_format == "markdown"
-        ), "Should use CLI tool_format when provided"
+        assert config.chat.model == "anthropic/claude-3-sonnet", (
+            "Should use CLI model when provided"
+        )
+        assert config.chat.tool_format == "markdown", (
+            "Should use CLI tool_format when provided"
+        )
         assert config.chat.tools == [
             "read",
             "save",
@@ -713,13 +713,13 @@ workspace = "{workspace!s}"
 
         # For new conversations, should use defaults/env (tool_format defaults to "markdown")
         assert config.chat is not None, "Chat config should be loaded"
-        assert (
-            config.chat.tool_format == "markdown"
-        ), "Should use default tool_format for new conversation"
+        assert config.chat.tool_format == "markdown", (
+            "Should use default tool_format for new conversation"
+        )
         # Model will depend on env vars, so we just check it's not the saved value
-        assert (
-            config.chat.model != "openrouter/test-model"
-        ), "Should not use saved model for new conversation"
+        assert config.chat.model != "openrouter/test-model", (
+            "Should not use saved model for new conversation"
+        )
 
 
 def test_reload_config_clears_tools(monkeypatch, tmp_path):

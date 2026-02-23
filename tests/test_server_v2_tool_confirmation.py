@@ -148,9 +148,9 @@ def test_tool_confirmation_without_session_id(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/tool/confirm",
             json={"tool_id": tool_id, "action": "confirm"},  # No session_id!
         )
-        assert (
-            resp.status_code == 200
-        ), f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert resp.status_code == 200, (
+            f"Expected 200, got {resp.status_code}: {resp.text}"
+        )
 
         # Wait for tool execution
         assert wait_for_event(event_listener, "tool_executing")

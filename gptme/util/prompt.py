@@ -344,7 +344,7 @@ class GptmeCompleter(Completer):
                                     completion_text,
                                     start_position=-len(partial),
                                     display=HTML(html),
-                                    display_meta=description if description else None,
+                                    display_meta=description or None,
                                 )
                     except Exception as e:
                         logger.debug(f"Command completer error: {e}")

@@ -93,7 +93,7 @@ class WorkspaceFile:
     def is_text(self) -> bool:
         """Check if file is a text file."""
         if self.mime_type and (
-            self.mime_type.startswith("text/") or self.mime_type in ["application/json"]
+            self.mime_type.startswith("text/") or self.mime_type == "application/json"
         ):
             return True
 

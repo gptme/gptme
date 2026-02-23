@@ -179,14 +179,14 @@ def test_get_input_cache_clearing():
         # Second call in same directory (within interval)
         get_input("prompt> ")
         cache_info2 = is_valid_path.cache_info()
-        assert (
-            cache_info2.currsize == cache_info1.currsize
-        ), "Cache should not be cleared in same directory"
+        assert cache_info2.currsize == cache_info1.currsize, (
+            "Cache should not be cleared in same directory"
+        )
 
         # Call in different directory (after interval)
         mock_getcwd.return_value = "/dir2"
         get_input("prompt> ")
         cache_info3 = is_valid_path.cache_info()
-        assert (
-            cache_info3.currsize == 0
-        ), "Cache should be cleared after directory change"
+        assert cache_info3.currsize == 0, (
+            "Cache should be cleared after directory change"
+        )

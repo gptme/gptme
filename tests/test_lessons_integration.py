@@ -27,9 +27,9 @@ class TestDocsLessonsParsing:
 
     def test_docs_lessons_exist(self):
         """Test that docs/lessons directory exists."""
-        assert (
-            DOCS_LESSONS_DIR.exists()
-        ), f"docs/lessons not found at {DOCS_LESSONS_DIR}"
+        assert DOCS_LESSONS_DIR.exists(), (
+            f"docs/lessons not found at {DOCS_LESSONS_DIR}"
+        )
 
         # Check subdirectories exist
         tools_dir = DOCS_LESSONS_DIR / "tools"
