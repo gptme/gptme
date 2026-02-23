@@ -845,11 +845,6 @@ Even more content here.
     assert "Even more content here" in content
 
 
-@pytest.mark.xfail(
-    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
-    "The fence after 'Structure:' opens a new block (not closes save block), and final fence closes that block, "
-    "leaving the save block unclosed. Current implementation incorrectly extracts 1 block. See PR #721 review."
-)
 def test_save_with_structure_header_and_bare_backticks_streaming():
     """
     Streaming mode variant of test_save_with_structure_header_and_bare_backticks.
@@ -917,10 +912,6 @@ More content that gets lost.
     assert "More content that gets lost" in content
 
 
-@pytest.mark.xfail(
-    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
-    "Opening markdown fence never gets closed. See PR #721 review."
-)
 def test_append_with_markdown_header_and_bare_backticks_streaming():
     """
     Streaming mode variant of test_append_with_markdown_header_and_bare_backticks.
@@ -989,11 +980,6 @@ Final content.
     assert "Final content" in content
 
 
-@pytest.mark.xfail(
-    reason="Streaming implementation doesn't match spec: should not extract incomplete blocks when fences don't match. "
-    "Per Erik's review: 1. save (open), 2. no langtag (open), 3. python (open), "
-    "4. no langtag (closes 3), 5. no langtag (closes 2), but no 6th fence to close 1. See PR #721 review."
-)
 def test_save_with_bold_text_and_bare_backticks_streaming():
     """
     Streaming mode variant of test_save_with_bold_text_and_bare_backticks.
@@ -1032,6 +1018,190 @@ Final content.
     # Per Erik's review: 1. save (open), 2. no langtag (open), 3. python (open),
     # 4. no langtag (closes 3), 5. no langtag (closes 2), but no 6th fence to close 1
     assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
+
+
+def test_save_with_nested_bare_backtick_block():
+    """
+    Test from PR #1429 review: a save block containing a bare backtick block
+    (like a tree listing or ascii diagram) nested inside it.
+
+    The parser should treat the bare backtick fences as a nested block,
+    keeping the outer save block open until the final closing fence.
+
+    Fence structure:
+    1. ```save filename.txt   (opens outer block, depth=1)
+    2. ```                     (opens nested block, depth=2)
+    3. ```                     (closes nested, depth=1)
+    4. ```                     (closes outer, depth=0)
+    """
+    fence = "```"
+    markdown = f"""\
+Let's call save:
+
+{fence}save filename.txt
+# Title
+
+Blah
+
+## Structure
+
+{fence}
+[tree-like listing or ascii-diagram - typical non-langtag block]
+{fence}
+
+## Last section
+That's all
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    content = blocks[0].content
+    assert blocks[0].lang == "save filename.txt"
+    assert "# Title" in content
+    assert "Blah" in content
+    assert "## Structure" in content
+    assert "tree-like listing" in content
+    assert "## Last section" in content
+    assert "That's all" in content
+
+
+def test_save_with_nested_bare_backtick_block_streaming():
+    """
+    Streaming mode variant of test_save_with_nested_bare_backtick_block.
+
+    Tests that the streaming parser correctly handles a save block containing
+    a bare backtick block (tree listing, ascii diagram) inside it, with
+    content continuing after the nested block closes.
+
+    With blank line after final fence, streaming should extract the block.
+    Without blank line, it should remain open (incomplete).
+    """
+    fence = "```"
+
+    # Complete version (blank line after final fence confirms completion)
+    markdown_complete = f"""\
+Let's call save:
+
+{fence}save filename.txt
+# Title
+
+Blah
+
+## Structure
+
+{fence}
+[tree-like listing or ascii-diagram - typical non-langtag block]
+{fence}
+
+## Last section
+That's all
+{fence}
+
+"""
+
+    blocks = list(_extract_codeblocks(markdown_complete, streaming=True))
+    assert len(blocks) == 1
+    content = blocks[0].content
+    assert blocks[0].lang == "save filename.txt"
+    assert "# Title" in content
+    assert "tree-like listing" in content
+    assert "## Last section" in content
+    assert "That's all" in content
+
+    # Incomplete version (no blank line - block still streaming)
+    markdown_incomplete = f"""\
+Let's call save:
+
+{fence}save filename.txt
+# Title
+
+Blah
+
+## Structure
+
+{fence}
+[tree-like listing or ascii-diagram - typical non-langtag block]
+{fence}
+
+## Last section
+That's all
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown_incomplete, streaming=True))
+    assert len(blocks) == 0, "Should not extract block without trailing blank line"
+
+
+@pytest.mark.xfail(
+    reason="Incremental streaming: when the closing fence of the outer block is "
+    "the last content received, the trailing newline from split() looks like a "
+    "blank-line confirmation. The parser can't distinguish 'stream ended at fence' "
+    "from 'fence followed by blank line (confirmed closure)' without a "
+    "stream_complete signal from the caller. See PR #1429.",
+    strict=True,
+)
+def test_save_with_bare_backticks_incremental_streaming():
+    """
+    Simulates real LLM streaming where content arrives line-by-line.
+
+    The parser is called repeatedly with accumulated content as new lines arrive.
+    At certain intermediate states — specifically when a bare ``` fence is the
+    last line received — the parser may prematurely extract the block because
+    ``split("\\n")`` on ``"```\\n"`` produces ``["```", ""]``, and the empty
+    trailing element is indistinguishable from a real blank line that confirms
+    block closure in streaming mode.
+
+    This test verifies that NO premature block extraction happens at any
+    intermediate step. The block should only be extractable after the true
+    closing fence AND its confirming blank line have both arrived.
+    """
+    fence = "```"
+
+    # Full content that should parse correctly when complete
+    lines = [
+        "Let's call save:\n",
+        "\n",
+        f"{fence}save filename.txt\n",
+        "# Title\n",
+        "\n",
+        "Blah\n",
+        "\n",
+        "## Structure\n",
+        "\n",
+        f"{fence}\n",  # bare fence - opens nested block
+        "tree-like listing\n",
+        f"{fence}\n",  # bare fence - closes nested block
+        "\n",
+        "## Last section\n",
+        "That's all\n",
+        f"{fence}\n",  # closes outer save block
+        "\n",  # blank line confirming closure
+    ]
+
+    # Simulate incremental streaming: feed content line-by-line
+    # (as the real llm/__init__.py streaming loop does)
+    content_so_far = ""
+    premature_extractions = []
+    for step, line in enumerate(lines):
+        content_so_far += line
+        blocks = list(_extract_codeblocks(content_so_far, streaming=True))
+        if blocks and step < len(lines) - 1:
+            # Block extracted before all content arrived — premature!
+            premature_extractions.append(
+                (step, line.rstrip(), len(blocks), blocks[0].lang)
+            )
+
+    # No premature extraction should happen at intermediate steps
+    assert not premature_extractions, (
+        f"Premature block extraction at steps: {premature_extractions}. "
+        f"The parser should not extract blocks until all content has arrived."
+    )
+
+    # Final state should have exactly 1 complete block
+    final_blocks = list(_extract_codeblocks(content_so_far, streaming=True))
+    assert len(final_blocks) == 1
+    assert final_blocks[0].lang == "save filename.txt"
+    assert "tree-like listing" in final_blocks[0].content
+    assert "Last section" in final_blocks[0].content
 
 
 # Tests for quad+ backtick support (Issue #1005)
