@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -1097,7 +1097,7 @@ class GptmeAgent:
                     session_id=conv.id,
                     cwd=session_cwd,
                     title=conv.name if conv.name != conv.id else None,
-                    updated_at=datetime.fromtimestamp(conv.modified).isoformat(),
+                    updated_at=datetime.fromtimestamp(conv.modified, tz=timezone.utc).isoformat(),
                 )
             )
             active_ids.discard(conv.id)
