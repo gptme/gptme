@@ -1,4 +1,4 @@
-.PHONY: test docs build build-docker check-rst install-completions help
+.PHONY: test test-api docs build build-docker check-rst install-completions help
 
 # set default shell
 SHELL := $(shell which bash)
@@ -44,6 +44,12 @@ test: ## Run tests
 		$(if $(EVAL), , -m "not eval") \
 		$(if $(SLOW), --timeout 60 --retries 2 --retry-delay 5, --timeout 10 -m "not slow and not eval") \
 		$(if $(PROFILE), --profile-svg)
+
+test-api: ## Run only API-dependent tests (requires_api marker)
+	poetry run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
+		--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html --junitxml=junit.xml \
+		-m "requires_api" \
+		--timeout 60 --retries 2 --retry-delay 5
 
 eval: ## Run evaluation suite
 	poetry run gptme-eval
