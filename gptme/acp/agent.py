@@ -709,7 +709,7 @@ class GptmeAgent:
             from ..commands import get_commands_with_descriptions
 
             acp_commands = [
-                AvailableCommand(name=f"/{name}", description=desc)
+                AvailableCommand(name=name, description=desc)
                 for name, desc in get_commands_with_descriptions()
             ]
             await self._conn.session_update(
@@ -1096,7 +1096,9 @@ class GptmeAgent:
                     session_id=conv.id,
                     cwd=session_cwd,
                     title=conv.name if conv.name != conv.id else None,
-                    updated_at=datetime.fromtimestamp(conv.modified, tz=timezone.utc).isoformat(),
+                    updated_at=datetime.fromtimestamp(
+                        conv.modified, tz=timezone.utc
+                    ).isoformat(),
                 )
             )
             active_ids.discard(conv.id)

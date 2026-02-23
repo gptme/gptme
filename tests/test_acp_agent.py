@@ -704,6 +704,37 @@ class TestSendAvailableCommands:
 
         assert "session_1" not in agent._session_commands_advertised
 
+    @pytest.mark.skipif(not _import_acp(), reason="requires acp package")
+    def test_command_names_have_no_slash_prefix(self):
+        """Command names must not have a '/' prefix — the ACP client (Zed) adds it."""
+        from acp.schema import AvailableCommand  # type: ignore[import-not-found]
+
+        agent = _make_agent_with_conn()
+        _run(agent._send_available_commands("session_1"))
+
+        # Extract the AvailableCommand objects from the session_update call
+        call_args = agent._conn.session_update.await_args
+        assert call_args is not None, (
+            "session_update was not called — _send_available_commands may have failed"
+        )
+        update = call_args.kwargs.get("update") or call_args.args[0]
+
+        # Walk the update to find commands
+        commands = []
+        if hasattr(update, "available_commands"):
+            commands = update.available_commands
+        elif isinstance(update, dict) and "available_commands" in update:
+            commands = update["available_commands"]
+
+        assert len(commands) > 0, "Expected at least one command to be advertised"
+
+        for cmd in commands:
+            name = cmd.name if isinstance(cmd, AvailableCommand) else cmd["name"]
+            assert not name.startswith("/"), (
+                f"Command name '{name}' should not have a '/' prefix — "
+                "the ACP client (e.g. Zed) adds the slash itself"
+            )
+
     def test_cleanup_removes_from_advertised(self):
         """_cleanup_session should remove session from _session_commands_advertised."""
         agent = GptmeAgent()
