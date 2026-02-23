@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from click.testing import CliRunner
 
@@ -42,6 +44,10 @@ def test_eval_cli():
 # No idea why, but for some reason keeping this leads to better coverage than the above
 @pytest.mark.slow
 @pytest.mark.requires_api
+@pytest.mark.skipif(
+    "glm" in os.getenv("MODEL", "").lower(),
+    reason="GLM models don't reliably call the complete tool",
+)
 def test_eval(test):
     """
     This test will be run for each eval in the tests list.
