@@ -13,7 +13,8 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 jobs:
-  # Job for external contributors and core functionality tests (no API keys needed)
+  # Core tests: no API keys needed, runs all tests except requires_api/eval
+  # Also includes slow tests (browser, MCP, integration, etc.) since they don't need API
   test-no-api:
     name: Test without API keys
     runs-on: ubuntu-latest
@@ -36,9 +37,9 @@ jobs:
         Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
         echo "DISPLAY=:99" >> $GITHUB_ENV
 
-    - name: Store cache ID (extras, lowercase of group name) in file .cache-id
+    - name: Store cache ID in file .cache-id
       id: cache-id
-      run: echo "${{ matrix.extras || 'noextras' }}" | tr '[:upper:]' '[:lower:]' > .cache-id
+      run: echo "noextras" > .cache-id
 
     - name: Install poetry
       run: pipx install poetry
@@ -60,11 +61,11 @@ jobs:
     - name: Install playwright
       run: poetry run playwright install chromium
 
-    - name: Run tests (without API keys)
+    - name: Run tests (without API keys, including slow)
       env:
         TERM: xterm
         MODEL: local/test
-      run: make test
+      run: make test SLOW=true
 
     - name: Upload coverage reports to Codecov
       if: ${{ !cancelled() }}
@@ -80,39 +81,83 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         report_type: test_results
 
-  test:
-    name: Test with `${{ matrix.extras }}` and ${{ matrix.model }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  # Minimal install test: no extras, tests the most common user installation config
+  test-minimal:
+    name: Test without API keys or extras
+    runs-on: ubuntu-latest
+    env:
+      RELEASE: false
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      DEEPSEEK_API_KEY: ''
+      OPENROUTER_API_KEY: ''
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: 'recursive'
+    - name: Install apt dependencies
+      run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb
+
+    - name: Set up Xvfb
+      run: |
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
+    - name: Store cache ID in file .cache-id
+      id: cache-id
+      run: echo "minimal" > .cache-id
+
+    - name: Install poetry
+      run: pipx install poetry
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.10'
+        cache: 'poetry'
+        cache-dependency-path: |
+          poetry.lock
+          .cache-id
+
+    - name: Install dependencies (no extras)
+      run: |
+        make build
+        poetry install
+
+    - name: Run tests (no extras, fast only)
+      env:
+        TERM: xterm
+        MODEL: local/test
+      run: make test
+
+    - name: Upload coverage reports to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        flags: no-api,no-extras
+
+    - name: Upload test results to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        report_type: test_results
+
+  # API tests: only run requires_api tests, across multiple cheap models
+  # This replaces the previous matrix that ran ALL slow tests on each model
+  test-api:
+    name: API tests with ${{ matrix.model }}
+    runs-on: ubuntu-latest
     env:
       RELEASE: false
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        python_version: ['3.10']
-        extras: ['-E all']
-        model: ['openai/gpt-4o-mini', 'anthropic/claude-haiku-4-5']
-        #include:
-          # no extras, latest python
-          #- os: ubuntu-latest
-          #  python_version: '3.13'
-          #  extras: ''
-          #  model: 'openai/gpt-4o-mini'
-          # deepseek, no extras, latest python
-          #- os: ubuntu-latest
-          #  python_version: '3.13'
-          #  extras: ''
-          #  model: 'deepseek/deepseek-chat'
-          # openrouter
-          #- os: ubuntu-latest
-          #  python_version: '3.10'
-          #  extras: ''
-          #  model: 'openrouter/deepseek/deepseek-chat'
-          # openrouter (llama)
-          #- os: ubuntu-latest
-          #  python_version: '3.10'
-          #  extras: ''
-          #  model: 'openrouter/meta-llama/llama-3.3-70B-instruct'
+        model:
+          - 'openai/gpt-4o-mini'
+          - 'anthropic/claude-haiku-4-5'
+          - 'openrouter/z-ai/glm-5@z-ai'
 
     steps:
     - uses: actions/checkout@v6
@@ -126,33 +171,25 @@ jobs:
         Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
         echo "DISPLAY=:99" >> $GITHUB_ENV
 
-    - name: Store cache ID (extras, lowercase of group name) in file .cache-id
-      id: cache-id
-      run: echo "${{ matrix.extras || 'noextras' }}" | tr '[:upper:]' '[:lower:]' > .cache-id
-
     - name: Install poetry
       run: pipx install poetry
 
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: ${{ matrix.python_version }}
+        python-version: '3.10'
         cache: 'poetry'
-        cache-dependency-path: |
-          poetry.lock
-          .cache-id
+        cache-dependency-path: poetry.lock
 
     - name: Install dependencies
       run: |
         make build
-        poetry install ${{ matrix.extras }}
+        poetry install -E all
 
     - name: Install playwright
-      if: contains(matrix.extras, 'browser') || contains(matrix.extras, 'all')
       run: poetry run playwright install chromium
 
-    # old comment: OpenAI sometimes randomly aborts connections
-    - name: Run tests
+    - name: Run API tests only
       uses: nick-fields/retry@v3
       env:
         TERM: xterm
@@ -161,7 +198,7 @@ jobs:
         timeout_minutes: 15
         max_attempts: 1  # favor pytest retries (mark with flaky)
         retry_wait_seconds: 10
-        command: make test SLOW=true
+        command: make test-api
 
     - name: Upload coverage reports to Codecov
       if: ${{ !cancelled() }}
