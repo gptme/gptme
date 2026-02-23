@@ -274,13 +274,12 @@ def test_message_conversion_with_tool_and_non_tool():
 
 
 def test_message_conversion_tool_response_with_image():
-    """Tool responses with image files should drop images (tool messages are text-only).
+    """Tool responses with image files should use follow-up user messages for images.
 
     When a tool response (system + call_id) has image file attachments (e.g. from
-    view_image via ipython), _process_file must NOT change the role to "user" or
-    embed the images - OpenAI tool messages only support text content, and changing
-    the role would prevent _handle_tools from converting system+call_id to a proper
-    tool message.
+    view_image via ipython), the tool message itself must remain text-only (OpenAI
+    tool messages only support text content), but the images should be forwarded as
+    a follow-up user message so vision-capable models can still see them.
     """
     import tempfile
     from pathlib import Path
@@ -288,8 +287,8 @@ def test_message_conversion_tool_response_with_image():
     init_tools(allowlist=["save"])
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-        # Write minimal PNG header (just needs to exist)
-        f.write(b"\x89PNG\r\n\x1a\n")
+        # Write minimal PNG header (just needs to exist and be readable)
+        f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
         image_path = Path(f.name)
 
     try:
@@ -314,8 +313,7 @@ def test_message_conversion_tool_response_with_image():
         model = get_model("openai/gpt-4o")
         messages_dicts, _ = _prepare_messages_for_api(messages, model.full, [tool_save])
 
-        # The tool response should be a "tool" message with text-only content
-        # (images dropped, role not changed to "user")
+        # The tool response (index 2) should be a "tool" message with text-only content
         tool_msg = messages_dicts[2]
         assert tool_msg["role"] == "tool", "Tool response must have role='tool'"
         assert tool_msg["tool_call_id"] == "call1"
@@ -327,6 +325,65 @@ def test_message_conversion_tool_response_with_image():
                 assert (
                     part.get("type") != "image_url"
                 ), "Tool messages must not have images"
+
+        # A follow-up user message (index 3) should carry the image for vision models
+        assert (
+            len(messages_dicts) == 4
+        ), "Expected follow-up user message for tool response image"
+        followup_msg = messages_dicts[3]
+        assert (
+            followup_msg["role"] == "user"
+        ), "Follow-up image message must be user role"
+        followup_content = followup_msg["content"]
+        assert isinstance(followup_content, list)
+        image_parts = [
+            p
+            for p in followup_content
+            if isinstance(p, dict) and p.get("type") == "image_url"
+        ]
+        assert len(image_parts) == 1, "Follow-up message should have exactly one image"
+    finally:
+        image_path.unlink(missing_ok=True)
+
+
+def test_message_conversion_tool_response_with_image_no_vision():
+    """Tool responses with images on non-vision models should not generate follow-up messages."""
+    import tempfile
+    from pathlib import Path
+
+    init_tools(allowlist=["save"])
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        image_path = Path(f.name)
+
+    try:
+        messages = [
+            Message(role="user", content="Can you view this image?"),
+            Message(
+                role="assistant",
+                content='@ipython(call1): {"code": "view_image(\'/path/image.png\')"}',
+            ),
+            Message(
+                role="system",
+                content="Viewing image",
+                call_id="call1",
+                files=[image_path],
+            ),
+        ]
+
+        tool_save = get_tool("save")
+        assert tool_save
+
+        # Use a model without vision support
+        model = get_model("openai/gpt-3.5-turbo")
+        messages_dicts, _ = _prepare_messages_for_api(messages, model.full, [tool_save])
+
+        # No follow-up user message should be added for non-vision models
+        assert (
+            len(messages_dicts) == 3
+        ), "Non-vision model should not generate follow-up image message"
+        assert messages_dicts[2]["role"] == "tool"
     finally:
         image_path.unlink(missing_ok=True)
 
