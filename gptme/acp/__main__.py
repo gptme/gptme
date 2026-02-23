@@ -131,9 +131,11 @@ def main() -> int:
     # === FIRST: capture fds before ANY gptme imports ===
     real_stdin, real_stdout = _capture_stdio_transport()
 
-    # Logging goes to stderr (fd 2, untouched)
+    # Logging goes to stderr (fd 2, untouched).
+    # Respect GPTME_LOG_LEVEL env var for debugging ACP protocol issues.
+    log_level = os.environ.get("GPTME_LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
-        level=logging.INFO,
+        level=getattr(logging, log_level, logging.INFO),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         stream=sys.stderr,
     )
