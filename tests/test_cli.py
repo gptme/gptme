@@ -415,6 +415,10 @@ def test_subagent(args: list[str], runner: CliRunner):
     gptme.tools.browser.browser is None,
     reason="no browser tool available",
 )
+@pytest.mark.skipif(
+    os.environ.get("MODEL") == "openai/gpt-4o-mini",
+    reason="unreliable web content extraction for gpt-4o-mini",
+)
 def test_url(args: list[str], runner: CliRunner):
     args.append("Who is the CEO of https://superuserlabs.org?")
     result = runner.invoke(cli.main, args)
@@ -424,6 +428,10 @@ def test_url(args: list[str], runner: CliRunner):
 
 @pytest.mark.slow
 @pytest.mark.requires_api
+@pytest.mark.skipif(
+    os.environ.get("MODEL") == "openai/gpt-4o-mini",
+    reason="unreliable vision responses for gpt-4o-mini",
+)
 def test_vision(args: list[str], runner: CliRunner):
     args.append(f"can you see the image at {logo}? answer with yes or no")
     result = runner.invoke(cli.main, args)
