@@ -101,7 +101,7 @@ def _agent_info() -> Any:
     _Impl = _check_acp_import(Implementation, "Implementation")
     from gptme import __version__
 
-    return _Impl(name="gptme-acp", version=__version__)
+    return _Impl(name="gptme", version=__version__)
 
 
 class GptmeAgent:
