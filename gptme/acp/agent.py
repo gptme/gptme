@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -539,7 +540,7 @@ class GptmeAgent:
             lock=False,
         )
 
-        self._registry.create(session_id, log=log)
+        self._registry.create(session_id, log=log, cwd=str(cwd) if cwd else None)
         logger.info(f"ACP NewSession: session_id={session_id}, cwd={cwd}")
 
         # Schedule session-open notifications to run AFTER NewSessionResponse is
@@ -1072,17 +1073,49 @@ class GptmeAgent:
         # Get persistent conversations from disk
         conversations = list_conversations(limit=50)
 
-        # Build session list, preferring in-memory sessions (which have cwd)
+        # Build session list, merging disk metadata with in-memory state
         active_ids = set(self._registry.list_sessions())
         sessions: list[Any] = []
 
         for conv in conversations:
-            session_cwd = conv.workspace if conv.workspace != "." else ""
-            sessions.append(SessionInfo(session_id=conv.id, cwd=session_cwd))
+            # Prefer in-memory cwd (set at session creation) over disk workspace
+            in_memory = self._registry.get(conv.id)
+            session_cwd = (
+                (in_memory.cwd or "")
+                if in_memory and in_memory.cwd
+                else (conv.workspace if conv.workspace != "." else "")
+            )
+
+            # Apply cwd filter if specified
+            if cwd and session_cwd != cwd:
+                active_ids.discard(conv.id)
+                continue
+
+            sessions.append(
+                SessionInfo(
+                    session_id=conv.id,
+                    cwd=session_cwd,
+                    title=conv.name if conv.name != conv.id else None,
+                    updated_at=datetime.fromtimestamp(conv.modified, tz=timezone.utc).isoformat(),
+                )
+            )
             active_ids.discard(conv.id)
 
         # Add any in-memory sessions not yet on disk
-        sessions.extend(SessionInfo(session_id=sid, cwd="") for sid in active_ids)
+        for sid in active_ids:
+            in_memory = self._registry.get(sid)
+            session_cwd = (in_memory.cwd or "") if in_memory else ""
+            if cwd and session_cwd != cwd:
+                continue
+            sessions.append(
+                SessionInfo(
+                    session_id=sid,
+                    cwd=session_cwd,
+                    updated_at=(
+                        in_memory.last_activity.isoformat() if in_memory else None
+                    ),
+                )
+            )
 
         return ListSessionsResponse(sessions=sessions)
 
