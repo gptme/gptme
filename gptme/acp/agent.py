@@ -219,7 +219,7 @@ class GptmeAgent:
         # Check cached permission policies
         if session_id in self._permission_policies:
             policies = self._permission_policies[session_id]
-            tool_key = f"{tool_call.kind.value}"
+            tool_key = tool_call.kind.value
             if tool_key in policies:
                 return policies[tool_key] == "allow"
 
@@ -261,16 +261,12 @@ class GptmeAgent:
             option_id = outcome.option_id
 
             # Cache always policies
-            if option_id == "allow-always":
-                if session_id not in self._permission_policies:
-                    self._permission_policies[session_id] = {}
-                self._permission_policies[session_id][tool_call.kind.value] = "allow"
-                return True
-            if option_id == "reject-always":
-                if session_id not in self._permission_policies:
-                    self._permission_policies[session_id] = {}
-                self._permission_policies[session_id][tool_call.kind.value] = "reject"
-                return False
+            if option_id in ("allow-always", "reject-always"):
+                policies = self._permission_policies.setdefault(session_id, {})
+                policies[tool_call.kind.value] = (
+                    "allow" if option_id == "allow-always" else "reject"
+                )
+                return option_id == "allow-always"
             return option_id == "allow-once"
 
         except Exception as e:
@@ -422,8 +418,7 @@ class GptmeAgent:
             InitializeResponse with negotiated protocol version
         """
         if not _import_acp():
-            # Phase 1: Raise exception since we can't construct ACP error response
-            # without the package. Future: Consider early validation in __main__.py
+            # Can't construct ACP error response without the package
             raise RuntimeError(
                 "agent-client-protocol package not installed. "
                 "Install with: pip install 'gptme[acp]'"
@@ -720,7 +715,7 @@ class GptmeAgent:
             self._session_commands_advertised.add(session_id)
             logger.info(
                 f"ACP AvailableCommandsUpdate: sent {len(acp_commands)} commands"
-                f" for session {session_id[:8]}"
+                f" for session {session_id[:16]}"
             )
         except Exception as e:
             # Non-fatal: clients still work without autocomplete
@@ -893,7 +888,7 @@ class GptmeAgent:
 
         content_preview = msg.content[:100] if msg.content else ""
         logger.info(
-            f"ACP Prompt: session={session_id[:8]}, content={content_preview}..."
+            f"ACP Prompt: session={session_id[:16]}, content={content_preview}..."
         )
 
         # Handle slash commands before passing to the LLM.
