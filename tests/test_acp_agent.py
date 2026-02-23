@@ -643,6 +643,36 @@ class TestPerSessionModel:
         assert agent._session_models["s1"] == model_with_routing
 
 
+class TestSendSessionOpenNotifications:
+    """Tests for _send_session_open_notifications method."""
+
+    def test_no_connection_skips_silently(self):
+        """Without a connection, should return without error."""
+        agent = GptmeAgent()
+        assert agent._conn is None
+        # Should not raise
+        _run(agent._send_session_open_notifications("session_1", None, "/tmp"))
+
+    def test_runs_without_error_with_mock_conn(self):
+        """Should run without raising even if acp is not installed (import handled)."""
+        agent = _make_agent_with_conn()
+        # Should not raise regardless of whether acp is installed
+        _run(agent._send_session_open_notifications("session_1", "test-model", "/tmp"))
+
+    @pytest.mark.skipif(not _import_acp(), reason="requires acp package")
+    def test_sends_model_info_and_commands_when_acp_installed(self):
+        """When acp is installed, should call session_update for model info + commands."""
+        agent = _make_agent_with_conn()
+        _run(
+            agent._send_session_open_notifications(
+                "session_1", "anthropic/claude-sonnet-4-6", "/tmp"
+            )
+        )
+        # session_update should be called at least twice: model info + AvailableCommands
+        assert agent._conn.session_update.await_count >= 2
+        assert "session_1" in agent._session_commands_advertised
+
+
 class TestSendAvailableCommands:
     """Tests for _send_available_commands method."""
 

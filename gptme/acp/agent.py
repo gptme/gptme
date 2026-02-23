@@ -106,8 +106,9 @@ class GptmeAgent:
         # Phase 2: Permission policies per session (allow_always, reject_always)
         self._permission_policies: dict[str, dict[str, str]] = {}
         # Track sessions where AvailableCommandsUpdate was successfully sent.
-        # Used to resend on first prompt() if new_session() notification was lost
-        # (race condition: Zed may not set up listener until after NewSessionResponse).
+        # Used to deduplicate sends between _send_session_open_notifications()
+        # and the prompt() fallback (in case the deferred notification races
+        # with an early first prompt).
         self._session_commands_advertised: set[str] = set()
 
     def on_connect(self, conn: Any) -> None:
@@ -529,66 +530,85 @@ class GptmeAgent:
         self._registry.create(session_id, log=log)
         logger.info(f"ACP NewSession: session_id={session_id}, cwd={cwd}")
 
-        # Surface session info proactively on session open, so the user sees
-        # which model and workspace are active immediately in the Zed ACP panel.
-        # Uses session/update notifications — the protocol-correct mechanism for
-        # unsolicited agent messages.
+        # Schedule session-open notifications to run AFTER NewSessionResponse is
+        # returned. Sending session/update notifications synchronously during
+        # new_session() causes Zed to reject them with "Failed to get session"
+        # because Zed only registers the session after it processes the response.
+        # By deferring with asyncio.sleep(0) we let the event loop flush the
+        # response to the socket before sending notifications.
         if self._conn:
-            from acp import (  # type: ignore[import-not-found]
-                text_block,
-                update_agent_message,
+            asyncio.create_task(
+                self._send_session_open_notifications(session_id, session_model, cwd)
             )
-
-            model_info = session_model or "default"
-            workspace_info = str(cwd) if cwd else "none"
-            info_text = (
-                f"ℹ️ Using model: {model_info}\nUsing workspace: {workspace_info}"
-            )
-            info_chunk = update_agent_message(text_block(info_text))
-            await self._conn.session_update(
-                session_id=session_id,
-                update=info_chunk,
-                source="gptme",
-            )
-
-        # Surface initialization errors proactively on session open, so the user
-        # sees feedback immediately in the Zed ACP panel rather than only after
-        # sending their first prompt. Uses session/update notifications which are
-        # the protocol-correct mechanism for unsolicited agent messages.
-        if self._init_error:
-            from acp import (  # type: ignore[import-not-found]
-                text_block,
-                update_agent_message,
-            )
-
-            error_chunk = update_agent_message(text_block(f"⚠️ {self._init_error}"))
-            if self._conn:
-                await self._conn.session_update(
-                    session_id=session_id,
-                    update=error_chunk,
-                    source="gptme",
-                )
-            # Keep _init_error set so prompt() can still surface it for retries
-            # (the user may send a message before the notification is seen)
-
-        # Advertise available slash commands for client-side autocomplete.
-        # NOTE: This is also called at the start of prompt() as a fallback for
-        # clients (like Zed) that may not receive session/update notifications
-        # sent before NewSessionResponse is returned (race condition on session open).
-        await self._send_available_commands(session_id)
 
         _NewSessionResponse = _check_acp_import(
             NewSessionResponse, "NewSessionResponse"
         )
         return _NewSessionResponse(session_id=session_id)
 
+    async def _send_session_open_notifications(
+        self, session_id: str, session_model: str | None, cwd: str
+    ) -> None:
+        """Send session-open notifications after NewSessionResponse is returned.
+
+        Must run as an asyncio.create_task() so it executes after the current
+        coroutine (new_session) returns. This gives Zed time to process
+        NewSessionResponse and register the session before we send notifications
+        that reference the session_id.
+        """
+        # Yield to the event loop so new_session() can return and the response
+        # can be flushed to the socket before we send notifications.
+        await asyncio.sleep(0)
+
+        if not self._conn:
+            return
+
+        try:
+            from acp import (  # type: ignore[import-not-found]
+                text_block,
+                update_agent_message,
+            )
+        except ImportError:
+            logger.debug("acp not installed, skipping session-open notifications")
+            await self._send_available_commands(session_id)
+            return
+
+        # Surface model and workspace info immediately in the ACP panel.
+        model_info = session_model or "default"
+        workspace_info = str(cwd) if cwd else "none"
+        info_text = f"ℹ️ Using model: {model_info}\nUsing workspace: {workspace_info}"
+        info_chunk = update_agent_message(text_block(info_text))
+        try:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=info_chunk,
+                source="gptme",
+            )
+        except Exception as e:
+            logger.debug(f"Failed to send session info notification: {e}")
+
+        # Surface initialization errors immediately so the user sees them
+        # without having to send a prompt.
+        if self._init_error:
+            error_chunk = update_agent_message(text_block(f"⚠️ {self._init_error}"))
+            try:
+                await self._conn.session_update(
+                    session_id=session_id,
+                    update=error_chunk,
+                    source="gptme",
+                )
+            except Exception as e:
+                logger.debug(f"Failed to send init error notification: {e}")
+            # Keep _init_error set so prompt() can still surface it for retries
+
+        # Advertise slash commands for client-side autocomplete.
+        await self._send_available_commands(session_id)
+
     async def _send_available_commands(self, session_id: str) -> None:
         """Send AvailableCommandsUpdate notification to advertise slash commands.
 
-        Called during new_session() and as a fallback at the start of the first
-        prompt() call. The fallback handles a race condition where some clients
-        (e.g. Zed) may not receive session/update notifications sent before
-        NewSessionResponse is returned.
+        Called from _send_session_open_notifications() (deferred, after session
+        registration) and as a fallback at the start of the first prompt() call.
         """
         if not self._conn or session_id in self._session_commands_advertised:
             return
@@ -765,9 +785,9 @@ class GptmeAgent:
         if self._tools is not None:
             set_tools(self._tools)
 
-        # Resend AvailableCommandsUpdate if not yet acknowledged for this session.
-        # Handles race condition: some clients (e.g. Zed) may not receive
-        # session/update notifications sent before NewSessionResponse returns.
+        # Resend AvailableCommandsUpdate if not yet sent for this session.
+        # Handles the case where the deferred task from new_session() hasn't run yet
+        # (e.g., early first prompt arriving before asyncio.sleep(0) yields).
         await self._send_available_commands(session_id)
 
         session = self._registry.get(session_id)
