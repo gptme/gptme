@@ -1018,6 +1018,117 @@ Final content.
     assert len(blocks) == 0, "Should not extract incomplete block in streaming mode"
 
 
+def test_save_with_nested_bare_backtick_block():
+    """
+    Test from PR #1429 review: a save block containing a bare backtick block
+    (like a tree listing or ascii diagram) nested inside it.
+
+    The parser should treat the bare backtick fences as a nested block,
+    keeping the outer save block open until the final closing fence.
+
+    Fence structure:
+    1. ```save filename.txt   (opens outer block, depth=1)
+    2. ```                     (opens nested block, depth=2)
+    3. ```                     (closes nested, depth=1)
+    4. ```                     (closes outer, depth=0)
+    """
+    fence = "```"
+    markdown = f"""\
+Let's call save:
+
+{fence}save filename.txt
+# Title
+
+Blah
+
+## Structure
+
+{fence}
+[tree-like listing or ascii-diagram - typical non-langtag block]
+{fence}
+
+## Last section
+That's all
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    content = blocks[0].content
+    assert blocks[0].lang == "save filename.txt"
+    assert "# Title" in content
+    assert "Blah" in content
+    assert "## Structure" in content
+    assert "tree-like listing" in content
+    assert "## Last section" in content
+    assert "That's all" in content
+
+
+def test_save_with_nested_bare_backtick_block_streaming():
+    """
+    Streaming mode variant of test_save_with_nested_bare_backtick_block.
+
+    Tests that the streaming parser correctly handles a save block containing
+    a bare backtick block (tree listing, ascii diagram) inside it, with
+    content continuing after the nested block closes.
+
+    With blank line after final fence, streaming should extract the block.
+    Without blank line, it should remain open (incomplete).
+    """
+    fence = "```"
+
+    # Complete version (blank line after final fence confirms completion)
+    markdown_complete = f"""\
+Let's call save:
+
+{fence}save filename.txt
+# Title
+
+Blah
+
+## Structure
+
+{fence}
+[tree-like listing or ascii-diagram - typical non-langtag block]
+{fence}
+
+## Last section
+That's all
+{fence}
+
+"""
+
+    blocks = list(_extract_codeblocks(markdown_complete, streaming=True))
+    assert len(blocks) == 1
+    content = blocks[0].content
+    assert blocks[0].lang == "save filename.txt"
+    assert "# Title" in content
+    assert "tree-like listing" in content
+    assert "## Last section" in content
+    assert "That's all" in content
+
+    # Incomplete version (no blank line - block still streaming)
+    markdown_incomplete = f"""\
+Let's call save:
+
+{fence}save filename.txt
+# Title
+
+Blah
+
+## Structure
+
+{fence}
+[tree-like listing or ascii-diagram - typical non-langtag block]
+{fence}
+
+## Last section
+That's all
+{fence}"""
+
+    blocks = list(_extract_codeblocks(markdown_incomplete, streaming=True))
+    assert len(blocks) == 0, "Should not extract block without trailing blank line"
+
+
 # Tests for quad+ backtick support (Issue #1005)
 def test_quad_backticks_contain_triple():
     """Quad backticks should allow triple backticks inside without closing."""
