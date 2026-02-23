@@ -1,0 +1,18 @@
+{
+  "trust": {
+    "crossings": [
+      {
+        "id": "shell_execution",
+        "name": "shell_execution",
+        "boundary": "agent_to_system",
+        "failure_signal": {
+          "signal": "unexpected_exit_code"
+        },
+        "revocation_pathway": {
+          "actions": ["terminate_process_and_log"]
+        },
+        "grace_period_ms": 10
+      }
+    ]
+  }
+}
