@@ -491,15 +491,15 @@ class TestInitializeWithoutAcp:
         except RuntimeError as e:
             assert "agent-client-protocol" in str(e)
 
-    def test_load_session_returns_none(self):
-        """load_session returns None for unknown sessions (graceful fallback).
+    def test_load_session_returns_none_for_missing(self):
+        """load_session returns None for sessions not on disk.
 
         Returning None (instead of raising) lets ACP clients like Zed
         gracefully fall back to new_session() without an RPC error that
         would disrupt the session lifecycle.
         """
         agent = GptmeAgent()
-        result = _run(agent.load_session(session_id="fake_session"))
+        result = _run(agent.load_session(session_id="nonexistent-session-id"))
         assert result is None
 
 
@@ -940,3 +940,139 @@ class TestGetCommandsWithDescriptions:
 
         names = [name for name, _ in get_commands_with_descriptions()]
         assert len(names) == len(set(names))
+
+
+class TestSessionPersistence:
+    """Tests for ACP session persistence (persistent log storage)."""
+
+    def test_load_session_returns_none_for_nonexistent(self):
+        """load_session should return None for sessions that don't exist on disk."""
+        agent = GptmeAgent()
+        result = _run(agent.load_session(session_id="2099-01-01-nonexistent-session"))
+        assert result is None
+
+    def test_load_session_returns_already_loaded(self):
+        """load_session should return response for sessions already in registry."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        agent = GptmeAgent()
+        sid = "test-already-loaded"
+        agent._registry.create(sid)
+
+        result = _run(agent.load_session(session_id=sid))
+        assert result is not None
+
+    def test_load_session_restores_from_disk(self, tmp_path):
+        """load_session should restore a session from persistent log files."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import json
+        from unittest.mock import patch
+
+        # Create a fake log directory with a conversation.jsonl
+        session_dir = tmp_path / "test-session-restore"
+        session_dir.mkdir()
+        logfile = session_dir / "conversation.jsonl"
+
+        # Write a minimal valid JSONL entry
+        entry = {
+            "role": "system",
+            "content": "test system message",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+        }
+        logfile.write_text(json.dumps(entry) + "\n")
+
+        agent = GptmeAgent()
+
+        # Patch get_logs_dir to use our tmp dir
+        with patch("gptme.acp.agent.get_logs_dir", return_value=tmp_path):
+            result = _run(agent.load_session(session_id="test-session-restore"))
+
+        assert result is not None
+        # Session should now be in registry
+        assert agent._registry.get("test-session-restore") is not None
+
+    def test_list_sessions_includes_in_memory(self):
+        """list_sessions should include active in-memory sessions."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from unittest.mock import patch
+
+        agent = GptmeAgent()
+        agent._registry.create("in-memory-session")
+
+        # Patch list_conversations to return empty (no on-disk sessions)
+        with patch("gptme.acp.agent.list_conversations", return_value=[]):
+            result = _run(agent.list_sessions())
+
+        session_ids = [s.session_id for s in result.sessions]
+        assert "in-memory-session" in session_ids
+
+    def test_list_sessions_includes_persistent(self):
+        """list_sessions should include sessions from persistent storage."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from dataclasses import dataclass
+        from unittest.mock import patch
+
+        @dataclass(frozen=True)
+        class FakeConv:
+            id: str = "2025-01-01-test-session"
+            name: str = "test"
+            path: str = "/tmp/fake"
+            created: float = 0.0
+            modified: float = 0.0
+            messages: int = 5
+            branches: int = 1
+            workspace: str = "/home/user/project"
+
+        agent = GptmeAgent()
+
+        with patch(
+            "gptme.acp.agent.list_conversations",
+            return_value=[FakeConv()],
+        ):
+            result = _run(agent.list_sessions())
+
+        session_ids = [s.session_id for s in result.sessions]
+        assert "2025-01-01-test-session" in session_ids
+        # Check that workspace is passed as cwd
+        matching = [
+            s for s in result.sessions if s.session_id == "2025-01-01-test-session"
+        ]
+        assert matching[0].cwd == "/home/user/project"
+
+    def test_list_sessions_deduplicates(self):
+        """In-memory sessions that are also on disk should not appear twice."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from dataclasses import dataclass
+        from unittest.mock import patch
+
+        @dataclass(frozen=True)
+        class FakeConv:
+            id: str = "shared-session"
+            name: str = "shared"
+            path: str = "/tmp/fake"
+            created: float = 0.0
+            modified: float = 0.0
+            messages: int = 5
+            branches: int = 1
+            workspace: str = "."
+
+        agent = GptmeAgent()
+        agent._registry.create("shared-session")
+
+        with patch(
+            "gptme.acp.agent.list_conversations",
+            return_value=[FakeConv()],
+        ):
+            result = _run(agent.list_sessions())
+
+        session_ids = [s.session_id for s in result.sessions]
+        assert session_ids.count("shared-session") == 1

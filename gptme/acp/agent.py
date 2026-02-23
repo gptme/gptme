@@ -9,18 +9,18 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 from ..config import get_project_config
+from ..dirs import get_logs_dir
 from ..init import init
 from ..llm.models import get_default_model, set_default_model
-from ..logmanager import LogManager
+from ..logmanager import LogManager, list_conversations
 from ..prompts import get_prompt
 from ..session import SessionRegistry
 from ..tools import get_tools, set_tools
+from ..util.auto_naming import generate_conversation_id
 from .adapter import acp_content_to_gptme_message, gptme_message_to_acp_content
 from .types import (
     PermissionKind,
@@ -496,7 +496,12 @@ class GptmeAgent:
                     f"ACP NewSession: using per-project model {session_model!r} from {cwd}/gptme.toml"
                 )
 
-        session_id = uuid4().hex
+        # Use conversation ID as session ID for persistence.
+        # This makes sessions discoverable by list_sessions and resumable
+        # by load_session across ACP server restarts.
+        logs_dir = get_logs_dir()
+        session_id = generate_conversation_id(name=None, logs_dir=logs_dir)
+        logdir = logs_dir / session_id
 
         # Store per-session model for use in prompt() and other handlers
         self._session_models[session_id] = session_model
@@ -504,9 +509,6 @@ class GptmeAgent:
         # Apply session model to context for this task
         if session_model and session_model != self._model:
             set_default_model(session_model)
-
-        # Create a temporary directory for the log
-        logdir = Path(tempfile.mkdtemp(prefix=f"gptme-acp-{session_id[:8]}-"))
 
         # Get tools and initial prompt
         tools = get_tools()
@@ -885,28 +887,59 @@ class GptmeAgent:
         self,
         session_id: str,
         **kwargs: Any,
-    ) -> None:
-        """Attempt to load an existing session.
+    ) -> Any:
+        """Load an existing session from persistent log storage.
 
-        gptme ACP sessions are in-memory only and not persisted across restarts.
-        Returns None to signal the session is unavailable, letting the client
+        Looks up the session by conversation ID in the gptme logs directory.
+        If found, restores the LogManager and registers the session.
+        Returns None if the session doesn't exist on disk, letting the client
         gracefully fall back to creating a new session via new_session().
 
-        Raising NotImplementedError here would cause a JSON-RPC internal error
-        (-32603) which breaks Zed's session lifecycle — the error state prevents
-        subsequent notifications (AvailableCommandsUpdate, model info) from being
-        processed by the client.
-
         Args:
-            session_id: Session ID to load
+            session_id: Conversation ID (e.g. "2025-08-30-jumping-orange-walrus")
 
         Returns:
-            None to indicate session is not available
+            NewSessionResponse if session found, None otherwise
         """
-        logger.info(
-            f"load_session: session {session_id[:8]} not available (sessions are in-memory only)"
-        )
-        return
+        if not _import_acp():
+            return None
+
+        # Check if already loaded in-memory
+        if self._registry.get(session_id):
+            logger.info(f"load_session: {session_id[:16]} already in registry")
+            _NewSessionResponse = _check_acp_import(
+                NewSessionResponse, "NewSessionResponse"
+            )
+            return _NewSessionResponse(session_id=session_id)
+
+        # Try to load from persistent storage
+        logs_dir = get_logs_dir()
+        logdir = logs_dir / session_id
+        logfile = logdir / "conversation.jsonl"
+
+        if not logfile.exists():
+            logger.info(f"load_session: {session_id[:16]} not found on disk")
+            return None
+
+        try:
+            log = LogManager.load(
+                logdir=logdir,
+                create=False,
+                lock=False,
+            )
+            self._registry.create(session_id, log=log)
+            logger.info(
+                f"load_session: restored {session_id[:16]} "
+                f"({len(log.log)} messages)"
+            )
+
+            _NewSessionResponse = _check_acp_import(
+                NewSessionResponse, "NewSessionResponse"
+            )
+            return _NewSessionResponse(session_id=session_id)
+        except Exception as e:
+            logger.warning(f"load_session: failed to load {session_id[:16]}: {e}")
+            return None
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove all per-session state for a given session.
@@ -939,7 +972,12 @@ class GptmeAgent:
         cwd: str | None = None,
         **kwargs: Any,
     ) -> Any:
-        """List available sessions."""
+        """List available sessions from persistent storage.
+
+        Returns sessions from disk (gptme logs directory), merged with any
+        active in-memory sessions. Sessions are sorted by modification time
+        (most recent first).
+        """
         if not _import_acp():
             raise RuntimeError("agent-client-protocol package not installed")
         from acp.client.connection import (  # type: ignore[import-not-found]
@@ -947,10 +985,22 @@ class GptmeAgent:
         )
         from acp.schema import SessionInfo  # type: ignore[import-not-found]
 
-        sessions = self._registry.list_sessions()
-        return ListSessionsResponse(
-            sessions=[SessionInfo(session_id=sid, cwd="") for sid in sessions],
-        )
+        # Get persistent conversations from disk
+        conversations = list_conversations(limit=50)
+
+        # Build session list, preferring in-memory sessions (which have cwd)
+        active_ids = set(self._registry.list_sessions())
+        sessions: list[Any] = []
+
+        for conv in conversations:
+            session_cwd = conv.workspace if conv.workspace != "." else ""
+            sessions.append(SessionInfo(session_id=conv.id, cwd=session_cwd))
+            active_ids.discard(conv.id)
+
+        # Add any in-memory sessions not yet on disk
+        sessions.extend(SessionInfo(session_id=sid, cwd="") for sid in active_ids)
+
+        return ListSessionsResponse(sessions=sessions)
 
     async def authenticate(
         self,
