@@ -9,19 +9,18 @@ Skills
    auto-load by keywords/patterns/tools. For deep runtime integration, use
    :doc:`plugins`.
 
-The skills system extends gptme's :doc:`lessons` to support bundled tools, scripts,
-and workflows inspired by Claude's Skills system and Cursor's rules system.
+The skills system extends gptme's :doc:`lessons` to support reusable workflow
+instructions inspired by Anthropic's Skills format and Cursor's rules system.
 
 Overview
 --------
 
-**Skills** are lessons that follow Anthropic's format and can bundle:
+**Skills** are lessons that follow Anthropic's format and can include:
 
 - Instructional content (like lessons)
-- Executable scripts and utilities
-- Dependencies and setup requirements
+- References to helper files colocated with ``SKILL.md``
 
-Skills complement lessons by providing **executable components** alongside guidance.
+Skills complement lessons by providing a standard way to package reusable guidance.
 
 Key Difference: Matching Behavior
 ---------------------------------
@@ -68,15 +67,15 @@ Skill vs. Lesson vs. Plugin
      - N/A (always loaded)
    * - Content
      - Instructions, examples
-     - Instructions + scripts
+     - Instructions (+ optional colocated files)
      - Tools, hooks, commands
    * - Scripts
      - None
-     - Bundled helper scripts
+     - Referenced manually (no auto-loading)
      - Via custom tools
    * - Dependencies
      - None
-     - Explicit package requirements
+     - Documented manually (no auto-install)
      - Python package dependencies
    * - Hooks
      - No
@@ -115,8 +114,12 @@ Skills use YAML frontmatter following Anthropic's format:
 
 .. note::
 
-   Dependencies are specified in ``requirements.txt``, and bundled scripts are
-   placed in the same directory as ``SKILL.md``.
+   Skills are intentionally lightweight and standards-aligned. gptme can discover
+   and load ``SKILL.md`` content, but does **not** implement custom dependency
+   resolution or automatic script loading/execution for skills.
+
+   If your workflow requires runtime dependency management, tool registration,
+   hooks, or script execution orchestration, use :doc:`plugins`.
 
 Directory Structure
 -------------------
@@ -170,7 +173,7 @@ Identify:
 2. Create Skill Directory
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Create a directory under ``gptme/lessons/skills/skill-name/`` with these files:
+Create a directory under ``gptme/lessons/skills/skill-name/`` with at minimum:
 
 **SKILL.md** (Anthropic format):
 
@@ -195,18 +198,17 @@ Create a directory under ``gptme/lessons/skills/skill-name/`` with these files:
     ## Dependencies
     List required packages (detailed in requirements.txt).
 
-**requirements.txt**:
+(Optional) Add helper files (for humans/agents to run manually):
 
 .. code-block:: text
 
-    # List of required packages
-    numpy
-    pandas
+    requirements.txt   # optional, documentation only (no automatic install)
+    helper.py          # optional, run manually if needed
 
-3. Create Bundled Scripts
-~~~~~~~~~~~~~~~~~~~~~~~~~
+3. Create Optional Helper Scripts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Create helper scripts in the same directory as the skill:
+You may place helper scripts in the same directory as the skill for manual use:
 
 .. code-block:: python
 
@@ -230,13 +232,29 @@ Create helper scripts in the same directory as the skill:
     assert skill.metadata.name == "my-skill"
     assert skill.metadata.description
 
+What Skills Support (and Don't)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To stay compatible with the Anthropic Skills format and avoid inventing
+tool-specific conventions, gptme currently supports:
+
+- Skill discovery and listing
+- Loading skill content from ``SKILL.md``
+- Name-based skill triggering
+
+gptme intentionally does **not** add skill-specific conventions for:
+
+- Dependency management/resolution
+- Automatic script loading/execution
+
+For these capabilities, use :doc:`plugins`.
+
 Deep Integration with Plugins
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**For runtime integration (hooks, custom tools, commands), use the** :doc:`plugins`.
+**For runtime integration (hooks, custom tools, commands), use** :doc:`plugins`.
 
-Skills are lightweight knowledge bundles that remain simple. For deeper integration
-with gptme's runtime:
+Skills are lightweight knowledge bundles. For deeper integration with gptme's runtime:
 
 - **Hooks**: Register lifecycle callbacks (see :doc:`hooks`)
 - **Custom Tools**: Add new capabilities (see :ref:`creating-a-plugin`)
