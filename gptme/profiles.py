@@ -13,6 +13,10 @@ remain soft/prompting-based.
 
 This enables creating specialized agents like "explorer" (read-only),
 "researcher" (web access), or "developer" (full capabilities).
+
+User profiles can be defined in ~/.config/gptme/profiles/ as either:
+- TOML files (.toml): Traditional key-value format
+- Markdown files (.md): YAML frontmatter for metadata, body as system_prompt
 """
 
 import logging
@@ -24,6 +28,13 @@ if sys.version_info >= (3, 11):
     import tomllib
 else:
     import tomli as tomllib
+
+try:
+    import yaml
+
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
 
 from .dirs import get_config_dir
 
@@ -151,16 +162,66 @@ def get_user_profiles_dir() -> Path:
     return get_config_dir() / "profiles"
 
 
-def load_user_profiles() -> dict[str, Profile]:
-    """Load user-defined profiles from config directory.
+def _parse_markdown_profile(path: Path) -> Profile:
+    """Parse a markdown file with YAML frontmatter into a Profile.
 
-    Profiles are stored as TOML files in ~/.config/gptme/profiles/
+    Format::
+
+        ---
+        name: my-profile
+        description: A custom profile
+        tools:
+          - read
+          - shell
+        behavior:
+          read_only: false
+        ---
+
+        # My Profile
+
+        You are a specialized agent...
+
+    The YAML frontmatter contains profile metadata (name, description,
+    tools, behavior). The markdown body becomes the system_prompt.
     """
-    profiles: dict[str, Profile] = {}
-    profiles_dir = get_user_profiles_dir()
+    if not HAS_YAML:
+        raise ImportError(
+            "PyYAML is required for markdown profiles. Install with: pip install pyyaml"
+        )
 
-    if not profiles_dir.exists():
-        return profiles
+    content = path.read_text(encoding="utf-8")
+
+    if not content.startswith("---"):
+        raise ValueError(f"Markdown profile must start with YAML frontmatter: {path}")
+
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        raise ValueError(f"Invalid YAML frontmatter in: {path}")
+
+    frontmatter_str = parts[1]
+    body = parts[2].strip()
+
+    frontmatter = yaml.safe_load(frontmatter_str)
+    if not frontmatter or not isinstance(frontmatter, dict):
+        raise ValueError(f"Empty or invalid YAML frontmatter in: {path}")
+
+    if "name" not in frontmatter:
+        raise ValueError(f"Markdown profile missing required 'name' field: {path}")
+    if "description" not in frontmatter:
+        raise ValueError(
+            f"Markdown profile missing required 'description' field: {path}"
+        )
+
+    # Build profile data dict: frontmatter fields + body as system_prompt
+    data = dict(frontmatter)
+    data["system_prompt"] = body
+
+    return Profile.from_dict(data)
+
+
+def _load_toml_profiles(profiles_dir: Path) -> dict[str, Profile]:
+    """Load profiles from TOML files in a directory."""
+    profiles: dict[str, Profile] = {}
 
     for profile_file in profiles_dir.glob("*.toml"):
         try:
@@ -169,9 +230,45 @@ def load_user_profiles() -> dict[str, Profile]:
 
             profile = Profile.from_dict(data)
             profiles[profile.name] = profile
-            logger.debug(f"Loaded user profile: {profile.name}")
+            logger.debug("Loaded TOML profile: %s from %s", profile.name, profile_file)
         except Exception as e:
-            logger.warning(f"Failed to load profile {profile_file}: {e}")
+            logger.warning("Failed to load TOML profile %s: %s", profile_file, e)
+
+    return profiles
+
+
+def _load_markdown_profiles(profiles_dir: Path) -> dict[str, Profile]:
+    """Load profiles from markdown files with YAML frontmatter."""
+    profiles: dict[str, Profile] = {}
+
+    for profile_file in profiles_dir.glob("*.md"):
+        try:
+            profile = _parse_markdown_profile(profile_file)
+            profiles[profile.name] = profile
+            logger.debug(
+                "Loaded markdown profile: %s from %s", profile.name, profile_file
+            )
+        except Exception as e:
+            logger.warning("Failed to load markdown profile %s: %s", profile_file, e)
+
+    return profiles
+
+
+def load_user_profiles() -> dict[str, Profile]:
+    """Load user-defined profiles from config directory.
+
+    Profiles are stored as TOML (.toml) or Markdown (.md) files
+    in ~/.config/gptme/profiles/. Markdown files override TOML files
+    with the same profile name.
+    """
+    profiles_dir = get_user_profiles_dir()
+
+    if not profiles_dir.exists():
+        return {}
+
+    # Load TOML first, then markdown (markdown overrides on name collision)
+    profiles = _load_toml_profiles(profiles_dir)
+    profiles.update(_load_markdown_profiles(profiles_dir))
 
     return profiles
 
