@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Lazy imports to avoid dependency issues when acp is not installed
 Agent: type | None = None
+Implementation: type | None = None
 InitializeResponse: type | None = None
 NewSessionResponse: type | None = None
 PromptResponse: type | None = None
@@ -59,7 +60,13 @@ def _check_acp_import(cls: type | None, name: str) -> type:
 
 def _import_acp() -> bool:
     """Import ACP modules lazily."""
-    global Agent, InitializeResponse, NewSessionResponse, PromptResponse, Client
+    global \
+        Agent, \
+        Implementation, \
+        InitializeResponse, \
+        NewSessionResponse, \
+        PromptResponse, \
+        Client
     try:
         from acp import (  # type: ignore[import-not-found]
             Agent as _Agent,
@@ -74,8 +81,12 @@ def _import_acp() -> bool:
             PromptResponse as _PromptResponse,
         )
         from acp.interfaces import Client as _Client  # type: ignore[import-not-found]
+        from acp.schema import (  # type: ignore[import-not-found]
+            Implementation as _Implementation,
+        )
 
         Agent = _Agent
+        Implementation = _Implementation
         InitializeResponse = _InitializeResponse
         NewSessionResponse = _NewSessionResponse
         PromptResponse = _PromptResponse
@@ -464,7 +475,25 @@ class GptmeAgent:
         _InitializeResponse = _check_acp_import(
             InitializeResponse, "InitializeResponse"
         )
-        return _InitializeResponse(protocol_version=protocol_version)
+        _Implementation = _check_acp_import(Implementation, "Implementation")
+
+        # Get version for agentInfo
+        try:
+            from importlib.metadata import version
+
+            gptme_version = version("gptme")
+        except Exception:
+            gptme_version = "unknown"
+
+        agent_info = _Implementation(
+            name="gptme",
+            title="gptme ACP Agent",
+            version=gptme_version,
+        )
+        return _InitializeResponse(
+            protocol_version=protocol_version,
+            agentInfo=agent_info,
+        )
 
     async def new_session(
         self,

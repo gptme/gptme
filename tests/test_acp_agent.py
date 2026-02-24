@@ -491,6 +491,18 @@ class TestInitializeWithoutAcp:
         except RuntimeError as e:
             assert "agent-client-protocol" in str(e)
 
+    def test_initialize_returns_agent_info(self):
+        """Initialize response should include agentInfo with name and version."""
+        agent = GptmeAgent()
+        try:
+            result = _run(agent.initialize(protocol_version=1))
+        except RuntimeError:
+            pytest.skip("ACP package not installed")
+        assert result.agentInfo is not None
+        assert result.agentInfo.name == "gptme"
+        assert result.agentInfo.title == "gptme ACP Agent"
+        assert result.agentInfo.version  # non-empty version string
+
     def test_load_session_returns_none_for_missing(self):
         """load_session returns None for sessions not on disk.
 
