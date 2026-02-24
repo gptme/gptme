@@ -152,13 +152,17 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE: false
+    # OpenRouter tests are experimental: they may fail due to credit limits
+    # or third-party outages, and should not block PRs from merging.
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
-        model:
-          - 'openai/gpt-4o-mini'
-          - 'anthropic/claude-haiku-4-5'
-          - 'openrouter/z-ai/glm-5@z-ai'
+        include:
+          - model: 'openai/gpt-4o-mini'
+          - model: 'anthropic/claude-haiku-4-5'
+          - model: 'openrouter/z-ai/glm-5@z-ai'
+            experimental: true
 
     steps:
     - uses: actions/checkout@v6
