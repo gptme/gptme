@@ -462,8 +462,9 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-skills">Creating Skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-the-skill">1. Design the Skill</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-skill-directory">2. Create Skill Directory</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-bundled-scripts">3. Create Bundled Scripts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-optional-helper-scripts">3. Create Optional Helper Scripts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#test-the-skill">4. Test the Skill</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-skills-support-and-don-t">What Skills Support (and Don’t)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deep-integration-with-plugins">Deep Integration with Plugins</a></li>
 </ul>
 </li>
@@ -496,17 +497,16 @@ mentioning “python-repl” loads that skill). This differs from lessons which
 auto-load by keywords/patterns/tools. For deep runtime integration, use
 <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a>.</p>
 </div>
-<p>The skills system extends gptme’s <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> to support bundled tools, scripts,
-and workflows inspired by Claude’s Skills system and Cursor’s rules system.</p>
+<p>The skills system extends gptme’s <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> to support reusable workflow
+instructions inspired by Anthropic’s Skills format and Cursor’s rules system.</p>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p><strong>Skills</strong> are lessons that follow Anthropic’s format and can bundle:</p>
+<p><strong>Skills</strong> are lessons that follow Anthropic’s format and can include:</p>
 <ul class="simple">
 <li><p>Instructional content (like lessons)</p></li>
-<li><p>Executable scripts and utilities</p></li>
-<li><p>Dependencies and setup requirements</p></li>
+<li><p>References to helper files colocated with <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code></p></li>
 </ul>
-<p>Skills complement lessons by providing <strong>executable components</strong> alongside guidance.</p>
+<p>Skills complement lessons by providing a standard way to package reusable guidance.</p>
 </section>
 <section id="key-difference-matching-behavior">
 <h2>Key Difference: Matching Behavior<a class="headerlink" href="#key-difference-matching-behavior" title="Link to this heading">#</a></h2>
@@ -529,7 +529,7 @@ and workflows inspired by Claude’s Skills system and Cursor’s rules system.<
 <td><p>Mentioning “git commit” loads git lesson</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Skills</strong></p></td>
-<td><p>Skill name appears in message</p></td>
+<td><p>Skill name appears in message, or <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code> explicitly read</p></td>
 <td><p>Mentioning “python-repl” loads that skill</p></td>
 </tr>
 </tbody>
@@ -560,7 +560,7 @@ and workflows inspired by Claude’s Skills system and Cursor’s rules system.<
 <tbody>
 <tr class="row-even"><td><p>Purpose</p></td>
 <td><p>Guidance and patterns</p></td>
-<td><p>Executable workflows</p></td>
+<td><p>Reusable workflow guidance</p></td>
 <td><p>Deep runtime integration</p></td>
 </tr>
 <tr class="row-odd"><td><p>Auto-loading</p></td>
@@ -570,17 +570,17 @@ and workflows inspired by Claude’s Skills system and Cursor’s rules system.<
 </tr>
 <tr class="row-even"><td><p>Content</p></td>
 <td><p>Instructions, examples</p></td>
-<td><p>Instructions + scripts</p></td>
+<td><p>Instructions (+ optional colocated files)</p></td>
 <td><p>Tools, hooks, commands</p></td>
 </tr>
 <tr class="row-odd"><td><p>Scripts</p></td>
 <td><p>None</p></td>
-<td><p>Bundled helper scripts</p></td>
+<td><p>Referenced manually (no auto-loading)</p></td>
 <td><p>Via custom tools</p></td>
 </tr>
 <tr class="row-even"><td><p>Dependencies</p></td>
 <td><p>None</p></td>
-<td><p>Explicit package requirements</p></td>
+<td><p>Documented manually (no auto-install)</p></td>
 <td><p>Python package dependencies</p></td>
 </tr>
 <tr class="row-odd"><td><p>Hooks</p></td>
@@ -604,7 +604,7 @@ and workflows inspired by Claude’s Skills system and Cursor’s rules system.<
 <p><strong>When to use</strong>:</p>
 <ul class="simple">
 <li><p><strong>Lesson</strong>: Teaching patterns, best practices, tool usage</p></li>
-<li><p><strong>Skill</strong>: Providing reusable scripts, automated workflows (lightweight)</p></li>
+<li><p><strong>Skill</strong>: Providing reusable workflow guidance (lightweight)</p></li>
 <li><p><strong>Plugin</strong>: Runtime hooks, custom tools, deep gptme integration (see <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a>)</p></li>
 </ul>
 </section>
@@ -623,8 +623,11 @@ and workflows inspired by Claude’s Skills system and Cursor’s rules system.<
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Dependencies are specified in <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>, and bundled scripts are
-placed in the same directory as <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code>.</p>
+<p>Skills are intentionally lightweight and standards-aligned. gptme can discover
+and load <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code> content, but does <strong>not</strong> implement custom dependency
+resolution or automatic script loading/execution for skills.</p>
+<p>If your workflow requires runtime dependency management, tool registration,
+hooks, or script execution orchestration, use <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a>.</p>
 </div>
 </section>
 <section id="directory-structure">
@@ -644,7 +647,7 @@ placed in the same directory as <code class="docutils literal notranslate"><span
 </div>
 </section>
 <section id="skill-loading-directories">
-<h2>Skill Loading Directories<a class="headerlink" href="#skill-loading-directories" title="Link to this heading">#</a></h2>
+<span id="supported-paths"></span><h2>Skill Loading Directories<a class="headerlink" href="#skill-loading-directories" title="Link to this heading">#</a></h2>
 <p>Skills are loaded from the following directories (if they exist):</p>
 <p><strong>User-level:</strong></p>
 <ol class="arabic simple">
@@ -673,7 +676,7 @@ enabling skills to be shared between gptme and other AI tools.</p>
 </section>
 <section id="create-skill-directory">
 <h3>2. Create Skill Directory<a class="headerlink" href="#create-skill-directory" title="Link to this heading">#</a></h3>
-<p>Create a directory under <code class="docutils literal notranslate"><span class="pre">gptme/lessons/skills/skill-name/</span></code> with these files:</p>
+<p>Create a skill directory in one of the <a class="reference internal" href="#supported-paths">supported paths</a> above (e.g. <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/skills/skill-name/</span></code> or <code class="docutils literal notranslate"><span class="pre">./skills/skill-name/</span></code>) with at minimum:</p>
 <p><strong>SKILL.md</strong> (Anthropic format):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nn">---</span>
 <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">skill-name</span>
@@ -685,8 +688,8 @@ enabling skills to be shared between gptme and other AI tools.</p>
 <span class="c1">## Overview</span>
 <span class="l l-Scalar l-Scalar-Plain">Detailed description and use cases.</span>
 
-<span class="l l-Scalar l-Scalar-Plain">## Bundled Scripts</span>
-<span class="l l-Scalar l-Scalar-Plain">Describe each included script.</span>
+<span class="l l-Scalar l-Scalar-Plain">## Reference Scripts</span>
+<span class="l l-Scalar l-Scalar-Plain">Describe each included script (for manual use, not auto-loaded).</span>
 
 <span class="l l-Scalar l-Scalar-Plain">## Usage Patterns</span>
 <span class="l l-Scalar l-Scalar-Plain">Show common usage examples.</span>
@@ -695,16 +698,15 @@ enabling skills to be shared between gptme and other AI tools.</p>
 <span class="l l-Scalar l-Scalar-Plain">List required packages (detailed in requirements.txt).</span>
 </pre></div>
 </div>
-<p><strong>requirements.txt</strong>:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># List of required packages
-numpy
-pandas
+<p>(Optional) Add helper files (for humans/agents to run manually):</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>requirements.txt   # optional, documentation only (no automatic install)
+helper.py          # optional, run manually if needed
 </pre></div>
 </div>
 </section>
-<section id="create-bundled-scripts">
-<h3>3. Create Bundled Scripts<a class="headerlink" href="#create-bundled-scripts" title="Link to this heading">#</a></h3>
-<p>Create helper scripts in the same directory as the skill:</p>
+<section id="create-optional-helper-scripts">
+<h3>3. Create Optional Helper Scripts<a class="headerlink" href="#create-optional-helper-scripts" title="Link to this heading">#</a></h3>
+<p>You may place helper scripts in the same directory as the skill for manual use:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python3</span>
 <span class="sd">&quot;&quot;&quot;Helper script for skill.&quot;&quot;&quot;</span>
 
@@ -726,11 +728,26 @@ pandas
 </pre></div>
 </div>
 </section>
+<section id="what-skills-support-and-don-t">
+<h3>What Skills Support (and Don’t)<a class="headerlink" href="#what-skills-support-and-don-t" title="Link to this heading">#</a></h3>
+<p>To stay compatible with the Anthropic Skills format and avoid inventing
+tool-specific conventions, gptme currently supports:</p>
+<ul class="simple">
+<li><p>Skill discovery and listing</p></li>
+<li><p>Loading skill content from <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code></p></li>
+<li><p>Name-based skill triggering</p></li>
+</ul>
+<p>gptme intentionally does <strong>not</strong> add skill-specific conventions for:</p>
+<ul class="simple">
+<li><p>Dependency management/resolution</p></li>
+<li><p>Automatic script loading/execution</p></li>
+</ul>
+<p>For these capabilities, use <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a>.</p>
+</section>
 <section id="deep-integration-with-plugins">
 <h3>Deep Integration with Plugins<a class="headerlink" href="#deep-integration-with-plugins" title="Link to this heading">#</a></h3>
-<p><strong>For runtime integration (hooks, custom tools, commands), use the</strong> <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a>.</p>
-<p>Skills are lightweight knowledge bundles that remain simple. For deeper integration
-with gptme’s runtime:</p>
+<p><strong>For runtime integration (hooks, custom tools, commands), use</strong> <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a>.</p>
+<p>Skills are lightweight knowledge bundles. For deeper integration with gptme’s runtime:</p>
 <ul class="simple">
 <li><p><strong>Hooks</strong>: Register lifecycle callbacks (see <a class="reference internal" href="hooks.html"><span class="doc">Hooks</span></a>)</p></li>
 <li><p><strong>Custom Tools</strong>: Add new capabilities (see <a class="reference internal" href="plugins.html#creating-a-plugin"><span class="std std-ref">Creating a Plugin</span></a>)</p></li>
@@ -758,7 +775,7 @@ with gptme’s runtime:</p>
 <h3>Data Analysis Skill<a class="headerlink" href="#data-analysis-skill" title="Link to this heading">#</a></h3>
 <ul class="simple">
 <li><p>Bundles pandas, numpy helpers</p></li>
-<li><p>Auto-imports common libraries</p></li>
+<li><p>Provides import patterns and library setup guidance</p></li>
 <li><p>Provides data inspection utilities</p></li>
 <li><p>Includes plotting helpers</p></li>
 </ul>
@@ -768,7 +785,7 @@ with gptme’s runtime:</p>
 <ul class="simple">
 <li><p>Bundles pytest configuration</p></li>
 <li><p>Provides test utilities</p></li>
-<li><p>Auto-discovers tests</p></li>
+<li><p>Includes test discovery patterns</p></li>
 <li><p>Formats test reports</p></li>
 </ul>
 </section>
@@ -778,7 +795,7 @@ with gptme’s runtime:</p>
 <li><p>Bundles FastAPI templates</p></li>
 <li><p>Provides auth helpers</p></li>
 <li><p>Includes validation utilities</p></li>
-<li><p>Auto-generates OpenAPI docs</p></li>
+<li><p>Documents OpenAPI doc generation patterns</p></li>
 </ul>
 </section>
 </section>
@@ -880,8 +897,9 @@ For bundled utilities, mention &quot;python-repl&quot; to load helper functions.
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-skills">Creating Skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-the-skill">1. Design the Skill</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-skill-directory">2. Create Skill Directory</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-bundled-scripts">3. Create Bundled Scripts</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-optional-helper-scripts">3. Create Optional Helper Scripts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#test-the-skill">4. Test the Skill</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-skills-support-and-don-t">What Skills Support (and Don’t)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deep-integration-with-plugins">Deep Integration with Plugins</a></li>
 </ul>
 </li>
