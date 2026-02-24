@@ -33,6 +33,7 @@ from ..init import init_logging
 from ..llm.models import get_recommended_model
 from ..logmanager import ConversationMeta, get_user_conversations
 from ..message import Message
+from ..profiles import get_profile
 from ..prompts import get_prompt
 from ..telemetry import init_telemetry, shutdown_telemetry
 from ..tools import ToolFormat, get_available_tools, init_tools
@@ -199,6 +200,12 @@ The interface provides /commands during a conversation:
     help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use 'none' to disable all tools. Available: {available_tool_names}.",
 )
 @click.option(
+    "--agent-profile",
+    "agent_profile",
+    default=None,
+    help="Agent profile to use. Profiles provide system prompts, tool access hints, and behavior rules. Use 'gptme-util profile list' to see available profiles.",
+)
+@click.option(
     "--tool-format",
     "tool_format",
     default=None,
@@ -276,6 +283,7 @@ def main(
     name: str,
     model: str | None,
     tool_allowlist: tuple[str, ...],
+    agent_profile: str | None,
     tool_format: ToolFormat | None,
     stream: bool,
     verbose: bool,
@@ -294,6 +302,24 @@ def main(
 ):
     """Main entrypoint for the CLI."""
 
+    # Apply agent profile if specified
+    selected_profile = None
+    if agent_profile:
+        selected_profile = get_profile(agent_profile)
+        if not selected_profile:
+            print(f"Unknown profile: {agent_profile}")
+            print("Use 'gptme-util profile list' to see available profiles.")
+            sys.exit(1)
+
+        logger.info(f"Using agent profile: {selected_profile.name}")
+
+        # Apply profile tools if no explicit tools specified
+        if (
+            ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT
+            and selected_profile.tools is not None
+        ):
+            tool_allowlist = tuple(selected_profile.tools)
+
     # Handle multi-tool flag - controls break_on_tooluse
     if multi_tool is not None:
         # Only set GPTME_BREAK_ON_TOOLUSE - multi-tool mode allows multiple tool calls
@@ -304,7 +330,10 @@ def main(
     # Use get_parameter_source to distinguish between default (None) and explicit empty list
 
     tool_allowlist_str: str | None
-    if ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT:
+    if (
+        ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT
+        and not selected_profile
+    ):
         # Not provided by user, use None to indicate "use defaults"
         tool_allowlist_str = None
     elif tool_allowlist and any(
@@ -547,6 +576,14 @@ def main(
             if context_include
             else None,
         )
+
+    # Append profile system prompt if using a profile
+    if selected_profile and selected_profile.system_prompt:
+        profile_msg = Message(
+            "system",
+            f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
+        )
+        initial_msgs.append(profile_msg)
 
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready

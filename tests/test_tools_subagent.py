@@ -825,3 +825,209 @@ def test_subprocess_mode_read_log():
     assert isinstance(log_content, str)
     # Log should exist and have content (at minimum the conversation start)
     assert len(log_content) > 0
+
+
+# Profile integration tests
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_with_profile(mock_create_thread: MagicMock):
+    """Test that profile parameter is passed to subagent thread."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="test-profile",
+        prompt="Explore the codebase",
+        profile="explorer",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # Verify profile was passed to _create_subagent_thread
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "explorer"
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_with_model_override(mock_create_thread: MagicMock):
+    """Test that model parameter overrides parent's model."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="test-model-override",
+        prompt="Quick task",
+        model="openai/gpt-4o-mini",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # Verify model override is used
+    executor = _subagents[-1]
+    assert executor.model == "openai/gpt-4o-mini"
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_with_profile_and_model(mock_create_thread: MagicMock):
+    """Test combining profile and model parameters."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="test-profile-model",
+        prompt="Research task",
+        profile="researcher",
+        model="anthropic/claude-haiku",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # Verify both profile and model are passed
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "researcher"
+    assert call_kwargs["model"] == "anthropic/claude-haiku"
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_planner_with_profile(mock_create_thread: MagicMock):
+    """Test that planner mode passes profile to executor subagents."""
+    initial_count = len(_subagents)
+
+    subtasks: list[SubtaskDef] = [
+        {"id": "explore1", "description": "Explore module A"},
+        {"id": "explore2", "description": "Explore module B"},
+    ]
+
+    subagent(
+        agent_id="test-planner-profile",
+        prompt="Explore the codebase",
+        mode="planner",
+        subtasks=subtasks,
+        profile="explorer",
+    )
+
+    assert len(_subagents) == initial_count + 2
+
+    # Verify profile was passed to each executor's _create_subagent_thread call
+    assert mock_create_thread.call_count == 2
+    for call in mock_create_thread.call_args_list:
+        assert call[1]["profile_name"] == "explorer"
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_auto_detects_profile_from_agent_id(mock_create_thread: MagicMock):
+    """Test that agent_id matching a profile name auto-applies the profile."""
+    initial_count = len(_subagents)
+
+    # Use "explorer" as agent_id without explicit profile param
+    subagent(
+        agent_id="explorer",
+        prompt="Analyze the architecture",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # Profile should be auto-detected from agent_id
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "explorer"
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_auto_detects_profile_alias_from_agent_id(
+    mock_create_thread: MagicMock,
+):
+    """Test that common agent_id aliases map to expected profiles."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="impl",
+        prompt="Implement feature X",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # Profile should be auto-detected from alias
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "developer"
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_no_auto_detect_for_unknown_agent_id(mock_create_thread: MagicMock):
+    """Test that non-profile agent_ids don't trigger auto-detection."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="my-custom-task",
+        prompt="Do something",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # No profile should be set
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] is None
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_explicit_profile_overrides_auto_detect(
+    mock_create_thread: MagicMock,
+):
+    """Test that explicit profile param takes precedence over agent_id matching."""
+    initial_count = len(_subagents)
+
+    # agent_id is "explorer" but explicit profile is "researcher"
+    subagent(
+        agent_id="explorer",
+        prompt="Research task",
+        profile="researcher",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # Explicit profile should win
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "researcher"
+
+
+def test_subagent_profile_parameter_exists():
+    """Test that subagent function accepts profile and model parameters."""
+    import inspect
+
+    sig = inspect.signature(subagent)
+
+    assert "profile" in sig.parameters
+    assert sig.parameters["profile"].default is None
+
+    assert "model" in sig.parameters
+    assert sig.parameters["model"].default is None
+
+
+def test_subprocess_mode_with_profile():
+    """Test that subprocess mode passes profile via --agent-profile flag."""
+    captured_cmd: list[str] = []
+
+    def capture_popen(cmd, **kwargs):
+        captured_cmd.clear()
+        captured_cmd.extend(cmd)
+        mock = MagicMock()
+        mock.poll.return_value = None
+        return mock
+
+    _subagents.clear()
+
+    with patch("gptme.tools.subagent.subprocess.Popen", side_effect=capture_popen):
+        subagent(
+            agent_id="test-subprocess-profile",
+            prompt="Explore task",
+            use_subprocess=True,
+            profile="explorer",
+        )
+
+    # Verify --agent-profile flag is in the command
+    assert "--agent-profile" in captured_cmd
+    profile_idx = captured_cmd.index("--agent-profile")
+    assert captured_cmd[profile_idx + 1] == "explorer"
