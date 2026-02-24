@@ -330,7 +330,10 @@ def main(
     # Use get_parameter_source to distinguish between default (None) and explicit empty list
 
     tool_allowlist_str: str | None
-    if ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT:
+    if (
+        ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT
+        and not selected_profile
+    ):
         # Not provided by user, use None to indicate "use defaults"
         tool_allowlist_str = None
     elif tool_allowlist and any(
