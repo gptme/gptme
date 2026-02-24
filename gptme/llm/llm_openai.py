@@ -39,12 +39,6 @@ if TYPE_CHECKING:
 clients: dict[Provider, "OpenAI"] = {}
 logger = logging.getLogger(__name__)
 
-# Default max output tokens to request from the API.
-# Prevents accidentally requesting the full model theoretical maximum (e.g. 65536 for GLM-5
-# via OpenRouter), which can trigger 402 errors when the account credit limit is lower.
-# Can be overridden with the GPTME_MAX_TOKENS env var.
-DEFAULT_MAX_TOKENS = int(os.getenv("GPTME_MAX_TOKENS", "0")) or 16384
-
 
 # Type definitions for message dictionaries used in API transformations
 class ContentPart(TypedDict):
@@ -533,13 +527,6 @@ def chat(
     if not is_reasoner:
         optional_kwargs["temperature"] = TEMPERATURE
         optional_kwargs["top_p"] = TOP_P
-    if provider == "openrouter":
-        # OpenRouter defaults to the model's theoretical maximum when max_tokens is unset,
-        # which can trigger 402 errors when the account credit limit is below that maximum.
-        # Cap at DEFAULT_MAX_TOKENS to prevent this.
-        optional_kwargs["max_tokens"] = min(
-            model_meta.max_output or DEFAULT_MAX_TOKENS, DEFAULT_MAX_TOKENS
-        )
     if tools_dict:
         optional_kwargs["tools"] = tools_dict
     if response_format is not None:
@@ -638,13 +625,6 @@ def stream(
     if not is_reasoner:
         optional_kwargs["temperature"] = TEMPERATURE
         optional_kwargs["top_p"] = TOP_P
-    if provider == "openrouter":
-        # OpenRouter defaults to the model's theoretical maximum when max_tokens is unset,
-        # which can trigger 402 errors when the account credit limit is below that maximum.
-        # Cap at DEFAULT_MAX_TOKENS to prevent this.
-        optional_kwargs["max_tokens"] = min(
-            model_meta.max_output or DEFAULT_MAX_TOKENS, DEFAULT_MAX_TOKENS
-        )
     if tools_dict:
         optional_kwargs["tools"] = tools_dict
     if response_format is not None:
