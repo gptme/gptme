@@ -13,6 +13,7 @@ Key functions:
 """
 
 import logging
+import os
 import re
 import shlex
 import shutil
@@ -121,12 +122,21 @@ def create_workspace_from_template(
             formatted_cmd = fork_command.format(path=str(path), name=agent_name)
             logger.info(f"Running fork command: {formatted_cmd}")
 
+            # Ensure git identity is configured (fork.sh makes commits;
+            # CI environments and containers often lack user.name/email)
+            env = os.environ.copy()
+            env.setdefault("GIT_AUTHOR_NAME", "gptme-agent")
+            env.setdefault("GIT_AUTHOR_EMAIL", "agent@gptme.org")
+            env.setdefault("GIT_COMMITTER_NAME", "gptme-agent")
+            env.setdefault("GIT_COMMITTER_EMAIL", "agent@gptme.org")
+
             result = subprocess.run(
                 shlex.split(formatted_cmd),
                 capture_output=True,
                 check=False,
                 cwd=temp_dir,
                 timeout=120,
+                env=env,
             )
             if result.returncode != 0:
                 error_msg = result.stderr.decode() or result.stdout.decode()
