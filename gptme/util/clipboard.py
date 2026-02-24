@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ..logmanager import LogManager
 from . import get_installed_programs
 
 logger = logging.getLogger(__name__)
@@ -49,18 +50,11 @@ def copy() -> bool:
     return False
 
 
-# Module-level variable for configurable attachments directory
-_attachments_dir: Path | None = None
-
-
-def set_attachments_dir(path: Path) -> None:
-    """Set the directory where pasted images are saved."""
-    global _attachments_dir
-    _attachments_dir = path
-
-
 def paste_image() -> Path | None:
     """Get image from clipboard and save to a file.
+
+    Saves to <logdir>/attachments/ if a conversation is active,
+    otherwise falls back to the system temp directory.
 
     Returns path to saved image file, or None if no image in clipboard.
     """
@@ -90,7 +84,12 @@ def paste_image() -> Path | None:
             return None
 
         if isinstance(img, Image.Image):
-            save_dir = _attachments_dir or Path(tempfile.gettempdir())
+            # Derive attachments dir from current LogManager (ContextVar)
+            manager = LogManager.get_current_log()
+            if manager is not None:
+                save_dir = manager.logdir / "attachments"
+            else:
+                save_dir = Path(tempfile.gettempdir())
             save_dir.mkdir(parents=True, exist_ok=True)
             from datetime import datetime, timezone
 

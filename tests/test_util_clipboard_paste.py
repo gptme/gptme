@@ -46,21 +46,22 @@ class TestPasteImage:
 
         mock_img = Image.new("RGB", (100, 100), color="red")
 
-        mock_imagegrab = Mock()
-        mock_imagegrab.grabclipboard.return_value = mock_img
+        # Mock LogManager.get_current_log() to return a manager with logdir
+        mock_manager = Mock()
+        mock_manager.logdir = tmp_path
 
-        import gptme.util.clipboard as cb
-
-        cb._attachments_dir = tmp_path
-
-        with patch("PIL.ImageGrab.grabclipboard", return_value=mock_img):
+        with (
+            patch("PIL.ImageGrab.grabclipboard", return_value=mock_img),
+            patch(
+                "gptme.util.clipboard.LogManager.get_current_log",
+                return_value=mock_manager,
+            ),
+        ):
             result = paste_image()
             assert result is not None
             assert result.exists()
             assert result.suffix == ".png"
-            assert result.parent == tmp_path
-
-        cb._attachments_dir = None
+            assert result.parent == tmp_path / "attachments"
 
     def test_paste_image_with_file_paths(self, tmp_path):
         """Returns path when clipboard has file paths (Windows behavior)."""
