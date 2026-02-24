@@ -58,7 +58,7 @@ try:
                 direct_url_data = json.loads(direct_url_json)
                 if "vcs_info" in direct_url_data:
                     git_hash = direct_url_data["vcs_info"].get("commit_id", "")[:8]
-    except (KeyError, AttributeError, TypeError, ValueError):
+    except (KeyError, AttributeError, TypeError, ValueError, FileNotFoundError):
         pass
 
     # Method 2: Try git command (for editable installs)
