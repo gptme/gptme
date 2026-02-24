@@ -92,9 +92,9 @@ def paste_image() -> Path | None:
         if isinstance(img, Image.Image):
             save_dir = _attachments_dir or Path(tempfile.gettempdir())
             save_dir.mkdir(parents=True, exist_ok=True)
-            from datetime import datetime
+            from datetime import datetime, timezone
 
-            filename = f"paste_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png"
+            filename = f"paste_{datetime.now(tz=timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}.png"
             save_path = save_dir / filename
             img.save(str(save_path), "PNG")
             return save_path
