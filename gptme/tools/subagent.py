@@ -960,6 +960,10 @@ def subagent(
                     notify_completion(agent_id, "error", f"Execution failed: {e}")
                 except Exception as notify_err:
                     logger.warning(f"Failed to notify subagent error: {notify_err}")
+                # Clean up worktree isolation even on failure
+                sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+                if sa:
+                    _cleanup_isolation(sa)
                 return
 
             # Notify via hook system when complete (only if successful)
