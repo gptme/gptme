@@ -1,9 +1,13 @@
 """Tests for agent profiles functionality."""
 
+import pytest
+
 from gptme.profiles import (
     BUILTIN_PROFILES,
     Profile,
     ProfileBehavior,
+    _load_markdown_profiles,
+    _parse_markdown_profile,
     get_profile,
     list_profiles,
 )
@@ -189,3 +193,151 @@ class TestListProfiles:
         assert "researcher" in profiles
         assert "developer" in profiles
         assert "isolated" in profiles
+
+
+class TestMarkdownProfiles:
+    """Tests for markdown profile loading."""
+
+    def test_parse_markdown_profile(self, tmp_path):
+        """Parse a well-formed markdown profile."""
+        profile_md = tmp_path / "test.md"
+        profile_md.write_text(
+            "---\n"
+            "name: code-reviewer\n"
+            "description: Reviews code for quality and correctness\n"
+            "tools:\n"
+            "  - read\n"
+            "  - shell\n"
+            "behavior:\n"
+            "  read_only: true\n"
+            "---\n"
+            "\n"
+            "# Code Reviewer\n"
+            "\n"
+            "You review code for quality, correctness, and style.\n"
+        )
+
+        profile = _parse_markdown_profile(profile_md)
+
+        assert profile.name == "code-reviewer"
+        assert profile.description == "Reviews code for quality and correctness"
+        assert profile.tools == ["read", "shell"]
+        assert profile.behavior.read_only is True
+        assert profile.behavior.no_network is False
+        assert "Code Reviewer" in profile.system_prompt
+        assert "review code" in profile.system_prompt
+
+    def test_parse_markdown_profile_minimal(self, tmp_path):
+        """Parse a markdown profile with only required fields."""
+        profile_md = tmp_path / "minimal.md"
+        profile_md.write_text(
+            "---\n"
+            "name: minimal\n"
+            "description: Minimal profile\n"
+            "---\n"
+            "\n"
+            "Just a basic prompt.\n"
+        )
+
+        profile = _parse_markdown_profile(profile_md)
+
+        assert profile.name == "minimal"
+        assert profile.description == "Minimal profile"
+        assert profile.tools is None  # default: all tools
+        assert profile.system_prompt == "Just a basic prompt."
+
+    def test_parse_markdown_profile_empty_body(self, tmp_path):
+        """Markdown profile with no body has empty system_prompt."""
+        profile_md = tmp_path / "empty.md"
+        profile_md.write_text(
+            "---\nname: empty-body\ndescription: No system prompt\n---\n"
+        )
+
+        profile = _parse_markdown_profile(profile_md)
+
+        assert profile.name == "empty-body"
+        assert profile.system_prompt == ""
+
+    def test_parse_markdown_profile_missing_name(self, tmp_path):
+        """Missing name field raises ValueError."""
+        profile_md = tmp_path / "bad.md"
+        profile_md.write_text("---\ndescription: No name\n---\nBody text\n")
+
+        with pytest.raises(ValueError, match="missing required 'name'"):
+            _parse_markdown_profile(profile_md)
+
+    def test_parse_markdown_profile_missing_description(self, tmp_path):
+        """Missing description field raises ValueError."""
+        profile_md = tmp_path / "bad.md"
+        profile_md.write_text("---\nname: no-desc\n---\nBody text\n")
+
+        with pytest.raises(ValueError, match="missing required 'description'"):
+            _parse_markdown_profile(profile_md)
+
+    def test_parse_markdown_profile_no_frontmatter(self, tmp_path):
+        """File without frontmatter raises ValueError."""
+        profile_md = tmp_path / "nofm.md"
+        profile_md.write_text("# Just markdown\n\nNo frontmatter here.\n")
+
+        with pytest.raises(ValueError, match="must start with YAML frontmatter"):
+            _parse_markdown_profile(profile_md)
+
+    def test_load_markdown_profiles(self, tmp_path):
+        """Load multiple markdown profiles from a directory."""
+        (tmp_path / "alpha.md").write_text(
+            "---\n"
+            "name: alpha\n"
+            "description: Alpha profile\n"
+            "tools:\n"
+            "  - read\n"
+            "---\n"
+            "\n"
+            "Alpha instructions.\n"
+        )
+        (tmp_path / "beta.md").write_text(
+            "---\nname: beta\ndescription: Beta profile\n---\n\nBeta instructions.\n"
+        )
+        # Non-md file should be ignored
+        (tmp_path / "ignored.txt").write_text("not a profile")
+
+        profiles = _load_markdown_profiles(tmp_path)
+
+        assert len(profiles) == 2
+        assert "alpha" in profiles
+        assert "beta" in profiles
+        assert profiles["alpha"].tools == ["read"]
+        assert profiles["beta"].tools is None
+
+    def test_load_markdown_profiles_skips_invalid(self, tmp_path):
+        """Invalid markdown profiles are skipped with a warning."""
+        (tmp_path / "good.md").write_text(
+            "---\nname: good\ndescription: Valid profile\n---\n\nGood prompt.\n"
+        )
+        (tmp_path / "bad.md").write_text("---\nnot_a_name: oops\n---\n\nBad profile.\n")
+
+        profiles = _load_markdown_profiles(tmp_path)
+
+        assert len(profiles) == 1
+        assert "good" in profiles
+
+    def test_markdown_profile_full_behavior(self, tmp_path):
+        """All behavior fields are parsed correctly."""
+        profile_md = tmp_path / "strict.md"
+        profile_md.write_text(
+            "---\n"
+            "name: strict\n"
+            "description: Strict profile\n"
+            "behavior:\n"
+            "  read_only: true\n"
+            "  no_network: true\n"
+            "  confirm_writes: true\n"
+            "---\n"
+            "\n"
+            "Strict mode.\n"
+        )
+
+        profile = _parse_markdown_profile(profile_md)
+
+        assert profile.behavior.read_only is True
+        assert profile.behavior.no_network is True
+        assert profile.behavior.confirm_writes is True
