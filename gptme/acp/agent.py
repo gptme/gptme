@@ -33,6 +33,8 @@ from .types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from ..message import Message
 
 logger = logging.getLogger(__name__)
@@ -147,6 +149,10 @@ class GptmeAgent:
         # and the prompt() fallback (in case the deferred notification races
         # with an early first prompt).
         self._session_commands_advertised: set[str] = set()
+        # Background tasks that must be kept alive until completion.
+        # Without storing references, asyncio.create_task() returns tasks that
+        # can be garbage-collected and silently cancelled before finishing.
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     def on_connect(self, conn: Any) -> None:
         """Called when a client connects.
@@ -155,6 +161,15 @@ class GptmeAgent:
             conn: The client connection for sending notifications.
         """
         self._conn = conn
+
+    def _create_background_task(
+        self, coro: Coroutine[Any, Any, None]
+    ) -> asyncio.Task[None]:
+        """Create a background task with a stored reference to prevent GC cancellation."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     # Phase 2: Tool call methods
 
@@ -650,7 +665,7 @@ class GptmeAgent:
         # By deferring with asyncio.sleep(0) we let the event loop flush the
         # response to the socket before sending notifications.
         if self._conn:
-            asyncio.create_task(
+            self._create_background_task(
                 self._send_session_open_notifications(
                     session_id, session_model, cwd, resumed=resumed
                 )
@@ -1154,7 +1169,7 @@ class GptmeAgent:
         session = self._registry.get(session_id)
         cwd = (session.cwd or "") if session else ""
         if self._conn:
-            asyncio.create_task(
+            self._create_background_task(
                 self._send_session_open_notifications(
                     session_id, session_model, cwd, resumed=True
                 )
