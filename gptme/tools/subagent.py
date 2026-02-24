@@ -239,6 +239,7 @@ def _create_subagent_thread(
     workspace: Path,
     target: str = "parent",
     output_schema: type | None = None,
+    profile_name: str | None = None,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -250,18 +251,42 @@ def _create_subagent_thread(
         context_include: For selective mode, list of context components
         workspace: Workspace directory
         target: Who will review the results ("parent" or "planner")
+        profile_name: Optional agent profile to apply (system prompt + tool hints)
     """
     # noreorder
     from gptme import chat  # fmt: skip
     from gptme.executor import prepare_execution_environment  # fmt: skip
     from gptme.llm.models import set_default_model  # fmt: skip
 
+    from ..profiles import get_profile  # fmt: skip
     from ..prompts import get_prompt  # fmt: skip
+
+    # Resolve profile if specified
+    profile = get_profile(profile_name) if profile_name else None
+    if profile_name and not profile:
+        logger.warning(f"Unknown profile '{profile_name}', ignoring")
 
     # Initialize model and tools for this thread
     if model:
         set_default_model(model)
+
+    # Apply profile tool restrictions if specified
+    tool_allowlist = None
+    if profile and profile.tools is not None:
+        tool_allowlist = profile.tools
+
     prepare_execution_environment(workspace=workspace, tools=None)
+
+    # Get tools, filtered by profile if applicable
+    if tool_allowlist is not None:
+        available_tools = [t for t in get_tools() if t.name in tool_allowlist]
+        # Always include the complete tool so subagent can signal completion
+        complete_tools = [t for t in get_tools() if t.name == "complete"]
+        for ct in complete_tools:
+            if ct not in available_tools:
+                available_tools.append(ct)
+    else:
+        available_tools = get_tools()
 
     prompt_msgs = [Message("user", prompt)]
 
@@ -299,11 +324,21 @@ def _create_subagent_thread(
             initial_msgs.extend(list(prompt_gptme(False, None, agent_name=None)))
         if "tools" in context_include:
             initial_msgs.extend(
-                list(prompt_tools(tools=get_tools(), tool_format="markdown"))
+                list(prompt_tools(tools=available_tools, tool_format="markdown"))
             )
     else:  # "full" mode (default)
-        # Full context
-        initial_msgs = get_prompt(get_tools(), interactive=False, workspace=workspace)
+        # Full context (using profile-filtered tools)
+        initial_msgs = get_prompt(
+            available_tools, interactive=False, workspace=workspace
+        )
+
+    # Append profile system prompt if specified
+    if profile and profile.system_prompt:
+        profile_msg = Message(
+            "system",
+            f"# Agent Profile: {profile.name}\n\n{profile.system_prompt}",
+        )
+        initial_msgs.append(profile_msg)
 
     # Add completion instruction as a system message
     complete_instruction = Message(
@@ -341,6 +376,7 @@ def _run_subagent_subprocess(
     context_mode: Literal["full", "instructions-only", "selective"] | None = None,
     context_include: list[str] | None = None,
     output_schema: str | None = None,
+    profile: str | None = None,
 ) -> subprocess.Popen:
     """Run a subagent in a subprocess for output isolation.
 
@@ -357,6 +393,7 @@ def _run_subagent_subprocess(
             (files, cmd, all). Legacy values like "agent" and "tools" are
             mapped or ignored since tools/agent are always included by CLI.
         output_schema: JSON schema for structured output
+        profile: Agent profile name to apply via --agent-profile flag
 
     Returns:
         The subprocess.Popen object for monitoring
@@ -372,6 +409,9 @@ def _run_subagent_subprocess(
 
     if model:
         cmd.extend(["--model", model])
+
+    if profile:
+        cmd.extend(["--agent-profile", profile])
 
     # Map context_mode/context_include to the --context CLI flag
     if context_mode == "instructions-only":
@@ -489,6 +529,7 @@ def _run_planner(
     context_mode: Literal["full", "instructions-only", "selective"] = "full",
     context_include: list[str] | None = None,
     model: str | None = None,
+    profile_name: str | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -499,6 +540,7 @@ def _run_planner(
         execution_mode: "parallel" (all at once) or "sequential" (one by one)
         context_mode: Controls what context is shared with executors (see subagent() docs)
         context_include: For selective mode, list of context components to include
+        profile_name: Agent profile to apply to executor subagents
     """
     from gptme.cli.main import get_logdir
 
@@ -534,6 +576,7 @@ def _run_planner(
                 context_include=context_include,
                 workspace=ws,
                 target="planner",
+                profile_name=profile_name,
             )
 
         t = threading.Thread(target=run_executor, daemon=True)
@@ -566,6 +609,8 @@ def subagent(
     context_include: list[str] | None = None,
     output_schema: type | None = None,
     use_subprocess: bool = False,
+    profile: str | None = None,
+    model: str | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -592,6 +637,14 @@ def subagent(
             Note: Tools and agent identity are always included by the CLI.
         use_subprocess: If True, run subagent in subprocess for output isolation.
             Subprocess mode captures stdout/stderr separately from the parent.
+        profile: Agent profile name to apply. Profiles provide:
+            - System prompt customization (behavioral hints)
+            - Tool access restrictions (which tools the subagent can use)
+            - Behavior rules (read-only, no-network, etc.)
+            Use 'gptme-util profile list' to see available profiles.
+            Built-in profiles: default, explorer, researcher, developer, isolated.
+        model: Model to use for the subagent. Overrides parent's model.
+            Useful for routing cheap tasks to faster/cheaper models.
 
     Returns:
         None: Starts asynchronous execution.
@@ -605,9 +658,13 @@ def subagent(
     from gptme.cli.main import get_logdir  # fmt: skip
     from gptme.llm.models import get_default_model  # fmt: skip
 
-    # Get current model from parent conversation (needed for both executor and planner modes)
-    current_model = get_default_model()
-    model_name = current_model.full if current_model else None
+    # Determine model: explicit parameter > parent's model
+    model_name: str | None
+    if model:
+        model_name = model
+    else:
+        current_model = get_default_model()
+        model_name = current_model.full if current_model else None
 
     if mode == "planner":
         if not subtasks:
@@ -620,6 +677,7 @@ def subagent(
             context_mode,
             context_include,
             model_name,
+            profile_name=profile,
         )
 
     # Validate context_mode parameters
@@ -645,6 +703,8 @@ def subagent(
     if use_subprocess:
         # Subprocess mode: better output isolation
         logger.info(f"Starting subagent {agent_id} in subprocess mode")
+        if profile:
+            logger.info(f"  with profile: {profile}")
         # Convert output_schema type to JSON string if present
         output_schema_str = None
         if output_schema is not None:
@@ -665,6 +725,7 @@ def subagent(
             context_mode=context_mode,
             context_include=context_include,
             output_schema=output_schema_str,
+            profile=profile,
         )
 
         # Create Subagent with subprocess reference
@@ -700,6 +761,7 @@ def subagent(
                     workspace=workspace,
                     target="parent",
                     output_schema=output_schema,
+                    profile_name=profile,
                 )
             except Exception as e:
                 # If subagent creation fails, notify with error status
@@ -1070,6 +1132,30 @@ Assistant: I'll spawn a subagent. Completion will be delivered via the LOOP_CONT
 System: Started subagent "compute-demo"
 System: ✅ Subagent 'compute-demo' completed: pi = 3.14159265358979...
 
+### Profile-Based Subagents
+User: explore this codebase and summarize the architecture
+Assistant: I'll use the explorer profile for a read-only analysis.
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("explore", "Analyze the codebase architecture and summarize key patterns", profile="explorer")',
+        ).to_output(tool_format)
+    }
+System: Subagent started successfully.
+
+### Profile with Model Override
+User: research best practices for error handling
+Assistant: I'll spawn a researcher subagent with a faster model for web research.
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("research", "Research error handling best practices in Python", profile="researcher", model="openai/gpt-4o-mini")',
+        ).to_output(tool_format)
+    }
+System: Subagent started successfully.
+
 ### Structured Delegation Template
 User: implement a robust auth feature
 Assistant: I'll use the structured delegation template for clear task handoff.
@@ -1094,9 +1180,21 @@ Subagents support a "fire-and-forget-then-get-alerted" pattern:
 - Optionally use subagent_wait() for explicit synchronization
 
 Key features:
+- profile="explorer": Apply agent profile for tool restrictions and system prompts
+- model="provider/model": Override parent's model (route cheap tasks to faster models)
 - use_subprocess=True: Run subagent in subprocess for output isolation
 - subagent_batch(): Start multiple subagents in parallel
 - Hook-based notifications: Completions delivered as system messages
+
+## Agent Profiles for Subagents
+
+Use profiles to create specialized subagents with appropriate capabilities:
+- explorer: Read-only analysis (tools: read, shell)
+- researcher: Web research without file modification (tools: browser, read)
+- developer: Full development capabilities (all tools)
+- isolated: Restricted processing for untrusted content (tools: read, ipython)
+
+Example: `subagent("analyze", "Explore codebase", profile="explorer")`
 
 Use subagent_read_log() to inspect a subagent's conversation log for debugging.
 
