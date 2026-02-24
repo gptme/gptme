@@ -13,9 +13,53 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 jobs:
+  # Detect which paths changed to skip expensive jobs on docs/config-only PRs
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      # Core Python code changed (any gptme source, tests, or deps)
+      code: ${{ steps.filter.outputs.code }}
+      # LLM/API-related code changed (llm, acp, tools, agent, tests)
+      api-related: ${{ steps.filter.outputs.api-related }}
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          code:
+            - 'gptme/**'
+            - 'tests/**'
+            - 'poetry.lock'
+            - 'pyproject.toml'
+            - 'Makefile'
+            - '.github/workflows/test.yml'
+          api-related:
+            - 'gptme/llm/**'
+            - 'gptme/acp/**'
+            - 'gptme/tools/**'
+            - 'gptme/agent/**'
+            - 'gptme/eval/**'
+            - 'gptme/chat.py'
+            - 'gptme/codeblock.py'
+            - 'gptme/message.py'
+            - 'gptme/prompts.py'
+            - 'gptme/session.py'
+            - 'gptme/executor.py'
+            - 'tests/**'
+            - 'poetry.lock'
+            - 'Makefile'
+            - '.github/workflows/test.yml'
+
   # Core tests: no API keys needed, runs all tests except requires_api/eval
   # Also includes slow tests (browser, MCP, integration, etc.) since they don't need API
   test-no-api:
+    needs: changes
+    # Always run on push to master; on PRs, only when code changed
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
     name: Test without API keys
     runs-on: ubuntu-latest
     env:
@@ -83,6 +127,9 @@ jobs:
 
   # Minimal install test: no extras, tests the most common user installation config
   test-minimal:
+    needs: changes
+    # Always run on push to master; on PRs, only when code changed
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
     name: Test without API keys or extras
     runs-on: ubuntu-latest
     env:
@@ -145,9 +192,14 @@ jobs:
         report_type: test_results
 
   # API tests: only run requires_api tests, across multiple cheap models
-  # This replaces the previous matrix that ran ALL slow tests on each model
+  # Skipped on docs/config-only PRs to reduce API spend (~$30+/day in Haiku costs)
   test-api:
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    needs: changes
+    # Run on push to master, or on PRs when API-related code changed (and not a fork)
+    if: |
+      (github.event_name == 'push') ||
+      (needs.changes.outputs.api-related == 'true' &&
+       (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'))
     name: API tests with ${{ matrix.model }}
     runs-on: ubuntu-latest
     env:
