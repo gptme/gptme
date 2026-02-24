@@ -1,6 +1,7 @@
 """Tests for gptme.agent module."""
 
 import plistlib
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -631,6 +632,63 @@ class TestCLI:
         assert (
             workspace / "scripts" / "runs" / "autonomous" / "autonomous-run.sh"
         ).is_file()
+
+    @pytest.mark.slow
+    def test_create_template_mode_e2e(self, runner, tmp_path):
+        """Test full `gptme-agent create` using the real gptme-agent-template repo.
+
+        This exercises the actual critical path: clone real template, run real
+        fork.sh, verify real workspace structure and name substitution.
+        Marked slow because it clones from GitHub.
+        """
+        workspace = tmp_path / "test-agent-e2e"
+        result = runner.invoke(
+            main,
+            [
+                "create",
+                str(workspace),
+                "--name",
+                "test-agent-e2e",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Create failed: {result.output}"
+        assert "Template cloned and customized" in result.output
+        assert "Workspace created" in result.output
+
+        # Verify workspace exists and has core structure from the real template
+        assert workspace.exists()
+        assert (workspace / "gptme.toml").is_file()
+        assert (workspace / "README.md").is_file()
+        assert (workspace / "ABOUT.md").is_file()
+        assert (workspace / "ARCHITECTURE.md").is_file()
+        assert (workspace / "TASKS.md").is_file()
+        assert (workspace / "journal").is_dir()
+        assert (workspace / "tasks").is_dir()
+        assert (workspace / "knowledge").is_dir()
+        assert (workspace / "lessons").is_dir()
+        assert (workspace / "people").is_dir()
+        assert (
+            workspace / "scripts" / "runs" / "autonomous" / "autonomous-run.sh"
+        ).is_file()
+
+        # Verify agent name substitution worked
+        gptme_toml = (workspace / "gptme.toml").read_text()
+        assert 'name = "test-agent-e2e"' in gptme_toml
+        # Template placeholder should be replaced
+        assert "gptme-agent" not in gptme_toml
+
+        # Verify it's a git repo with clean history
+        git_result = subprocess.run(
+            ["git", "log", "--oneline"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert git_result.returncode == 0
+        # Should have at least one commit (the fork init commit)
+        assert len(git_result.stdout.strip().splitlines()) >= 1
 
     def test_list_no_agents(self, runner):
         """Test list command with no agents."""
