@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from gptme.dirs import get_agent_memory_dir
+from gptme.dirs import get_profile_memory_dir
 from gptme.tools.subagent import (
     _build_memory_system_message,
     _load_agent_memory,
@@ -22,31 +22,31 @@ def tmp_data_dir(tmp_path):
 
 
 class TestGetAgentMemoryDir:
-    """Tests for get_agent_memory_dir."""
+    """Tests for get_profile_memory_dir."""
 
     def test_creates_directory(self, tmp_data_dir):
         """Memory directory is created if it doesn't exist."""
-        memory_dir = get_agent_memory_dir("explorer")
+        memory_dir = get_profile_memory_dir("explorer")
         assert memory_dir.exists()
         assert memory_dir.is_dir()
         assert memory_dir.name == "explorer"
 
     def test_returns_correct_path(self, tmp_data_dir):
-        """Memory directory is under agent-memories/."""
-        memory_dir = get_agent_memory_dir("researcher")
-        assert "agent-memories" in str(memory_dir)
+        """Memory directory is under profile-memories/."""
+        memory_dir = get_profile_memory_dir("researcher")
+        assert "profile-memories" in str(memory_dir)
         assert memory_dir.name == "researcher"
 
     def test_idempotent(self, tmp_data_dir):
         """Calling twice returns same path without error."""
-        dir1 = get_agent_memory_dir("explorer")
-        dir2 = get_agent_memory_dir("explorer")
+        dir1 = get_profile_memory_dir("explorer")
+        dir2 = get_profile_memory_dir("explorer")
         assert dir1 == dir2
 
     def test_different_profiles_different_dirs(self, tmp_data_dir):
         """Each profile gets its own directory."""
-        dir1 = get_agent_memory_dir("explorer")
-        dir2 = get_agent_memory_dir("researcher")
+        dir1 = get_profile_memory_dir("explorer")
+        dir2 = get_profile_memory_dir("researcher")
         assert dir1 != dir2
         assert dir1.name == "explorer"
         assert dir2.name == "researcher"
@@ -70,7 +70,7 @@ class TestLoadAgentMemory:
 
     def test_loads_existing_memory(self, tmp_data_dir):
         """Existing MEMORY.md content is loaded."""
-        memory_dir = get_agent_memory_dir("explorer")
+        memory_dir = get_profile_memory_dir("explorer")
         memory_file = memory_dir / "MEMORY.md"
         memory_file.write_text(
             "# Explorer Memory\n\n- Pattern: always check tests first\n"
@@ -83,7 +83,7 @@ class TestLoadAgentMemory:
 
     def test_empty_file_returns_none_content(self, tmp_data_dir):
         """Empty MEMORY.md returns None content."""
-        memory_dir = get_agent_memory_dir("explorer")
+        memory_dir = get_profile_memory_dir("explorer")
         memory_file = memory_dir / "MEMORY.md"
         memory_file.write_text("")
 
@@ -93,7 +93,7 @@ class TestLoadAgentMemory:
 
     def test_whitespace_only_returns_none_content(self, tmp_data_dir):
         """Whitespace-only MEMORY.md returns None content."""
-        memory_dir = get_agent_memory_dir("explorer")
+        memory_dir = get_profile_memory_dir("explorer")
         memory_file = memory_dir / "MEMORY.md"
         memory_file.write_text("   \n\n  \n")
 

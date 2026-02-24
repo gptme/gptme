@@ -247,9 +247,9 @@ def _load_agent_memory(profile_name: str | None) -> tuple[str | None, Path | Non
     if not profile_name:
         return None, None
 
-    from ..dirs import get_agent_memory_dir
+    from ..dirs import get_profile_memory_dir
 
-    memory_dir = get_agent_memory_dir(profile_name)
+    memory_dir = get_profile_memory_dir(profile_name)
     memory_file = memory_dir / "MEMORY.md"
 
     if memory_file.exists():
@@ -258,7 +258,7 @@ def _load_agent_memory(profile_name: str | None) -> tuple[str | None, Path | Non
             if content:
                 return content, memory_dir
         except Exception as e:
-            logger.warning(f"Failed to read agent memory for '{profile_name}': {e}")
+            logger.warning(f"Failed to read profile memory for '{profile_name}': {e}")
 
     return None, memory_dir
 
