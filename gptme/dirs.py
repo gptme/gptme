@@ -146,7 +146,7 @@ def get_profile_memory_dir(profile_name: str) -> Path:
     Returns:
         Path to the memory directory (created if it doesn't exist)
     """
-    path = get_data_dir() / "profile-memories" / profile_name
+    path = get_data_dir() / "memories" / "profiles" / profile_name
     path.mkdir(parents=True, exist_ok=True)
     return path
 

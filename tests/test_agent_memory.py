@@ -32,9 +32,9 @@ class TestGetAgentMemoryDir:
         assert memory_dir.name == "explorer"
 
     def test_returns_correct_path(self, tmp_data_dir):
-        """Memory directory is under profile-memories/."""
+        """Memory directory is under memories/profiles/."""
         memory_dir = get_profile_memory_dir("researcher")
-        assert "profile-memories" in str(memory_dir)
+        assert "memories/profiles" in str(memory_dir)
         assert memory_dir.name == "researcher"
 
     def test_idempotent(self, tmp_data_dir):
