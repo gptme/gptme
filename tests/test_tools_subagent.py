@@ -934,6 +934,26 @@ def test_subagent_auto_detects_profile_from_agent_id(mock_create_thread: MagicMo
 
 
 @patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_auto_detects_profile_alias_from_agent_id(
+    mock_create_thread: MagicMock,
+):
+    """Test that common agent_id aliases map to expected profiles."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="impl",
+        prompt="Implement feature X",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # Profile should be auto-detected from alias
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "developer"
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
 def test_subagent_no_auto_detect_for_unknown_agent_id(mock_create_thread: MagicMock):
     """Test that non-profile agent_ids don't trigger auto-detection."""
     initial_count = len(_subagents)

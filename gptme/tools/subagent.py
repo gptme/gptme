@@ -619,13 +619,15 @@ def subagent(
     continue working and get notified when subagents finish.
 
     Profile auto-detection: If ``agent_id`` matches a known profile name
-    (e.g. "explorer", "researcher", "developer"), the profile is applied
-    automatically — no need to pass ``profile`` separately.
+    (e.g. "explorer", "researcher", "developer") or a common role alias
+    ("explore"→"explorer", "research"→"researcher", "impl"/"dev"→"developer"),
+    the profile is applied automatically — no need to pass ``profile`` separately.
 
     Args:
         agent_id: Unique identifier for the subagent. If it matches a known
-            profile name, that profile is auto-applied (unless ``profile``
-            is explicitly set to something else).
+            profile name (or a common alias like ``impl``/``dev``), that
+            profile is auto-applied (unless ``profile`` is explicitly set
+            to something else).
         prompt: Task prompt for the subagent (used as context for planner mode)
         mode: "executor" for single task, "planner" for delegating to multiple executors
         subtasks: List of subtask definitions for planner mode (required when mode="planner")
@@ -668,9 +670,25 @@ def subagent(
     from ..profiles import get_profile as _get_profile  # fmt: skip
 
     # Auto-detect profile from agent_id when no explicit profile is set
-    if profile is None and _get_profile(agent_id) is not None:
-        profile = agent_id
-        logger.info(f"Auto-detected profile '{profile}' from agent_id")
+    if profile is None:
+        if _get_profile(agent_id) is not None:
+            profile = agent_id
+            logger.info(f"Auto-detected profile '{profile}' from agent_id")
+        else:
+            # Common role aliases to reduce agent_id/profile duplication.
+            # Example: subagent("impl", "...") maps to profile="developer".
+            profile_aliases = {
+                "explore": "explorer",
+                "research": "researcher",
+                "impl": "developer",
+                "dev": "developer",
+            }
+            aliased_profile = profile_aliases.get(agent_id)
+            if aliased_profile and _get_profile(aliased_profile) is not None:
+                profile = aliased_profile
+                logger.info(
+                    f"Auto-detected profile '{profile}' from agent_id alias '{agent_id}'"
+                )
 
     # Determine model: explicit parameter > parent's model
     model_name: str | None
