@@ -627,14 +627,16 @@ class GptmeAgent:
             except Exception as e:
                 logger.debug(f"Failed to save ChatConfig for {session_id}: {e}")
 
-        # Register in the in-memory session registry (skip if already there)
-        if not self._registry.get(session_id):
+        # Register in the in-memory session registry or update existing
+        existing_session = self._registry.get(session_id)
+        if not existing_session:
             self._registry.create(session_id, log=log, cwd=str(cwd) if cwd else None)
         else:
-            # Touch existing session to update last_activity
-            existing = self._registry.get(session_id)
-            if existing:
-                existing.touch()
+            # Update log reference if we created a new one (e.g. registry
+            # entry existed with log=None), and touch activity timestamp
+            if not resumed and log:
+                existing_session.log = log
+            existing_session.touch()
 
         logger.info(
             f"ACP NewSession: session_id={session_id}, cwd={cwd}, resumed={resumed}"
