@@ -2,12 +2,14 @@
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
 
 from gptme.cli.util import main
 from gptme.logmanager import ConversationMeta
+from gptme.profiles import Profile
 
 
 def test_tokens_count(tmp_path):
@@ -166,3 +168,51 @@ def test_tools_info():
     result = runner.invoke(main, ["tools", "info", "nonexistent-tool"])
     assert result.exit_code != 0  # returns non-zero for not found tool
     assert "not found" in result.output
+
+
+def test_profile_validate_success(mocker):
+    """Test profile validate command when all profiles are valid."""
+    runner = CliRunner()
+
+    mocker.patch(
+        "gptme.profiles.list_profiles",
+        return_value={
+            "default": Profile(name="default", description="Default", tools=None),
+            "reader": Profile(name="reader", description="Reader", tools=["read"]),
+        },
+    )
+    mocker.patch(
+        "gptme.tools.get_available_tools",
+        return_value=[SimpleNamespace(name="read"), SimpleNamespace(name="shell")],
+    )
+
+    result = runner.invoke(main, ["profile", "validate"])
+
+    assert result.exit_code == 0
+    assert "Profile 'default': OK (all tools)" in result.output
+    assert "Profile 'reader': OK (1 tools)" in result.output
+    assert "All profiles valid." in result.output
+
+
+def test_profile_validate_failure(mocker):
+    """Test profile validate command when profiles contain unknown tools."""
+    runner = CliRunner()
+
+    mocker.patch(
+        "gptme.profiles.list_profiles",
+        return_value={
+            "broken": Profile(
+                name="broken", description="Broken", tools=["read", "reead"]
+            ),
+        },
+    )
+    mocker.patch(
+        "gptme.tools.get_available_tools",
+        return_value=[SimpleNamespace(name="read"), SimpleNamespace(name="shell")],
+    )
+
+    result = runner.invoke(main, ["profile", "validate"])
+
+    assert result.exit_code == 1
+    assert "Profile 'broken': unknown tools: reead" in result.output
+    assert "Available tools: read, shell" in result.output
