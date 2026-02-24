@@ -914,6 +914,65 @@ def test_planner_with_profile(mock_create_thread: MagicMock):
         assert call[1]["profile_name"] == "explorer"
 
 
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_auto_detects_profile_from_agent_id(mock_create_thread: MagicMock):
+    """Test that agent_id matching a profile name auto-applies the profile."""
+    initial_count = len(_subagents)
+
+    # Use "explorer" as agent_id without explicit profile param
+    subagent(
+        agent_id="explorer",
+        prompt="Analyze the architecture",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # Profile should be auto-detected from agent_id
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "explorer"
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_no_auto_detect_for_unknown_agent_id(mock_create_thread: MagicMock):
+    """Test that non-profile agent_ids don't trigger auto-detection."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="my-custom-task",
+        prompt="Do something",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # No profile should be set
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] is None
+
+
+@patch("gptme.tools.subagent._create_subagent_thread")
+def test_subagent_explicit_profile_overrides_auto_detect(
+    mock_create_thread: MagicMock,
+):
+    """Test that explicit profile param takes precedence over agent_id matching."""
+    initial_count = len(_subagents)
+
+    # agent_id is "explorer" but explicit profile is "researcher"
+    subagent(
+        agent_id="explorer",
+        prompt="Research task",
+        profile="researcher",
+    )
+
+    assert len(_subagents) == initial_count + 1
+
+    # Explicit profile should win
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "researcher"
+
+
 def test_subagent_profile_parameter_exists():
     """Test that subagent function accepts profile and model parameters."""
     import inspect

@@ -618,8 +618,14 @@ def subagent(
     a "fire-and-forget-then-get-alerted" pattern where the orchestrator can
     continue working and get notified when subagents finish.
 
+    Profile auto-detection: If ``agent_id`` matches a known profile name
+    (e.g. "explorer", "researcher", "developer"), the profile is applied
+    automatically — no need to pass ``profile`` separately.
+
     Args:
-        agent_id: Unique identifier for the subagent
+        agent_id: Unique identifier for the subagent. If it matches a known
+            profile name, that profile is auto-applied (unless ``profile``
+            is explicitly set to something else).
         prompt: Task prompt for the subagent (used as context for planner mode)
         mode: "executor" for single task, "planner" for delegating to multiple executors
         subtasks: List of subtask definitions for planner mode (required when mode="planner")
@@ -643,6 +649,7 @@ def subagent(
             - Behavior rules (read-only, no-network, etc.)
             Use 'gptme-util profile list' to see available profiles.
             Built-in profiles: default, explorer, researcher, developer, isolated.
+            If not set, auto-detected from agent_id when it matches a profile name.
         model: Model to use for the subagent. Overrides parent's model.
             Useful for routing cheap tasks to faster/cheaper models.
 
@@ -657,6 +664,13 @@ def subagent(
     # noreorder
     from gptme.cli.main import get_logdir  # fmt: skip
     from gptme.llm.models import get_default_model  # fmt: skip
+
+    from ..profiles import get_profile as _get_profile  # fmt: skip
+
+    # Auto-detect profile from agent_id when no explicit profile is set
+    if profile is None and _get_profile(agent_id) is not None:
+        profile = agent_id
+        logger.info(f"Auto-detected profile '{profile}' from agent_id")
 
     # Determine model: explicit parameter > parent's model
     model_name: str | None
@@ -1132,14 +1146,14 @@ Assistant: I'll spawn a subagent. Completion will be delivered via the LOOP_CONT
 System: Started subagent "compute-demo"
 System: ✅ Subagent 'compute-demo' completed: pi = 3.14159265358979...
 
-### Profile-Based Subagents
+### Profile-Based Subagents (auto-detected from agent_id)
 User: explore this codebase and summarize the architecture
 Assistant: I'll use the explorer profile for a read-only analysis.
 {
         ToolUse(
             "ipython",
             [],
-            'subagent("explore", "Analyze the codebase architecture and summarize key patterns", profile="explorer")',
+            'subagent("explorer", "Analyze the codebase architecture and summarize key patterns")',
         ).to_output(tool_format)
     }
 System: Subagent started successfully.
@@ -1151,7 +1165,7 @@ Assistant: I'll spawn a researcher subagent with a faster model for web research
         ToolUse(
             "ipython",
             [],
-            'subagent("research", "Research error handling best practices in Python", profile="researcher", model="openai/gpt-4o-mini")',
+            'subagent("researcher", "Research error handling best practices in Python", model="openai/gpt-4o-mini")',
         ).to_output(tool_format)
     }
 System: Subagent started successfully.
@@ -1180,7 +1194,7 @@ Subagents support a "fire-and-forget-then-get-alerted" pattern:
 - Optionally use subagent_wait() for explicit synchronization
 
 Key features:
-- profile="explorer": Apply agent profile for tool restrictions and system prompts
+- Agent profiles: Use profile names as agent_id for automatic profile detection
 - model="provider/model": Override parent's model (route cheap tasks to faster models)
 - use_subprocess=True: Run subagent in subprocess for output isolation
 - subagent_batch(): Start multiple subagents in parallel
@@ -1188,13 +1202,15 @@ Key features:
 
 ## Agent Profiles for Subagents
 
-Use profiles to create specialized subagents with appropriate capabilities:
-- explorer: Read-only analysis (tools: read, shell)
+Use profiles to create specialized subagents with appropriate capabilities.
+When agent_id matches a profile name, the profile is auto-applied:
+- explorer: Read-only analysis (tools: read)
 - researcher: Web research without file modification (tools: browser, read)
 - developer: Full development capabilities (all tools)
 - isolated: Restricted processing for untrusted content (tools: read, ipython)
 
-Example: `subagent("analyze", "Explore codebase", profile="explorer")`
+Example: `subagent("explorer", "Explore codebase")`
+With model override: `subagent("researcher", "Find docs", model="openai/gpt-4o-mini")`
 
 Use subagent_read_log() to inspect a subagent's conversation log for debugging.
 
