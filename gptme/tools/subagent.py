@@ -38,6 +38,7 @@ import string
 import subprocess
 import sys
 import threading
+import uuid
 from collections.abc import Generator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -782,7 +783,7 @@ def subagent(
             try:
                 worktree_path = create_worktree(
                     repo_path,
-                    branch_name=f"subagent-{agent_id}-{random_string(4)}",
+                    branch_name=f"subagent-{agent_id}-{uuid.uuid4().hex[:8]}",
                 )
                 workspace = worktree_path
                 logger.info(
