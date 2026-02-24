@@ -1,6 +1,7 @@
 """Tests for gptme.agent module."""
 
 import plistlib
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -631,6 +632,108 @@ class TestCLI:
         assert (
             workspace / "scripts" / "runs" / "autonomous" / "autonomous-run.sh"
         ).is_file()
+
+    def test_create_template_mode_e2e_local_template(self, runner, tmp_path):
+        """Test full `gptme-agent create` template path using a local git template."""
+        template_repo = tmp_path / "template-repo"
+        template_repo.mkdir()
+
+        (template_repo / "gptme.toml").write_text('[agent]\nname = "gptme-agent"\n')
+        (template_repo / "README.md").write_text(
+            "# gptme-agent\n\n"
+            "<!--template-->template-only content<!--/template-->\n"
+            "CLI: gptme-agent create\n"
+        )
+
+        scripts_dir = template_repo / "scripts"
+        scripts_dir.mkdir()
+        fork_script = scripts_dir / "fork.sh"
+        fork_script.write_text(
+            "#!/bin/bash\n"
+            "set -euo pipefail\n"
+            'TARGET="$1"\n'
+            'NAME="$2"\n'
+            'mkdir -p "$TARGET/scripts/runs/autonomous" "$TARGET/journal" "$TARGET/tasks" "$TARGET/knowledge" "$TARGET/lessons" "$TARGET/people"\n'
+            'cp gptme.toml "$TARGET/gptme.toml"\n'
+            'cp README.md "$TARGET/README.md"\n'
+            "cat > \"$TARGET/scripts/runs/autonomous/autonomous-run.sh\" <<'SH'\n"
+            "#!/bin/bash\n"
+            "echo running\n"
+            "SH\n"
+            'chmod +x "$TARGET/scripts/runs/autonomous/autonomous-run.sh"\n'
+            'python3 - "$TARGET" "$NAME" <<\'PY\'\n'
+            "import re, sys\n"
+            "from pathlib import Path\n"
+            "target = Path(sys.argv[1])\n"
+            "name = sys.argv[2]\n"
+            "for rel in ('gptme.toml', 'README.md'):\n"
+            "    p = target / rel\n"
+            "    content = p.read_text()\n"
+            "    content = re.sub(r'<!--template-->.*?<!--/template-->', '', content, flags=re.DOTALL)\n"
+            "    content = content.replace('gptme-agent-template', name)\n"
+            "    content = content.replace('gptme-agent', name)\n"
+            "    p.write_text(content)\n"
+            "PY\n"
+            'cd "$TARGET"\n'
+            "git -c core.hooksPath=/dev/null init >/dev/null\n"
+            "git -c core.hooksPath=/dev/null add .\n"
+            "git -c core.hooksPath=/dev/null -c user.email=test@example.com -c user.name='Test User' commit -m 'init' >/dev/null\n"
+        )
+        fork_script.chmod(0o755)
+
+        subprocess.run(
+            ["git", "init"], cwd=template_repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "add", "."], cwd=template_repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=Test User",
+                "commit",
+                "-m",
+                "initial template",
+            ],
+            cwd=template_repo,
+            check=True,
+            capture_output=True,
+        )
+
+        workspace = tmp_path / "created-agent"
+        result = runner.invoke(
+            main,
+            [
+                "create",
+                str(workspace),
+                "--template-repo",
+                str(template_repo),
+                "--template-branch",
+                "master",
+                "--name",
+                "created-agent",
+            ],
+        )
+
+        assert result.exit_code == 0, f"Create failed: {result.output}"
+        assert "Template cloned and customized" in result.output
+        assert "Workspace created" in result.output
+
+        assert workspace.exists()
+        assert (workspace / "gptme.toml").is_file()
+        assert (workspace / "README.md").is_file()
+        assert (
+            workspace / "scripts" / "runs" / "autonomous" / "autonomous-run.sh"
+        ).is_file()
+
+        gptme_toml = (workspace / "gptme.toml").read_text()
+        readme = (workspace / "README.md").read_text()
+        assert 'name = "created-agent"' in gptme_toml
+        assert "# created-agent" in readme
+        assert "template-only content" not in readme
 
     def test_list_no_agents(self, runner):
         """Test list command with no agents."""
