@@ -35,7 +35,6 @@ class ProfileBehavior:
     confirm_writes: bool = False
     read_only: bool = False
     no_network: bool = False
-    max_context_tokens: int | None = None
 
 
 @dataclass
