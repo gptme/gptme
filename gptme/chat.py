@@ -45,6 +45,7 @@ from .tools import (
 from .tools.complete import SessionCompleteException
 from .util import console, path_with_tilde
 from .util.auto_naming import auto_generate_display_name
+from .util.clipboard import set_attachments_dir
 from .util.context import include_paths
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
@@ -127,6 +128,10 @@ def chat(
 
     console.log(f"Using logdir: {path_with_tilde(logdir)}")
     manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+
+    # Set attachments directory relative to conversation logdir
+    # so pasted images are stored alongside the conversation
+    set_attachments_dir(logdir / "attachments")
 
     # Note: todo replay is now handled via SESSION_START hook
 
