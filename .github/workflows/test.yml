@@ -211,7 +211,7 @@ jobs:
         include:
           - model: 'openai/gpt-4o-mini'
           - model: 'anthropic/claude-haiku-4-5'
-          - model: 'openrouter/z-ai/glm-5@z-ai'
+          - model: 'openrouter/minimax/minimax-m2.5'
             experimental: true
 
     steps:
