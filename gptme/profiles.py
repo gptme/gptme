@@ -88,7 +88,7 @@ BUILTIN_PROFILES: dict[str, Profile] = {
             "- NOT modify any files or make changes\n"
             "- NOT access the network or external resources\n"
         ),
-        tools=["read", "shell", "chats"],
+        tools=["read", "chats"],
         behavior=ProfileBehavior(read_only=True, no_network=True),
     ),
     "researcher": Profile(
