@@ -150,7 +150,6 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     name: API tests with ${{ matrix.model }}
     runs-on: ubuntu-latest
-    continue-on-error: ${{ matrix.allow-failure == true }}
     env:
       RELEASE: false
     strategy:
@@ -193,6 +192,10 @@ jobs:
       run: poetry run playwright install chromium
 
     - name: Run API tests only
+      # continue-on-error at step level (not job level) so the job itself
+      # reports as success even when tests fail due to billing limits.
+      # Job-level continue-on-error still marks the check as FAILURE in GitHub UI.
+      continue-on-error: ${{ matrix.allow-failure == true }}
       uses: nick-fields/retry@v3
       env:
         TERM: xterm
