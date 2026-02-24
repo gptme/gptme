@@ -1154,7 +1154,9 @@ class GptmeAgent:
         cwd = (session.cwd or "") if session else ""
         if self._conn:
             asyncio.create_task(
-                self._send_session_open_notifications(session_id, session_model, cwd)
+                self._send_session_open_notifications(
+                    session_id, session_model, cwd, resumed=True
+                )
             )
 
         return _NewSessionResponse(
