@@ -973,5 +973,39 @@ def profile_show(name: str):
     )
 
 
+@profile_group.command("validate")
+def profile_validate():
+    """Validate all profiles against available tools.
+
+    Checks that tool names specified in profiles match actual loaded tools.
+    """
+    from rich.console import Console
+
+    from ..profiles import list_profiles as list_available_profiles
+    from ..tools import get_available_tools
+
+    console = Console()
+    profiles = list_available_profiles()
+    available = {t.name for t in get_available_tools()}
+
+    has_errors = False
+    for name, prof in sorted(profiles.items()):
+        unknown = prof.validate_tools(available)
+        if unknown:
+            has_errors = True
+            console.print(
+                f"[red]Profile '{name}': unknown tools: {', '.join(unknown)}[/red]"
+            )
+        else:
+            tools_desc = f"{len(prof.tools)} tools" if prof.tools else "all tools"
+            console.print(f"[green]Profile '{name}': OK ({tools_desc})[/green]")
+
+    if has_errors:
+        console.print(f"\n[dim]Available tools: {', '.join(sorted(available))}[/dim]")
+        sys.exit(1)
+    else:
+        console.print("\n[green]All profiles valid.[/green]")
+
+
 if __name__ == "__main__":
     main()

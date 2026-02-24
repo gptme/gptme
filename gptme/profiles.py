@@ -68,6 +68,15 @@ class Profile:
         profile_data = {k: v for k, v in data.items() if k != "behavior"}
         return cls(behavior=behavior, **profile_data)
 
+    def validate_tools(self, available_tool_names: set[str]) -> list[str]:
+        """Validate that profile tool names exist in the available tools.
+
+        Returns list of unknown tool names (empty if all valid).
+        """
+        if self.tools is None:
+            return []
+        return sorted(set(self.tools) - available_tool_names)
+
 
 # Built-in profiles
 BUILTIN_PROFILES: dict[str, Profile] = {

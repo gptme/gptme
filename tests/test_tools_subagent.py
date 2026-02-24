@@ -1145,3 +1145,52 @@ def test_subprocess_mode_with_profile():
     assert "--agent-profile" in captured_cmd
     profile_idx = captured_cmd.index("--agent-profile")
     assert captured_cmd[profile_idx + 1] == "explorer"
+
+
+def test_create_subagent_thread_warns_on_unknown_profile_tools(mocker, tmp_path):
+    """Warn when profile includes unknown tool names and keep known ones + complete."""
+    from gptme.message import Message
+    from gptme.profiles import Profile
+    from gptme.tools.base import ToolSpec
+    from gptme.tools.subagent import _create_subagent_thread
+
+    profile = Profile(
+        name="test",
+        description="test profile",
+        tools=["read", "reead"],
+    )
+    tools = [
+        ToolSpec(name="read", desc=""),
+        ToolSpec(name="complete", desc=""),
+        ToolSpec(name="shell", desc=""),
+    ]
+
+    mocker.patch("gptme.profiles.get_profile", return_value=profile)
+    mocker.patch("gptme.tools.subagent.get_tools", return_value=tools)
+    mocker.patch("gptme.executor.prepare_execution_environment")
+    mock_prompt = mocker.patch("gptme.prompts.get_prompt", return_value=[])
+    mock_chat = mocker.patch("gptme.chat")
+    mock_warn = mocker.patch("gptme.tools.subagent.logger.warning")
+
+    _create_subagent_thread(
+        prompt="test",
+        logdir=tmp_path,
+        model=None,
+        context_mode="full",
+        context_include=None,
+        workspace=tmp_path,
+        profile_name="test",
+    )
+
+    mock_warn.assert_called_once()
+    assert "unknown tools" in mock_warn.call_args.args[0]
+    assert "reead" in mock_warn.call_args.args[2]
+
+    # Ensure tools passed to prompt are filtered to allowed + complete fallback
+    filtered_tools = mock_prompt.call_args.args[0]
+    filtered_names = {t.name for t in filtered_tools}
+    assert filtered_names == {"read", "complete"}
+
+    # Ensure chat got the user prompt message
+    prompt_msgs = mock_chat.call_args.args[0]
+    assert prompt_msgs == [Message("user", "test")]
