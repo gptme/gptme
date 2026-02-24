@@ -141,11 +141,9 @@ def _get_ipython():
     if _ipython is None:
         _setup_venv_paths()
 
-        # Disable colors at the source to avoid ANSI escape codes in output
-        # that would need to be stripped later. Setting NO_COLOR is the
-        # cross-library standard (https://no-color.org/).
-        os.environ["NO_COLOR"] = "1"
-
+        # Disable colors in IPython to avoid ANSI escape codes in output
+        # Note: We set IPython's colors mode directly rather than using NO_COLOR
+        # globally, as that would affect other parts of the application (like Rich)
         _ipython = InteractiveShell()
         _ipython.colors = "NoColor"
         _ipython.push(registered_functions)
