@@ -633,88 +633,22 @@ class TestCLI:
             workspace / "scripts" / "runs" / "autonomous" / "autonomous-run.sh"
         ).is_file()
 
-    def test_create_template_mode_e2e_local_template(self, runner, tmp_path):
-        """Test full `gptme-agent create` template path using a local git template."""
-        template_repo = tmp_path / "template-repo"
-        template_repo.mkdir()
+    @pytest.mark.slow
+    def test_create_template_mode_e2e(self, runner, tmp_path):
+        """Test full `gptme-agent create` using the real gptme-agent-template repo.
 
-        (template_repo / "gptme.toml").write_text('[agent]\nname = "gptme-agent"\n')
-        (template_repo / "README.md").write_text(
-            "# gptme-agent\n\n"
-            "<!--template-->template-only content<!--/template-->\n"
-            "CLI: gptme-agent create\n"
-        )
-
-        scripts_dir = template_repo / "scripts"
-        scripts_dir.mkdir()
-        fork_script = scripts_dir / "fork.sh"
-        fork_script.write_text(
-            "#!/bin/bash\n"
-            "set -euo pipefail\n"
-            'TARGET="$1"\n'
-            'NAME="$2"\n'
-            'mkdir -p "$TARGET/scripts/runs/autonomous" "$TARGET/journal" "$TARGET/tasks" "$TARGET/knowledge" "$TARGET/lessons" "$TARGET/people"\n'
-            'cp gptme.toml "$TARGET/gptme.toml"\n'
-            'cp README.md "$TARGET/README.md"\n'
-            "cat > \"$TARGET/scripts/runs/autonomous/autonomous-run.sh\" <<'SH'\n"
-            "#!/bin/bash\n"
-            "echo running\n"
-            "SH\n"
-            'chmod +x "$TARGET/scripts/runs/autonomous/autonomous-run.sh"\n'
-            'python3 - "$TARGET" "$NAME" <<\'PY\'\n'
-            "import re, sys\n"
-            "from pathlib import Path\n"
-            "target = Path(sys.argv[1])\n"
-            "name = sys.argv[2]\n"
-            "for rel in ('gptme.toml', 'README.md'):\n"
-            "    p = target / rel\n"
-            "    content = p.read_text()\n"
-            "    content = re.sub(r'<!--template-->.*?<!--/template-->', '', content, flags=re.DOTALL)\n"
-            "    content = content.replace('gptme-agent-template', name)\n"
-            "    content = content.replace('gptme-agent', name)\n"
-            "    p.write_text(content)\n"
-            "PY\n"
-            'cd "$TARGET"\n'
-            "git -c core.hooksPath=/dev/null init >/dev/null\n"
-            "git -c core.hooksPath=/dev/null add .\n"
-            "git -c core.hooksPath=/dev/null -c user.email=test@example.com -c user.name='Test User' commit -m 'init' >/dev/null\n"
-        )
-        fork_script.chmod(0o755)
-
-        subprocess.run(
-            ["git", "init"], cwd=template_repo, check=True, capture_output=True
-        )
-        subprocess.run(
-            ["git", "add", "."], cwd=template_repo, check=True, capture_output=True
-        )
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.email=test@example.com",
-                "-c",
-                "user.name=Test User",
-                "commit",
-                "-m",
-                "initial template",
-            ],
-            cwd=template_repo,
-            check=True,
-            capture_output=True,
-        )
-
-        workspace = tmp_path / "created-agent"
+        This exercises the actual critical path: clone real template, run real
+        fork.sh, verify real workspace structure and name substitution.
+        Marked slow because it clones from GitHub.
+        """
+        workspace = tmp_path / "test-agent-e2e"
         result = runner.invoke(
             main,
             [
                 "create",
                 str(workspace),
-                "--template-repo",
-                str(template_repo),
-                "--template-branch",
-                "master",
                 "--name",
-                "created-agent",
+                "test-agent-e2e",
             ],
         )
 
@@ -722,18 +656,39 @@ class TestCLI:
         assert "Template cloned and customized" in result.output
         assert "Workspace created" in result.output
 
+        # Verify workspace exists and has core structure from the real template
         assert workspace.exists()
         assert (workspace / "gptme.toml").is_file()
         assert (workspace / "README.md").is_file()
+        assert (workspace / "ABOUT.md").is_file()
+        assert (workspace / "ARCHITECTURE.md").is_file()
+        assert (workspace / "TASKS.md").is_file()
+        assert (workspace / "journal").is_dir()
+        assert (workspace / "tasks").is_dir()
+        assert (workspace / "knowledge").is_dir()
+        assert (workspace / "lessons").is_dir()
+        assert (workspace / "people").is_dir()
         assert (
             workspace / "scripts" / "runs" / "autonomous" / "autonomous-run.sh"
         ).is_file()
 
+        # Verify agent name substitution worked
         gptme_toml = (workspace / "gptme.toml").read_text()
-        readme = (workspace / "README.md").read_text()
-        assert 'name = "created-agent"' in gptme_toml
-        assert "# created-agent" in readme
-        assert "template-only content" not in readme
+        assert 'name = "test-agent-e2e"' in gptme_toml
+        # Template placeholder should be replaced
+        assert "gptme-agent" not in gptme_toml
+
+        # Verify it's a git repo with clean history
+        git_result = subprocess.run(
+            ["git", "log", "--oneline"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert git_result.returncode == 0
+        # Should have at least one commit (the fork init commit)
+        assert len(git_result.stdout.strip().splitlines()) >= 1
 
     def test_list_no_agents(self, runner):
         """Test list command with no agents."""
