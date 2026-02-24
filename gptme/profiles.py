@@ -1,13 +1,15 @@
 """Agent profiles for pre-configured system prompts and tool access.
 
-Profiles provide soft/prompting-based guidance combining:
-- System prompt customization (behavioral hints)
-- Tool access suggestions (which tools to prefer)
+Profiles combine:
+- System prompt customization (behavioral guidance)
+- Tool access restrictions (hard-enforced when used via subagent tool)
 - Behavior rules (read-only, no-network, etc.)
 
-IMPORTANT: Profile restrictions are soft enforcement via prompting only.
-The agent receives instructions about limitations but there's no hard
-technical enforcement at the tool level.
+Tool restrictions are hard-enforced in subagent thread mode: only allowed
+tools are loaded into the execution context, so the LLM cannot call
+restricted tools even if it tries. CLI mode (--agent-profile) also
+hard-enforces via the tool allowlist. Behavior rules (read_only, no_network)
+remain soft/prompting-based.
 
 This enables creating specialized agents like "explorer" (read-only),
 "researcher" (web access), or "developer" (full capabilities).

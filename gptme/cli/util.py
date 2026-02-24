@@ -887,7 +887,7 @@ def profile_group():
     """Commands for managing agent profiles.
 
     Profiles define system prompts, tool access, and behavior rules.
-    They provide soft/prompting-based guidance for the agent.
+    Tool restrictions are hard-enforced in subagent and CLI mode.
 
     Example:
         gptme-util profile list          # List all profiles
@@ -968,8 +968,8 @@ def profile_show(name: str):
     console.print(Panel(content, title=f"Profile: {name}"))
 
     console.print(
-        "\n[dim]Note: Profile restrictions are soft/prompting-based. "
-        "The agent follows instructions but there's no hard technical enforcement.[/dim]"
+        "\n[dim]Note: Tool restrictions are hard-enforced in subagent and CLI mode. "
+        "Behavior rules (read_only, no_network) remain soft/prompting-based.[/dim]"
     )
 
 
