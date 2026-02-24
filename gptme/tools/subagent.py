@@ -157,6 +157,10 @@ class Subagent:
     # Subprocess mode fields
     process: subprocess.Popen | None = None
     execution_mode: Literal["thread", "subprocess"] = "thread"
+    # Worktree isolation fields
+    isolated: bool = False
+    worktree_path: Path | None = None
+    repo_path: Path | None = None
 
     def get_log(self) -> "LogManager":
         # noreorder
@@ -492,6 +496,19 @@ def _summarize_result(result: ReturnType, max_chars: int = 200) -> str:
     return text[: max_chars - 3] + "..."
 
 
+def _cleanup_isolation(subagent: "Subagent") -> None:
+    """Clean up worktree or temp directory after subagent completes."""
+    if not subagent.isolated or not subagent.worktree_path:
+        return
+
+    from ..util.git_worktree import cleanup_worktree
+
+    try:
+        cleanup_worktree(subagent.worktree_path, subagent.repo_path)
+    except Exception as e:
+        logger.warning(f"Failed to cleanup isolation for {subagent.agent_id}: {e}")
+
+
 def _monitor_subprocess(
     subagent: "Subagent",
 ) -> None:
@@ -532,6 +549,9 @@ def _monitor_subprocess(
         notify_completion(subagent.agent_id, status, summary)
     except Exception as e:
         logger.warning(f"Failed to notify subagent completion: {e}")
+
+    # Clean up worktree isolation
+    _cleanup_isolation(subagent)
 
 
 def _run_planner(
@@ -624,6 +644,7 @@ def subagent(
     use_subprocess: bool = False,
     profile: str | None = None,
     model: str | None = None,
+    isolated: bool = False,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -667,6 +688,11 @@ def subagent(
             If not set, auto-detected from agent_id when it matches a profile name.
         model: Model to use for the subagent. Overrides parent's model.
             Useful for routing cheap tasks to faster/cheaper models.
+        isolated: If True, run the subagent in a git worktree for filesystem
+            isolation. The subagent gets its own copy of the repository and
+            can modify files without affecting the parent. The worktree is
+            automatically cleaned up after the subagent completes.
+            Falls back to a temporary directory if not in a git repo.
 
     Returns:
         None: Starts asynchronous execution.
@@ -745,6 +771,41 @@ def subagent(
         # Fallback to logdir's parent if cwd doesn't exist
         workspace = logdir.parent
 
+    # Set up worktree isolation if requested
+    worktree_path: Path | None = None
+    repo_path: Path | None = None
+    if isolated:
+        from ..util.git_worktree import create_worktree, get_git_root
+
+        repo_path = get_git_root(workspace)
+        if repo_path:
+            try:
+                worktree_path = create_worktree(
+                    repo_path,
+                    branch_name=f"subagent-{agent_id}-{random_string(4)}",
+                )
+                workspace = worktree_path
+                logger.info(
+                    f"Subagent {agent_id} isolated in worktree: {worktree_path}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to create worktree for {agent_id}, "
+                    f"falling back to temp dir: {e}"
+                )
+                import tempfile
+
+                worktree_path = Path(tempfile.mkdtemp(prefix=f"subagent-{agent_id}-"))
+                workspace = worktree_path
+        else:
+            import tempfile
+
+            worktree_path = Path(tempfile.mkdtemp(prefix=f"subagent-{agent_id}-"))
+            workspace = worktree_path
+            logger.info(
+                f"Not in a git repo, using temp dir for {agent_id}: {worktree_path}"
+            )
+
     if use_subprocess:
         # Subprocess mode: better output isolation
         logger.info(f"Starting subagent {agent_id} in subprocess mode")
@@ -783,6 +844,9 @@ def subagent(
             output_schema=output_schema,
             process=process,
             execution_mode="subprocess",
+            isolated=isolated,
+            worktree_path=worktree_path,
+            repo_path=repo_path,
         )
         _subagents.append(sa)
 
@@ -826,6 +890,8 @@ def subagent(
                     notify_completion(agent_id, result.status, summary)
                 except Exception as e:
                     logger.warning(f"Failed to notify subagent completion: {e}")
+                # Clean up worktree isolation
+                _cleanup_isolation(sa)
 
         # Start a thread with a subagent
         t = threading.Thread(
@@ -843,6 +909,9 @@ def subagent(
             output_schema=output_schema,
             process=None,
             execution_mode="thread",
+            isolated=isolated,
+            worktree_path=worktree_path,
+            repo_path=repo_path,
         )
         _subagents.append(sa)
 
@@ -1212,6 +1281,18 @@ Assistant: I'll use the structured delegation template for clear task handoff.
         ).to_output(tool_format)
     }
 System: Subagent started successfully.
+
+### Isolated Subagent (Worktree)
+User: implement a feature without affecting my working directory
+Assistant: I'll run the subagent in an isolated git worktree so it won't modify your files.
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("feature-impl", "Implement the new caching layer in cache.py", isolated=True)',
+        ).to_output(tool_format)
+    }
+System: Subagent started successfully.
 """.strip()
 
 
@@ -1228,6 +1309,7 @@ Key features:
 - Agent profiles: Use profile names as agent_id for automatic profile detection
 - model="provider/model": Override parent's model (route cheap tasks to faster models)
 - use_subprocess=True: Run subagent in subprocess for output isolation
+- isolated=True: Run subagent in a git worktree for filesystem isolation
 - subagent_batch(): Start multiple subagents in parallel
 - Hook-based notifications: Completions delivered as system messages
 
