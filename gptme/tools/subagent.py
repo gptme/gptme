@@ -235,6 +235,66 @@ class Subagent:
         )
 
 
+def _load_agent_memory(profile_name: str | None) -> tuple[str | None, Path | None]:
+    """Load persistent memory for an agent profile.
+
+    Args:
+        profile_name: Name of the agent profile
+
+    Returns:
+        Tuple of (memory_content, memory_dir) or (None, None) if no profile
+    """
+    if not profile_name:
+        return None, None
+
+    from ..dirs import get_agent_memory_dir
+
+    memory_dir = get_agent_memory_dir(profile_name)
+    memory_file = memory_dir / "MEMORY.md"
+
+    if memory_file.exists():
+        try:
+            content = memory_file.read_text().strip()
+            if content:
+                return content, memory_dir
+        except Exception as e:
+            logger.warning(f"Failed to read agent memory for '{profile_name}': {e}")
+
+    return None, memory_dir
+
+
+def _build_memory_system_message(
+    memory_content: str | None, memory_dir: Path
+) -> "Message":
+    """Build a system message with memory context for a subagent.
+
+    Args:
+        memory_content: Existing memory content (or None if empty)
+        memory_dir: Path to the memory directory
+    """
+    parts = [
+        f"# Agent Memory\n\nYour persistent memory directory is at `{memory_dir}/`."
+    ]
+
+    if memory_content:
+        parts.append(f"## Current Memory\n\nContents of MEMORY.md:\n\n{memory_content}")
+    else:
+        parts.append("Your memory is currently empty.")
+
+    parts.append(
+        "## Saving Memories\n\n"
+        "You can save learnings that persist across sessions by writing to "
+        f"`{memory_dir}/MEMORY.md`. Use this to remember:\n"
+        "- Patterns and conventions discovered in this project\n"
+        "- Key file paths and architecture decisions\n"
+        "- Solutions to recurring problems\n\n"
+        "Keep MEMORY.md concise (under 200 lines). "
+        "Create separate files in the memory directory for detailed notes."
+    )
+
+    return Message("system", "\n\n".join(parts))
+
+
 def _create_subagent_thread(
     prompt: str,
     logdir: Path,
@@ -358,6 +418,12 @@ def _create_subagent_thread(
         )
         initial_msgs.append(profile_msg)
 
+    # Load and inject persistent memory for this profile
+    memory_content, memory_dir = _load_agent_memory(profile_name)
+    if memory_dir is not None:
+        memory_msg = _build_memory_system_message(memory_content, memory_dir)
+        initial_msgs.append(memory_msg)
+
     # Add completion instruction as a system message
     complete_instruction = Message(
         "system",
@@ -458,6 +524,20 @@ def _run_subagent_subprocess(
 
     if output_schema:
         cmd.extend(["--output-schema", output_schema])
+
+    # Load persistent memory and prepend to prompt for subprocess mode
+    memory_content, memory_dir = _load_agent_memory(profile)
+    if memory_dir is not None:
+        memory_section = f"\n\n[Agent Memory - stored at {memory_dir}/MEMORY.md]\n"
+        if memory_content:
+            memory_section += f"{memory_content}\n"
+        else:
+            memory_section += "No memories saved yet.\n"
+        memory_section += (
+            "You can save learnings to your memory by writing to "
+            f"{memory_dir}/MEMORY.md\n"
+        )
+        prompt = prompt + memory_section
 
     # Add the prompt as the final argument
     cmd.append(prompt)
