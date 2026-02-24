@@ -632,9 +632,10 @@ class GptmeAgent:
         if not existing_session:
             self._registry.create(session_id, log=log, cwd=str(cwd) if cwd else None)
         else:
-            # Update log reference if we created a new one (e.g. registry
-            # entry existed with log=None), and touch activity timestamp
-            if not resumed and log:
+            # Update log reference if the existing entry has no log (e.g. registry
+            # entry existed with log=None from a prior in-memory registration or
+            # a session resumed from disk when the registry entry lacked a log).
+            if log and existing_session.log is None:
                 existing_session.log = log
             existing_session.touch()
 

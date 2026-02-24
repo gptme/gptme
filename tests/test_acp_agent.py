@@ -1457,6 +1457,49 @@ class TestNewSessionResume:
         # Both calls should return the same session ID
         assert result1.session_id == result2.session_id == expected_sid
 
+    def test_registry_log_updated_when_resumed_from_disk_with_null_log(self, tmp_path):
+        """When session exists in registry with log=None but file exists on disk,
+        new_session() should update the registry's log reference (resumed=True path)."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import json
+        from unittest.mock import patch
+
+        from gptme.acp.agent import _cwd_session_id
+
+        cwd = str(tmp_path / "project")
+        (tmp_path / "project").mkdir()
+        sid = _cwd_session_id(cwd)
+
+        # Create log on disk
+        logdir = tmp_path / sid
+        logdir.mkdir()
+        logfile = logdir / "conversation.jsonl"
+        entry = {
+            "role": "system",
+            "content": "hello",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+        }
+        logfile.write_text(json.dumps(entry) + "\n")
+
+        agent = GptmeAgent()
+        # Pre-populate registry with log=None (simulates race/partial init)
+        agent._registry.create(sid, log=None, cwd=cwd)
+
+        with (
+            patch("gptme.acp.agent.get_logs_dir", return_value=tmp_path),
+            patch("gptme.acp.agent.get_prompt", return_value=[]),
+            patch("gptme.acp.agent.get_tools", return_value=[]),
+            patch("gptme.acp.agent.ChatConfig"),
+        ):
+            _run(agent.new_session(cwd=cwd, mcp_servers=[]))
+
+        # Registry entry should now have a valid log reference
+        session = agent._registry.get(sid)
+        assert session is not None
+        assert session.log is not None
+
     def test_send_session_open_notifications_resumed_flag(self):
         """_send_session_open_notifications includes 'Resumed session' when resumed=True."""
         if not _import_acp():
