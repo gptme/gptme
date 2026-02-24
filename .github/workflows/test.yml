@@ -147,18 +147,19 @@ jobs:
   # API tests: only run requires_api tests, across multiple cheap models
   # This replaces the previous matrix that ran ALL slow tests on each model
   test-api:
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     name: API tests with ${{ matrix.model }}
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental || false }}
     env:
       RELEASE: false
     strategy:
       fail-fast: false
       matrix:
-        model:
-          - 'openai/gpt-4o-mini'
-          - 'anthropic/claude-haiku-4-5'
-          - 'openrouter/z-ai/glm-5@z-ai'
+        include:
+          - model: 'openai/gpt-4o-mini'
+          - model: 'anthropic/claude-haiku-4-5'
+          - model: 'openrouter/z-ai/glm-5@z-ai'
+            experimental: true  # allow failure: subject to OpenRouter monthly credit limits
 
     steps:
     - uses: actions/checkout@v6
