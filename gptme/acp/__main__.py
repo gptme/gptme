@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Run gptme as an ACP agent.
 
 This is the entry point for running gptme as an ACP-compatible agent.
@@ -255,11 +254,11 @@ def main() -> int:
         )
         return 1
 
-    try:
-        import importlib.metadata
+    import importlib.metadata
 
+    try:
         _version = importlib.metadata.version("gptme")
-    except Exception:
+    except importlib.metadata.PackageNotFoundError:
         _version = "unknown"
     logger.info("Starting gptme ACP agent (v%s)...", _version)
 
@@ -270,7 +269,7 @@ def main() -> int:
         logger.info("Agent stopped by user")
         return 0
     except Exception as e:
-        logger.exception(f"Agent error: {e}")
+        logger.exception("Agent error: %s", e)
         return 1
 
 
