@@ -56,6 +56,32 @@ def test_find_potential_paths_empty():
     assert _find_potential_paths("just some text") == []
 
 
+def test_include_paths_skips_system_messages():
+    """Test that include_paths skips role=system messages (tool output) entirely."""
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    # A system message with path-like content (e.g. tool output)
+    content = """
+<tool_use>
+<cmd>cat /path/inside/tool/output.txt</cmd>
+</tool_use>
+
+<result>
+Content from /path/in/result/data.csv
+</result>
+
+Also /some/path/in/system/message.txt
+    """
+
+    msg = Message("system", content)
+    result = include_paths(msg)
+
+    # system messages should be returned unchanged (no paths extracted)
+    assert result == msg
+    assert result.files == []
+
+
 def test_find_potential_paths_punctuation():
     # Test paths with trailing punctuation
     content = """
@@ -70,3 +96,29 @@ def test_find_potential_paths_punctuation():
     assert "/path/to/file" in paths
     assert "./local/path" in paths
     assert "https://example.com" in paths
+
+
+def test_find_potential_paths_ignores_xml_tags():
+    """Paths inside XML tags should not be extracted (e.g. user pastes tool output)."""
+    content = """
+Here is some user text mentioning /real/path/to/file.txt.
+
+<tool_use>
+<cmd>cat /path/inside/xml/tag.txt</cmd>
+</tool_use>
+
+<result>
+Contents from /another/xml/path.csv
+</result>
+
+Also check `./outside/xml.py` which should be found.
+"""
+    paths = _find_potential_paths(content)
+
+    # Paths outside XML tags should be found
+    assert "/real/path/to/file.txt" in paths
+    assert "./outside/xml.py" in paths
+
+    # Paths inside XML tags should be ignored
+    assert "/path/inside/xml/tag.txt" not in paths
+    assert "/another/xml/path.csv" not in paths
