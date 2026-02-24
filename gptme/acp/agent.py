@@ -319,7 +319,7 @@ class GptmeAgent:
             return option_id == "allow-once"
 
         except Exception as e:
-            logger.warning(f"Permission request failed: {e}, auto-allowing")
+            logger.warning("Permission request failed: %s, auto-allowing", e)
             return True
 
     def _create_confirm_with_tools(
@@ -419,7 +419,7 @@ class GptmeAgent:
                 )
                 return True
             except Exception as e:
-                logger.warning(f"Tool permission check failed: {e}, auto-allowing")
+                logger.warning("Tool permission check failed: %s, auto-allowing", e)
                 return True
 
         return confirm_callback
@@ -505,7 +505,7 @@ class GptmeAgent:
             # Store tools for re-setting in other handler contexts
             self._tools = get_tools()
 
-        logger.info(f"ACP Initialize: protocol_version={protocol_version}")
+        logger.info("ACP Initialize: protocol_version=%s", protocol_version)
         _InitializeResponse = _check_acp_import(
             InitializeResponse, "InitializeResponse"
         )
@@ -640,7 +640,7 @@ class GptmeAgent:
             try:
                 chat_cfg.save()
             except Exception as e:
-                logger.debug(f"Failed to save ChatConfig for {session_id}: {e}")
+                logger.debug("Failed to save ChatConfig for %s: %s", session_id, e)
 
         # Register in the in-memory session registry or update existing
         existing_session = self._registry.get(session_id)
@@ -796,7 +796,7 @@ class GptmeAgent:
                 source="gptme",
             )
         except Exception as e:
-            logger.debug(f"Failed to send session info notification: {e}")
+            logger.debug("Failed to send session info notification: %s", e)
 
         # Surface initialization errors immediately so the user sees them
         # without having to send a prompt.
@@ -809,7 +809,7 @@ class GptmeAgent:
                     source="gptme",
                 )
             except Exception as e:
-                logger.debug(f"Failed to send init error notification: {e}")
+                logger.debug("Failed to send init error notification: %s", e)
             # Keep _init_error set so prompt() can still surface it for retries
 
         # Advertise slash commands for client-side autocomplete.
@@ -849,7 +849,7 @@ class GptmeAgent:
             )
         except Exception as e:
             # Non-fatal: clients still work without autocomplete
-            logger.warning(f"Failed to send available commands: {e}", exc_info=True)
+            logger.warning("Failed to send available commands: %s", e, exc_info=True)
 
     async def _handle_slash_command(
         self,
@@ -905,7 +905,7 @@ class GptmeAgent:
                     log.append(resp)
                     response_msgs.append(resp)
         except Exception as e:
-            logger.exception(f"Error executing slash command {msg.content!r}: {e}")
+            logger.exception("Error executing slash command %r: %s", msg.content, e)
             error_text = f"Error executing command: {e}"
             error_chunk = update_agent_message(text_block(error_text))
             if self._conn:
@@ -1008,7 +1008,7 @@ class GptmeAgent:
 
         session = self._registry.get(session_id)
         if not session:
-            logger.error(f"Unknown session: {session_id}")
+            logger.error("Unknown session: %s", session_id)
             _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
             return _PromptResponse(stop_reason="cancelled")
         # Update last_activity timestamp for cleanup tracking
@@ -1083,7 +1083,7 @@ class GptmeAgent:
             return _PromptResponse(stop_reason="end_turn")
 
         except Exception as e:
-            logger.exception(f"Error processing prompt: {e}")
+            logger.exception("Error processing prompt: %s", e)
             # Phase 2: Mark tool calls as failed on error
             await self._complete_pending_tool_calls(session_id, success=False)
             # Send error message
@@ -1120,7 +1120,7 @@ class GptmeAgent:
 
         # Check if already loaded in-memory
         if self._registry.get(session_id):
-            logger.info(f"load_session: {session_id[:16]} already in registry")
+            logger.info("load_session: %s already in registry", session_id[:16])
             return self._build_load_session_response(session_id)
 
         # Try to load from persistent storage
@@ -1129,7 +1129,7 @@ class GptmeAgent:
         logfile = logdir / "conversation.jsonl"
 
         if not logfile.exists():
-            logger.info(f"load_session: {session_id[:16]} not found on disk")
+            logger.info("load_session: %s not found on disk", session_id[:16])
             return None
 
         try:
@@ -1145,7 +1145,7 @@ class GptmeAgent:
 
             return self._build_load_session_response(session_id)
         except Exception as e:
-            logger.warning(f"load_session: failed to load {session_id[:16]}: {e}")
+            logger.warning("load_session: failed to load %s: %s", session_id[:16], e)
             return None
 
     def _build_load_session_response(self, session_id: str) -> Any:
@@ -1205,7 +1205,7 @@ class GptmeAgent:
         Args:
             session_id: Session to cancel
         """
-        logger.info(f"Cancelling session {session_id}")
+        logger.info("Cancelling session %s", session_id)
         self._cleanup_session(session_id)
 
     async def list_sessions(
@@ -1284,7 +1284,7 @@ class GptmeAgent:
         **kwargs: Any,
     ) -> None:
         """Handle authentication request (not supported)."""
-        logger.warning(f"authenticate not implemented: {method_id}")
+        logger.warning("authenticate not implemented: %s", method_id)
         return
 
     async def set_session_model(
@@ -1294,7 +1294,7 @@ class GptmeAgent:
         **kwargs: Any,
     ) -> None:
         """Set the model for a specific session."""
-        logger.info(f"set_session_model: session={session_id}, model={model_id}")
+        logger.info("set_session_model: session=%s, model=%s", session_id, model_id)
         self._session_models[session_id] = model_id
         return
 
@@ -1317,7 +1317,7 @@ class GptmeAgent:
                 f"Valid modes: {valid_modes}"
             )
             return
-        logger.info(f"set_session_mode: session={session_id}, mode={mode_id}")
+        logger.info("set_session_mode: session=%s, mode=%s", session_id, mode_id)
         self._session_modes[session_id] = mode_id
 
     async def ext_method(
@@ -1326,7 +1326,7 @@ class GptmeAgent:
         params: dict[str, Any],
     ) -> dict[str, Any]:
         """Handle extension method calls."""
-        logger.warning(f"ext_method not implemented: {method}")
+        logger.warning("ext_method not implemented: %s", method)
         return {}
 
     async def ext_notification(
@@ -1335,7 +1335,7 @@ class GptmeAgent:
         params: dict[str, Any],
     ) -> None:
         """Handle extension notifications."""
-        logger.debug(f"ext_notification: {method}")
+        logger.debug("ext_notification: %s", method)
 
 
 def create_agent() -> GptmeAgent:
