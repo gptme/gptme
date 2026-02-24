@@ -134,6 +134,23 @@ def get_workspace() -> Path:
     return Path.cwd()
 
 
+def get_profile_memory_dir(profile_name: str) -> Path:
+    """Get the persistent memory directory for an agent profile.
+
+    Each profile gets its own memory directory where the subagent can store
+    learnings that persist across invocations. The primary file is MEMORY.md.
+
+    Args:
+        profile_name: Name of the agent profile (e.g. 'explorer', 'researcher')
+
+    Returns:
+        Path to the memory directory (created if it doesn't exist)
+    """
+    path = get_data_dir() / "memories" / "profiles" / profile_name
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _migrate_readline_history():
     """Migrate readline history from config dir to data dir."""
     old_path = get_config_dir() / "history"
