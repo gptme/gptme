@@ -665,7 +665,7 @@ skills on-demand requires tool access (e.g., the shell tool to run <cite>cat</ci
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f665070e700&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f0aec10a700&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1725,14 +1725,22 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;instructions-only&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: bool): Starts an asynchronous subagent. Returns None immediately.</span>
+<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;instructions-only&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: bool, profile: Union[str, None], model: Union[str, None]): Starts an asynchronous subagent. Returns None immediately.</span>
 
 <span class="s">    Subagent completions are delivered via the LOOP_CONTINUE hook, enabling</span>
 <span class="s">    a &quot;fire-and-forget-then-get-alerted&quot; pattern where the orchestrator can</span>
 <span class="s">    continue working and get notified when subagents finish.</span>
 
+<span class="s">    Profile auto-detection: If ``agent_id`` matches a known profile name</span>
+<span class="s">    (e.g. &quot;explorer&quot;, &quot;researcher&quot;, &quot;developer&quot;) or a common role alias</span>
+<span class="s">    (&quot;explore&quot;→&quot;explorer&quot;, &quot;research&quot;→&quot;researcher&quot;, &quot;impl&quot;/&quot;dev&quot;→&quot;developer&quot;),</span>
+<span class="s">    the profile is applied automatically — no need to pass ``profile`` separately.</span>
+
 <span class="s">    Args:</span>
-<span class="s">        agent_id: Unique identifier for the subagent</span>
+<span class="s">        agent_id: Unique identifier for the subagent. If it matches a known</span>
+<span class="s">            profile name (or a common alias like ``impl``/``dev``), that</span>
+<span class="s">            profile is auto-applied (unless ``profile`` is explicitly set</span>
+<span class="s">            to something else).</span>
 <span class="s">        prompt: Task prompt for the subagent (used as context for planner mode)</span>
 <span class="s">        mode: &quot;executor&quot; for single task, &quot;planner&quot; for delegating to multiple executors</span>
 <span class="s">        subtasks: List of subtask definitions for planner mode (required when mode=&quot;planner&quot;)</span>
@@ -1750,6 +1758,15 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="s">            Note: Tools and agent identity are always included by the CLI.</span>
 <span class="s">        use_subprocess: If True, run subagent in subprocess for output isolation.</span>
 <span class="s">            Subprocess mode captures stdout/stderr separately from the parent.</span>
+<span class="s">        profile: Agent profile name to apply. Profiles provide:</span>
+<span class="s">            - System prompt customization (behavioral hints)</span>
+<span class="s">            - Tool access restrictions (which tools the subagent can use)</span>
+<span class="s">            - Behavior rules (read-only, no-network, etc.)</span>
+<span class="s">            Use &#39;gptme-util profile list&#39; to see available profiles.</span>
+<span class="s">            Built-in profiles: default, explorer, researcher, developer, isolated.</span>
+<span class="s">            If not set, auto-detected from agent_id when it matches a profile name.</span>
+<span class="s">        model: Model to use for the subagent. Overrides parent&#39;s model.</span>
+<span class="s">            Useful for routing cheap tasks to faster/cheaper models.</span>
 
 <span class="s">    Returns:</span>
 <span class="s">        None: Starts asynchronous execution.</span>
@@ -1924,6 +1941,24 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">System: Started subagent &quot;compute-demo&quot;</span>
 <span class="k">&gt; </span><span class="ge">System: ✅ Subagent &#39;compute-demo&#39; completed: pi = 3.14159265358979...</span>
+
+<span class="gu">### Profile-Based Subagents (auto-detected from agent_id)</span>
+
+<span class="k">&gt; </span><span class="ge">User: explore this codebase and summarize the architecture</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use the explorer profile for a read-only analysis.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;explorer&quot;</span><span class="p">,</span> <span class="s2">&quot;Analyze the codebase architecture and summarize key patterns&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Subagent started successfully.</span>
+
+<span class="gu">### Profile with Model Override</span>
+
+<span class="k">&gt; </span><span class="ge">User: research best practices for error handling</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll spawn a researcher subagent with a faster model for web research.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Research error handling best practices in Python&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;openai/gpt-4o-mini&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">System: Subagent started successfully.</span>
 
 <span class="gu">### Structured Delegation Template</span>
 
@@ -2198,7 +2233,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11454</p>
+<p>Tokens: 11880</p>
 </dd></dl>
 
 <dl class="py function">

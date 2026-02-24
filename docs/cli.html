@@ -489,6 +489,11 @@
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-list">list</a></li>
 </ul>
 </li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-profile">profile</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-profile-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-profile-show">show</a></li>
+</ul>
+</li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-prompts">prompts</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-prompts-expand">expand</a></li>
 </ul>
@@ -648,6 +653,12 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dt class="sig sig-object std" id="cmdoption-gptme-t">
 <span id="cmdoption-gptme-tools"></span><span class="sig-name descname"><span class="pre">-t</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--tools</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tool_allowlist&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-t" title="Link to this definition">#</a></dt>
 <dd><p>Tools to allow. Comma-separated or repeated. Use ‘+tool’ to add to defaults (e.g., ‘-t +subagent’). Use ‘none’ to disable all tools. Available: append, autocommit, autocompact, browser, chats, choice, complete, computer, elicit, form, gh, ipython, lessons, mcp, patch, precommit, read, restart, save, screenshot, shell, subagent, tmux, todo, vision.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-agent-profile">
+<span class="sig-name descname"><span class="pre">--agent-profile</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;agent_profile&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-agent-profile" title="Link to this definition">#</a></dt>
+<dd><p>Agent profile to use. Profiles provide system prompts, tool access hints, and behavior rules. Use ‘gptme-util profile list’ to see available profiles.</p>
 </dd></dl>
 
 <dl class="std option">
@@ -1133,6 +1144,41 @@ Pass eval or suite names to run, or result files to print.</p>
 
 </section>
 </section>
+<section id="gptme-util-profile">
+<h3>profile<a class="headerlink" href="#gptme-util-profile" title="Link to this heading">#</a></h3>
+<p>Commands for managing agent profiles.</p>
+<p>Profiles define system prompts, tool access, and behavior rules.
+They provide soft/prompting-based guidance for the agent.</p>
+<dl class="simple">
+<dt>Example:</dt><dd><p>gptme-util profile list          # List all profiles
+gptme-util profile show explorer  # Show profile details</p>
+</dd>
+</dl>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>profile<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>COMMAND<span class="w"> </span><span class="o">[</span>ARGS<span class="o">]</span>...
+</pre></div>
+</div>
+<section id="gptme-util-profile-list">
+<h4>list<a class="headerlink" href="#gptme-util-profile-list" title="Link to this heading">#</a></h4>
+<p>List available agent profiles.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>profile<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+</section>
+<section id="gptme-util-profile-show">
+<h4>show<a class="headerlink" href="#gptme-util-profile-show" title="Link to this heading">#</a></h4>
+<p>Show details for a specific profile.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>profile<span class="w"> </span>show<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>NAME
+</pre></div>
+</div>
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-profile-show-arg-NAME">
+<span class="sig-name descname"><span class="pre">NAME</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-profile-show-arg-NAME" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+</section>
 <section id="gptme-util-prompts">
 <h3>prompts<a class="headerlink" href="#gptme-util-prompts" title="Link to this heading">#</a></h3>
 <p>Commands for prompt utilities.</p>
@@ -1424,6 +1470,11 @@ using the same logic as the main gptme tool.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models">models</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-info">info</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-list">list</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-profile">profile</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-profile-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-profile-show">show</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-prompts">prompts</a><ul class="nav section-nav flex-column">
