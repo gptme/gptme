@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
 
 from ..message import Message
-from . import get_tools
+from . import get_tools, set_tools
 from .base import ToolSpec, ToolUse
 
 
@@ -251,7 +251,7 @@ def _create_subagent_thread(
         context_include: For selective mode, list of context components
         workspace: Workspace directory
         target: Who will review the results ("parent" or "planner")
-        profile_name: Optional agent profile to apply (system prompt + tool hints)
+        profile_name: Optional agent profile to apply (system prompt + hard tool enforcement)
     """
     # noreorder
     from gptme import chat  # fmt: skip
@@ -285,6 +285,8 @@ def _create_subagent_thread(
         for ct in complete_tools:
             if ct not in available_tools:
                 available_tools.append(ct)
+        # Hard enforcement: replace loaded tools so execute_msg() only sees allowed tools
+        set_tools(available_tools)
     else:
         available_tools = get_tools()
 

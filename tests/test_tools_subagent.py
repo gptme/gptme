@@ -1,3 +1,5 @@
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1004,6 +1006,118 @@ def test_subagent_profile_parameter_exists():
 
     assert "model" in sig.parameters
     assert sig.parameters["model"].default is None
+
+
+def test_profile_hard_tool_enforcement():
+    """Test that profile tool restrictions are hard-enforced via set_tools().
+
+    Verifies that when a profile restricts tools, set_tools() is called
+    to replace the loaded tools, so execute_msg() can only run allowed tools.
+    """
+    import gptme
+    import gptme.chat
+    import gptme.executor
+    import gptme.llm.models
+    from gptme.tools import set_tools as real_set_tools
+    from gptme.tools.base import ToolSpec
+
+    mock_tools = [
+        ToolSpec(name="read", desc="Read files", instructions=""),
+        ToolSpec(name="shell", desc="Run shell", instructions=""),
+        ToolSpec(name="save", desc="Save files", instructions=""),
+        ToolSpec(name="chats", desc="Chat management", instructions=""),
+        ToolSpec(name="complete", desc="Signal completion", instructions=""),
+    ]
+
+    # Track calls to set_tools
+    set_tools_calls: list[list[str]] = []
+
+    def spy_set_tools(tools):
+        set_tools_calls.append([t.name for t in tools])
+        real_set_tools(tools)
+
+    with (
+        patch.object(gptme.tools.subagent, "set_tools", spy_set_tools),
+        patch.object(gptme.tools.subagent, "get_tools", return_value=mock_tools),
+        patch.object(sys.modules["gptme"], "chat"),
+        patch.object(
+            gptme.executor,
+            "prepare_execution_environment",
+            return_value=(MagicMock(), mock_tools),
+        ),
+        patch.object(gptme.llm.models, "set_default_model"),
+    ):
+        from gptme.tools.subagent import _create_subagent_thread
+
+        _create_subagent_thread(
+            prompt="Read the codebase",
+            logdir=Path("/tmp/test-enforcement"),
+            model=None,
+            context_mode="instructions-only",
+            context_include=None,
+            workspace=Path("/tmp"),
+            profile_name="explorer",
+        )
+
+    # set_tools should have been called with only allowed tools
+    assert len(set_tools_calls) == 1, f"set_tools called {len(set_tools_calls)} times"
+    enforced_tools = set_tools_calls[0]
+
+    # Explorer profile allows: read, chats (+ complete always included)
+    assert "read" in enforced_tools
+    assert "chats" in enforced_tools
+    assert "complete" in enforced_tools
+    assert "shell" not in enforced_tools, "shell should be blocked by explorer profile"
+    assert "save" not in enforced_tools, "save should be blocked by explorer profile"
+
+
+def test_profile_no_restriction_skips_set_tools():
+    """Test that profiles without tool restrictions don't call set_tools."""
+    import gptme
+    import gptme.chat
+    import gptme.executor
+    import gptme.llm.models
+    from gptme.tools.base import ToolSpec
+
+    mock_tools = [
+        ToolSpec(name="read", desc="Read files", instructions=""),
+        ToolSpec(name="shell", desc="Run shell", instructions=""),
+        ToolSpec(name="complete", desc="Signal completion", instructions=""),
+    ]
+
+    set_tools_calls: list[list[str]] = []
+
+    def spy_set_tools(tools):
+        set_tools_calls.append([t.name for t in tools])
+
+    with (
+        patch.object(gptme.tools.subagent, "set_tools", spy_set_tools),
+        patch.object(gptme.tools.subagent, "get_tools", return_value=mock_tools),
+        patch.object(sys.modules["gptme"], "chat"),
+        patch.object(
+            gptme.executor,
+            "prepare_execution_environment",
+            return_value=(MagicMock(), mock_tools),
+        ),
+        patch.object(gptme.llm.models, "set_default_model"),
+    ):
+        from gptme.tools.subagent import _create_subagent_thread
+
+        # developer profile has tools=None (no restrictions)
+        _create_subagent_thread(
+            prompt="Write some code",
+            logdir=Path("/tmp/test-no-restrict"),
+            model=None,
+            context_mode="instructions-only",
+            context_include=None,
+            workspace=Path("/tmp"),
+            profile_name="developer",
+        )
+
+    # set_tools should NOT have been called (no restrictions to enforce)
+    assert len(set_tools_calls) == 0, (
+        f"set_tools should not be called for developer profile, but was called {len(set_tools_calls)} times"
+    )
 
 
 def test_subprocess_mode_with_profile():
