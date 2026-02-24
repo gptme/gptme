@@ -502,7 +502,9 @@ def test_subprocess_mode_command_construction():
     assert "gptme" in captured_cmd
     assert "-n" in captured_cmd  # Non-interactive
     assert "--no-confirm" in captured_cmd
-    assert "Test prompt for command" in captured_cmd
+    assert (
+        "Test prompt for command" not in captured_cmd
+    )  # Prompt passed via stdin, not argv
 
 
 def test_subprocess_mode_completion_stored():
@@ -622,7 +624,7 @@ def test_subprocess_command_includes_required_flags():
             assert any("--logdir=" in str(arg) for arg in cmd)
             assert "--model" in cmd
             assert "test-model" in cmd
-            assert "Test task" in cmd  # The prompt
+            assert "Test task" not in cmd  # Prompt passed via stdin, not argv
 
         finally:
             process.terminate()

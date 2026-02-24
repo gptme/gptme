@@ -37,6 +37,7 @@ import random
 import string
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 from collections.abc import Generator
@@ -237,6 +238,14 @@ class Subagent:
 
 def _load_agent_memory(profile_name: str | None) -> tuple[str | None, Path | None]:
     """Load persistent memory for an agent profile.
+
+    Memory is currently scoped per-profile (global to all projects using that profile).
+
+    # TODO: Evaluate project-specific memory scoping
+    # Current: profile-global (all projects share one MEMORY.md per profile)
+    # Alternative: per-project scoping (e.g. hash of workspace path, like Claude Code)
+    # Concern: path-hashing is brittle in worktrees / when workspace moves.
+    # Keeping profile-global for now; revisit if users need project isolation.
 
     Args:
         profile_name: Name of the agent profile
@@ -539,17 +548,28 @@ def _run_subagent_subprocess(
         )
         prompt = prompt + memory_section
 
-    # Add the prompt as the final argument
-    cmd.append(prompt)
+    # Pass prompt via stdin (piped from a temp file) instead of as a CLI argument.
+    # This avoids ARG_MAX limits for large prompts and keeps argv clean.
+    # gptme reads stdin when it's not a TTY and uses the content as the prompt.
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".txt", delete=False, prefix="gptme-prompt-"
+    ) as tmpf:
+        tmpf.write(prompt)
+        tmpfile_path = Path(tmpf.name)
 
-    # Start subprocess with captured output
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=workspace,
-        text=True,
-    )
+    try:
+        stdin_file = open(tmpfile_path)
+        process = subprocess.Popen(
+            cmd,
+            stdin=stdin_file,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=workspace,
+            text=True,
+        )
+        stdin_file.close()
+    finally:
+        tmpfile_path.unlink(missing_ok=True)
 
     return process
 
