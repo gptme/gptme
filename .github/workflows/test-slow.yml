@@ -1,0 +1,76 @@
+name: Test (slow)
+
+# Run slow tests nightly to catch regressions in browser, MCP, integration, etc.
+# These were previously run on every PR/push but are network-dependent and time-consuming.
+# Fast tests still run on every PR/push in test.yml.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # Daily at 4 AM UTC
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  test-slow:
+    name: Test (slow, no API keys)
+    runs-on: ubuntu-latest
+    env:
+      RELEASE: false
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      DEEPSEEK_API_KEY: ''
+      OPENROUTER_API_KEY: ''
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: 'recursive'
+    - name: Install apt dependencies
+      run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb
+
+    - name: Set up Xvfb
+      run: |
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
+    - name: Store cache ID in file .cache-id
+      id: cache-id
+      run: echo "noextras" > .cache-id
+
+    - name: Install poetry
+      run: pipx install poetry
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+        cache: 'poetry'
+        cache-dependency-path: |
+          poetry.lock
+          .cache-id
+
+    - name: Install dependencies
+      run: |
+        make build
+        poetry install -E all
+
+    - name: Install playwright
+      run: poetry run playwright install chromium
+
+    - name: Run slow tests
+      env:
+        TERM: xterm
+        MODEL: local/test
+      run: make test SLOW=true
+
+    - name: Upload coverage reports to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        flags: slow
+
+    - name: Upload test results to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        report_type: test_results

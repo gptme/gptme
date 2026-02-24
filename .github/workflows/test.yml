@@ -13,8 +13,7 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 jobs:
-  # Core tests: no API keys needed, runs all tests except requires_api/eval
-  # Also includes slow tests (browser, MCP, integration, etc.) since they don't need API
+  # Core tests: no API keys needed, fast tests only (slow tests run nightly in test-slow.yml)
   test-no-api:
     name: Test without API keys
     runs-on: ubuntu-latest
@@ -61,11 +60,11 @@ jobs:
     - name: Install playwright
       run: poetry run playwright install chromium
 
-    - name: Run tests (without API keys, including slow)
+    - name: Run tests (without API keys, fast only)
       env:
         TERM: xterm
         MODEL: local/test
-      run: make test SLOW=true
+      run: make test
 
     - name: Upload coverage reports to Codecov
       if: ${{ !cancelled() }}
