@@ -118,6 +118,66 @@ class TestGetProfile:
         assert profile is None
 
 
+class TestValidateTools:
+    """Tests for Profile.validate_tools method."""
+
+    def test_validate_all_valid(self):
+        profile = Profile(
+            name="test",
+            description="Test",
+            tools=["read", "shell"],
+        )
+        unknown = profile.validate_tools({"read", "shell", "browser"})
+        assert unknown == []
+
+    def test_validate_unknown_tools(self):
+        profile = Profile(
+            name="test",
+            description="Test",
+            tools=["read", "nonexistent", "alsofake"],
+        )
+        unknown = profile.validate_tools({"read", "shell", "browser"})
+        assert unknown == ["alsofake", "nonexistent"]
+
+    def test_validate_none_tools(self):
+        """Profile with tools=None (all tools) always validates."""
+        profile = Profile(name="test", description="Test", tools=None)
+        unknown = profile.validate_tools({"read", "shell"})
+        assert unknown == []
+
+    def test_validate_builtin_profiles(self):
+        """All built-in profiles should reference valid tool names."""
+        # Use a known set of tool names (superset of what profiles reference)
+        known_tools = {
+            "read",
+            "save",
+            "append",
+            "shell",
+            "ipython",
+            "browser",
+            "screenshot",
+            "chats",
+            "patch",
+            "morph",
+            "computer",
+            "rag",
+            "tmux",
+            "vision",
+            "youtube",
+            "tts",
+            "subagent",
+            "gh",
+            "complete",
+            "choice",
+            "form",
+        }
+        for name, profile in BUILTIN_PROFILES.items():
+            unknown = profile.validate_tools(known_tools)
+            assert unknown == [], (
+                f"Built-in profile '{name}' has unknown tools: {unknown}"
+            )
+
+
 class TestListProfiles:
     """Tests for list_profiles function."""
 

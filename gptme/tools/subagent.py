@@ -279,9 +279,20 @@ def _create_subagent_thread(
 
     # Get tools, filtered by profile if applicable
     if tool_allowlist is not None:
-        available_tools = [t for t in get_tools() if t.name in tool_allowlist]
+        loaded_tools = get_tools()
+        loaded_names = {t.name for t in loaded_tools}
+        # Warn about unknown tool names in profile (typos, missing extras)
+        unknown = set(tool_allowlist) - loaded_names
+        if unknown:
+            logger.warning(
+                "Profile '%s' references unknown tools: %s (available: %s)",
+                profile.name if profile else "?",
+                ", ".join(sorted(unknown)),
+                ", ".join(sorted(loaded_names)),
+            )
+        available_tools = [t for t in loaded_tools if t.name in tool_allowlist]
         # Always include the complete tool so subagent can signal completion
-        complete_tools = [t for t in get_tools() if t.name == "complete"]
+        complete_tools = [t for t in loaded_tools if t.name == "complete"]
         for ct in complete_tools:
             if ct not in available_tools:
                 available_tools.append(ct)
