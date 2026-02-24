@@ -147,6 +147,7 @@ jobs:
   # API tests: only run requires_api tests, across multiple cheap models
   # This replaces the previous matrix that ran ALL slow tests on each model
   test-api:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     name: API tests with ${{ matrix.model }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ matrix.experimental || false }}
