@@ -634,13 +634,19 @@ class TestCLI:
         ).is_file()
 
     @pytest.mark.slow
-    def test_create_template_mode_e2e(self, runner, tmp_path):
+    def test_create_template_mode_e2e(self, runner, tmp_path, monkeypatch):
         """Test full `gptme-agent create` using the real gptme-agent-template repo.
 
         This exercises the actual critical path: clone real template, run real
         fork.sh, verify real workspace structure and name substitution.
         Marked slow because it clones from GitHub.
         """
+        # Set git identity for CI environments where it's not configured
+        monkeypatch.setenv("GIT_AUTHOR_NAME", "Test")
+        monkeypatch.setenv("GIT_AUTHOR_EMAIL", "test@test.com")
+        monkeypatch.setenv("GIT_COMMITTER_NAME", "Test")
+        monkeypatch.setenv("GIT_COMMITTER_EMAIL", "test@test.com")
+
         workspace = tmp_path / "test-agent-e2e"
         result = runner.invoke(
             main,
