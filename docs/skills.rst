@@ -38,7 +38,7 @@ The most important difference between lessons and skills is **how they are auto-
      - Keywords, patterns, tools in conversation
      - Mentioning "git commit" loads git lesson
    * - **Skills**
-     - Skill name appears in message
+     - Skill name appears in message, or ``SKILL.md`` explicitly read
      - Mentioning "python-repl" loads that skill
 
 This means:
@@ -59,7 +59,7 @@ Skill vs. Lesson vs. Plugin
      - Plugin
    * - Purpose
      - Guidance and patterns
-     - Executable workflows
+     - Reusable workflow guidance
      - Deep runtime integration
    * - Auto-loading
      - Keywords, patterns, tools
@@ -93,7 +93,7 @@ Skill vs. Lesson vs. Plugin
 **When to use**:
 
 - **Lesson**: Teaching patterns, best practices, tool usage
-- **Skill**: Providing reusable scripts, automated workflows (lightweight)
+- **Skill**: Providing reusable workflow guidance (lightweight)
 - **Plugin**: Runtime hooks, custom tools, deep gptme integration (see :doc:`plugins`)
 
 Skill Format
@@ -139,6 +139,8 @@ Skills are organized parallel to lessons:
                 ├── python_helpers.py
                 └── requirements.txt
 
+.. _supported paths:
+
 Skill Loading Directories
 -------------------------
 
@@ -173,7 +175,7 @@ Identify:
 2. Create Skill Directory
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Create a directory under ``gptme/lessons/skills/skill-name/`` with at minimum:
+Create a skill directory in one of the `supported paths`_ above (e.g. ``~/.config/gptme/skills/skill-name/`` or ``./skills/skill-name/``) with at minimum:
 
 **SKILL.md** (Anthropic format):
 
@@ -189,8 +191,8 @@ Create a directory under ``gptme/lessons/skills/skill-name/`` with at minimum:
     ## Overview
     Detailed description and use cases.
 
-    ## Bundled Scripts
-    Describe each included script.
+    ## Reference Scripts
+    Describe each included script (for manual use, not auto-loaded).
 
     ## Usage Patterns
     Show common usage examples.
@@ -284,7 +286,7 @@ Data Analysis Skill
 ~~~~~~~~~~~~~~~~~~~
 
 - Bundles pandas, numpy helpers
-- Auto-imports common libraries
+- Provides import patterns and library setup guidance
 - Provides data inspection utilities
 - Includes plotting helpers
 
@@ -293,7 +295,7 @@ Testing Skill
 
 - Bundles pytest configuration
 - Provides test utilities
-- Auto-discovers tests
+- Includes test discovery patterns
 - Formats test reports
 
 API Development Skill
@@ -302,7 +304,7 @@ API Development Skill
 - Bundles FastAPI templates
 - Provides auth helpers
 - Includes validation utilities
-- Auto-generates OpenAPI docs
+- Documents OpenAPI doc generation patterns
 
 Integration with Lessons
 ------------------------
