@@ -139,9 +139,10 @@ def test_reduce_log_all_pinned():
         Message("system", content="x " * 5000, pinned=True),
         Message("system", content="y " * 5000, pinned=True),
     ]
-    # Should not raise ValueError, just return messages as-is
+    # Should not raise ValueError, just return messages as-is with content preserved
     reduced = list(reduce_log(msgs, limit=100))
     assert len(reduced) == 2
+    assert reduced == msgs
 
 
 @pytest.mark.slow
