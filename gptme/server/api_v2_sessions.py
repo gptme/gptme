@@ -313,6 +313,7 @@ def step(
     # If we are attempting to make a step in a conversation with only one or fewer user
     # messages, make sure we first chdir to the workspace directory (so that
     # the conversation starts in the right folder).
+    # Tracked in issue #1486
     user_messages = [msg for msg in manager.log.messages if msg.role == "user"]
     if len(user_messages) <= 1:
         logger.debug(
