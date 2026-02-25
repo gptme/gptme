@@ -203,7 +203,19 @@ def execute_append_impl(
     """Actual append implementation."""
     assert path
     path_display = path
-    path = path.expanduser()
+    path = path.expanduser().resolve()
+
+    # Path traversal protection: validate relative paths stay within cwd
+    # (matches the same check in execute_save_impl)
+    if not path_display.is_absolute():
+        cwd = Path.cwd().resolve()
+        try:
+            path.relative_to(cwd)
+        except ValueError as err:
+            raise ValueError(
+                f"Path traversal detected: {path_display} resolves to {path} "
+                f"which is outside current directory {cwd}"
+            ) from err
 
     # Check if folder exists first
     if not path.parent.exists():

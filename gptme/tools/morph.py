@@ -111,6 +111,20 @@ def execute_morph(
         yield Message("system", "Error: No file path provided")
         return
 
+    # Resolve path and check for path traversal
+    # (matches the same pattern used by save/patch/append tools)
+    path_display = file_path
+    file_path = file_path.resolve()
+    if not path_display.is_absolute():
+        cwd = Path.cwd().resolve()
+        try:
+            file_path.relative_to(cwd)
+        except ValueError as err:
+            raise ValueError(
+                f"Path traversal detected: {path_display} resolves to {file_path} "
+                f"which is outside current directory {cwd}"
+            ) from err
+
     try:
         # Read the original file
         with open(file_path) as f:
