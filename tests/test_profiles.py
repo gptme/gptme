@@ -112,7 +112,19 @@ class TestBuiltinProfiles:
         assert computer_use.name == "computer-use"
         assert computer_use.tools is not None
         assert "computer" in computer_use.tools
-        assert "screenshot" in computer_use.tools
+        assert "vision" in computer_use.tools
+        assert "ipython" in computer_use.tools
+        assert "shell" in computer_use.tools
+
+    def test_browser_use_profile(self):
+        browser_use = BUILTIN_PROFILES["browser-use"]
+
+        assert browser_use.name == "browser-use"
+        assert browser_use.tools is not None
+        assert "browser" in browser_use.tools
+        assert "screenshot" in browser_use.tools
+        assert "vision" in browser_use.tools
+        assert "shell" in browser_use.tools
 
 
 class TestGetProfile:
