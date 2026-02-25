@@ -12,7 +12,7 @@ from swebench.harness.constants import (
     SWE_BENCH_URL_RAW,
     SWEbenchInstance,
 )
-from swebench.harness.utils import (
+from swebench.harness.test_spec.python import (
     get_test_directives,
 )
 
@@ -41,7 +41,7 @@ def get_requirements_by_commit(repo: str, commit: str) -> str:
 
     lines = reqs.text
     original_req = []
-    additional_reqs = []
+    additional_reqs: list[str] = []
     req_dir = "/".join(req_path.split("/")[:-1])
 
     def exclude_line(line: str) -> bool:

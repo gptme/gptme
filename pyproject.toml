@@ -240,6 +240,10 @@ module = "langchain.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "matplotlib.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "numpy.*"
 ignore_missing_imports = true
 
@@ -267,10 +271,6 @@ ignore_missing_imports = true
 module = "playwright.*"
 ignore_missing_imports = true
 
-# swe_extra modules depend on SWEBenchInfo (not yet in logmanager)
-[[tool.mypy.overrides]]
-module = "gptme.eval.swe_extra.*"
-ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "swebench.*"

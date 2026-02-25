@@ -63,20 +63,19 @@ def main(
             print(f"Auto-resuming from most recent run: {resume_dir}")
         else:
             resume_dir = Path(resume_dir).expanduser()
-        info = SWEBenchInfo.load_from_log_dir(resume_dir)
+        resume_path = Path(resume_dir)
+        info = SWEBenchInfo.load_from_log_dir(resume_path)
         if not info:
             raise ValueError(f"No info found in {resume_dir}")
         instance = load_instance_by_id(info.instance_id)
 
         if branch_to_clear:
-            clear_branch(resume_dir, branch_to_clear)
+            clear_branch(resume_path, branch_to_clear)
 
-        agent.evaluate_instance(
-            instance, model=info.model_name, resume_dir=resume_dir, **eval_kwargs
-        )
+        agent.evaluate_instance(instance, model=info.model_name, resume_dir=resume_path)
     else:
         instance = load_top_50_easiest_task_instances()[0]
-        agent.evaluate_instance(instance, model=model, **eval_kwargs)
+        agent.evaluate_instance(instance, model=model)
 
 
 def cli():

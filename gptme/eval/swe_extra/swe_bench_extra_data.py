@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import cast
 
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # type: ignore[import-not-found]
 import pandas as pd
 from datasets import Dataset, load_dataset
 from swebench.harness.constants import SWEbenchInstance
@@ -177,12 +177,12 @@ def plot_lite_50_success_rate(top_50_df):
     all_models = set()
     for _, row in top_50_df.iterrows():
         all_models.update(row["success_by_model"].keys())
-    all_models = sorted(all_models)
+    all_models_sorted = sorted(all_models)
 
     # Calculate average success rate per model
     model_success_rates = []
     model_names = []
-    for model in all_models:
+    for model in all_models_sorted:
         rates = []
         for _, row in top_50_df.iterrows():
             if model in row["success_by_model"]:
