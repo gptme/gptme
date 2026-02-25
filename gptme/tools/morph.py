@@ -114,7 +114,7 @@ def execute_morph(
     # Resolve path and check for path traversal
     # (matches the same pattern used by save/patch/append tools)
     path_display = file_path
-    file_path = file_path.resolve()
+    file_path = file_path.expanduser().resolve()
     if not path_display.is_absolute():
         cwd = Path.cwd().resolve()
         try:
