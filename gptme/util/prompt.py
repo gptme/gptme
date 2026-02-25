@@ -16,6 +16,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI, HTML, to_formatted_text
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import CompleteStyle
@@ -441,16 +442,40 @@ def get_prompt_session() -> PromptSession:
             """Insert newline on Meta-ENTER (Esc+Enter)."""
             event.current_buffer.insert_text("\n")
 
+        def _check_clipboard_for_image(text: str | None) -> str | None:
+            """Check if text looks like an image URL or existing image path.
+
+            Returns a 'View this image: ...' string if it matches, else None.
+            """
+            if not text:
+                return None
+            text_stripped = text.strip()
+            if re.match(r"https?://", text_stripped):
+                is_likely_image = any(
+                    ext in text_stripped.lower()
+                    for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
+                )
+                if is_likely_image:
+                    return f"View this image: {text_stripped}"
+            elif (
+                Path(text_stripped).suffix.lower()
+                in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg")
+                and Path(text_stripped).exists()
+            ):
+                return f"View this image: {text_stripped}"
+            return None
+
         @kb.add("c-v")  # Ctrl+V for pasting images or text
         def _(event):
             """Paste image from clipboard on Ctrl+V, fallback to text paste."""
-            import re
-
             from ..util.clipboard import paste_image, paste_text
+
+            logger.debug("Ctrl+V handler triggered")
 
             # First, try to get an image from clipboard
             image_result = paste_image()
             if image_result:
+                logger.debug(f"Pasted image from clipboard: {image_result}")
                 text_to_insert = f"View this image: {image_result}"
                 event.current_buffer.insert_text(text_to_insert)
                 return
@@ -458,27 +483,50 @@ def get_prompt_session() -> PromptSession:
             # No image - check if clipboard text is an image URL or path
             text = paste_text()
             if text:
-                text_stripped = text.strip()
-                if re.match(r"https?://", text_stripped):
-                    is_likely_image = any(
-                        ext in text_stripped.lower()
-                        for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
+                image_text = _check_clipboard_for_image(text)
+                if image_text:
+                    logger.debug(
+                        f"Clipboard text matched image pattern: {text.strip()}"
                     )
-                    if is_likely_image:
-                        text_to_insert = f"View this image: {text_stripped}"
-                        event.current_buffer.insert_text(text_to_insert)
-                        return
-                elif (
-                    Path(text_stripped).suffix.lower()
-                    in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg")
-                    and Path(text_stripped).exists()
-                ):
-                    text_to_insert = f"View this image: {text_stripped}"
-                    event.current_buffer.insert_text(text_to_insert)
+                    event.current_buffer.insert_text(image_text)
                     return
 
                 # Default: paste text as-is
+                logger.debug(f"Pasting text from clipboard ({len(text)} chars)")
                 event.current_buffer.insert_text(text)
+            else:
+                logger.debug("Ctrl+V: no image or text found in clipboard")
+
+        @kb.add(Keys.BracketedPaste)
+        def _(event):
+            """Handle bracketed paste (e.g. Cmd+V on macOS, middle-click, etc.).
+
+            When the terminal emulator pastes text (via Cmd+V on macOS or
+            Ctrl+Shift+V on many Linux terminals), it sends a bracketed paste
+            sequence. We intercept this to check if the pasted text looks
+            like an image URL/path and wrap it appropriately, otherwise
+            insert text as-is (same as the default handler).
+
+            Note: For actual clipboard images (not text), Ctrl+V must be used
+            since terminal bracketed paste only handles text content.
+            """
+            data = event.data
+            # Normalize line endings (iTerm2 sends \r\n in bracketed paste)
+            data = data.replace("\r\n", "\n").replace("\r", "\n")
+
+            logger.debug(f"BracketedPaste handler triggered ({len(data)} chars)")
+
+            # Check if pasted text is an image URL or path
+            image_text = _check_clipboard_for_image(data)
+            if image_text:
+                logger.debug(
+                    f"Bracketed paste: text matched image pattern: {data.strip()}"
+                )
+                event.current_buffer.insert_text(image_text)
+                return
+
+            # Default: insert pasted text as-is
+            event.current_buffer.insert_text(data)
 
         @kb.add("enter")
         def _(event):
