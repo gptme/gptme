@@ -785,7 +785,7 @@ def subagent(
             - Tool access restrictions (which tools the subagent can use)
             - Behavior rules (read-only, no-network, etc.)
             Use 'gptme-util profile list' to see available profiles.
-            Built-in profiles: default, explorer, researcher, developer, isolated.
+            Built-in profiles: default, explorer, researcher, developer, isolated, computer-use.
             If not set, auto-detected from agent_id when it matches a profile name.
         model: Model to use for the subagent. Overrides parent's model.
             Useful for routing cheap tasks to faster/cheaper models.
@@ -1427,9 +1427,11 @@ When agent_id matches a profile name, the profile is auto-applied:
 - researcher: Web research without file modification (tools: browser, read)
 - developer: Full development capabilities (all tools)
 - isolated: Restricted processing for untrusted content (tools: read, ipython)
+- computer-use: Visual UI testing specialist (tools: computer, screenshot, vision, browser, shell, read)
 
 Example: `subagent("explorer", "Explore codebase")`
 With model override: `subagent("researcher", "Find docs", model="openai/gpt-4o-mini")`
+Computer-use example: `subagent("computer-use", "Open localhost:5173, take a screenshot, and report UI issues")`
 
 Use subagent_read_log() to inspect a subagent's conversation log for debugging.
 

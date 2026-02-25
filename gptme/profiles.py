@@ -163,6 +163,24 @@ BUILTIN_PROFILES: dict[str, Profile] = {
         tools=["read", "ipython"],
         behavior=ProfileBehavior(read_only=True, no_network=True),
     ),
+    "computer-use": Profile(
+        name="computer-use",
+        description=(
+            "Computer-use specialist for visual UI testing via subagent. "
+            "Run with --tools +computer so defaults remain available."
+        ),
+        system_prompt=(
+            "You are in COMPUTER-USE mode, specialized for visual UI testing and "
+            "desktop interaction. Prioritize efficient, evidence-first workflows:\n"
+            "- Use the computer tool for screenshots, mouse, keyboard, and UI navigation\n"
+            "- Keep screenshot loops focused and concise\n"
+            "- Prefer returning structured findings (issues, repro steps, logs)\n"
+            "- When used as a subagent, keep parent context lean by summarizing key results\n"
+            "- Avoid unnecessary file modifications unless explicitly requested\n"
+        ),
+        tools=["computer", "screenshot", "vision", "browser", "shell", "read"],
+        behavior=ProfileBehavior(),
+    ),
 }
 
 

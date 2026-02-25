@@ -116,10 +116,23 @@ You can enable the ``computer`` tool locally on Linux systems, though this is no
 
 .. code-block:: bash
 
-   # Enable computer tool (disabled by default for security)
-   gptme -t computer
+   # Enable computer tool in addition to default tools (recommended)
+   gptme --tools +computer
+
+   # Avoid this unless you explicitly want only the computer tool
+   gptme --tools computer
 
 Set an appropriate screen resolution for your vision model before use.
+
+For long-running visual workflows, prefer a specialized subagent profile to keep
+parent context smaller:
+
+.. code-block:: python
+
+   subagent(
+       "computer-use",
+       "Open localhost:5173, capture a screenshot, and report UI issues",
+   )
 
 REST API
 --------

@@ -127,6 +127,38 @@ The ``-`` separator allows you to chain multiple prompts together, letting the a
 
 This is particularly useful for breaking down complex tasks into steps and creating :doc:`automation` workflows.
 
+Tool Selection Patterns
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``--tools`` to control which tools are available.
+
+- ``--tools shell,read`` replaces defaults with exactly those tools.
+- ``--tools +computer`` adds the ``computer`` tool on top of defaults.
+
+.. code-block:: bash
+
+    # Add computer use while keeping the standard default tools
+    gptme --tools +computer "take a screenshot and summarize what you see"
+
+    # Replace defaults entirely (advanced)
+    gptme --tools computer "only computer tool is available"
+
+For long visual tasks, use a subagent profile to avoid bloating parent context
+with repeated screenshots:
+
+.. code-block:: python
+
+    subagent(
+        "computer-use",
+        "Navigate app UI, capture evidence, and return a concise bug report",
+    )
+
+See available profiles with:
+
+.. code-block:: bash
+
+    gptme-util profile list
+
 Skip confirmation prompts
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 

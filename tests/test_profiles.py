@@ -106,6 +106,14 @@ class TestBuiltinProfiles:
         assert developer.tools is None
         assert developer.behavior.read_only is False
 
+    def test_computer_use_profile(self):
+        computer_use = BUILTIN_PROFILES["computer-use"]
+
+        assert computer_use.name == "computer-use"
+        assert computer_use.tools is not None
+        assert "computer" in computer_use.tools
+        assert "screenshot" in computer_use.tools
+
 
 class TestGetProfile:
     """Tests for get_profile function."""
