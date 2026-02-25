@@ -2,12 +2,9 @@ import logging
 import os
 import subprocess
 
-from datasets import load_dataset
+from datasets import DownloadMode, load_dataset
 
 logger = logging.getLogger(__name__)
-
-
-from datasets import DownloadMode
 
 
 def load_instances(
@@ -71,12 +68,19 @@ def setup_github_repo(repo: str, base_commit: str, base_dir: str | None = None) 
             )
 
         logger.info(f"Checking out commit {base_commit} in {repo_dir}")
-        os.chdir(repo_dir)
         subprocess.run(
-            ["git", "fetch", "origin"], check=True, capture_output=True, text=True
+            ["git", "fetch", "origin"],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=repo_dir,
         )
         subprocess.run(
-            ["git", "checkout", base_commit], check=True, capture_output=True, text=True
+            ["git", "checkout", base_commit],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=repo_dir,
         )
 
         return repo_dir
