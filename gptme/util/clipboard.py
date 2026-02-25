@@ -1,7 +1,13 @@
+import logging
 import platform
 import subprocess
+import tempfile
+from pathlib import Path
 
+from ..logmanager import LogManager
 from . import get_installed_programs
+
+logger = logging.getLogger(__name__)
 
 text = ""
 
@@ -42,3 +48,105 @@ def copy() -> bool:
         return True
 
     return False
+
+
+def paste_image() -> Path | None:
+    """Get image from clipboard and save to a file.
+
+    Saves to <logdir>/attachments/ if a conversation is active,
+    otherwise falls back to the system temp directory.
+
+    Returns path to saved image file, or None if no image in clipboard.
+    """
+    try:
+        from PIL import Image, ImageGrab
+    except ImportError:
+        return None
+
+    try:
+        img = ImageGrab.grabclipboard()
+        if img is None:
+            return None
+
+        # Handle file paths (Windows behavior: grabclipboard returns list of paths)
+        if isinstance(img, list):
+            for item in img:
+                path = Path(item)
+                if path.exists() and path.suffix.lower() in (
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                    ".gif",
+                    ".bmp",
+                    ".webp",
+                ):
+                    return path
+            return None
+
+        if isinstance(img, Image.Image):
+            # Derive attachments dir from current LogManager (ContextVar)
+            manager = LogManager.get_current_log()
+            if manager is not None:
+                save_dir = manager.logdir / "attachments"
+            else:
+                save_dir = Path(tempfile.gettempdir())
+            save_dir.mkdir(parents=True, exist_ok=True)
+            from datetime import datetime, timezone
+
+            filename = f"paste_{datetime.now(tz=timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}.png"
+            save_path = save_dir / filename
+            img.save(str(save_path), "PNG")
+            return save_path
+
+        return None
+    except Exception:
+        logger.debug("Failed to get image from clipboard", exc_info=True)
+        return None
+
+
+def paste_text() -> str | None:
+    """Get text from clipboard.
+
+    Returns text content, or None if failed.
+    """
+    try:
+        if platform.system() == "Linux":
+            installed = get_installed_programs(("xclip", "wl-paste"))
+            if "wl-paste" in installed:
+                result = subprocess.run(
+                    ["wl-paste"], capture_output=True, text=True, check=False
+                )
+                if result.returncode == 0:
+                    return result.stdout
+            elif "xclip" in installed:
+                result = subprocess.run(
+                    ["xclip", "-selection", "clipboard", "-o"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    return result.stdout
+        elif platform.system() == "Darwin":
+            result = subprocess.run(
+                ["pbpaste"], capture_output=True, text=True, check=False
+            )
+            if result.returncode == 0:
+                return result.stdout
+        elif platform.system() == "Windows":
+            import ctypes
+
+            CF_TEXT = 1
+            user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            user32.OpenClipboard(0)
+            try:
+                if user32.IsClipboardFormatAvailable(CF_TEXT):
+                    data = user32.GetClipboardData(CF_TEXT)
+                    text_data = ctypes.c_char_p(data)
+                    if text_data.value:
+                        return text_data.value.decode("utf-8", errors="replace")
+            finally:
+                user32.CloseClipboard()
+    except Exception:
+        pass
+    return None

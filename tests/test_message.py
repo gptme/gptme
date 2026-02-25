@@ -413,3 +413,79 @@ def test_call_id_serialization():
 
     restored_with = Message.from_toml(toml_str_with)
     assert restored_with.call_id == "call_abc123"
+
+
+def test_message_concat():
+    """Test Message.concat properly merges all relevant fields."""
+    from pathlib import Path
+
+    msg1 = Message(
+        "user",
+        "First message",
+        files=[Path("/tmp/file1.png")],
+        file_hashes={"/tmp/file1.png": "hash1"},
+    )
+    msg2 = Message(
+        "user",
+        "Second message",
+        files=[Path("/tmp/file2.png")],
+        file_hashes={"/tmp/file2.png": "hash2"},
+        pinned=True,
+    )
+
+    # Test basic concatenation
+    merged = msg1.concat(msg2)
+    assert merged.role == "user"
+    assert merged.content == "First message\n\nSecond message"
+    assert len(merged.files) == 2
+    assert Path("/tmp/file1.png") in merged.files
+    assert Path("/tmp/file2.png") in merged.files
+
+    # Test file_hashes are merged
+    assert merged.file_hashes == {
+        "/tmp/file1.png": "hash1",
+        "/tmp/file2.png": "hash2",
+    }
+
+    # Test pinned is preserved if either message is pinned
+    assert merged.pinned is True
+
+    # Test custom separator
+    merged_custom = msg1.concat(msg2, separator=" | ")
+    assert merged_custom.content == "First message | Second message"
+
+
+def test_message_concat_different_roles_raises():
+    """Test that concat raises ValueError for different roles."""
+    import pytest
+
+    msg1 = Message("user", "User message")
+    msg2 = Message("assistant", "Assistant message")
+
+    with pytest.raises(ValueError, match="different roles"):
+        msg1.concat(msg2)
+
+
+def test_message_concat_preserves_images():
+    """Test that concat preserves image files for vision models."""
+    from pathlib import Path
+
+    # Simulates system message converted to user + original user with image
+    system_as_user = Message(
+        "user",
+        "<system>You are a helpful assistant</system>",
+    )
+    user_with_image = Message(
+        "user",
+        "/path/to/image.png",
+        files=[Path("/path/to/image.png")],
+        file_hashes={"/path/to/image.png": "abc123"},
+    )
+
+    # This is what _merge_consecutive does
+    merged = system_as_user.concat(user_with_image)
+
+    # The image should be preserved
+    assert len(merged.files) == 1
+    assert Path("/path/to/image.png") in merged.files
+    assert merged.file_hashes.get("/path/to/image.png") == "abc123"

@@ -331,9 +331,7 @@ def _merge_consecutive(msgs: Iterable[Message]) -> Generator[Message, None, None
             continue
 
         if last_message.role == msg.role:
-            last_message = last_message.replace(
-                content=f"{last_message.content}\n\n{msg.content}"
-            )
+            last_message = last_message.concat(msg)
             continue
         else:
             yield last_message

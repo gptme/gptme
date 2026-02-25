@@ -16,6 +16,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI, HTML, to_formatted_text
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import CompleteStyle
@@ -440,6 +441,108 @@ def get_prompt_session() -> PromptSession:
         def _(event):
             """Insert newline on Meta-ENTER (Esc+Enter)."""
             event.current_buffer.insert_text("\n")
+
+        def _check_clipboard_for_image(text: str | None) -> str | None:
+            """Check if text looks like an image URL or existing image path.
+
+            For image URLs: returns 'View this image: <url>' to prompt the model to view it.
+            For local image file paths: returns the bare path, so include_paths() can
+            auto-attach the image as binary data (model sees it directly via vision).
+            """
+            if not text:
+                return None
+            text_stripped = text.strip()
+            if re.match(r"https?://", text_stripped):
+                is_likely_image = any(
+                    ext in text_stripped.lower()
+                    for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
+                )
+                if is_likely_image:
+                    return f"View this image: {text_stripped}"
+            elif (
+                Path(text_stripped).suffix.lower()
+                in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg")
+                and Path(text_stripped).exists()
+            ):
+                # Return bare path — include_paths() will auto-attach as binary image
+                # data, so the model sees it directly without needing to call view_image()
+                return text_stripped
+            return None
+
+        @kb.add("c-v")  # Ctrl+V for pasting images or text
+        def _(event):
+            """Paste image from clipboard on Ctrl+V, fallback to text paste."""
+            from ..util.clipboard import paste_image, paste_text
+
+            logger.debug("Ctrl+V handler triggered")
+
+            # First, try to get an image from clipboard
+            image_result = paste_image()
+            if image_result:
+                logger.debug(f"Pasted image from clipboard: {image_result}")
+                # Insert bare path — include_paths() auto-attaches the image as
+                # binary data so the model sees it directly via vision
+                event.current_buffer.insert_text(str(image_result))
+                return
+
+            # No image - check if clipboard text is an image URL or path
+            text = paste_text()
+            if text:
+                image_text = _check_clipboard_for_image(text)
+                if image_text:
+                    logger.debug(
+                        f"Clipboard text matched image pattern: {text.strip()}"
+                    )
+                    event.current_buffer.insert_text(image_text)
+                    return
+
+                # Default: paste text as-is
+                logger.debug(f"Pasting text from clipboard ({len(text)} chars)")
+                event.current_buffer.insert_text(text)
+            else:
+                logger.debug("Ctrl+V: no image or text found in clipboard")
+
+        @kb.add(Keys.BracketedPaste)
+        def _(event):
+            """Handle bracketed paste (e.g. Cmd+V on macOS, middle-click, etc.).
+
+            When the terminal emulator pastes text (via Cmd+V on macOS or
+            Ctrl+Shift+V on many Linux terminals), it sends a bracketed paste
+            sequence. We intercept this to check the OS clipboard for image
+            content first (same approach as Claude Code), then check if the
+            pasted text looks like an image URL/path, otherwise insert as-is.
+            """
+            from ..util.clipboard import paste_image
+
+            data = event.data
+            # Normalize line endings (iTerm2 sends \r\n in bracketed paste)
+            data = data.replace("\r\n", "\n").replace("\r", "\n")
+
+            logger.debug(f"BracketedPaste handler triggered ({len(data)} chars)")
+
+            # First, check OS clipboard for image content directly.
+            # This mirrors Claude Code's approach: intercept the paste keypress,
+            # then query the OS clipboard independently of what the terminal
+            # delivered. This allows Cmd+V to paste images on macOS.
+            image_path = paste_image()
+            if image_path:
+                logger.debug(f"BracketedPaste: found image in clipboard: {image_path}")
+                # Insert bare path — include_paths() auto-attaches the image as
+                # binary data so the model sees it directly via vision
+                event.current_buffer.insert_text(str(image_path))
+                return
+
+            # Check if pasted text is an image URL or path
+            image_text = _check_clipboard_for_image(data)
+            if image_text:
+                logger.debug(
+                    f"Bracketed paste: text matched image pattern: {data.strip()}"
+                )
+                event.current_buffer.insert_text(image_text)
+                return
+
+            # Default: insert pasted text as-is
+            event.current_buffer.insert_text(data)
 
         @kb.add("enter")
         def _(event):

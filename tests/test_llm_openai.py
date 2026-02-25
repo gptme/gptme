@@ -1324,3 +1324,93 @@ def test_transform_msgs_openrouter_removes_empty_content():
     assert "content" not in result[0], (
         "Empty content should be removed to avoid Z.AI/GLM rejection of empty text"
     )
+
+
+def test_merge_consecutive_preserves_files():
+    """Test that _merge_consecutive preserves files when merging messages.
+
+    This is critical for OpenRouter models with supports_reasoning=True,
+    which use _prep_deepseek_reasoner which calls _merge_consecutive.
+    If files (like images) are not preserved, vision features break.
+    """
+    from pathlib import Path
+
+    from gptme.llm.llm_openai import _merge_consecutive
+    from gptme.message import Message
+
+    # Simulate what happens with _prep_o1 + _merge_consecutive:
+    # System messages become user messages, then get merged with the actual user message
+    system_as_user1 = Message(
+        "user",
+        "<system>You are a helpful assistant</system>",
+    )
+    system_as_user2 = Message(
+        "user",
+        "<system>Context files here</system>",
+    )
+    user_with_image = Message(
+        "user",
+        "/path/to/image.png",
+        files=[Path("/path/to/image.png")],
+        file_hashes={"/path/to/image.png": "abc123"},
+    )
+
+    # Merge all three consecutive user messages
+    msgs = [system_as_user1, system_as_user2, user_with_image]
+    merged = list(_merge_consecutive(msgs))
+
+    # Should result in a single merged message
+    assert len(merged) == 1
+    merged_msg = merged[0]
+
+    # The image file should be preserved
+    assert len(merged_msg.files) == 1
+    assert Path("/path/to/image.png") in merged_msg.files
+
+    # File hashes should be preserved
+    assert merged_msg.file_hashes.get("/path/to/image.png") == "abc123"
+
+    # All content should be merged
+    assert "<system>You are a helpful assistant</system>" in merged_msg.content
+    assert "<system>Context files here</system>" in merged_msg.content
+    assert "/path/to/image.png" in merged_msg.content
+
+
+def test_prep_deepseek_reasoner_preserves_image_files():
+    """Test that _prep_deepseek_reasoner preserves image files.
+
+    This is the actual flow for OpenRouter reasoning models like Claude Opus.
+    """
+    from pathlib import Path
+
+    from gptme.llm.llm_openai import _prep_deepseek_reasoner
+    from gptme.message import Message
+
+    # Simulate a typical conversation start:
+    # 1. Main system prompt
+    # 2. Context files system message
+    # 3. User message with pasted image
+    messages = [
+        Message("system", "You are a helpful assistant."),
+        Message("system", "## Context files\n- README.md"),
+        Message("system", "Token budget: 200000"),
+        Message(
+            "user",
+            "/path/to/screenshot.png",
+            files=[Path("/path/to/screenshot.png")],
+            file_hashes={"/path/to/screenshot.png": "hash123"},
+        ),
+    ]
+
+    # Apply the deepseek reasoner prep (used for supports_reasoning models)
+    result = list(_prep_deepseek_reasoner(messages))
+
+    # Should have: first system message unchanged, then merged user messages
+    assert len(result) == 2
+    assert result[0].role == "system"  # First message unchanged
+    assert result[1].role == "user"  # Merged user messages
+
+    # The image file must be preserved in the merged user message
+    assert len(result[1].files) == 1
+    assert Path("/path/to/screenshot.png") in result[1].files
+    assert result[1].file_hashes.get("/path/to/screenshot.png") == "hash123"
