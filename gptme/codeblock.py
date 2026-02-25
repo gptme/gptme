@@ -27,7 +27,8 @@ class Codeblock:
         """Converts codeblock to XML with proper escaping."""
         # Use quoteattr for attributes to handle quotes and special chars safely
         # Use xml_escape for content to handle <, >, & characters
-        return f"<codeblock lang={quoteattr(self.lang)} path={quoteattr(str(self.path))}>\n{xml_escape(self.content)}\n</codeblock>"
+        path_attr = f" path={quoteattr(self.path)}" if self.path else ""
+        return f"<codeblock lang={quoteattr(self.lang)}{path_attr}>\n{xml_escape(self.content)}\n</codeblock>"
 
     @classmethod
     @trace_function(name="codeblock.from_markdown", attributes={"component": "parser"})
