@@ -182,6 +182,54 @@ class TestValidateTools:
             )
 
 
+class TestInvalidToolsType:
+    """Tests for invalid tools field types."""
+
+    def test_tools_as_string_raises(self):
+        """Passing tools as a string should raise TypeError."""
+        data = {
+            "name": "bad",
+            "description": "Bad profile",
+            "tools": "shell",
+        }
+        with pytest.raises(TypeError, match="must be a list"):
+            Profile.from_dict(data)
+
+    def test_tools_as_string_in_markdown(self, tmp_path):
+        """Markdown profile with tools as bare string raises on parse."""
+        profile_md = tmp_path / "bad.md"
+        profile_md.write_text(
+            "---\n"
+            "name: bad-tools\n"
+            "description: Tools as string\n"
+            "tools: shell\n"
+            "---\n"
+            "\n"
+            "Bad profile.\n"
+        )
+        with pytest.raises(TypeError, match="must be a list"):
+            _parse_markdown_profile(profile_md)
+
+    def test_tools_as_list_works(self):
+        """Passing tools as a list works normally."""
+        data = {
+            "name": "good",
+            "description": "Good profile",
+            "tools": ["shell"],
+        }
+        profile = Profile.from_dict(data)
+        assert profile.tools == ["shell"]
+
+    def test_tools_none_works(self):
+        """Passing tools as None (all tools) works."""
+        data = {
+            "name": "all",
+            "description": "All tools",
+        }
+        profile = Profile.from_dict(data)
+        assert profile.tools is None
+
+
 class TestListProfiles:
     """Tests for list_profiles function."""
 
