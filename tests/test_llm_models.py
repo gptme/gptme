@@ -1,9 +1,13 @@
 from unittest.mock import patch
 
+import pytest
+
 from gptme.llm.models import (
+    MODELS,
     ModelMeta,
     _get_models_for_provider,
     get_model,
+    get_recommended_model,
 )
 
 
@@ -150,3 +154,48 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
     assert model.provider == "openrouter"
     # The model name should preserve the suffix
     assert "@anthropic" in model.model
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected_model"),
+    [
+        ("openai", "gpt-5"),
+        ("anthropic", "claude-sonnet-4-6"),
+        ("gemini", "gemini-2.5-pro"),
+        ("openrouter", "meta-llama/llama-3.1-405b-instruct"),
+        ("xai", "grok-4"),
+        ("deepseek", "deepseek-chat"),
+        ("groq", "llama-3.3-70b-versatile"),
+        ("openai-subscription", "gpt-5.3-codex"),
+    ],
+)
+def test_get_recommended_model(provider, expected_model):
+    """Test that all providers with models have a recommended default."""
+    result = get_recommended_model(provider)
+    assert result == expected_model
+    # Verify the recommended model actually exists in MODELS
+    if MODELS.get(provider):
+        assert result in MODELS[provider], (
+            f"Recommended model '{result}' not found in MODELS['{provider}']"
+        )
+
+
+@pytest.mark.parametrize("provider", ["azure", "nvidia", "local"])
+def test_get_recommended_model_raises_for_unconfigured(provider):
+    """Test that providers without default models raise with a helpful message."""
+    with pytest.raises(ValueError, match="requires specifying a model"):
+        get_recommended_model(provider)
+
+
+def test_get_model_provider_only_deepseek():
+    """Test that 'gptme -m deepseek' resolves to deepseek-chat."""
+    model = get_model("deepseek")
+    assert model.provider == "deepseek"
+    assert model.model == "deepseek-chat"
+
+
+def test_get_model_provider_only_groq():
+    """Test that 'gptme -m groq' resolves to llama-3.3-70b-versatile."""
+    model = get_model("groq")
+    assert model.provider == "groq"
+    assert model.model == "llama-3.3-70b-versatile"
