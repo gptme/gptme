@@ -267,11 +267,7 @@ ignore_missing_imports = true
 module = "playwright.*"
 ignore_missing_imports = true
 
-# WIP SWE-bench eval modules - type checking deferred until integration is complete
-[[tool.mypy.overrides]]
-module = "gptme.eval.swebench.*"
-ignore_errors = true
-
+# swe_extra modules depend on SWEBenchInfo (not yet in logmanager)
 [[tool.mypy.overrides]]
 module = "gptme.eval.swe_extra.*"
 ignore_errors = true
