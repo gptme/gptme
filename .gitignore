@@ -65,4 +65,3 @@ config.toml
 # VSCode
 .vscode
 profiles/
-uv.lock
