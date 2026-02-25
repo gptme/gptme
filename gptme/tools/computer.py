@@ -431,6 +431,31 @@ def _macos_click(button: int) -> None:
         raise RuntimeError(f"Failed to click: {e.stderr}") from e
 
 
+def _macos_drag(x: int, y: int) -> None:
+    """Drag from current mouse position to (x, y) using cliclick on macOS."""
+    _ensure_cliclick()
+
+    # Get current position as drag start
+    try:
+        result = subprocess.run(
+            ["cliclick", "p"], check=True, capture_output=True, text=True
+        )
+        start_pos = result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to get cursor position: {e.stderr}") from e
+
+    # mousedown at start, mouseup at destination
+    try:
+        subprocess.run(
+            ["cliclick", f"dd:{start_pos}", f"du:{x},{y}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to drag: {e.stderr}") from e
+
+
 def computer(
     action: Action, text: str | None = None, coordinate: tuple[int, int] | None = None
 ) -> Message | None:
@@ -485,10 +510,7 @@ def computer(
             if action == "mouse_move":
                 _macos_mouse_move(x, y)
             else:  # left_click_drag
-                _macos_mouse_move(x, y)
-                _macos_click(1)
-                _macos_mouse_move(x, y)
-                _macos_click(1)
+                _macos_drag(x, y)
         else:
             if action == "mouse_move":
                 _run_xdotool(f"mousemove --sync {x} {y}", display)
