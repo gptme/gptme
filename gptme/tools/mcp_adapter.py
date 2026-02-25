@@ -252,12 +252,10 @@ def create_mcp_execute_function(
         """Actual MCP tool implementation."""
         try:
             # Get the client for getting tool definition
+            tool_def = None
             client = _mcp_clients.get(server_name)
             if client is None:
                 raise RuntimeError(f"No MCP client found for server: {server_name}")
-
-            # Get the tool definition from the client
-            tool_def = None
             if client.tools is not None:
                 tool_def = next(
                     (tool for tool in client.tools.tools if tool.name == tool_name),
