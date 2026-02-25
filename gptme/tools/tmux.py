@@ -278,7 +278,7 @@ def kill_session(session_id: str) -> Message:
         session_id = f"gptme_{session_id}"
     result = subprocess.run(
         ["tmux", "kill-session", "-t", session_id],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
