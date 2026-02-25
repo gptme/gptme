@@ -216,3 +216,40 @@ def test_profile_validate_failure(mocker):
     assert result.exit_code == 1
     assert "Profile 'broken': unknown tools: reead" in result.output
     assert "Available tools: read, shell" in result.output
+
+
+def test_profile_list_shows_empty_tools_as_empty_not_all(monkeypatch):
+    """Profile with tools=[] should not be displayed as "all" in profile list."""
+    runner = CliRunner()
+
+    monkeypatch.setattr(
+        "gptme.profiles.list_profiles",
+        lambda: {
+            "no-tools": Profile(name="no-tools", description="No tools", tools=[]),
+        },
+    )
+
+    result = runner.invoke(main, ["profile", "list"])
+
+    assert result.exit_code == 0
+    assert "no-tools" in result.output
+    assert "No tools" in result.output
+    assert "all" not in result.output.lower()
+
+
+def test_profile_show_shows_empty_tools_as_empty_not_all_tools(monkeypatch):
+    """Profile with tools=[] should not be displayed as "all tools" in profile show."""
+    runner = CliRunner()
+
+    monkeypatch.setattr(
+        "gptme.profiles.get_profile",
+        lambda _name: Profile(name="no-tools", description="No tools", tools=[]),
+    )
+
+    result = runner.invoke(main, ["profile", "show", "no-tools"])
+
+    assert result.exit_code == 0
+    assert "Name:" in result.output
+    assert "no-tools" in result.output
+    assert "Tools:" in result.output
+    assert "all tools" not in result.output.lower()

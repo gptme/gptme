@@ -913,7 +913,7 @@ def profile_list():
     table.add_column("Behavior", style="magenta")
 
     for name, prof in sorted(profiles.items()):
-        tools_str = ", ".join(prof.tools) if prof.tools else "all"
+        tools_str = ", ".join(prof.tools) if prof.tools is not None else "all"
         behavior_flags = []
         if prof.behavior.read_only:
             behavior_flags.append("read-only")
@@ -945,7 +945,7 @@ def profile_show(name: str):
         console.print("Use 'gptme-util profile list' to see available profiles.")
         sys.exit(1)
 
-    tools_str = ", ".join(prof.tools) if prof.tools else "all tools"
+    tools_str = ", ".join(prof.tools) if prof.tools is not None else "all tools"
 
     behavior_flags = []
     if prof.behavior.read_only:
@@ -997,7 +997,9 @@ def profile_validate():
                 f"[red]Profile '{name}': unknown tools: {', '.join(unknown)}[/red]"
             )
         else:
-            tools_desc = f"{len(prof.tools)} tools" if prof.tools else "all tools"
+            tools_desc = (
+                f"{len(prof.tools)} tools" if prof.tools is not None else "all tools"
+            )
             console.print(f"[green]Profile '{name}': OK ({tools_desc})[/green]")
 
     if has_errors:
