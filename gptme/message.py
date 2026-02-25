@@ -115,6 +115,39 @@ class Message:
             return False
         return self.role == other.role and self.content == other.content
 
+    def concat(self, other: "Message", separator: str = "\n\n") -> "Message":
+        """Concatenate two messages of the same role.
+
+        Merges content with separator, and combines files and file_hashes.
+        Preserves timestamp from the first message.
+
+        Args:
+            other: Message to concatenate with this one
+            separator: String to join content with (default: "\\n\\n")
+
+        Returns:
+            New Message with merged content and files
+
+        Raises:
+            ValueError: If messages have different roles
+        """
+        if self.role != other.role:
+            raise ValueError(
+                f"Cannot concatenate messages with different roles: {self.role} vs {other.role}"
+            )
+
+        # Merge file_hashes (other's hashes take precedence for same paths)
+        merged_hashes = {**self.file_hashes, **other.file_hashes}
+
+        return self.replace(
+            content=f"{self.content}{separator}{other.content}",
+            files=self.files + other.files,
+            file_hashes=merged_hashes,
+            # Keep pinned/hide if either message has it set
+            pinned=self.pinned or other.pinned,
+            hide=self.hide or other.hide,
+        )
+
     def __hash__(self):
         return hash((self.role, self.content))
 
