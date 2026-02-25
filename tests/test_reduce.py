@@ -133,6 +133,17 @@ def test_truncate_details_nested():
     assert "outer 15" not in result
 
 
+def test_reduce_log_all_pinned():
+    """reduce_log should not crash when all messages are pinned."""
+    msgs = [
+        Message("system", content="x " * 5000, pinned=True),
+        Message("system", content="y " * 5000, pinned=True),
+    ]
+    # Should not raise ValueError, just return messages as-is
+    reduced = list(reduce_log(msgs, limit=100))
+    assert len(reduced) == 2
+
+
 @pytest.mark.slow
 def test_reduce_log():
     msgs = [

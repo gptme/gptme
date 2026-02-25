@@ -38,8 +38,14 @@ def reduce_log(
 
     logger.info(f"Log exceeded limit of {limit}, was {tokens}, reducing")
     # filter out pinned messages
+    non_pinned = [(i, m) for i, m in enumerate(log) if not m.pinned]
+    if not non_pinned:
+        logger.warning("Cannot reduce log: all messages are pinned")
+        yield from log
+        return
+
     i, longest_msg = max(
-        [(i, m) for i, m in enumerate(log) if not m.pinned],
+        non_pinned,
         key=lambda t: len_tokens(t[1].content, model.model),
     )
 
