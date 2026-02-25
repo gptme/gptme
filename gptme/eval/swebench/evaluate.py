@@ -1,5 +1,7 @@
 import json
 import logging
+import shutil
+import subprocess
 import time
 
 from gptme.eval.agents import Agent
@@ -52,9 +54,11 @@ def evaluate_instance(
     try:
         logger.info(f"Executing agent for instance {instance_id}")
         repo_dir = setup_swebench_repo(instance, repo_base_dir)
-        # Pass repo_dir as context in prompt; agent workspace is separate from repo
-        prompt_with_context = f"Working directory: {repo_dir}\n\n{problem_statement}"
-        files = agent.act(None, prompt_with_context)
+        # Copy repo into agent workspace so the agent can actually access and modify files.
+        # workspace_dir is the agent's working directory; without this copy the agent
+        # would only have access to an empty workspace, not the actual repository.
+        shutil.copytree(repo_dir, agent.workspace_dir, dirs_exist_ok=True)
+        agent.act(None, problem_statement)
     except Exception as e:
         logger.error(f"Error during agent execution for instance {instance_id}: {e}")
         return EvalResult(
@@ -78,7 +82,17 @@ def evaluate_instance(
     # Evaluate the result
     logger.info(f"Evaluating patch for instance {instance_id}")
     eval_start = time.time()
-    diff = str(files.get("diff", ""))
+    # Capture the diff from the agent's workspace (which contains the repo copy).
+    # Using `git diff` is more reliable than relying on the agent to produce a "diff" file,
+    # and avoids the bytes-decoding issue that would arise from str(bytes_obj).
+    diff_result = subprocess.run(
+        ["git", "diff"],
+        cwd=agent.workspace_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    diff = diff_result.stdout
     passed = evaluate_patch(instance, diff)
     eval_time = time.time() - eval_start
 
