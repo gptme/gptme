@@ -77,6 +77,15 @@ class Profile:
         behavior_data = data.get("behavior", {})
         behavior = ProfileBehavior(**behavior_data)
         profile_data = {k: v for k, v in data.items() if k != "behavior"}
+
+        # Validate tools field type: must be a list or None, not a bare string
+        tools = profile_data.get("tools")
+        if isinstance(tools, str):
+            raise TypeError(
+                f"Profile '{data.get('name', '?')}': "
+                f"'tools' must be a list (e.g. ['read', 'shell']), got string '{tools}'"
+            )
+
         return cls(behavior=behavior, **profile_data)
 
     def validate_tools(self, available_tool_names: set[str]) -> list[str]:
