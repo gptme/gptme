@@ -497,7 +497,7 @@ def _run_subagent_subprocess(
         "gptme",
         "-n",  # Non-interactive
         "--no-confirm",
-        f"--logdir={logdir}",
+        f"--name={logdir.name}",  # Just the folder name, not full path
     ]
 
     if model:

@@ -621,7 +621,7 @@ def test_subprocess_command_includes_required_flags():
             assert "gptme" in cmd
             assert "-n" in cmd  # Non-interactive
             assert "--no-confirm" in cmd
-            assert any("--logdir=" in str(arg) for arg in cmd)
+            assert any("--name=" in str(arg) for arg in cmd)
             assert "--model" in cmd
             assert "test-model" in cmd
             assert "Test task" not in cmd  # Prompt passed via stdin, not argv
