@@ -185,3 +185,21 @@ User: next"""
     assert "System:" not in result
     assert "User: test" in result
     assert "User: next" in result
+
+
+def test_clean_example_strip_system_consecutive():
+    """Consecutive System blocks are both fully stripped."""
+    src = """\
+User: run ls
+System: output of ls
+file1.txt
+System: another system block
+extra output
+Assistant: Done"""
+    result = clean_example(src, strip_system=True)
+    assert "System:" not in result
+    assert "file1.txt" not in result
+    assert "another system block" not in result
+    assert "extra output" not in result
+    assert "User: run ls" in result
+    assert "Assistant: Done" in result

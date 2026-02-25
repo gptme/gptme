@@ -62,12 +62,15 @@ def _strip_system_blocks(s: str) -> str:
     skipping = False
     for line in lines:
         if skipping:
-            # Stop skipping at blank line or new role header
-            if not line.strip() or re.match(r"^(> )?[A-Za-z]+:", line):
+            # Stop skipping at blank line or new non-System role header
+            if not line.strip() or (
+                re.match(r"^(> )?[A-Za-z]+:", line)
+                and not re.match(r"^(> )?System:", line)
+            ):
                 skipping = False
                 if line.strip():
                     filtered.append(line)
-            # else: skip the line (don't track any state)
+            # else: skip the line (including consecutive System headers)
             continue
         if re.match(r"^(> )?System:", line):
             skipping = True
