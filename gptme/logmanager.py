@@ -162,7 +162,7 @@ class LogManager:
 
         # load branches from adjacent files
         self._branches = {self.current_branch: Log(log or [])}
-        if self.logdir / "conversation.jsonl":
+        if (self.logdir / "conversation.jsonl").exists():
             _branch = "main"
             if _branch not in self._branches:
                 self._branches[_branch] = Log.read_jsonl(
