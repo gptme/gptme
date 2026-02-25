@@ -93,8 +93,14 @@ def cli():
     parser.add_argument(
         "--branch-to-clear", help="Clear the branch before resuming", type=str
     )
+    parser.add_argument(
+        "--model",
+        help="Model to use for new evaluations (required when not resuming)",
+        default="anthropic/claude-3-5-sonnet-20240620",
+        type=str,
+    )
     args = parser.parse_args()
-    main(resume_dir=args.resume, branch_to_clear=args.branch_to_clear)
+    main(model=args.model, resume_dir=args.resume, branch_to_clear=args.branch_to_clear)
 
 
 if __name__ == "__main__":

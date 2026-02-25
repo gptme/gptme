@@ -52,7 +52,9 @@ def evaluate_instance(
     try:
         logger.info(f"Executing agent for instance {instance_id}")
         repo_dir = setup_swebench_repo(instance, repo_base_dir)
-        files = agent.act({"repo_dir": repo_dir}, problem_statement)
+        # Pass repo_dir as context in prompt; agent workspace is separate from repo
+        prompt_with_context = f"Working directory: {repo_dir}\n\n{problem_statement}"
+        files = agent.act(None, prompt_with_context)
     except Exception as e:
         logger.error(f"Error during agent execution for instance {instance_id}: {e}")
         return EvalResult(
@@ -64,6 +66,8 @@ def evaluate_instance(
             gen_stderr=str(e),
             run_stdout="",
             run_stderr="",
+            log_dir=agent.log_dir,
+            workspace_dir=agent.workspace_dir,
         )
 
     gen_time = time.time() - start_time
@@ -91,6 +95,8 @@ def evaluate_instance(
         gen_stderr="",
         run_stdout=diff,
         run_stderr="",
+        log_dir=agent.log_dir,
+        workspace_dir=agent.workspace_dir,
     )
 
 
