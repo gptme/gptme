@@ -36,16 +36,44 @@ def epoch_to_age(epoch, incl_date=False):
     )
 
 
-def clean_example(s: str, strict=False, quote=False) -> str:
+def clean_example(s: str, strict=False, quote=False, strip_system=False) -> str:
     orig = s
     s = re.sub(
         r"(^|\n)([>] )?([A-Za-z]+):",
         rf"\1{'> ' if quote else ''}\3:",
         s,
     )
+    if strip_system:
+        s = _strip_system_blocks(s)
     if strict:
         assert s != orig, "Couldn't find a message"
     return s
+
+
+def _strip_system_blocks(s: str) -> str:
+    """Remove System message blocks from example text.
+
+    Filters out lines starting with 'System:' and all subsequent lines
+    until the next role header or blank line. Codeblock state is NOT
+    tracked inside skipped content to avoid state desynchronization.
+    """
+    lines = s.split("\n")
+    filtered = []
+    skipping = False
+    for line in lines:
+        if skipping:
+            # Stop skipping at blank line or new role header
+            if not line.strip() or re.match(r"^(> )?[A-Za-z]+:", line):
+                skipping = False
+                if line.strip():
+                    filtered.append(line)
+            # else: skip the line (don't track any state)
+            continue
+        if re.match(r"^(> )?System:", line):
+            skipping = True
+            continue
+        filtered.append(line)
+    return "\n".join(filtered)
 
 
 def example_to_xml(s: str) -> str:
