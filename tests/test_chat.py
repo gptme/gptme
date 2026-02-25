@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from gptme.util.context import _find_potential_paths
 
 
@@ -187,3 +189,108 @@ Also check `./outside/xml.py` which should be found.
     # Paths inside XML tags should be ignored
     assert "/path/inside/xml/tag.txt" not in paths
     assert "/another/xml/path.csv" not in paths
+
+
+def test_include_paths_image_auto_attach(tmp_path):
+    """Image files in user messages should be auto-attached to msg.files.
+
+    This verifies the full pipeline: _find_potential_paths detects the path,
+    _parse_prompt_files validates it as a supported binary format, and
+    include_paths adds it to msg.files (not embedded as text content).
+    """
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    # Create a minimal PNG file (valid header)
+    img_file = tmp_path / "test.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    # User message with a bare image path
+    msg = Message("user", str(img_file))
+    result = include_paths(msg, workspace=None)
+
+    # Image should be in msg.files (not embedded as text)
+    assert len(result.files) == 1
+    assert Path(str(result.files[0])).name == "test.png"
+    # Original content should be preserved (not modified)
+    assert str(img_file) in result.content
+
+
+def test_include_paths_image_in_text(tmp_path):
+    """Image paths embedded in natural language text should be auto-attached.
+
+    Simulates the scenario where a user types 'View this image ~/test.png'
+    or a paste handler inserts 'View this image: /path/to/image.png'.
+    """
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    # Create a minimal PNG file
+    img_file = tmp_path / "screenshot.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    # User message with image path embedded in text (like paste handler output)
+    msg = Message("user", f"View this image: {img_file}")
+    result = include_paths(msg, workspace=None)
+
+    # Image should be auto-attached to msg.files
+    assert len(result.files) == 1
+    assert Path(str(result.files[0])).name == "screenshot.png"
+
+
+def test_embed_attached_preserves_image_files(tmp_path):
+    """Images in msg.files should survive embed_attached_file_content.
+
+    Text files get embedded as codeblocks and removed from msg.files.
+    Image files (binary) should remain in msg.files for provider-specific
+    handling (base64 encoding in _process_file).
+    """
+    from gptme.message import Message
+    from gptme.util.context import embed_attached_file_content
+
+    # Create both a text file and an image file
+    text_file = tmp_path / "readme.txt"
+    text_file.write_text("hello world")
+
+    img_file = tmp_path / "photo.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    msg = Message("user", "Check these files", files=[text_file, img_file])
+    result = embed_attached_file_content(msg, workspace=tmp_path)
+
+    # Text file should be embedded in content and removed from files
+    assert "hello world" in result.content
+    assert not any(Path(str(f)).name == "readme.txt" for f in result.files)
+
+    # Image file should remain in files (not embedded)
+    assert any(Path(str(f)).name == "photo.png" for f in result.files)
+
+
+def test_image_auto_attach_end_to_end(tmp_path):
+    """End-to-end test: image path in user text → include_paths → embed → msgs2dicts.
+
+    Verifies that an image mentioned by path in a user message survives the
+    full message processing pipeline and appears in the final dict's files list.
+    """
+    from gptme.message import Message, msgs2dicts
+    from gptme.util.context import embed_attached_file_content, include_paths
+
+    # Create a minimal PNG
+    img_file = tmp_path / "paste_20260225.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    # Step 1: include_paths extracts the image path
+    msg = Message("user", str(img_file))
+    msg = include_paths(msg, workspace=None)
+    assert len(msg.files) == 1, "include_paths should detect and attach image"
+
+    # Step 2: embed_attached_file_content preserves images
+    msg = embed_attached_file_content(msg, workspace=None)
+    assert len(msg.files) == 1, (
+        "embed should preserve image in files (not embed as text)"
+    )
+
+    # Step 3: msgs2dicts preserves files for provider processing
+    dicts = msgs2dicts([msg])
+    assert "files" in dicts[0], "files should be present in message dict"
+    assert len(dicts[0]["files"]) == 1, "image file should survive serialization"

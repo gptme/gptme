@@ -510,6 +510,7 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
                 file = file.expanduser()
                 if workspace and not file.is_absolute():
                     file = file.absolute().relative_to(workspace)
+                logger.debug(f"auto-attaching file: {file}")
                 files.append(file)
 
     # Process URLs (only confirmed ones in interactive mode)
@@ -524,6 +525,11 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
             append_msg += "\n\n" + contents
 
     if files:
+        logger.debug(
+            "include_paths: attaching %d file(s) to message: %s",
+            len(files),
+            [str(f) for f in files],
+        )
         msg = msg.replace(files=msg.files + files)
 
     # append the message with the file contents
