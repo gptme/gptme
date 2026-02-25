@@ -73,8 +73,6 @@ def serve(
 
     # Try to initialize with provided/configured model
     # If init fails due to missing model/API keys, use fallback
-    from gptme.server.exceptions import ModelConfigurationError
-
     try:
         init(
             model,
@@ -84,7 +82,6 @@ def serve(
             server=True,
         )
     except (ValueError, KeyError) as e:
-        # Detect model configuration errors and wrap in custom exception
         error_msg = str(e)
         is_config_error = (
             "No API key found" in error_msg
@@ -92,21 +89,15 @@ def serve(
             or "not set in env or config" in error_msg
         )
 
-        if is_config_error:
-            # Wrap in custom exception for type-based error handling
-            raise ModelConfigurationError(
-                f"Model configuration missing: {error_msg}"
-            ) from e
-        # Re-raise other exceptions unchanged
-        raise
-    except ModelConfigurationError:
+        if not is_config_error:
+            raise
+
         # Handle model configuration errors with fallback
         fallback_model = DEFAULT_FALLBACK_MODEL
         logger.warning(
             f"No default model configured. Using fallback: {fallback_model}. "
             "Set MODEL environment variable or use --model flag for explicit configuration."
         )
-        # Retry init with fallback model
         init(
             fallback_model,
             interactive=False,
