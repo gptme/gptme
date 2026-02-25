@@ -192,7 +192,7 @@ def handle_cmd(
         yield from tooluse.execute(log=manager.log, workspace=manager.workspace)
     else:
         manager.undo(1, quiet=True)
-        print("Unknown command")
+        print("Unknown command. Use /help to see available commands.")
 
 
 def get_commands_with_descriptions() -> list[tuple[str, str]]:

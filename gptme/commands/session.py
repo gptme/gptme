@@ -45,8 +45,7 @@ def cmd_rename(ctx: CommandContext) -> None:
     if ctx.args:
         new_name = ctx.args[0]
     else:
-        print("(enter empty name to auto-generate)")
-        new_name = input("New name: ").strip()
+        new_name = input("New name (leave empty to auto-generate): ").strip()
     _rename(ctx.manager, new_name)
 
 

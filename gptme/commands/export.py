@@ -110,7 +110,7 @@ def _replay_tool(log, tool_name: str) -> None:
 
     tool = get_tool(tool_name)
     if not tool:
-        print(f"Error: Tool '{tool_name}' not found or not loaded.")
+        print(f"Tool '{tool_name}' is not available. Use /tools to see loaded tools.")
         return
 
     print(f"Replaying all '{tool_name}' operations...")
@@ -151,7 +151,9 @@ def _replay_tool(log, tool_name: str) -> None:
                         )
 
     if count == 0:
-        print(f"No '{tool_name}' operations found to replay.")
+        print(
+            f"No '{tool_name}' operations found to replay. Use /replay all to see all operations."
+        )
     else:
         print(f"✅ Replayed {count} '{tool_name}' operations")
 
