@@ -101,27 +101,33 @@ class SWEBenchAgent:
         info = SWEBenchInfo.load_from_log_dir(log_dir)
         if not info or not info.repo_dir:
             raise ValueError(f"No valid info found in {log_dir}")
+        original_dir = os.getcwd()
         os.chdir(info.repo_dir)
-        init_tools()
-        understand_manager = LogManager.load(
-            log_dir, lock=False, create=True, branch="understand"
-        )
-        reproduce_manager = LogManager.load(
-            log_dir, lock=False, create=True, branch="reproduce"
-        )
-        fix_manager = LogManager.load(log_dir, lock=False, create=True, branch="fix")
-        for msg in understand_manager.log.messages:
-            if msg.role == "assistant":
-                for reply_msg in execute_msg(msg):
-                    print_msg(reply_msg, oneline=False)
-        for msg in reproduce_manager.log.messages:
-            if msg.role == "assistant":
-                for reply_msg in execute_msg(msg):
-                    print_msg(reply_msg, oneline=False)
-        for msg in fix_manager.log.messages:
-            if msg.role == "assistant":
-                for reply_msg in execute_msg(msg):
-                    print_msg(reply_msg, oneline=False)
+        try:
+            init_tools()
+            understand_manager = LogManager.load(
+                log_dir, lock=False, create=True, branch="understand"
+            )
+            reproduce_manager = LogManager.load(
+                log_dir, lock=False, create=True, branch="reproduce"
+            )
+            fix_manager = LogManager.load(
+                log_dir, lock=False, create=True, branch="fix"
+            )
+            for msg in understand_manager.log.messages:
+                if msg.role == "assistant":
+                    for reply_msg in execute_msg(msg):
+                        print_msg(reply_msg, oneline=False)
+            for msg in reproduce_manager.log.messages:
+                if msg.role == "assistant":
+                    for reply_msg in execute_msg(msg):
+                        print_msg(reply_msg, oneline=False)
+            for msg in fix_manager.log.messages:
+                if msg.role == "assistant":
+                    for reply_msg in execute_msg(msg):
+                        print_msg(reply_msg, oneline=False)
+        finally:
+            os.chdir(original_dir)
 
     def evaluate_instance(
         self,
