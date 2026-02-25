@@ -501,8 +501,7 @@ def read_url(url: str, max_pages: int | None = None) -> str:
     assert browser
     if browser == "playwright":
         return read_url_playwright(url)
-    if browser == "lynx":
-        return read_url_lynx(url)
+    return read_url_lynx(url)
 
 
 def search(query: str, engine: EngineType = "perplexity") -> str:
