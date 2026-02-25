@@ -15,13 +15,24 @@ OUTPUT_DIR = Path("/tmp/outputs")
 IS_MACOS = platform.system() == "Darwin"
 IS_WAYLAND = os.environ.get("XDG_SESSION_TYPE") == "wayland"
 
-
-# TODO: check for this instead of prompting the llm
+# TODO: check for screen recording permissions instead of prompting the llm
 INSTRUCTIONS = (
     "If all you see is a wallpaper, the user may have to allow screen capture in `System Preferences -> Security & Privacy -> Screen Recording`."
     if IS_MACOS
     else ""
 )
+
+
+def _is_available() -> bool:
+    """Check if any screenshot tool is available on the system."""
+    if IS_MACOS:
+        return shutil.which("screencapture") is not None
+    if os.name == "posix":
+        return bool(
+            shutil.which("gnome-screenshot")
+            or (not IS_WAYLAND and shutil.which("scrot"))
+        )
+    return False
 
 
 def _validate_screenshot_path(path: Path) -> Path:
@@ -95,6 +106,7 @@ def screenshot(path: Path | None = None) -> Path:
 tool = ToolSpec(
     name="screenshot",
     desc="Take a screenshot",
+    available=_is_available,
     instructions=INSTRUCTIONS,
     functions=[screenshot],
     examples=f"""
