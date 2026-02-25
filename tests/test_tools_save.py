@@ -153,13 +153,37 @@ def test_append_tool_path_traversal_relative(tmp_path: Path):
         subdir.mkdir()
         os.chdir(subdir)
 
+        # Should return error message (matches save tool behavior)
         messages = list(execute_append("test", ["../../escape.txt"], None))
         assert len(messages) == 1
         assert messages[0].role == "system"
-        # Note: append uses different function that may not have traversal check yet
-        # This test documents expected behavior
-        assert (
-            "Path traversal" in messages[0].content or "Appended" in messages[0].content
-        )
+        assert "Path traversal" in messages[0].content
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_append_tool_path_traversal_symlink(tmp_path: Path):
+    """Test that symlink-based path traversal is blocked for append."""
+    import os
+
+    original_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        os.chdir(work_dir)
+
+        # Create a symlink in work_dir pointing to outside_dir
+        symlink = work_dir / "escape_link"
+        symlink.symlink_to(outside_dir)
+
+        # Try to append through symlink - should return error message
+        messages = list(execute_append("test", ["escape_link/secret.txt"], None))
+        assert len(messages) == 1
+        assert messages[0].role == "system"
+        assert "Path traversal" in messages[0].content
     finally:
         os.chdir(original_cwd)
