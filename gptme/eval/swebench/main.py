@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 from ..agents import GPTMe
 from ..main import write_results
+from ..types import ModelConfig
 from . import run_swebench_evaluation
 
 # Configure logging
@@ -83,7 +84,7 @@ def main(
             instance_ids=instance or None,
             repo_base_dir=repo_base_dir,
         )
-        swebench_results[m] = results
+        swebench_results[ModelConfig.from_spec(m, default_format="markdown")] = results
 
     print("\n=== SWE-bench Results ===")
     # TODO: Implement custom result printing for SWE-bench

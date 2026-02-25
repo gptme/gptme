@@ -8,11 +8,16 @@ logger = logging.getLogger(__name__)
 
 
 def load_instances(
-    dataset_name: str = "princeton-nlp/SWE-bench_Lite", split: str = "test"
+    dataset_name: str = "princeton-nlp/SWE-bench_Lite",
+    split: str = "test",
+    force_download: bool = False,
 ) -> dict[str, dict]:
-    data = load_dataset(
-        dataset_name, split=split, download_mode=DownloadMode.FORCE_REDOWNLOAD
+    download_mode = (
+        DownloadMode.FORCE_REDOWNLOAD
+        if force_download
+        else DownloadMode.REUSE_DATASET_IF_EXISTS
     )
+    data = load_dataset(dataset_name, split=split, download_mode=download_mode)
     return {d["instance_id"]: d for d in data}
 
 
@@ -20,8 +25,9 @@ def load_instance(
     instance_id: str,
     dataset_name: str = "princeton-nlp/SWE-bench_Lite",
     split: str = "test",
+    force_download: bool = False,
 ) -> dict:
-    data = load_instances(dataset_name, split=split)
+    data = load_instances(dataset_name, split=split, force_download=force_download)
     return data[instance_id]
 
 

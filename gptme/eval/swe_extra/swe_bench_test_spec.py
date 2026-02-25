@@ -106,9 +106,9 @@ class TestSpec:
     instance_id: str
     repo: str
     version: str
-    repo_script_list: str
-    reset_repo_script_list: str
-    eval_script_list: str
+    repo_script_list: list[str]
+    reset_repo_script_list: list[str]
+    eval_script_list: list[str]
     FAIL_TO_PASS: list[str]
     PASS_TO_PASS: list[str]
     repo_dir: str
