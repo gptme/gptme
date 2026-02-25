@@ -190,7 +190,9 @@ BUILTIN_PROFILES: dict[str, Profile] = {
             "- When used as a subagent, keep parent context lean by summarizing key results\n"
             "- Avoid unnecessary file modifications unless explicitly requested\n"
         ),
-        tools=["browser", "screenshot", "vision", "shell"],
+        # ipython required: browser functions (read_url, screenshot_url, etc.) are
+        # Python functions callable via ipython, not standalone tools
+        tools=["browser", "screenshot", "vision", "ipython", "shell"],
         behavior=ProfileBehavior(),
     ),
 }
