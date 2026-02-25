@@ -425,7 +425,7 @@ def main(
         no_confirm = True
 
     if no_confirm:
-        logger.warning("Skipping all confirmation prompts.")
+        logger.info("Skipping all confirmation prompts.")
 
     # if stdin is not a tty, we might be getting piped input, which we should include in the prompt
     was_piped = False
@@ -600,11 +600,14 @@ def main(
                 output_schema_type = getattr(module, class_name)
             else:
                 logger.warning(
-                    f"Invalid output_schema format: {output_schema}. "
-                    "Expected 'module:ClassName'"
+                    f"Invalid output_schema format: '{output_schema}'. "
+                    "Expected 'module:ClassName' (e.g. 'mymodule:MyModel')"
                 )
         except (ImportError, AttributeError) as e:
-            logger.warning(f"Could not load output_schema {output_schema}: {e}")
+            logger.warning(
+                f"Could not load output_schema '{output_schema}': {e}. "
+                "Verify the module is installed and the class name is correct."
+            )
 
     # Validate non-interactive mode requires a prompt or existing conversation
     if not interactive and not prompt_msgs and not is_existing_conversation:
