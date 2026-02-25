@@ -460,6 +460,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#making-changes">Making Changes</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#browser-integration">Browser Integration</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiprompt-syntax">Multiprompt syntax</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-selection-patterns">Tool Selection Patterns</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-confirmation-prompts">Skip confirmation prompts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-interactive mode</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-integration">Pre-commit Integration</a></li>
@@ -496,9 +497,10 @@
 <li><p><a class="reference internal" href="#making-changes" id="id5">Making Changes</a></p></li>
 <li><p><a class="reference internal" href="#browser-integration" id="id6">Browser Integration</a></p></li>
 <li><p><a class="reference internal" href="#multiprompt-syntax" id="id7">Multiprompt syntax</a></p></li>
-<li><p><a class="reference internal" href="#skip-confirmation-prompts" id="id8">Skip confirmation prompts</a></p></li>
-<li><p><a class="reference internal" href="#non-interactive-mode" id="id9">Non-interactive mode</a></p></li>
-<li><p><a class="reference internal" href="#pre-commit-integration" id="id10">Pre-commit Integration</a></p></li>
+<li><p><a class="reference internal" href="#tool-selection-patterns" id="id8">Tool Selection Patterns</a></p></li>
+<li><p><a class="reference internal" href="#skip-confirmation-prompts" id="id9">Skip confirmation prompts</a></p></li>
+<li><p><a class="reference internal" href="#non-interactive-mode" id="id10">Non-interactive mode</a></p></li>
+<li><p><a class="reference internal" href="#pre-commit-integration" id="id11">Pre-commit Integration</a></p></li>
 </ul>
 </li>
 </ul>
@@ -617,6 +619,37 @@ from matplotlib.animation import FuncAnimation
 </pre></div>
 </div>
 <p>This is particularly useful for breaking down complex tasks into steps and creating <a class="reference internal" href="automation.html"><span class="doc">Automation</span></a> workflows.</p>
+</section>
+<section id="tool-selection-patterns">
+<h3>Tool Selection Patterns<a class="headerlink" href="#tool-selection-patterns" title="Link to this heading">#</a></h3>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--tools</span></code> to control which tools are available.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--tools</span> <span class="pre">read,append</span></code> replaces defaults with exactly those tools.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--tools</span> <span class="pre">+computer</span></code> adds the <code class="docutils literal notranslate"><span class="pre">computer</span></code> tool on top of defaults.</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Add computer use while keeping the standard default tools</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s2">&quot;take a screenshot and summarize what you see&quot;</span>
+</pre></div>
+</div>
+<p>For long visual tasks, use a subagent profile to avoid bloating parent context
+with repeated screenshots:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Desktop interaction (mouse, keyboard, screenshots)</span>
+<span class="n">subagent</span><span class="p">(</span>
+    <span class="s2">&quot;computer-use&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Click the Submit button, wait for the modal, and screenshot the result&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Web browsing and testing</span>
+<span class="n">subagent</span><span class="p">(</span>
+    <span class="s2">&quot;browser-use&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Navigate web app UI, capture evidence, and return a concise bug report&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>See available profiles with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>profile<span class="w"> </span>list
+</pre></div>
+</div>
 </section>
 <section id="skip-confirmation-prompts">
 <h3>Skip confirmation prompts<a class="headerlink" href="#skip-confirmation-prompts" title="Link to this heading">#</a></h3>
@@ -767,6 +800,7 @@ def my_function(x: int, y: int) -> int:
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#making-changes">Making Changes</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#browser-integration">Browser Integration</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiprompt-syntax">Multiprompt syntax</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-selection-patterns">Tool Selection Patterns</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-confirmation-prompts">Skip confirmation prompts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-interactive mode</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-integration">Pre-commit Integration</a></li>

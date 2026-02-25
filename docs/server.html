@@ -568,11 +568,26 @@ docker<span class="w"> </span>run<span class="w"> </span>-v<span class="w"> </sp
 <li><p><code class="docutils literal notranslate"><span class="pre">xdotool</span></code> package installed</p></li>
 </ul>
 <p><strong>Usage:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable computer tool (disabled by default for security)</span>
-gptme<span class="w"> </span>-t<span class="w"> </span>computer
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable computer tool in addition to default tools</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+computer
 </pre></div>
 </div>
 <p>Set an appropriate screen resolution for your vision model before use.</p>
+<p>For long-running visual workflows, prefer a specialized subagent profile to keep
+parent context smaller:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Desktop interaction (mouse, keyboard, screenshots)</span>
+<span class="n">subagent</span><span class="p">(</span>
+    <span class="s2">&quot;computer-use&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Click the Submit button, wait for the modal, and screenshot the result&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Web browsing and testing</span>
+<span class="n">subagent</span><span class="p">(</span>
+    <span class="s2">&quot;browser-use&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Open localhost:5173, capture a screenshot, and report UI issues&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
 </section>
 </section>
 <section id="rest-api">
