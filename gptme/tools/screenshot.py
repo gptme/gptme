@@ -15,6 +15,7 @@ OUTPUT_DIR = Path("/tmp/outputs")
 IS_MACOS = platform.system() == "Darwin"
 IS_WAYLAND = os.environ.get("XDG_SESSION_TYPE") == "wayland"
 
+# TODO: check for screen recording permissions instead of prompting the llm
 INSTRUCTIONS = (
     "If all you see is a wallpaper, the user may have to allow screen capture in `System Preferences -> Security & Privacy -> Screen Recording`."
     if IS_MACOS
