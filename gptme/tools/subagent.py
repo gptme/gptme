@@ -77,6 +77,22 @@ _subagent_results_lock = threading.Lock()
 _completion_queue: queue.Queue[tuple[str, Status, str]] = queue.Queue()
 
 
+def _get_complete_instruction(target: str = "orchestrator") -> str:
+    """Get the standard instruction for using the complete tool.
+
+    Used by both thread and subprocess modes to ensure consistent behavior.
+    The instruction is intentionally minimal - profile system prompts and
+    task context should guide what the complete answer should contain.
+    """
+    return (
+        "When finished, use the `complete` tool with your full answer/result.\n"
+        f"Include everything the {target} needs - they shouldn't need to read the full log.\n"
+        "```complete\n"
+        "Your complete answer here.\n"
+        "```"
+    )
+
+
 def notify_completion(agent_id: str, status: Status, summary: str) -> None:
     """Add a subagent completion to the notification queue.
 
@@ -201,7 +217,11 @@ class Subagent:
 
         if complete_tool:
             # Extract content from complete tool
-            result = complete_tool.content or "Task completed"
+            # Don't silently fall back - make it clear when no summary was provided
+            if complete_tool.content and complete_tool.content.strip():
+                result = complete_tool.content.strip()
+            else:
+                result = "Task completed (no summary provided)"
             return ReturnType(
                 "success",
                 result + f"\n\nFull log: {self.logdir}",
@@ -216,7 +236,11 @@ class Subagent:
                 r"```complete\s*\n(.*?)\n```", last_msg.content, re.DOTALL
             )
             if match:
-                result = match.group(1).strip() or "Task completed"
+                content = match.group(1).strip()
+                if content:
+                    result = content
+                else:
+                    result = "Task completed (no summary provided)"
                 return ReturnType(
                     "success",
                     result + f"\n\nFull log: {self.logdir}",
@@ -436,11 +460,7 @@ def _create_subagent_thread(
     # Add completion instruction as a system message
     complete_instruction = Message(
         "system",
-        "When you have finished the task, use the `complete` tool to signal completion:\n"
-        "```complete\n"
-        "Brief summary of what was accomplished.\n"
-        "```\n\n"
-        f"This signals task completion. The full conversation log will be available to the {target} for review.",
+        _get_complete_instruction(target),
     )
     initial_msgs.append(complete_instruction)
 
@@ -547,6 +567,13 @@ def _run_subagent_subprocess(
             f"{memory_dir}/MEMORY.md\n"
         )
         prompt = prompt + memory_section
+
+    # Add completion instruction to the prompt for subprocess mode
+    # (In thread mode, this is added as a system message)
+    complete_section = (
+        f"\n\n[Completion Instructions]\n{_get_complete_instruction('orchestrator')}\n"
+    )
+    prompt = prompt + complete_section
 
     # Pass prompt via stdin (piped from a temp file) instead of as a CLI argument.
     # This avoids ARG_MAX limits for large prompts and keeps argv clean.
