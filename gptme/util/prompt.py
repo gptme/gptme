@@ -503,18 +503,27 @@ def get_prompt_session() -> PromptSession:
 
             When the terminal emulator pastes text (via Cmd+V on macOS or
             Ctrl+Shift+V on many Linux terminals), it sends a bracketed paste
-            sequence. We intercept this to check if the pasted text looks
-            like an image URL/path and wrap it appropriately, otherwise
-            insert text as-is (same as the default handler).
-
-            Note: For actual clipboard images (not text), Ctrl+V must be used
-            since terminal bracketed paste only handles text content.
+            sequence. We intercept this to check the OS clipboard for image
+            content first (same approach as Claude Code), then check if the
+            pasted text looks like an image URL/path, otherwise insert as-is.
             """
+            from ..util.clipboard import paste_image
+
             data = event.data
             # Normalize line endings (iTerm2 sends \r\n in bracketed paste)
             data = data.replace("\r\n", "\n").replace("\r", "\n")
 
             logger.debug(f"BracketedPaste handler triggered ({len(data)} chars)")
+
+            # First, check OS clipboard for image content directly.
+            # This mirrors Claude Code's approach: intercept the paste keypress,
+            # then query the OS clipboard independently of what the terminal
+            # delivered. This allows Cmd+V to paste images on macOS.
+            image_path = paste_image()
+            if image_path:
+                logger.debug(f"BracketedPaste: found image in clipboard: {image_path}")
+                event.current_buffer.insert_text(f"View this image: {image_path}")
+                return
 
             # Check if pasted text is an image URL or path
             image_text = _check_clipboard_for_image(data)
