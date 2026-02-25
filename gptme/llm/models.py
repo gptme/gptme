@@ -800,6 +800,8 @@ def get_model(model: str) -> ModelMeta:
 def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
     if provider == "openai":
         return "gpt-5"
+    if provider == "openai-subscription":
+        return "gpt-5.3-codex"
     if provider == "openrouter":
         return "meta-llama/llama-3.1-405b-instruct"
     if provider == "gemini":
@@ -808,7 +810,14 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
         return "claude-sonnet-4-6"
     if provider == "xai":
         return "grok-4"
-    raise ValueError(f"Provider {provider} did not have a recommended model")
+    if provider == "deepseek":
+        return "deepseek-chat"
+    if provider == "groq":
+        return "llama-3.3-70b-versatile"
+    raise ValueError(
+        f"Provider '{provider}' requires specifying a model, "
+        f"e.g. gptme -m {provider}/your-model-name"
+    )
 
 
 def get_summary_model(provider: Provider) -> str | None:  # pragma: no cover
