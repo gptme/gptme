@@ -74,10 +74,10 @@ _subagent_results_lock = threading.Lock()
 
 # Thread-safe queue for completed subagent notifications
 # Each entry is (agent_id, status, summary)
-_completion_queue: queue.Queue[tuple[str, str, str]] = queue.Queue()
+_completion_queue: queue.Queue[tuple[str, Status, str]] = queue.Queue()
 
 
-def notify_completion(agent_id: str, status: str, summary: str) -> None:
+def notify_completion(agent_id: str, status: Status, summary: str) -> None:
     """Add a subagent completion to the notification queue.
 
     Called by the monitor thread when a subagent finishes. The queued
@@ -977,7 +977,7 @@ def subagent(
                 # If subagent creation fails, notify with error status
                 logger.error(f"Subagent {agent_id} failed during execution: {e}")
                 try:
-                    notify_completion(agent_id, "error", f"Execution failed: {e}")
+                    notify_completion(agent_id, "failure", f"Execution failed: {e}")
                 except Exception as notify_err:
                     logger.warning(f"Failed to notify subagent error: {notify_err}")
                 # Clean up worktree isolation even on failure
@@ -1057,6 +1057,7 @@ def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
         except subprocess.TimeoutExpired:
             logger.warning(f"Subagent {agent_id} timed out after {timeout}s")
             sa.process.kill()
+            sa.process.wait()  # reap the killed process
     elif sa.thread:
         # Thread mode: join thread
         sa.thread.join(timeout=timeout)
