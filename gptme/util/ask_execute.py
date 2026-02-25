@@ -162,7 +162,7 @@ def execute_with_confirmation(
             else:
                 yield ex_result
         except Exception as e:
-            if "pytest" in globals():
+            if os.getenv("PYTEST_CURRENT_TEST"):
                 raise
             yield Message("system", f"Error during execution: {e}")
             return
@@ -172,6 +172,6 @@ def execute_with_confirmation(
             yield Message("system", "(content was edited by user)")
 
     except Exception as e:
-        if "pytest" in globals():
+        if os.getenv("PYTEST_CURRENT_TEST"):
             raise
         yield Message("system", f"Error during execution: {e}")
