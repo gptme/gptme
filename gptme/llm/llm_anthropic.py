@@ -796,12 +796,7 @@ def _transform_system_messages(
             and message.role == "user"
             and message.call_id == messages_new[-1].call_id
         ):
-            messages_new[-1] = Message(
-                "user",
-                content=f"{messages_new[-1].content}\n\n{message.content}",
-                files=messages_new[-1].files + message.files,
-                call_id=messages_new[-1].call_id,
-            )
+            messages_new[-1] = messages_new[-1].concat(message)
         else:
             messages_new.append(message)
     messages = messages_new
