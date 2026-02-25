@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from gptme.util import (
+    clean_example,
     epoch_to_age,
     example_to_xml,
     transform_examples_to_chat_directives,
@@ -114,3 +115,91 @@ blah
 </system>
 """.strip()
     )
+
+
+def test_clean_example_strip_system():
+    """System blocks are removed when strip_system=True."""
+    src = """\
+User: Hello
+System: some output
+Assistant: Hi there"""
+    result = clean_example(src, strip_system=True)
+    assert "System:" not in result
+    assert "some output" not in result
+    assert "User: Hello" in result
+    assert "Assistant: Hi there" in result
+
+
+def test_clean_example_strip_system_multiline():
+    """Multi-line System blocks (including codeblocks) are fully removed."""
+    src = """\
+User: run ls
+System: output of ls
+file1.txt
+file2.txt
+Assistant: Done"""
+    result = clean_example(src, strip_system=True)
+    assert "System:" not in result
+    assert "file1.txt" not in result
+    assert "User: run ls" in result
+    assert "Assistant: Done" in result
+
+
+def test_clean_example_strip_system_with_codeblock():
+    """Codeblocks inside System blocks don't desync state."""
+    src = """\
+User: run command
+System: output
+```
+some code with ```
+```
+more system output
+Assistant: result"""
+    result = clean_example(src, strip_system=True)
+    assert "System:" not in result
+    assert "some code" not in result
+    assert "User: run command" in result
+    assert "Assistant: result" in result
+
+
+def test_clean_example_strip_system_preserves_non_system():
+    """Non-System roles are preserved."""
+    src = """\
+User: Hello
+Assistant: Hi
+User: Bye
+Assistant: Goodbye"""
+    result = clean_example(src, strip_system=True)
+    assert result == src
+
+
+def test_clean_example_strip_system_blank_line_separator():
+    """System block ending with blank line preserves following content."""
+    src = """\
+User: test
+
+System: output
+
+User: next"""
+    result = clean_example(src, strip_system=True)
+    assert "System:" not in result
+    assert "User: test" in result
+    assert "User: next" in result
+
+
+def test_clean_example_strip_system_consecutive():
+    """Consecutive System blocks are both fully stripped."""
+    src = """\
+User: run ls
+System: output of ls
+file1.txt
+System: another system block
+extra output
+Assistant: Done"""
+    result = clean_example(src, strip_system=True)
+    assert "System:" not in result
+    assert "file1.txt" not in result
+    assert "another system block" not in result
+    assert "extra output" not in result
+    assert "User: run ls" in result
+    assert "Assistant: Done" in result
