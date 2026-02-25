@@ -78,12 +78,12 @@ class Profile:
         behavior = ProfileBehavior(**behavior_data)
         profile_data = {k: v for k, v in data.items() if k != "behavior"}
 
-        # Validate tools field type: must be a list or None, not a bare string
+        # Validate tools field type: must be a list or None
         tools = profile_data.get("tools")
-        if isinstance(tools, str):
+        if tools is not None and not isinstance(tools, list):
             raise TypeError(
                 f"Profile '{data.get('name', '?')}': "
-                f"'tools' must be a list (e.g. ['read', 'shell']), got string '{tools}'"
+                f"'tools' must be a list (e.g. ['read', 'shell']), got {type(tools).__name__}"
             )
 
         return cls(behavior=behavior, **profile_data)
@@ -198,7 +198,7 @@ def _parse_markdown_profile(path: Path) -> Profile:
             "PyYAML is required for markdown profiles. Install with: pip install pyyaml"
         )
 
-    content = path.read_text(encoding="utf-8")
+    content = path.read_text(encoding="utf-8").lstrip("\ufeff")
 
     if not content.startswith("---"):
         raise ValueError(f"Markdown profile must start with YAML frontmatter: {path}")
