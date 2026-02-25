@@ -174,8 +174,9 @@ def msg2dict(msg: Message, workspace: Path) -> MessageDict:
         "role": msg.role,
         "content": msg.content,
         "timestamp": msg.timestamp.isoformat(),
-        "files": [_abs_to_rel_workspace(f, workspace) for f in msg.files],
     }
+    if msg.files:
+        result["files"] = [_abs_to_rel_workspace(f, workspace) for f in msg.files]
     if msg.hide:
         result["hide"] = True
     return result
