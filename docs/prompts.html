@@ -665,7 +665,7 @@ skills on-demand requires tool access (e.g., the shell tool to run <cite>cat</ci
 <dt class="sig sig-object py" id="gptme.prompts.prompt_tools">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">prompt_tools</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'markdown'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">examples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.prompt_tools" title="Link to this definition">#</a></dt>
 <dd><p>Generate the tools overview prompt.</p>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f69680e27a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f3a821be8e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -684,7 +684,6 @@ to append the code block content to the file at the given path.
 <span class="sb">```append</span><span class="w"> </span>hello.py
 <span class="s">print(&quot;Hello world&quot;)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Appended to `hello.py`</span>
 
 <span class="gu">## autocommit</span>
 
@@ -754,30 +753,18 @@ to append the code block content to the file at the given path.
 <span class="sb">```ipython</span>
 <span class="n">read_url</span><span class="p">(</span><span class="s1">&#39;https://superuserlabs.org/&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-```https://superuserlabs.org/
-... [<span class="nt">ActivityWatch</span>](<span class="na">https://activitywatch.net/</span>) ...
-<span class="sb">```</span>
-<span class="sb">&gt; Assistant: Couldn&#39;t find the answer on the page. Following link to the ActivityWatch website.</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Couldn&#39;t find the answer on the page. Following link to the ActivityWatch website.</span>
 <span class="sb">```ipython</span>
-<span class="sb">read_url(&#39;https://activitywatch.net/&#39;)</span>
+<span class="n">read_url</span><span class="p">(</span><span class="s1">&#39;https://activitywatch.net/&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-```https://activitywatch.net/
-... Download latest version v0.12.2 ...
-<span class="sb">```</span>
-<span class="sb">&gt; Assistant: The latest version of ActivityWatch is v0.12.2</span>
+<span class="k">&gt; </span><span class="ge">Assistant: The latest version of ActivityWatch is v0.12.2</span>
 
-<span class="sb">### Searching</span>
+<span class="gu">### Searching</span>
 
-<span class="sb">&gt; User: who is the founder of ActivityWatch?</span>
-<span class="sb">&gt; Assistant: Let&#39;s search for that.</span>
+<span class="k">&gt; </span><span class="ge">User: who is the founder of ActivityWatch?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let&#39;s search for that.</span>
 <span class="sb">```ipython</span>
-<span class="sb">search(&#39;ActivityWatch founder&#39;)</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```result</span>
-<span class="s">ActivityWatch was founded by Erik Bjäreholt in 2016...</span>
+<span class="n">search</span><span class="p">(</span><span class="s1">&#39;ActivityWatch founder&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">Assistant: The founder of ActivityWatch is Erik Bjäreholt.</span>
 
@@ -788,10 +775,6 @@ to append the code block content to the file at the given path.
 <span class="sb">```ipython</span>
 <span class="n">search</span><span class="p">(</span><span class="s1">&#39;latest developments in AI&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```result</span>
-<span class="s">Based on recent developments, AI has seen significant advances...</span>
-<span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Based on the search results, here are the latest AI developments...</span>
 
 <span class="gu">### Take screenshot of page</span>
@@ -801,11 +784,6 @@ to append the code block content to the file at the given path.
 <span class="sb">```ipython</span>
 <span class="n">screenshot_url</span><span class="p">(</span><span class="s1">&#39;https://activitywatch.net&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```result</span>
-<span class="s">Screenshot saved to screenshot.png</span>
-<span class="sb">```</span>
-
 <span class="gu">### Read URL and check browser logs</span>
 
 <span class="k">&gt; </span><span class="ge">User: read this page and check if there are any console errors</span>
@@ -813,19 +791,10 @@ to append the code block content to the file at the given path.
 <span class="sb">```ipython</span>
 <span class="n">read_url</span><span class="p">(</span><span class="s1">&#39;https://example.com&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-```https://example.com
-This domain is for use in illustrative examples...
-<span class="sb">```</span>
-<span class="sb">&gt; Assistant: Now let me check the browser console logs:</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Now let me check the browser console logs:</span>
 <span class="sb">```ipython</span>
-<span class="sb">read_logs()</span>
+<span class="n">read_logs</span><span class="p">()</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```result</span>
-<span class="s">No logs or errors captured.</span>
-<span class="sb">```</span>
-
 <span class="gu">### Read PDF document</span>
 
 <span class="k">&gt; </span><span class="ge">User: read this research paper from arxiv</span>
@@ -833,53 +802,48 @@ This domain is for use in illustrative examples...
 <span class="sb">```ipython</span>
 <span class="n">read_url</span><span class="p">(</span><span class="s1">&#39;https://arxiv.org/pdf/2410.12361v2&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```result</span>
-<span class="s">--- Page 1 ---</span>
-<span class="s">[PDF text content...]</span>
+--- Page 2 ---
+[More content...]
 
-<span class="s">--- Page 2 ---</span>
-<span class="s">[More content...]</span>
+---
+<span class="gs">**Note**</span>: This PDF has 42 pages. Showing first 10 pages.
+To read more pages, use: <span class="sb">`read_url(&#39;...&#39;, max_pages=N)`</span> where N is the desired count, or 0 for all pages.
 
-<span class="s">---</span>
-<span class="s">**Note**: This PDF has 42 pages. Showing first 10 pages.</span>
-<span class="s">To read more pages, use: `read_url(&#39;...&#39;, max_pages=N)` where N is the desired count, or 0 for all pages.</span>
-
-<span class="s">**Tip**: If this text extraction seems incomplete or garbled (common with scanned documents, complex layouts, or image-heavy PDFs), try vision-based reading: convert pages to images using a PDF-to-image tool, then use the vision tool to analyze them.</span>
+<span class="gs">**Tip**</span>: If this text extraction seems incomplete or garbled (common with scanned documents, complex layouts, or image-heavy PDFs), try vision-based reading: convert pages to images using a PDF-to-image tool, then use the vision tool to analyze them.
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ve extracted the text from the PDF. The paper discusses [summary of key points]...</span>
+<span class="sb">&gt; Assistant: I&#39;ve extracted the text from the PDF. The paper discusses [summary of key points]...</span>
 
-<span class="gu">## chats</span>
+<span class="sb">## chats</span>
 
-<span class="gs">**Description:**</span> List, search, and summarize past conversation logs
+<span class="sb">**Description:** List, search, and summarize past conversation logs</span>
 
-<span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+<span class="sb">**Instructions:** The following Python functions are available using the `ipython` tool:</span>
 
 <span class="sb">```txt</span>
-<span class="s">list_chats(max_results: int, include_summary: bool):</span>
-<span class="s">    List recent chat conversations and optionally summarize them using an LLM.</span>
+<span class="sb">list_chats(max_results: int, include_summary: bool):</span>
+<span class="sb">    List recent chat conversations and optionally summarize them using an LLM.</span>
 
-<span class="s">    Args:</span>
-<span class="s">        max_results (int): Maximum number of conversations to display.</span>
-<span class="s">        include_summary (bool): Whether to include a summary of each conversation.</span>
-<span class="s">            If True, uses an LLM to generate a comprehensive summary.</span>
-<span class="s">            If False, uses a simple strategy showing snippets of the first and last messages.</span>
+<span class="sb">    Args:</span>
+<span class="sb">        max_results (int): Maximum number of conversations to display.</span>
+<span class="sb">        include_summary (bool): Whether to include a summary of each conversation.</span>
+<span class="sb">            If True, uses an LLM to generate a comprehensive summary.</span>
+<span class="sb">            If False, uses a simple strategy showing snippets of the first and last messages.</span>
 
-<span class="s">search_chats(query: str, max_results: int, sort: Literal[&quot;date&quot;, &quot;count&quot;]):</span>
-<span class="s">    Search past conversation logs for the given query and print a summary of the results.</span>
+<span class="sb">search_chats(query: str, max_results: int, sort: Literal[&quot;date&quot;, &quot;count&quot;]):</span>
+<span class="sb">    Search past conversation logs for the given query and print a summary of the results.</span>
 
-<span class="s">    Args:</span>
-<span class="s">        query (str): The search query.</span>
-<span class="s">        max_results (int): Maximum number of conversations to display.</span>
-<span class="s">        system (bool): Whether to include system messages in the search.</span>
+<span class="sb">    Args:</span>
+<span class="sb">        query (str): The search query.</span>
+<span class="sb">        max_results (int): Maximum number of conversations to display.</span>
+<span class="sb">        system (bool): Whether to include system messages in the search.</span>
 
-<span class="s">read_chat(id: str, max_results: int):</span>
-<span class="s">    Read a specific conversation log.</span>
+<span class="sb">read_chat(id: str, max_results: int):</span>
+<span class="sb">    Read a specific conversation log.</span>
 
-<span class="s">    Args:</span>
-<span class="s">        id (str): The id of the conversation to read.</span>
-<span class="s">        max_results (int): Maximum number of messages to display.</span>
-<span class="s">        incl_system (bool): Whether to include system messages.</span>
+<span class="sb">    Args:</span>
+<span class="sb">        id (str): The id of the conversation to read.</span>
+<span class="sb">        max_results (int): Maximum number of messages to display.</span>
+<span class="sb">        incl_system (bool): Whether to include system messages.</span>
 
 <span class="sb">```</span>
 
@@ -916,8 +880,6 @@ Use a code block with the language tag: <span class="sb">`choice`</span> followe
 <span class="s">Add new features</span>
 <span class="s">Run tests</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: User selected: Add new features</span>
-
 <span class="k">&gt; </span><span class="ge">User: What should we do next?</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Let me present you with some options:</span>
 <span class="sb">```choice</span>
@@ -925,7 +887,6 @@ Use a code block with the language tag: <span class="sb">`choice`</span> followe
 <span class="s">1. Option one</span>
 <span class="s">2. Option two</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: User selected: Option two</span>
 
 <span class="gu">## complete</span>
 
@@ -943,7 +904,6 @@ Make sure you have actually completely finished before calling this tool.
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use the complete tool to end the session.</span>
 <span class="sb">```complete</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Task complete. Autonomous session finished.</span>
 
 <span class="gu">## computer</span>
 
@@ -992,46 +952,31 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;screenshot&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Viewing image...</span>
-
 <span class="k">&gt; </span><span class="ge">User: Type &quot;Hello, World!&quot; into the active window</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll type the text with realistic delays.</span>
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Typed text: Hello, World!</span>
-
 <span class="k">&gt; </span><span class="ge">User: Move the mouse to coordinates (100, 200) and click</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll move the mouse and perform a left click.</span>
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;mouse_move&quot;</span><span class="p">,</span> <span class="n">coordinate</span><span class="o">=</span><span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">200</span><span class="p">))</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Moved mouse to 100,200</span>
-<span class="sb">```ipython</span>
-<span class="n">computer</span><span class="p">(</span><span class="s2">&quot;left_click&quot;</span><span class="p">)</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Performed left_click</span>
-
 <span class="k">&gt; </span><span class="ge">User: Get the current mouse position</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll get the cursor position.</span>
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;cursor_position&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Cursor position: X=512,Y=384</span>
-
 <span class="k">&gt; </span><span class="ge">User: Double-click at current position</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll perform a double-click.</span>
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;double_click&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Performed double_click</span>
-
 <span class="k">&gt; </span><span class="ge">User: Open a new browser tab</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open a new browser tab.</span>
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;key&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;ctrl+t&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Sent key sequence: ctrl+t</span>
 
 <span class="gu">## elicit</span>
 
@@ -1063,8 +1008,6 @@ Use a code block with the language tag: <span class="sb">`elicit`</span> followe
 <span class="s">  &quot;description&quot;: &quot;Required for the OpenAI integration. Will not be logged.&quot;</span>
 <span class="s">}</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: User provided secret value (not shown)</span>
-
 <span class="gu">### Ask user to choose an option</span>
 
 <span class="k">&gt; </span><span class="ge">User: Which database should we use?</span>
@@ -1081,8 +1024,6 @@ Use a code block with the language tag: <span class="sb">`elicit`</span> followe
 <span class="s">  ]</span>
 <span class="s">}</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: User selected: PostgreSQL</span>
-
 <span class="gu">### Collect project setup information via form</span>
 
 <span class="k">&gt; </span><span class="ge">User: Set up a new project</span>
@@ -1115,7 +1056,6 @@ Use a code block with the language tag: <span class="sb">`elicit`</span> followe
 <span class="s">  ]</span>
 <span class="s">}</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Form submitted: {&quot;name&quot;: &quot;my-project&quot;, &quot;language&quot;: &quot;python&quot;, &quot;tests&quot;: true}</span>
 
 <span class="gu">## form</span>
 
@@ -1148,11 +1088,6 @@ Use a code block with the language tag: <span class="sb">`form`</span> followed 
 <span class="s">&gt; language: Primary language [python, javascript, rust, go, other]</span>
 <span class="s">&gt; priority: Priority level [low, medium, high]</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Form submitted:</span>
-<span class="sb">```json</span>
-<span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-awesome-project&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;A CLI tool for productivity&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;language&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;python&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;priority&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high&quot;</span><span class="p">}</span>
-<span class="sb">```</span>
-
 <span class="gu">### Simple confirmation form</span>
 
 <span class="k">&gt; </span><span class="ge">User: Deploy to production</span>
@@ -1160,10 +1095,6 @@ Use a code block with the language tag: <span class="sb">`form`</span> followed 
 <span class="sb">```form</span>
 <span class="s">&gt; environment: Target environment [staging, production]</span>
 <span class="s">&gt; confirm: Proceed with deployment? [yes/no]</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Form submitted:</span>
-<span class="sb">```json</span>
-<span class="p">{</span><span class="nt">&quot;environment&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;production&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
 <span class="sb">```</span>
 
 <span class="gu">## gh</span>
@@ -1202,17 +1133,6 @@ For other operations, use the <span class="sb">`shell`</span> tool with the <spa
 <span class="sb">```gh</span><span class="w"> </span>pr status https://github.com/owner/repo/pull/123
 <span class="s">None</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: PR #123 checks (abc1234):</span>
-<span class="k">&gt; </span><span class="ge">System: Total: 6 checks</span>
-<span class="k">&gt; </span><span class="ge">System: ✅ 4 passed</span>
-<span class="k">&gt; </span><span class="ge">System: ❌ 2 failed</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="k">&gt; </span><span class="ge">System: Failed runs:</span>
-<span class="k">&gt; </span><span class="ge">System:   - build (run 12345678)</span>
-<span class="k">&gt; </span><span class="ge">System:   - test (run 12345679)</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="k">&gt; </span><span class="ge">System: View logs: gh run view &lt;run_id&gt; --log-failed</span>
-
 <span class="k">&gt; </span><span class="ge">User: check status of specific commit abc1234</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>pr status https://github.com/owner/repo/pull/123 abc1234
@@ -1230,11 +1150,6 @@ gh<span class="w"> </span>run<span class="w"> </span>view<span class="w"> </span
 <span class="sb">```gh</span><span class="w"> </span>pr checks https://github.com/owner/repo/pull/123
 <span class="s">None</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Waiting for checks on commit abc1234...</span>
-<span class="k">&gt; </span><span class="ge">System: [12:34:56] ✅ 4 passed, ❌ 2 failed, 🔄 3 in progress</span>
-<span class="k">&gt; </span><span class="ge">System: ...</span>
-<span class="k">&gt; </span><span class="ge">System: ❌ Checks failed: 2 failed, 4 passed</span>
-
 <span class="k">&gt; </span><span class="ge">User: create a public repo from the current directory, and push. Note that --confirm and -y are deprecated, and no longer needed.</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```shell</span>
@@ -1440,7 +1355,6 @@ if <span class="gs">__name__</span> == &quot;<span class="gs">__main__</span>&qu
 <span class="sb">    print(f&quot;Hello {name}&quot;)</span>
 <span class="sb">&gt;&gt;&gt;&gt;&gt;&gt;&gt; UPDATED</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Patch applied</span>
 
 <span class="gu">## precommit</span>
 
@@ -1469,22 +1383,16 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="sb">```ipython</span>
 <span class="n">rag_index</span><span class="p">()</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Indexed 1 paths</span>
-
 <span class="k">&gt; </span><span class="ge">User: Search for documentation about functions</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll search for function-related documentation.</span>
 <span class="sb">```ipython</span>
 <span class="n">rag_search</span><span class="p">(</span><span class="s2">&quot;function documentation&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: ### docs/api.md</span>
-Functions are documented using docstrings...
-
 <span class="k">&gt; </span><span class="ge">User: Show index status</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll check the current status of the RAG index.</span>
 <span class="sb">```ipython</span>
 <span class="n">rag_status</span><span class="p">()</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Index contains 42 documents</span>
 
 <span class="gu">## read</span>
 
@@ -1503,10 +1411,6 @@ Use a code block with the language tag: <span class="sb">`read &lt;path&gt;`</sp
 <span class="sb">```read</span><span class="w"> </span>hello.py
 <span class="s">hello.py</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: ```hello.py</span>
-<span class="k">&gt; </span><span class="ge">   1       print(&quot;Hello world&quot;)</span>
-<span class="k">&gt; </span><span class="ge">   2       print(&quot;Goodbye world&quot;)</span>
-<span class="k">&gt; </span><span class="ge">```</span>
 
 <span class="gu">## restart</span>
 
@@ -1532,15 +1436,11 @@ This tool is disabled by default and must be explicitly enabled with <span class
 <span class="sb">```restart</span>
 
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Restarting gptme...</span>
-(gptme restarts and conversation continues)
-
 <span class="k">&gt; </span><span class="ge">User: can you restart?</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll restart the gptme process.</span>
 <span class="sb">```restart</span>
 
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Restarting gptme...</span>
 
 <span class="gu">## save</span>
 
@@ -1560,13 +1460,11 @@ To write to a file, use a code block with the language tag: <span class="sb">`sa
 <span class="sb">```save</span><span class="w"> </span>hello.py
 <span class="s">print(&quot;Hello world&quot;)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Saved to `hello.py`</span>
 <span class="k">&gt; </span><span class="ge">User: make it all-caps</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```save</span><span class="w"> </span>hello.py
 <span class="s">print(&quot;HELLO WORLD&quot;)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Saved to `hello.py`</span>
 
 <span class="gu">## screenshot</span>
 
@@ -1619,12 +1517,6 @@ This prevents blocking on commands like <span class="sb">`npm run dev`</span> th
 <span class="sb">```shell</span>
 ls
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Ran command: `ls`</span>
-<span class="sb">```shell</span>
-file1.txt
-file2.txt
-<span class="sb">```</span>
-
 <span class="gu">#### The assistant can learn context by exploring the filesystem</span>
 
 <span class="k">&gt; </span><span class="ge">User: learn about the project</span>
@@ -1632,26 +1524,13 @@ file2.txt
 <span class="sb">```shell</span>
 git<span class="w"> </span>ls-files
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```stdout</span>
-<span class="s">README.md</span>
-<span class="s">main.py</span>
-<span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Now lets check the README</span>
 <span class="sb">```shell</span>
 cat<span class="w"> </span>README.md
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```stdout</span>
-<span class="s">(contents of README.md)</span>
-<span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Now we check main.py</span>
 <span class="sb">```shell</span>
 cat<span class="w"> </span>main.py
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```stdout</span>
-<span class="s">(contents of main.py)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">Assistant: The project is...</span>
 
@@ -1662,22 +1541,17 @@ cat<span class="w"> </span>main.py
 <span class="sb">```shell</span>
 npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"> </span>fancy-project<span class="w"> </span>--yes<span class="w"> </span>--<span class="w"> </span>--typescript<span class="w"> </span>--pinia
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```stdout</span>
-<span class="s">&gt; npx</span>
-<span class="s">&gt; create-vue</span>
+Vue.js - The Progressive JavaScript Framework
 
-<span class="s">Vue.js - The Progressive JavaScript Framework</span>
-
-<span class="s">Scaffolding project in ./fancy-project...</span>
+Scaffolding project in ./fancy-project...
 <span class="sb">```</span>
 
-<span class="gu">#### Proper quoting for complex content</span>
+<span class="sb">#### Proper quoting for complex content</span>
 
-<span class="k">&gt; </span><span class="ge">User: add a comment with backticks and special characters</span>
-<span class="k">&gt; </span><span class="ge">Assistant: When passing complex content with special characters, use single quotes to prevent shell interpretation:</span>
+<span class="sb">&gt; User: add a comment with backticks and special characters</span>
+<span class="sb">&gt; Assistant: When passing complex content with special characters, use single quotes to prevent shell interpretation:</span>
 <span class="sb">```shell</span>
-<span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;Content with `backticks` and $variables that should not be interpreted&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>example.txt
+<span class="sb">echo &#39;Content with `backticks` and $variables that should not be interpreted&#39; &gt; example.txt</span>
 <span class="sb">```</span>
 
 <span class="gu">#### Background jobs for long-running commands</span>
@@ -1687,19 +1561,11 @@ npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"
 <span class="sb">```shell</span>
 <span class="nb">bg</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>dev
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Started background job **#1**: `npm run dev`</span>
-<span class="k">&gt;</span>
-<span class="ge">&gt; Use these commands to manage it:</span>
-<span class="k">&gt; </span><span class="ge">- `jobs` - List all background jobs</span>
-<span class="k">&gt; </span><span class="ge">- `output 1` - Show output from job #1</span>
-<span class="k">&gt; </span><span class="ge">- `kill 1` - Terminate job #1</span>
-
 <span class="k">&gt; </span><span class="ge">User: check the server output</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Let me check the output from the background job:</span>
 <span class="sb">```shell</span>
 output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: **Job #1** - Running (45.2s)</span>
 <span class="k">&gt; </span><span class="ge">Command: `npm run dev`</span>
 <span class="k">&gt;</span>
 <span class="ge">&gt; ```stdout</span>
@@ -1716,7 +1582,6 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```shell</span>
 <span class="nb">kill</span><span class="w"> </span><span class="m">1</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Terminated job #1: `npm run dev`</span>
 
 <span class="gu">## subagent</span>
 
@@ -1845,13 +1710,10 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;fib-13&quot;</span><span class="p">,</span> <span class="s2">&quot;compute the 13th Fibonacci number&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Subagent started successfully.</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Now we need to wait for the subagent to finish the task.</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent_wait</span><span class="p">(</span><span class="s2">&quot;fib-13&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: {&quot;status&quot;: &quot;success&quot;, &quot;result&quot;: &quot;The 13th Fibonacci number is 233&quot;}.</span>
-
 <span class="gu">### Planner Mode (multi-task delegation)</span>
 
 <span class="k">&gt; </span><span class="ge">User: implement feature X with tests</span>
@@ -1863,17 +1725,10 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="p">]</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;feature-planner&quot;</span><span class="p">,</span> <span class="s2">&quot;Feature X adds new functionality&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;planner&quot;</span><span class="p">,</span> <span class="n">subtasks</span><span class="o">=</span><span class="n">subtasks</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Planner spawned 2 executor subagents.</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Now I&#39;ll wait for both subtasks to complete.</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent_wait</span><span class="p">(</span><span class="s2">&quot;feature-planner-implement&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: {&quot;status&quot;: &quot;success&quot;, &quot;result&quot;: &quot;Implementation complete in feature_x.py&quot;}.</span>
-<span class="sb">```ipython</span>
-<span class="n">subagent_wait</span><span class="p">(</span><span class="s2">&quot;feature-planner-test&quot;</span><span class="p">)</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: {&quot;status&quot;: &quot;success&quot;, &quot;result&quot;: &quot;Tests complete in test_feature_x.py, all passing&quot;}.</span>
-
 <span class="gu">### Context Modes</span>
 
 <span class="gu">#### Full Context (default)</span>
@@ -1906,8 +1761,6 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;isolated&quot;</span><span class="p">,</span> <span class="s2">&quot;Compute complex calculation&quot;</span><span class="p">,</span> <span class="n">use_subprocess</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Subagent started in subprocess mode.</span>
-
 <span class="gu">### Batch Execution (parallel tasks)</span>
 
 <span class="k">&gt; </span><span class="ge">User: implement, test, and document a feature in parallel</span>
@@ -1925,7 +1778,6 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="k">for</span> <span class="n">agent_id</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">{{</span><span class="s2">agent_id</span><span class="se">}}</span><span class="s2">: </span><span class="se">{{</span><span class="s2">result[&#39;status&#39;]</span><span class="se">}}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Started batch of 3 subagents: [&#39;impl&#39;, &#39;test&#39;, &#39;docs&#39;]</span>
 <span class="k">&gt; </span><span class="ge">impl: success</span>
 <span class="k">&gt; </span><span class="ge">test: success</span>
 <span class="k">&gt; </span><span class="ge">docs: success</span>
@@ -1944,9 +1796,6 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="c1"># &quot;✅ Subagent &#39;compute-demo&#39; completed: pi = 3.14159...&quot;</span>
 
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Started subagent &quot;compute-demo&quot;</span>
-<span class="k">&gt; </span><span class="ge">System: ✅ Subagent &#39;compute-demo&#39; completed: pi = 3.14159265358979...</span>
-
 <span class="gu">### Profile-Based Subagents (auto-detected from agent_id)</span>
 
 <span class="k">&gt; </span><span class="ge">User: explore this codebase and summarize the architecture</span>
@@ -1954,8 +1803,6 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;explorer&quot;</span><span class="p">,</span> <span class="s2">&quot;Analyze the codebase architecture and summarize key patterns&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Subagent started successfully.</span>
-
 <span class="gu">### Profile with Model Override</span>
 
 <span class="k">&gt; </span><span class="ge">User: research best practices for error handling</span>
@@ -1963,8 +1810,6 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Research error handling best practices in Python&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;openai/gpt-4o-mini&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Subagent started successfully.</span>
-
 <span class="gu">### Structured Delegation Template</span>
 
 <span class="k">&gt; </span><span class="ge">User: implement a robust auth feature</span>
@@ -1972,8 +1817,6 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;auth-impl&quot;</span><span class="p">,</span> <span class="s2">&quot;TASK: Implement JWT auth | OUTCOME: auth.py with tests | MUST: bcrypt, validation | MUST NOT: plaintext passwords&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Subagent started successfully.</span>
-
 <span class="gu">### Isolated Subagent (Worktree)</span>
 
 <span class="k">&gt; </span><span class="ge">User: implement a feature without affecting my working directory</span>
@@ -1981,7 +1824,6 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;feature-impl&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement the new caching layer in cache.py&quot;</span><span class="p">,</span> <span class="n">isolated</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Subagent started successfully.</span>
 
 <span class="gu">## tmux</span>
 
@@ -2028,35 +1870,22 @@ Available commands:
 <span class="sb">```tmux</span>
 <span class="s">new-session npm run dev</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Running `npm run dev` in session gptme_1</span>
-
 <span class="k">&gt; </span><span class="ge">User: Can you show me the current content of the pane?</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Of course! Let&#39;s inspect the pane content:</span>
 <span class="sb">```tmux</span>
 <span class="s">inspect-pane gptme_1</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System:</span>
-<span class="sb">```output</span>
-<span class="go">Server is running on localhost:5600</span>
-<span class="sb">```</span>
-
 <span class="k">&gt; </span><span class="ge">User: Stop the dev server</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll send &#39;Ctrl+C&#39; to the pane to stop the server:</span>
 <span class="sb">```tmux</span>
 <span class="s">send-keys 0 C-c</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Sent &#39;C-c&#39; to pane 0</span>
-
 <span class="gu">#### Get info from ncurses applications</span>
 
 <span class="k">&gt; </span><span class="ge">User: start top and give me a summary</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Sure! Let&#39;s start the top command in a tmux session:</span>
 <span class="sb">```tmux</span>
 <span class="s">new-session top</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Running `top` in session gptme_1.</span>
-<span class="sb">```output</span>
-<span class="go">(output from top shown here)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">Assistant: The load is...</span>
 
@@ -2066,10 +1895,6 @@ Available commands:
 <span class="k">&gt; </span><span class="ge">Assistant: Let&#39;s start an ipython session:</span>
 <span class="sb">```tmux</span>
 <span class="s">new-session ipython</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Running `ipython` in session 2.</span>
-<span class="sb">```output</span>
-<span class="go">(output from ipython shown here)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">User: Run &#39;print(&quot;Hello, world!&quot;)&#39; in the ipython session</span>
 <span class="sb">```tmux</span>
@@ -2082,7 +1907,6 @@ Available commands:
 <span class="sb">```tmux</span>
 <span class="s">list-sessions</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Active tmux sessions [&#39;0&#39;, &#39;gptme_1&#39;]</span>
 
 <span class="gu">## todo</span>
 
@@ -2123,9 +1947,6 @@ to restore your todo list state.
 <span class="sb">```todo</span><span class="w"> </span>read
 
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Todo List:</span>
-...
-
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll break this complex task into steps.</span>
 <span class="sb">```todo</span><span class="w"> </span>write
 <span class="s">add &quot;Set up project structure&quot;</span>
@@ -2223,11 +2044,6 @@ It will respond with the output and result of the execution.
 <span class="sb">```ipython</span>
 <span class="mi">2</span> <span class="o">+</span> <span class="mi">2</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Executed code block.</span>
-<span class="sb">```result</span>
-<span class="s">4</span>
-<span class="sb">```</span>
-
 <span class="gu">#### Write a function and call it</span>
 
 <span class="k">&gt; </span><span class="ge">User: compute fib 10</span>
@@ -2239,15 +2055,11 @@ It will respond with the output and result of the execution.
     <span class="k">return</span> <span class="n">fib</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">fib</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">2</span><span class="p">)</span>
 <span class="n">fib</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">System: Executed code block.</span>
-<span class="sb">```result</span>
-<span class="s">55</span>
-<span class="sb">```</span>
 
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12039</p>
+<p>Tokens: 10734</p>
 </dd></dl>
 
 <dl class="py function">
