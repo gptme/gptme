@@ -148,8 +148,7 @@ def test_toolcall_regex(content, expected_tool, expected_json):
         '@tool: {"unclosed": "string}',  # unclosed string
         '@tool: {"unclosed": {',  # unclosed nested object
         '@tool: {"mismatched": "quote\'}',  # mismatched quotes
-        # TODO: fix these
-        # "```\n@tool: {'param': 'value'}\n```",  # inside codeblock
+        '```\n@shell(uid): {"cmd": "ls"}\n```',  # inside codeblock
     ],
 )
 def test_toolcall_regex_invalid(content):
@@ -157,6 +156,35 @@ def test_toolcall_regex_invalid(content):
     set_tool_format("tool")
     tool_uses = list(ToolUse.iter_from_content(content))
     assert len(tool_uses) == 0
+
+
+def test_toolcall_inside_codeblock_skipped():
+    """Tool calls inside markdown fenced code blocks should not be parsed."""
+    set_tool_format("tool")
+
+    # Single tool call inside a codeblock
+    content = '```\n@shell(uid): {"cmd": "ls"}\n```'
+    tool_uses = list(ToolUse.iter_from_content(content))
+    assert len(tool_uses) == 0
+
+    # Tool call inside a codeblock with language tag
+    content = '```example\n@shell(uid): {"cmd": "ls"}\n```'
+    tool_uses = list(ToolUse.iter_from_content(content))
+    assert len(tool_uses) == 0
+
+    # Real tool call outside codeblock should still work
+    content = '@shell(uid): {"cmd": "ls"}'
+    tool_uses = list(ToolUse.iter_from_content(content))
+    assert len(tool_uses) == 1
+
+    # Mix: tool call in codeblock + real tool call outside
+    content = (
+        '```\n@shell(uid1): {"cmd": "example"}\n```\n@shell(uid2): {"cmd": "real"}'
+    )
+    tool_uses = list(ToolUse.iter_from_content(content))
+    assert len(tool_uses) == 1
+    assert tool_uses[0].kwargs == {"cmd": "real"}
+    assert tool_uses[0].call_id == "uid2"
 
 
 def test_parse_tool_use_ipython_kimi_k2():

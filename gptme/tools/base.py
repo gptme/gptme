@@ -76,6 +76,41 @@ def find_json_end(s: str, start: int) -> int | None:
     return None
 
 
+def _codeblock_char_ranges(content: str) -> list[tuple[int, int]]:
+    """Get character ranges of markdown fenced code blocks.
+
+    Returns a list of (start, end) character positions for each fenced code block,
+    used to skip tool call matches that appear inside code blocks.
+    """
+    ranges = []
+    fence_re = re.compile(r"^(`{3,})", re.MULTILINE)
+    fences = list(fence_re.finditer(content))
+
+    i = 0
+    while i < len(fences):
+        open_match = fences[i]
+        open_len = len(open_match.group(1))
+
+        # Find matching closing fence (same length, bare line)
+        for j in range(i + 1, len(fences)):
+            close_match = fences[j]
+            close_len = len(close_match.group(1))
+            # Closing fence: same backtick count, nothing else on the line
+            line_end_pos = content.find("\n", close_match.end())
+            if line_end_pos == -1:
+                line_end_pos = len(content)
+            after_backticks = content[close_match.end() : line_end_pos].strip()
+            if close_len == open_len and after_backticks == "":
+                ranges.append((open_match.start(), line_end_pos))
+                i = j + 1
+                break
+        else:
+            # No matching close found
+            i += 1
+
+    return ranges
+
+
 def extract_json(content: str, match: re.Match) -> str | None:
     """Extract complete JSON object starting from a regex match"""
     json_start = match.start(3)  # start of the JSON content
@@ -549,8 +584,21 @@ class ToolUse:
         # We can't use finditer() directly because the DOTALL pattern would consume
         # everything from the first { to the end. Instead, we search from after
         # each extracted JSON end position to handle multiple tool calls.
+        #
+        # Skip matches inside markdown fenced code blocks to prevent
+        # false positives when tool call syntax appears in examples/docs.
+        codeblock_ranges = _codeblock_char_ranges(content)
         search_from = 0
         while match := toolcall_re.search(content, search_from):
+            match_pos = match.start()
+            # Skip tool calls inside markdown fenced code blocks
+            block_end = next(
+                (end for start, end in codeblock_ranges if start <= match_pos < end),
+                None,
+            )
+            if block_end is not None:
+                search_from = block_end
+                continue
             tool_name = match.group(1)
             call_id = match.group(2)
             json_start = match.start(3)
