@@ -89,7 +89,7 @@ def format_tools_list(
         lines.append("")
 
     for tool in sorted(filtered, key=lambda t: t.name):
-        prefix = "  " if compact else "  "
+        prefix = " " if compact else "  "
         lines.append(prefix + format_tool_summary(tool, show_status))
 
     if not compact:
