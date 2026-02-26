@@ -9,10 +9,10 @@ from gptme.dirs import get_logs_dir
 from gptme.executor import prepare_execution_environment
 from gptme.util.auto_naming import generate_conversation_id
 
-from ..tools import ToolFormat
-from .execenv import DockerGPTMeEnv
-from .filestore import FileStore
-from .types import Files
+from ...tools import ToolFormat
+from ..execenv import DockerGPTMeEnv
+from ..filestore import FileStore
+from ..types import Files
 
 logger = logging.getLogger(__name__)
 
