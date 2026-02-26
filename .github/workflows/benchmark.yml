@@ -29,33 +29,38 @@ jobs:
       run: |
         poetry install
 
-    - name: Clear Python cache (cold start prep)
+    - name: Install hyperfine
       run: |
-        find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-        find . -type f -name '*.pyc' -delete 2>/dev/null || true
+        wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
+        sudo dpkg -i hyperfine_1.18.0_amd64.deb
 
     - name: Benchmark cold startup
       id: cold
       run: |
-        # Cold startup (no .pyc files)
-        START=$(python3 -c "import time; print(time.time())")
-        poetry run python -c "from gptme.cli.main import main"
-        END=$(python3 -c "import time; print(time.time())")
-        COLD_TIME=$(python3 -c "print(f'{$END - $START:.3f}')")
+        # Cold startup: --prepare clears .pyc before each run
+        hyperfine \
+          --runs 5 \
+          --prepare 'find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; find . -type f -name "*.pyc" -delete 2>/dev/null; true' \
+          --export-json cold.json \
+          'poetry run python -c "from gptme.cli.main import main"'
+
+        COLD_TIME=$(python3 -c "import json; print(f'{json.load(open(\"cold.json\"))[\"results\"][0][\"median\"]:.3f}')")
         echo "cold_time=$COLD_TIME" >> $GITHUB_OUTPUT
-        echo "Cold startup: ${COLD_TIME}s"
+        echo "Cold startup median: ${COLD_TIME}s"
 
     - name: Benchmark warm startup
       id: warm
       run: |
-        # Run twice to ensure bytecode is cached, measure second run
-        poetry run python -c "from gptme.cli.main import main"
-        START=$(python3 -c "import time; print(time.time())")
-        poetry run python -c "from gptme.cli.main import main"
-        END=$(python3 -c "import time; print(time.time())")
-        WARM_TIME=$(python3 -c "print(f'{$END - $START:.3f}')")
+        # Warm startup: --warmup ensures .pyc files are cached
+        hyperfine \
+          --runs 10 \
+          --warmup 3 \
+          --export-json warm.json \
+          'poetry run python -c "from gptme.cli.main import main"'
+
+        WARM_TIME=$(python3 -c "import json; print(f'{json.load(open(\"warm.json\"))[\"results\"][0][\"median\"]:.3f}')")
         echo "warm_time=$WARM_TIME" >> $GITHUB_OUTPUT
-        echo "Warm startup: ${WARM_TIME}s"
+        echo "Warm startup median: ${WARM_TIME}s"
 
     - name: Check thresholds
       env:
@@ -65,22 +70,29 @@ jobs:
         COLD_THRESHOLD: "6.0"
         WARM_THRESHOLD: "2.5"
       run: |
-        echo "=== Startup Benchmark Results ==="
+        echo "=== Startup Benchmark Results (hyperfine medians) ==="
         echo "Cold startup: ${COLD_TIME}s (threshold: ${COLD_THRESHOLD}s)"
         echo "Warm startup: ${WARM_TIME}s (threshold: ${WARM_THRESHOLD}s)"
+        echo ""
+
+        # Parse stddev for reporting
+        COLD_STDDEV=$(python3 -c "import json; print(f'{json.load(open(\"cold.json\"))[\"results\"][0][\"stddev\"]:.3f}')")
+        WARM_STDDEV=$(python3 -c "import json; print(f'{json.load(open(\"warm.json\"))[\"results\"][0][\"stddev\"]:.3f}')")
+        echo "Cold stddev: ${COLD_STDDEV}s"
+        echo "Warm stddev: ${WARM_STDDEV}s"
         echo ""
 
         FAILED=0
 
         if (( $(echo "$COLD_TIME > $COLD_THRESHOLD" | bc -l) )); then
-          echo "❌ FAIL: Cold startup (${COLD_TIME}s) exceeds threshold (${COLD_THRESHOLD}s)"
+          echo "::error::Cold startup (${COLD_TIME}s +/- ${COLD_STDDEV}s) exceeds threshold (${COLD_THRESHOLD}s)"
           FAILED=1
         else
           echo "✅ PASS: Cold startup within threshold"
         fi
 
         if (( $(echo "$WARM_TIME > $WARM_THRESHOLD" | bc -l) )); then
-          echo "❌ FAIL: Warm startup (${WARM_TIME}s) exceeds threshold (${WARM_THRESHOLD}s)"
+          echo "::error::Warm startup (${WARM_TIME}s +/- ${WARM_STDDEV}s) exceeds threshold (${WARM_THRESHOLD}s)"
           FAILED=1
         else
           echo "✅ PASS: Warm startup within threshold"
