@@ -28,12 +28,18 @@ from .util.tree import get_tree_output
 if TYPE_CHECKING:
     from .util.uri import FilePath
 
+# Files that are ALWAYS loaded (layered: user-level + project-level)
+# These are agent instruction files that should always be included regardless of config
+ALWAYS_LOAD_FILES = [
+    "AGENTS.md",
+    "CLAUDE.md",  # Claude Code compatibility
+    "GEMINI.md",  # Gemini compatibility
+]
+
 # Default files to include in context when no gptme.toml is present or files list is empty
+# These are project-specific files that provide useful context
 DEFAULT_CONTEXT_FILES = [
     "README*",
-    "AGENTS.md",
-    "CLAUDE.md",
-    "GEMINI.md",
     ".cursor/rules/*.mdc",
     "pyproject.toml",
     "package.json",
@@ -533,7 +539,53 @@ def prompt_workspace(
 
     project = get_project_config(workspace)
 
-    # Determine which file patterns to use
+    # Always-load files: loaded with tree-walking (most general first, most specific last)
+    # These are agent instruction files that should always be included
+    # Loading order:
+    #   1. User config dir (~/.config/gptme/AGENTS.md) - global defaults
+    #   2. Walk from home dir down to workspace, loading any AGENTS.md found
+    #      e.g., ~/Programming/AGENTS.md → ~/Programming/gptme/AGENTS.md → workspace
+    files: list[Path] = []
+    seen_paths: set[str] = set()
+    workspace_resolved = workspace.resolve()
+    home_dir = Path.home().resolve()
+    config_dir = Path(config_path).expanduser().resolve().parent
+
+    # 1. Load user-level agent files from ~/.config/gptme/ (global)
+    for filename in ALWAYS_LOAD_FILES:
+        user_file = config_dir / filename
+        if user_file.exists():
+            resolved = str(user_file.resolve())
+            if resolved not in seen_paths:
+                files.append(user_file)
+                seen_paths.add(resolved)
+                logger.debug(f"Loaded user-level agent file: {user_file}")
+
+    # 2. Walk up from workspace to home, collect directories, then reverse
+    #    to load from most general (home) to most specific (workspace)
+    dirs_to_check: list[Path] = []
+    current = workspace_resolved
+    while current != current.parent:  # Stop at filesystem root
+        dirs_to_check.append(current)
+        if current == home_dir:
+            break  # Don't go above home directory
+        current = current.parent
+
+    # Reverse so we load top-down (most general first)
+    dirs_to_check.reverse()
+
+    # Load ALWAYS_LOAD_FILES from each directory in the tree
+    for dir_path in dirs_to_check:
+        for filename in ALWAYS_LOAD_FILES:
+            agent_file = dir_path / filename
+            if agent_file.exists():
+                resolved = str(agent_file.resolve())
+                if resolved not in seen_paths:
+                    files.append(agent_file)
+                    seen_paths.add(resolved)
+                    logger.debug(f"Loaded agent file from tree: {agent_file}")
+
+    # Determine which additional file patterns to use (from config or defaults)
     if project is None or project.files is None:
         # No project config or no files specified in config
         file_patterns = DEFAULT_CONTEXT_FILES
@@ -551,9 +603,7 @@ def prompt_workspace(
                 "Project config has files explicitly set to empty, not including any files"
             )
 
-    # Process file patterns
-    files: list[Path] = []
-    workspace_resolved = workspace.resolve()
+    # Process file patterns (additional files from config/defaults)
     for fileglob in file_patterns:
         # expand user
         fileglob = str(Path(fileglob).expanduser())
@@ -563,7 +613,11 @@ def prompt_workspace(
                 # Validate file is within workspace (prevent path traversal)
                 try:
                     f.resolve().relative_to(workspace_resolved)
-                    files.append(f)
+                    resolved = str(f.resolve())
+                    # Skip if already loaded (e.g., from ALWAYS_LOAD_FILES)
+                    if resolved not in seen_paths:
+                        files.append(f)
+                        seen_paths.add(resolved)
                 except ValueError:
                     logger.warning(
                         f"Skipping file outside workspace: {f} (from glob '{fileglob}')"
@@ -589,8 +643,6 @@ def prompt_workspace(
     except Exception:
         user_files = []
     if user_files:
-        config_dir = Path(config_path).expanduser().resolve().parent
-        existing = {str(Path(p).resolve()) for p in files if Path(p).exists()}
         for entry in user_files:
             p = Path(entry).expanduser()
             if not p.is_absolute():
@@ -602,9 +654,9 @@ def prompt_workspace(
                 pass
             if p.exists():
                 rp = str(p)
-                if rp not in existing:
+                if rp not in seen_paths:
                     files.append(p)
-                    existing.add(rp)
+                    seen_paths.add(rp)
             else:
                 logger.debug(f"User-configured file not found: {p}")
 
