@@ -598,6 +598,19 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <div class="line">Ctrl+J         Insert a new line without executing the prompt</div>
 </div>
 </div>
+<div class="line-block">
+<div class="line">Utilities (gptme-util):</div>
+<div class="line-block">
+<div class="line">gptme-util tools list       List all tools and their availability</div>
+<div class="line">gptme-util tools info TOOL  Show detailed tool instructions/examples</div>
+<div class="line">gptme-util chats list       List past conversations</div>
+<div class="line">gptme-util chats search Q   Search conversations for query</div>
+<div class="line">gptme-util models list      List available models</div>
+<div class="line">gptme-util context index    Index project files for RAG</div>
+<div class="line">gptme-util llm generate     Direct LLM generation without chat</div>
+</div>
+</div>
+<p>Run ‘gptme-util –help’ for all utility commands.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PROMPTS<span class="o">]</span>...
 </pre></div>
 </div>
@@ -1364,9 +1377,31 @@ using the same logic as the main gptme tool.</p>
 <section id="gptme-util-tools-info">
 <h4>info<a class="headerlink" href="#gptme-util-tools-info" title="Link to this heading">#</a></h4>
 <p>Show detailed information about a tool.</p>
+<p>Displays tool instructions, examples, and token usage estimates.
+Use this to understand how a tool works and how to use it.</p>
+<p>Output is truncated by default. Use -v for full output.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>tools<span class="w"> </span>info<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>TOOL_NAME
 </pre></div>
 </div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-tools-info-v">
+<span id="cmdoption-gptme-util-tools-info-verbose"></span><span class="sig-name descname"><span class="pre">-v</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--verbose</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-tools-info-v" title="Link to this definition">#</a></dt>
+<dd><p>Show full output (not truncated)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-tools-info-no-examples">
+<span class="sig-name descname"><span class="pre">--no-examples</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-tools-info-no-examples" title="Link to this definition">#</a></dt>
+<dd><p>Hide examples section</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-tools-info-no-tokens">
+<span class="sig-name descname"><span class="pre">--no-tokens</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-tools-info-no-tokens" title="Link to this definition">#</a></dt>
+<dd><p>Hide token estimates</p>
+</dd></dl>
+
 <p class="rubric">Arguments</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-util-tools-info-arg-TOOL_NAME">
@@ -1378,6 +1413,8 @@ using the same logic as the main gptme tool.</p>
 <section id="gptme-util-tools-list">
 <h4>list<a class="headerlink" href="#gptme-util-tools-list" title="Link to this heading">#</a></h4>
 <p>List available tools.</p>
+<p>By default shows only available tools (dependencies installed).
+Use –all to include unavailable tools as well.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>tools<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
@@ -1392,6 +1429,12 @@ using the same logic as the main gptme tool.</p>
 <dt class="sig sig-object std" id="cmdoption-gptme-util-tools-list-langtags">
 <span class="sig-name descname"><span class="pre">--langtags</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-tools-list-langtags" title="Link to this definition">#</a></dt>
 <dd><p>Show language tags for code execution</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-tools-list-compact">
+<span class="sig-name descname"><span class="pre">--compact</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-tools-list-compact" title="Link to this definition">#</a></dt>
+<dd><p>Compact single-line format</p>
 </dd></dl>
 
 </section>
