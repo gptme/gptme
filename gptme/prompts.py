@@ -540,7 +540,7 @@ def find_agent_files_in_tree(
     each directory for agent instruction files. Returns files whose resolved paths
     are not in the ``exclude`` set.
 
-    Used by both :func:`prompt_workspace` at session start and the
+    Used by both :func:`~gptme.prompts.prompt_workspace` at session start and the
     ``agents_md_inject`` hook mid-session when the CWD changes.
     """
     result: list[Path] = []
