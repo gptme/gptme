@@ -39,6 +39,7 @@ from ..telemetry import init_telemetry, shutdown_telemetry
 from ..tools import ToolFormat, get_available_tools, init_tools
 from ..util import epoch_to_age
 from ..util.auto_naming import generate_conversation_id
+from ..util.context import md_codeblock
 from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
 from ..util.prompt import add_history
 
@@ -466,7 +467,7 @@ def main(
         # if piped input, append it to first prompt, or create a new prompt if none exists
         if not piped_input:
             return prompt_msgs
-        stdin_msg = Message("user", f"```stdin\n{piped_input}\n```")
+        stdin_msg = Message("user", md_codeblock("stdin", piped_input))
         if not prompt_msgs:
             prompt_msgs.append(stdin_msg)
         else:

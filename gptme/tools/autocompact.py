@@ -19,6 +19,7 @@ from ..hooks import HookType, StopPropagation, trigger_hook
 from ..llm.models import get_default_model, get_model
 from ..logmanager import Log, prepare_messages
 from ..message import Message, len_tokens
+from ..util.context import md_codeblock
 from ..util.master_context import (
     MessageByteRange,
     build_master_context_index,
@@ -1040,7 +1041,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
     for file_path, file_content in loaded_files:
         file_msg = Message(
             "system",
-            f"Context file `{file_path}`:\n```\n{file_content}\n```",
+            f"Context file `{file_path}`:\n{md_codeblock('', file_content)}",
         )
         file_context_msgs.append(file_msg)
 

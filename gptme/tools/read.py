@@ -9,6 +9,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from ..message import Message
+from ..util.context import md_codeblock
 from .base import (
     Parameter,
     ToolSpec,
@@ -128,7 +129,7 @@ def execute_read(
         shown = f"{start_idx + 1}-{end_idx}"
         range_info = f" (lines {shown} of {total_lines})"
 
-    yield Message("system", f"```{path}{range_info}\n{numbered}\n```")
+    yield Message("system", md_codeblock(f"{path}{range_info}", numbered))
 
 
 tool = ToolSpec(
