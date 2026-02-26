@@ -9,6 +9,7 @@ Usage:
     gptme-auth openai-subscription # Authenticate for OpenAI subscription
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -18,7 +19,8 @@ import webbrowser
 from pathlib import Path
 
 import click
-import httpx
+import requests
+import requests.exceptions
 from rich.console import Console
 
 logger = logging.getLogger(__name__)
@@ -35,8 +37,6 @@ _TOKEN_DIR = (
 
 def _get_token_path(service_url: str) -> Path:
     """Get the path to store tokens for a given service URL."""
-    import hashlib
-
     url_hash = hashlib.sha256(service_url.encode()).hexdigest()[:12]
     return _TOKEN_DIR / f"gptme-ai-{url_hash}.json"
 
@@ -115,22 +115,27 @@ def auth_login(url: str, no_browser: bool):
 
     # Step 1: Request device authorization
     try:
-        resp = httpx.post(authorize_url, timeout=15)
+        resp = requests.post(authorize_url, timeout=15)
         resp.raise_for_status()
-    except httpx.ConnectError:
+    except requests.exceptions.ConnectionError:
         console.print(f"[red]✗ Could not connect to {base_url}[/red]")
         console.print("  Is the service running? Check your --url argument.")
         sys.exit(1)
-    except httpx.HTTPStatusError as e:
+    except requests.exceptions.HTTPError as e:
         console.print(
             f"[red]✗ Authorization request failed: {e.response.status_code}[/red]"
         )
         sys.exit(1)
 
-    data = resp.json()
-    device_code = data["device_code"]
-    user_code = data["user_code"]
-    verification_uri = data["verification_uri"]
+    try:
+        data = resp.json()
+        device_code = data["device_code"]
+        user_code = data["user_code"]
+        verification_uri = data["verification_uri"]
+    except (json.JSONDecodeError, KeyError) as e:
+        console.print(f"[red]✗ Unexpected response from server: {e}[/red]")
+        sys.exit(1)
+
     verification_uri_complete = data.get(
         "verification_uri_complete", f"{verification_uri}?code={user_code}"
     )
@@ -162,7 +167,7 @@ def auth_login(url: str, no_browser: bool):
         console.print(".", end="")  # progress dots while polling
 
         try:
-            poll_resp = httpx.post(
+            poll_resp = requests.post(
                 token_url,
                 json={
                     "device_code": device_code,
@@ -170,13 +175,17 @@ def auth_login(url: str, no_browser: bool):
                 },
                 timeout=15,
             )
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             console.print("\n[red]✗ Lost connection to service[/red]")
             sys.exit(1)
 
         if poll_resp.status_code == 200:
-            token_data = poll_resp.json()
-            access_token = token_data["access_token"]
+            try:
+                token_data = poll_resp.json()
+                access_token = token_data["access_token"]
+            except (json.JSONDecodeError, KeyError) as e:
+                console.print(f"\n[red]✗ Unexpected token response: {e}[/red]")
+                sys.exit(1)
             sub = token_data.get("sub")
 
             _save_token(base_url, access_token, sub)
@@ -189,8 +198,14 @@ def auth_login(url: str, no_browser: bool):
             console.print("\n  You can now use: [cyan]gptme --provider gptme-ai[/cyan]")
             return
 
-        error_data = poll_resp.json()
-        error = error_data.get("error", "unknown_error")
+        try:
+            error_data = poll_resp.json()
+            error = error_data.get("error", "unknown_error")
+        except json.JSONDecodeError:
+            console.print(
+                f"\n[red]✗ Unexpected server response (HTTP {poll_resp.status_code})[/red]"
+            )
+            sys.exit(1)
 
         if error == "authorization_pending":
             continue  # normal, keep polling
