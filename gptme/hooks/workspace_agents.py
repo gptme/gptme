@@ -1,7 +1,7 @@
 """Parallel agent awareness via process scanning.
 
-Detects other agent instances (gptme, claude, codex, aider, etc.) running in
-the same workspace by scanning processes and their CWDs. Warns the user on
+Detects other agent instances (gptme, claude, codex, aider, goose, opencode,
+amp, etc.) running in the same workspace by scanning processes and their CWDs. Warns the user on
 session start if parallel agents are found.
 
 No lock files — process-based detection is cleaner, richer, and self-healing:
@@ -44,9 +44,11 @@ AGENT_BINARIES: dict[str, str] = {
     "codex": "codex",
     "gptme": "gptme",
     "aider": "aider",
-    # TODO: "goose", "cline", "continue", "cursor" (desktop apps, harder to detect)
-    # TODO: "opencode" (oh-my-opencode)
-    # TODO: "amp" (Sourcegraph Amp)
+    "goose": "goose",  # Block's open-source AI agent (Rust CLI)
+    "goosed": "goose",  # goose backend/server process
+    "opencode": "opencode",  # OpenCode terminal AI agent (Go CLI)
+    "amp": "amp",  # Sourcegraph Amp coding agent (Node.js CLI)
+    # Not yet: "cline", "continue", "cursor" (VS Code extensions / desktop apps, harder to detect)
 }
 
 # Fallback patterns for interpreter-wrapped invocations (e.g. ``python3 /path/to/gptme``).
@@ -56,6 +58,10 @@ AGENT_CMDLINE_PATTERNS: list[tuple[str, str]] = [
     (r"/bin/claude\b", "claude-code"),
     (r"/bin/codex\b", "codex"),
     (r"/bin/aider\b", "aider"),
+    (r"/bin/goose\b", "goose"),
+    (r"/bin/goosed\b", "goose"),
+    (r"/bin/opencode\b", "opencode"),
+    (r"/bin/amp\b", "amp"),
 ]
 
 # Exclude these even if they match a runtime binary (background services, wrappers).
@@ -485,11 +491,60 @@ def _parse_aider(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
     )
 
 
+def _parse_goose(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
+    """Extract metadata from a Goose (Block) process."""
+    model = _extract_flag(cmdline, "--model", "-m")
+    provider = _extract_flag(cmdline, "--provider", "-p")
+
+    # goosed is the backend server, goose CLI is the agent
+    is_server = any(os.path.basename(arg) == "goosed" for arg in cmdline[:2])
+    mode = "server" if is_server else "unknown"
+
+    return AgentInfo(
+        pid=pid,
+        runtime="goose",
+        cwd=cwd,
+        model=model,
+        mode=mode,
+        cmdline_summary=" ".join(cmdline[:5]),
+        extra={"provider": provider} if provider else {},
+    )
+
+
+def _parse_opencode(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
+    """Extract metadata from an OpenCode process."""
+    model = _extract_flag(cmdline, "--model", "-m")
+    return AgentInfo(
+        pid=pid,
+        runtime="opencode",
+        cwd=cwd,
+        model=model,
+        mode="unknown",
+        cmdline_summary=" ".join(cmdline[:5]),
+    )
+
+
+def _parse_amp(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
+    """Extract metadata from a Sourcegraph Amp process."""
+    model = _extract_flag(cmdline, "--model", "-m")
+    return AgentInfo(
+        pid=pid,
+        runtime="amp",
+        cwd=cwd,
+        model=model,
+        mode="unknown",
+        cmdline_summary=" ".join(cmdline[:5]),
+    )
+
+
 _RUNTIME_PARSERS = {
     "claude-code": _parse_claude_code,
     "gptme": _parse_gptme,
     "codex": _parse_codex,
     "aider": _parse_aider,
+    "goose": _parse_goose,
+    "opencode": _parse_opencode,
+    "amp": _parse_amp,
 }
 
 
