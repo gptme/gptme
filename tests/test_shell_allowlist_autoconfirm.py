@@ -16,72 +16,58 @@ from gptme.tools.shell import (
     shell_allowlist_hook,
 )
 
+# Test cases: (command, should_be_allowlisted, description)
+ALLOWLIST_TEST_CASES = [
+    # Simple read-only commands - should be allowlisted
+    ("cat README.md", True, "simple cat"),
+    ("head -100 file.txt", True, "simple head"),
+    ("ls", True, "simple ls"),
+    ("ls -la", True, "ls with flags"),
+    ("ls -la /tmp", True, "ls with path"),
+    ("pwd", True, "pwd"),
+    ("tree -L 2", True, "tree"),
+    ("rg pattern", True, "ripgrep"),
+    ("rg pattern file.txt", True, "ripgrep with file"),
+    ("find . -name '*.py'", True, "find by name"),
+    ("grep pattern file", True, "grep"),
+    ("wc -l file.txt", True, "word count"),
+    # Pipelines of allowlisted commands - should be allowlisted
+    ("cat gptme/cli/commands.py | head -100", True, "cat piped to head"),
+    ("grep pattern file | sort | head -10", True, "grep-sort-head pipeline"),
+    ("cat file | grep pattern", True, "cat-grep pipeline"),
+    ("find . -name '*.py' | wc -l", True, "find-wc pipeline"),
+    # Commands with output redirection - should NOT be allowlisted
+    ("cat file > output.txt", False, "cat with redirection"),
+    ("echo 'hello' > output.txt", False, "echo with redirection"),
+    ("ls > files.txt", False, "ls with redirection"),
+    ("grep pattern file >> output.txt", False, "grep with append"),
+    # Non-allowlisted commands - should NOT be allowlisted
+    ("rm -rf /tmp/foo", False, "rm command"),
+    ("python script.py", False, "python command"),
+    ("npm install", False, "npm command"),
+    # Dangerous patterns with allowlisted commands - should NOT be allowlisted
+    ("find . -name '*.py' -exec rm {} \\;", False, "find -exec rm"),
+    ("find . -type f -exec cat {} \\;", False, "find -exec cat"),
+    (
+        "find / -name passwd -exec cat {} \\;",
+        False,
+        "find -exec to read sensitive files",
+    ),
+    ("cat file | xargs rm", False, "pipe to xargs rm"),
+    ("grep pattern file | xargs python", False, "pipe to xargs python"),
+    ("cat file | sh", False, "pipe to sh"),
+    ("head file | bash", False, "pipe to bash"),
+]
+
 
 class TestIsAllowlisted:
     """Tests for the is_allowlisted function."""
 
-    def test_cat_with_pipe_and_head(self):
-        """Test that cat with pipe to head is allowlisted."""
-        cmd = "cat gptme/cli/commands.py | head -100"
-        assert is_allowlisted(cmd) is True
-
-    def test_simple_cat(self):
-        """Test that simple cat is allowlisted."""
-        cmd = "cat README.md"
-        assert is_allowlisted(cmd) is True
-
-    def test_simple_head(self):
-        """Test that simple head is allowlisted."""
-        cmd = "head -100 file.txt"
-        assert is_allowlisted(cmd) is True
-
-    def test_grep_sort_head_pipeline(self):
-        """Test that a pipeline of allowlisted commands is allowlisted."""
-        cmd = "grep pattern file | sort | head -10"
-        assert is_allowlisted(cmd) is True
-
-    def test_cat_with_redirection_not_allowlisted(self):
-        """Test that cat with output redirection is NOT allowlisted."""
-        cmd = "cat file > output.txt"
-        assert is_allowlisted(cmd) is False
-
-    def test_echo_with_redirection_not_allowlisted(self):
-        """Test that echo with redirection is NOT allowlisted."""
-        cmd = "echo 'hello' > output.txt"
-        assert is_allowlisted(cmd) is False
-
-    def test_non_allowlisted_command(self):
-        """Test that non-allowlisted commands are not allowlisted."""
-        cmd = "rm -rf /tmp/foo"
-        assert is_allowlisted(cmd) is False
-
-    def test_pipe_with_non_allowlisted_command(self):
-        """Test that a pipe to a non-allowlisted command is not allowlisted."""
-        cmd = "cat file | xargs rm"
-        assert is_allowlisted(cmd) is False
-
-    def test_ls_variants(self):
-        """Test that ls variants are allowlisted."""
-        assert is_allowlisted("ls") is True
-        assert is_allowlisted("ls -la") is True
-        assert is_allowlisted("ls -la /tmp") is True
-
-    def test_pwd(self):
-        """Test that pwd is allowlisted."""
-        assert is_allowlisted("pwd") is True
-
-    def test_rg_ripgrep(self):
-        """Test that rg (ripgrep) is allowlisted."""
-        assert is_allowlisted("rg pattern") is True
-        assert is_allowlisted("rg pattern file.txt") is True
-
-    def test_find(self):
-        """Test that find is allowlisted."""
-        assert is_allowlisted("find . -name '*.py'") is True
-
-    def test_tree(self):
-        """Test that tree is allowlisted."""
-        assert is_allowlisted("tree -L 2") is True
+    @pytest.mark.parametrize(("cmd", "expected", "description"), ALLOWLIST_TEST_CASES)
+    def test_allowlist_cases(self, cmd: str, expected: bool, description: str):
+        """Test various allowlist cases."""
+        result = is_allowlisted(cmd)
+        assert result == expected, f"Failed for {description}: {cmd}"
 
 
 class TestShellAllowlistHook:

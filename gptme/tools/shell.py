@@ -1307,7 +1307,23 @@ def is_allowlisted(cmd: str) -> bool:
     # Check for file redirections (>, >>)
     # File redirections with allowlisted commands can be used to write malicious content
     # Example: echo "malicious_code" > /tmp/exploit.sh
-    return not _has_file_redirection(cmd)
+    if _has_file_redirection(cmd):
+        return False
+
+    # Check for dangerous flags and patterns
+    # -exec can execute arbitrary commands: find . -exec rm {} \;
+    if "-exec" in cmd:
+        return False
+
+    # xargs, sh, bash can execute arbitrary commands when used in pipelines
+    # Examples: cat file | xargs rm, cat script | sh
+    dangerous_commands = ["xargs", "sh", "bash", "zsh", "fish"]
+    for match in cmd_regex.finditer(cmd):
+        for group in match.groups():
+            if group in dangerous_commands:
+                return False
+
+    return True
 
 
 def shell_allowlist_hook(
