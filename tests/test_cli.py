@@ -240,9 +240,9 @@ def test_shell_file(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
     # "yes" should appear in output (from cat stdout)
     assert "yes" in result.output, f"Expected 'yes' in output: {result.output}"
-    # The total count of "yes" should be exactly 2: once in the echoed command input,
-    # once in the stdout. More than 2 would indicate filename expansion.
-    # Use >= 2 to tolerate output format variations that caused flakiness (#1325, #1327).
+    # The total count of "yes" should be 2-3: typically 2 (once in echoed command,
+    # once in stdout), but output formatting may vary. More than 3 indicates filename expansion.
+    # Tolerates output variations that caused flakiness (#1325, #1327).
     yes_count = result.output.count("yes")
     assert 2 <= yes_count <= 3, (
         f"Expected 2-3 'yes' occurrences (command echo + stdout), got {yes_count}: "
