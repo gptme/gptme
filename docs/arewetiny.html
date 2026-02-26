@@ -51,7 +51,7 @@
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Timeline" href="timeline.html" />
+    <link rel="next" title="What does “gptme” stand for?" href="misc/acronyms.html" />
     <link rel="prev" title="Alternatives" href="alternatives.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -199,6 +199,7 @@
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.31.0.html">v0.31.0</a></li>
@@ -501,20 +502,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     269662 |     mcp.types
-     272343 |   gptme.tools.mcp_adapter
-     334252 |             openai.types
-     404856 |           openai
-     481074 |         gptme.llm.llm_openai
-     510278 | gptme.cli.main
-     770530 |       gptme.llm
-     772530 |     gptme.commands
-     887557 |   gptme.chat
-     946472 | gptme
+     249785 |     mcp.types
+     252117 |   gptme.tools.mcp_adapter
+     320879 |             openai.types
+     389495 |           openai
+     465576 |         gptme.llm.llm_openai
+     549859 | gptme.cli.main
+     772623 |       gptme.llm
+     774612 |     gptme.commands
+     888206 |   gptme.chat
+     946710 | gptme
 
-real	0m2.450s
-user	0m2.004s
-sys	0m0.251s
+real	0m2.320s
+user	0m1.942s
+sys	0m0.273s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -523,8 +524,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.220 s ±  0.128 s    [User: 1.975 s, System: 0.233 s]
-  Range (min … max):    2.090 s …  2.380 s    5 runs
+  Time (mean ± σ):      2.257 s ±  0.067 s    [User: 2.007 s, System: 0.227 s]
+  Range (min … max):    2.209 s …  2.372 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1583,7 +1584,7 @@ Clone found (python):
 │ Total:     │ 235            │ 59170       │ 376885       │ 27           │ 395 (0.67%)      │ 3171 (0.84%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 27 clones.
-Detection time:: 3.819s
+Detection time:: 4.028s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1626,11 +1627,11 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
       </div>
     </a>
     <a class="right-next"
-       href="timeline.html"
+       href="misc/acronyms.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Timeline</p>
+        <p class="prev-next-title">What does “gptme” stand for?</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -39,6 +39,7 @@
 - [Design: Generalized Elicitation](https://gptme.org/docs/design/elicitation.html)
 - [Alternatives](https://gptme.org/docs/alternatives.html)
 - [Are we tiny?](https://gptme.org/docs/arewetiny.html)
+- [What does “gptme” stand for?](https://gptme.org/docs/misc/acronyms.html)
 - [Timeline](https://gptme.org/docs/timeline.html)
 - [Changelog](https://gptme.org/docs/changelog.html)
 - [v0.31.0](https://gptme.org/docs/releases/v0.31.0.html)
