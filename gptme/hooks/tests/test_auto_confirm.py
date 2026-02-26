@@ -1,7 +1,6 @@
 """Tests for auto_confirm hook."""
 
 from pathlib import Path
-from typing import cast
 
 from gptme.hooks.auto_confirm import auto_confirm_hook
 from gptme.hooks.confirm import ConfirmAction
@@ -10,7 +9,7 @@ from gptme.tools.base import ToolUse
 
 def _make_tool_use(tool: str, content: str = "") -> ToolUse:
     """Create a ToolUse for testing."""
-    return cast(ToolUse, type("ToolUse", (), {"tool": tool, "content": content})())
+    return ToolUse(tool=tool, args=[], content=content)
 
 
 class TestAutoConfirmHook:
