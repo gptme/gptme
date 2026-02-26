@@ -30,6 +30,7 @@ RUN if [ "$PLAYWRIGHT" = "yes" ]; then \
         poetry install -E browser --without=dev; \
         poetry run playwright install-deps; \
         su appuser -c "poetry run playwright install chromium"; \
+        rm -rf /var/lib/apt/lists/*; \
     else \
         apt-get update && apt-get install --no-install-recommends lynx -y \
         && rm -rf /var/lib/apt/lists/*; \
