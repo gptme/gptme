@@ -10,6 +10,7 @@ import platform
 import subprocess
 import time
 from collections.abc import Generator
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -28,13 +29,22 @@ from .util.tree import get_tree_output
 if TYPE_CHECKING:
     from .util.uri import FilePath
 
-# Files that are ALWAYS loaded (layered: user-level + project-level)
-# These are agent instruction files that should always be included regardless of config
-ALWAYS_LOAD_FILES = [
+# Agent instruction files — always loaded (layered: user-level + project-level)
+# These are the standard filenames used across different AI coding tools.
+AGENT_FILES = [
     "AGENTS.md",
     "CLAUDE.md",  # Claude Code compatibility
     "GEMINI.md",  # Gemini compatibility
 ]
+# Keep old name for backwards compatibility with any external code
+ALWAYS_LOAD_FILES = AGENT_FILES
+
+# ContextVar tracking which agent instruction files have been loaded into the session.
+# Populated by prompt_workspace() at startup; used by the agents_md_inject hook
+# (gptme/hooks/agents_md_inject.py) to avoid re-injecting files on CWD changes.
+_loaded_agent_files_var: ContextVar[set[str] | None] = ContextVar(
+    "loaded_agent_files", default=None
+)
 
 # Default files to include in context when no gptme.toml is present or files list is empty
 # These are project-specific files that provide useful context
@@ -520,12 +530,53 @@ def prompt_timeinfo() -> Generator[Message, None, None]:
     yield Message("system", prompt)
 
 
+def find_agent_files_in_tree(
+    directory: Path,
+    exclude: set[str] | None = None,
+) -> list[Path]:
+    """Find AGENTS.md/CLAUDE.md/GEMINI.md files from home down to the given directory.
+
+    Walks from home → directory (most general first, most specific last), checking
+    each directory for agent instruction files. Returns files whose resolved paths
+    are not in the ``exclude`` set.
+
+    Used by both :func:`~gptme.prompts.prompt_workspace` at session start and the
+    ``agents_md_inject`` hook mid-session when the CWD changes.
+    """
+    result: list[Path] = []
+    home_dir = Path.home().resolve()
+    target = directory.resolve()
+    _exclude = exclude or set()
+
+    dirs_to_check: list[Path] = []
+    current = target
+    while current != current.parent:  # Stop at filesystem root
+        dirs_to_check.append(current)
+        if current == home_dir:
+            break  # Don't go above home directory
+        current = current.parent
+
+    # Reverse: most general (home) first, most specific (target) last
+    dirs_to_check.reverse()
+
+    for dir_path in dirs_to_check:
+        for filename in AGENT_FILES:
+            agent_file = dir_path / filename
+            if agent_file.exists():
+                resolved = str(agent_file.resolve())
+                if resolved not in _exclude:
+                    result.append(agent_file)
+
+    return result
+
+
 def prompt_workspace(
     workspace: Path | None = None,
     title="Project Workspace",
     include_path: bool = False,
     include_context_cmd: bool = True,
 ) -> Generator[Message, None, None]:
+    """Generate the workspace context prompt."""
     # TODO: update this prompt if the files change
     # TODO: include `git status -vv`, and keep it up-to-date
     sections = []
@@ -539,7 +590,7 @@ def prompt_workspace(
 
     project = get_project_config(workspace)
 
-    # Always-load files: loaded with tree-walking (most general first, most specific last)
+    # Agent instruction files: loaded with tree-walking (most general first, most specific last)
     # These are agent instruction files that should always be included
     # Loading order:
     #   1. User config dir (~/.config/gptme/AGENTS.md) - global defaults
@@ -548,42 +599,35 @@ def prompt_workspace(
     files: list[Path] = []
     seen_paths: set[str] = set()
     workspace_resolved = workspace.resolve()
-    home_dir = Path.home().resolve()
     config_dir = Path(config_path).expanduser().resolve().parent
 
+    # Initialize the loaded agent files ContextVar so the agents_md_inject hook
+    # (gptme/hooks/agents_md_inject.py) can check which files were already loaded
+    # and skip re-injecting them when the CWD changes mid-session.
+    loaded_agent_files = _loaded_agent_files_var.get()
+    if loaded_agent_files is None:
+        loaded_agent_files = set()
+        _loaded_agent_files_var.set(loaded_agent_files)
+
     # 1. Load user-level agent files from ~/.config/gptme/ (global)
-    for filename in ALWAYS_LOAD_FILES:
+    for filename in AGENT_FILES:
         user_file = config_dir / filename
         if user_file.exists():
             resolved = str(user_file.resolve())
             if resolved not in seen_paths:
                 files.append(user_file)
                 seen_paths.add(resolved)
+                loaded_agent_files.add(resolved)
                 logger.debug(f"Loaded user-level agent file: {user_file}")
 
-    # 2. Walk up from workspace to home, collect directories, then reverse
-    #    to load from most general (home) to most specific (workspace)
-    dirs_to_check: list[Path] = []
-    current = workspace_resolved
-    while current != current.parent:  # Stop at filesystem root
-        dirs_to_check.append(current)
-        if current == home_dir:
-            break  # Don't go above home directory
-        current = current.parent
-
-    # Reverse so we load top-down (most general first)
-    dirs_to_check.reverse()
-
-    # Load ALWAYS_LOAD_FILES from each directory in the tree
-    for dir_path in dirs_to_check:
-        for filename in ALWAYS_LOAD_FILES:
-            agent_file = dir_path / filename
-            if agent_file.exists():
-                resolved = str(agent_file.resolve())
-                if resolved not in seen_paths:
-                    files.append(agent_file)
-                    seen_paths.add(resolved)
-                    logger.debug(f"Loaded agent file from tree: {agent_file}")
+    # 2. Walk from home down to workspace, loading any AGENT_FILES found
+    #    Uses find_agent_files_in_tree() — shared with the agents_md_inject hook
+    for agent_file in find_agent_files_in_tree(workspace_resolved, exclude=seen_paths):
+        resolved = str(agent_file.resolve())
+        files.append(agent_file)
+        seen_paths.add(resolved)
+        loaded_agent_files.add(resolved)
+        logger.debug(f"Loaded agent file from tree: {agent_file}")
 
     # Determine which additional file patterns to use (from config or defaults)
     if project is None or project.files is None:

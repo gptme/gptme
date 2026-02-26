@@ -872,6 +872,9 @@ def init_hooks(
         "workspace_agents": lambda: __import__(
             "gptme.hooks.workspace_agents", fromlist=["register"]
         ).register(),
+        "agents_md_inject": lambda: __import__(
+            "gptme.hooks.agents_md_inject", fromlist=["register"]
+        ).register(),
         # Tool confirmation hooks (mode-specific, not registered by default)
         "cli_confirm": lambda: __import__(
             "gptme.hooks.cli_confirm", fromlist=["register"]
