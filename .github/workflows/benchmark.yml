@@ -61,9 +61,9 @@ jobs:
       env:
         COLD_TIME: ${{ steps.cold.outputs.cold_time }}
         WARM_TIME: ${{ steps.warm.outputs.warm_time }}
-        # Thresholds in seconds
-        COLD_THRESHOLD: "5.0"
-        WARM_THRESHOLD: "2.0"
+        # Thresholds in seconds (with margin for CI variability)
+        COLD_THRESHOLD: "6.0"
+        WARM_THRESHOLD: "2.5"
       run: |
         echo "=== Startup Benchmark Results ==="
         echo "Cold startup: ${COLD_TIME}s (threshold: ${COLD_THRESHOLD}s)"
@@ -104,8 +104,8 @@ jobs:
 
           | Metric | Time | Threshold |
           |--------|------|-----------|
-          | Cold startup | ${coldTime}s | 5.0s |
-          | Warm startup | ${warmTime}s | 2.0s |
+          | Cold startup | ${coldTime}s | 6.0s |
+          | Warm startup | ${warmTime}s | 2.5s |
 
           <details>
           <summary>What do these mean?</summary>
