@@ -117,6 +117,18 @@ def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
 _tools_init_lock = threading.Lock()
 
 
+def _init_single_tool(tool: ToolSpec) -> ToolSpec:
+    """Initialize a single tool: run its init(), register hooks and commands.
+
+    Caller is responsible for acquiring _tools_init_lock if needed.
+    """
+    if tool.init:
+        tool = tool.init()
+    tool.register_hooks()
+    tool.register_commands()
+    return tool
+
+
 def init_tools(
     allowlist: list[str] | None = None,
 ) -> list[ToolSpec]:
@@ -144,13 +156,7 @@ def init_tools(
         for tool in get_toolchain(allowlist):
             if has_tool(tool.name):
                 continue
-            if tool.init:
-                tool = tool.init()
-
-            # Register tool's hooks and commands
-            tool.register_hooks()
-            tool.register_commands()
-
+            tool = _init_single_tool(tool)
             loaded_tools.append(tool)
 
         for tool_name in allowlist or []:
@@ -361,13 +367,8 @@ def load_tool(tool_name: str) -> ToolSpec:
                 f"Tool '{tool_name}' is unavailable (likely missing dependencies)"
             )
 
-        # Initialize if needed
-        if tool.init:
-            tool = tool.init()
-
-        # Register hooks and commands
-        tool.register_hooks()
-        tool.register_commands()
+        # Initialize, register hooks/commands (shared logic)
+        tool = _init_single_tool(tool)
 
         # Add to loaded tools
         _get_loaded_tools().append(tool)
