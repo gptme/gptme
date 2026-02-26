@@ -23,7 +23,6 @@ except ImportError:
 
 import gptme
 
-from .. import __version__
 from ..chat import chat
 from ..commands import _gen_help
 from ..config import setup_config_from_cli
@@ -255,6 +254,13 @@ Run 'gptme-util --help' for all utility commands."""
     help="Show version and configuration information",
 )
 @click.option(
+    "--version-json",
+    "version_json",
+    is_flag=True,
+    hidden=True,
+    help="Show version info as JSON (for scripting)",
+)
+@click.option(
     "--profile",
     is_flag=True,
     help="Enable profiling and save results to gptme-profile-{timestamp}.prof",
@@ -304,6 +310,7 @@ def main(
     non_interactive: bool,
     show_hidden: bool,
     version: bool,
+    version_json: bool,
     resume: bool,
     workspace: str | None,
     agent_path: str | None,
@@ -418,17 +425,15 @@ def main(
         atexit.register(save_profile)
 
     interactive = not non_interactive
-    if version:
-        # print version
-        print(f"gptme v{__version__}")
+    if version or version_json:
+        from ..info import format_version_info
 
-        # print dirs
-        print(f"Logs dir: {get_logs_dir()}")
-
-        # hint about utilities
-        print()
-        print("Utilities: gptme-util (run 'gptme-util --help' for more)")
-
+        print(format_version_info(verbose=verbose, output_json=version_json))
+        
+        # hint about utilities (non-JSON only)
+        if not version_json:
+            print()
+            print("Utilities: gptme-util (run 'gptme-util --help' for more)")
         exit(0)
 
     if "PYTEST_CURRENT_TEST" in os.environ:

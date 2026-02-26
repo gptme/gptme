@@ -132,9 +132,10 @@ class TestCheckPythonDeps:
         results = _check_python_deps()
         dep_names = [r.name for r in results]
 
-        # Should check common optional deps
-        assert any("playwright" in name for name in dep_names)
-        assert any("sentence_transformers" in name for name in dep_names)
+        # Should check common optional deps (extras)
+        # Names from info.py EXTRAS list (synced with pyproject.toml)
+        assert any("browser" in name for name in dep_names)
+        assert any("dspy" in name for name in dep_names)
 
 
 class TestCheckConfig:
