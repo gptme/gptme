@@ -132,9 +132,10 @@ class TestCheckPythonDeps:
         results = _check_python_deps()
         dep_names = [r.name for r in results]
 
-        # Should check common optional deps
-        assert any("playwright" in name for name in dep_names)
-        assert any("sentence_transformers" in name for name in dep_names)
+        # Should check common optional deps (extras)
+        # Now using user-friendly names from info.py
+        assert any("browser" in name for name in dep_names)
+        assert any("rag" in name for name in dep_names)
 
 
 class TestCheckConfig:
