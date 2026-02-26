@@ -29,6 +29,9 @@ from ..prompts import _loaded_agent_files_var, find_agent_files_in_tree
 logger = logging.getLogger(__name__)
 
 # Track CWD before tool execution (same pattern as cwd_tracking.py)
+# TODO: Consider making "cwd changed" a proper hook type (e.g. HookType.CWD_CHANGED)
+#       so that hooks can subscribe to directory changes directly instead of each hook
+#       independently comparing pre/post CWD. See: https://github.com/gptme/gptme/issues/1521
 _cwd_before_var: ContextVar[str | None] = ContextVar(
     "agents_md_cwd_before", default=None
 )
