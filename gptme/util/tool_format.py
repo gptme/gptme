@@ -39,19 +39,28 @@ if TYPE_CHECKING:
     from ..tools.base import ToolSpec
 
 
-def format_tool_summary(tool: "ToolSpec", show_status: bool = True) -> str:
+def format_tool_summary(
+    tool: "ToolSpec", show_status: bool = True, use_color: bool = True
+) -> str:
     """Format a single tool as a one-line summary.
 
     Args:
         tool: The tool to format
         show_status: Whether to show availability status icon
+        use_color: Whether to colorize the status icon
 
     Returns:
         A single line like: "✓ shell        Execute shell commands"
     """
+    import click
+
     status = ""
     if show_status:
-        status = "✓ " if tool.is_available else "✗ "
+        if tool.is_available:
+            icon = click.style("✓", fg="green") if use_color else "✓"
+        else:
+            icon = click.style("✗", fg="red") if use_color else "✗"
+        status = f"{icon} "
 
     # Truncate description to keep it scannable
     desc = tool.desc.rstrip(".")
