@@ -247,8 +247,8 @@ def init(provider: Provider, config: Config):
             base_url=proxy_url or "https://openrouter.ai/api/v1",
             timeout=timeout,
         )
-    elif provider == "gptme-ai":
-        from .llm_gptme_ai import get_api_key, get_base_url
+    elif provider == "gptme":
+        from .llm_gptme import get_api_key, get_base_url
 
         api_key = proxy_key or get_api_key(config)
         base_url = proxy_url or get_base_url(config)
