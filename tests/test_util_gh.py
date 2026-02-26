@@ -129,21 +129,21 @@ def test_gh_tool_read_pr():
 def test_get_github_pr_content_with_unresolved():
     """Test that unresolved review comments are included.
 
-    Uses PR #1489 from gptme/gptme which has unresolved review threads.
+    Uses PR #271 from gptme/gptme which has 4 unresolved review threads
+    from ErikBjare (open since Nov 2024, stable test target).
     """
-    content = get_github_pr_content("https://github.com/gptme/gptme/pull/1489")
+    content = get_github_pr_content("https://github.com/gptme/gptme/pull/271")
 
     if content is None:
         pytest.skip("gh CLI not available or request failed")
 
     # Should have basic PR info
-    assert "SWE-bench" in content or "swe" in content.lower()
+    assert "gptme-util" in content or "prompts" in content
 
-    # PR #1489 has unresolved review threads — verify they show up
-    # (This PR was chosen because it reliably has unresolved threads)
-    if "Review Comments (Unresolved)" in content:
-        # If present, should have file references
-        assert ".py:" in content or ".py" in content
+    # PR #271 has unresolved review threads — verify they show up
+    assert "Review Comments (Unresolved)" in content
+    # Should contain ErikBjare's review comments with file references
+    assert "ErikBjare" in content
 
 
 @pytest.mark.slow
