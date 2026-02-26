@@ -9,6 +9,7 @@ import importlib.metadata
 import importlib.util
 import json
 import platform
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,60 +37,91 @@ class InstallInfo:
     path: str | None = None
 
 
-# Define extras with their indicator packages and descriptions
-# Note: Only user-facing extras are listed here. Build/dev extras like
-# pyinstaller, eval are omitted as they're not useful to show in --version.
-# See pyproject.toml [tool.poetry.extras] for the full list.
-EXTRAS = [
-    ExtraInfo(
-        "browser",
-        False,
-        "Web browsing with Playwright",
-        ["playwright"],
-    ),
-    ExtraInfo(
-        "server",
-        False,
-        "REST API server",
-        ["flask"],
-    ),
-    ExtraInfo(
-        "datascience",
-        False,
-        "Data science tools (numpy, pandas, matplotlib)",
-        ["pandas", "matplotlib"],
-    ),
-    ExtraInfo(
-        "tts",
-        False,
-        "Text-to-speech with Kokoro",
-        ["sounddevice"],
-    ),
-    ExtraInfo(
-        "dspy",
-        False,
-        "Embeddings for RAG/lessons (sentence-transformers)",
-        ["sentence_transformers"],
-    ),
-    ExtraInfo(
-        "telemetry",
-        False,
-        "OpenTelemetry instrumentation",
-        ["opentelemetry"],
-    ),
-    ExtraInfo(
-        "youtube",
-        False,
-        "YouTube transcript extraction",
-        ["youtube_transcript_api"],
-    ),
-    ExtraInfo(
-        "acp",
-        False,
-        "Agent Communication Protocol support",
-        ["agent_client_protocol"],
-    ),
-]
+# Human-friendly descriptions for extras (optional enhancement)
+# If an extra isn't listed here, its name will be used as description
+_EXTRA_DESCRIPTIONS = {
+    "browser": "Web browsing with Playwright",
+    "server": "REST API server",
+    "datascience": "Data science tools (numpy, pandas, matplotlib)",
+    "tts": "Text-to-speech with Kokoro",
+    "dspy": "DSPy & embeddings for RAG/lessons",
+    "telemetry": "OpenTelemetry instrumentation",
+    "youtube": "YouTube transcript extraction",
+    "acp": "Agent Communication Protocol support",
+    "computer": "Computer use (system tools)",
+}
+
+# Internal/build extras that aren't useful to show in --version
+_INTERNAL_EXTRAS = {"all", "eval", "pyinstaller"}
+
+# Cache for parsed extras
+_EXTRAS_CACHE: list[ExtraInfo] | None = None
+
+
+def _parse_extras_from_metadata() -> list[ExtraInfo]:
+    """Parse extras from package metadata.
+
+    Dynamically reads extras and their dependencies from the installed
+    gptme package metadata, ensuring the list stays in sync with pyproject.toml.
+    """
+    try:
+        dist = importlib.metadata.distribution("gptme")
+    except importlib.metadata.PackageNotFoundError:
+        return []
+
+    # Get list of extras from package metadata
+    all_extras = dist.metadata.get_all("Provides-Extra") or []
+    extras = [e for e in all_extras if e not in _INTERNAL_EXTRAS]
+
+    # Parse dependencies for each extra from Requires-Dist
+    requires = dist.requires or []
+    extra_deps: dict[str, list[str]] = {e: [] for e in extras}
+
+    # Pattern to match extra markers like: extra == "name" or extra == 'name'
+    extra_pattern = re.compile(r'extra\s*==\s*["\'](\w+)["\']')
+
+    for req in requires:
+        if "extra ==" not in req and "extra==" not in req:
+            continue
+
+        # Extract package name (handle various formats)
+        # Examples: "flask (>=3.0,<4.0)", "playwright", "numpy ; extra == 'x'"
+        parts = req.split(";")[0].strip()  # Part before markers
+        pkg_name = re.split(r"[\s\[\(]", parts)[0]
+
+        # Find all extras this requirement belongs to
+        for match in extra_pattern.finditer(req):
+            extra_name = match.group(1)
+            if extra_name in extra_deps:
+                # Normalize for import checking (hyphens -> underscores)
+                import_name = pkg_name.replace("-", "_")
+                if import_name not in extra_deps[extra_name]:
+                    extra_deps[extra_name].append(import_name)
+
+    # Build ExtraInfo list
+    result = []
+    for extra in sorted(extras):
+        deps = extra_deps.get(extra, [])
+        result.append(
+            ExtraInfo(
+                name=extra,
+                installed=False,  # Will be set by get_installed_extras()
+                description=_EXTRA_DESCRIPTIONS.get(
+                    extra, extra.replace("_", " ").title()
+                ),
+                packages=deps,
+            )
+        )
+
+    return result
+
+
+def _get_extras() -> list[ExtraInfo]:
+    """Get extras list, using cache if available."""
+    global _EXTRAS_CACHE
+    if _EXTRAS_CACHE is None:
+        _EXTRAS_CACHE = _parse_extras_from_metadata()
+    return _EXTRAS_CACHE
 
 
 def _is_package_installed(name: str) -> bool:
@@ -152,9 +184,14 @@ def get_install_info() -> InstallInfo:
 def get_installed_extras() -> list[ExtraInfo]:
     """Get list of extras with their installation status."""
     result = []
-    for extra in EXTRAS:
+    for extra in _get_extras():
         # Check if any of the indicator packages are installed
-        installed = any(_is_package_installed(pkg) for pkg in extra.packages)
+        # Handle extras with no Python deps (e.g., "computer" uses system tools)
+        installed = (
+            any(_is_package_installed(pkg) for pkg in extra.packages)
+            if extra.packages
+            else False
+        )
         result.append(
             ExtraInfo(
                 name=extra.name,
