@@ -66,9 +66,11 @@ def is_available() -> bool:
         return False
 
     # available if a server is running on localhost:8765
-    server_available = (
-        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect_ex((host, port)) == 0
-    )
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        server_available = sock.connect_ex((host, port)) == 0
+    finally:
+        sock.close()
     return server_available
 
 

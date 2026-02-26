@@ -273,6 +273,7 @@ markers = [
     "requires_api: marks tests that require API access",
     "flaky: marks tests as flaky (retried automatically)",
     "integration: marks tests as integration tests requiring external services",
+    "xdist_group: marks tests that should run in the same xdist group",
 ]
 
 [tool.coverage.run]
