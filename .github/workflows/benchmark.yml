@@ -1,0 +1,143 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  benchmark:
+    name: Startup Benchmark
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install poetry
+      run: pipx install poetry
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: 'poetry'
+
+    - name: Install dependencies
+      run: |
+        poetry install
+
+    - name: Clear Python cache (cold start prep)
+      run: |
+        find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+        find . -type f -name '*.pyc' -delete 2>/dev/null || true
+
+    - name: Benchmark cold startup
+      id: cold
+      run: |
+        # Cold startup (no .pyc files)
+        START=$(python3 -c "import time; print(time.time())")
+        poetry run python -c "from gptme.cli.main import main"
+        END=$(python3 -c "import time; print(time.time())")
+        COLD_TIME=$(python3 -c "print(f'{$END - $START:.3f}')")
+        echo "cold_time=$COLD_TIME" >> $GITHUB_OUTPUT
+        echo "Cold startup: ${COLD_TIME}s"
+
+    - name: Benchmark warm startup
+      id: warm
+      run: |
+        # Run twice to ensure bytecode is cached, measure second run
+        poetry run python -c "from gptme.cli.main import main"
+        START=$(python3 -c "import time; print(time.time())")
+        poetry run python -c "from gptme.cli.main import main"
+        END=$(python3 -c "import time; print(time.time())")
+        WARM_TIME=$(python3 -c "print(f'{$END - $START:.3f}')")
+        echo "warm_time=$WARM_TIME" >> $GITHUB_OUTPUT
+        echo "Warm startup: ${WARM_TIME}s"
+
+    - name: Check thresholds
+      env:
+        COLD_TIME: ${{ steps.cold.outputs.cold_time }}
+        WARM_TIME: ${{ steps.warm.outputs.warm_time }}
+        # Thresholds in seconds (with margin for CI variability)
+        COLD_THRESHOLD: "6.0"
+        WARM_THRESHOLD: "2.5"
+      run: |
+        echo "=== Startup Benchmark Results ==="
+        echo "Cold startup: ${COLD_TIME}s (threshold: ${COLD_THRESHOLD}s)"
+        echo "Warm startup: ${WARM_TIME}s (threshold: ${WARM_THRESHOLD}s)"
+        echo ""
+
+        FAILED=0
+
+        if (( $(echo "$COLD_TIME > $COLD_THRESHOLD" | bc -l) )); then
+          echo "❌ FAIL: Cold startup (${COLD_TIME}s) exceeds threshold (${COLD_THRESHOLD}s)"
+          FAILED=1
+        else
+          echo "✅ PASS: Cold startup within threshold"
+        fi
+
+        if (( $(echo "$WARM_TIME > $WARM_THRESHOLD" | bc -l) )); then
+          echo "❌ FAIL: Warm startup (${WARM_TIME}s) exceeds threshold (${WARM_THRESHOLD}s)"
+          FAILED=1
+        else
+          echo "✅ PASS: Warm startup within threshold"
+        fi
+
+        if [ $FAILED -eq 1 ]; then
+          echo ""
+          echo "Performance regression detected! Please investigate."
+          exit 1
+        fi
+
+    - name: Comment on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const coldTime = '${{ steps.cold.outputs.cold_time }}';
+          const warmTime = '${{ steps.warm.outputs.warm_time }}';
+
+          const body = `## ⏱️ Startup Benchmark Results
+
+          | Metric | Time | Threshold |
+          |--------|------|-----------|
+          | Cold startup | ${coldTime}s | 6.0s |
+          | Warm startup | ${warmTime}s | 2.5s |
+
+          <details>
+          <summary>What do these mean?</summary>
+
+          - **Cold startup**: First import with no \`.pyc\` bytecode cache
+          - **Warm startup**: Subsequent imports with bytecode cached
+
+          </details>`;
+
+          // Find existing comment to update
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+
+          const botComment = comments.find(c =>
+            c.user.type === 'Bot' && c.body.includes('Startup Benchmark Results')
+          );
+
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+          }
