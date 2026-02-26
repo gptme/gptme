@@ -31,16 +31,18 @@ jobs:
 
     - name: Install hyperfine
       run: |
-        wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
-        sudo dpkg -i hyperfine_1.18.0_amd64.deb
+        sudo apt-get install -y hyperfine
 
     - name: Benchmark cold startup
       id: cold
       run: |
-        # Cold startup: --prepare clears .pyc before each run
+        # Get virtualenv path so we can clear .pyc files in dependencies too
+        VENV_PATH=$(poetry env info --path)
+
+        # Cold startup: --prepare clears .pyc in repo AND virtualenv, drops OS page cache
         hyperfine \
           --runs 5 \
-          --prepare 'find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; find . -type f -name "*.pyc" -delete 2>/dev/null; true' \
+          --prepare "find . '$VENV_PATH' -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; sudo sh -c 'sync && echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null; true" \
           --export-json cold.json \
           'poetry run python -c "from gptme.cli.main import main"'
 
