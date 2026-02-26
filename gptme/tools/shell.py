@@ -1310,10 +1310,17 @@ def is_allowlisted(cmd: str) -> bool:
     if _has_file_redirection(cmd):
         return False
 
-    # Check for dangerous flags and patterns
-    # -exec can execute arbitrary commands: find . -exec rm {} \;
-    if "-exec" in cmd:
-        return False
+    # Check for dangerous flags and patterns that can modify files or execute commands
+    # Note: This is defense-in-depth on top of the allowlist check above
+    dangerous_patterns = [
+        "-exec",  # find -exec can execute arbitrary commands
+        "-execdir",  # find -execdir can execute arbitrary commands in target dir
+        "-delete",  # find -delete can delete files
+        "-ok",  # find -ok prompts but can be automated
+    ]
+    for pattern in dangerous_patterns:
+        if pattern in cmd:
+            return False
 
     # xargs, sh, bash can execute arbitrary commands when used in pipelines
     # Examples: cat file | xargs rm, cat script | sh

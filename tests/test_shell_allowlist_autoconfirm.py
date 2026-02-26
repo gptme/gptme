@@ -53,10 +53,15 @@ ALLOWLIST_TEST_CASES = [
         False,
         "find -exec to read sensitive files",
     ),
+    ("find . -name '*.log' -execdir rm {} \\;", False, "find -execdir"),
+    ("find /tmp -type f -delete", False, "find -delete"),
+    ("find . -name '*.txt' -ok cat {} \\;", False, "find -ok"),
     ("cat file | xargs rm", False, "pipe to xargs rm"),
     ("grep pattern file | xargs python", False, "pipe to xargs python"),
     ("cat file | sh", False, "pipe to sh"),
     ("head file | bash", False, "pipe to bash"),
+    ("ls | zsh", False, "pipe to zsh"),
+    ("cat script.sh | fish", False, "pipe to fish"),
 ]
 
 
