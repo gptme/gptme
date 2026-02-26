@@ -45,23 +45,28 @@ ALLOWLIST_TEST_CASES = [
     ("rm -rf /tmp/foo", False, "rm command"),
     ("python script.py", False, "python command"),
     ("npm install", False, "npm command"),
-    # Dangerous patterns with allowlisted commands - should NOT be allowlisted
-    ("find . -name '*.py' -exec rm {} \\;", False, "find -exec rm"),
-    ("find . -type f -exec cat {} \\;", False, "find -exec cat"),
+    # Pipes to non-allowlisted commands - blocked by allowlist (not in allowlist)
+    ("cat file | xargs rm", False, "pipe to xargs (not in allowlist)"),
+    ("grep pattern file | xargs python", False, "pipe to xargs"),
+    ("cat file | sh", False, "pipe to sh (not in allowlist)"),
+    ("head file | bash", False, "pipe to bash (not in allowlist)"),
+    ("ls | python -c 'import sys'", False, "pipe to python"),
+    ("cat data.csv | perl -lane", False, "pipe to perl"),
+    # Dangerous flags within allowlisted commands - blocked by flag check
+    ("find . -name '*.py' -exec rm {} \\;", False, "find -exec rm (dangerous flag)"),
+    ("find . -type f -exec cat {} \\;", False, "find -exec cat (dangerous flag)"),
     (
         "find / -name passwd -exec cat {} \\;",
         False,
         "find -exec to read sensitive files",
     ),
-    ("find . -name '*.log' -execdir rm {} \\;", False, "find -execdir"),
-    ("find /tmp -type f -delete", False, "find -delete"),
-    ("find . -name '*.txt' -ok cat {} \\;", False, "find -ok"),
-    ("cat file | xargs rm", False, "pipe to xargs rm"),
-    ("grep pattern file | xargs python", False, "pipe to xargs python"),
-    ("cat file | sh", False, "pipe to sh"),
-    ("head file | bash", False, "pipe to bash"),
-    ("ls | zsh", False, "pipe to zsh"),
-    ("cat script.sh | fish", False, "pipe to fish"),
+    (
+        "find . -name '*.log' -execdir rm {} \\;",
+        False,
+        "find -execdir (dangerous flag)",
+    ),
+    ("find /tmp -type f -delete", False, "find -delete (dangerous flag)"),
+    ("find . -name '*.txt' -ok cat {} \\;", False, "find -ok (dangerous flag)"),
 ]
 
 

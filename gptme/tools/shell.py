@@ -1298,7 +1298,18 @@ def _has_file_redirection(cmd: str) -> bool:
 
 
 def is_allowlisted(cmd: str) -> bool:
+    """Check if a shell command is safe to auto-approve.
+
+    Uses a conservative allowlist approach:
+    1. All commands in the pipeline must be in the allowlist
+    2. No file redirections (>, >>) - these can write malicious content
+    3. No dangerous flags within allowlisted commands (e.g., find -exec)
+
+    This means commands like xargs, sh, bash, python, perl, etc. are automatically
+    blocked since they're not in the allowlist, even if piped to from safe commands.
+    """
     # Check if all commands in the pipeline are allowlisted
+    # This blocks non-allowlisted commands like: python, perl, xargs, sh, bash, etc.
     for match in cmd_regex.finditer(cmd):
         for group in match.groups():
             if group and group not in allowlist_commands:
@@ -1310,27 +1321,15 @@ def is_allowlisted(cmd: str) -> bool:
     if _has_file_redirection(cmd):
         return False
 
-    # Check for dangerous flags and patterns that can modify files or execute commands
-    # Note: This is defense-in-depth on top of the allowlist check above
+    # Check for dangerous flags within allowlisted commands
+    # These are rare exceptions where an allowlisted command has dangerous dual-use flags
     dangerous_patterns = [
         "-exec",  # find -exec can execute arbitrary commands
         "-execdir",  # find -execdir can execute arbitrary commands in target dir
         "-delete",  # find -delete can delete files
         "-ok",  # find -ok prompts but can be automated
     ]
-    for pattern in dangerous_patterns:
-        if pattern in cmd:
-            return False
-
-    # xargs, sh, bash can execute arbitrary commands when used in pipelines
-    # Examples: cat file | xargs rm, cat script | sh
-    dangerous_commands = ["xargs", "sh", "bash", "zsh", "fish"]
-    for match in cmd_regex.finditer(cmd):
-        for group in match.groups():
-            if group in dangerous_commands:
-                return False
-
-    return True
+    return all(pattern not in cmd for pattern in dangerous_patterns)
 
 
 def shell_allowlist_hook(
