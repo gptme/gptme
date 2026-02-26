@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...message import Message
-from ...util.uri import URI
 from .file_config import FileSelectorConfig
 from .file_integration import FileItem
 from .hybrid import HybridSelector
@@ -109,8 +108,8 @@ def select_relevant_files(
     # Import here to avoid circular dependency
     from ...util.context import get_mentioned_files
 
-    # Get files with mention counts (existing logic)
-    mentioned_files = get_mentioned_files(msgs, workspace)
+    # Get files with mention counts
+    mention_counts = get_mentioned_files(msgs, workspace)
 
     # Load config if not provided
     if config is None:
@@ -127,11 +126,11 @@ def select_relevant_files(
 
     if not use_selector or not config.enabled:
         # Fallback: return top N by mention count + recency (existing behavior)
-        return mentioned_files[:max_files]
+        return list(mention_counts.keys())[:max_files]
 
     # Gather all candidate files
     # 1. Mentioned files
-    candidates = dict.fromkeys(mentioned_files, 0)
+    candidates = dict.fromkeys(mention_counts.keys(), 0)
 
     # 2. Workspace files (if available)
     if workspace:
@@ -142,24 +141,6 @@ def select_relevant_files(
     # Convert to FileItems with metadata
     now = datetime.now(tz=timezone.utc).timestamp()
     file_items = []
-
-    # Pre-calculate counts for mentioned files only (optimization)
-    # For non-mentioned workspace files, count is 0
-    # Instead of re-iterating msgs for every file, we trust get_mentioned_files ordering/existence specific for mentioned ones
-    # But we need actual counts for boosting?
-    # Let's do a quick pass to count mentions if we really need them for scoring
-
-    # Optimization: build mention map locally
-    # TODO: get_mentioned_files should probably return counts
-    mention_counts: dict[Path, int] = {}
-    for msg in msgs:
-        for file_ref in msg.files:
-            # Skip URIs - they're not local files
-            if isinstance(file_ref, URI):
-                continue
-            # file_ref is now guaranteed to be Path after the isinstance check
-            path = (workspace / file_ref).resolve() if workspace else file_ref.resolve()
-            mention_counts[path] = mention_counts.get(path, 0) + 1
 
     for f in candidates:
         try:

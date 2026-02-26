@@ -74,7 +74,7 @@ def context_hook(
     except Exception as e:
         logger.error(f"Failed to select files with context selector: {e}")
         # Fallback to simple mention counting if selector fails
-        files = get_mentioned_files(messages, workspace)[:10]
+        files = list(get_mentioned_files(messages, workspace).keys())[:10]
 
     if not files:
         return

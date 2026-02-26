@@ -364,8 +364,13 @@ def git_status() -> str | None:
     return None
 
 
-def get_mentioned_files(msgs: list[Message], workspace: Path | None) -> list[Path]:
-    """Count files mentioned in messages."""
+def get_mentioned_files(msgs: list[Message], workspace: Path | None) -> dict[Path, int]:
+    """Get files mentioned in messages with their mention counts.
+
+    Returns:
+        Dict mapping file paths to mention counts,
+        ordered by (mention_count, mtime) descending.
+    """
     workspace_abs = workspace.resolve() if workspace else None
     files: Counter[Path] = Counter()
     for msg in msgs:
@@ -391,7 +396,7 @@ def get_mentioned_files(msgs: list[Message], workspace: Path | None) -> list[Pat
         except FileNotFoundError:
             return (files[f], 0)
 
-    return sorted(files.keys(), key=file_score, reverse=True)
+    return {f: files[f] for f in sorted(files.keys(), key=file_score, reverse=True)}
 
 
 # gather_fresh_context removal: Logic moved to gptme.hooks.context

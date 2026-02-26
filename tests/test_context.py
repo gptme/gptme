@@ -91,10 +91,14 @@ def test_get_mentioned_files(tmp_path):
         Message("user", "check file2", files=[file2]),
     ]
 
-    # Should sort by mentions (file1 mentioned twice)
+    # Should return dict with counts, ordered by mentions (file1 mentioned twice)
     files = get_mentioned_files(msgs, tmp_path)
-    assert files[0] == file1
-    assert files[1] == file2
+    paths = list(files.keys())
+    assert paths[0] == file1
+    assert paths[1] == file2
+    # Verify counts are returned
+    assert files[file1.resolve()] == 2
+    assert files[file2.resolve()] == 1
 
 
 def test_use_fresh_context(monkeypatch):
