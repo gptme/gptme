@@ -144,7 +144,7 @@ def test_tools_list():
 
     # Test basic list
     result = runner.invoke(main, ["tools", "list"])
-    assert "Available tools:" in result.output
+    assert "Available tools" in result.output
     assert result.exit_code == 0
 
     # Test langtags
@@ -160,9 +160,9 @@ def test_tools_info():
     # Test valid tool
     result = runner.invoke(main, ["tools", "info", "ipython"])
     assert result.exit_code == 0
-    assert "Tool: ipython" in result.output
-    assert "Description:" in result.output
-    assert "Instructions:" in result.output
+    assert "# ipython" in result.output
+    assert "Status:" in result.output
+    assert "## Instructions" in result.output
 
     # Test invalid tool
     result = runner.invoke(main, ["tools", "info", "nonexistent-tool"])

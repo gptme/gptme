@@ -680,40 +680,34 @@ def tools():
     "--available/--all", default=True, help="Show only available tools or all tools"
 )
 @click.option("--langtags", is_flag=True, help="Show language tags for code execution")
-def tools_list(available: bool, langtags: bool):
+@click.option("--compact", is_flag=True, help="Compact single-line format")
+def tools_list(available: bool, langtags: bool, compact: bool):
     """List available tools."""
-    from ..commands import _gen_help  # fmt: skip
     from ..tools import get_tools, init_tools  # fmt: skip
+    from ..util.tool_format import format_langtags, format_tools_list  # fmt: skip
 
     # Initialize tools
     init_tools()
 
     if langtags:
-        # Show language tags using existing help generator
-        for line in _gen_help(incl_langtags=True):
-            if line.startswith("Supported langtags:"):
-                print("\nSupported language tags:")
-                continue
-            if line.startswith("  - "):
-                print(line)
+        print(format_langtags(get_tools()))
         return
 
-    print("Available tools:")
-    for tool in get_tools():
-        if not available or tool.is_available:
-            status = "✓" if tool.is_available else "✗"
-            print(
-                f"""
- {status} {tool.name}
-   {tool.desc}"""
-            )
+    print(format_tools_list(get_tools(), show_all=not available, compact=compact))
 
 
 @tools.command("info")
 @click.argument("tool_name")
-def tools_info(tool_name: str):
-    """Show detailed information about a tool."""
+@click.option("--no-examples", is_flag=True, help="Hide examples section")
+@click.option("--no-tokens", is_flag=True, help="Hide token estimates")
+def tools_info(tool_name: str, no_examples: bool, no_tokens: bool):
+    """Show detailed information about a tool.
+
+    Displays tool instructions, examples, and token usage estimates.
+    Use this to understand how a tool works and how to use it.
+    """
     from ..tools import get_tool, get_tools, init_tools  # fmt: skip
+    from ..util.tool_format import format_tool_info  # fmt: skip
 
     # Initialize tools
     init_tools()
@@ -722,17 +716,16 @@ def tools_info(tool_name: str):
     if not tool:
         print(f"Tool '{tool_name}' not found. Available tools:")
         for t in get_tools():
-            print(f"- {t.name}")
+            print(f"  - {t.name}")
         sys.exit(1)
 
-    print(f"Tool: {tool.name}")
-    print(f"Description: {tool.desc}")
-    print(f"Available: {'Yes' if tool.is_available else 'No'}")
-    print("\nInstructions:")
-    print(tool.instructions)
-    if tool.get_examples():
-        print("\nExamples:")
-        print(tool.get_examples())
+    print(
+        format_tool_info(
+            tool,
+            include_examples=not no_examples,
+            include_tokens=not no_tokens,
+        )
+    )
 
 
 @tools.command("call")

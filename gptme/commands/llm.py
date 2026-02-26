@@ -99,18 +99,27 @@ def cmd_models(ctx: CommandContext) -> None:
 
 @command("tools")
 def cmd_tools(ctx: CommandContext) -> None:
-    """Show available tools."""
-    from ..message import len_tokens  # fmt: skip
-    from ..tools import get_tool_format, get_tools  # fmt: skip
+    """Show available tools.
 
-    print("Available tools:")
-    for tool in get_tools():
-        print(
-            f"""
-  # {tool.name}
-    {tool.desc.rstrip(".")}
-    tokens (example): {len_tokens(tool.get_examples(get_tool_format()), "gpt-4")}"""
-        )
+    Usage:
+        /tools          List all available tools
+        /tools <name>   Show detailed info for a specific tool
+    """
+    from ..tools import get_tool, get_tools  # fmt: skip
+    from ..util.tool_format import format_tool_info, format_tools_list  # fmt: skip
+
+    if ctx.args:
+        # Show info for specific tool
+        tool_name = ctx.args[0]
+        tool = get_tool(tool_name)
+        if not tool:
+            print(f"Tool '{tool_name}' not found.")
+            print("Available tools:", ", ".join(t.name for t in get_tools()))
+            return
+        print(format_tool_info(tool))
+    else:
+        # List all tools
+        print(format_tools_list(get_tools(), show_all=False))
 
 
 @command("context")
