@@ -28,12 +28,18 @@ from .util.tree import get_tree_output
 if TYPE_CHECKING:
     from .util.uri import FilePath
 
+# Files that are ALWAYS loaded (layered: user-level + project-level)
+# These are agent instruction files that should always be included regardless of config
+ALWAYS_LOAD_FILES = [
+    "AGENTS.md",
+    "CLAUDE.md",  # Claude Code compatibility
+    "GEMINI.md",  # Gemini compatibility
+]
+
 # Default files to include in context when no gptme.toml is present or files list is empty
+# These are project-specific files that provide useful context
 DEFAULT_CONTEXT_FILES = [
     "README*",
-    "AGENTS.md",
-    "CLAUDE.md",
-    "GEMINI.md",
     ".cursor/rules/*.mdc",
     "pyproject.toml",
     "package.json",
@@ -511,7 +517,34 @@ def prompt_workspace(
 
     project = get_project_config(workspace)
 
-    # Determine which file patterns to use
+    # Always-load files: loaded from BOTH user config dir AND project (layered)
+    # These are agent instruction files that should always be included
+    files: list[Path] = []
+    seen_paths: set[str] = set()
+
+    # 1. Load user-level agent files from ~/.config/gptme/
+    config_dir = Path(config_path).expanduser().resolve().parent
+    for filename in ALWAYS_LOAD_FILES:
+        user_file = config_dir / filename
+        if user_file.exists():
+            resolved = str(user_file.resolve())
+            if resolved not in seen_paths:
+                files.append(user_file)
+                seen_paths.add(resolved)
+                logger.debug(f"Loaded user-level agent file: {user_file}")
+
+    # 2. Load project-level agent files from workspace
+    workspace_resolved = workspace.resolve()
+    for filename in ALWAYS_LOAD_FILES:
+        project_file = workspace / filename
+        if project_file.exists():
+            resolved = str(project_file.resolve())
+            if resolved not in seen_paths:
+                files.append(project_file)
+                seen_paths.add(resolved)
+                logger.debug(f"Loaded project-level agent file: {project_file}")
+
+    # Determine which additional file patterns to use (from config or defaults)
     if project is None or project.files is None:
         # No project config or no files specified in config
         file_patterns = DEFAULT_CONTEXT_FILES
@@ -529,9 +562,7 @@ def prompt_workspace(
                 "Project config has files explicitly set to empty, not including any files"
             )
 
-    # Process file patterns
-    files: list[Path] = []
-    workspace_resolved = workspace.resolve()
+    # Process file patterns (additional files from config/defaults)
     for fileglob in file_patterns:
         # expand user
         fileglob = str(Path(fileglob).expanduser())
@@ -541,7 +572,11 @@ def prompt_workspace(
                 # Validate file is within workspace (prevent path traversal)
                 try:
                     f.resolve().relative_to(workspace_resolved)
-                    files.append(f)
+                    resolved = str(f.resolve())
+                    # Skip if already loaded (e.g., from ALWAYS_LOAD_FILES)
+                    if resolved not in seen_paths:
+                        files.append(f)
+                        seen_paths.add(resolved)
                 except ValueError:
                     logger.warning(
                         f"Skipping file outside workspace: {f} (from glob '{fileglob}')"
@@ -567,8 +602,6 @@ def prompt_workspace(
     except Exception:
         user_files = []
     if user_files:
-        config_dir = Path(config_path).expanduser().resolve().parent
-        existing = {str(Path(p).resolve()) for p in files if Path(p).exists()}
         for entry in user_files:
             p = Path(entry).expanduser()
             if not p.is_absolute():
@@ -580,9 +613,9 @@ def prompt_workspace(
                 pass
             if p.exists():
                 rp = str(p)
-                if rp not in existing:
+                if rp not in seen_paths:
                     files.append(p)
-                    existing.add(rp)
+                    seen_paths.add(rp)
             else:
                 logger.debug(f"User-configured file not found: {p}")
 
