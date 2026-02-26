@@ -517,13 +517,19 @@ def prompt_workspace(
 
     project = get_project_config(workspace)
 
-    # Always-load files: loaded from BOTH user config dir AND project (layered)
+    # Always-load files: loaded with tree-walking (most general first, most specific last)
     # These are agent instruction files that should always be included
+    # Loading order:
+    #   1. User config dir (~/.config/gptme/AGENTS.md) - global defaults
+    #   2. Walk from home dir down to workspace, loading any AGENTS.md found
+    #      e.g., ~/Programming/AGENTS.md → ~/Programming/gptme/AGENTS.md → workspace
     files: list[Path] = []
     seen_paths: set[str] = set()
-
-    # 1. Load user-level agent files from ~/.config/gptme/
+    workspace_resolved = workspace.resolve()
+    home_dir = Path.home().resolve()
     config_dir = Path(config_path).expanduser().resolve().parent
+
+    # 1. Load user-level agent files from ~/.config/gptme/ (global)
     for filename in ALWAYS_LOAD_FILES:
         user_file = config_dir / filename
         if user_file.exists():
@@ -533,16 +539,29 @@ def prompt_workspace(
                 seen_paths.add(resolved)
                 logger.debug(f"Loaded user-level agent file: {user_file}")
 
-    # 2. Load project-level agent files from workspace
-    workspace_resolved = workspace.resolve()
-    for filename in ALWAYS_LOAD_FILES:
-        project_file = workspace / filename
-        if project_file.exists():
-            resolved = str(project_file.resolve())
-            if resolved not in seen_paths:
-                files.append(project_file)
-                seen_paths.add(resolved)
-                logger.debug(f"Loaded project-level agent file: {project_file}")
+    # 2. Walk up from workspace to home, collect directories, then reverse
+    #    to load from most general (home) to most specific (workspace)
+    dirs_to_check: list[Path] = []
+    current = workspace_resolved
+    while current != current.parent:  # Stop at filesystem root
+        dirs_to_check.append(current)
+        if current == home_dir:
+            break  # Don't go above home directory
+        current = current.parent
+
+    # Reverse so we load top-down (most general first)
+    dirs_to_check.reverse()
+
+    # Load ALWAYS_LOAD_FILES from each directory in the tree
+    for dir_path in dirs_to_check:
+        for filename in ALWAYS_LOAD_FILES:
+            agent_file = dir_path / filename
+            if agent_file.exists():
+                resolved = str(agent_file.resolve())
+                if resolved not in seen_paths:
+                    files.append(agent_file)
+                    seen_paths.add(resolved)
+                    logger.debug(f"Loaded agent file from tree: {agent_file}")
 
     # Determine which additional file patterns to use (from config or defaults)
     if project is None or project.files is None:
