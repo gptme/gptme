@@ -332,3 +332,42 @@ def get_tool(tool_name: str) -> ToolSpec | None:
 def has_tool(tool_name: str) -> bool:
     """Returns True if a tool is loaded."""
     return any(tool.name == tool_name for tool in _get_loaded_tools())
+
+
+def load_tool(tool_name: str) -> ToolSpec:
+    """Load a single tool by name mid-conversation.
+
+    Finds the tool in available tools, initializes it, registers hooks/commands,
+    and adds it to the loaded tools list.
+
+    Raises:
+        ValueError: If tool not found or already loaded.
+    """
+    if has_tool(tool_name):
+        raise ValueError(f"Tool '{tool_name}' is already loaded")
+
+    available = {t.name: t for t in get_available_tools()}
+    if tool_name not in available:
+        raise ValueError(
+            f"Tool '{tool_name}' not found. Available: {', '.join(sorted(available.keys()))}"
+        )
+
+    tool = available[tool_name]
+    if not tool.is_available:
+        raise ValueError(
+            f"Tool '{tool_name}' is unavailable (likely missing dependencies)"
+        )
+
+    # Initialize if needed
+    if tool.init:
+        tool = tool.init()
+
+    # Register hooks and commands
+    tool.register_hooks()
+    tool.register_commands()
+
+    # Add to loaded tools
+    _get_loaded_tools().append(tool)
+    logger.info("Loaded tool '%s' mid-conversation", tool_name)
+
+    return tool

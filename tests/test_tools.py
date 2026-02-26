@@ -12,6 +12,7 @@ from gptme.tools import (
     has_tool,
     init_tools,
     is_supported_langtag,
+    load_tool,
 )
 
 
@@ -129,3 +130,35 @@ def test_is_supported_lang_tag():
 
     assert is_supported_langtag("save")
     assert not is_supported_langtag("randomtag")
+
+
+def test_load_tool():
+    """Test loading a tool mid-conversation."""
+    clear_tools()
+    init_tools(allowlist=["save"])
+    assert has_tool("save")
+    assert not has_tool("patch")
+
+    # Load 'patch' mid-conversation
+    tool = load_tool("patch")
+    assert tool.name == "patch"
+    assert has_tool("patch")
+    assert len(get_tools()) == 2
+
+
+def test_load_tool_already_loaded():
+    """Test that loading an already-loaded tool raises ValueError."""
+    clear_tools()
+    init_tools(allowlist=["save"])
+
+    with pytest.raises(ValueError, match="already loaded"):
+        load_tool("save")
+
+
+def test_load_tool_not_found():
+    """Test that loading a non-existent tool raises ValueError."""
+    clear_tools()
+    init_tools(allowlist=["save"])
+
+    with pytest.raises(ValueError, match="not found"):
+        load_tool("nonexistent_tool_xyz")

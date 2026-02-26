@@ -97,20 +97,78 @@ def cmd_models(ctx: CommandContext) -> None:
     _print_available_models()
 
 
-@command("tools")
-def cmd_tools(ctx: CommandContext) -> None:
-    """Show available tools.
+def _complete_tools(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]:
+    """Complete tool names for /tools command."""
+    from ..tools import get_available_tools  # fmt: skip
+
+    subcommands = [
+        ("load", "Load a tool mid-conversation"),
+    ]
+    # If first arg, suggest subcommands and tool names
+    if not _prev_args:
+        completions = subcommands[:]
+        for tool in get_available_tools():
+            completions.append((tool.name, tool.desc[:60]))
+        return [(name, desc) for name, desc in completions if name.startswith(partial)]
+    # If after "load", suggest unloaded tools
+    if _prev_args and _prev_args[0] == "load":
+        from ..tools import get_tools  # fmt: skip
+
+        loaded_names = {t.name for t in get_tools()}
+        return [
+            (t.name, t.desc[:60])
+            for t in get_available_tools()
+            if t.name not in loaded_names and t.name.startswith(partial)
+        ]
+    return []
+
+
+@command("tools", completer=_complete_tools)
+def cmd_tools(ctx: CommandContext):
+    """Show available tools or load new ones mid-conversation.
 
     Usage:
-        /tools          List loaded tools (with hint about others)
-        /tools <name>   Show detailed info for a specific tool
-        /tools --all    Show all available tools including unloaded
+        /tools              List loaded tools (with hint about others)
+        /tools <name>       Show detailed info for a specific tool
+        /tools --all        Show all available tools including unloaded
+        /tools load <name>  Load a tool into the current conversation
     """
-    from ..tools import get_available_tools, get_tool, get_tools  # fmt: skip
+    from ..message import Message  # fmt: skip
+    from ..tools import get_available_tools, get_tool, get_tools, load_tool  # fmt: skip
+    from ..tools.base import get_tool_format  # fmt: skip
     from ..util.tool_format import format_tool_info, format_tools_list  # fmt: skip
 
     show_all = ctx.args and ctx.args[0] == "--all"
     args = [a for a in ctx.args if a != "--all"] if ctx.args else []
+
+    # Handle /tools load <name>
+    if args and args[0] == "load":
+        if len(args) < 2:
+            print("Usage: /tools load <name>")
+            print("Available unloaded tools:")
+            loaded_names = {t.name for t in get_tools()}
+            for t in sorted(get_available_tools(), key=lambda t: t.name):
+                if t.name not in loaded_names:
+                    print(f"  {t.name}: {t.desc}")
+            return
+
+        tool_name = args[1]
+        try:
+            new_tool = load_tool(tool_name)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return
+
+        print(f"Tool '{new_tool.name}' loaded successfully.")
+
+        # Build a system message with the tool's instructions
+        tool_format = get_tool_format()
+        prompt = new_tool.get_tool_prompt(examples=True, tool_format=tool_format)
+        yield Message(
+            "system",
+            f"The following tool has been loaded and is now available:\n{prompt}\n",
+        )
+        return
 
     if args:
         # Show info for specific tool
@@ -144,7 +202,7 @@ def cmd_tools(ctx: CommandContext) -> None:
             if unloaded:
                 unloaded_names = ", ".join(sorted(t.name for t in unloaded))
                 print(
-                    f"\nOther available tools (use '-t +name' to add): {unloaded_names}"
+                    f"\nOther available tools (use '/tools load <name>' to add): {unloaded_names}"
                 )
 
 
