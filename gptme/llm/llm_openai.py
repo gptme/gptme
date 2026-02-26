@@ -247,6 +247,16 @@ def init(provider: Provider, config: Config):
             base_url=proxy_url or "https://openrouter.ai/api/v1",
             timeout=timeout,
         )
+    elif provider == "gptme":
+        from .llm_gptme import get_api_key, get_base_url
+
+        api_key = proxy_key or get_api_key(config)
+        base_url = proxy_url or get_base_url(config)
+        clients[provider] = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+        )
     elif provider == "gemini":
         api_key = config.get_env_required("GEMINI_API_KEY")
         clients[provider] = OpenAI(

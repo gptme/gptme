@@ -43,6 +43,7 @@ BuiltinProvider = Literal[
     "anthropic",
     "azure",
     "openrouter",
+    "gptme",
     "gemini",
     "groq",
     "xai",
@@ -79,6 +80,7 @@ PROVIDERS_OPENAI = [
     "openai",
     "azure",
     "openrouter",
+    "gptme",
     "gemini",
     "xai",
     "groq",
@@ -563,6 +565,10 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     },
     "nvidia": {},
     "azure": {},
+    # gptme managed service — proxies to multiple providers
+    # Models are pass-through: gptme/claude-sonnet-4-6 → proxied to backend
+    # Empty dict = models fetched dynamically or specified by user
+    "gptme": {},
     "local": {},
 }
 
@@ -742,7 +748,7 @@ def get_model(model: str) -> ModelMeta:
             # Provider-specific intelligent fallbacks
             # These defaults reflect modern baselines for each provider
             # Suppress warnings for dynamic providers (openrouter, local)
-            if provider not in ["openrouter", "local"]:
+            if provider not in ["openrouter", "local", "gptme"]:
                 if provider == "anthropic":
                     log_warn_once(
                         f"Unknown model: using Anthropic fallback metadata for {model_name}"
@@ -810,6 +816,8 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
         return "claude-sonnet-4-6"
     if provider == "xai":
         return "grok-4"
+    if provider == "gptme":
+        return "claude-sonnet-4-6"
     if provider == "deepseek":
         return "deepseek-chat"
     if provider == "groq":
