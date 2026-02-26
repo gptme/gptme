@@ -70,8 +70,7 @@ See [docs/glossary.md](docs/glossary.md) for full terminology.
 ### Adding a new tool
 1. Create `gptme/tools/toolname.py`
 2. Implement `ToolSpec` with `execute()` function
-3. Add to `gptme/tools/__init__.py`
-4. Add tests in `tests/test_tools_toolname.py`
+3. Add tests in `tests/test_tools_toolname.py`
 
 ### Running the server
 ```bash
