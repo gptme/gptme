@@ -12,7 +12,8 @@ import uuid
 from pathlib import Path
 
 from gptme.dirs import get_logs_dir
-from gptme.logmanager import LogManager, SWEBenchInfo
+from gptme.eval.swebench import SWEBenchInfo
+from gptme.logmanager import LogManager
 from gptme.message import print_msg
 from gptme.tools import execute_msg, init_tools
 from gptme.util.auto_naming import generate_conversation_id

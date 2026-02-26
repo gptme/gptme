@@ -6,7 +6,8 @@ import pandas as pd
 from datasets import Dataset, load_dataset
 from swebench.harness.constants import SWEbenchInstance
 
-from gptme.logmanager import Log, SWEBenchInfo, get_user_conversations
+from gptme.eval.swebench import SWEBenchInfo
+from gptme.logmanager import Log, get_user_conversations
 
 
 def load_my_trajectories():

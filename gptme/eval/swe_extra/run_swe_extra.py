@@ -9,7 +9,8 @@ from gptme.eval.swe_extra.swe_bench_extra_data import (
     load_instance_by_id,
     load_top_50_easiest_task_instances,
 )
-from gptme.logmanager import LogManager, SWEBenchInfo
+from gptme.eval.swebench import SWEBenchInfo
+from gptme.logmanager import LogManager
 from gptme.tools import init_tools
 
 

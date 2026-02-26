@@ -1,4 +1,5 @@
 from .evaluate import run_swebench_evaluation
+from .info import SWEBenchInfo
 from .utils import (
     get_file_spans_from_patch,
     load_instance,
@@ -12,4 +13,5 @@ __all__ = [
     "setup_swebench_repo",
     "get_file_spans_from_patch",
     "run_swebench_evaluation",
+    "SWEBenchInfo",
 ]

@@ -16,7 +16,7 @@ from swebench.harness.test_spec.python import (
     get_test_directives,
 )
 
-from gptme.logmanager import SWEBenchInfo
+from gptme.eval.swebench import SWEBenchInfo
 
 from .swe_bench_constants import (
     MAP_REPO_TO_REQS_PATHS,
