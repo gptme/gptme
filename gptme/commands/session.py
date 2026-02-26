@@ -197,9 +197,12 @@ def cmd_restart(ctx: CommandContext) -> None:
     - Recovering from state issues
     """
     from ..tools.restart import _do_restart
+    from ..util.prompt import prompt_alert
 
-    response = input("Restart gptme? This will exit and restart the process. [y/N] ")
-    confirmed = response.lower().strip() in ("y", "yes")
+    response = prompt_alert(
+        "Restart gptme? This will exit and restart the process. [y/N]"
+    )
+    confirmed = response in ("y", "yes")
     if not confirmed:
         print("Restart cancelled.")
         return
@@ -253,8 +256,10 @@ def _rename(manager: "LogManager", new_name: str) -> None:
             raise ValueError(f"Generated name contains spaces: '{new_name}'")
         print(f"Generated name: {new_name}")
         if sys.stdin.isatty():
-            response = input("Confirm? [y/N] ")
-            confirmed = response.lower().strip() in ("y", "yes")
+            from ..util.prompt import prompt_alert
+
+            response = prompt_alert("Confirm? [y/N]")
+            confirmed = response in ("y", "yes")
         else:
             # Non-interactive mode - auto-approve
             confirmed = True

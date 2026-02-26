@@ -55,6 +55,8 @@ def _confirm_urls(urls: list[str]) -> list[str]:
     """
     from rich import print as rprint
 
+    from .prompt import prompt_alert
+
     if not urls:
         return []
 
@@ -66,7 +68,7 @@ def _confirm_urls(urls: list[str]) -> list[str]:
             rprint(f"  {i}. {url}")
 
     try:
-        response = input("Read URL(s)? [Y/n/select numbers] ").strip().lower()
+        response = prompt_alert("Read URL(s)? [Y/n/select numbers]")
     except (EOFError, KeyboardInterrupt):
         return []
 
