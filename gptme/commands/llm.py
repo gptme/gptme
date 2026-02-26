@@ -110,7 +110,7 @@ def _complete_tools(partial: str, _prev_args: list[str]) -> list[tuple[str, str]
         for tool in get_available_tools():
             completions.append((tool.name, tool.desc[:60]))
         return [(name, desc) for name, desc in completions if name.startswith(partial)]
-    # If after "load", suggest unloaded tools
+    # If after "load", suggest unloaded tools (only available ones with satisfied deps)
     if _prev_args and _prev_args[0] == "load":
         from ..tools import get_tools  # fmt: skip
 
@@ -118,7 +118,9 @@ def _complete_tools(partial: str, _prev_args: list[str]) -> list[tuple[str, str]
         return [
             (t.name, t.desc[:60])
             for t in get_available_tools()
-            if t.name not in loaded_names and t.name.startswith(partial)
+            if t.name not in loaded_names
+            and t.is_available
+            and t.name.startswith(partial)
         ]
     return []
 
