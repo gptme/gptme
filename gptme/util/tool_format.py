@@ -40,7 +40,10 @@ if TYPE_CHECKING:
 
 
 def format_tool_summary(
-    tool: "ToolSpec", show_status: bool = True, use_color: bool = True
+    tool: "ToolSpec",
+    show_status: bool = True,
+    use_color: bool = True,
+    show_default: bool = False,
 ) -> str:
     """Format a single tool as a one-line summary.
 
@@ -48,6 +51,7 @@ def format_tool_summary(
         tool: The tool to format
         show_status: Whether to show availability status icon
         use_color: Whether to colorize the status icon
+        show_default: Whether to mark non-default tools
 
     Returns:
         A single line like: "✓ shell        Execute shell commands"
@@ -67,7 +71,16 @@ def format_tool_summary(
     if len(desc) > 50:
         desc = desc[:47] + "..."
 
-    return f"{status}{tool.name:<12} {desc}"
+    # Mark non-default tools
+    suffix = ""
+    if (
+        show_default
+        and hasattr(tool, "disabled_by_default")
+        and tool.disabled_by_default
+    ):
+        suffix = click.style(" [+]", fg="yellow", dim=True) if use_color else " [+]"
+
+    return f"{status}{tool.name:<12} {desc}{suffix}"
 
 
 def format_tools_list(
@@ -75,6 +88,7 @@ def format_tools_list(
     show_all: bool = False,
     show_status: bool = True,
     compact: bool = False,
+    show_defaults: bool = True,
 ) -> str:
     """Format a list of tools for display.
 
@@ -83,6 +97,7 @@ def format_tools_list(
         show_all: Include unavailable tools
         show_status: Show ✓/✗ status icons
         compact: Use more compact format
+        show_defaults: Mark tools that are disabled by default with [+]
 
     Returns:
         Formatted multi-line string
@@ -91,6 +106,9 @@ def format_tools_list(
     unavailable = [t for t in tools if not t.is_available]
     available_count = len(available)
     total_count = len(tools)
+
+    # Check if any tools are disabled by default
+    has_non_defaults = any(getattr(t, "disabled_by_default", False) for t in tools)
 
     lines: list[str] = []
     prefix = " " if compact else "  "
@@ -104,7 +122,7 @@ def format_tools_list(
             lines.append("")
 
         lines.extend(
-            prefix + format_tool_summary(tool, show_status)
+            prefix + format_tool_summary(tool, show_status, show_default=show_defaults)
             for tool in sorted(available, key=lambda t: t.name)
         )
 
@@ -113,7 +131,8 @@ def format_tools_list(
             lines.append(f"Unavailable tools ({len(unavailable)}):")
             lines.append("")
             lines.extend(
-                prefix + format_tool_summary(tool, show_status)
+                prefix
+                + format_tool_summary(tool, show_status, show_default=show_defaults)
                 for tool in sorted(unavailable, key=lambda t: t.name)
             )
     else:
@@ -125,7 +144,7 @@ def format_tools_list(
             lines.append("")
 
         lines.extend(
-            prefix + format_tool_summary(tool, show_status)
+            prefix + format_tool_summary(tool, show_status, show_default=show_defaults)
             for tool in sorted(available, key=lambda t: t.name)
         )
 
@@ -138,6 +157,9 @@ def format_tools_list(
 
     if not compact:
         lines.append("")
+        # Add legend if there are non-default tools
+        if show_defaults and has_non_defaults:
+            lines.append("[+] = not loaded by default, use '-t +name' to enable")
         lines.append(
             "Run '/tools <name>' or 'gptme-util tools info <name>' for details"
         )
