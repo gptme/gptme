@@ -39,7 +39,7 @@ make lint           # ruff + other checks
 Key directories:
 - `gptme/` - Core library code
   - `gptme/cli/` - CLI entry points
-  - `gptme/tools/` - Tool implementations (auto-discovered)
+  - `gptme/tools/` - Tool implementations
   - `gptme/llm/` - LLM provider integrations
   - `gptme/server/` - REST API server
 - `tests/` - Test suite
