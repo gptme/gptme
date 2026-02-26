@@ -1,4 +1,4 @@
-# What does GPTME stand for?
+# What does "gptme" stand for?
 
 Officially, nothing. But unofficially...
 
