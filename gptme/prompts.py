@@ -171,7 +171,9 @@ def get_prompt(
     else:
         core_msgs = [Message("system", prompt)]
         if tools and include_tools:
-            core_msgs.extend(prompt_tools(tools=tools, tool_format=tool_format))
+            core_msgs.extend(
+                prompt_tools(tools=tools, tool_format=tool_format, model=model)
+            )
 
     # TODO: generate context_cmd outputs separately and put them last in a "dynamic context" section
     #       with context known not to cache well across conversation starts, so that cache points can be set before and better utilized/changed less frequently.
@@ -245,7 +247,7 @@ def prompt_full(
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
     yield from prompt_gptme(interactive, model, agent_name)
-    yield from prompt_tools(tools=tools, tool_format=tool_format)
+    yield from prompt_tools(tools=tools, tool_format=tool_format, model=model)
     if interactive:
         yield from prompt_user()
     yield from prompt_project()
@@ -433,8 +435,28 @@ def prompt_tools(
     tools: list[ToolSpec],
     tool_format: ToolFormat = "markdown",
     examples: bool = True,
+    model: str | None = None,
 ) -> Generator[Message, None, None]:
-    """Generate the tools overview prompt."""
+    """Generate the tools overview prompt.
+
+    For reasoning models using native tool-calling (tool_format="tool"), examples are skipped
+    per OpenAI best practices for function calling:
+    https://platform.openai.com/docs/guides/function-calling#best-practices-for-defining-functions
+
+    For text-based formats (markdown/xml), examples are kept even for reasoning models,
+    since they serve as documentation in the system prompt rather than few-shot examples.
+    """
+    # Only skip examples for native tool-calling format with reasoning models.
+    # For markdown/xml, examples are part of the system prompt text and still useful
+    # as documentation. The OpenAI guideline specifically targets native function schemas.
+    if examples and model and tool_format == "tool":
+        model_meta = get_model(model)
+        if model_meta.supports_reasoning:
+            logger.debug(
+                "Skipping tool examples for reasoning model %s (native tool-calling format)",
+                model,
+            )
+            examples = False
 
     prompt = "# Tools Overview"
     for tool in tools:
