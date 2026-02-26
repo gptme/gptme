@@ -133,9 +133,9 @@ class TestCheckPythonDeps:
         dep_names = [r.name for r in results]
 
         # Should check common optional deps (extras)
-        # Now using user-friendly names from info.py
+        # Names from info.py EXTRAS list (synced with pyproject.toml)
         assert any("browser" in name for name in dep_names)
-        assert any("rag" in name for name in dep_names)
+        assert any("dspy" in name for name in dep_names)
 
 
 class TestCheckConfig:

@@ -37,6 +37,9 @@ class InstallInfo:
 
 
 # Define extras with their indicator packages and descriptions
+# Note: Only user-facing extras are listed here. Build/dev extras like
+# pyinstaller, eval are omitted as they're not useful to show in --version.
+# See pyproject.toml [tool.poetry.extras] for the full list.
 EXTRAS = [
     ExtraInfo(
         "browser",
@@ -63,16 +66,10 @@ EXTRAS = [
         ["sounddevice"],
     ),
     ExtraInfo(
-        "rag",
+        "dspy",
         False,
-        "RAG/embeddings (sentence-transformers)",
+        "Embeddings for RAG/lessons (sentence-transformers)",
         ["sentence_transformers"],
-    ),
-    ExtraInfo(
-        "computer",
-        False,
-        "Computer use (GUI automation)",
-        ["pyautogui", "pynput"],
     ),
     ExtraInfo(
         "telemetry",
@@ -85,6 +82,12 @@ EXTRAS = [
         False,
         "YouTube transcript extraction",
         ["youtube_transcript_api"],
+    ),
+    ExtraInfo(
+        "acp",
+        False,
+        "Agent Communication Protocol support",
+        ["agent_client_protocol"],
     ),
 ]
 
