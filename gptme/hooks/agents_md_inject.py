@@ -24,7 +24,7 @@ from typing import Any
 from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message
-from ..prompts import AGENT_FILES, _loaded_agent_files_var
+from ..prompts import _loaded_agent_files_var, find_agent_files_in_tree
 
 logger = logging.getLogger(__name__)
 
@@ -45,40 +45,6 @@ def _get_loaded_files() -> set[str]:
         files = set()
         _loaded_agent_files_var.set(files)
     return files
-
-
-def _find_agent_files_in_tree(directory: Path) -> list[Path]:
-    """Find AGENTS.md/CLAUDE.md/GEMINI.md files from home down to the given directory.
-
-    Walks from home → directory (most general first), checking each directory
-    for agent instruction files. Only returns files not already in the loaded set.
-    """
-    new_files: list[Path] = []
-    home_dir = Path.home().resolve()
-    target = directory.resolve()
-    loaded = _get_loaded_files()
-
-    # Build path from home to target
-    dirs_to_check: list[Path] = []
-    current = target
-    while current != current.parent:
-        dirs_to_check.append(current)
-        if current == home_dir:
-            break
-        current = current.parent
-
-    # Reverse: most general (home) first, most specific (target) last
-    dirs_to_check.reverse()
-
-    for dir_path in dirs_to_check:
-        for filename in AGENT_FILES:
-            agent_file = dir_path / filename
-            if agent_file.exists():
-                resolved = str(agent_file.resolve())
-                if resolved not in loaded:
-                    new_files.append(agent_file)
-
-    return new_files
 
 
 def pre_execute(
@@ -108,7 +74,10 @@ def post_execute(
             return
 
         # CWD changed — check for new agent instruction files
-        new_files = _find_agent_files_in_tree(Path(current_cwd))
+        # find_agent_files_in_tree() is shared with prompt_workspace() in prompts.py
+        new_files = find_agent_files_in_tree(
+            Path(current_cwd), exclude=_get_loaded_files()
+        )
         if not new_files:
             return
 

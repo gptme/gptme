@@ -11,13 +11,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from gptme.hooks.agents_md_inject import (
-    _find_agent_files_in_tree,
     _get_loaded_files,
     post_execute,
     pre_execute,
 )
 from gptme.message import Message
-from gptme.prompts import _loaded_agent_files_var
+from gptme.prompts import _loaded_agent_files_var, find_agent_files_in_tree
 
 
 def _messages_only(items: list) -> list[Message]:
@@ -62,38 +61,38 @@ def subdir_with_claude_md(workspace: Path) -> Path:
 
 
 class TestFindAgentFiles:
-    """Test _find_agent_files_in_tree()."""
+    """Test find_agent_files_in_tree() from prompts.py (shared with agents_md_inject hook)."""
 
     def test_finds_agents_md(self, workspace: Path):
         """Should find AGENTS.md in the given directory."""
-        files = _find_agent_files_in_tree(workspace)
+        files = find_agent_files_in_tree(workspace)
         resolved = [str(f.resolve()) for f in files]
         assert str((workspace / "AGENTS.md").resolve()) in resolved
 
     def test_skips_already_loaded(self, workspace: Path):
-        """Should not return files already in the loaded set."""
-        _get_loaded_files().add(str((workspace / "AGENTS.md").resolve()))
-        files = _find_agent_files_in_tree(workspace)
+        """Should not return files already in the exclude set."""
+        exclude = {str((workspace / "AGENTS.md").resolve())}
+        files = find_agent_files_in_tree(workspace, exclude=exclude)
         resolved = [str(f.resolve()) for f in files]
         assert str((workspace / "AGENTS.md").resolve()) not in resolved
 
     def test_finds_in_subdirectory(self, subdir_with_agents: Path):
         """Should find AGENTS.md in subdirectory."""
-        files = _find_agent_files_in_tree(subdir_with_agents)
+        files = find_agent_files_in_tree(subdir_with_agents)
         resolved = [str(f.resolve()) for f in files]
         assert str((subdir_with_agents / "AGENTS.md").resolve()) in resolved
 
     def test_finds_claude_md(self, subdir_with_claude_md: Path):
         """Should find CLAUDE.md as well as AGENTS.md."""
-        files = _find_agent_files_in_tree(subdir_with_claude_md)
+        files = find_agent_files_in_tree(subdir_with_claude_md)
         resolved = [str(f.resolve()) for f in files]
         assert str((subdir_with_claude_md / "CLAUDE.md").resolve()) in resolved
 
     def test_finds_parent_and_child(self, workspace: Path, subdir_with_agents: Path):
         """Should find both parent workspace AGENTS.md and subdir AGENTS.md."""
-        files = _find_agent_files_in_tree(subdir_with_agents)
+        files = find_agent_files_in_tree(subdir_with_agents)
         resolved = [str(f.resolve()) for f in files]
-        # Both parent and child should be found (neither loaded yet)
+        # Both parent and child should be found (neither in exclude set)
         assert str((workspace / "AGENTS.md").resolve()) in resolved
         assert str((subdir_with_agents / "AGENTS.md").resolve()) in resolved
 
@@ -101,7 +100,7 @@ class TestFindAgentFiles:
         """Should return empty list when no agent files exist."""
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
-        files = _find_agent_files_in_tree(empty_dir)
+        files = find_agent_files_in_tree(empty_dir)
         # Filter to only files within tmp_path (ignore home dir files)
         local_files = [
             f for f in files if str(f.resolve()).startswith(str(tmp_path.resolve()))

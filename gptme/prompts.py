@@ -530,6 +530,46 @@ def prompt_timeinfo() -> Generator[Message, None, None]:
     yield Message("system", prompt)
 
 
+def find_agent_files_in_tree(
+    directory: Path,
+    exclude: set[str] | None = None,
+) -> list[Path]:
+    """Find AGENTS.md/CLAUDE.md/GEMINI.md files from home down to the given directory.
+
+    Walks from home → directory (most general first, most specific last), checking
+    each directory for agent instruction files. Returns files whose resolved paths
+    are not in the ``exclude`` set.
+
+    Used by both :func:`prompt_workspace` at session start and the
+    ``agents_md_inject`` hook mid-session when the CWD changes.
+    """
+    result: list[Path] = []
+    home_dir = Path.home().resolve()
+    target = directory.resolve()
+    _exclude = exclude or set()
+
+    dirs_to_check: list[Path] = []
+    current = target
+    while current != current.parent:  # Stop at filesystem root
+        dirs_to_check.append(current)
+        if current == home_dir:
+            break  # Don't go above home directory
+        current = current.parent
+
+    # Reverse: most general (home) first, most specific (target) last
+    dirs_to_check.reverse()
+
+    for dir_path in dirs_to_check:
+        for filename in AGENT_FILES:
+            agent_file = dir_path / filename
+            if agent_file.exists():
+                resolved = str(agent_file.resolve())
+                if resolved not in _exclude:
+                    result.append(agent_file)
+
+    return result
+
+
 def prompt_workspace(
     workspace: Path | None = None,
     title="Project Workspace",
@@ -558,7 +598,6 @@ def prompt_workspace(
     files: list[Path] = []
     seen_paths: set[str] = set()
     workspace_resolved = workspace.resolve()
-    home_dir = Path.home().resolve()
     config_dir = Path(config_path).expanduser().resolve().parent
 
     # Initialize the loaded agent files ContextVar so the agents_md_inject hook
@@ -580,30 +619,14 @@ def prompt_workspace(
                 loaded_agent_files.add(resolved)
                 logger.debug(f"Loaded user-level agent file: {user_file}")
 
-    # 2. Walk up from workspace to home, collect directories, then reverse
-    #    to load from most general (home) to most specific (workspace)
-    dirs_to_check: list[Path] = []
-    current = workspace_resolved
-    while current != current.parent:  # Stop at filesystem root
-        dirs_to_check.append(current)
-        if current == home_dir:
-            break  # Don't go above home directory
-        current = current.parent
-
-    # Reverse so we load top-down (most general first)
-    dirs_to_check.reverse()
-
-    # Load AGENT_FILES from each directory in the tree
-    for dir_path in dirs_to_check:
-        for filename in AGENT_FILES:
-            agent_file = dir_path / filename
-            if agent_file.exists():
-                resolved = str(agent_file.resolve())
-                if resolved not in seen_paths:
-                    files.append(agent_file)
-                    seen_paths.add(resolved)
-                    loaded_agent_files.add(resolved)
-                    logger.debug(f"Loaded agent file from tree: {agent_file}")
+    # 2. Walk from home down to workspace, loading any AGENT_FILES found
+    #    Uses find_agent_files_in_tree() — shared with the agents_md_inject hook
+    for agent_file in find_agent_files_in_tree(workspace_resolved, exclude=seen_paths):
+        resolved = str(agent_file.resolve())
+        files.append(agent_file)
+        seen_paths.add(resolved)
+        loaded_agent_files.add(resolved)
+        logger.debug(f"Loaded agent file from tree: {agent_file}")
 
     # Determine which additional file patterns to use (from config or defaults)
     if project is None or project.files is None:
