@@ -2024,9 +2024,12 @@ def execute_shell(
 
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
+        logger.debug(f"Command allowlisted, skipping confirmation: {cmd[:80]}")
         logdir = get_path_fn()
         yield from execute_shell_impl(cmd, logdir, timeout=timeout)
     else:
+        logger.debug(f"Command not allowlisted, requiring confirmation: {cmd[:80]}")
+
         # Create a wrapper function that passes timeout to execute_shell_impl
         def execute_fn(cmd: str, path: Path | None) -> Generator[Message, None, None]:
             return execute_shell_impl(cmd, path, timeout=timeout)
