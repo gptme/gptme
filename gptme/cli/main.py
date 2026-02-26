@@ -127,7 +127,19 @@ Examples:
 
 \b
 The interface provides /commands during a conversation:
-{commands_help}"""
+{commands_help}
+
+\b
+Utilities (gptme-util):
+  gptme-util tools list       List all tools and their availability
+  gptme-util tools info TOOL  Show detailed tool instructions/examples
+  gptme-util chats list       List past conversations
+  gptme-util chats search Q   Search conversations for query
+  gptme-util models list      List available models
+  gptme-util context index    Index project files for RAG
+  gptme-util llm generate     Direct LLM generation without chat
+
+Run 'gptme-util --help' for all utility commands."""
 
 
 @click.command(help=docstring, context_settings={"auto_envvar_prefix": "GPTME"})
@@ -408,11 +420,14 @@ def main(
     interactive = not non_interactive
     if version:
         # print version
-
         print(f"gptme v{__version__}")
 
         # print dirs
         print(f"Logs dir: {get_logs_dir()}")
+
+        # hint about utilities
+        print()
+        print("Utilities: gptme-util (run 'gptme-util --help' for more)")
 
         exit(0)
 

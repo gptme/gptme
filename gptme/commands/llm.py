@@ -99,18 +99,53 @@ def cmd_models(ctx: CommandContext) -> None:
 
 @command("tools")
 def cmd_tools(ctx: CommandContext) -> None:
-    """Show available tools."""
-    from ..message import len_tokens  # fmt: skip
-    from ..tools import get_tool_format, get_tools  # fmt: skip
+    """Show available tools.
 
-    print("Available tools:")
-    for tool in get_tools():
-        print(
-            f"""
-  # {tool.name}
-    {tool.desc.rstrip(".")}
-    tokens (example): {len_tokens(tool.get_examples(get_tool_format()), "gpt-4")}"""
-        )
+    Usage:
+        /tools          List loaded tools (with hint about others)
+        /tools <name>   Show detailed info for a specific tool
+        /tools --all    Show all available tools including unloaded
+    """
+    from ..tools import get_available_tools, get_tool, get_tools  # fmt: skip
+    from ..util.tool_format import format_tool_info, format_tools_list  # fmt: skip
+
+    show_all = ctx.args and ctx.args[0] == "--all"
+    args = [a for a in ctx.args if a != "--all"] if ctx.args else []
+
+    if args:
+        # Show info for specific tool
+        tool_name = args[0]
+        # Look in both loaded and available tools
+        tool = get_tool(tool_name)
+        if not tool:
+            # Check if it's an available but not loaded tool
+            available_dict = {t.name: t for t in get_available_tools()}
+            if tool_name in available_dict:
+                tool = available_dict[tool_name]
+            else:
+                print(f"Tool '{tool_name}' not found.")
+                print("Loaded tools:", ", ".join(t.name for t in get_tools()))
+                print("Available tools:", ", ".join(available_dict.keys()))
+                return
+        print(format_tool_info(tool))
+    else:
+        # List tools
+        loaded = get_tools()
+        available = get_available_tools()
+
+        if show_all:
+            print(format_tools_list(available, show_all=True))
+        else:
+            print(format_tools_list(loaded, show_all=False))
+
+            # Show hint about other available tools
+            loaded_names = {t.name for t in loaded}
+            unloaded = [t for t in available if t.name not in loaded_names]
+            if unloaded:
+                unloaded_names = ", ".join(sorted(t.name for t in unloaded))
+                print(
+                    f"\nOther available tools (use '-t +name' to add): {unloaded_names}"
+                )
 
 
 @command("context")
