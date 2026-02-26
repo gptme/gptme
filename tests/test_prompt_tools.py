@@ -78,3 +78,50 @@ def test_prompt_tools(tool_format: ToolFormat, example: bool, expected, not_expe
 
     for not_expect in not_expected:
         assert not_expect not in prompt
+
+
+def test_prompt_tools_reasoning_model_skips_examples():
+    """Reasoning models should not get tool examples (OpenAI best practice)."""
+    clear_tools()
+    tools = init_tools(allowlist=["shell", "read"])
+
+    # With a reasoning model, examples should be skipped even when examples=True
+    prompt_with_reasoning = next(
+        prompt_tools(tools, "markdown", examples=True, model="openai/o3")
+    ).content
+    assert "### Examples" not in prompt_with_reasoning
+    # Instructions should still be present
+    assert "Executes shell commands" in prompt_with_reasoning
+
+
+def test_prompt_tools_non_reasoning_model_includes_examples():
+    """Non-reasoning models should still get tool examples."""
+    clear_tools()
+    tools = init_tools(allowlist=["shell", "read"])
+
+    prompt_without_reasoning = next(
+        prompt_tools(tools, "markdown", examples=True, model="openai/gpt-4o")
+    ).content
+    assert "### Examples" in prompt_without_reasoning
+
+
+def test_prompt_tools_no_model_includes_examples():
+    """When no model is specified, examples should be included by default."""
+    clear_tools()
+    tools = init_tools(allowlist=["shell", "read"])
+
+    prompt_no_model = next(
+        prompt_tools(tools, "markdown", examples=True, model=None)
+    ).content
+    assert "### Examples" in prompt_no_model
+
+
+def test_prompt_tools_reasoning_model_respects_explicit_no_examples():
+    """When examples=False is explicitly set, reasoning model check is irrelevant."""
+    clear_tools()
+    tools = init_tools(allowlist=["shell", "read"])
+
+    prompt = next(
+        prompt_tools(tools, "markdown", examples=False, model="openai/o3")
+    ).content
+    assert "### Examples" not in prompt

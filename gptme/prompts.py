@@ -171,7 +171,9 @@ def get_prompt(
     else:
         core_msgs = [Message("system", prompt)]
         if tools and include_tools:
-            core_msgs.extend(prompt_tools(tools=tools, tool_format=tool_format))
+            core_msgs.extend(
+                prompt_tools(tools=tools, tool_format=tool_format, model=model)
+            )
 
     # TODO: generate context_cmd outputs separately and put them last in a "dynamic context" section
     #       with context known not to cache well across conversation starts, so that cache points can be set before and better utilized/changed less frequently.
@@ -245,7 +247,7 @@ def prompt_full(
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
     yield from prompt_gptme(interactive, model, agent_name)
-    yield from prompt_tools(tools=tools, tool_format=tool_format)
+    yield from prompt_tools(tools=tools, tool_format=tool_format, model=model)
     if interactive:
         yield from prompt_user()
     yield from prompt_project()
@@ -433,8 +435,20 @@ def prompt_tools(
     tools: list[ToolSpec],
     tool_format: ToolFormat = "markdown",
     examples: bool = True,
+    model: str | None = None,
 ) -> Generator[Message, None, None]:
-    """Generate the tools overview prompt."""
+    """Generate the tools overview prompt.
+
+    If model is a reasoning model, examples are skipped per OpenAI best practices:
+    https://platform.openai.com/docs/guides/function-calling#best-practices-for-defining-functions
+    """
+    # Reasoning models don't benefit from examples in tool prompts
+    # https://platform.openai.com/docs/guides/function-calling#best-practices-for-defining-functions
+    if examples and model:
+        model_meta = get_model(model)
+        if model_meta.supports_reasoning:
+            logger.debug("Skipping tool examples for reasoning model: %s", model)
+            examples = False
 
     prompt = "# Tools Overview"
     for tool in tools:
