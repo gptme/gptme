@@ -12,12 +12,12 @@ import pytest
 
 from gptme.hooks.agents_md_inject import (
     _find_agent_files_in_tree,
-    _loaded_agent_files,
+    _get_loaded_files,
     post_execute,
     pre_execute,
-    session_start_seed,
 )
 from gptme.message import Message
+from gptme.prompts import _loaded_agent_files_var
 
 
 def _messages_only(items: list) -> list[Message]:
@@ -27,10 +27,10 @@ def _messages_only(items: list) -> list[Message]:
 
 @pytest.fixture(autouse=True)
 def _clean_state():
-    """Reset module state between tests."""
-    _loaded_agent_files.clear()
+    """Reset ContextVar state between tests."""
+    _loaded_agent_files_var.set(set())
     yield
-    _loaded_agent_files.clear()
+    _loaded_agent_files_var.set(set())
 
 
 @pytest.fixture
@@ -71,8 +71,8 @@ class TestFindAgentFiles:
         assert str((workspace / "AGENTS.md").resolve()) in resolved
 
     def test_skips_already_loaded(self, workspace: Path):
-        """Should not return files already in _loaded_agent_files."""
-        _loaded_agent_files.add(str((workspace / "AGENTS.md").resolve()))
+        """Should not return files already in the loaded set."""
+        _get_loaded_files().add(str((workspace / "AGENTS.md").resolve()))
         files = _find_agent_files_in_tree(workspace)
         resolved = [str(f.resolve()) for f in files]
         assert str((workspace / "AGENTS.md").resolve()) not in resolved
@@ -109,54 +109,13 @@ class TestFindAgentFiles:
         assert local_files == []
 
 
-class TestSessionStartSeed:
-    """Test session_start_seed() — seeding loaded files from initial workspace."""
-
-    def test_seeds_workspace_agents_md(self, workspace: Path):
-        """Should add workspace AGENTS.md to loaded set."""
-        msgs = list(
-            session_start_seed(
-                logdir=workspace / ".gptme",
-                workspace=workspace,
-                initial_msgs=[],
-            )
-        )
-        assert msgs == []  # No messages yielded (just seeding)
-        assert str((workspace / "AGENTS.md").resolve()) in _loaded_agent_files
-
-    def test_seeds_nothing_when_no_workspace(self):
-        """Should be a no-op when workspace is None."""
-        msgs = list(
-            session_start_seed(
-                logdir=Path("/tmp"),
-                workspace=None,
-                initial_msgs=[],
-            )
-        )
-        assert msgs == []
-
-    def test_seeds_both_parent_and_subdir(
-        self, workspace: Path, subdir_with_agents: Path
-    ):
-        """When workspace is the subdir, both parent and child are seeded."""
-        list(
-            session_start_seed(
-                logdir=subdir_with_agents / ".gptme",
-                workspace=subdir_with_agents,
-                initial_msgs=[],
-            )
-        )
-        assert str((workspace / "AGENTS.md").resolve()) in _loaded_agent_files
-        assert str((subdir_with_agents / "AGENTS.md").resolve()) in _loaded_agent_files
-
-
 class TestPostExecuteInjection:
     """Test the post_execute hook — injecting AGENTS.md on CWD change."""
 
     def test_injects_on_cd(self, workspace: Path, subdir_with_agents: Path):
         """Should inject AGENTS.md content when CWD changes to dir with new file."""
-        # Seed loaded files for workspace
-        _loaded_agent_files.add(str((workspace / "AGENTS.md").resolve()))
+        # Seed loaded files for workspace (simulating what prompt_workspace() does)
+        _get_loaded_files().add(str((workspace / "AGENTS.md").resolve()))
 
         # Simulate: CWD was workspace, now is subdir
         orig_cwd = os.getcwd()
@@ -184,14 +143,14 @@ class TestPostExecuteInjection:
             assert "agent-instructions" in msgs[0].content
             # File should now be tracked
             assert (
-                str((subdir_with_agents / "AGENTS.md").resolve()) in _loaded_agent_files
+                str((subdir_with_agents / "AGENTS.md").resolve()) in _get_loaded_files()
             )
         finally:
             os.chdir(orig_cwd)
 
     def test_no_inject_when_no_change(self, workspace: Path):
         """Should not inject anything when CWD hasn't changed."""
-        _loaded_agent_files.add(str((workspace / "AGENTS.md").resolve()))
+        _get_loaded_files().add(str((workspace / "AGENTS.md").resolve()))
 
         orig_cwd = os.getcwd()
         try:
@@ -211,8 +170,8 @@ class TestPostExecuteInjection:
         self, workspace: Path, subdir_with_agents: Path
     ):
         """Should not re-inject files already in the loaded set."""
-        _loaded_agent_files.add(str((workspace / "AGENTS.md").resolve()))
-        _loaded_agent_files.add(str((subdir_with_agents / "AGENTS.md").resolve()))
+        _get_loaded_files().add(str((workspace / "AGENTS.md").resolve()))
+        _get_loaded_files().add(str((subdir_with_agents / "AGENTS.md").resolve()))
 
         orig_cwd = os.getcwd()
         try:
@@ -230,7 +189,7 @@ class TestPostExecuteInjection:
 
     def test_injects_claude_md(self, workspace: Path, subdir_with_claude_md: Path):
         """Should inject CLAUDE.md when found in new directory."""
-        _loaded_agent_files.add(str((workspace / "AGENTS.md").resolve()))
+        _get_loaded_files().add(str((workspace / "AGENTS.md").resolve()))
 
         orig_cwd = os.getcwd()
         try:
@@ -258,7 +217,7 @@ class TestPostExecuteInjection:
         (subdir / "AGENTS.md").write_text("# Multi Agents\n")
         (subdir / "CLAUDE.md").write_text("# Multi Claude\n")
 
-        _loaded_agent_files.add(str((workspace / "AGENTS.md").resolve()))
+        _get_loaded_files().add(str((workspace / "AGENTS.md").resolve()))
 
         orig_cwd = os.getcwd()
         try:
