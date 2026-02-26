@@ -869,6 +869,9 @@ def init_hooks(
         "cache_awareness": lambda: __import__(
             "gptme.hooks.cache_awareness", fromlist=["register"]
         ).register(),
+        "workspace_agents": lambda: __import__(
+            "gptme.hooks.workspace_agents", fromlist=["register"]
+        ).register(),
         # Tool confirmation hooks (mode-specific, not registered by default)
         "cli_confirm": lambda: __import__(
             "gptme.hooks.cli_confirm", fromlist=["register"]
