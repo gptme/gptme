@@ -143,7 +143,9 @@ def cmd_tools(ctx: CommandContext) -> None:
             unloaded = [t for t in available if t.name not in loaded_names]
             if unloaded:
                 unloaded_names = ", ".join(sorted(t.name for t in unloaded))
-                print(f"\nOther available tools (use -t to enable): {unloaded_names}")
+                print(
+                    f"\nOther available tools (use '-t +name' to add): {unloaded_names}"
+                )
 
 
 @command("context")
