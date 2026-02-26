@@ -27,7 +27,7 @@ from rich.console import Console
 
 from ..util.ask_execute import print_confirmation_help, print_preview
 from ..util.clipboard import copy
-from ..util.prompt import get_prompt_session
+from ..util.prompt import prompt_alert
 from ..util.sound import print_bell
 from ..util.terminal import terminal_state_title
 from ..util.useredit import edit_text_with_editor
@@ -117,20 +117,8 @@ def cli_confirm_hook(
     question = f"Execute {tool_use.tool}?"
 
     with terminal_state_title("❓ waiting for confirmation"):
-        session = get_prompt_session()
         prompt = f"{question} {choicestr}"
-
-        style_prompt_toolkit = "bold fg:ansiyellow bg:ansired"
-        answer = (
-            session.prompt(
-                [
-                    (style_prompt_toolkit, " " + prompt + " "),
-                    ("", " "),
-                ]
-            )
-            .lower()
-            .strip()
-        )
+        answer = prompt_alert(prompt)
 
     # Handle the response
     return _handle_response(answer, content, editable, copiable, tool_use)
