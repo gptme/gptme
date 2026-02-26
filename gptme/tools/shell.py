@@ -1299,7 +1299,18 @@ def _has_file_redirection(cmd: str) -> bool:
 
 
 def is_allowlisted(cmd: str) -> bool:
+    """Check if a shell command is safe to auto-approve.
+
+    Uses a conservative allowlist approach:
+    1. All commands in the pipeline must be in the allowlist
+    2. No file redirections (>, >>) - these can write malicious content
+    3. No dangerous flags within allowlisted commands (e.g., find -exec)
+
+    This means commands like xargs, sh, bash, python, perl, etc. are automatically
+    blocked since they're not in the allowlist, even if piped to from safe commands.
+    """
     # Check if all commands in the pipeline are allowlisted
+    # This blocks non-allowlisted commands like: python, perl, xargs, sh, bash, etc.
     for match in cmd_regex.finditer(cmd):
         for group in match.groups():
             if group and group not in allowlist_commands:
@@ -1308,7 +1319,18 @@ def is_allowlisted(cmd: str) -> bool:
     # Check for file redirections (>, >>)
     # File redirections with allowlisted commands can be used to write malicious content
     # Example: echo "malicious_code" > /tmp/exploit.sh
-    return not _has_file_redirection(cmd)
+    if _has_file_redirection(cmd):
+        return False
+
+    # Check for dangerous flags within allowlisted commands
+    # These are rare exceptions where an allowlisted command has dangerous dual-use flags
+    dangerous_patterns = [
+        "-exec",  # find -exec can execute arbitrary commands
+        "-execdir",  # find -execdir can execute arbitrary commands in target dir
+        "-delete",  # find -delete can delete files
+        "-ok",  # find -ok prompts but can be automated
+    ]
+    return all(pattern not in cmd for pattern in dangerous_patterns)
 
 
 def shell_allowlist_hook(
@@ -2025,9 +2047,12 @@ def execute_shell(
 
     # Skip confirmation for allowlisted commands
     if is_allowlisted(cmd):
+        logger.debug(f"Command allowlisted, skipping confirmation: {cmd[:80]}")
         logdir = get_path_fn()
         yield from execute_shell_impl(cmd, logdir, timeout=timeout)
     else:
+        logger.debug(f"Command not allowlisted, requiring confirmation: {cmd[:80]}")
+
         # Create a wrapper function that passes timeout to execute_shell_impl
         def execute_fn(cmd: str, path: Path | None) -> Generator[Message, None, None]:
             return execute_shell_impl(cmd, path, timeout=timeout)
