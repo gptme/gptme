@@ -1016,10 +1016,17 @@ Format the response as a structured document that could serve as a RESUME.md fil
     resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
     resume_content = resume_response.content
 
-    # Save RESUME.md file
-    resume_path = Path("RESUME.md")
-    with open(resume_path, "w") as f:
-        f.write(resume_content)
+    # Save RESUME.md to logdir (not workspace) for reference/debugging
+    resume_path: Path | None = None
+    if manager.logdir:
+        resume_path = manager.logdir / "RESUME.md"
+        try:
+            with open(resume_path, "w") as f:
+                f.write(resume_content)
+            logger.info(f"Saved resume to {resume_path}")
+        except Exception as e:
+            logger.warning(f"Failed to save resume file: {e}")
+            resume_path = None
 
     # Parse and load context files suggested by the LLM
     suggested_files = _parse_context_files(resume_content)
@@ -1049,8 +1056,9 @@ Format the response as a structured document that could serve as a RESUME.md fil
     files_note = ""
     if loaded_files:
         files_note = f" (with {len(loaded_files)} context files)"
+    resume_source = str(resume_path) if resume_path else "LLM-generated summary"
     resume_intro_msg = Message(
-        "system", f"Previous conversation resumed from {resume_path}{files_note}:"
+        "system", f"Previous conversation resumed from {resume_source}{files_note}:"
     )
     resume_msg = Message("assistant", resume_content)
 
@@ -1080,11 +1088,15 @@ Format the response as a structured document that could serve as a RESUME.md fil
     if use_view_branch:
         view_note = f"• View: {view_name} (master branch preserved with full history)\n"
 
+    resume_note = ""
+    if resume_path:
+        resume_note = f"• Resume saved to: {resume_path.absolute()}\n"
+
     yield Message(
         "system",
         f"✅ LLM-powered resume completed:\n"
         f"• Original conversation ({len(prepared_msgs)} messages) compressed to resume\n"
-        f"• Resume saved to: {resume_path.absolute()}\n"
+        f"{resume_note}"
         f"{files_loaded_str}"
         f"{view_note}"
         f"• Conversation history replaced with resume",
