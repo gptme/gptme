@@ -105,6 +105,8 @@ def format_tool_info(
     tool: "ToolSpec",
     include_examples: bool = True,
     include_tokens: bool = True,
+    truncate: bool = False,
+    max_lines: int = 30,
 ) -> str:
     """Format detailed tool information.
 
@@ -112,11 +114,13 @@ def format_tool_info(
         tool: The tool to format
         include_examples: Include example usage
         include_tokens: Show token estimates
+        truncate: Truncate long sections (default False for backward compat)
+        max_lines: Max lines per section when truncating
 
     Returns:
         Formatted multi-line string with full tool details
     """
-    lines = []
+    lines: list[str] = []
 
     # Header
     lines.append(f"# {tool.name}")
@@ -148,14 +152,24 @@ def format_tool_info(
     if tool.instructions:
         lines.append("## Instructions")
         lines.append("")
-        lines.append(tool.instructions.strip())
+        instr_lines = tool.instructions.strip().split("\n")
+        if truncate and len(instr_lines) > max_lines:
+            lines.extend(instr_lines[:max_lines])
+            lines.append(f"... ({len(instr_lines) - max_lines} more lines, use -v)")
+        else:
+            lines.extend(instr_lines)
         lines.append("")
 
     # Examples
     if include_examples and tool.get_examples():
         lines.append("## Examples")
         lines.append("")
-        lines.append(tool.get_examples().strip())
+        example_lines = tool.get_examples().strip().split("\n")
+        if truncate and len(example_lines) > max_lines:
+            lines.extend(example_lines[:max_lines])
+            lines.append(f"... ({len(example_lines) - max_lines} more lines, use -v)")
+        else:
+            lines.extend(example_lines)
 
     return "\n".join(lines)
 
