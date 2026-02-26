@@ -43,6 +43,7 @@ BuiltinProvider = Literal[
     "anthropic",
     "azure",
     "openrouter",
+    "gptme-ai",
     "gemini",
     "groq",
     "xai",
@@ -79,6 +80,7 @@ PROVIDERS_OPENAI = [
     "openai",
     "azure",
     "openrouter",
+    "gptme-ai",
     "gemini",
     "xai",
     "groq",
@@ -563,6 +565,10 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     },
     "nvidia": {},
     "azure": {},
+    # gptme.ai managed service — proxies to multiple providers
+    # Models are pass-through: gptme-ai/claude-sonnet-4-6 → proxied to Anthropic
+    # Empty dict = models fetched dynamically or specified by user
+    "gptme-ai": {},
     "local": {},
 }
 
@@ -810,6 +816,8 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
         return "claude-sonnet-4-6"
     if provider == "xai":
         return "grok-4"
+    if provider == "gptme-ai":
+        return "claude-sonnet-4-6"
     if provider == "deepseek":
         return "deepseek-chat"
     if provider == "groq":

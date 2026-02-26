@@ -2,7 +2,8 @@
 Authentication command for gptme providers.
 
 Usage:
-    gptme-auth openai-subscription    # Authenticate for OpenAI subscription
+    gptme-auth gptme-ai               # Authenticate with gptme.ai (Device Flow)
+    gptme-auth openai-subscription     # Authenticate for OpenAI subscription
 """
 
 import logging
@@ -18,6 +19,42 @@ console = Console()
 @click.group()
 def main():
     """Authenticate with various gptme providers."""
+
+
+@main.command("gptme-ai")
+@click.option(
+    "--server",
+    default="https://api.gptme.ai",
+    help="gptme.ai server URL",
+    show_default=True,
+)
+def auth_gptme_ai(server: str):
+    """Authenticate with gptme.ai using RFC 8628 Device Flow.
+
+    Opens a verification URL where you sign in, then polls for completion.
+    Tokens are stored locally for future use.
+    """
+    try:
+        from ..llm.llm_gptme_ai import device_flow_authenticate
+
+        console.print("\n[bold]gptme.ai Authentication[/bold]\n")
+        console.print(
+            "This will start a Device Flow: you'll get a code to enter in your browser.\n"
+        )
+
+        result = device_flow_authenticate(server)
+
+        console.print("\n[green bold]✓ Authentication successful![/green bold]")
+        console.print(f"  Server: {result.get('server_url', server)}")
+        console.print(
+            "\nYou can now use models like: [cyan]gptme-ai/claude-sonnet-4-6[/cyan]"
+        )
+
+    except Exception as e:
+        console.print("\n[red bold]✗ Authentication failed[/red bold]")
+        console.print(f"  Error: {e}")
+        logger.debug("Full error:", exc_info=True)
+        sys.exit(1)
 
 
 @main.command("openai-subscription")
