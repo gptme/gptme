@@ -39,20 +39,35 @@ make lint           # ruff + other checks
 Key directories:
 - `gptme/` - Core library code
   - `gptme/cli/` - CLI entry points
-  - `gptme/tools/` - Tool implementations
+  - `gptme/tools/` - Tool implementations (auto-discovered)
   - `gptme/llm/` - LLM provider integrations
   - `gptme/server/` - REST API server
 - `tests/` - Test suite
 - `docs/` - Sphinx documentation (RST + MD)
 - `scripts/` - Build and utility scripts
 
+## Core vs gptme-contrib
+
+We aim to keep gptme core small and focused. See [docs/arewetiny.rst](docs/arewetiny.rst).
+
+**Belongs in core (`gptme`):**
+- Essential tools (shell, save, patch, browser, vision)
+- Core infrastructure (chat loop, message handling, LLM providers)
+- Features needed by most users
+
+**Belongs in [gptme-contrib](https://github.com/gptme/gptme-contrib):**
+- Specialized tools (Twitter/X, Discord, email)
+- Experimental features
+- Integrations with specific services
+- Multi-agent patterns (consortium)
+
+When in doubt, start in gptme-contrib. If widely adopted, consider upstreaming.
+
 ## Performance
 
 We track startup time and code size. See [docs/arewetiny.rst](docs/arewetiny.rst).
 
-CI benchmarks enforce thresholds:
-- Cold startup: <5s
-- Warm startup: <2s
+CI benchmarks enforce startup thresholds.
 
 ## Key Concepts
 
@@ -70,11 +85,12 @@ See [docs/glossary.md](docs/glossary.md) for full terminology.
 ### Adding a new tool
 1. Create `gptme/tools/toolname.py`
 2. Implement `ToolSpec` with `execute()` function
-3. Add tests in `tests/test_tools_toolname.py`
+3. Tools are auto-discovered - no manual registration needed
+4. Add tests in `tests/test_tools_toolname.py`
 
 ### Running the server
 ```bash
-poetry run gptme-server --port 5000
+uv run gptme-server --port 5000
 ```
 
 ### Building docs
