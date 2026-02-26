@@ -682,18 +682,25 @@ def tools():
 @click.option("--langtags", is_flag=True, help="Show language tags for code execution")
 @click.option("--compact", is_flag=True, help="Compact single-line format")
 def tools_list(available: bool, langtags: bool, compact: bool):
-    """List available tools."""
-    from ..tools import get_tools, init_tools  # fmt: skip
+    """List available tools.
+
+    By default shows only available tools (dependencies installed).
+    Use --all to include unavailable tools as well.
+    """
+    from ..tools import get_available_tools, init_tools  # fmt: skip
     from ..util.tool_format import format_langtags, format_tools_list  # fmt: skip
 
     # Initialize tools
     init_tools()
 
+    # get_available_tools() returns all discovered tools (loaded or not)
+    tools = get_available_tools()
+
     if langtags:
-        print(format_langtags(get_tools()))
+        print(format_langtags(tools))
         return
 
-    print(format_tools_list(get_tools(), show_all=not available, compact=compact))
+    print(format_tools_list(tools, show_all=not available, compact=compact))
 
 
 @tools.command("info")
