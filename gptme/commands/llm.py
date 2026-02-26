@@ -102,24 +102,48 @@ def cmd_tools(ctx: CommandContext) -> None:
     """Show available tools.
 
     Usage:
-        /tools          List all available tools
+        /tools          List loaded tools (with hint about others)
         /tools <name>   Show detailed info for a specific tool
+        /tools --all    Show all available tools including unloaded
     """
-    from ..tools import get_tool, get_tools  # fmt: skip
+    from ..tools import get_available_tools, get_tool, get_tools  # fmt: skip
     from ..util.tool_format import format_tool_info, format_tools_list  # fmt: skip
 
-    if ctx.args:
+    show_all = ctx.args and ctx.args[0] == "--all"
+    args = [a for a in ctx.args if a != "--all"] if ctx.args else []
+
+    if args:
         # Show info for specific tool
-        tool_name = ctx.args[0]
+        tool_name = args[0]
+        # Look in both loaded and available tools
         tool = get_tool(tool_name)
         if not tool:
-            print(f"Tool '{tool_name}' not found.")
-            print("Available tools:", ", ".join(t.name for t in get_tools()))
-            return
+            # Check if it's an available but not loaded tool
+            available_dict = {t.name: t for t in get_available_tools()}
+            if tool_name in available_dict:
+                tool = available_dict[tool_name]
+            else:
+                print(f"Tool '{tool_name}' not found.")
+                print("Loaded tools:", ", ".join(t.name for t in get_tools()))
+                print("Available tools:", ", ".join(available_dict.keys()))
+                return
         print(format_tool_info(tool))
     else:
-        # List all tools
-        print(format_tools_list(get_tools(), show_all=False))
+        # List tools
+        loaded = get_tools()
+        available = get_available_tools()
+
+        if show_all:
+            print(format_tools_list(available, show_all=True))
+        else:
+            print(format_tools_list(loaded, show_all=False))
+
+            # Show hint about other available tools
+            loaded_names = {t.name for t in loaded}
+            unloaded = [t for t in available if t.name not in loaded_names]
+            if unloaded:
+                unloaded_names = ", ".join(sorted(t.name for t in unloaded))
+                print(f"\nOther available tools (use -t to enable): {unloaded_names}")
 
 
 @command("context")
