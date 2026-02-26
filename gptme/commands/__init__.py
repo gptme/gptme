@@ -45,7 +45,7 @@ from .base import (
 from .export import _complete_replay, _replay_tool
 
 # Re-export completers from llm
-from .llm import _complete_model
+from .llm import _complete_model, _complete_tools
 
 # Re-export from meta for backward compatibility
 from .meta import (
@@ -93,6 +93,7 @@ __all__ = [
     "_complete_fork",
     "_complete_log",
     "_complete_model",
+    "_complete_tools",
     "_complete_plugin",
     "_complete_rename",
     "_complete_replay",

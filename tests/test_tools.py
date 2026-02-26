@@ -12,6 +12,7 @@ from gptme.tools import (
     has_tool,
     init_tools,
     is_supported_langtag,
+    load_tool,
 )
 
 
@@ -129,3 +130,99 @@ def test_is_supported_lang_tag():
 
     assert is_supported_langtag("save")
     assert not is_supported_langtag("randomtag")
+
+
+def test_load_tool():
+    """Test loading a tool mid-conversation."""
+    clear_tools()
+    init_tools(allowlist=["save"])
+    assert has_tool("save")
+    assert not has_tool("patch")
+
+    # Load 'patch' mid-conversation
+    tool = load_tool("patch")
+    assert tool.name == "patch"
+    assert has_tool("patch")
+    assert len(get_tools()) == 2
+
+
+def test_load_tool_already_loaded():
+    """Test that loading an already-loaded tool raises ValueError."""
+    clear_tools()
+    init_tools(allowlist=["save"])
+
+    with pytest.raises(ValueError, match="already loaded"):
+        load_tool("save")
+
+
+def test_load_tool_not_found():
+    """Test that loading a non-existent tool raises ValueError."""
+    clear_tools()
+    init_tools(allowlist=["save"])
+
+    with pytest.raises(ValueError, match="not found"):
+        load_tool("nonexistent_tool_xyz")
+
+
+def test_load_tool_unavailable():
+    """Test that loading an unavailable tool raises ValueError."""
+    from gptme.tools.base import ToolSpec
+
+    clear_tools()
+    init_tools(allowlist=["save"])
+
+    # Inject a fake unavailable tool into the available tools cache
+    available = get_available_tools()
+    unavailable_tool = ToolSpec(
+        name="fake_unavailable",
+        desc="A fake unavailable tool",
+        available=False,
+    )
+    available.append(unavailable_tool)
+
+    with pytest.raises(ValueError, match="unavailable"):
+        load_tool("fake_unavailable")
+
+
+def test_load_tool_context_isolation():
+    """Test that tool loading is context-local (ContextVar per-thread).
+
+    Each thread has its own tool state via ContextVar, so loading the same
+    tool in two threads should succeed independently in both.
+    """
+    import threading
+
+    results: list[str] = []
+
+    def load_in_thread():
+        # Each thread gets its own ContextVar state
+        clear_tools()
+        init_tools(allowlist=["save"])
+        tool = load_tool("patch")
+        results.append(tool.name)
+
+    t1 = threading.Thread(target=load_in_thread)
+    t2 = threading.Thread(target=load_in_thread)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    # Both threads should independently succeed
+    assert len(results) == 2
+    assert all(name == "patch" for name in results)
+
+
+def test_load_multiple_tools_sequentially():
+    """Test loading multiple tools one after another."""
+    clear_tools()
+    init_tools(allowlist=["save"])
+    assert len(get_tools()) == 1
+
+    load_tool("patch")
+    assert len(get_tools()) == 2
+    assert has_tool("patch")
+
+    load_tool("append")
+    assert len(get_tools()) == 3
+    assert has_tool("append")
