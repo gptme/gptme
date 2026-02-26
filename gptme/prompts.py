@@ -439,15 +439,23 @@ def prompt_tools(
 ) -> Generator[Message, None, None]:
     """Generate the tools overview prompt.
 
-    If model is a reasoning model, examples are skipped per OpenAI best practices:
+    For reasoning models using native tool-calling (tool_format="tool"), examples are skipped
+    per OpenAI best practices for function calling:
     https://platform.openai.com/docs/guides/function-calling#best-practices-for-defining-functions
+
+    For text-based formats (markdown/xml), examples are kept even for reasoning models,
+    since they serve as documentation in the system prompt rather than few-shot examples.
     """
-    # Reasoning models don't benefit from examples in tool prompts
-    # https://platform.openai.com/docs/guides/function-calling#best-practices-for-defining-functions
-    if examples and model:
+    # Only skip examples for native tool-calling format with reasoning models.
+    # For markdown/xml, examples are part of the system prompt text and still useful
+    # as documentation. The OpenAI guideline specifically targets native function schemas.
+    if examples and model and tool_format == "tool":
         model_meta = get_model(model)
         if model_meta.supports_reasoning:
-            logger.debug("Skipping tool examples for reasoning model: %s", model)
+            logger.debug(
+                "Skipping tool examples for reasoning model %s (native tool-calling format)",
+                model,
+            )
             examples = False
 
     prompt = "# Tools Overview"
