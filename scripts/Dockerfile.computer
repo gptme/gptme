@@ -68,8 +68,8 @@ ENV HEIGHT=768
 ENV DISPLAY=:${DISPLAY_NUM}
 
 # Install Poetry and dependencies
-RUN python3.10 -m pip install --upgrade pip && \
-    python3.10 -m pip install poetry
+RUN python3.10 -m pip install --no-cache-dir --upgrade pip && \
+    python3.10 -m pip install --no-cache-dir poetry
 
 # Set up project
 WORKDIR /app
@@ -78,7 +78,7 @@ RUN poetry config virtualenvs.create false
 RUN poetry install --no-interaction --no-ansi -E server --no-root --without=dev
 
 COPY --chown=$USERNAME:$USERNAME . /app
-RUN pip install build  # this is needed because otherwise poetry removes it
+RUN pip install --no-cache-dir build  # this is needed because otherwise poetry removes it
 RUN poetry install --no-interaction --no-ansi -E server --without=dev
 
 # Copy desktop environment configs (at the end for faster rebuilds)

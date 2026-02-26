@@ -19,7 +19,8 @@ ENV PATH="/home/appuser/.cargo/bin:${PATH}"
 # Install necessary build tools if rust is enabled
 USER root
 RUN if [ "$RUST" = "yes" ]; then \
-        apt-get update && apt-get install build-essential -y; \
+        apt-get update && apt-get install --no-install-recommends build-essential -y \
+        && rm -rf /var/lib/apt/lists/*; \
     fi
 
 # Install playwright if enabled, else just install lynx
@@ -30,7 +31,8 @@ RUN if [ "$PLAYWRIGHT" = "yes" ]; then \
         poetry run playwright install-deps; \
         su appuser -c "poetry run playwright install chromium"; \
     else \
-        apt-get update && apt-get install lynx -y; \
+        apt-get update && apt-get install --no-install-recommends lynx -y \
+        && rm -rf /var/lib/apt/lists/*; \
     fi
 
 # Create eval_results directory

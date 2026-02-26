@@ -1,14 +1,14 @@
 FROM python:3.10-slim
 
 # Install deps
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc \
     # Common tools  \
     make git tmux curl pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
-RUN pip install poetry
+RUN pip install --no-cache-dir poetry
 
 # Set the working directory
 WORKDIR /app

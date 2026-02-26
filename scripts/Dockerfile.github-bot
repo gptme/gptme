@@ -44,7 +44,7 @@ USER botuser
 WORKDIR /home/botuser
 
 # Install gptme
-RUN pip install --user gptme
+RUN pip install --no-cache-dir --user gptme
 
 # Add user bin to PATH
 ENV PATH="/home/botuser/.local/bin:${PATH}"
