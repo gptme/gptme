@@ -7,7 +7,6 @@ Usage:
     gptme-doctor --fix        # Attempt to fix issues (future)
 """
 
-import importlib.util
 import logging
 import os
 import shutil
@@ -23,6 +22,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..config import config_path, get_config
+from ..info import get_config_info, get_installed_extras
 from ..llm import list_available_providers
 from ..llm.models import PROVIDERS
 from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
@@ -222,33 +222,28 @@ def _check_tools(verbose: bool = False) -> list[CheckResult]:
 
 
 def _check_python_deps(verbose: bool = False) -> list[CheckResult]:
-    """Check Python optional dependencies."""
+    """Check Python optional dependencies (extras)."""
     results = []
 
-    optional_deps = [
-        ("playwright", "Browser automation for advanced web browsing"),
-        ("sentence_transformers", "Embedding models for RAG and lessons"),
-        ("torch", "PyTorch for ML features"),
-    ]
+    # Use shared info module to get extras status
+    extras = get_installed_extras()
 
-    for dep, desc in optional_deps:
-        spec = importlib.util.find_spec(dep)
-        if spec:
+    for extra in extras:
+        if extra.installed:
             results.append(
                 CheckResult(
-                    name=f"Python: {dep}",
+                    name=f"Python: {extra.name}",
                     status=CheckStatus.OK,
-                    message=desc,
-                    details=str(spec.origin) if verbose and spec.origin else None,
+                    message=extra.description,
                 )
             )
         else:
             results.append(
                 CheckResult(
-                    name=f"Python: {dep}",
-                    status=CheckStatus.WARNING,
-                    message=f"Not installed - {desc}",
-                    fix_hint=f"pip install {dep}",
+                    name=f"Python: {extra.name}",
+                    status=CheckStatus.SKIPPED,
+                    message=f"Not installed - {extra.description}",
+                    fix_hint=f"pip install 'gptme[{extra.name}]'",
                 )
             )
 
@@ -259,14 +254,17 @@ def _check_config(verbose: bool = False) -> list[CheckResult]:
     """Check configuration file status."""
     results = []
 
+    # Use shared info module
+    config_info = get_config_info()
+
     # Check user config
-    if Path(config_path).exists():
+    if config_info["config_exists"]:
         results.append(
             CheckResult(
                 name="Config: User",
                 status=CheckStatus.OK,
                 message="Found",
-                details=config_path if verbose else None,
+                details=config_info["config_path"] if verbose else None,
             )
         )
     else:
@@ -275,31 +273,22 @@ def _check_config(verbose: bool = False) -> list[CheckResult]:
                 name="Config: User",
                 status=CheckStatus.WARNING,
                 message="Not found (using defaults)",
-                fix_hint=f"Create {config_path} to customize settings",
+                fix_hint=f"Create {config_info['config_path']} to customize settings",
             )
         )
 
     # Check project config
-    cwd = Path.cwd()
-    project_config = cwd / "gptme.toml"
-    github_config = cwd / ".github" / "gptme.toml"
-
-    if project_config.exists():
+    if "project_config" in config_info:
+        project_path = config_info["project_config"]
+        name = Path(project_path).name
+        if ".github" in project_path:
+            name = ".github/gptme.toml"
         results.append(
             CheckResult(
                 name="Config: Project",
                 status=CheckStatus.OK,
-                message="Found gptme.toml",
-                details=str(project_config) if verbose else None,
-            )
-        )
-    elif github_config.exists():
-        results.append(
-            CheckResult(
-                name="Config: Project",
-                status=CheckStatus.OK,
-                message="Found .github/gptme.toml",
-                details=str(github_config) if verbose else None,
+                message=f"Found {name}",
+                details=project_path if verbose else None,
             )
         )
     else:
