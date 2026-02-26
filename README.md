@@ -6,6 +6,8 @@
 
 <p align="center">
 <i>/ʤiː piː tiː miː/</i>
+<br>
+<sub><a href="https://gptme.org/docs/misc/acronyms.html">what does it stand for?</a></sub>
 </p>
 
 <!-- Links -->
