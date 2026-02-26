@@ -248,7 +248,7 @@ def run_precommit_on_file(
             output = result.stdout or result.stderr
             yield Message(
                 "system",
-                f"Pre-commit checks failed for {path.name}:\n```\n{output}\n```",
+                f"Pre-commit checks failed for {path.name}:\n{md_codeblock('', output)}",
             )
         else:
             # Pre-commit checks passed

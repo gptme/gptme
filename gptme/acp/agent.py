@@ -23,6 +23,7 @@ from ..prompts import get_prompt
 from ..session import SessionRegistry
 from ..tools import get_tools, set_tools
 from ..util.auto_naming import generate_conversation_id
+from ..util.context import md_codeblock
 from .adapter import acp_content_to_gptme_message, gptme_message_to_acp_content
 from .types import (
     PermissionKind,
@@ -925,7 +926,7 @@ class GptmeAgent:
             # (e.g. /help, /tools output rendered as Markdown in ACP panels)
             text = stdout_output.rstrip()
             if "\n" in text:
-                text = f"```\n{text}\n```"
+                text = md_codeblock("", text)
             output_parts.append(text)
         output_parts.extend(
             resp_msg.content for resp_msg in response_msgs if resp_msg.content

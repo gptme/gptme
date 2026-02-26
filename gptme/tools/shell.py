@@ -39,6 +39,7 @@ import bashlex
 from ..message import Message
 from ..util import get_installed_programs
 from ..util.ask_execute import execute_with_confirmation
+from ..util.context import md_codeblock
 from ..util.output_storage import save_large_output
 from ..util.tokens import get_tokenizer
 from .base import (
@@ -1650,15 +1651,15 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
         # Truncate if too long
         if len(stdout) > 8000:
             stdout = stdout[-8000:]
-            msg += "```stdout\n...(truncated)...\n" + stdout + "\n```\n\n"
+            msg += md_codeblock("stdout", "...(truncated)...\n" + stdout) + "\n\n"
         else:
-            msg += f"```stdout\n{stdout}\n```\n\n"
+            msg += md_codeblock("stdout", stdout) + "\n\n"
     if stderr:
         if len(stderr) > 2000:
             stderr = stderr[-2000:]
-            msg += "```stderr\n...(truncated)...\n" + stderr + "\n```\n\n"
+            msg += md_codeblock("stderr", "...(truncated)...\n" + stderr) + "\n\n"
         else:
-            msg += f"```stderr\n{stderr}\n```\n\n"
+            msg += md_codeblock("stderr", stderr) + "\n\n"
     if not stdout and not stderr:
         msg += "No output yet.\n"
 
@@ -1858,10 +1859,10 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
             if blocking_codes:
                 # Critical issues that should block execution
                 codes_str = ", ".join(sorted(blocking_codes))
-                message = f"Shellcheck found critical issues that prevent execution:\n```\n{output}```\n\nBlocking codes: {codes_str}"
+                message = f"Shellcheck found critical issues that prevent execution:\n{md_codeblock('', output)}\n\nBlocking codes: {codes_str}"
                 return True, True, message
             # Non-critical warnings
-            message = f"Shellcheck found potential issues:\n```\n{output}```"
+            message = f"Shellcheck found potential issues:\n{md_codeblock('', output)}"
             return True, False, message
 
         return False, False, ""
@@ -1897,9 +1898,9 @@ def _execute_preceding_commands(
         # Only report output if there is any
         output_parts = []
         if stdout and stdout.strip():
-            output_parts.append(f"```stdout\n{stdout.strip()}\n```")
+            output_parts.append(md_codeblock("stdout", stdout.strip()))
         if stderr and stderr.strip():
-            output_parts.append(f"```stderr\n{stderr.strip()}\n```")
+            output_parts.append(md_codeblock("stderr", stderr.strip()))
 
         if output_parts:
             yield Message(

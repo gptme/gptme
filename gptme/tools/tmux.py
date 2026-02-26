@@ -20,6 +20,7 @@ from time import sleep
 from ..constants import DECLINED_CONTENT
 from ..hooks import ConfirmAction, get_confirmation
 from ..message import Message
+from ..util.context import md_codeblock
 from ..util.output_storage import save_large_output
 from .base import (
     Parameter,
@@ -208,9 +209,10 @@ def new_session(command: str) -> Message:
         output,
         context=f"new-session {command[:50]}",
     )
+    stripped_command = command.strip("'")
     return Message(
         "system",
-        f"""Running `{command.strip("'")}` in session {session_id}.\n```output\n{truncated_output}\n```""",
+        f"Running `{stripped_command}` in session {session_id}.\n{md_codeblock('output', truncated_output)}",
     )
 
 
@@ -243,7 +245,7 @@ def send_keys(pane_id: str, keys: str) -> Message:
     )
     return Message(
         "system",
-        f"Sent '{keys}' to pane `{pane_id}`\n```output\n{truncated_output}\n```",
+        f"Sent '{keys}' to pane `{pane_id}`\n{md_codeblock('output', truncated_output)}",
     )
 
 
@@ -345,7 +347,7 @@ def wait_for_output(
                 "system",
                 f"Session `{session_id}` output stabilized after {elapsed:.1f}s "
                 f"(stable for {stable_duration:.1f}s).\n"
-                f"```output\n{truncated_output}\n```",
+                f"{md_codeblock('output', truncated_output)}",
             )
 
         # Check timeout
@@ -360,7 +362,7 @@ def wait_for_output(
                 "system",
                 f"Session `{session_id}` timed out after {timeout}s "
                 f"(output still changing).\n"
-                f"```output\n{truncated_output}\n```\n"
+                f"{md_codeblock('output', truncated_output)}\n"
                 f"Session still active. Use `kill-session {session_id}` to terminate "
                 f"or `send-keys {session_id} C-c` to interrupt.",
             )
