@@ -78,19 +78,54 @@ def format_tools_list(
     Returns:
         Formatted multi-line string
     """
-    filtered = [t for t in tools if show_all or t.is_available]
-    available_count = sum(1 for t in tools if t.is_available)
+    available = [t for t in tools if t.is_available]
+    unavailable = [t for t in tools if not t.is_available]
+    available_count = len(available)
+    total_count = len(tools)
 
-    lines = []
-    if compact:
-        lines.append(f"Tools [{available_count} available]:")
+    lines: list[str] = []
+    prefix = " " if compact else "  "
+
+    if show_all and unavailable:
+        # Group by availability when showing all
+        if compact:
+            lines.append(f"Tools [{available_count}/{total_count} available]:")
+        else:
+            lines.append(f"Available tools ({available_count}):")
+            lines.append("")
+
+        lines.extend(
+            prefix + format_tool_summary(tool, show_status)
+            for tool in sorted(available, key=lambda t: t.name)
+        )
+
+        if unavailable:
+            lines.append("")
+            lines.append(f"Unavailable tools ({len(unavailable)}):")
+            lines.append("")
+            lines.extend(
+                prefix + format_tool_summary(tool, show_status)
+                for tool in sorted(unavailable, key=lambda t: t.name)
+            )
     else:
-        lines.append(f"Available tools ({available_count}/{len(tools)}):")
-        lines.append("")
+        # Only show available (default)
+        if compact:
+            lines.append(f"Tools [{available_count} available]:")
+        else:
+            lines.append(f"Available tools ({available_count}):")
+            lines.append("")
 
-    for tool in sorted(filtered, key=lambda t: t.name):
-        prefix = " " if compact else "  "
-        lines.append(prefix + format_tool_summary(tool, show_status))
+        lines.extend(
+            prefix + format_tool_summary(tool, show_status)
+            for tool in sorted(available, key=lambda t: t.name)
+        )
+
+        # Hint about unavailable tools
+        if unavailable and not show_all:
+            unavail_names = ", ".join(sorted(t.name for t in unavailable))
+            lines.append("")
+            lines.append(f"Unavailable ({len(unavailable)}): {unavail_names}")
+            lines.append("Use --all to see details, or install missing dependencies")
 
     if not compact:
         lines.append("")
