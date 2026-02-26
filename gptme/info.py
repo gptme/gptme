@@ -93,10 +93,9 @@ def _parse_extras_from_metadata() -> list[ExtraInfo]:
         for match in extra_pattern.finditer(req):
             extra_name = match.group(1)
             if extra_name in extra_deps:
-                # Normalize for import checking (hyphens -> underscores)
-                import_name = pkg_name.replace("-", "_")
-                if import_name not in extra_deps[extra_name]:
-                    extra_deps[extra_name].append(import_name)
+                # Keep original package name - _is_package_installed handles normalization
+                if pkg_name not in extra_deps[extra_name]:
+                    extra_deps[extra_name].append(pkg_name)
 
     # Build ExtraInfo list
     result = []
@@ -125,11 +124,32 @@ def _get_extras() -> list[ExtraInfo]:
 
 
 def _is_package_installed(name: str) -> bool:
-    """Check if a package is installed."""
-    try:
-        return importlib.util.find_spec(name) is not None
-    except (ModuleNotFoundError, ValueError):
-        return False
+    """Check if a package is installed.
+
+    Handles namespace packages (e.g., opentelemetry-api -> opentelemetry)
+    by trying multiple import names.
+    """
+    # Names to try: original, with underscores, and base name for namespace packages
+    names_to_try = [name]
+
+    # Add underscore variant
+    if "-" in name or "_" in name:
+        names_to_try.append(name.replace("-", "_"))
+
+    # For namespace packages (e.g., "opentelemetry-api"), try bare namespace
+    if "-" in name:
+        base_name = name.split("-")[0]
+        if base_name not in names_to_try:
+            names_to_try.append(base_name)
+
+    for n in names_to_try:
+        try:
+            if importlib.util.find_spec(n) is not None:
+                return True
+        except (ModuleNotFoundError, ValueError):
+            continue
+
+    return False
 
 
 def get_install_info() -> InstallInfo:
