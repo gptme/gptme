@@ -173,6 +173,64 @@ def test_auto_naming_meaningful_content(event_listener, wait_for_event):
     )
 
 
+# Unit tests for try_auto_name
+def test_try_auto_name_skips_when_name_set(tmp_path):
+    """Test that try_auto_name returns None when config already has a name."""
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.util.auto_naming import try_auto_name
+
+    config = ChatConfig(_logdir=tmp_path)
+    config.name = "Existing Name"
+
+    messages = [
+        Message("user", "Help me debug a Python script"),
+        Message("assistant", "Sure, I can help with that. What's the error?"),
+    ]
+
+    result = try_auto_name(config, messages, "test/model")
+    assert result is None
+    assert config.name == "Existing Name"
+
+
+def test_try_auto_name_skips_when_no_assistant_msgs(tmp_path):
+    """Test that try_auto_name returns None when no assistant messages exist."""
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.util.auto_naming import try_auto_name
+
+    config = ChatConfig(_logdir=tmp_path)
+
+    messages = [Message("user", "Hello")]
+
+    result = try_auto_name(config, messages, "test/model")
+    assert result is None
+    assert config.name is None
+
+
+def test_try_auto_name_skips_when_too_many_assistant_msgs(tmp_path):
+    """Test that try_auto_name returns None after max_assistant_msgs is exceeded."""
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.util.auto_naming import try_auto_name
+
+    config = ChatConfig(_logdir=tmp_path)
+
+    messages = [
+        Message("user", "msg1"),
+        Message("assistant", "reply1"),
+        Message("user", "msg2"),
+        Message("assistant", "reply2"),
+        Message("user", "msg3"),
+        Message("assistant", "reply3"),
+        Message("user", "msg4"),
+        Message("assistant", "reply4"),  # 4 assistant msgs > default max of 3
+    ]
+
+    result = try_auto_name(config, messages, "test/model")
+    assert result is None
+
+
 # Unit tests for validation function
 def test_minimum_context_threshold():
     """Test that LLM naming returns None when context is too short."""
