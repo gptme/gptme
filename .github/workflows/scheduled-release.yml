@@ -4,7 +4,8 @@ name: Scheduled Release
 # - Runs twice weekly (Mon + Thu at noon UTC) to create dev pre-releases
 # - Can be manually triggered for dev, patch, or minor releases
 # - Dev releases use `.devYYYYMMDD` suffix and are marked as pre-releases
-# - Stable releases (patch/minor) get full changelogs since last stable
+# - All releases get structured changelogs via build_changelog.py
+#   (dev: since last tag, stable: since last stable release)
 #
 # Scripts shared with `make release` / `make release-dev`:
 #   - scripts/bump_version.sh    — version bump, commit, tag
@@ -137,9 +138,39 @@ jobs:
           TYPE="${{ github.event.inputs.release_type || 'dev' }}"
           bash scripts/bump_version.sh --type "$TYPE"
 
+      - name: Generate changelog
+        run: |
+          # Download the shared changelog generator (same as `make dist/CHANGELOG.md`)
+          wget -q -O scripts/build_changelog.py \
+            https://raw.githubusercontent.com/ActivityWatch/activitywatch/master/scripts/build_changelog.py
+          chmod +x scripts/build_changelog.py
+          pip install -q requests
+
+          TAG="${{ steps.version.outputs.tag }}"
+          PRERELEASE="${{ steps.version.outputs.prerelease }}"
+
+          # Use appropriate range: dev→since last tag, stable→since last stable
+          if [ "$PRERELEASE" = "true" ]; then
+            SINCE="${{ steps.version.outputs.last_tag }}"
+          else
+            SINCE="${{ steps.version.outputs.last_stable }}"
+          fi
+
+          echo "Generating changelog: ${SINCE}...${TAG}"
+          python3 scripts/build_changelog.py \
+            --range "${SINCE}...${TAG}" \
+            --project-title gptme \
+            --org gptme \
+            --repo gptme \
+            --output /tmp/changelog.md \
+            --add-version-header
+
+          echo "--- Generated changelog preview ---"
+          head -50 /tmp/changelog.md
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: |
-          bash scripts/publish_release.sh --publish-pypi
+          bash scripts/publish_release.sh --publish-pypi --notes-file /tmp/changelog.md
