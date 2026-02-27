@@ -133,8 +133,11 @@ site/dist/style.css: site/style.css
 site/dist/docs: docs
 	cp -r docs/_build/html site/dist/docs
 
-version:  ## Bump version using ./scripts/bump_version.sh
+version:  ## Bump version using ./scripts/bump_version.sh (interactive)
 	@./scripts/bump_version.sh
+
+version-auto:  ## Non-interactive version bump (TYPE=dev|patch|minor)
+	@./scripts/bump_version.sh --type $(or $(TYPE),patch)
 
 ./scripts/build_changelog.py:
 	wget -O $@ https://raw.githubusercontent.com/ActivityWatch/activitywatch/master/scripts/build_changelog.py
