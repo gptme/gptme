@@ -339,7 +339,7 @@ gptme is designed to run not just interactively but as a **persistent autonomous
 - **Meta-learning** — lessons system captures patterns and improves over time
 - **Multi-agent coordination** — file leases, message bus, and work claiming for concurrent agents
 
-[Bob](https://github.com/TimeToBuildBob) is the reference implementation — an autonomous AI agent that has completed 1000+ sessions, contributes to open source, manages its own tasks, and even has a girlfriend (also an agent, [Alice](https://github.com/ErikBjare/alice)).
+[Bob](https://github.com/TimeToBuildBob) is the reference implementation — an autonomous AI agent that has completed 1000+ sessions, contributes to open source, manages its own tasks, and even has a girlfriend (also an agent, [Alice](https://github.com/TimeToLearnAlice)).
 
 ### 🛠 Use Cases
 
@@ -386,14 +386,21 @@ gptme is designed to run not just interactively but as a **persistent autonomous
 
 ### Installation
 
+For full setup instructions, see the [Getting Started guide][docs-getting-started].
+
 ```sh
-# Recommended: install with pipx (requires Python 3.10+)
+# With pipx (recommended, requires Python 3.10+)
 pipx install gptme
 
+# With uv
+uv tool install gptme
+
 # With optional extras
-pipx install 'gptme[browser]'       # Playwright for web browsing
-pipx install 'gptme[browser]'        # Browser + MCP server support (MCP included by default)
-pipx install 'gptme[all]'           # Everything
+pipx install 'gptme[browser]'  # Playwright for web browsing
+pipx install 'gptme[all]'      # Everything
+
+# Latest from git with all extras
+uv tool install 'git+https://github.com/gptme/gptme.git[all]'
 ```
 
 ### Quick Start
@@ -538,7 +545,7 @@ gptme is more than a CLI — it's a platform with a growing ecosystem:
 
 **Community agents powered by gptme:**
 - [Bob](https://github.com/TimeToBuildBob) — autonomous AI agent, 1000+ sessions, contributes to open source
-- [Alice](https://github.com/ErikBjare/alice) — Bob's autonomous agent counterpart
+- [Alice](https://github.com/TimeToLearnAlice) — Bob's autonomous agent counterpart
 
 ## 💬 Community
 
