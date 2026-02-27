@@ -89,7 +89,6 @@ def check_cwd() -> None:
             _last_cwd = current
 
 
-# TODO: this should prob have a cache, but breaks tests which mutate files, so maybe not
 @lru_cache(maxsize=1024)
 def is_valid_path(path_str: str) -> bool:
     """Check if a string represents a valid path.
