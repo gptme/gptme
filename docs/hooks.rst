@@ -272,6 +272,41 @@ Automatically lint files after saving:
        }
    )
 
+Built-in Hooks
+--------------
+
+gptme ships with several built-in hooks that provide core functionality:
+
+**Session & Context**
+
+- ``active_context``: Selects relevant files to include before generation
+- ``agents_md_inject``: Loads AGENTS.md/CLAUDE.md when the working directory changes
+- ``cwd_tracking``: Tracks the current working directory across tool calls
+- ``time_awareness``: Injects current time into context
+- ``token_awareness``: Monitors token budget and warns when approaching limits
+- ``cost_awareness``: Tracks and reports LLM API costs
+- ``cache_awareness``: Surfaces cache hit rates for prompt caching
+
+**Tool Confirmation**
+
+- ``cli_confirm``: Terminal-based tool confirmation with preview
+- ``auto_confirm``: Auto-approves tools in autonomous/non-interactive mode
+- ``server_confirm``: Confirmation via WebUI/API for server mode
+
+**User Input**
+
+- ``elicitation``: Structured user input (forms, choices) in CLI
+- ``server_elicit``: Elicitation via WebUI/API for server mode
+- ``form_autodetect``: Detects when assistant output contains form-like choices
+
+**Code Quality**
+
+- ``markdown_validation``: Detects codeblock cut-offs in generated content
+
+**Agent Awareness**
+
+- ``workspace_agents``: Detects parallel agents (gptme, Claude Code, Codex, Goose, OpenCode, Amp) running in the same workspace
+
 Best Practices
 --------------
 
