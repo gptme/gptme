@@ -884,8 +884,8 @@ def init_hooks(
         "cwd_changed": lambda: __import__(
             "gptme.hooks.cwd_changed", fromlist=["register"]
         ).register(),
-        "cwd_tracking": lambda: __import__(
-            "gptme.hooks.cwd_tracking", fromlist=["register"]
+        "cwd_awareness": lambda: __import__(
+            "gptme.hooks.cwd_awareness", fromlist=["register"]
         ).register(),
         "markdown_validation": lambda: __import__(
             "gptme.hooks.markdown_validation", fromlist=["register"]

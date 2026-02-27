@@ -1,4 +1,4 @@
-"""Tests for cwd_tracking hook.
+"""Tests for cwd_awareness hook.
 
 Updated for CWD_CHANGED hook type (Issue #1521): the hook now receives
 (old_cwd, new_cwd) directly from the centralized detector instead of
@@ -8,7 +8,7 @@ storing/reading its own ContextVar.
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from gptme.hooks.cwd_tracking import on_cwd_changed
+from gptme.hooks.cwd_awareness import on_cwd_changed
 from gptme.message import Message
 
 
@@ -86,7 +86,7 @@ class TestRegister:
             get_registry,
             set_registry,
         )
-        from gptme.hooks.cwd_tracking import register
+        from gptme.hooks.cwd_awareness import register
 
         old = get_registry()
         set_registry(HookRegistry())
@@ -94,6 +94,6 @@ class TestRegister:
             register()
             hooks = get_hooks(HookType.CWD_CHANGED)
             names = [h.name for h in hooks]
-            assert "cwd_tracking.notification" in names
+            assert "cwd_awareness.notification" in names
         finally:
             set_registry(old)

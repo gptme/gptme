@@ -1,5 +1,5 @@
 """Tests for the centralized CWD change detection (gptme/hooks/cwd_changed.py)
-and simplified CWD tracking notification (gptme/hooks/cwd_tracking.py).
+and CWD awareness notification (gptme/hooks/cwd_awareness.py).
 
 Tests the CWD_CHANGED hook type added in Issue #1521.
 """
@@ -17,8 +17,8 @@ from gptme.hooks import (
     get_registry,
     set_registry,
 )
+from gptme.hooks.cwd_awareness import on_cwd_changed
 from gptme.hooks.cwd_changed import _cwd_before_var, _detect_change, _store_cwd
-from gptme.hooks.cwd_tracking import on_cwd_changed
 from gptme.message import Message
 
 
@@ -155,7 +155,7 @@ class TestCwdChangedDetector:
 
 
 class TestCwdTrackingNotification:
-    """Tests for cwd_tracking.py — the simplified CWD notification hook."""
+    """Tests for cwd_awareness.py — the simplified CWD notification hook."""
 
     def test_yields_notification(self):
         """on_cwd_changed should yield a system message with the new CWD."""
@@ -177,13 +177,13 @@ class TestCwdTrackingNotification:
 
     def test_register(self):
         """register() should add a CWD_CHANGED hook."""
-        from gptme.hooks.cwd_tracking import register
+        from gptme.hooks.cwd_awareness import register
 
         register()
 
         hooks = get_hooks(HookType.CWD_CHANGED)
         names = [h.name for h in hooks]
-        assert "cwd_tracking.notification" in names
+        assert "cwd_awareness.notification" in names
 
 
 class TestHookTypeEnum:
@@ -204,9 +204,9 @@ class TestIntegration:
     """Integration tests: centralized detector + subscriber hooks working together."""
 
     def test_detector_triggers_tracking(self, tmp_path: Path):
-        """cwd_changed detector + cwd_tracking subscriber should produce notification."""
+        """cwd_changed detector + cwd_awareness subscriber should produce notification."""
+        from gptme.hooks.cwd_awareness import register as register_tracking
         from gptme.hooks.cwd_changed import register as register_detector
-        from gptme.hooks.cwd_tracking import register as register_tracking
 
         register_detector()
         register_tracking()
@@ -235,8 +235,8 @@ class TestIntegration:
 
     def test_no_notification_without_change(self, tmp_path: Path):
         """No notification when CWD stays the same."""
+        from gptme.hooks.cwd_awareness import register as register_tracking
         from gptme.hooks.cwd_changed import register as register_detector
-        from gptme.hooks.cwd_tracking import register as register_tracking
 
         register_detector()
         register_tracking()

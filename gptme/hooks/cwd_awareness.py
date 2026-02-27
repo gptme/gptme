@@ -1,5 +1,5 @@
 """
-Working directory tracking hook.
+Working directory awareness hook.
 
 Notifies the agent when the working directory changes, helping maintain
 awareness of the execution context.
@@ -46,11 +46,11 @@ def on_cwd_changed(
 
 
 def register() -> None:
-    """Register the cwd tracking hook."""
+    """Register the cwd awareness hook."""
     register_hook(
-        "cwd_tracking.notification",
+        "cwd_awareness.notification",
         HookType.CWD_CHANGED,
         on_cwd_changed,
         priority=0,
     )
-    logger.debug("Registered cwd tracking hook")
+    logger.debug("Registered cwd awareness hook")
