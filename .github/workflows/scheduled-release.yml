@@ -5,8 +5,7 @@ name: Scheduled Release
 # - Can be manually triggered for dev, patch, or minor releases
 # - Dev releases use `.devYYYYMMDD` suffix and are marked as pre-releases
 # - Stable releases (patch/minor) get full changelogs since last stable
-# - PyPI publishing is handled by the existing release.yml workflow
-#   (triggers on GitHub release creation)
+# - PyPI publishing is inlined (GITHUB_TOKEN can't trigger release.yml)
 #
 # Version bumping is done by scripts/bump_version.sh, shared with `make release`.
 
@@ -29,6 +28,7 @@ on:
 permissions:
   contents: write
   actions: read
+  id-token: write
 
 concurrency:
   group: scheduled-release
@@ -122,6 +122,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: master
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -185,3 +186,10 @@ jobs:
 
           echo "Created release: $TAG"
           echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/$TAG"
+
+      - name: Build and publish to PyPI
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          poetry build
+          poetry publish --username=__token__ --password="$PYPI_TOKEN"
