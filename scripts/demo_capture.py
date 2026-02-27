@@ -127,7 +127,9 @@ def check_prerequisites(modes: list[str]) -> list[str]:
     return missing
 
 
-def capture_terminal_demo(demo: dict, output_dir: Path) -> Path | None:
+def capture_terminal_demo(
+    demo: dict, output_dir: Path, model: str | None = None
+) -> Path | None:
     """Record a terminal demo using asciinema + gptme.
 
     Returns the path to the .cast file, or None on failure.
@@ -138,6 +140,9 @@ def capture_terminal_demo(demo: dict, output_dir: Path) -> Path | None:
 
     print(f"  Recording terminal demo: {name}")
     print(f"  Prompt: {prompt[:80]}...")
+
+    # Build gptme command
+    model_flag = f"--model {model}" if model else ""
 
     # Create a temporary workspace for the demo
     with tempfile.TemporaryDirectory(prefix=f"gptme-demo-{name}-") as tmpdir:
@@ -152,7 +157,7 @@ def capture_terminal_demo(demo: dict, output_dir: Path) -> Path | None:
             "35",
             "--overwrite",
             "--command",
-            f"cd {tmpdir} && gptme --non-interactive --no-confirm '{prompt}' 2>&1 || true",
+            f"cd {tmpdir} && gptme --non-interactive --no-confirm {model_flag} '{prompt}' 2>&1 || true",
         ]
 
         env = os.environ.copy()
@@ -480,6 +485,11 @@ def main():
     parser.add_argument(
         "--list-demos", action="store_true", help="List available terminal demos"
     )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Model to use for gptme (e.g. openrouter/anthropic/claude-sonnet-4-6)",
+    )
 
     args = parser.parse_args()
 
@@ -538,7 +548,7 @@ def main():
             terminal_dir.mkdir(exist_ok=True)
             results["terminal"] = []
             for demo in TERMINAL_DEMOS:
-                cast_file = capture_terminal_demo(demo, terminal_dir)
+                cast_file = capture_terminal_demo(demo, terminal_dir, model=args.model)
                 results["terminal"].append(cast_file)
 
         # WebUI screenshots
