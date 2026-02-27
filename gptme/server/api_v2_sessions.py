@@ -284,9 +284,10 @@ async def _acp_step(
 ) -> None:
     """Run one conversation step via the per-session ACP subprocess.
 
-    Sends the latest user message to the ACP runtime and emits SSE events for
-    the response.  Tool execution happens autonomously inside the subprocess so
-    no tool-confirmation flow is needed here.
+    Sends all *pending* user messages (since the ACP cursor) to the ACP
+    runtime and emits SSE events for the final assistant response. Tool
+    execution happens autonomously inside the subprocess so no tool-confirmation
+    flow is needed here.
 
     Limitations (compared to the in-process ``step()``):
     - No per-token streaming (response arrives in one chunk)
@@ -309,8 +310,9 @@ async def _acp_step(
         session.generating = False
         return
 
-    last_user_index = len(user_messages) - 1
-    if last_user_index <= session.acp_last_user_msg_index:
+    next_user_index = session.acp_last_user_msg_index + 1
+    pending_user_messages = user_messages[next_user_index:]
+    if not pending_user_messages:
         duplicate_error_event: ErrorEvent = {
             "type": "error",
             "error": "No new user message to process",
@@ -319,17 +321,21 @@ async def _acp_step(
         session.generating = False
         return
 
-    last_user_msg = user_messages[-1].content
-
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
 
     try:
-        text, _raw = await session.acp_runtime.prompt(last_user_msg)
+        final_msg: Message | None = None
 
-        msg = Message("assistant", text)
-        _append_and_notify(manager, session, msg)
-        manager.write()
-        session.acp_last_user_msg_index = last_user_index
+        for absolute_index, user_msg in enumerate(
+            pending_user_messages,
+            start=next_user_index,
+        ):
+            text, _raw = await session.acp_runtime.prompt(user_msg.content)
+            msg = Message("assistant", text)
+            _append_and_notify(manager, session, msg)
+            manager.write()
+            session.acp_last_user_msg_index = absolute_index
+            final_msg = msg
 
         # Auto-name if this is the first assistant turn
         logdir = get_logs_dir() / conversation_id
@@ -338,11 +344,12 @@ async def _acp_step(
             chat_config, manager.log.messages, chat_config.model or "", conversation_id
         )
 
+        assert final_msg is not None, "pending_user_messages should not be empty"
         SessionManager.add_event(
             conversation_id,
             {
                 "type": "generation_complete",
-                "message": msg2dict(msg, manager.workspace),
+                "message": msg2dict(final_msg, manager.workspace),
             },
         )
     except Exception as e:

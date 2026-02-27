@@ -276,17 +276,75 @@ def test_acp_step_rejects_duplicate_without_new_user_message(
     SessionManager._conversation_sessions[conversation_id].add("sid-dupe")
 
     try:
-        # First run consumes the latest user message
+        # First run consumes pending user message(s)
         _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
 
-        # Second run with no new user message should fail fast
+        prompt_calls_before = sum(len(c.prompt_calls) for c in created)
+
+        # Second run with no new user message should fail fast and send no prompt
         _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
 
-        assert len(created) == 1
-        assert created[0].prompt_calls == [("sess-test", "hello once")]
+        prompt_calls_after = sum(len(c.prompt_calls) for c in created)
+        assert prompt_calls_after == prompt_calls_before
         assert session.events[-1]["type"] == "error"
         err = session.events[-1]
         assert "No new user message" in str(err)
     finally:
         SessionManager._sessions.pop("sid-dupe", None)
         SessionManager._conversation_sessions[conversation_id].discard("sid-dupe")
+
+
+def test_acp_step_processes_all_pending_user_messages(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """ACP step should process all pending user messages in order."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    # Two user messages should both be processed in one ACP step call
+    for content in ["first question", "second question"]:
+        resp = client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": content},
+        )
+        assert resp.status_code == 200
+
+    session = ConversationSession(id="sid-pending", conversation_id=conversation_id)
+    session.use_acp = True
+    session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
+    SessionManager._sessions["sid-pending"] = session
+    SessionManager._conversation_sessions[conversation_id].add("sid-pending")
+
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+
+        assert len(created) == 1
+        assert created[0].prompt_calls == [
+            ("sess-test", "first question"),
+            ("sess-test", "second question"),
+        ]
+        # Cursor should now point at the second user message index
+        assert session.acp_last_user_msg_index == 1
+
+        # A second run without a new user message should fail fast
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert session.events[-1]["type"] == "error"
+        assert "No new user message" in str(session.events[-1])
+    finally:
+        SessionManager._sessions.pop("sid-pending", None)
+        SessionManager._conversation_sessions[conversation_id].discard("sid-pending")
