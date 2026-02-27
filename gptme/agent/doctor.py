@@ -10,6 +10,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import tomlkit
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,7 +73,12 @@ def check_core_files(workspace: Path, report: DoctorReport) -> None:
             report.fail(desc, f"{filename} not found")
             continue
 
-        lines = len(path.read_text().splitlines())
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            report.warn(desc, f"{filename} exists but could not be read")
+            continue
+        lines = len(content.splitlines())
         if lines < min_lines:
             report.warn(
                 desc,
@@ -100,28 +107,30 @@ def check_gptme_toml(workspace: Path, report: DoctorReport) -> None:
     if not toml_path.exists():
         return  # Already reported in core_files
 
-    content = toml_path.read_text()
+    try:
+        with open(toml_path) as f:
+            config = tomlkit.load(f)
+    except Exception as e:
+        report.fail("gptme.toml", f"could not parse TOML: {e}")
+        return
 
     # Check for agent name
-    if "[agent]" in content and "name" in content:
-        # Extract name (simple parsing)
-        for line in content.splitlines():
-            line = line.strip()
-            if line.startswith("name") and "=" in line:
-                name_val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                report.passed("Agent name", f"configured: {name_val}")
-                break
+    agent_section = config.get("agent", {})
+    name_val = agent_section.get("name") if agent_section else None
+    if name_val:
+        report.passed("Agent name", f"configured: {name_val}")
     else:
         report.warn("Agent name", "no [agent] name configured in gptme.toml")
 
     # Check for prompt section
-    if "[prompt]" in content:
+    if "prompt" in config:
         report.passed("Prompt config", "section present")
     else:
         report.warn("Prompt config", "no [prompt] section (auto-includes won't work)")
 
     # Check for context_cmd
-    if "context_cmd" in content:
+    prompt_section = config.get("prompt", {})
+    if prompt_section and "context_cmd" in prompt_section:
         report.passed("Context command", "configured")
     else:
         report.warn("Context command", "not configured (no dynamic context)")
