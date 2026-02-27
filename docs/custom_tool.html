@@ -469,7 +469,11 @@
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-an-approach">Choosing an Approach</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-the-tool">Registering the Tool</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#loading-custom-tools">Loading Custom Tools</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#loading-from-a-file-tools">Loading from a File (<code class="docutils literal notranslate"><span class="pre">--tools</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#loading-from-a-module-tool-modules">Loading from a Module (<code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code>)</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-tools">Community Tools</a></li>
 </ul>
             </nav>
@@ -686,11 +690,31 @@
 <li><p>Complex argument validation</p></li>
 <li><p>Operation without shell access</p></li>
 </ul>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--tools</span> <span class="pre">+./file.py</span></code> for <strong>quick development</strong> — no packaging or <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code> needed. Use <code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code> for <strong>production</strong> tools that are installed as packages.</p>
 </section>
-<section id="registering-the-tool">
-<h2>Registering the Tool<a class="headerlink" href="#registering-the-tool" title="Link to this heading">#</a></h2>
-<p>To ensure your tool is available for use, you can specify the module in the <code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code> env variable or
-setting in your <a class="reference internal" href="config.html"><span class="doc">project configuration file</span></a>, which will automatically load your custom tools.</p>
+<section id="loading-custom-tools">
+<h2>Loading Custom Tools<a class="headerlink" href="#loading-custom-tools" title="Link to this heading">#</a></h2>
+<p>There are two ways to load custom tools: directly from a <code class="docutils literal notranslate"><span class="pre">.py</span></code> file (quickest for development), or via a Python module (best for packaged/shared tools).</p>
+<section id="loading-from-a-file-tools">
+<h3>Loading from a File (<code class="docutils literal notranslate"><span class="pre">--tools</span></code>)<a class="headerlink" href="#loading-from-a-file-tools" title="Link to this heading">#</a></h3>
+<p>The simplest way to use a custom tool is to pass the file path directly via <code class="docutils literal notranslate"><span class="pre">--tools</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Add your tool on top of the default toolset (most common)</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+./my_tool.py<span class="w"> </span><span class="s2">&quot;use the my_tool tool&quot;</span>
+
+<span class="c1"># Replace the default toolset entirely with specific tools</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>save,patch,./my_tool.py<span class="w"> </span><span class="s2">&quot;prompt&quot;</span>
+
+<span class="c1"># Load multiple custom tool files (additive — one &#39;+&#39; is enough)</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+./tools/search.py,./tools/deploy.py<span class="w"> </span><span class="s2">&quot;prompt&quot;</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">+</span></code> prefix adds tools on top of the default toolset. Without <code class="docutils literal notranslate"><span class="pre">+</span></code>, the argument replaces the entire toolset — so you’d need to explicitly list any built-in tools you still want.</p>
+<p><strong>How it works</strong>: gptme scans the file for top-level <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> instances and registers them. The file must be a regular <code class="docutils literal notranslate"><span class="pre">.py</span></code> file containing at least one <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> variable (see the example in <a class="reference internal" href="#creating-a-custom-tool">Creating a Custom Tool</a> above).</p>
+</section>
+<section id="loading-from-a-module-tool-modules">
+<h3>Loading from a Module (<code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code>)<a class="headerlink" href="#loading-from-a-module-tool-modules" title="Link to this heading">#</a></h3>
+<p>For packaged tools, specify the module in the <code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code> env variable or
+in your <a class="reference internal" href="config.html"><span class="doc">project configuration file</span></a>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
 <span class="n">TOOL_MODULES</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gptme.tools,yourpackage.your_custom_tool_module&quot;</span>
 </pre></div>
@@ -703,6 +727,7 @@ or by temporarily modifying the <cite>PYTHONPATH</cite> environment variable. Fo
 </pre></div>
 </div>
 <p>This lets Python locate your module during development and testing without requiring installation.</p>
+</section>
 </section>
 <section id="community-tools">
 <h2>Community Tools<a class="headerlink" href="#community-tools" title="Link to this heading">#</a></h2>
@@ -784,7 +809,11 @@ This makes it easier to:</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-an-approach">Choosing an Approach</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-the-tool">Registering the Tool</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#loading-custom-tools">Loading Custom Tools</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#loading-from-a-file-tools">Loading from a File (<code class="docutils literal notranslate"><span class="pre">--tools</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#loading-from-a-module-tool-modules">Loading from a Module (<code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code>)</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-tools">Community Tools</a></li>
 </ul>
   </nav></div>
