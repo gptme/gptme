@@ -116,6 +116,7 @@ openapi-spec-validator = "^0.7.2"
 
 # test
 pytest = "^8.0"
+pytest-asyncio = "*"
 pytest-cov = "*"
 pytest-xdist = "^3.5.0"
 pytest-profiling = "^1.7.0"
@@ -281,6 +282,8 @@ module = "datasets.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "eval: marks tests as evals (deselect with '-m \"not eval\"'), these may fail, and will not run in CI",
