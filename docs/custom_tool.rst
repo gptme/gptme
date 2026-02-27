@@ -233,8 +233,8 @@ The simplest way to use a custom tool is to pass the file path directly via ``--
     # Replace the default toolset entirely with specific tools
     gptme --tools save,patch,./my_tool.py "prompt"
 
-    # Load multiple custom tool files (additive)
-    gptme --tools +./tools/search.py,+./tools/deploy.py "prompt"
+    # Load multiple custom tool files (additive — one '+' is enough)
+    gptme --tools +./tools/search.py,./tools/deploy.py "prompt"
 
 The ``+`` prefix adds tools on top of the default toolset. Without ``+``, the argument replaces the entire toolset — so you'd need to explicitly list any built-in tools you still want.
 
