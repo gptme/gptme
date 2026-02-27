@@ -55,7 +55,7 @@ TERMINAL_DEMOS = [
     {
         "name": "file-editing",
         "description": "File creation and editing",
-        "prompt": "Create a simple calculator module in calc.py with add, subtract, multiply, divide functions. Then write tests in test_calc.py and run them.",
+        "prompt": "Create a simple calculator module in calc.py with add, subtract, multiply, divide functions. Then create test_calc.py that imports calc, tests each function with assert statements, and run it with 'python3 test_calc.py'.",
     },
 ]
 
