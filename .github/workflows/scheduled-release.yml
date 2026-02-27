@@ -1,0 +1,187 @@
+name: Scheduled Release
+
+# Automated release pipeline for gptme.
+# - Runs twice weekly (Mon + Thu at noon UTC) to create dev pre-releases
+# - Can be manually triggered for dev, patch, or minor releases
+# - Dev releases use `.devYYYYMMDD` suffix and are marked as pre-releases
+# - Stable releases (patch/minor) get full changelogs since last stable
+# - PyPI publishing is handled by the existing release.yml workflow
+#   (triggers on GitHub release creation)
+#
+# Version bumping is done by scripts/bump_version.sh, shared with `make release`.
+
+on:
+  schedule:
+    # Twice weekly: Monday and Thursday at 12:00 UTC
+    - cron: '0 12 * * 1,4'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev      # Development pre-release (.devYYYYMMDD)
+          - patch    # Stable patch release (x.y.Z+1)
+          - minor    # Stable minor release (x.Y+1.0)
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: scheduled-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Pre-flight checks
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      last_stable: ${{ steps.check.outputs.last_stable }}
+      last_tag: ${{ steps.check.outputs.last_tag }}
+      commits: ${{ steps.check.outputs.commits }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes and CI status
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Find last stable release tag (no pre-release suffix)
+          LAST_STABLE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          # Find last tag of any kind
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          COMMITS_SINCE_TAG=0
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS_SINCE_TAG=$(git rev-list "${LAST_TAG}..HEAD" --count)
+          fi
+
+          echo "last_stable=$LAST_STABLE" >> "$GITHUB_OUTPUT"
+          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
+          echo "commits=$COMMITS_SINCE_TAG" >> "$GITHUB_OUTPUT"
+          echo "Last stable: $LAST_STABLE | Last tag: $LAST_TAG | Commits since tag: $COMMITS_SINCE_TAG"
+
+          # Skip if no new commits
+          if [ "$COMMITS_SINCE_TAG" -eq 0 ]; then
+            echo "No new commits since $LAST_TAG — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Verify CI is green on HEAD
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "Checking CI status for $HEAD_SHA..."
+
+          # Check combined commit status (covers both status checks and check runs)
+          # Use check-runs API which covers GitHub Actions
+          CONCLUSION=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-suites" \
+            --jq '[.check_suites[] | select(.app.slug == "github-actions")] | map(.conclusion) | unique | .[]' 2>/dev/null || echo "unknown")
+
+          echo "CI conclusions: $CONCLUSION"
+
+          # If any suite is still running or has failed, skip
+          if echo "$CONCLUSION" | grep -qE "failure|action_required|timed_out"; then
+            echo "CI has failures on HEAD — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if echo "$CONCLUSION" | grep -qE "null|pending"; then
+            echo "CI is still running on HEAD — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Require explicit success — skip if unknown or empty (API failure)
+          if [ -z "$CONCLUSION" ] || [ "$CONCLUSION" = "unknown" ]; then
+            echo "CI status unavailable on HEAD — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! echo "$CONCLUSION" | grep -q "success"; then
+            echo "No successful CI checks found on HEAD — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Create release
+    needs: check
+    if: needs.check.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - name: Bump version
+        id: version
+        run: |
+          TYPE="${{ github.event.inputs.release_type || 'dev' }}"
+          bash scripts/bump_version.sh --type "$TYPE"
+
+      - name: Push
+        run: |
+          git push origin HEAD:master
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          TITLE="${{ steps.version.outputs.title }}"
+          TYPE="${{ github.event.inputs.release_type || 'dev' }}"
+          LAST_STABLE="${{ needs.check.outputs.last_stable }}"
+          LAST_TAG="${{ needs.check.outputs.last_tag }}"
+
+          # For dev releases: changelog since last tag (any kind)
+          # For stable releases: changelog since last stable tag
+          if [ "$TYPE" = "dev" ]; then
+            NOTES_START="$LAST_TAG"
+          else
+            NOTES_START="$LAST_STABLE"
+          fi
+
+          PRERELEASE_FLAG=""
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          # Build release command — notes-start-tag is optional (empty on first release)
+          if [ -n "$NOTES_START" ]; then
+            # shellcheck disable=SC2086
+            gh release create "$TAG" \
+              --title "$TITLE" \
+              --generate-notes \
+              --notes-start-tag "$NOTES_START" \
+              $PRERELEASE_FLAG
+          else
+            # shellcheck disable=SC2086
+            gh release create "$TAG" \
+              --title "$TITLE" \
+              --generate-notes \
+              $PRERELEASE_FLAG
+          fi
+
+          echo "Created release: $TAG"
+          echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/$TAG"
