@@ -1,116 +1,99 @@
-"""Tests for cwd_tracking hook."""
+"""Tests for cwd_tracking hook.
 
-import os
+Updated for CWD_CHANGED hook type (Issue #1521): the hook now receives
+(old_cwd, new_cwd) directly from the centralized detector instead of
+storing/reading its own ContextVar.
+"""
+
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock
 
-import pytest
-
-from gptme.hooks.cwd_tracking import (
-    _cwd_before_var,
-    track_cwd_post_execute,
-    track_cwd_pre_execute,
-)
-from gptme.logmanager import Log
+from gptme.hooks.cwd_tracking import on_cwd_changed
 from gptme.message import Message
 
 
-@pytest.fixture
-def workspace(tmp_path: Path) -> Path:
-    """Create a temporary workspace directory."""
-    return tmp_path
+class TestOnCwdChanged:
+    """Tests for on_cwd_changed — the CWD notification handler."""
 
-
-@pytest.fixture
-def empty_log() -> Log:
-    """Create an empty Log for testing."""
-    return Log()
-
-
-@pytest.fixture(autouse=True)
-def reset_contextvar():
-    """Reset the cwd ContextVar between tests."""
-    token = _cwd_before_var.set(None)
-    yield
-    _cwd_before_var.reset(token)
-
-
-class TestPreExecute:
-    """Tests for track_cwd_pre_execute."""
-
-    def test_stores_current_cwd(self, workspace: Path, empty_log: Log) -> None:
-        cwd = os.getcwd()
-        list(track_cwd_pre_execute(log=empty_log, workspace=workspace, tool_use=None))
-        assert _cwd_before_var.get() == cwd
-
-    def test_yields_no_messages(self, workspace: Path, empty_log: Log) -> None:
+    def test_yields_system_message(self, tmp_path: Path) -> None:
+        """Should yield a system message when CWD changes."""
         msgs = list(
-            track_cwd_pre_execute(log=empty_log, workspace=workspace, tool_use=None)
-        )
-        assert len(msgs) == 0
-
-    def test_handles_getcwd_error(self, workspace: Path, empty_log: Log) -> None:
-        with patch("os.getcwd", side_effect=OSError("dir deleted")):
-            # Should not raise
-            msgs = list(
-                track_cwd_pre_execute(log=empty_log, workspace=workspace, tool_use=None)
+            on_cwd_changed(
+                log=MagicMock(),
+                workspace=None,
+                old_cwd="/old/path",
+                new_cwd=str(tmp_path),
+                tool_use=None,
             )
-            assert len(msgs) == 0
-
-
-class TestPostExecute:
-    """Tests for track_cwd_post_execute."""
-
-    def test_no_message_when_cwd_unchanged(
-        self, workspace: Path, empty_log: Log
-    ) -> None:
-        _cwd_before_var.set(os.getcwd())
-        msgs = list(
-            track_cwd_post_execute(log=empty_log, workspace=workspace, tool_use=None)
         )
-        assert len(msgs) == 0
+        messages = [m for m in msgs if isinstance(m, Message)]
+        assert len(messages) == 1
 
-    def test_message_when_cwd_changes(
-        self, workspace: Path, tmp_path: Path, empty_log: Log
-    ) -> None:
-        new_dir = tmp_path / "subdir"
-        new_dir.mkdir()
+    def test_message_contains_new_cwd(self, tmp_path: Path) -> None:
+        """Message content should include the new working directory."""
+        new_cwd = str(tmp_path)
+        msgs = list(
+            on_cwd_changed(
+                log=MagicMock(),
+                workspace=None,
+                old_cwd="/old/path",
+                new_cwd=new_cwd,
+                tool_use=None,
+            )
+        )
+        messages = [m for m in msgs if isinstance(m, Message)]
+        assert len(messages) == 1
+        assert new_cwd in messages[0].content
 
-        original = os.getcwd()
-        _cwd_before_var.set(original)
+    def test_message_is_system_role(self) -> None:
+        """Message should be a system-role message."""
+        msgs = list(
+            on_cwd_changed(
+                log=MagicMock(),
+                workspace=None,
+                old_cwd="/old/path",
+                new_cwd="/new/path",
+                tool_use=None,
+            )
+        )
+        messages = [m for m in msgs if isinstance(m, Message)]
+        assert messages[0].role == "system"
 
-        os.chdir(new_dir)
+    def test_message_has_system_info_tag(self) -> None:
+        """Message should use system_info XML tag."""
+        msgs = list(
+            on_cwd_changed(
+                log=MagicMock(),
+                workspace=None,
+                old_cwd="/old/path",
+                new_cwd="/new/path",
+                tool_use=None,
+            )
+        )
+        messages = [m for m in msgs if isinstance(m, Message)]
+        assert "system_info" in messages[0].content
+
+
+class TestRegister:
+    """Tests for register() — registering CWD_CHANGED hook."""
+
+    def test_register_adds_hook(self) -> None:
+        """register() should add a CWD_CHANGED hook."""
+        from gptme.hooks import (
+            HookRegistry,
+            HookType,
+            get_hooks,
+            get_registry,
+            set_registry,
+        )
+        from gptme.hooks.cwd_tracking import register
+
+        old = get_registry()
+        set_registry(HookRegistry())
         try:
-            msgs = list(
-                track_cwd_post_execute(
-                    log=empty_log, workspace=workspace, tool_use=None
-                )
-            )
-            assert len(msgs) == 1
-            msg = msgs[0]
-            assert isinstance(msg, Message)
-            assert msg.role == "system"
-            assert str(new_dir) in msg.content
-            assert "Working directory changed" in msg.content
+            register()
+            hooks = get_hooks(HookType.CWD_CHANGED)
+            names = [h.name for h in hooks]
+            assert "cwd_tracking.notification" in names
         finally:
-            os.chdir(original)
-
-    def test_no_message_when_no_stored_cwd(
-        self, workspace: Path, empty_log: Log
-    ) -> None:
-        msgs = list(
-            track_cwd_post_execute(log=empty_log, workspace=workspace, tool_use=None)
-        )
-        assert len(msgs) == 0
-
-    def test_handles_getcwd_error_gracefully(
-        self, workspace: Path, empty_log: Log
-    ) -> None:
-        _cwd_before_var.set("/some/path")
-        with patch("os.getcwd", side_effect=OSError("dir deleted")):
-            msgs = list(
-                track_cwd_post_execute(
-                    log=empty_log, workspace=workspace, tool_use=None
-                )
-            )
-            assert len(msgs) == 0
+            set_registry(old)
