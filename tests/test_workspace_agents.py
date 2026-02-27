@@ -443,3 +443,48 @@ class TestNewRuntimeParsers:
 
         info = _parse_amp(100, ["amp", "--model", "claude-sonnet"], "/workspace")
         assert info.model == "claude-sonnet"
+
+
+class TestParseGptmePromptFile:
+    """Tests for gptme parser prompt file resolution."""
+
+    def test_prompt_file_resolved_relative_to_agent_cwd(self, tmp_path):
+        """Prompt .txt files should be resolved relative to the agent's CWD, not ours."""
+        from gptme.hooks.workspace_agents import _parse_gptme
+
+        # Create a prompt file in the agent's working directory
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("Deploy the new feature to staging\nMore details here")
+
+        info = _parse_gptme(
+            pid=100,
+            cmdline=["gptme", "-n", "--name", "test", "prompt.txt"],
+            cwd=str(tmp_path),
+        )
+        assert info.mode == "autonomous"
+        assert "Deploy the new feature" in info.cmdline_summary
+
+    def test_prompt_file_absolute_path(self, tmp_path):
+        """Absolute prompt file paths should work regardless of CWD."""
+        from gptme.hooks.workspace_agents import _parse_gptme
+
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("Run the full test suite")
+
+        info = _parse_gptme(
+            pid=100,
+            cmdline=["gptme", "-n", "--name", "test", str(prompt_file)],
+            cwd="/some/other/dir",
+        )
+        assert "Run the full test suite" in info.cmdline_summary
+
+    def test_missing_prompt_file_falls_back_to_cmdline(self):
+        """When prompt file doesn't exist, fall back to cmdline summary."""
+        from gptme.hooks.workspace_agents import _parse_gptme
+
+        info = _parse_gptme(
+            pid=100,
+            cmdline=["gptme", "-n", "--name", "test", "nonexistent.txt"],
+            cwd="/tmp",
+        )
+        assert info.cmdline_summary == "gptme -n --name test nonexistent.txt"

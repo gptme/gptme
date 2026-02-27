@@ -445,12 +445,15 @@ def _parse_gptme(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
     prompt_summary = ""
     if is_non_interactive:
         for arg in cmdline:
-            if arg.endswith(".txt") and os.path.isfile(arg):
-                try:
-                    with open(arg) as f:
-                        prompt_summary = f.readline().strip()[:120]
-                except OSError:
-                    pass
+            if arg.endswith(".txt"):
+                # Resolve relative to the agent's CWD, not ours
+                file_path = os.path.join(cwd, arg) if not os.path.isabs(arg) else arg
+                if os.path.isfile(file_path):
+                    try:
+                        with open(file_path) as f:
+                            prompt_summary = f.readline().strip()[:120]
+                    except OSError:
+                        pass
                 break
 
     return AgentInfo(
