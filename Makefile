@@ -139,6 +139,18 @@ version:  ## Bump version using ./scripts/bump_version.sh (interactive)
 version-auto:  ## Non-interactive version bump (TYPE=dev|patch|minor)
 	@./scripts/bump_version.sh --type $(or $(TYPE),patch)
 
+release-dev:  ## Create a dev pre-release (.devYYYYMMDD) — same as CI scheduled release
+	@./scripts/bump_version.sh --type dev
+	@./scripts/publish_release.sh
+
+release-patch:  ## Create a stable patch release (x.y.Z+1)
+	@./scripts/bump_version.sh --type patch
+	@./scripts/publish_release.sh --publish-pypi
+
+release-minor:  ## Create a stable minor release (x.Y+1.0)
+	@./scripts/bump_version.sh --type minor
+	@./scripts/publish_release.sh --publish-pypi
+
 ./scripts/build_changelog.py:
 	wget -O $@ https://raw.githubusercontent.com/ActivityWatch/activitywatch/master/scripts/build_changelog.py
 	chmod +x $@
@@ -163,11 +175,12 @@ docs/releases/%.md: ./scripts/build_changelog.py
 	PREV_VERSION=$$(./scripts/get-last-version.sh $${VERSION}) && \
 		./scripts/build_changelog.py --range $${PREV_VERSION}...$${VERSION} --project-title gptme --org gptme --repo gptme --output $@ --add-version-header
 
-release: version dist/CHANGELOG.md  ## Release new version
+release: version dist/CHANGELOG.md  ## Release new version (interactive)
 	# Insert new version at top of changelog toctree
 	# Stage changelog and release notes with version bump
 	# Amend version commit to include changelog
 	# Force-update tag to amended commit
+	# Then use shared publish script for push + GH release
 	@VERSION=v$$(poetry version --short) && \
 		echo "Releasing version $${VERSION}"; \
 		grep $${VERSION} docs/changelog.rst || (awk '/^   releases\// && !done { \
@@ -180,10 +193,8 @@ release: version dist/CHANGELOG.md  ## Release new version
 		git commit --amend --no-edit && \
 		git tag -f $${VERSION} && \
 		echo "✓ Updated commit and tag with changelog" && \
-		read -p "Press enter to push" && \
-		git push origin master && \
-		git push origin $${VERSION} --force && \
-		gh release create $${VERSION} -t $${VERSION} -F dist/CHANGELOG.md
+		read -p "Press enter to push and publish" && \
+		./scripts/publish_release.sh --notes-file dist/CHANGELOG.md
 
 install-completions: ## Install shell completions (Fish)
 	@echo "Installing shell completions..."
