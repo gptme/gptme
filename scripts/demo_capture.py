@@ -560,12 +560,14 @@ def main():
 
     finally:
         # Clean up servers we started
-        if webui_proc:
-            webui_proc.terminate()
-            webui_proc.wait(timeout=5)
-        if server_proc:
-            server_proc.terminate()
-            server_proc.wait(timeout=5)
+        for proc in [webui_proc, server_proc]:
+            if proc:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
 
     # Generate summary
     generate_summary(output_dir, results)
