@@ -54,14 +54,14 @@
 </p>
 
 <p align="center">
-📜 Personal AI agent in your terminal, with tools so it can:<br/>
-Use the terminal, run code, edit files, browse the web, use vision, and much more;<br/>
-a great coding agent, but is general-purpose to assist in all kinds of knowledge-work.
+📜 A personal AI agent in your terminal, with tools to:<br/>
+run shell commands, write code, edit files, browse the web, use vision, and much more.<br/>
+A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work.
 </p>
 
 <p align="center">
 An unconstrained local free and open-source <a href="https://gptme.org/docs/alternatives.html">alternative</a> to Claude Code, Codex, Cursor Agents, etc.<br/>
-One of the first agent CLIs created (Spring 2023) that is still in active development.
+One of the first agent CLIs created (Spring 2023) — and still in very active development.
 </p>
 
 ## 📚 Table of Contents
@@ -79,6 +79,7 @@ One of the first agent CLIs created (Spring 2023) that is still in active develo
 - 🚀 [Getting Started](#-getting-started)
 - 🛠 [Usage](#-usage)
 - 🌍 [Ecosystem](#-ecosystem)
+- 💬 [Community](#-community)
 - 📊 [Stats](#-stats)
 - 🔗 [Links](#-links)
 
@@ -108,6 +109,7 @@ For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [
 > [!NOTE]
 > The screencasts below are from 2023. gptme has evolved a lot since then!
 > For up-to-date examples and screenshots, see the [Documentation][docs-examples].
+> We're working on automated demo generation: [#1554](https://github.com/gptme/gptme/issues/1554).
 
 <table>
   <tr>
@@ -241,8 +243,9 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - Keyword, tool, and pattern-based matching.
   - Adapts to interactive vs autonomous modes.
   - Extend with your own lessons and [skills][docs-skills].
-- 🤖 **Support for several LLM [providers][docs-providers]**
-  - Use OpenAI, Anthropic, OpenRouter, or serve locally with `llama.cpp`.
+- 🤖 **Support for many LLM [providers][docs-providers]**
+  - Anthropic (Claude), OpenAI (GPT), Google (Gemini), xAI (Grok), DeepSeek, and more.
+  - Use OpenRouter for access to 100+ models, or serve locally with `llama.cpp`.
 - 🌐 **Web UI and REST API**
   - Modern web interface at [chat.gptme.org](https://chat.gptme.org) ([gptme-webui])
   - Simple built-in web UI included in the Python package.
@@ -262,6 +265,7 @@ gptme equips the AI with a rich set of built-in tools:
 |------|-------------|
 | `shell` | Execute shell commands directly in your terminal |
 | `ipython` | Run Python code with access to your installed libraries |
+| `read` | Read files and directories |
 | `save` / `append` | Create or update files |
 | `patch` / `morph` | Make incremental edits to existing files |
 | `browser` | Search and navigate the web via Playwright |
@@ -272,7 +276,9 @@ gptme equips the AI with a rich set of built-in tools:
 | `tmux` | Run long-lived commands in persistent terminal sessions |
 | `computer` | Full desktop access for GUI interactions |
 | `subagent` | Spawn sub-agents for parallel or isolated tasks |
+| `chats` | Reference and search past conversations |
 | `tts` | Text-to-speech output |
+| `youtube` | Fetch and process YouTube video transcripts |
 
 Use `/tools` during a conversation to see all available tools and their status.
 
@@ -330,7 +336,7 @@ gptme is designed to run not just interactively but as a **persistent autonomous
 - **Persistent workspace** — git-tracked brain across sessions
 - **Run loops** — scheduled or event-driven autonomous operation
 - **Task management** — structured task queue with GTD-style metadata
-- **Meta-learning** — lessons and lessons system for self-improvement
+- **Meta-learning** — lessons system captures patterns and improves over time
 - **Multi-agent coordination** — file leases, message bus, and work claiming for concurrent agents
 
 [Bob](https://github.com/TimeToBuildBob) is the reference implementation — an autonomous AI agent that has completed 1000+ sessions, contributes to open source, manages its own tasks, and even has a girlfriend (also an agent, [Alice](https://github.com/ErikBjare/alice)).
@@ -385,9 +391,9 @@ gptme is designed to run not just interactively but as a **persistent autonomous
 pipx install gptme
 
 # With optional extras
-pipx install 'gptme[browser]'   # Playwright for web browsing
-pipx install 'gptme[mcp]'       # MCP server support
-pipx install 'gptme[acp]'       # ACP editor integration (Zed, JetBrains)
+pipx install 'gptme[browser]'       # Playwright for web browsing
+pipx install 'gptme[browser,mcp]'   # Browser + MCP server support
+pipx install 'gptme[all]'           # Everything
 ```
 
 ### Quick Start
@@ -533,6 +539,14 @@ gptme is more than a CLI — it's a platform with a growing ecosystem:
 **Community agents powered by gptme:**
 - [Bob](https://github.com/TimeToBuildBob) — autonomous AI agent, 1000+ sessions, contributes to open source
 - [Alice](https://github.com/ErikBjare/alice) — Bob's autonomous agent counterpart
+
+## 💬 Community
+
+- **[Discord][discord]** — ask questions, share what you've built, discuss features
+- **[GitHub Discussions](https://github.com/gptme/gptme/discussions)** — longer-form conversation and ideas
+- **[X/Twitter](https://x.com/gptmeorg)** — updates and announcements
+
+Contributions welcome! See the [contributing guide](https://gptme.org/docs/contributing.html).
 
 ## 📊 Stats
 
