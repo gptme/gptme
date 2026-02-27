@@ -22,6 +22,10 @@ This is the full CLI reference. For a more concise version, run ``gptme --help``
    :prog: gptme-eval
    :nested: full
 
+.. click:: gptme.cli.auth:main
+   :prog: gptme-auth
+   :nested: full
+
 .. click:: gptme.cli.util:main
    :prog: gptme-util
    :nested: full
