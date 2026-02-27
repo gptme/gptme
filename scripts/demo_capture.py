@@ -128,7 +128,7 @@ def check_prerequisites(modes: list[str]) -> list[str]:
 
 
 def capture_terminal_demo(
-    demo: dict, output_dir: Path, model: str | None = None
+    demo: dict, output_dir: Path, model: str | None = None, timeout: int = 180
 ) -> Path | None:
     """Record a terminal demo using asciinema + gptme.
 
@@ -169,7 +169,7 @@ def capture_terminal_demo(
             result = subprocess.run(
                 cmd,
                 env=env,
-                timeout=120,  # 2 minute timeout per demo
+                timeout=timeout,
                 capture_output=True,
                 text=True,
                 check=False,
@@ -187,7 +187,7 @@ def capture_terminal_demo(
             return None
 
         except subprocess.TimeoutExpired:
-            print("  ERROR: Demo timed out after 120s")
+            print(f"  ERROR: Demo timed out after {timeout}s")
             return None
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -490,6 +490,12 @@ def main():
         default=None,
         help="Model to use for gptme (e.g. openrouter/anthropic/claude-sonnet-4-6)",
     )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=180,
+        help="Timeout per terminal demo in seconds (default: 180)",
+    )
 
     args = parser.parse_args()
 
@@ -548,7 +554,9 @@ def main():
             terminal_dir.mkdir(exist_ok=True)
             results["terminal"] = []
             for demo in TERMINAL_DEMOS:
-                cast_file = capture_terminal_demo(demo, terminal_dir, model=args.model)
+                cast_file = capture_terminal_demo(
+                    demo, terminal_dir, model=args.model, timeout=args.timeout
+                )
                 results["terminal"].append(cast_file)
 
         # WebUI screenshots
