@@ -44,7 +44,7 @@ from .tools import (
 )
 from .tools.complete import SessionCompleteException
 from .util import console, path_with_tilde
-from .util.auto_naming import auto_generate_display_name
+from .util.auto_naming import try_auto_name
 from .util.context import include_paths
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
@@ -330,51 +330,21 @@ def _process_message_conversation(
             console.log("Execution declined, returning to prompt.")
             break
 
-        # Auto-generate display name after first assistant response if not already set
-        # Runs in background thread to avoid blocking the chat loop
-        # TODO: Consider implementing via hook system to streamline with server implementation
-        # See: gptme/server/api_v2_sessions.py for server's implementation
-        # Try auto-naming on first few assistant messages until we get a name
-        # This allows retry when initial context is insufficient
-        assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
-        if len(assistant_messages) <= 3:
+        # Auto-generate display name in background thread to avoid blocking
+        # Shared logic with server in gptme/util/auto_naming.py::try_auto_name
+        current_model = get_default_model()
+        if current_model:
             chat_config = ChatConfig.from_logdir(manager.logdir)
-            if not chat_config.name:
-
-                def _auto_name_thread(
-                    config: ChatConfig,
-                    messages: list[Message],
-                    model_name: str,
-                ):
-                    """Background thread for auto-naming to avoid blocking chat loop."""
-                    try:
-                        display_name = auto_generate_display_name(messages, model_name)
-                        if display_name:
-                            config.name = display_name
-                            config.save()
-                            logger.info(
-                                f"Auto-generated conversation name: {display_name}"
-                            )
-                        else:
-                            logger.warning("Auto-naming failed")
-                    except Exception as e:
-                        logger.warning(f"Failed to auto-generate name: {e}")
-
-                # Start naming in background thread (daemon so it doesn't block exit)
-                # Get current model dynamically (model param may be None)
-                current_model = get_default_model()
-                if current_model:
-                    # deepcopy to prevent shared state with main thread
-                    thread = threading.Thread(
-                        target=_auto_name_thread,
-                        args=(
-                            chat_config,
-                            copy.deepcopy(manager.log.messages),
-                            current_model.full,
-                        ),
-                        daemon=True,
-                    )
-                    thread.start()
+            thread = threading.Thread(
+                target=try_auto_name,
+                args=(
+                    chat_config,
+                    copy.deepcopy(manager.log.messages),
+                    current_model.full,
+                ),
+                daemon=True,
+            )
+            thread.start()
 
         # Check if there are any runnable tools left
         last_content = next(

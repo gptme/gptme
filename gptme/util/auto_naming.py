@@ -1,13 +1,19 @@
 """Unified auto-naming system for conversations."""
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
 from ..telemetry import trace_function
 from .generate_name import generate_name
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from ..config import ChatConfig
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +302,41 @@ def _starts_with_date(name: str) -> bool:
 def auto_generate_display_name(messages: list[Message], model: str) -> str | None:
     """Generate a display name for the conversation based on the messages."""
     return generate_conversation_name(strategy="llm", messages=messages, model=model)
+
+
+def try_auto_name(
+    config: ChatConfig,
+    messages: list[Message],
+    model: str,
+    max_assistant_msgs: int = 3,
+) -> str | None:
+    """Try to auto-generate a conversation name, updating config on success.
+
+    Checks conditions (assistant message count, no existing name) before
+    calling the LLM. Returns the generated name or None.
+
+    Used by both CLI (chat.py, in background thread) and server
+    (api_v2_sessions.py, synchronously) to avoid duplicating naming logic.
+    """
+    if config.name:
+        return None
+
+    assistant_count = sum(1 for m in messages if m.role == "assistant")
+    if assistant_count < 1 or assistant_count > max_assistant_msgs:
+        return None
+
+    try:
+        display_name = auto_generate_display_name(messages, model)
+        if display_name:
+            config.name = display_name
+            config.save()
+            logger.info(f"Auto-generated conversation name: {display_name}")
+            return display_name
+        logger.info("Auto-naming returned no result, will retry on next message")
+        return None
+    except Exception:
+        logger.warning("Failed to auto-generate name", exc_info=True)
+        return None
 
 
 @trace_function(

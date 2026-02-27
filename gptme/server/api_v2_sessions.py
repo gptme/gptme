@@ -230,13 +230,23 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
     )
 
 
-def auto_generate_display_name(messages: list[Message], model: str) -> str | None:
-    """Generate a display name for the conversation based on the messages."""
-    from ..util.auto_naming import (
-        auto_generate_display_name as _auto_generate_display_name,
-    )
+def _try_auto_name_and_notify(
+    config: ChatConfig,
+    messages: list[Message],
+    model: str,
+    conversation_id: str,
+) -> None:
+    """Try auto-naming and notify SSE clients on success."""
+    from ..util.auto_naming import try_auto_name
 
-    return _auto_generate_display_name(messages, model)
+    name = try_auto_name(config, messages, model)
+    if name:
+        config_event: ConfigChangedEvent = {
+            "type": "config_changed",
+            "config": config.to_dict(),
+            "changed_fields": ["name"],
+        }
+        SessionManager.add_event(conversation_id, config_event)
 
 
 @trace_function("api_v2.step", attributes={"component": "api_v2"})
@@ -404,33 +414,10 @@ def step(
         manager.write()
         logger.debug("Wrote messages to disk")
 
-        # Auto-generate display name for first assistant response if not already set
-        # TODO: Consider implementing via hook system to streamline with CLI implementation
-        # See: gptme/chat.py for CLI's implementation
-        # Try auto-naming on first few assistant messages until we get a name
-        # This allows retry when initial context is insufficient
-        assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
-        if len(assistant_messages) <= 3 and not chat_config.name:
-            try:
-                display_name = auto_generate_display_name(manager.log.messages, model)
-                if display_name:
-                    chat_config.name = display_name
-                    chat_config.save()
-                    logger.info(f"Auto-generated display name: {display_name}")
-
-                    # Notify clients about config change
-                    config_event: ConfigChangedEvent = {
-                        "type": "config_changed",
-                        "config": chat_config.to_dict(),
-                        "changed_fields": ["name"],
-                    }
-                    SessionManager.add_event(conversation_id, config_event)
-                else:
-                    logger.info(
-                        "Auto-naming failed, leaving conversation name unset for future retry"
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to auto-generate display name: {e}")
+        # Auto-generate display name (shared logic in util/auto_naming.py)
+        _try_auto_name_and_notify(
+            chat_config, manager.log.messages, model, conversation_id
+        )
 
         # Signal message generation complete
         logger.debug("Generation complete")
