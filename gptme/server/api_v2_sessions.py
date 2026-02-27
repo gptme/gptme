@@ -118,6 +118,9 @@ class ConversationSession(BaseSession):
     # ACP-backed subprocess session (opt-in via use_acp=True in step request)
     use_acp: bool = False
     acp_runtime: "AcpSessionRuntime | None" = field(default=None, repr=False)
+    # Index of the last user message processed through ACP mode.
+    # Prevents duplicate /step calls from re-sending the same user message.
+    acp_last_user_msg_index: int = -1
 
 
 class SessionManager:
@@ -306,6 +309,16 @@ async def _acp_step(
         session.generating = False
         return
 
+    last_user_index = len(user_messages) - 1
+    if last_user_index <= session.acp_last_user_msg_index:
+        duplicate_error_event: ErrorEvent = {
+            "type": "error",
+            "error": "No new user message to process",
+        }
+        SessionManager.add_event(conversation_id, duplicate_error_event)
+        session.generating = False
+        return
+
     last_user_msg = user_messages[-1].content
 
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
@@ -316,6 +329,7 @@ async def _acp_step(
         msg = Message("assistant", text)
         _append_and_notify(manager, session, msg)
         manager.write()
+        session.acp_last_user_msg_index = last_user_index
 
         # Auto-name if this is the first assistant turn
         logdir = get_logs_dir() / conversation_id

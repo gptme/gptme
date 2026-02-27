@@ -238,3 +238,55 @@ def test_use_acp_flag_in_step_request(monkeypatch, client: FlaskClient, tmp_path
     assert sess is not None
     assert sess.use_acp is True
     assert sess.acp_runtime is not None
+
+
+def test_acp_step_rejects_duplicate_without_new_user_message(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Calling ACP /step twice without a new user message should not re-send prompt."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    # Add one user message
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hello once"},
+    )
+    assert resp.status_code == 200
+
+    session = ConversationSession(id="sid-dupe", conversation_id=conversation_id)
+    session.use_acp = True
+    session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
+    SessionManager._sessions["sid-dupe"] = session
+    SessionManager._conversation_sessions[conversation_id].add("sid-dupe")
+
+    try:
+        # First run consumes the latest user message
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+
+        # Second run with no new user message should fail fast
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+
+        assert len(created) == 1
+        assert created[0].prompt_calls == [("sess-test", "hello once")]
+        assert session.events[-1]["type"] == "error"
+        err = session.events[-1]
+        assert "No new user message" in str(err)
+    finally:
+        SessionManager._sessions.pop("sid-dupe", None)
+        SessionManager._conversation_sessions[conversation_id].discard("sid-dupe")
