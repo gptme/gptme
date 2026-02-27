@@ -175,7 +175,7 @@ def _format_message_with_context(
             re.escape(query),
             lambda m: f"\033[1;31m{m.group(0)}\033[0m",
             highlighted,
-            flags=re.DOTALL | re.IGNORECASE,
+            flags=re.IGNORECASE,
         )
         formatted_matches.append(highlighted)
 

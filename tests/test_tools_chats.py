@@ -48,7 +48,9 @@ def test_format_message_no_repr_quotes():
 
 
 def test_format_message_case_insensitive_highlight():
-    """Test that highlighting works case-insensitively."""
+    """Test that highlighting works case-insensitively and preserves original casing."""
     result = _format_message_with_context("Hello WORLD", "world")
     # The ANSI highlight should be present
     assert "\033[1;31m" in result
+    # Original casing must be preserved inside the highlight (not lowercased)
+    assert "WORLD" in result
