@@ -2,6 +2,9 @@
 
 Tests that agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md) are
 automatically injected as system messages when the working directory changes.
+
+Updated for CWD_CHANGED hook type (Issue #1521): the hook now subscribes to
+CWD_CHANGED instead of using its own pre/post CWD comparison.
 """
 
 import os
@@ -12,8 +15,7 @@ import pytest
 
 from gptme.hooks.agents_md_inject import (
     _get_loaded_files,
-    post_execute,
-    pre_execute,
+    on_cwd_changed,
 )
 from gptme.message import Message
 from gptme.prompts import _loaded_agent_files_var, find_agent_files_in_tree
@@ -108,31 +110,25 @@ class TestFindAgentFiles:
         assert local_files == []
 
 
-class TestPostExecuteInjection:
-    """Test the post_execute hook — injecting AGENTS.md on CWD change."""
+class TestOnCwdChanged:
+    """Test on_cwd_changed hook — injecting AGENTS.md when CWD_CHANGED fires."""
 
-    def test_injects_on_cd(self, workspace: Path, subdir_with_agents: Path):
+    def test_injects_on_cwd_change(self, workspace: Path, subdir_with_agents: Path):
         """Should inject AGENTS.md content when CWD changes to dir with new file."""
         # Seed loaded files for workspace (simulating what prompt_workspace() does)
         _get_loaded_files().add(str((workspace / "AGENTS.md").resolve()))
 
-        # Simulate: CWD was workspace, now is subdir
         orig_cwd = os.getcwd()
         try:
-            os.chdir(workspace)
-            # Pre-execute stores CWD
-            list(
-                pre_execute(log=MagicMock(), workspace=workspace, tool_use=MagicMock())
-            )
-
-            # Change to subdir (simulating cd)
             os.chdir(subdir_with_agents)
-
-            # Post-execute should detect change and inject
             msgs = _messages_only(
                 list(
-                    post_execute(
-                        log=MagicMock(), workspace=workspace, tool_use=MagicMock()
+                    on_cwd_changed(
+                        log=MagicMock(),
+                        workspace=workspace,
+                        old_cwd=str(workspace),
+                        new_cwd=str(subdir_with_agents),
+                        tool_use=MagicMock(),
                     )
                 )
             )
@@ -147,24 +143,6 @@ class TestPostExecuteInjection:
         finally:
             os.chdir(orig_cwd)
 
-    def test_no_inject_when_no_change(self, workspace: Path):
-        """Should not inject anything when CWD hasn't changed."""
-        _get_loaded_files().add(str((workspace / "AGENTS.md").resolve()))
-
-        orig_cwd = os.getcwd()
-        try:
-            os.chdir(workspace)
-            list(
-                pre_execute(log=MagicMock(), workspace=workspace, tool_use=MagicMock())
-            )
-            # CWD didn't change
-            msgs = list(
-                post_execute(log=MagicMock(), workspace=workspace, tool_use=MagicMock())
-            )
-            assert msgs == []
-        finally:
-            os.chdir(orig_cwd)
-
     def test_no_inject_when_already_loaded(
         self, workspace: Path, subdir_with_agents: Path
     ):
@@ -174,13 +152,15 @@ class TestPostExecuteInjection:
 
         orig_cwd = os.getcwd()
         try:
-            os.chdir(workspace)
-            list(
-                pre_execute(log=MagicMock(), workspace=workspace, tool_use=MagicMock())
-            )
             os.chdir(subdir_with_agents)
             msgs = list(
-                post_execute(log=MagicMock(), workspace=workspace, tool_use=MagicMock())
+                on_cwd_changed(
+                    log=MagicMock(),
+                    workspace=workspace,
+                    old_cwd=str(workspace),
+                    new_cwd=str(subdir_with_agents),
+                    tool_use=MagicMock(),
+                )
             )
             assert msgs == []
         finally:
@@ -192,15 +172,15 @@ class TestPostExecuteInjection:
 
         orig_cwd = os.getcwd()
         try:
-            os.chdir(workspace)
-            list(
-                pre_execute(log=MagicMock(), workspace=workspace, tool_use=MagicMock())
-            )
             os.chdir(subdir_with_claude_md)
             msgs = _messages_only(
                 list(
-                    post_execute(
-                        log=MagicMock(), workspace=workspace, tool_use=MagicMock()
+                    on_cwd_changed(
+                        log=MagicMock(),
+                        workspace=workspace,
+                        old_cwd=str(workspace),
+                        new_cwd=str(subdir_with_claude_md),
+                        tool_use=MagicMock(),
                     )
                 )
             )
@@ -220,15 +200,15 @@ class TestPostExecuteInjection:
 
         orig_cwd = os.getcwd()
         try:
-            os.chdir(workspace)
-            list(
-                pre_execute(log=MagicMock(), workspace=workspace, tool_use=MagicMock())
-            )
             os.chdir(subdir)
             msgs = _messages_only(
                 list(
-                    post_execute(
-                        log=MagicMock(), workspace=workspace, tool_use=MagicMock()
+                    on_cwd_changed(
+                        log=MagicMock(),
+                        workspace=workspace,
+                        old_cwd=str(workspace),
+                        new_cwd=str(subdir),
+                        tool_use=MagicMock(),
                     )
                 )
             )
@@ -236,5 +216,32 @@ class TestPostExecuteInjection:
             contents = [m.content for m in msgs]
             assert any("Multi Agents" in c for c in contents)
             assert any("Multi Claude" in c for c in contents)
+        finally:
+            os.chdir(orig_cwd)
+
+    def test_no_inject_when_no_new_files(self, tmp_path: Path):
+        """Should not inject anything when new CWD has no agent files."""
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir(empty_dir)
+            msgs = list(
+                on_cwd_changed(
+                    log=MagicMock(),
+                    workspace=tmp_path,
+                    old_cwd=str(other_dir),
+                    new_cwd=str(empty_dir),
+                    tool_use=MagicMock(),
+                )
+            )
+            # Filter out any messages from parent dirs we don't control
+            local_msgs = [
+                m for m in msgs if isinstance(m, Message) and str(tmp_path) in m.content
+            ]
+            assert local_msgs == []
         finally:
             os.chdir(orig_cwd)
