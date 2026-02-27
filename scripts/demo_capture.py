@@ -224,14 +224,16 @@ def capture_webui_screenshots(
 
                 # Wait for specific content
                 if "wait_for" in page_config:
-                    page.wait_for_selector(page_config["wait_for"], timeout=10000)
+                    page.wait_for_selector(str(page_config["wait_for"]), timeout=10000)
 
                 # Click if needed (e.g., to open a conversation)
                 if "click" in page_config:
-                    page.click(page_config["click"])
+                    page.click(str(page_config["click"]))
                     # Wait for navigation
                     if "wait_for" in page_config:
-                        page.wait_for_selector(page_config["wait_for"], timeout=10000)
+                        page.wait_for_selector(
+                            str(page_config["wait_for"]), timeout=10000
+                        )
 
                 # Small delay for animations to settle
                 page.wait_for_timeout(500)
