@@ -94,8 +94,13 @@ class AcpSessionRuntime:
             auto_confirm=self.auto_confirm,
         )
         await client.__aenter__()
+        try:
+            session_id = await client.new_session(cwd=self.workspace)
+        except Exception:
+            await client.__aexit__(None, None, None)
+            raise
         self._client = client
-        self._session_id = await client.new_session(cwd=self.workspace)
+        self._session_id = session_id
         logger.debug(
             "Started ACP runtime (command=%s, workspace=%s, session_id=%s)",
             self.command,
