@@ -49,7 +49,7 @@ tomlkit = "*"
 typing-extensions = "*"
 platformdirs = "^4.3"
 lxml = "*"
-pypdf = ">=5.1.0"  # For PDF text extraction in browser tool
+pypdf = ">=6.7.3"  # For PDF text extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
 requests = "^2.32"  # For HTTP requests in browser tool (PDF detection)
 json-repair = "^0.32.0"
 mcp = "^1.13.0"
