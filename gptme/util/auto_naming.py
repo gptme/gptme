@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 NamingStrategy = Literal["random", "llm", "auto"]
 
+# Maximum number of assistant messages after which auto-naming is skipped.
+# Exported so callers can pre-check before spawning threads / doing I/O.
+MAX_ASSISTANT_MSGS_FOR_NAMING = 3
+
 
 def generate_conversation_name(
     strategy: NamingStrategy = "auto",
@@ -308,7 +312,7 @@ def try_auto_name(
     config: ChatConfig,
     messages: list[Message],
     model: str,
-    max_assistant_msgs: int = 3,
+    max_assistant_msgs: int = MAX_ASSISTANT_MSGS_FOR_NAMING,
 ) -> str | None:
     """Try to auto-generate a conversation name, updating config on success.
 

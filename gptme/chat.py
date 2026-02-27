@@ -44,7 +44,7 @@ from .tools import (
 )
 from .tools.complete import SessionCompleteException
 from .util import console, path_with_tilde
-from .util.auto_naming import try_auto_name
+from .util.auto_naming import MAX_ASSISTANT_MSGS_FOR_NAMING, try_auto_name
 from .util.context import include_paths
 from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
@@ -330,21 +330,25 @@ def _process_message_conversation(
             console.log("Execution declined, returning to prompt.")
             break
 
-        # Auto-generate display name in background thread to avoid blocking
-        # Shared logic with server in gptme/util/auto_naming.py::try_auto_name
+        # Auto-generate display name in background thread to avoid blocking.
+        # Shared logic with server in gptme/util/auto_naming.py::try_auto_name.
+        # Pre-check assistant count to avoid spawning threads + doing disk I/O
+        # after the naming window has closed (> MAX_ASSISTANT_MSGS_FOR_NAMING).
         current_model = get_default_model()
-        if current_model:
+        assistant_count = sum(1 for m in manager.log.messages if m.role == "assistant")
+        if current_model and 1 <= assistant_count <= MAX_ASSISTANT_MSGS_FOR_NAMING:
             chat_config = ChatConfig.from_logdir(manager.logdir)
-            thread = threading.Thread(
-                target=try_auto_name,
-                args=(
-                    chat_config,
-                    copy.deepcopy(manager.log.messages),
-                    current_model.full,
-                ),
-                daemon=True,
-            )
-            thread.start()
+            if not chat_config.name:
+                thread = threading.Thread(
+                    target=try_auto_name,
+                    args=(
+                        chat_config,
+                        copy.deepcopy(manager.log.messages),
+                        current_model.full,
+                    ),
+                    daemon=True,
+                )
+                thread.start()
 
         # Check if there are any runnable tools left
         last_content = next(
