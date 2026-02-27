@@ -19,6 +19,7 @@ from pathlib import Path
 
 import click
 
+from .doctor import run_doctor
 from .service import ServiceStatus, detect_service_manager, get_service_manager
 from .workspace import (
     DEFAULT_TEMPLATE_BRANCH,
@@ -538,6 +539,60 @@ def logs_cmd(name: str | None, lines: int, follow: bool):
         click.echo(output)
     else:
         click.echo(f"No logs found for agent '{agent_name}'")
+
+
+@main.command("doctor")
+@click.argument("path", required=False, type=click.Path(exists=True))
+@click.option("--fix", is_flag=True, help="Attempt to fix simple issues automatically")
+def doctor_cmd(path: str | None, fix: bool):
+    """Check workspace health and readiness.
+
+    Validates that an agent workspace is properly configured for autonomous
+    operation. Checks core files, configuration, directory structure, tools,
+    git setup, and more.
+
+    PATH is the workspace directory to check. Defaults to the current directory.
+
+    \b
+    Example:
+      gptme-agent doctor              # Check current directory
+      gptme-agent doctor ~/my-agent   # Check specific workspace
+      gptme-agent doctor --fix        # Auto-fix simple issues
+    """
+    workspace = Path(path).resolve() if path else Path.cwd().resolve()
+
+    click.echo(f"🔍 Checking workspace: {workspace}")
+    click.echo()
+
+    report = run_doctor(workspace, fix=fix)
+
+    for result in report.results:
+        # Determine section from check name
+        color = {"pass": "green", "warn": "yellow", "fail": "red"}[result.status]
+        click.echo(click.style(f"  {result.emoji} ", fg=color) + result.message)
+
+    click.echo()
+    summary_parts = [click.style(f"{report.passes} passed", fg="green")]
+    if report.warnings:
+        summary_parts.append(click.style(f"{report.warnings} warnings", fg="yellow"))
+    if report.errors:
+        summary_parts.append(click.style(f"{report.errors} errors", fg="red"))
+
+    click.echo(f"Summary: {', '.join(summary_parts)}")
+
+    if report.errors:
+        click.echo()
+        if not fix:
+            click.echo("💡 Run with --fix to auto-fix simple issues")
+        sys.exit(1)
+    elif report.warnings:
+        click.echo()
+        click.echo(
+            "⚠️  Some warnings found — workspace may work but check the items above"
+        )
+    else:
+        click.echo()
+        click.echo("✅ Workspace is healthy!")
 
 
 if __name__ == "__main__":
