@@ -213,7 +213,7 @@ Use **custom tools** when you need:
 - Complex argument validation
 - Operation without shell access
 
-Use ``--tools ./file.py`` for **quick development** — no packaging or ``PYTHONPATH`` needed. Use ``TOOL_MODULES`` for **production** tools that are installed as packages.
+Use ``--tools +./file.py`` for **quick development** — no packaging or ``PYTHONPATH`` needed. Use ``TOOL_MODULES`` for **production** tools that are installed as packages.
 
 Loading Custom Tools
 --------------------
@@ -227,22 +227,16 @@ The simplest way to use a custom tool is to pass the file path directly via ``--
 
 .. code-block:: bash
 
-    # Load a single custom tool file
-    gptme --tools ./my_tool.py "use the my_tool tool"
+    # Add your tool on top of the default toolset (most common)
+    gptme --tools +./my_tool.py "use the my_tool tool"
 
-    # Combine with built-in tools
+    # Replace the default toolset entirely with specific tools
     gptme --tools save,patch,./my_tool.py "prompt"
 
-    # Load multiple custom tool files
-    gptme --tools ./tools/search.py,./tools/deploy.py "prompt"
+    # Load multiple custom tool files (additive)
+    gptme --tools +./tools/search.py,+./tools/deploy.py "prompt"
 
-You can also load tools at runtime during a conversation with the ``/tools load`` command:
-
-.. code-block:: text
-
-    /tools load ./my_tool.py
-
-This is useful for iterating on a tool during development — edit the file, then ``/tools load`` it again.
+The ``+`` prefix adds tools on top of the default toolset. Without ``+``, the argument replaces the entire toolset — so you'd need to explicitly list any built-in tools you still want.
 
 **How it works**: gptme scans the file for top-level ``ToolSpec`` instances and registers them. The file must be a regular ``.py`` file containing at least one ``ToolSpec`` variable (see the example in `Creating a Custom Tool`_ above).
 
