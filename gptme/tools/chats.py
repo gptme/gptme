@@ -170,15 +170,12 @@ def _format_message_with_context(
         context_suffix = context[match_end:].split("\n", 1)[0]
         context = f"{context_prefix}{context[match_start:match_end]}{context_suffix}"
 
-        # highlighted = f"{prefix}{context_prefix}\033[1m{context[match_start:match_end]}\033[0m{context_suffix}{suffix}"
         highlighted = f"{prefix}{context}{suffix}"
         highlighted = re.sub(
-            query,
-            lambda m: (
-                f"\033[1;31m{m.group(0)!r}\033[0m"
-            ),  # not sure why !r is needed to avoid linting error
+            re.escape(query),
+            lambda m: f"\033[1;31m{m.group(0)}\033[0m",
             highlighted,
-            flags=re.DOTALL,
+            flags=re.DOTALL | re.IGNORECASE,
         )
         formatted_matches.append(highlighted)
 
