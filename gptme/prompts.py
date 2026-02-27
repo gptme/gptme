@@ -596,7 +596,8 @@ def prompt_workspace(
     #   1. User config dir (~/.config/gptme/AGENTS.md) - global defaults
     #   2. Walk from home dir down to workspace, loading any AGENTS.md found
     #      e.g., ~/Programming/AGENTS.md → ~/Programming/gptme/AGENTS.md → workspace
-    files: list[Path] = []
+    agent_files: list[Path] = []  # Agent instruction files (AGENTS.md, etc.)
+    context_files: list[Path] = []  # Regular context files (README, etc.)
     seen_paths: set[str] = set()
     workspace_resolved = workspace.resolve()
     config_dir = Path(config_path).expanduser().resolve().parent
@@ -615,7 +616,7 @@ def prompt_workspace(
         if user_file.exists():
             resolved = str(user_file.resolve())
             if resolved not in seen_paths:
-                files.append(user_file)
+                agent_files.append(user_file)
                 seen_paths.add(resolved)
                 loaded_agent_files.add(resolved)
                 logger.debug(f"Loaded user-level agent file: {user_file}")
@@ -624,7 +625,7 @@ def prompt_workspace(
     #    Uses find_agent_files_in_tree() — shared with the agents_md_inject hook
     for agent_file in find_agent_files_in_tree(workspace_resolved, exclude=seen_paths):
         resolved = str(agent_file.resolve())
-        files.append(agent_file)
+        agent_files.append(agent_file)
         seen_paths.add(resolved)
         loaded_agent_files.add(resolved)
         logger.debug(f"Loaded agent file from tree: {agent_file}")
@@ -658,9 +659,9 @@ def prompt_workspace(
                 try:
                     f.resolve().relative_to(workspace_resolved)
                     resolved = str(f.resolve())
-                    # Skip if already loaded (e.g., from ALWAYS_LOAD_FILES)
+                    # Skip if already loaded (e.g., from agent files)
                     if resolved not in seen_paths:
-                        files.append(f)
+                        context_files.append(f)
                         seen_paths.add(resolved)
                 except ValueError:
                     logger.warning(
@@ -699,7 +700,7 @@ def prompt_workspace(
             if p.exists():
                 rp = str(p)
                 if rp not in seen_paths:
-                    files.append(p)
+                    context_files.append(p)
                     seen_paths.add(rp)
             else:
                 logger.debug(f"User-configured file not found: {p}")
@@ -711,14 +712,27 @@ def prompt_workspace(
     if sections:
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
-    # Yield files as a separate message (more stable than computed context)
-    valid_files: list[FilePath] = [file for file in files if file.exists()]
-    if valid_files:
-        file_list = "\n".join(f"- {file}" for file in valid_files)
+    # Yield agent instruction files first with explicit framing
+    valid_agent_files: list[FilePath] = [f for f in agent_files if f.exists()]
+    if valid_agent_files:
+        agent_file_list = "\n".join(f"- {file}" for file in valid_agent_files)
         yield Message(
             "system",
-            f"## Selected files\n\nRead more with `cat`.\n\n{file_list}",
-            files=valid_files,
+            "## Agent Instructions\n\n"
+            "The following files contain user-defined rules, preferences, and workflows. "
+            "**You MUST follow these instructions** - they take precedence over default behaviors.\n\n"
+            f"{agent_file_list}",
+            files=valid_agent_files,
+        )
+
+    # Yield context files separately (informational, not directives)
+    valid_context_files: list[FilePath] = [f for f in context_files if f.exists()]
+    if valid_context_files:
+        context_file_list = "\n".join(f"- {file}" for file in valid_context_files)
+        yield Message(
+            "system",
+            f"## Selected files\n\nRead more with `cat`.\n\n{context_file_list}",
+            files=valid_context_files,
         )
 
     # Computed context last (changes most often, least cacheable)
