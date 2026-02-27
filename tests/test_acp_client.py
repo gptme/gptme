@@ -29,7 +29,7 @@ def _run(coro):
 
 def _skip_if_no_acp():
     try:
-        import acp  # noqa: F401
+        import acp  # noqa: F401  # type: ignore[import-not-found]
     except ImportError:
         pytest.skip("acp package not installed")
 
@@ -66,7 +66,7 @@ class TestMinimalClient:
     # -- request_permission ---------------------------------------------------
 
     def test_request_permission_auto_confirm_true(self):
-        from acp.schema import (
+        from acp.schema import (  # type: ignore[import-not-found]
             AllowedOutcome,
             PermissionOption,
             RequestPermissionResponse,
@@ -91,7 +91,10 @@ class TestMinimalClient:
         assert resp.outcome.option_id == "opt-allow"
 
     def test_request_permission_auto_confirm_false(self):
-        from acp.schema import DeniedOutcome, RequestPermissionResponse
+        from acp.schema import (  # type: ignore[import-not-found]
+            DeniedOutcome,
+            RequestPermissionResponse,
+        )
 
         client = self.MinimalClient(auto_confirm=False)
         resp = _run(
@@ -106,7 +109,10 @@ class TestMinimalClient:
 
     def test_request_permission_no_options(self):
         """With no options, client should still return an AllowedOutcome."""
-        from acp.schema import AllowedOutcome, RequestPermissionResponse
+        from acp.schema import (  # type: ignore[import-not-found]
+            AllowedOutcome,
+            RequestPermissionResponse,
+        )
 
         client = self.MinimalClient(auto_confirm=True)
         resp = _run(

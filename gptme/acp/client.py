@@ -22,7 +22,7 @@ Typical usage
     async with GptmeAcpClient(workspace=Path("/project")) as client:
         session_id = await client.new_session()
         result = await client.prompt(session_id, "summarise this codebase")
-        print(result.output_text)
+        print(result.stop_reason)  # PromptResponse.stop_reason
 """
 
 from __future__ import annotations
@@ -39,13 +39,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Lazy ACP imports — keep the module importable even without the optional dep.
-_acp_available: bool | None = None
 
 
 def _check_acp() -> None:
     """Raise RuntimeError if the ``acp`` package is not installed."""
     try:
-        import acp  # noqa: F401
+        import acp  # noqa: F401  # type: ignore[import-not-found]
     except ImportError as exc:
         raise RuntimeError(
             "The 'acp' package is required for ACP client support. "
@@ -95,7 +94,11 @@ class _MinimalClient:
         **kwargs: Any,
     ) -> Any:
         """Handle a permission request from the agent."""
-        from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
+        from acp.schema import (  # type: ignore[import-not-found]
+            AllowedOutcome,
+            DeniedOutcome,
+            RequestPermissionResponse,
+        )
 
         if not self._auto_confirm:
             return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
@@ -141,7 +144,7 @@ class _MinimalClient:
         **kwargs: Any,
     ) -> Any:
         """Write a text file on behalf of the agent (pass-through)."""
-        from acp.schema import WriteTextFileResponse
+        from acp.schema import WriteTextFileResponse  # type: ignore[import-not-found]
 
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -157,7 +160,7 @@ class _MinimalClient:
         **kwargs: Any,
     ) -> Any:
         """Read a text file on behalf of the agent (pass-through)."""
-        from acp.schema import ReadTextFileResponse
+        from acp.schema import ReadTextFileResponse  # type: ignore[import-not-found]
 
         target = Path(path)
         if not target.exists():
@@ -182,7 +185,7 @@ class _MinimalClient:
         **kwargs: Any,
     ) -> Any:
         """Create a terminal (stub — not implemented in base client)."""
-        from acp.schema import CreateTerminalResponse
+        from acp.schema import CreateTerminalResponse  # type: ignore[import-not-found]
 
         logger.warning(
             "ACP create_terminal called but not implemented in _MinimalClient; "
@@ -234,7 +237,6 @@ class GptmeAcpClient:
         auto_confirm: bool = True,
         client_factory: Callable[[], Any] | None = None,
     ) -> None:
-        _check_acp()
         self.workspace = Path(workspace) if workspace else Path.cwd()
         self.command = command
         self.extra_args = extra_args or []
@@ -252,8 +254,8 @@ class GptmeAcpClient:
 
     async def __aenter__(self) -> GptmeAcpClient:
         _check_acp()
-        from acp import PROTOCOL_VERSION
-        from acp.stdio import spawn_agent_process
+        from acp import PROTOCOL_VERSION  # type: ignore[import-not-found]
+        from acp.stdio import spawn_agent_process  # type: ignore[import-not-found]
 
         if not shutil.which(self.command):
             raise FileNotFoundError(
@@ -346,7 +348,7 @@ class GptmeAcpClient:
             raise RuntimeError(
                 "GptmeAcpClient is not connected; use as async context manager"
             )
-        from acp.schema import TextContentBlock
+        from acp.schema import TextContentBlock  # type: ignore[import-not-found]
 
         prompt_content = [TextContentBlock(type="text", text=message)]
         resp = await self._conn.prompt(
@@ -379,7 +381,11 @@ class GptmeAcpClient:
 async def acp_client(
     workspace: Path | str | None = None,
     command: str = "gptme-acp",
-    **kwargs: Any,
+    extra_args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    on_update: Callable[[str, Any], None] | None = None,
+    auto_confirm: bool = True,
+    client_factory: Callable[[], Any] | None = None,
 ) -> AsyncIterator[GptmeAcpClient]:
     """Async context manager shorthand for ``GptmeAcpClient``.
 
@@ -389,5 +395,13 @@ async def acp_client(
             session_id = await client.new_session()
             result = await client.prompt(session_id, "hello")
     """
-    async with GptmeAcpClient(workspace=workspace, command=command, **kwargs) as c:
+    async with GptmeAcpClient(
+        workspace=workspace,
+        command=command,
+        extra_args=extra_args,
+        env=env,
+        on_update=on_update,
+        auto_confirm=auto_confirm,
+        client_factory=client_factory,
+    ) as c:
         yield c
