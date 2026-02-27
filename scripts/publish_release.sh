@@ -71,10 +71,24 @@ echo "Publishing release: ${TAG} (pre-release=${PRERELEASE})"
 
 echo "Pushing ${TAG} to origin..."
 if [ "$DRY_RUN" = "false" ]; then
-    git push origin HEAD:master
+    if [ "$PRERELEASE" = "false" ]; then
+        # Stable releases: push version bump commit to master.
+        # Requires the user/bot to have branch protection bypass rights.
+        git push origin HEAD:master
+    else
+        # Pre-releases: skip the branch push entirely.
+        # The tag push (below) will carry the version-bump commit to GitHub
+        # as an unreachable-from-branch object — that's fine for dev builds.
+        # This avoids hitting branch protection rules in CI.
+        echo "  Skipping branch push for pre-release (branch protection safe)."
+    fi
     git push origin "${TAG}"
 else
-    echo "  [dry-run] git push origin HEAD:master"
+    if [ "$PRERELEASE" = "false" ]; then
+        echo "  [dry-run] git push origin HEAD:master"
+    else
+        echo "  [dry-run] Skipping branch push for pre-release"
+    fi
     echo "  [dry-run] git push origin ${TAG}"
 fi
 
