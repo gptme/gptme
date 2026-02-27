@@ -480,6 +480,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#linting-hook">Linting Hook</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-hooks">Built-in Hooks</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#thread-safety">Thread Safety</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
@@ -863,6 +864,40 @@
 </pre></div>
 </div>
 </section>
+</section>
+<section id="built-in-hooks">
+<h2>Built-in Hooks<a class="headerlink" href="#built-in-hooks" title="Link to this heading">#</a></h2>
+<p>gptme ships with several built-in hooks that provide core functionality:</p>
+<p><strong>Session &amp; Context</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">active_context</span></code>: Selects relevant files to include before generation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agents_md_inject</span></code>: Loads AGENTS.md/CLAUDE.md when the working directory changes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cwd_tracking</span></code>: Tracks the current working directory across tool calls</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">time_awareness</span></code>: Injects current time into context</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">token_awareness</span></code>: Monitors token budget and warns when approaching limits</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cost_awareness</span></code>: Tracks and reports LLM API costs</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cache_awareness</span></code>: Surfaces cache hit rates for prompt caching</p></li>
+</ul>
+<p><strong>Tool Confirmation</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">cli_confirm</span></code>: Terminal-based tool confirmation with preview</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">auto_confirm</span></code>: Auto-approves tools in autonomous/non-interactive mode</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">server_confirm</span></code>: Confirmation via WebUI/API for server mode</p></li>
+</ul>
+<p><strong>User Input</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">elicitation</span></code>: Structured user input (forms, choices) in CLI</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">server_elicit</span></code>: Elicitation via WebUI/API for server mode</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">form_autodetect</span></code>: Detects when assistant output contains form-like choices</p></li>
+</ul>
+<p><strong>Code Quality</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">markdown_validation</span></code>: Detects codeblock cut-offs in generated content</p></li>
+</ul>
+<p><strong>Agent Awareness</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">workspace_agents</span></code>: Detects parallel agents (gptme, Claude Code, Codex, Goose, OpenCode, Amp) running in the same workspace</p></li>
+</ul>
 </section>
 <section id="best-practices">
 <h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
@@ -1574,6 +1609,7 @@ Async hooks are ideal for logging, notifications, and external service calls.</p
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#linting-hook">Linting Hook</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-hooks">Built-in Hooks</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#thread-safety">Thread Safety</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>

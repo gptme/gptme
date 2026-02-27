@@ -194,11 +194,25 @@ Tools & Information
 /tools
 ^^^^^^
 
-List all available tools with their descriptions and token usage.
+Manage and inspect tools in the current session.
 
 .. code-block:: text
 
-   /tools
+   /tools              # List loaded tools (with hint about unloaded ones)
+   /tools --all        # Show all available tools, including unloaded
+   /tools <name>       # Show detailed info for a specific tool
+   /tools load <name>  # Load a tool into the current conversation
+
+The ``/tools load`` subcommand lets you add tools mid-conversation without restarting.
+When a tool is loaded, its system prompt is injected as a message so the assistant
+becomes immediately aware of the new capability.
+
+.. code-block:: text
+
+   /tools load browser    # Enable the browser tool mid-session
+   /tools load screenshot # Add screenshot capability
+
+Tab completion is available for tool names.
 
 /help
 ^^^^^

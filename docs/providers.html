@@ -486,6 +486,7 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>xai/grok-4
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6
 </pre></div>
 </div>
 <p>You can list the models known to gptme using <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'/models'</span> <span class="pre">-</span> <span class="pre">'/exit'</span></code></p>
@@ -533,6 +534,32 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <p>This is for <strong>personal development use</strong> with your own ChatGPT Plus/Pro subscription.
 For production or multi-user applications, use the OpenAI Platform API.
 OAuth credentials are stored locally and access tokens are refreshed automatically.</p>
+</div>
+<p class="rubric">gptme Managed Service</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">gptme</span></code> provider connects to the <a class="reference external" href="https://gptme.ai">gptme.ai</a> managed service, which acts as an OpenAI-compatible LLM proxy/gateway. This gives you access to multiple model providers (Anthropic, OpenAI, etc.) through a single account.</p>
+<p><strong>Setup:</strong></p>
+<p>Authenticate using the Device Flow command:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>login
+</pre></div>
+</div>
+<p>This opens your browser to approve access, then stores a token locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/auth/gptme-cloud-&lt;hash&gt;.json</span></code>. Tokens are refreshed automatically.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme<span class="w">                    </span><span class="c1"># uses default model</span>
+</pre></div>
+</div>
+<p>Models are pass-through: <code class="docutils literal notranslate"><span class="pre">gptme/&lt;model&gt;</span></code> proxies to the corresponding backend provider.</p>
+<p><strong>Environment variables</strong> (alternative to Device Flow login):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_CLOUD_API_KEY</span></code>: API key for the managed service</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_CLOUD_BASE_URL</span></code>: Custom service URL (default: <code class="docutils literal notranslate"><span class="pre">https://fleet.gptme.ai/v1</span></code>)</p></li>
+</ul>
+<p><strong>Auth commands:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>login<span class="w">               </span><span class="c1"># Login via Device Flow (opens browser)</span>
+gptme-auth<span class="w"> </span>login<span class="w"> </span>--no-browser<span class="w">  </span><span class="c1"># Print URL instead of opening browser</span>
+gptme-auth<span class="w"> </span>status<span class="w">              </span><span class="c1"># Show current login status</span>
+gptme-auth<span class="w"> </span><span class="nb">logout</span><span class="w">              </span><span class="c1"># Remove stored credentials</span>
+</pre></div>
 </div>
 <p class="rubric">Local</p>
 <p>You can use local LLM models using any OpenAI API-compatible server.</p>

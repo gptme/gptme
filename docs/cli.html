@@ -462,6 +462,13 @@
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval">gptme-eval</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth">gptme-auth</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-login">login</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-logout">logout</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-openai-subscription">openai-subscription</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-status">status</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util">gptme-util</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats">chats</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-list">list</a></li>
@@ -543,7 +550,8 @@
 <li><p><a class="reference internal" href="#gptme" id="id1">gptme</a></p></li>
 <li><p><a class="reference internal" href="#gptme-server" id="id2">gptme-server</a></p></li>
 <li><p><a class="reference internal" href="#gptme-eval" id="id3">gptme-eval</a></p></li>
-<li><p><a class="reference internal" href="#gptme-util" id="id4">gptme-util</a></p></li>
+<li><p><a class="reference internal" href="#gptme-auth" id="id4">gptme-auth</a></p></li>
+<li><p><a class="reference internal" href="#gptme-util" id="id5">gptme-util</a></p></li>
 </ul>
 </nav>
 <p>This is the full CLI reference. For a more concise version, run <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--help</span></code>.</p>
@@ -861,6 +869,93 @@ Pass eval or suite names to run, or result files to print.</p>
 <dd><p>Optional argument(s)</p>
 </dd></dl>
 
+</section>
+<section id="gptme-auth">
+<h2>gptme-auth<a class="headerlink" href="#gptme-auth" title="Link to this heading">#</a></h2>
+<p>Authenticate with various gptme providers.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>COMMAND<span class="w"> </span><span class="o">[</span>ARGS<span class="o">]</span>...
+</pre></div>
+</div>
+<section id="gptme-auth-login">
+<h3>login<a class="headerlink" href="#gptme-auth-login" title="Link to this heading">#</a></h3>
+<p>Login to gptme cloud using RFC 8628 Device Flow.</p>
+<p>Initiates an OAuth Device Authorization Grant flow:</p>
+<div class="line-block">
+<div class="line">1. Requests a device code from the gptme service</div>
+<div class="line">2. Prompts you to visit a URL and enter a code in your browser</div>
+<div class="line">3. Polls until you approve (or the code expires)</div>
+<div class="line">4. Saves the token for future use</div>
+</div>
+<p>Works great for SSH sessions and headless environments.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>login<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-auth-login-url">
+<span class="sig-name descname"><span class="pre">--url</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;url&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-auth-login-url" title="Link to this definition">#</a></dt>
+<dd><p>gptme service URL to authenticate with.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Default<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">'https://fleet.gptme.ai'</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-auth-login-no-browser">
+<span class="sig-name descname"><span class="pre">--no-browser</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-auth-login-no-browser" title="Link to this definition">#</a></dt>
+<dd><p>Don’t open the browser automatically.</p>
+</dd></dl>
+
+</section>
+<section id="gptme-auth-logout">
+<h3>logout<a class="headerlink" href="#gptme-auth-logout" title="Link to this heading">#</a></h3>
+<p>Remove stored credentials for gptme cloud.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span><span class="nb">logout</span><span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-auth-logout-url">
+<span class="sig-name descname"><span class="pre">--url</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;url&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-auth-logout-url" title="Link to this definition">#</a></dt>
+<dd><p>gptme service URL to log out from.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Default<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">'https://fleet.gptme.ai'</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="gptme-auth-openai-subscription">
+<h3>openai-subscription<a class="headerlink" href="#gptme-auth-openai-subscription" title="Link to this heading">#</a></h3>
+<p>Authenticate with OpenAI using your ChatGPT Plus/Pro subscription.</p>
+<p>This opens a browser for you to log in with your OpenAI account.
+After successful login, tokens are stored locally for future use.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>openai-subscription<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+</section>
+<section id="gptme-auth-status">
+<h3>status<a class="headerlink" href="#gptme-auth-status" title="Link to this heading">#</a></h3>
+<p>Show current login status for gptme cloud.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>status<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-auth-status-url">
+<span class="sig-name descname"><span class="pre">--url</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;url&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-auth-status-url" title="Link to this definition">#</a></dt>
+<dd><p>gptme service URL to check.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Default<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">'https://fleet.gptme.ai'</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
 </section>
 <section id="gptme-util">
 <h2>gptme-util<a class="headerlink" href="#gptme-util" title="Link to this heading">#</a></h2>
@@ -1497,6 +1592,13 @@ Use –all to include unavailable tools as well.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval">gptme-eval</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth">gptme-auth</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-login">login</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-logout">logout</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-openai-subscription">openai-subscription</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-auth-status">status</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util">gptme-util</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats">chats</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-list">list</a></li>

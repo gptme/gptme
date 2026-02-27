@@ -2705,6 +2705,7 @@ To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag s
     gptme "hello" -m groq/llama-3.3-70b-versatile
     gptme "hello" -m xai/grok-4
     gptme "hello" -m local/llama3.2:1b
+    gptme "hello" -m gptme/claude-sonnet-4-6
 
 You can list the models known to gptme using ``gptme '/models' - '/exit'``
 
@@ -2763,6 +2764,43 @@ You can also append reasoning levels: ``:low``, ``:medium``, ``:high``, or ``:xh
     This is for **personal development use** with your own ChatGPT Plus/Pro subscription.
     For production or multi-user applications, use the OpenAI Platform API.
     OAuth credentials are stored locally and access tokens are refreshed automatically.
+
+.. rubric:: gptme Managed Service
+
+The ``gptme`` provider connects to the `gptme.ai <https://gptme.ai>`_ managed service, which acts as an OpenAI-compatible LLM proxy/gateway. This gives you access to multiple model providers (Anthropic, OpenAI, etc.) through a single account.
+
+**Setup:**
+
+Authenticate using the Device Flow command:
+
+.. code-block:: sh
+
+    gptme-auth login
+
+This opens your browser to approve access, then stores a token locally at ``~/.config/gptme/auth/gptme-cloud-<hash>.json``. Tokens are refreshed automatically.
+
+**Usage:**
+
+.. code-block:: sh
+
+    gptme "hello" -m gptme/claude-sonnet-4-6
+    gptme "hello" -m gptme                    # uses default model
+
+Models are pass-through: ``gptme/<model>`` proxies to the corresponding backend provider.
+
+**Environment variables** (alternative to Device Flow login):
+
+- ``GPTME_CLOUD_API_KEY``: API key for the managed service
+- ``GPTME_CLOUD_BASE_URL``: Custom service URL (default: ``https://fleet.gptme.ai/v1``)
+
+**Auth commands:**
+
+.. code-block:: sh
+
+    gptme-auth login               # Login via Device Flow (opens browser)
+    gptme-auth login --no-browser  # Print URL instead of opening browser
+    gptme-auth status              # Show current login status
+    gptme-auth logout              # Remove stored credentials
 
 .. rubric:: Local
 
@@ -3988,11 +4026,25 @@ Tools & Information
 /tools
 ^^^^^^
 
-List all available tools with their descriptions and token usage.
+Manage and inspect tools in the current session.
 
 .. code-block:: text
 
-   /tools
+   /tools              # List loaded tools (with hint about unloaded ones)
+   /tools --all        # Show all available tools, including unloaded
+   /tools <name>       # Show detailed info for a specific tool
+   /tools load <name>  # Load a tool into the current conversation
+
+The ``/tools load`` subcommand lets you add tools mid-conversation without restarting.
+When a tool is loaded, its system prompt is injected as a message so the assistant
+becomes immediately aware of the new capability.
+
+.. code-block:: text
+
+   /tools load browser    # Enable the browser tool mid-session
+   /tools load screenshot # Add screenshot capability
+
+Tab completion is available for tool names.
 
 /help
 ^^^^^
@@ -4260,6 +4312,10 @@ This is the full CLI reference. For a more concise version, run ``gptme --help``
 
 .. click:: gptme.eval:main
    :prog: gptme-eval
+   :nested: full
+
+.. click:: gptme.cli.auth:main
+   :prog: gptme-auth
    :nested: full
 
 .. click:: gptme.cli.util:main
@@ -5653,6 +5709,41 @@ Automatically lint files after saving:
            "lint": (HookType.FILE_POST_SAVE.value, lint_file, 5)
        }
    )
+
+Built-in Hooks
+--------------
+
+gptme ships with several built-in hooks that provide core functionality:
+
+**Session & Context**
+
+- ``active_context``: Selects relevant files to include before generation
+- ``agents_md_inject``: Loads AGENTS.md/CLAUDE.md when the working directory changes
+- ``cwd_tracking``: Tracks the current working directory across tool calls
+- ``time_awareness``: Injects current time into context
+- ``token_awareness``: Monitors token budget and warns when approaching limits
+- ``cost_awareness``: Tracks and reports LLM API costs
+- ``cache_awareness``: Surfaces cache hit rates for prompt caching
+
+**Tool Confirmation**
+
+- ``cli_confirm``: Terminal-based tool confirmation with preview
+- ``auto_confirm``: Auto-approves tools in autonomous/non-interactive mode
+- ``server_confirm``: Confirmation via WebUI/API for server mode
+
+**User Input**
+
+- ``elicitation``: Structured user input (forms, choices) in CLI
+- ``server_elicit``: Elicitation via WebUI/API for server mode
+- ``form_autodetect``: Detects when assistant output contains form-like choices
+
+**Code Quality**
+
+- ``markdown_validation``: Detects codeblock cut-offs in generated content
+
+**Agent Awareness**
+
+- ``workspace_agents``: Detects parallel agents (gptme, Claude Code, Codex, Goose, OpenCode, Amp) running in the same workspace
 
 Best Practices
 --------------

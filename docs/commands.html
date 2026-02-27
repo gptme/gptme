@@ -696,10 +696,21 @@ After saving and closing, the edited conversation is loaded.</p>
 <h3>Tools &amp; Information<a class="headerlink" href="#tools-information" title="Link to this heading">#</a></h3>
 <section id="tools">
 <h4>/tools<a class="headerlink" href="#tools" title="Link to this heading">#</a></h4>
-<p>List all available tools with their descriptions and token usage.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/tools
+<p>Manage and inspect tools in the current session.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/tools              # List loaded tools (with hint about unloaded ones)
+/tools --all        # Show all available tools, including unloaded
+/tools &lt;name&gt;       # Show detailed info for a specific tool
+/tools load &lt;name&gt;  # Load a tool into the current conversation
 </pre></div>
 </div>
+<p>The <code class="docutils literal notranslate"><span class="pre">/tools</span> <span class="pre">load</span></code> subcommand lets you add tools mid-conversation without restarting.
+When a tool is loaded, its system prompt is injected as a message so the assistant
+becomes immediately aware of the new capability.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/tools load browser    # Enable the browser tool mid-session
+/tools load screenshot # Add screenshot capability
+</pre></div>
+</div>
+<p>Tab completion is available for tool names.</p>
 </section>
 <section id="help">
 <h4>/help<a class="headerlink" href="#help" title="Link to this heading">#</a></h4>
