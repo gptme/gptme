@@ -1,0 +1,132 @@
+name: Demo Capture
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Capture mode'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - terminal
+          - screenshots
+          - recording
+  schedule:
+    # Run monthly on the 1st at 06:00 UTC
+    - cron: '0 6 1 * *'
+
+permissions:
+  contents: read
+
+jobs:
+  capture-terminal:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event.inputs.mode == 'all' ||
+      github.event.inputs.mode == 'terminal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install asciinema
+          pip install -e ".[all]"
+
+      - name: Record terminal demos
+        run: python scripts/demo_capture.py --terminal --output-dir demo_output
+        env:
+          # Use a cheap/fast model for demo generation
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Upload terminal recordings
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-recordings
+          path: demo_output/terminal/
+          retention-days: 30
+
+  capture-webui:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event.inputs.mode == 'all' ||
+      github.event.inputs.mode == 'screenshots' ||
+      github.event.inputs.mode == 'recording'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python dependencies
+        run: pip install -e ".[all]" playwright
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Install WebUI dependencies
+        working-directory: webui
+        run: npm ci
+
+      - name: Start gptme-server
+        run: |
+          gptme-server serve --port 5700 --cors-origin='http://localhost:5701' &
+          # Wait for server
+          for i in $(seq 1 30); do
+            curl -s http://localhost:5700/api > /dev/null 2>&1 && break
+            sleep 1
+          done
+
+      - name: Start WebUI
+        working-directory: webui
+        run: |
+          PORT=5701 npm run dev &
+          # Wait for webui
+          for i in $(seq 1 30); do
+            curl -s http://localhost:5701 > /dev/null 2>&1 && break
+            sleep 1
+          done
+
+      - name: Capture screenshots
+        if: >-
+          github.event_name == 'schedule' ||
+          github.event.inputs.mode == 'all' ||
+          github.event.inputs.mode == 'screenshots'
+        run: >-
+          python scripts/demo_capture.py --screenshots
+          --output-dir demo_output
+          --server-url http://localhost:5701
+
+      - name: Capture recording
+        if: >-
+          github.event_name == 'schedule' ||
+          github.event.inputs.mode == 'all' ||
+          github.event.inputs.mode == 'recording'
+        run: >-
+          python scripts/demo_capture.py --recording
+          --output-dir demo_output
+          --server-url http://localhost:5701
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-demos
+          path: |
+            demo_output/screenshots/
+            demo_output/recordings/
+            demo_output/summary.json
+          retention-days: 30
