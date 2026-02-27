@@ -11,6 +11,10 @@ if TYPE_CHECKING:
 
 import pytest
 
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
 
 def _run(coro: Any) -> Any:
     return asyncio.run(coro)
