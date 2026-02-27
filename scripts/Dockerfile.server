@@ -6,7 +6,7 @@ FROM $BASE
 # Install server dependencies
 USER root
 WORKDIR /app
-RUN pip install -r /tmp/requirements-server.txt && rm /tmp/requirements-server.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-server.txt && rm /tmp/requirements-server.txt
 
 # Switch back to non-root user
 USER appuser

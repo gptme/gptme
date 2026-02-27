@@ -102,6 +102,24 @@ jobs:
     #      RUST=yes
     #      BROWSER=yes
 
+    # Report and check image sizes
+    - name: Check image sizes
+      run: |
+        echo "## Docker Image Sizes" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Image | Size |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|------|" >> $GITHUB_STEP_SUMMARY
+        for img in gptme:latest ghcr.io/${OWNER_LC}/gptme-server:latest ghcr.io/${OWNER_LC}/gptme-eval:latest; do
+          SIZE=$(docker image inspect "$img" --format '{{.Size}}' 2>/dev/null || echo "0")
+          SIZE_MB=$((SIZE / 1024 / 1024))
+          echo "| $img | ${SIZE_MB}MB |" >> $GITHUB_STEP_SUMMARY
+          echo "$img: ${SIZE_MB}MB"
+          # Warn if base image exceeds 900MB (leave headroom, but catch regressions)
+          if [ "$img" = "gptme:latest" ] && [ "$SIZE_MB" -gt 900 ]; then
+            echo "::warning::Base image $img is ${SIZE_MB}MB (limit: 900MB)"
+          fi
+        done
+
   build-pyinstaller:
     name: PyInstaller binaries on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

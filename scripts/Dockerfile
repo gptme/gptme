@@ -2,7 +2,7 @@
 FROM python:3.12-slim AS builder
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     && rm -rf /var/lib/apt/lists/*
@@ -11,7 +11,7 @@ WORKDIR /app
 
 # Install poetry in its own venv
 RUN python -m venv /opt/poetry && \
-    /opt/poetry/bin/pip install poetry
+    /opt/poetry/bin/pip install --no-cache-dir poetry
 
 # Copy files needed for building wheel
 COPY pyproject.toml poetry.lock README.md ./
@@ -27,26 +27,28 @@ RUN /opt/poetry/bin/poetry self add poetry-plugin-export && \
 FROM python:3.12-slim
 
 # Install runtime dependencies and GitHub CLI
-RUN apt-get update && apt-get install -y \
+# Note: gpg is only needed for GitHub CLI keyring verification, removed after install
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     tmux \
     curl \
     pandoc \
     gpg \
     pipx \
-    tree \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
     && apt-get update \
-    && apt-get install -y gh \
+    && apt-get install -y --no-install-recommends gh \
+    && apt-get purge -y gpg \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copy wheel and requirements, then install
 COPY --from=builder /app/dist/gptme-*.whl /app/requirements*.txt /tmp/
-RUN pip install /tmp/gptme-*.whl && rm /tmp/gptme-*.whl
+RUN pip install --no-cache-dir /tmp/gptme-*.whl && rm /tmp/gptme-*.whl
 
 # Create non-root user and workspace
 RUN useradd -m appuser && \
