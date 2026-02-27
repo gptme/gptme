@@ -1,19 +1,22 @@
-"""Tests for ACP server session runtime wrapper."""
+"""Tests for ACP server session runtime wrapper and server-side integration."""
 
 from __future__ import annotations
 
 import asyncio
+import random
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 import pytest
 
 pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from flask.testing import FlaskClient
 
 
 def _run(coro: Any) -> Any:
@@ -116,3 +119,122 @@ def test_runtime_lazy_start_on_prompt(monkeypatch, tmp_path):
     assert text == "hello world"
     assert runtime.session_id == "sess-test"
     assert len(created) == 1
+
+
+# ---------------------------------------------------------------------------
+# Server-side integration: _acp_step + ConversationSession.use_acp routing
+# ---------------------------------------------------------------------------
+
+
+def _make_v2_conversation(client: FlaskClient, name: str | None = None) -> dict:
+    """Create a V2 conversation and return {conversation_id, session_id}."""
+    convname = name or f"test-acp-{random.randint(0, 1_000_000)}"
+    resp = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={"prompt": "You are a test assistant."},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data is not None
+    return {"conversation_id": convname, "session_id": data["session_id"]}
+
+
+def test_acp_step_emits_events(monkeypatch, client: FlaskClient, tmp_path):
+    """_acp_step() should emit generation_started + generation_complete events."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    from gptme.logmanager import LogManager
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    # Create a conversation via the API so LogManager can find it
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    # Append a user message via the API
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hello from acp test"},
+    )
+    assert resp.status_code == 200
+
+    # Create a session backed by the dummy ACP runtime
+    session = ConversationSession(id="sid-evt", conversation_id=conversation_id)
+    session.use_acp = True
+    session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
+    SessionManager._sessions["sid-evt"] = session
+    SessionManager._conversation_sessions[conversation_id].add("sid-evt")
+
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+
+        event_types = [e["type"] for e in session.events]
+        assert "generation_started" in event_types
+        assert "generation_complete" in event_types
+
+        # The ACP runtime should have been called with the user message
+        assert len(created) == 1
+        assert created[0].prompt_calls == [("sess-test", "hello from acp test")]
+
+        # Assistant message should have been persisted
+        manager = LogManager.load(conversation_id)
+        assistant_msgs = [m for m in manager.log.messages if m.role == "assistant"]
+        assert len(assistant_msgs) == 1
+        assert assistant_msgs[0].content == "hello world"
+    finally:
+        SessionManager._sessions.pop("sid-evt", None)
+        SessionManager._conversation_sessions[conversation_id].discard("sid-evt")
+
+
+@pytest.mark.timeout(10)
+def test_use_acp_flag_in_step_request(monkeypatch, client: FlaskClient, tmp_path):
+    """Posting use_acp=True to /step should create an ACP runtime and route through it."""
+    import gptme.server.acp_session_runtime as rt_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    # Send a user message first
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hi from step test"},
+    )
+    assert resp.status_code == 200
+
+    # Trigger a step with use_acp=True
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}/step",
+        json={"session_id": session_id, "use_acp": True},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data is not None
+    assert data.get("status") == "ok"
+
+    # Verify the session now has use_acp=True and an ACP runtime attached
+    from gptme.server.api_v2_sessions import SessionManager
+
+    sess = SessionManager.get_session(session_id)
+    assert sess is not None
+    assert sess.use_acp is True
+    assert sess.acp_runtime is not None

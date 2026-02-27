@@ -5,6 +5,7 @@ Handles session management, step execution, tool confirmation, and event streami
 for real-time conversation interactions.
 """
 
+import asyncio
 import dataclasses
 import logging
 import os
@@ -16,6 +17,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .acp_session_runtime import AcpSessionRuntime
 
 import flask
 from flask import request
@@ -110,6 +115,10 @@ class ConversationSession(BaseSession):
     clients: set[str] = field(default_factory=set)
     event_flag: threading.Event = field(default_factory=threading.Event)
 
+    # ACP-backed subprocess session (opt-in via use_acp=True in step request)
+    use_acp: bool = False
+    acp_runtime: "AcpSessionRuntime | None" = field(default=None, repr=False)
+
 
 class SessionManager:
     """Manages conversation sessions."""
@@ -203,6 +212,12 @@ class SessionManager:
                 cls._conversation_sessions[conversation_id].discard(session_id)
                 if not cls._conversation_sessions[conversation_id]:
                     del cls._conversation_sessions[conversation_id]
+
+            # Close ACP runtime if present
+            acp_rt = cls._sessions[session_id].acp_runtime
+            if acp_rt is not None:
+                _close_acp_runtime_bg(acp_rt)
+
             del cls._sessions[session_id]
 
     @classmethod
@@ -247,6 +262,95 @@ def _try_auto_name_and_notify(
             "changed_fields": ["name"],
         }
         SessionManager.add_event(conversation_id, config_event)
+
+
+def _close_acp_runtime_bg(acp_runtime: "AcpSessionRuntime") -> None:
+    """Close an ACP runtime in a background thread (handles both sync and async callers)."""
+
+    def _run() -> None:
+        asyncio.run(acp_runtime.close())
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
+async def _acp_step(
+    conversation_id: str,
+    session: "ConversationSession",
+    workspace: Path,
+) -> None:
+    """Run one conversation step via the per-session ACP subprocess.
+
+    Sends the latest user message to the ACP runtime and emits SSE events for
+    the response.  Tool execution happens autonomously inside the subprocess so
+    no tool-confirmation flow is needed here.
+
+    Limitations (compared to the in-process ``step()``):
+    - No per-token streaming (response arrives in one chunk)
+    - Tool confirmations are auto-approved inside the subprocess
+    - No STEP_PRE / TURN_POST hooks on the server side
+    """
+
+    assert session.acp_runtime is not None, (
+        "acp_runtime must be set before calling _acp_step"
+    )
+
+    manager = LogManager.load(conversation_id, lock=False)
+    user_messages = [m for m in manager.log.messages if m.role == "user"]
+    if not user_messages:
+        error_event: ErrorEvent = {
+            "type": "error",
+            "error": "No user message to process",
+        }
+        SessionManager.add_event(conversation_id, error_event)
+        session.generating = False
+        return
+
+    last_user_msg = user_messages[-1].content
+
+    SessionManager.add_event(conversation_id, {"type": "generation_started"})
+
+    try:
+        text, _raw = await session.acp_runtime.prompt(last_user_msg)
+
+        msg = Message("assistant", text)
+        _append_and_notify(manager, session, msg)
+        manager.write()
+
+        # Auto-name if this is the first assistant turn
+        logdir = get_logs_dir() / conversation_id
+        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+        _try_auto_name_and_notify(
+            chat_config, manager.log.messages, chat_config.model or "", conversation_id
+        )
+
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "generation_complete",
+                "message": msg2dict(msg, manager.workspace),
+            },
+        )
+    except Exception as e:
+        logger.exception("Error during ACP step: %s", e)
+        SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
+    finally:
+        session.generating = False
+
+
+def _start_acp_step_thread(
+    conversation_id: str,
+    session: "ConversationSession",
+    workspace: Path,
+) -> None:
+    """Start an ACP-backed step in a background thread."""
+    session.generating = True
+
+    def _run() -> None:
+        asyncio.run(_acp_step(conversation_id, session, workspace))
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
 
 
 @trace_function("api_v2.step", attributes={"component": "api_v2"})
@@ -729,6 +833,13 @@ def api_conversation_step(conversation_id: str):
 
     stream = req_json.get("stream", chat_config.stream)
 
+    # ACP opt-in: sticky once enabled for a session
+    if req_json.get("use_acp", False) and not session.use_acp:
+        from .acp_session_runtime import AcpSessionRuntime
+
+        session.use_acp = True
+        session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
+
     # if auto_confirm set, set auto_confirm_count
     if isinstance(auto_confirm_int_or_bool, int):
         session.auto_confirm_count = auto_confirm_int_or_bool
@@ -753,7 +864,8 @@ def api_conversation_step(conversation_id: str):
         # Try to get from environment/config as last resort
         config = Config.from_workspace(workspace=chat_config.workspace)
         model = config.get_env("MODEL")
-    if not model:
+    if not model and not session.use_acp:
+        # In ACP mode the subprocess manages its own model; skip this check
         return flask.jsonify(
             {
                 "error": "No model specified and no default model set",
@@ -772,17 +884,28 @@ def api_conversation_step(conversation_id: str):
             }
         ), 400
 
-    # Start step execution in a background thread
-    # Model will be set in the worker thread by step()
-    _start_step_thread(
-        conversation_id=conversation_id,
-        session=session,
-        model=model,
-        workspace=chat_config.workspace,
-        branch=branch,
-        auto_confirm=auto_confirm,
-        stream=stream,
-    )
+    # Route through ACP subprocess if the session has opted in
+    if session.use_acp and session.acp_runtime is not None:
+        _start_acp_step_thread(
+            conversation_id=conversation_id,
+            session=session,
+            workspace=chat_config.workspace,
+        )
+    else:
+        # model is guaranteed non-None here: the `if not model and not session.use_acp`
+        # check above returns 400 for non-ACP sessions with no model.
+        assert model is not None, "model must be set for non-ACP sessions"
+        # Start step execution in a background thread
+        # Model will be set in the worker thread by step()
+        _start_step_thread(
+            conversation_id=conversation_id,
+            session=session,
+            model=model,
+            workspace=chat_config.workspace,
+            branch=branch,
+            auto_confirm=auto_confirm,
+            stream=stream,
+        )
 
     return flask.jsonify(
         {"status": "ok", "message": "Step started", "session_id": session_id}
