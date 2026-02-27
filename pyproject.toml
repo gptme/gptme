@@ -1,6 +1,6 @@
 [project]
 name = "gptme"
-version = "0.31.0"
+version = "0.31.1.dev20260227"
 description = "Powerful AI agent for coding and general tasks. Terminal-first with shell, code execution, file editing, web browsing, vision, computer use. Unconstrained."
 authors = [
     { name = "Erik Bjäreholt", email = "erik@bjareho.lt" },
