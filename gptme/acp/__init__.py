@@ -1,16 +1,19 @@
 """ACP (Agent Client Protocol) support for gptme.
 
-This module implements the Agent Client Protocol, allowing gptme to be used
-as a coding agent from any ACP-compatible editor (Zed, JetBrains, etc.).
+gptme implements ACP in two roles:
 
-Usage:
-    python -m gptme.acp
+- **Agent** (server side): ``gptme-acp`` / ``python -m gptme.acp`` exposes
+  gptme as an ACP-compatible agent that editors (Zed, JetBrains, …) can
+  connect to.
 
-Or via CLI:
-    gptme-acp
+- **Client** (client side): :class:`~gptme.acp.client.GptmeAcpClient` lets
+  gptme spawn *other* ACP agents (including gptme itself) as isolated
+  subprocesses.  This is useful for per-session cwd isolation in the HTTP
+  server and for multi-harness subagent support.
 """
 
 from .agent import GptmeAgent
+from .client import GptmeAcpClient, acp_client
 from .types import (
     PermissionKind,
     PermissionOption,
@@ -21,7 +24,12 @@ from .types import (
 )
 
 __all__ = [
+    # Agent (server) side
     "GptmeAgent",
+    # Client side
+    "GptmeAcpClient",
+    "acp_client",
+    # Types
     "PermissionKind",
     "PermissionOption",
     "ToolCall",

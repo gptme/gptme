@@ -257,6 +257,10 @@ module = "sounddevice.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "acp.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "flask.*"
 ignore_missing_imports = true
 
@@ -279,6 +283,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "datasets.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "acp.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
