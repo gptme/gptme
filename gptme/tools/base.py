@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import inspect
 import json
 import logging
 import re
-import sys
 import types
 from collections.abc import Callable, Generator
 from contextvars import ContextVar
@@ -827,11 +827,15 @@ def load_from_file(path: Path) -> list[ToolSpec]:
     if resolved_path.suffix != ".py":
         raise ValueError(f"Tool file must be a .py file: {path}")
 
-    # import the python file
-    script_dir = resolved_path.parent
-    if str(script_dir) not in sys.path:
-        sys.path.append(str(script_dir))
-    module = importlib.import_module(resolved_path.stem)
+    # Import using spec_from_file_location to avoid module name collisions
+    # (importlib.import_module caches by stem, so two files named "tool.py"
+    # from different directories would collide in sys.modules)
+    module_name = f"gptme_tool_{resolved_path.stem}_{hash(resolved_path)}"
+    spec = importlib.util.spec_from_file_location(module_name, resolved_path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"Could not load spec for tool file: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
 
     # Discover ToolSpec instances in the imported module
     tools = [

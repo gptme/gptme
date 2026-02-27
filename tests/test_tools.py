@@ -312,3 +312,40 @@ def test_init_tools_mixed_names_and_files():
         assert len(tools) == 2
     finally:
         path.unlink()
+
+
+def test_load_from_file_collision():
+    """Test that two .py files with the same filename from different dirs both load correctly."""
+    import tempfile
+
+    tool1_py = """\
+from gptme.tools.base import ToolSpec
+
+tool1 = ToolSpec(
+    name="collision_tool_1",
+    desc="Tool 1",
+    available=True,
+)
+"""
+    tool2_py = """\
+from gptme.tools.base import ToolSpec
+
+tool2 = ToolSpec(
+    name="collision_tool_2",
+    desc="Tool 2",
+    available=True,
+)
+"""
+    with tempfile.TemporaryDirectory() as dir1, tempfile.TemporaryDirectory() as dir2:
+        path1 = Path(dir1) / "mytool.py"
+        path2 = Path(dir2) / "mytool.py"  # same filename, different directory
+        path1.write_text(tool1_py)
+        path2.write_text(tool2_py)
+
+        tools1 = load_from_file(path1)
+        tools2 = load_from_file(path2)
+
+        assert len(tools1) == 1
+        assert tools1[0].name == "collision_tool_1"
+        assert len(tools2) == 1
+        assert tools2[0].name == "collision_tool_2"
