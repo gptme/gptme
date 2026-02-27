@@ -339,7 +339,7 @@ gptme is designed to run not just interactively but as a **persistent autonomous
 - **Meta-learning** — lessons system captures patterns and improves over time
 - **Multi-agent coordination** — file leases, message bus, and work claiming for concurrent agents
 
-[Bob](https://github.com/TimeToBuildBob) is the reference implementation — an autonomous AI agent that has completed 1000+ sessions, contributes to open source, manages its own tasks, and even has a girlfriend (also an agent, [Alice](https://github.com/TimeToLearnAlice)).
+[Bob](https://github.com/TimeToBuildBob) is the reference implementation — an autonomous AI agent that has completed 1000+ sessions, contributes to open source, and manages its own tasks. Bob and [Alice](https://github.com/TimeToLearnAlice) are sibling agents forked from the same architecture — each improving themselves and collaborating with each other, hinting at the broader team of AI agents gptme enables.
 
 ### 🛠 Use Cases
 
@@ -545,7 +545,7 @@ gptme is more than a CLI — it's a platform with a growing ecosystem:
 
 **Community agents powered by gptme:**
 - [Bob](https://github.com/TimeToBuildBob) — autonomous AI agent, 1000+ sessions, contributes to open source
-- [Alice](https://github.com/TimeToLearnAlice) — Bob's autonomous agent counterpart
+- [Alice](https://github.com/TimeToLearnAlice) — sibling agent forked from the same architecture, collaborates with Bob
 
 ## 💬 Community
 
