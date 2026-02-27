@@ -109,6 +109,9 @@ class HookType(str, Enum):
     # Loop control
     LOOP_CONTINUE = "loop.continue"  # Decide whether/how to continue the chat loop
 
+    # Directory tracking
+    CWD_CHANGED = "cwd.changed"  # Working directory changed during tool execution
+
     # Cache events
     CACHE_INVALIDATED = "cache.invalidated"  # Prompt cache was invalidated
 
@@ -241,6 +244,27 @@ class CacheInvalidatedHook(Protocol):
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
+class CwdChangedHook(Protocol):
+    """Hook called when the working directory changes during tool execution.
+
+    Args:
+        log: The conversation log
+        workspace: Workspace directory path
+        old_cwd: Previous working directory
+        new_cwd: New working directory (current os.getcwd())
+        tool_use: The tool that caused the change
+    """
+
+    def __call__(
+        self,
+        log: "Log",
+        workspace: Path | None,
+        old_cwd: str,
+        new_cwd: str,
+        tool_use: "ToolUse",
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
 class FilePreSaveHook(Protocol):
     """Hook called before saving a file.
 
@@ -286,6 +310,7 @@ HookFunc = (
     SessionStartHook
     | SessionEndHook
     | ToolExecuteHook
+    | CwdChangedHook
     | MessageProcessHook
     | LoopContinueHook
     | GenerationPreHook
@@ -632,6 +657,17 @@ def register_hook(
 @overload
 def register_hook(
     name: str,
+    hook_type: Literal[HookType.CWD_CHANGED],
+    func: CwdChangedHook,
+    priority: int = 0,
+    enabled: bool = True,
+    async_mode: bool = False,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
     hook_type: Literal[HookType.FILE_SAVE_PRE],
     func: FilePreSaveHook,
     priority: int = 0,
@@ -845,6 +881,9 @@ def init_hooks(
 
     # Available hooks with their register functions
     available_hooks = {
+        "cwd_changed": lambda: __import__(
+            "gptme.hooks.cwd_changed", fromlist=["register"]
+        ).register(),
         "cwd_tracking": lambda: __import__(
             "gptme.hooks.cwd_tracking", fromlist=["register"]
         ).register(),
