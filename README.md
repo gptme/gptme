@@ -316,7 +316,7 @@ enabled = ["my_plugin"]
 **[MCP (Model Context Protocol)][docs-mcp]** — use any MCP server as a tool source:
 
 ```sh
-pipx install 'gptme[mcp]'
+pipx install gptme  # MCP support included by default
 ```
 
 gptme can discover and dynamically load MCP servers, giving the agent access to databases, APIs, file systems, and any other MCP-compatible tool. See the [MCP docs][docs-mcp] for server configuration.
@@ -392,7 +392,7 @@ pipx install gptme
 
 # With optional extras
 pipx install 'gptme[browser]'       # Playwright for web browsing
-pipx install 'gptme[browser,mcp]'   # Browser + MCP server support
+pipx install 'gptme[browser]'        # Browser + MCP server support (MCP included by default)
 pipx install 'gptme[all]'           # Everything
 ```
 
