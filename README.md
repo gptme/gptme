@@ -54,14 +54,14 @@
 </p>
 
 <p align="center">
-📜 Personal AI agent in your terminal, with tools so it can:<br/>
-Use the terminal, run code, edit files, browse the web, use vision, and much more;<br/>
-a great coding agent, but is general-purpose to assist in all kinds of knowledge-work.
+📜 A personal AI agent in your terminal, with tools to:<br/>
+run shell commands, write code, edit files, browse the web, use vision, and much more.<br/>
+A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work.
 </p>
 
 <p align="center">
 An unconstrained local free and open-source <a href="https://gptme.org/docs/alternatives.html">alternative</a> to Claude Code, Codex, Cursor Agents, etc.<br/>
-One of the first agent CLIs created (Spring 2023) that is still in active development.
+One of the first agent CLIs created (Spring 2023) — and still in very active development.
 </p>
 
 ## 📚 Table of Contents
@@ -69,8 +69,17 @@ One of the first agent CLIs created (Spring 2023) that is still in active develo
 - 📢 [News](#news)
 - 🎥 [Demos](#-demos)
 - 🌟 [Features](#-features)
+  - [🛠 Tools](#-tools)
+  - [🔌 Extensibility: Plugins, Skills & Lessons](#-extensibility-plugins-skills--lessons)
+  - [🔗 Integrations: MCP & ACP](#-integrations-mcp--acp)
+  - [🤖 Autonomous Agents](#-autonomous-agents)
+  - [🛠 Use Cases](#-use-cases)
+  - [🛠 Developer Perks](#-developer-perks)
+  - [🚧 In Progress](#-in-progress)
 - 🚀 [Getting Started](#-getting-started)
 - 🛠 [Usage](#-usage)
+- 🌍 [Ecosystem](#-ecosystem)
+- 💬 [Community](#-community)
 - 📊 [Stats](#-stats)
 - 🔗 [Links](#-links)
 
@@ -98,7 +107,9 @@ For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [
 ## 🎥 Demos
 
 > [!NOTE]
-> These demos are from 2023. For up-to-date examples, see the [Documentation][docs-examples].
+> The screencasts below are from 2023. gptme has evolved a lot since then!
+> For up-to-date examples and screenshots, see the [Documentation][docs-examples].
+> We're working on automated demo generation: [#1554](https://github.com/gptme/gptme/issues/1554).
 
 <table>
   <tr>
@@ -217,43 +228,118 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 
 ## 🌟 Features
 
-- 💻 Code execution
+- 💻 **Code execution**
   - Executes code in your local environment with the [shell][docs-tools-shell] and [python][docs-tools-python] tools.
-- 🧩 Read, write, and change files
+- 🧩 **Read, write, and change files**
   - Makes incremental changes with the [patch][docs-tools-patch] tool.
-- 🌐 Search and browse the web.
+- 🌐 **Search and browse the web**
   - Can use a browser via Playwright with the [browser][docs-tools-browser] tool.
-- 👀 Vision
+- 👀 **Vision**
   - Can see images referenced in prompts, screenshots of your desktop, and web pages.
-- 🔄 Self-correcting
+- 🔄 **Self-correcting**
   - Output is fed back to the assistant, allowing it to respond and self-correct.
-- 📚 [Lessons system][docs-lessons]
-  - Contextual guidance and best practices automatically included when relevant
-  - Keyword and tool-based matching
-  - Adapts to interactive vs autonomous modes
-- 🤖 Support for several LLM [providers][docs-providers]
-  - Use OpenAI, Anthropic, OpenRouter, or serve locally with `llama.cpp`
-- 🌐 Web UI and REST API
+- 📚 **[Lessons system][docs-lessons]**
+  - Contextual guidance and best practices automatically included when relevant.
+  - Keyword, tool, and pattern-based matching.
+  - Adapts to interactive vs autonomous modes.
+  - Extend with your own lessons and [skills][docs-skills].
+- 🤖 **Support for many LLM [providers][docs-providers]**
+  - Anthropic (Claude), OpenAI (GPT), Google (Gemini), xAI (Grok), DeepSeek, and more.
+  - Use OpenRouter for access to 100+ models, or serve locally with `llama.cpp`.
+- 🌐 **Web UI and REST API**
   - Modern web interface at [chat.gptme.org](https://chat.gptme.org) ([gptme-webui])
-  - Simple built-in web UI included in the Python package
-  - [Server][docs-server] with REST API
-  - Standalone executable builds available with PyInstaller
-- 💻 [Computer use][docs-tools-computer] tool, as hyped by [Anthropic][anthropic-computer-use] (see [#216](https://github.com/gptme/gptme/issues/216))
+  - Simple built-in web UI included in the Python package.
+  - [Server][docs-server] with REST API.
+  - Standalone executable builds available with PyInstaller.
+- 💻 **[Computer use][docs-tools-computer]** (see [#216](https://github.com/gptme/gptme/issues/216))
   - Give the assistant access to a full desktop, allowing it to interact with GUI applications.
-- 🤖 Long-running agents and advanced agent architectures (see [#143](https://github.com/gptme/gptme/issues/143) and [#259](https://github.com/gptme/gptme/issues/259))
-  - Create your own agent with persistence using [gptme-agent-template][agent-template], like [Bob][bob].
-- ✨ Many smaller features to ensure a great experience
-  - 🚰 Pipe in context via `stdin` or as arguments.
-    - Passing a filename as an argument will read the file and include it as context.
-  - → Smart completion and highlighting:
-    - Tab completion and highlighting for commands and paths
-  - 📝 Automatic naming of conversations
-  - ✅ Detects and integrates [pre-commit](https://github.com/pre-commit/pre-commit)
-  - 🗣️ [Text-to-Speech][docs-tools-tts] support, locally generated using Kokoro
-  - 🔊 Tool sounds: Pleasant notification sounds for different tool operations
-    - Enable with `GPTME_TOOL_SOUNDS=true`
-    - Different sounds for shell commands, file operations, screenshots, etc.
-  - 🎯 Feature flags for advanced usage, see [configuration docs][docs-config]
+- 🗣️ **[Text-to-Speech][docs-tools-tts]** — locally generated using Kokoro (no cloud required).
+- 🔊 **Tool sounds** — pleasant notification sounds for different tool operations.
+  - Enable with `GPTME_TOOL_SOUNDS=true`.
+
+### 🛠 Tools
+
+gptme equips the AI with a rich set of built-in tools:
+
+| Tool | Description |
+|------|-------------|
+| `shell` | Execute shell commands directly in your terminal |
+| `ipython` | Run Python code with access to your installed libraries |
+| `read` | Read files and directories |
+| `save` / `append` | Create or update files |
+| `patch` / `morph` | Make incremental edits to existing files |
+| `browser` | Search and navigate the web via Playwright |
+| `vision` | Process and analyze images |
+| `screenshot` | Capture screenshots of your desktop |
+| `rag` | Retrieve context from local files (Retrieval Augmented Generation) |
+| `gh` | Interact with GitHub via the GitHub CLI |
+| `tmux` | Run long-lived commands in persistent terminal sessions |
+| `computer` | Full desktop access for GUI interactions |
+| `subagent` | Spawn sub-agents for parallel or isolated tasks |
+| `chats` | Reference and search past conversations |
+| `tts` | Text-to-speech output |
+| `youtube` | Fetch and process YouTube video transcripts |
+
+Use `/tools` during a conversation to see all available tools and their status.
+
+### 🔌 Extensibility: Plugins, Skills & Lessons
+
+gptme has a layered extensibility system that lets you tailor it to your workflow:
+
+**[Plugins][docs-plugins]** — extend gptme with custom tools, hooks, and commands via Python packages:
+
+```toml
+# gptme.toml
+[plugins]
+paths = ["~/.config/gptme/plugins", "./plugins"]
+enabled = ["my_plugin"]
+```
+
+**[Skills][docs-skills]** — lightweight workflow bundles (Anthropic format) that auto-load when mentioned by name. Great for packaging reusable instructions and helper scripts without writing Python.
+
+**[Lessons][docs-lessons]** — contextual guidance that auto-injects into conversations based on keywords, tools, and patterns. Write your own to capture team best-practices or domain knowledge.
+
+**[Hooks][docs-hooks]** — run custom code at key lifecycle events (before/after tool calls, on conversation start, etc.) without a full plugin.
+
+**[gptme-contrib][gptme-contrib]** — community-contributed plugins, packages, scripts, and lessons:
+
+| Plugin | Description |
+|--------|-------------|
+| [gptme-consortium](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-consortium) | Multi-model consensus decision-making |
+| [gptme-imagen](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-imagen) | Multi-provider image generation |
+| [gptme-lsp](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-lsp) | Language Server Protocol integration |
+| [gptme-ace](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-ace) | ACE-inspired context optimization |
+| [gptme-gupp](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-gupp) | Work state persistence across sessions |
+
+### 🔗 Integrations: MCP & ACP
+
+**[MCP (Model Context Protocol)][docs-mcp]** — use any MCP server as a tool source:
+
+```sh
+pipx install gptme  # MCP support included by default
+```
+
+gptme can discover and dynamically load MCP servers, giving the agent access to databases, APIs, file systems, and any other MCP-compatible tool. See the [MCP docs][docs-mcp] for server configuration.
+
+**[ACP (Agent Client Protocol)][docs-acp]** — use gptme as a coding agent directly from your editor:
+
+```sh
+pipx install 'gptme[acp]'
+```
+
+This makes gptme available as a drop-in coding agent in [Zed](https://zed.dev/) and JetBrains IDEs. Your editor sends requests, gptme executes with its full toolset (shell, browser, files, etc.) and streams results back.
+
+### 🤖 Autonomous Agents
+
+gptme is designed to run not just interactively but as a **persistent autonomous agent**. The [gptme-agent-template][agent-template] provides a complete scaffold for building your own:
+
+- **Persistent workspace** — git-tracked brain across sessions
+- **Run loops** — scheduled or event-driven autonomous operation
+- **Task management** — structured task queue with GTD-style metadata
+- **Meta-learning** — lessons system captures patterns and improves over time
+- **Multi-agent coordination** — file leases, message bus, and work claiming for concurrent agents
+
+[Bob](https://github.com/TimeToBuildBob) is the reference implementation — an autonomous AI agent that has completed 1000+ sessions, contributes to open source, and manages its own tasks. Bob and [Alice](https://github.com/TimeToLearnAlice) are sibling agents forked from the same architecture — each improving themselves and collaborating with each other, hinting at the broader team of AI agents gptme enables.
 
 ### 🛠 Use Cases
 
@@ -261,56 +347,121 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 - 🎯 **Shell Expert:** Get the right command using natural language (no more memorizing flags!).
 - 📊 **Data Analysis:** Process and analyze data directly in your terminal.
 - 🎓 **Interactive Learning:** Experiment with new technologies or codebases hands-on.
-- 🤖 **Agents & Tools:** Experiment with agents & tools in a local environment.
+- 🤖 **Agents & Tools:** Build long-running autonomous agents for real work.
+- 🔬 **Research:** Automate literature review, data collection, and analysis pipelines.
 
-### 🛠 Developer perks
+### 🛠 Developer Perks
 
 - ⭐ One of the first agent CLIs created (Spring 2023) that is still in active development.
-- 🧰 Easy to extend
-  - Most functionality can be implemented with [tools][docs-tools], [hooks][docs-hooks], and [commands][docs-commands], making it easy to add new features.
-  - Trying to stay [tiny][docs-arewetiny].
+- 🧰 **Easy to extend**
+  - Most functionality can be implemented with [tools][docs-tools], [hooks][docs-hooks], and [commands][docs-commands].
   - [Plugins][docs-plugins] allow for easy packaging of extensions.
+  - Trying to stay [tiny][docs-arewetiny] — minimal core, extend as needed.
 - 🧪 Extensive testing, high coverage.
 - 🧹 Clean codebase, checked and formatted with `mypy`, `ruff`, and `pyupgrade`.
 - 🤖 [GitHub Bot][docs-bot] to request changes from comments! (see [#16](https://github.com/gptme/gptme/issues/16))
   - Operates in this repo! (see [#18](https://github.com/gptme/gptme/issues/18) for example)
   - Runs entirely in GitHub Actions.
-- 📊 [Evaluation suite][docs-evals] for testing capabilities of different models
-- 📝 [gptme.vim][gptme.vim] for easy integration with vim
+- 📊 [Evaluation suite][docs-evals] for testing capabilities of different models.
+- 📝 [gptme.vim][gptme.vim] for easy integration with vim.
 
-### 🚧 In progress
+### 🚧 In Progress
 
+- 🖥 **[gptme-tauri](https://github.com/gptme/gptme-tauri)** — desktop app wrapping gptme for easy local use (WIP)
+- ☁️ **[gptme.ai](https://gptme.ai)** — managed cloud service for running gptme agents (WIP; still self-hostable by running `gptme-server` + `gptme-webui` yourself)
 - 🌳 Tree-based conversation structure (see [#17](https://github.com/gptme/gptme/issues/17))
 - 📜 RAG to automatically include context from local files (see [#59](https://github.com/gptme/gptme/issues/59))
 - 🏆 Advanced evals for testing frontier capabilities
 
 ## 🚀 Getting Started
 
-Install with pipx:
+### Prerequisites
+
+- Python 3.10 or newer
+- An API key for at least one LLM provider:
+  - [Anthropic](https://console.anthropic.com/) (set `ANTHROPIC_API_KEY`)
+  - [OpenAI](https://platform.openai.com/) (set `OPENAI_API_KEY`)
+  - [OpenRouter](https://openrouter.ai/) (set `OPENROUTER_API_KEY`)
+  - Local models via `llama.cpp` (no key required — see [providers docs][docs-providers])
+
+### Installation
+
+For full setup instructions, see the [Getting Started guide][docs-getting-started].
 
 ```sh
-# requires Python 3.10+
+# With pipx (recommended, requires Python 3.10+)
 pipx install gptme
+
+# With uv
+uv tool install gptme
+
+# With optional extras
+pipx install 'gptme[browser]'  # Playwright for web browsing
+pipx install 'gptme[all]'      # Everything
+
+# Latest from git with all extras
+uv tool install 'git+https://github.com/gptme/gptme.git[all]'
 ```
 
-Now, to get started, run:
+### Quick Start
 
 ```sh
 gptme
 ```
 
-Here are some examples:
+You'll be greeted with a prompt. Type your request and gptme will respond, using tools as needed.
+
+### Example Commands
 
 ```sh
+# Create a particle effect visualization
 gptme 'write an impressive and colorful particle effect using three.js to particles.html'
+
+# Generate visual art
 gptme 'render mandelbrot set to mandelbrot.png'
+
+# Get configuration suggestions
 gptme 'suggest improvements to my vimrc'
+
+# Process media files
 gptme 'convert to h265 and adjust the volume' video.mp4
+
+# Code assistance from git diffs
 git diff | gptme 'complete the TODOs in this diff'
+
+# Fix failing tests
 make test | gptme 'fix the failing tests'
+
+# Auto-approve tool confirmations (user can still watch and interrupt)
+gptme -y 'run the test suite and fix any failing tests'
+
+# Fully non-interactive/autonomous mode (no user interaction possible, safe for scripts/CI)
+gptme -n 'run the test suite and fix any failing tests'
 ```
 
 For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
+
+### ⚙️ Configuration
+
+Create `~/.config/gptme/config.toml`:
+
+```toml
+[user]
+name = "User"
+about = "I am a curious human programmer."
+response_preference = "Don't explain basic concepts"
+
+[prompt]
+# Additional files to always include as context
+# files = ["~/notes/llm-tips.md"]
+
+[env]
+# Set your default model
+# MODEL = "anthropic/claude-sonnet-4-20250514"
+# MODEL = "openai/gpt-4o"
+```
+
+For all options, see the [configuration docs][docs-config].
 
 ## 🛠 Usage
 
@@ -381,6 +532,32 @@ Options:
   --help                 Show this message and exit.
 ```
 
+## 🌍 Ecosystem
+
+gptme is more than a CLI — it's a platform with a growing ecosystem:
+
+| Project | Description |
+|---------|-------------|
+| [gptme-webui] | Modern React web interface, available at [chat.gptme.org](https://chat.gptme.org) |
+| [gptme-contrib] | Community plugins, packages, scripts, and lessons |
+| [gptme-agent-template][agent-template] | Template for building persistent autonomous agents |
+| [gptme-rag] | RAG integration for semantic search over local files |
+| [gptme.vim] | Vim plugin for in-editor gptme integration |
+| [gptme-tauri] | Desktop app (WIP) |
+| [gptme.ai](https://gptme.ai) | Managed cloud service (WIP) |
+
+**Community agents powered by gptme:**
+- [Bob](https://github.com/TimeToBuildBob) — autonomous AI agent, 1000+ sessions, contributes to open source
+- [Alice](https://github.com/TimeToLearnAlice) — sibling agent forked from the same architecture, collaborates with Bob
+
+## 💬 Community
+
+- **[Discord][discord]** — ask questions, share what you've built, discuss features
+- **[GitHub Discussions](https://github.com/gptme/gptme/discussions)** — longer-form conversation and ideas
+- **[X/Twitter](https://x.com/gptmeorg)** — updates and announcements
+
+Contributions welcome! See the [contributing guide](https://gptme.org/docs/contributing.html).
+
 ## 📊 Stats
 
 ### ⭐ Stargazers over time
@@ -409,6 +586,9 @@ Options:
 [github]: https://github.com/gptme/gptme
 [gptme.vim]: https://github.com/gptme/gptme.vim
 [gptme-webui]: https://github.com/gptme/gptme-webui
+[gptme-rag]: https://github.com/gptme/gptme-rag
+[gptme-contrib]: https://github.com/gptme/gptme-contrib
+[gptme-tauri]: https://github.com/gptme/gptme-tauri
 [agent-template]: https://github.com/gptme/gptme-agent-template
 [bob]: https://github.com/TimeToBuildBob
 [docs]: https://gptme.org/docs/
@@ -424,6 +604,7 @@ Options:
 [docs-tools-computer]: https://gptme.org/docs/tools.html#computer
 [docs-tools-tts]: https://gptme.org/docs/tools.html#tts
 [docs-lessons]: https://gptme.org/docs/lessons.html
+[docs-skills]: https://gptme.org/docs/skills.html
 [docs-bot]: https://gptme.org/docs/bot.html
 [docs-server]: https://gptme.org/docs/server.html
 [docs-evals]: https://gptme.org/docs/evals.html
@@ -432,4 +613,6 @@ Options:
 [docs-plugins]: https://gptme.org/docs/plugins.html
 [docs-hooks]: https://gptme.org/docs/hooks.html
 [docs-commands]: https://gptme.org/docs/commands.html
+[docs-mcp]: https://gptme.org/docs/mcp.html
+[docs-acp]: https://gptme.org/docs/acp.html
 [anthropic-computer-use]: https://www.anthropic.com/news/3-5-models-and-computer-use
