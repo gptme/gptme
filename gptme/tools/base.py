@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import inspect
 import json
 import logging
 import re
-import sys
 import types
 from collections.abc import Callable, Generator
 from contextvars import ContextVar
@@ -807,17 +808,16 @@ def get_path(
     return Path(fn).expanduser()
 
 
-# TODO: allow using via specifying .py paths with --tools flag
 def load_from_file(path: Path) -> list[ToolSpec]:
-    """Import a tool from a Python file and register the ToolSpec.
+    """Import a tool from a Python file and return discovered ToolSpec instances.
+
+    Supports use via ``--tools path/to/tool.py`` or ``/tools load path/to/tool.py``.
 
     Security:
         - Path must exist and be a regular file
         - Path must have .py extension
         - Resolved path is used to prevent symlink attacks
     """
-    from . import get_tool, get_tools
-
     # Validate path before import
     resolved_path = path.resolve()
     if not resolved_path.exists():
@@ -827,15 +827,25 @@ def load_from_file(path: Path) -> list[ToolSpec]:
     if resolved_path.suffix != ".py":
         raise ValueError(f"Tool file must be a .py file: {path}")
 
-    tools_before = {t.name for t in get_tools()}
+    # Import using spec_from_file_location to avoid module name collisions
+    # (importlib.import_module caches by stem, so two files named "tool.py"
+    # from different directories would collide in sys.modules)
+    module_name = f"gptme_tool_{resolved_path.stem}_{hash(resolved_path)}"
+    spec = importlib.util.spec_from_file_location(module_name, resolved_path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"Could not load spec for tool file: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
 
-    # import the python file
-    script_dir = resolved_path.parent
-    if script_dir not in sys.path:
-        sys.path.append(str(script_dir))
-    importlib.import_module(resolved_path.stem)
+    # Discover ToolSpec instances in the imported module
+    tools = [
+        obj for _, obj in inspect.getmembers(module, lambda c: isinstance(c, ToolSpec))
+    ]
 
-    tools_after = {t.name for t in get_tools()}
-    tools_new = tools_after - tools_before
-    print(f"Loaded tools {tools_new} from {path}")
-    return [tool for tool_name in tools_new if (tool := get_tool(tool_name))]
+    if tools:
+        tool_names = [t.name for t in tools]
+        logger.info("Loaded tools %s from %s", tool_names, path)
+    else:
+        logger.warning("No ToolSpec instances found in %s", path)
+
+    return tools

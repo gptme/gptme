@@ -139,6 +139,9 @@ def init_tools(
 
     If allowlist is not provided, it will be loaded from the environment variable
     TOOL_ALLOWLIST or the chat config (if set).
+
+    Items in allowlist can be tool names (e.g. "shell") or paths to .py files
+    containing ToolSpec definitions (e.g. "path/to/mytool.py").
     """
     from ..config import get_config  # fmt: skip
 
@@ -153,13 +156,37 @@ def init_tools(
             elif config.chat and config.chat.tools:
                 allowlist = config.chat.tools
 
-        for tool in get_toolchain(allowlist):
+        # Partition allowlist into file paths and tool names
+        file_paths: list[str] = []
+        tool_names: list[str] = []
+        for item in allowlist or []:
+            if item.endswith(".py") or "/" in item or "\\" in item:
+                file_paths.append(item)
+            else:
+                tool_names.append(item)
+
+        # Load tools from file paths first
+        if file_paths:
+            from .base import load_from_file
+
+            for file_path in file_paths:
+                path = Path(file_path).expanduser()
+                for tool in load_from_file(path):
+                    if not has_tool(tool.name):
+                        tool = _init_single_tool(tool)
+                        loaded_tools.append(tool)
+
+        # Load built-in tools by name
+        # When file paths are present, only load explicitly named built-in tools
+        # (file_paths + no names = only file tools; file_paths + names = both)
+        name_allowlist = tool_names if (tool_names or file_paths) else allowlist
+        for tool in get_toolchain(name_allowlist):
             if has_tool(tool.name):
                 continue
             tool = _init_single_tool(tool)
             loaded_tools.append(tool)
 
-        for tool_name in allowlist or []:
+        for tool_name in tool_names:
             if not has_tool(tool_name):
                 # if the tool is found but unavailable, we log a warning
                 if tool_name in [tool.name for tool in get_available_tools()]:

@@ -28,7 +28,7 @@ from .base import ToolSpec, ToolUse
 logger = logging.getLogger(__name__)
 
 # Conversation-scoped storage for the current todo list
-# TODO: support persistence to support resuming conversations
+# State is restored on resume via auto-replay (replay_todo_on_session_start hook)
 _current_todos: dict[str, dict] = {}
 
 

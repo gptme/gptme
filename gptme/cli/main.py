@@ -69,6 +69,9 @@ class CommaSeparatedChoice(click.ParamType):
             check = part
             if self.allow_prefix and check.startswith(self.allow_prefix):
                 check = check[len(self.allow_prefix) :]
+            # Allow file paths (e.g. path/to/tool.py) to pass through
+            if check.endswith(".py") or "/" in check or "\\" in check:
+                continue
             if check not in self.choices:
                 self.fail(
                     f"invalid choice: {part}. (choose from {', '.join(self.choices)})",
@@ -209,7 +212,7 @@ Run 'gptme-util --help' for all utility commands."""
     type=CommaSeparatedChoice(
         _available_tools + ["none"], allow_prefix="+", metavar="TOOL"
     ),
-    help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use 'none' to disable all tools. Available: {available_tool_names}.",
+    help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). Available: {available_tool_names}.",
 )
 @click.option(
     "--agent-profile",
@@ -429,7 +432,7 @@ def main(
         from ..info import format_version_info
 
         print(format_version_info(verbose=verbose, output_json=version_json))
-        
+
         # hint about utilities (non-JSON only)
         if not version_json:
             print()
@@ -696,12 +699,6 @@ def pick_log(limit=20) -> Path:  # pragma: no cover
 
     # load conversations
     convs.extend(islice(gen_convs, limit))
-
-    # filter out test conversations
-    # TODO: save test convos to different folder instead
-    # def is_test(name: str) -> bool:
-    #     return "-test-" in name or name.startswith("test-")
-    # prev_conv_files = [f for f in prev_conv_files if not is_test(f.parent.name)]
 
     try:
         terminal_width = os.get_terminal_size().columns
