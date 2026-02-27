@@ -213,10 +213,44 @@ Use **custom tools** when you need:
 - Complex argument validation
 - Operation without shell access
 
-Registering the Tool
+Use ``--tools ./file.py`` for **quick development** — no packaging or ``PYTHONPATH`` needed. Use ``TOOL_MODULES`` for **production** tools that are installed as packages.
+
+Loading Custom Tools
 --------------------
-To ensure your tool is available for use, you can specify the module in the ``TOOL_MODULES`` env variable or
-setting in your :doc:`project configuration file <config>`, which will automatically load your custom tools.
+
+There are two ways to load custom tools: directly from a ``.py`` file (quickest for development), or via a Python module (best for packaged/shared tools).
+
+Loading from a File (``--tools``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The simplest way to use a custom tool is to pass the file path directly via ``--tools``:
+
+.. code-block:: bash
+
+    # Load a single custom tool file
+    gptme --tools ./my_tool.py "use the my_tool tool"
+
+    # Combine with built-in tools
+    gptme --tools save,patch,./my_tool.py "prompt"
+
+    # Load multiple custom tool files
+    gptme --tools ./tools/search.py,./tools/deploy.py "prompt"
+
+You can also load tools at runtime during a conversation with the ``/tools load`` command:
+
+.. code-block:: text
+
+    /tools load ./my_tool.py
+
+This is useful for iterating on a tool during development — edit the file, then ``/tools load`` it again.
+
+**How it works**: gptme scans the file for top-level ``ToolSpec`` instances and registers them. The file must be a regular ``.py`` file containing at least one ``ToolSpec`` variable (see the example in `Creating a Custom Tool`_ above).
+
+Loading from a Module (``TOOL_MODULES``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For packaged tools, specify the module in the ``TOOL_MODULES`` env variable or
+in your :doc:`project configuration file <config>`:
 
 .. code-block:: toml
 
