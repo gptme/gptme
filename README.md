@@ -432,8 +432,11 @@ git diff | gptme 'complete the TODOs in this diff'
 # Fix failing tests
 make test | gptme 'fix the failing tests'
 
-# Non-interactively run a task
+# Auto-approve tool confirmations (user can still watch and interrupt)
 gptme -y 'run the test suite and fix any failing tests'
+
+# Fully non-interactive/autonomous mode (no user interaction possible, safe for scripts/CI)
+gptme -n 'run the test suite and fix any failing tests'
 ```
 
 For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
