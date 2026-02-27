@@ -36,6 +36,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 # Default output directory
 DEFAULT_OUTPUT_DIR = Path("demo_output")
@@ -60,7 +61,7 @@ TERMINAL_DEMOS = [
 ]
 
 # Pages to screenshot in the WebUI
-WEBUI_PAGES = [
+WEBUI_PAGES: list[dict[str, Any]] = [
     {
         "name": "home",
         "description": "Home page with conversation list",
@@ -77,10 +78,12 @@ WEBUI_PAGES = [
     },
     {
         "name": "demo-conversation",
-        "description": "Demo conversation view",
+        "description": "Demo conversation showing code execution and tool use",
         "path": "/",
+        "wait_for": "text=Introduction to gptme",
         "click": "text=Introduction to gptme",
-        "wait_for": "text=Hello! I'm gptme",
+        "post_click_wait": "text=programming assistant",
+        "scroll_percent": 0.5,
         "viewport": {"width": 1280, "height": 800},
     },
 ]
@@ -234,11 +237,31 @@ def capture_webui_screenshots(
                 # Click if needed (e.g., to open a conversation)
                 if "click" in page_config:
                     page.click(str(page_config["click"]))
-                    # Wait for navigation
-                    if "wait_for" in page_config:
+                    # Wait for conversation content to load
+                    page.wait_for_timeout(2000)
+                    if "post_click_wait" in page_config:
                         page.wait_for_selector(
-                            str(page_config["wait_for"]), timeout=10000
+                            str(page_config["post_click_wait"]), timeout=15000
                         )
+
+                # Scroll to specific position if requested
+                scroll_pct = page_config.get("scroll_percent")
+                if page_config.get("scroll_to_top"):
+                    page.keyboard.press("Home")
+                    page.wait_for_timeout(500)
+                elif scroll_pct is not None:
+                    page.evaluate(
+                        """(pct) => {
+                        const containers = document.querySelectorAll('[class*="overflow"]');
+                        for (const el of containers) {
+                            if (el.scrollHeight > el.clientHeight) {
+                                el.scrollTop = el.scrollHeight * pct;
+                            }
+                        }
+                    }""",
+                        scroll_pct,
+                    )
+                    page.wait_for_timeout(500)
 
                 # Small delay for animations to settle
                 page.wait_for_timeout(500)
