@@ -27,6 +27,7 @@ Typical usage
 
 from __future__ import annotations
 
+import inspect
 import logging
 import shutil
 from contextlib import asynccontextmanager
@@ -34,7 +35,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ class _MinimalClient:
 
     def __init__(
         self,
-        on_update: Callable[[str, Any], None] | None = None,
+        on_update: Callable[[str, Any], None | Awaitable[None]] | None = None,
         auto_confirm: bool = True,
     ) -> None:
         """
@@ -131,10 +132,15 @@ class _MinimalClient:
         update: Any,
         **kwargs: Any,
     ) -> None:
-        """Receive a streaming update from the agent."""
+        """Receive a streaming update from the agent.
+
+        Supports both sync and async callbacks for ``on_update``.
+        """
         logger.debug("ACP session_update [%s]: %r", session_id, update)
         if self._on_update is not None:
-            self._on_update(session_id, update)
+            maybe_result = self._on_update(session_id, update)
+            if inspect.isawaitable(maybe_result):
+                await maybe_result
 
     async def write_text_file(
         self,
@@ -233,7 +239,7 @@ class GptmeAcpClient:
         command: str = "gptme-acp",
         extra_args: list[str] | None = None,
         env: dict[str, str] | None = None,
-        on_update: Callable[[str, Any], None] | None = None,
+        on_update: Callable[[str, Any], None | Awaitable[None]] | None = None,
         auto_confirm: bool = True,
         client_factory: Callable[[], Any] | None = None,
     ) -> None:
@@ -383,7 +389,7 @@ async def acp_client(
     command: str = "gptme-acp",
     extra_args: list[str] | None = None,
     env: dict[str, str] | None = None,
-    on_update: Callable[[str, Any], None] | None = None,
+    on_update: Callable[[str, Any], None | Awaitable[None]] | None = None,
     auto_confirm: bool = True,
     client_factory: Callable[[], Any] | None = None,
 ) -> AsyncIterator[GptmeAcpClient]:

@@ -63,6 +63,17 @@ class TestMinimalClient:
         _run(client.session_update("sess-42", update))
         assert received == [("sess-42", update)]
 
+    def test_session_update_invokes_async_callback(self):
+        received = []
+
+        async def on_update(sid, upd):
+            received.append((sid, upd))
+
+        client = self.MinimalClient(on_update=on_update)
+        update = MagicMock()
+        _run(client.session_update("sess-async", update))
+        assert received == [("sess-async", update)]
+
     # -- request_permission ---------------------------------------------------
 
     def test_request_permission_auto_confirm_true(self):
