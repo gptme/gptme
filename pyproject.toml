@@ -280,6 +280,10 @@ ignore_missing_imports = true
 module = "datasets.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "acp.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
