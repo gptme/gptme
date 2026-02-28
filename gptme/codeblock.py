@@ -158,6 +158,13 @@ def _extract_codeblocks(
                         has_next_line = i + 1 < len(lines)
                         next_has_content = has_next_line and lines[i + 1].strip() != ""
                         next_is_blank = has_next_line and lines[i + 1].strip() == ""
+                        # In streaming mode, a trailing empty string from split("\n")
+                        # is indistinguishable from a real blank line. When the blank
+                        # line is the last element, it's likely a split artifact from
+                        # content ending with "\n", not a real confirmation line.
+                        # Only treat it as a real blank if there's more content after.
+                        if streaming and next_is_blank and i + 1 == len(lines) - 1:
+                            next_is_blank = False
                         next_is_fence = has_next_line and bool(
                             re.match(r"^`{3,}", lines[i + 1])
                         )

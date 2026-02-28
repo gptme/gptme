@@ -1,5 +1,3 @@
-import pytest
-
 from gptme.codeblock import Codeblock, _extract_codeblocks
 
 
@@ -371,8 +369,10 @@ def test_extract_patch_codeblock_with_nested_backticks():
     with open(f"{script_dir}/data/example-patch-codeblock.txt") as f:
         content = f.read()
 
-    # The file has a blank line after the closing ```, so it should extract in streaming mode
-    blocks = list(_extract_codeblocks(content, streaming=True))
+    # Add a blank line after the closing ``` to confirm block closure in streaming mode.
+    # (end-of-file-fixer strips trailing blank lines from the file, so we add it here)
+    content_with_blank = content + "\n"
+    blocks = list(_extract_codeblocks(content_with_blank, streaming=True))
     assert len(blocks) == 1, (
         f"Expected 1 patch block in streaming mode, got {len(blocks)}"
     )
@@ -1131,14 +1131,6 @@ That's all
     assert len(blocks) == 0, "Should not extract block without trailing blank line"
 
 
-@pytest.mark.xfail(
-    reason="Incremental streaming: when the closing fence of the outer block is "
-    "the last content received, the trailing newline from split() looks like a "
-    "blank-line confirmation. The parser can't distinguish 'stream ended at fence' "
-    "from 'fence followed by blank line (confirmed closure)' without a "
-    "stream_complete signal from the caller. See PR #1429.",
-    strict=True,
-)
 def test_save_with_bare_backticks_incremental_streaming():
     """
     Simulates real LLM streaming where content arrives line-by-line.
