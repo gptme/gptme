@@ -1491,6 +1491,7 @@ CONTEXT: This is for the gptme server API, see existing endpoints in server.py
 tool = ToolSpec(
     name="subagent",
     desc="Create and manage subagents",
+    instructions=instructions,
     examples=examples,
     functions=[
         subagent,
