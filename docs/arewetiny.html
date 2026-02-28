@@ -502,20 +502,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     233821 |     mcp.types
-     236000 |   gptme.tools.mcp_adapter
-     307195 |             openai.types
-     373709 |           openai
-     443641 |         gptme.llm.llm_openai
-     444865 | gptme.cli.main
-     711099 |       gptme.llm
-     713019 |     gptme.commands
-     823118 |   gptme.chat
-     879021 | gptme
+     255703 |     mcp.types
+     258112 |   gptme.tools.mcp_adapter
+     329834 |             openai.types
+     398036 |           openai
+     462909 | gptme.cli.main
+     472500 |         gptme.llm.llm_openai
+     780915 |       gptme.llm
+     782952 |     gptme.commands
+     899023 |   gptme.chat
+     962788 | gptme
 
-real	0m2.077s
-user	0m1.778s
-sys	0m0.272s
+real	0m2.308s
+user	0m2.013s
+sys	0m0.291s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -524,8 +524,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.092 s ±  0.081 s    [User: 1.869 s, System: 0.218 s]
-  Range (min … max):    2.020 s …  2.182 s    5 runs
+  Time (mean ± σ):      2.126 s ±  0.040 s    [User: 1.893 s, System: 0.229 s]
+  Range (min … max):    2.100 s …  2.196 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -550,7 +550,7 @@ gptme/prompts.py                                       174            250       
 gptme/logmanager.py                                    137            165            564
 gptme/tools/base.py                                    138            160            553
 gptme/llm/llm_openai_subscription.py                   129             95            458
-gptme/util/context.py                                  118            174            443
+gptme/util/context.py                                  118            174            446
 gptme/util/prompt.py                                   103            151            410
 gptme/chat.py                                           69             90            377
 gptme/util/_telemetry.py                               106            123            357
@@ -613,7 +613,7 @@ gptme/util/useredit.py                                  12             13       
 gptme/__main__.py                                        2              0             12
 gptme/__init__.py                                        1              0              7
 ----------------------------------------------------------------------------------------
-SUM:                                                  4016           4700          14598
+SUM:                                                  4016           4700          14601
 ----------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -964,8 +964,8 @@ gptme/cli/setup.py                                                  113         
 gptme/server/openapi_docs.py                                        182            142            476
 gptme/llm/llm_openai_subscription.py                                129             95            458
 gptme/tools/computer.py                                             155            223            450
+gptme/util/context.py                                               118            174            446
 scripts/analyze_compression.py                                      103             68            446
-gptme/util/context.py                                               118            174            443
 tests/test_lessons_commands.py                                      157             82            422
 gptme/util/prompt.py                                                103            151            410
 scripts/github_bot.py                                                84             79            409
@@ -1310,7 +1310,7 @@ gptme/server/__init__.py                                              2         
 gptme/server/__main__.py                                              1              0              3
 gptme/server/constants.py                                             1              3              1
 -----------------------------------------------------------------------------------------------------
-SUM:                                                              22008          21841          73074
+SUM:                                                              22008          21841          73077
 -----------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1326,7 +1326,7 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Project Overview:
   Files: 384
   Total blocks: 5129
-  Average complexity: 4.063560148177032
+  Average complexity: 4.063755117956717
 
 Most Complex Functions (D+):
   gptme/context/selector/file_selector.py
@@ -1388,8 +1388,8 @@ Most Complex Functions (D+):
       F 86:0 format_tools_list - D
   gptme/util/gh.py
   gptme/util/context.py
-      F 615:0 _resource_to_codeblock - E
-      F 443:0 include_paths - D
+      F 618:0 _resource_to_codeblock - E
+      F 446:0 include_paths - D
   gptme/util/prompt.py
       M 296:4 GptmeCompleter.get_completions - D
   gptme/tools/lessons.py
@@ -1460,7 +1460,7 @@ Largest Files (&gt;300 SLOC):
    487 gptme/eval/main.py
    485 gptme/cli/setup.py
    480 gptme/llm/llm_openai_subscription.py
-   458 gptme/util/context.py
+   461 gptme/util/context.py
    450 tests/test_lessons_parser.py
    445 scripts/analyze_compression.py
    437 gptme/tools/gh.py
@@ -1648,7 +1648,7 @@ Clone found (python):
 ┌────────────┬────────────────┬─────────────┬──────────────┬──────────────┬──────────────────┬───────────────────┐
 │ Format     │ Files analyzed │ Total lines │ Total tokens │ Clones found │ Duplicated lines │ Duplicated tokens │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 233            │ 62073       │ 399272       │ 35           │ 488 (0.79%)      │ 4038 (1.01%)      │
+│ python     │ 233            │ 62076       │ 399304       │ 35           │ 488 (0.79%)      │ 4038 (1.01%)      │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ css        │ 1              │ 173         │ 1045         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -1662,10 +1662,10 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ url        │ 1              │ 2           │ 16           │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 255            │ 64772       │ 418074       │ 35           │ 488 (0.75%)      │ 4038 (0.97%)      │
+│ Total:     │ 255            │ 64775       │ 418106       │ 35           │ 488 (0.75%)      │ 4038 (0.97%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 35 clones.
-Detection time:: 4.281s
+Detection time:: 4.301s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
