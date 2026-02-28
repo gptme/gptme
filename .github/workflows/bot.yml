@@ -8,6 +8,10 @@ permissions: write-all
 
 jobs:
   run-bot:
+    # Only run when the comment explicitly @-mentions the bot.
+    # Without this, CI spins up on every comment (even bot reviews, CI notifications, etc.)
+    # which wastes runner minutes for an immediate allowlist-fail exit.
+    if: contains(github.event.comment.body, '@gptme')
     runs-on: ubuntu-latest
     steps:
       # needed to run the action in the same repo
