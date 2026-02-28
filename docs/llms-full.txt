@@ -4948,6 +4948,9 @@ permissions: write-all
 
 jobs:
   run-bot:
+    # Only run when a comment explicitly @-mentions the bot.
+    # Without this filter, CI spins up on every comment to immediately fail the allowlist check.
+    if: contains(github.event.comment.body, '@gptme')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

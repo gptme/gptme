@@ -503,6 +503,9 @@
 
 <span class="nt">jobs</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">run-bot</span><span class="p">:</span>
+<span class="w">    </span><span class="c1"># Only run when a comment explicitly @-mentions the bot.</span>
+<span class="w">    </span><span class="c1"># Without this filter, CI spins up on every comment to immediately fail the allowlist check.</span>
+<span class="w">    </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">contains(github.event.comment.body, &#39;@gptme&#39;)</span>
 <span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
 <span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v4</span>
