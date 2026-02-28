@@ -138,15 +138,17 @@ def run_evals(
             try:
                 result = future.result(timeout=0.1)
             except Exception as e:
-                # TODO: we still want to get stdout/stderr from the process
                 gen_time = 0
+                error_detail = ""
                 if isinstance(e, concurrent.futures.TimeoutError) or isinstance(
                     e, concurrent.futures.CancelledError
                 ):
                     status: Status = "timeout"
                     gen_time = timeout
+                    error_detail = f"Process-level {type(e).__name__}"
                 else:
                     status = "error"
+                    error_detail = f"{type(e).__name__}: {e}"
                     logger.exception(
                         f"Test {test_name} for model {config} generated an exception when trying to get result"
                     )
@@ -156,7 +158,7 @@ def run_evals(
                     results=[],
                     timings={"gen": gen_time, "run": 0, "eval": 0},
                     gen_stdout="",
-                    gen_stderr="",
+                    gen_stderr=error_detail,
                     run_stdout="",
                     run_stderr="",
                     log_dir=agent.log_dir,

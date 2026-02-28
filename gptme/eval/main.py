@@ -529,13 +529,24 @@ def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
 def write_results(model_results: dict[ModelConfig, list[EvalResult]]):
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%SZ")
     # get current commit hash and dirty status, like: a8b2ef0-dirty
-    # TODO: don't assume we are in the gptme repo, use other version identifiers if available
-    commit_hash = subprocess.run(
+    # try git first, fall back to package version
+    git_result = subprocess.run(
         ["git", "describe", "--always", "--dirty", "--exclude", "'*'"],
         check=False,
         text=True,
         capture_output=True,
-    ).stdout.strip()
+        cwd=project_dir,
+    )
+    if git_result.returncode == 0 and git_result.stdout.strip():
+        commit_hash = git_result.stdout.strip()
+    else:
+        # not in a git repo, use package version
+        from importlib.metadata import version
+
+        try:
+            commit_hash = f"v{version('gptme')}"
+        except Exception:
+            commit_hash = "unknown"
     eval_results_dir = Path(
         os.environ.get("EVAL_RESULTS_DIR", project_dir / "eval_results")
     )
