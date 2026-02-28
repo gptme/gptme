@@ -49,11 +49,12 @@ def check_fix_bug_no_recursion_error(ctx):
 def check_read_modify_output(ctx):
     """After modification, stats.py should output correct stats for the data."""
     output = ctx.stdout.lower()
+    words = output.split()
     # data.csv has 5 rows with values 10,20,30,40,50
     # count=5, mean=30, max=50
-    has_count = "5" in output
-    has_mean = "30" in output
-    has_max = "50" in output
+    has_count = "5" in words  # use split to avoid "5" matching inside "50"
+    has_mean = "30" in output  # substring to handle both "30" and "30.0" float output
+    has_max = "50" in words
     return has_count and has_mean and has_max
 
 
