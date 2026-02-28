@@ -1196,3 +1196,127 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(mocker, tmp_path)
     # Ensure chat got the user prompt message
     prompt_msgs = mock_chat.call_args.args[0]
     assert prompt_msgs == [Message("user", "test")]
+
+
+# --- ACP Mode Tests ---
+
+
+def test_acp_mode_creates_subagent():
+    """Test that ACP mode creates a subagent with correct execution_mode."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from gptme.tools.subagent import _subagents, subagent
+
+    _subagents.clear()
+
+    # Mock the GptmeAcpClient to avoid actually spawning a process
+    mock_client = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.stop_reason = "end_turn"
+    mock_client.run = AsyncMock(return_value=mock_result)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch(
+        "gptme.acp.client.GptmeAcpClient",
+        return_value=mock_client,
+    ):
+        subagent(
+            agent_id="test-acp",
+            prompt="Test ACP task",
+            use_acp=True,
+            acp_command="fake-acp",
+        )
+
+        # Verify subagent was created with ACP mode
+        sa = next((s for s in _subagents if s.agent_id == "test-acp"), None)
+        assert sa is not None
+        assert sa.execution_mode == "acp"
+        assert sa.acp_command == "fake-acp"
+        assert sa.thread is not None  # ACP runs in a wrapper thread
+
+
+def test_acp_mode_stores_result():
+    """Test that ACP mode stores completion result."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from gptme.tools.subagent import (
+        _subagent_results,
+        _subagent_results_lock,
+        _subagents,
+        subagent,
+    )
+
+    _subagents.clear()
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+    mock_client = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.stop_reason = "end_turn"
+    mock_client.run = AsyncMock(return_value=mock_result)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("gptme.acp.client.GptmeAcpClient", return_value=mock_client),
+        patch("gptme.tools.subagent.notify_completion"),
+    ):
+        subagent(
+            agent_id="test-acp-result",
+            prompt="Compute something",
+            use_acp=True,
+        )
+
+        # Wait for the thread to finish
+        sa = next(s for s in _subagents if s.agent_id == "test-acp-result")
+        assert sa.thread is not None
+        sa.thread.join(timeout=10)
+
+        # Check result was stored
+        with _subagent_results_lock:
+            assert "test-acp-result" in _subagent_results
+            result = _subagent_results["test-acp-result"]
+            assert result.status == "success"
+
+
+def test_acp_mode_handles_failure():
+    """Test that ACP mode handles connection failures gracefully."""
+    from unittest.mock import AsyncMock, patch
+
+    from gptme.tools.subagent import (
+        _subagent_results,
+        _subagent_results_lock,
+        _subagents,
+        subagent,
+    )
+
+    _subagents.clear()
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(
+        side_effect=FileNotFoundError("fake-acp not found")
+    )
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("gptme.acp.client.GptmeAcpClient", return_value=mock_client),
+        patch("gptme.tools.subagent.notify_completion"),
+    ):
+        subagent(
+            agent_id="test-acp-fail",
+            prompt="This will fail",
+            use_acp=True,
+            acp_command="nonexistent-acp",
+        )
+
+        sa = next(s for s in _subagents if s.agent_id == "test-acp-fail")
+        assert sa.thread is not None
+        sa.thread.join(timeout=10)
+
+        with _subagent_results_lock:
+            assert "test-acp-fail" in _subagent_results
+            result = _subagent_results["test-acp-fail"]
+            assert result.status == "failure"
