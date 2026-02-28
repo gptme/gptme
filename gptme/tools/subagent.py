@@ -174,7 +174,9 @@ class Subagent:
     output_schema: type | None = None
     # Subprocess mode fields
     process: subprocess.Popen | None = None
-    execution_mode: Literal["thread", "subprocess"] = "thread"
+    execution_mode: Literal["thread", "subprocess", "acp"] = "thread"
+    # ACP mode fields
+    acp_command: str | None = None
     # Worktree isolation fields
     isolated: bool = False
     worktree_path: Path | None = None
@@ -190,6 +192,9 @@ class Subagent:
         """Check if the subagent is still running."""
         if self.execution_mode == "subprocess" and self.process:
             return self.process.poll() is None
+        if self.execution_mode == "acp" and self.thread:
+            # ACP mode uses a thread wrapping the async client
+            return self.thread.is_alive()
         if self.thread:
             return self.thread.is_alive()
         return False
@@ -770,6 +775,8 @@ def subagent(
     context_include: list[str] | None = None,
     output_schema: type | None = None,
     use_subprocess: bool = False,
+    use_acp: bool = False,
+    acp_command: str = "gptme-acp",
     profile: str | None = None,
     model: str | None = None,
     isolated: bool = False,
@@ -807,6 +814,12 @@ def subagent(
             Note: Tools and agent identity are always included by the CLI.
         use_subprocess: If True, run subagent in subprocess for output isolation.
             Subprocess mode captures stdout/stderr separately from the parent.
+        use_acp: If True, run subagent via ACP (Agent Client Protocol).
+            This enables multi-harness support — the subagent can be any
+            ACP-compatible agent (gptme, Claude Code, Cursor, etc.).
+            Requires the ``acp`` package: pip install 'gptme[acp]'.
+        acp_command: ACP agent command to invoke (default: "gptme-acp").
+            Only used when use_acp=True. Can be any ACP-compatible CLI.
         profile: Agent profile name to apply. Profiles provide:
             - System prompt customization (behavioral hints)
             - Tool access restrictions (which tools the subagent can use)
@@ -934,7 +947,95 @@ def subagent(
                 f"Not in a git repo, using temp dir for {agent_id}: {worktree_path}"
             )
 
-    if use_subprocess:
+    if use_acp:
+        # ACP mode: multi-harness support via Agent Client Protocol
+        logger.info(f"Starting subagent {agent_id} in ACP mode (command={acp_command})")
+        if profile:
+            logger.info(f"  with profile: {profile}")
+
+        def run_acp_subagent():
+            import asyncio
+
+            async def _acp_run():
+                from ..acp.client import GptmeAcpClient
+
+                collected_text: list[str] = []
+
+                def on_update(session_id: str, update) -> None:
+                    """Collect text from session updates."""
+                    # Extract text from agent_message_chunk updates
+                    update_type = getattr(update, "type", None)
+                    if update_type == "agent_message_chunk":
+                        chunk = getattr(update, "chunk", None)
+                        if chunk:
+                            text = getattr(chunk, "text", None) or (
+                                chunk.get("text") if isinstance(chunk, dict) else None
+                            )
+                            if text:
+                                collected_text.append(text)
+
+                async with GptmeAcpClient(
+                    workspace=workspace,
+                    command=acp_command,
+                    auto_confirm=True,
+                    on_update=on_update,
+                ) as client:
+                    result = await client.run(prompt, cwd=workspace)
+                    stop_reason = getattr(result, "stop_reason", "unknown")
+                    result_text = "".join(collected_text) if collected_text else None
+
+                    status = "success" if stop_reason == "end_turn" else "failure"
+                    summary = (
+                        result_text[:500]
+                        if result_text
+                        else f"ACP stop_reason={stop_reason}"
+                    )
+                    return status, summary
+
+            try:
+                loop = asyncio.new_event_loop()
+                try:
+                    status, summary = loop.run_until_complete(_acp_run())
+                finally:
+                    loop.close()
+
+                with _subagent_results_lock:
+                    _subagent_results[agent_id] = ReturnType(status, summary)
+                notify_completion(
+                    agent_id,
+                    status,
+                    _summarize_result(ReturnType(status, summary), max_chars=200),
+                )
+            except Exception as e:
+                logger.error(f"ACP subagent {agent_id} failed: {e}")
+                with _subagent_results_lock:
+                    _subagent_results[agent_id] = ReturnType("failure", str(e))
+                notify_completion(agent_id, "failure", f"ACP error: {e}")
+            finally:
+                sa_ref = next((s for s in _subagents if s.agent_id == agent_id), None)
+                if sa_ref:
+                    _cleanup_isolation(sa_ref)
+
+        t = threading.Thread(target=run_acp_subagent, daemon=True)
+        t.start()
+
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt=prompt,
+            thread=t,
+            logdir=logdir,
+            model=model_name,
+            output_schema=output_schema,
+            process=None,
+            execution_mode="acp",
+            acp_command=acp_command,
+            isolated=isolated,
+            worktree_path=worktree_path,
+            repo_path=repo_path,
+        )
+        _subagents.append(sa)
+
+    elif use_subprocess:
         # Subprocess mode: better output isolation
         logger.info(f"Starting subagent {agent_id} in subprocess mode")
         if profile:
@@ -1085,6 +1186,9 @@ def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
             logger.warning(f"Subagent {agent_id} timed out after {timeout}s")
             sa.process.kill()
             sa.process.wait()  # reap the killed process
+    elif sa.execution_mode == "acp" and sa.thread:
+        # ACP mode: wait for the wrapper thread
+        sa.thread.join(timeout=timeout)
     elif sa.thread:
         # Thread mode: join thread
         sa.thread.join(timeout=timeout)
@@ -1148,6 +1252,8 @@ class BatchJob:
 def subagent_batch(
     tasks: list[tuple[str, str]],
     use_subprocess: bool = False,
+    use_acp: bool = False,
+    acp_command: str = "gptme-acp",
 ) -> BatchJob:
     """Start multiple subagents in parallel and return a BatchJob to manage them.
 
@@ -1161,6 +1267,8 @@ def subagent_batch(
     Args:
         tasks: List of (agent_id, prompt) tuples
         use_subprocess: If True, run subagents in subprocesses for output isolation
+        use_acp: If True, run subagents via ACP protocol
+        acp_command: ACP agent command (default: "gptme-acp")
 
     Returns:
         A BatchJob instance for managing the parallel subagents.
@@ -1190,6 +1298,8 @@ def subagent_batch(
             agent_id=agent_id,
             prompt=prompt,
             use_subprocess=use_subprocess,
+            use_acp=use_acp,
+            acp_command=acp_command,
         )
 
     logger.info(f"Started batch of {len(tasks)} subagents: {job.agent_ids}")
@@ -1340,6 +1450,18 @@ Assistant: I'll use subprocess mode for better output isolation.
     }
 System: Subagent started in subprocess mode.
 
+### ACP Mode (multi-harness support)
+User: delegate this task to a Claude Code agent
+Assistant: I'll use ACP mode to run this via a different agent harness.
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("claude-task", "Analyze and refactor the auth module", use_acp=True, acp_command="claude-code-acp")',
+        ).to_output(tool_format)
+    }
+System: Started subagent "claude-task" in ACP mode.
+
 ### Batch Execution (parallel tasks)
 User: implement, test, and document a feature in parallel
 Assistant: I'll use subagent_batch for parallel execution with fire-and-gather pattern.
@@ -1442,6 +1564,8 @@ Key features:
 - Agent profiles: Use profile names as agent_id for automatic profile detection
 - model="provider/model": Override parent's model (route cheap tasks to faster models)
 - use_subprocess=True: Run subagent in subprocess for output isolation
+- use_acp=True: Run subagent via ACP protocol (supports any ACP-compatible agent)
+- acp_command="claude-code-acp": Use a different ACP agent (default: gptme-acp)
 - isolated=True: Run subagent in a git worktree for filesystem isolation
 - subagent_batch(): Start multiple subagents in parallel
 - Hook-based notifications: Completions delivered as system messages
