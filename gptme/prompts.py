@@ -578,7 +578,7 @@ def prompt_workspace(
 ) -> Generator[Message, None, None]:
     """Generate the workspace context prompt."""
     # TODO: update this prompt if the files change
-    # TODO: include `git status -vv`, and keep it up-to-date
+    # TODO: include `git status`, and keep it up-to-date
     sections = []
 
     if workspace is None:
