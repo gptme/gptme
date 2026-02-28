@@ -1397,6 +1397,65 @@ parent/child for collaborative problem-solving</p></li>
 message routing and result aggregation</p></li>
 </ul>
 <p>These features will build on the existing hook infrastructure.</p>
+<p class="rubric">Instructions</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>You can create, check status, wait for, and read logs from subagents.
+
+Subagents support a &quot;fire-and-forget-then-get-alerted&quot; pattern:
+<span class="k">-</span><span class="w"> </span>Call subagent() to start an async task (returns immediately)
+<span class="k">-</span><span class="w"> </span>Continue with other work
+<span class="k">-</span><span class="w"> </span>Receive completion messages via the LOOP_CONTINUE hook
+<span class="k">-</span><span class="w"> </span>Optionally use subagent_wait() for explicit synchronization
+
+Key features:
+<span class="k">-</span><span class="w"> </span>Agent profiles: Use profile names as agent_id for automatic profile detection
+<span class="k">-</span><span class="w"> </span>model=&quot;provider/model&quot;: Override parent&#39;s model (route cheap tasks to faster models)
+<span class="k">-</span><span class="w"> </span>use_subprocess=True: Run subagent in subprocess for output isolation
+<span class="k">-</span><span class="w"> </span>isolated=True: Run subagent in a git worktree for filesystem isolation
+<span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents in parallel
+<span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions delivered as system messages
+
+<span class="gu">## Agent Profiles for Subagents</span>
+
+Use profiles to create specialized subagents with appropriate capabilities.
+When agent_id matches a profile name, the profile is auto-applied:
+<span class="k">-</span><span class="w"> </span>explorer: Read-only analysis (tools: read)
+<span class="k">-</span><span class="w"> </span>researcher: Web research without file modification (tools: browser, read)
+<span class="k">-</span><span class="w"> </span>developer: Full development capabilities (all tools)
+<span class="k">-</span><span class="w"> </span>isolated: Restricted processing for untrusted content (tools: read, ipython)
+<span class="k">-</span><span class="w"> </span>computer-use: Visual UI testing specialist (tools: computer, vision, ipython, shell)
+<span class="k">-</span><span class="w"> </span>browser-use: Web interaction and testing specialist (tools: browser, screenshot, vision, shell)
+
+Example: <span class="sb">`subagent(&quot;explorer&quot;, &quot;Explore codebase&quot;)`</span>
+With model override: <span class="sb">`subagent(&quot;researcher&quot;, &quot;Find docs&quot;, model=&quot;openai/gpt-4o-mini&quot;)`</span>
+Computer-use example: <span class="sb">`subagent(&quot;computer-use&quot;, &quot;Click the Submit button, wait for the modal, and screenshot the result&quot;)`</span>
+Browser-use example: <span class="sb">`subagent(&quot;browser-use&quot;, &quot;Open localhost:5173, take a screenshot, and report UI issues&quot;)`</span>
+
+Use subagent_read_log() to inspect a subagent&#39;s conversation log for debugging.
+
+<span class="gu">## Structured Delegation Template</span>
+
+For complex delegations, use this 7-section template for clear task handoff:
+
+TASK: [What the subagent should do]
+EXPECTED OUTCOME: [Specific deliverable - format, structure, quality bars]
+REQUIRED SKILLS: [What capabilities the subagent needs]
+REQUIRED TOOLS: [Specific tools the subagent should use]
+MUST DO: [Non-negotiable requirements]
+MUST NOT DO: [Explicit constraints and forbidden actions]
+CONTEXT: [Background info, dependencies, related work]
+
+Example prompt using the template:
+&#39;&#39;&#39;
+TASK: Implement the user authentication feature
+EXPECTED OUTCOME: auth.py with login/logout endpoints, passing tests
+REQUIRED SKILLS: Python, FastAPI, JWT tokens
+REQUIRED TOOLS: save, shell (for pytest)
+MUST DO: Use bcrypt for password hashing, return proper HTTP status codes
+MUST NOT DO: Store plaintext passwords, skip input validation
+CONTEXT: This is for the gptme server API, see existing endpoints in server.py
+&#39;&#39;&#39;
+</pre></div>
+</div>
 <p class="rubric">Examples</p>
 <p>Executor Mode (single task)</p>
 <table style="width: 100%; margin-bottom: 1em">
