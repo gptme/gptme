@@ -90,5 +90,6 @@ Use the `view_image` Python function with `ipython` tool to view an image file.
 tool = ToolSpec(
     name="vision",
     desc="Viewing images",
+    instructions=instructions,
     functions=[view_image],
 )
