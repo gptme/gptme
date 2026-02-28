@@ -1,0 +1,28 @@
+
+--- Start of generation ---
+[03:50:30] Using model: anthropic/claude-sonnet-4-6                             
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-02-28-gptme-evals-anthropic--claude-so
+           nnet-4-6-markdown-e1a291c6                                           
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-02-28-gptme-evals-anthropic--claude-so
+           nnet-4-6-markdown-e1a291c6/workspace                                 
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Simple task.
+</think>        </think>
+
+```save hello.py
+print("Hello, world!")
+```                                                                                System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Done.
+</think>        </think>
+
+Run it with `python hello.py` to verify.                                                                                [03:50:33] Session: $0.01 | 2 turns | 872 context | 0% cached                   
+--- Finished generation ---
+
