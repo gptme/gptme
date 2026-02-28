@@ -141,6 +141,14 @@ class StepRequest(BaseModel):
     stream: bool = Field(True, description="Enable streaming")
     branch: str = Field("main", description="Conversation branch")
     auto_confirm: bool | int = Field(False, description="Auto-confirm tools")
+    use_acp: bool = Field(
+        False,
+        description=(
+            "Route this session through an ACP subprocess for process-isolated execution. "
+            "Sticky: once enabled for a session, all subsequent steps use ACP. "
+            "The subprocess manages its own model; 'model' is ignored in ACP mode."
+        ),
+    )
 
 
 class ToolConfirmRequest(BaseModel):
