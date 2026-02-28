@@ -670,6 +670,99 @@ def skills_dirs():
         click.echo(f"  {icon} {d}  ({status})")
 
 
+@skills.command("install")
+@click.argument("source")
+@click.option("--name", "-n", help="Override skill name")
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing installation")
+def skills_install(source: str, name: str | None, force: bool):
+    """Install a skill from a source.
+
+    SOURCE can be:
+
+    \b
+      - A skill name from the registry (e.g. 'code-review-helper')
+      - A git URL (e.g. 'https://github.com/user/skills.git#path/to/skill')
+      - A local path to a skill directory (e.g. './my-skill/')
+    """
+    from ..lessons.installer import install_skill
+
+    click.echo(f"Installing skill from '{source}'...")
+    success, message = install_skill(source, name=name, force=force)
+    if success:
+        click.echo(f"  {message}")
+    else:
+        click.echo(f"Error: {message}", err=True)
+        sys.exit(1)
+
+
+@skills.command("uninstall")
+@click.argument("name")
+def skills_uninstall(name: str):
+    """Uninstall a skill by name."""
+    from ..lessons.installer import uninstall_skill
+
+    success, message = uninstall_skill(name)
+    if success:
+        click.echo(message)
+    else:
+        click.echo(f"Error: {message}", err=True)
+        sys.exit(1)
+
+
+@skills.command("validate")
+@click.argument("path", type=click.Path(exists=True))
+def skills_validate(path: str):
+    """Validate a skill directory or SKILL.md file.
+
+    Checks for required frontmatter fields and marketplace metadata.
+    """
+    from ..lessons.installer import validate_skill
+
+    errors = validate_skill(Path(path))
+    if errors:
+        click.echo(f"Validation errors ({len(errors)}):")
+        for error in errors:
+            click.echo(f"  - {error}")
+        sys.exit(1)
+    else:
+        click.echo("Skill is valid.")
+
+
+@skills.command("installed")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def skills_installed(json_output: bool):
+    """List installed skills from the user's skill directory."""
+    from ..lessons.installer import list_installed
+
+    installed = list_installed()
+
+    if not installed:
+        click.echo(
+            "No skills installed. Use 'gptme-util skills install <name>' to install."
+        )
+        return
+
+    if json_output:
+        import json
+
+        result = [
+            {
+                "name": s.name,
+                "version": s.version,
+                "source": s.source,
+                "path": s.install_path,
+                "installed_at": s.installed_at,
+            }
+            for s in installed
+        ]
+        click.echo(json.dumps(result, indent=2))
+        return
+
+    click.echo(f"Installed skills ({len(installed)}):\n")
+    for skill in sorted(installed, key=lambda s: s.name):
+        click.echo(f"  {skill.name:30s} v{skill.version:10s} ({skill.source})")
+
+
 @main.group()
 def tools():
     """Tool-related utilities."""
