@@ -952,6 +952,23 @@ def subagent(
         logger.info(f"Starting subagent {agent_id} in ACP mode (command={acp_command})")
         if profile:
             logger.info(f"  with profile: {profile}")
+        # Warn about parameters not forwarded to ACP agent
+        if model:
+            logger.warning(
+                f"Subagent {agent_id}: 'model' is not forwarded to ACP agent (ignored)"
+            )
+        if output_schema is not None:
+            logger.warning(
+                f"Subagent {agent_id}: 'output_schema' is not supported in ACP mode (ignored)"
+            )
+        if context_mode != "full":
+            logger.warning(
+                f"Subagent {agent_id}: 'context_mode={context_mode!r}' is not supported in ACP mode (ignored)"
+            )
+        if context_include:
+            logger.warning(
+                f"Subagent {agent_id}: 'context_include' is not supported in ACP mode (ignored)"
+            )
 
         def run_acp_subagent():
             import asyncio
@@ -1017,7 +1034,6 @@ def subagent(
                     _cleanup_isolation(sa_ref)
 
         t = threading.Thread(target=run_acp_subagent, daemon=True)
-        t.start()
 
         sa = Subagent(
             agent_id=agent_id,
@@ -1033,7 +1049,10 @@ def subagent(
             worktree_path=worktree_path,
             repo_path=repo_path,
         )
+        # Append sa before starting the thread so the finally block can find it
+        # (avoids race condition where fast completion can't locate sa in _subagents)
         _subagents.append(sa)
+        t.start()
 
     elif use_subprocess:
         # Subprocess mode: better output isolation
@@ -1189,6 +1208,11 @@ def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
     elif sa.execution_mode == "acp" and sa.thread:
         # ACP mode: wait for the wrapper thread
         sa.thread.join(timeout=timeout)
+        if sa.thread.is_alive():
+            logger.warning(
+                f"Subagent {agent_id} ACP thread still running after {timeout}s timeout"
+                " — cannot cancel daemon thread, it will continue in background"
+            )
     elif sa.thread:
         # Thread mode: join thread
         sa.thread.join(timeout=timeout)
