@@ -357,10 +357,10 @@ def git_status() -> str | None:
     """Get git status if in a repository."""
     try:
         git_status = subprocess.run(
-            ["git", "status", "-vv"], capture_output=True, text=True, check=True
+            ["git", "status"], capture_output=True, text=True, check=True
         )
         logger.debug("Including git status in context")
-        return md_codeblock("git status -vv", git_status.stdout)
+        return md_codeblock("git status", git_status.stdout)
     except (subprocess.CalledProcessError, FileNotFoundError):
         logger.debug("Not in a git repository or git not available")
     return None
