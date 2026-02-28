@@ -9,8 +9,10 @@ from gptme.lessons.installer import (
     SkillManifest,
     get_manifest,
     get_skills_dir,
+    init_skill,
     install_skill,
     list_installed,
+    publish_skill,
     uninstall_skill,
     validate_skill,
 )
@@ -238,3 +240,140 @@ class TestSkillManifest:
         path.write_text("not: valid: yaml: {{}")
         manifest = SkillManifest.load(path)
         assert manifest.skills == {}
+
+
+class TestInitSkill:
+    def test_init_creates_skill(self, tmp_path: Path):
+        target = tmp_path / "new-skill"
+        success, msg = init_skill(target, name="new-skill")
+        assert success, msg
+        assert target.exists()
+        assert (target / "SKILL.md").exists()
+
+    def test_init_content_valid(self, tmp_path: Path):
+        target = tmp_path / "my-skill"
+        init_skill(target, name="my-skill", description="Does stuff", author="bob")
+
+        # The created skill should pass validation
+        errors = validate_skill(target)
+        # Only warnings about tags expected, not real errors
+        real_errors = [e for e in errors if "recommended" not in e.lower()]
+        assert real_errors == [], f"Unexpected errors: {real_errors}"
+
+    def test_init_with_all_options(self, tmp_path: Path):
+        target = tmp_path / "full-skill"
+        success, msg = init_skill(
+            target,
+            name="full-skill",
+            description="A complete skill",
+            author="bob",
+            tags="coding, testing",
+        )
+        assert success, msg
+
+        content = (target / "SKILL.md").read_text()
+        assert "full-skill" in content
+        assert "A complete skill" in content
+        assert "bob" in content
+        assert "coding" in content
+
+    def test_init_defaults_name_to_dirname(self, tmp_path: Path):
+        target = tmp_path / "auto-named"
+        success, msg = init_skill(target)
+        assert success, msg
+        content = (target / "SKILL.md").read_text()
+        assert "auto-named" in content
+
+    def test_init_fails_if_skill_exists(self, skill_dir: Path):
+        success, msg = init_skill(skill_dir)
+        assert not success
+        assert "already exists" in msg
+
+    def test_init_creates_parent_dirs(self, tmp_path: Path):
+        target = tmp_path / "deep" / "nested" / "skill"
+        success, msg = init_skill(target)
+        assert success, msg
+        assert (target / "SKILL.md").exists()
+
+
+class TestPublishSkill:
+    def test_publish_valid_skill(self, skill_dir: Path):
+        success, msg, archive = publish_skill(skill_dir)
+        assert success, msg
+        assert archive is not None
+        assert archive.exists()
+        assert archive.name == "test-skill-1.0.0.tar.gz"
+
+    def test_publish_archive_contents(self, skill_dir: Path):
+        import tarfile
+
+        success, _, archive = publish_skill(skill_dir)
+        assert success
+        assert archive is not None
+
+        with tarfile.open(archive, "r:gz") as tar:
+            names = tar.getnames()
+            assert "test-skill/SKILL.md" in names
+
+    def test_publish_includes_extra_files(self, skill_dir: Path):
+        import tarfile
+
+        # Add a supporting script
+        (skill_dir / "helper.sh").write_text("#!/bin/bash\necho hello")
+
+        success, _, archive = publish_skill(skill_dir)
+        assert success
+        assert archive is not None
+
+        with tarfile.open(archive, "r:gz") as tar:
+            names = tar.getnames()
+            assert "test-skill/helper.sh" in names
+            assert "test-skill/SKILL.md" in names
+
+    def test_publish_excludes_hidden_files(self, skill_dir: Path):
+        import tarfile
+
+        (skill_dir / ".git").mkdir()
+        (skill_dir / ".git" / "config").write_text("stuff")
+        (skill_dir / "__pycache__").mkdir()
+        (skill_dir / "__pycache__" / "foo.pyc").write_text("bytecode")
+
+        success, _, archive = publish_skill(skill_dir)
+        assert success
+        assert archive is not None
+
+        with tarfile.open(archive, "r:gz") as tar:
+            names = tar.getnames()
+            assert not any(".git" in n for n in names)
+            assert not any("__pycache__" in n for n in names)
+
+    def test_publish_invalid_skill_fails(self, skill_dir_invalid: Path):
+        success, msg, archive = publish_skill(skill_dir_invalid)
+        assert not success
+        assert "validation failed" in msg.lower()
+        assert archive is None
+
+    def test_publish_missing_skill_md(self, tmp_path: Path):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        success, msg, archive = publish_skill(empty)
+        assert not success
+        assert archive is None
+
+    def test_publish_from_skill_md_file(self, skill_dir: Path):
+        success, msg, archive = publish_skill(skill_dir / "SKILL.md")
+        assert success, msg
+        assert archive is not None
+
+    def test_publish_shows_instructions(self, skill_dir: Path):
+        success, msg, _ = publish_skill(skill_dir)
+        assert success
+        assert "gptme-contrib" in msg
+        assert "gptme-util skills install" in msg
+
+    def test_publish_minimal_has_warnings(self, skill_dir_minimal: Path):
+        success, msg, archive = publish_skill(skill_dir_minimal)
+        assert success, msg
+        assert archive is not None
+        # Minimal skills should publish but show warnings
+        assert "Warnings" in msg or "metadata" in msg.lower()

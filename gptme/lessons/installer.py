@@ -430,3 +430,147 @@ def list_installed() -> list[InstalledSkill]:
     """List all installed skills from the manifest."""
     manifest = get_manifest()
     return list(manifest.skills.values())
+
+
+# --- Skill template for init ---
+
+SKILL_TEMPLATE = """\
+---
+name: {name}
+description: {description}
+metadata:
+  author: {author}
+  version: "0.1.0"
+  tags: [{tags}]
+  license: MIT
+---
+
+# {title}
+
+## Instructions
+
+Describe what this skill does and when to use it.
+
+## Examples
+
+```bash
+# Example usage
+```
+"""
+
+
+def init_skill(
+    path: Path,
+    name: str | None = None,
+    description: str = "A new gptme skill",
+    author: str = "",
+    tags: str = "",
+) -> tuple[bool, str]:
+    """Scaffold a new skill directory with SKILL.md template.
+
+    Args:
+        path: Directory to create the skill in
+        name: Skill name (defaults to directory name)
+        description: Short description
+        author: Author name
+        tags: Comma-separated tags
+
+    Returns:
+        Tuple of (success, message)
+    """
+    skill_name = name or path.name
+
+    if path.exists():
+        skill_md = _find_skill_md(path)
+        if skill_md:
+            return False, f"Skill already exists at {path} (has SKILL.md)"
+
+    path.mkdir(parents=True, exist_ok=True)
+
+    # Format tags for YAML
+    tag_list = ", ".join(f'"{t.strip()}"' for t in tags.split(",") if t.strip())
+
+    # Create SKILL.md from template
+    title = skill_name.replace("-", " ").replace("_", " ").title()
+    content = SKILL_TEMPLATE.format(
+        name=skill_name,
+        description=description,
+        author=author or "your-name",
+        tags=tag_list,
+        title=title,
+    )
+
+    skill_md_path = path / "SKILL.md"
+    skill_md_path.write_text(content, encoding="utf-8")
+
+    return True, f"Created skill '{skill_name}' at {path}"
+
+
+def publish_skill(path: Path) -> tuple[bool, str, Path | None]:
+    """Validate and package a skill for sharing/submission.
+
+    Creates a .tar.gz archive of the skill directory, ready for
+    submission to the gptme-contrib registry or manual sharing.
+
+    Args:
+        path: Path to skill directory or SKILL.md file
+
+    Returns:
+        Tuple of (success, message, archive_path or None)
+    """
+    import tarfile
+
+    if path.is_file():
+        if path.name.lower() == "skill.md":
+            path = path.parent
+        else:
+            return False, f"Expected a directory or SKILL.md, got {path.name}", None
+
+    # Validate first
+    errors = validate_skill(path)
+    real_errors = [e for e in errors if "recommended" not in e.lower()]
+    warnings = [e for e in errors if "recommended" in e.lower()]
+
+    if real_errors:
+        error_list = "\n".join(f"  - {e}" for e in real_errors)
+        return False, f"Skill validation failed:\n{error_list}", None
+
+    # Get skill metadata
+    skill_md = _find_skill_md(path)
+    assert skill_md is not None  # validate_skill already checked this
+    fm = _parse_skill_frontmatter(skill_md)
+    skill_name = fm.get("name", path.name)
+    metadata = fm.get("metadata", {})
+    version = (
+        metadata.get("version", "0.0.0") if isinstance(metadata, dict) else "0.0.0"
+    )
+
+    # Create archive
+    archive_name = f"{skill_name}-{version}.tar.gz"
+    archive_path = path.parent / archive_name
+
+    with tarfile.open(archive_path, "w:gz") as tar:
+        # Add all files in the skill directory under the skill name prefix
+        for item in sorted(path.rglob("*")):
+            if item.is_file():
+                # Skip hidden files and __pycache__
+                rel = item.relative_to(path)
+                if any(p.startswith(".") or p == "__pycache__" for p in rel.parts):
+                    continue
+                arcname = f"{skill_name}/{rel}"
+                tar.add(item, arcname=arcname)
+
+    warning_text = ""
+    if warnings:
+        warning_text = "\n  Warnings:\n" + "\n".join(f"    - {w}" for w in warnings)
+
+    message = (
+        f"Packaged '{skill_name}' v{version} → {archive_path}{warning_text}\n\n"
+        f"To share this skill:\n"
+        f"  1. Others can install with: gptme-util skills install {path}\n"
+        f"  2. To submit to the registry, open a PR to gptme-contrib:\n"
+        f"     - Copy your skill directory to skills/{skill_name}/\n"
+        f"     - PR: https://github.com/gptme/gptme-contrib/compare/master...your-branch"
+    )
+
+    return True, message, archive_path

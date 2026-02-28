@@ -763,6 +763,62 @@ def skills_installed(json_output: bool):
         click.echo(f"  {skill.name:30s} v{skill.version:10s} ({skill.source})")
 
 
+@skills.command("init")
+@click.argument("path", type=click.Path())
+@click.option("--name", "-n", help="Skill name (defaults to directory name)")
+@click.option(
+    "--description", "-d", default="A new gptme skill", help="Short description"
+)
+@click.option("--author", "-a", default="", help="Author name")
+@click.option("--tags", "-t", default="", help="Comma-separated tags")
+def skills_init(path: str, name: str | None, description: str, author: str, tags: str):
+    """Create a new skill from a template.
+
+    PATH is the directory to create the skill in.
+
+    \b
+    Example:
+      gptme-util skills init ./my-skill --name my-skill -d "Does cool things"
+    """
+    from ..lessons.installer import init_skill
+
+    target = Path(path).resolve()
+    success, message = init_skill(
+        target, name=name, description=description, author=author, tags=tags
+    )
+    if success:
+        click.echo(f"  {message}")
+        click.echo("\n  Next steps:")
+        click.echo(f"    1. Edit {target}/SKILL.md with your instructions")
+        click.echo(f"    2. Add supporting scripts/files to {target}/")
+        click.echo(f"    3. Validate: gptme-util skills validate {target}")
+        click.echo(f"    4. Publish: gptme-util skills publish {target}")
+    else:
+        click.echo(f"Error: {message}", err=True)
+        sys.exit(1)
+
+
+@skills.command("publish")
+@click.argument("path", type=click.Path(exists=True))
+def skills_publish(path: str):
+    """Validate and package a skill for sharing.
+
+    PATH is the skill directory (containing SKILL.md).
+
+    Creates a .tar.gz archive and shows instructions for submitting
+    to the gptme-contrib registry.
+    """
+    from ..lessons.installer import publish_skill
+
+    target = Path(path).resolve()
+    success, message, _archive_path = publish_skill(target)
+    if success:
+        click.echo(message)
+    else:
+        click.echo(f"Error: {message}", err=True)
+        sys.exit(1)
+
+
 @main.group()
 def tools():
     """Tool-related utilities."""
