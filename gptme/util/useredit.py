@@ -25,22 +25,26 @@ def edit_text_with_editor(initial_text: str, ext=None) -> str:  # pragma: no cov
 
     # Open the file in the user's editor.
     logger.debug("Running editor: %s", [editor, temp_filename])
-    p = subprocess.run([editor, temp_filename], check=False)
-    # now, we wait
+    try:
+        p = subprocess.run([editor, temp_filename], check=False)
+        # now, we wait
 
-    # Check that the editor exited successfully.
-    if p.returncode != 0:
-        raise RuntimeError(f"Editor exited with non-zero exit code: {p.returncode}")
+        # Check that the editor exited successfully.
+        if p.returncode != 0:
+            raise RuntimeError(f"Editor exited with non-zero exit code: {p.returncode}")
 
-    # Read the edited text back in.
-    with open(temp_filename) as f:
-        edited_text = f.read()
+        # Read the edited text back in.
+        with open(temp_filename) as f:
+            edited_text = f.read()
 
-    # Check that the user actually edited the file.
-    if edited_text == initial_text:
-        logger.info("No changes made, exiting.")
+        # Check that the user actually edited the file.
+        if edited_text == initial_text:
+            logger.info("No changes made, exiting.")
 
-    # Delete the temporary file.
-    os.remove(temp_filename)
-
-    return edited_text
+        return edited_text
+    finally:
+        # Clean up the temporary file.
+        try:
+            os.remove(temp_filename)
+        except OSError:
+            pass

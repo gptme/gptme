@@ -310,7 +310,8 @@ def execute_patch_impl(
     content: str, path: Path | None
 ) -> Generator[Message, None, None]:
     """Actual patch implementation."""
-    assert path is not None
+    if path is None:
+        raise ValueError("Path is required to apply a patch")
 
     # Print full path to give agent feedback about exactly which file is being patched
     path_display = path

@@ -585,16 +585,15 @@ def _run_subagent_subprocess(
         tmpfile_path = Path(tmpf.name)
 
     try:
-        stdin_file = open(tmpfile_path)
-        process = subprocess.Popen(
-            cmd,
-            stdin=stdin_file,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=workspace,
-            text=True,
-        )
-        stdin_file.close()
+        with open(tmpfile_path) as stdin_file:
+            process = subprocess.Popen(
+                cmd,
+                stdin=stdin_file,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=workspace,
+                text=True,
+            )
     finally:
         tmpfile_path.unlink(missing_ok=True)
 
