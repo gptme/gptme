@@ -400,7 +400,7 @@ def _is_pdf_url(url: str) -> bool:
         response = requests.head(url, allow_redirects=True, timeout=10)
         content_type = response.headers.get("Content-Type", "").lower()
         return "application/pdf" in content_type
-    except Exception:
+    except requests.RequestException:
         # If we can't check headers, rely on URL extension
         return False
 

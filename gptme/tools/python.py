@@ -196,7 +196,8 @@ def execute_python(
     elif kwargs is not None:
         code = kwargs.get("code", "").strip()
 
-    assert code is not None
+    if code is None:
+        raise ValueError("Code content is required to execute Python")
 
     # Get confirmation via hook system (hook will display preview)
     confirm_result = get_confirmation()
