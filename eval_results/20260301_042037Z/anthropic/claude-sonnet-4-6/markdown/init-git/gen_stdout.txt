@@ -1,0 +1,48 @@
+
+--- Start of generation ---
+[04:19:24] Using model: anthropic/claude-sonnet-4-6                             
+[04:19:25] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-03-01-gptme-evals-anthropic--claude-so
+           nnet-4-6-markdown-a38bdb56                                           
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-03-01-gptme-evals-anthropic--claude-so
+           nnet-4-6-markdown-a38bdb56/workspace                                 
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: initialize a git repository, write a main.py file, and commit it
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Let me do this step by step.
+</think>        </think>
+
+```shell
+git init && cat > main.py << 'EOF'
+def main():
+    print("Hello, world!")
+
+if __name__ == "__main__":
+    main()
+EOF
+git add main.py && git commit -m "Initial commit"
+```                                                                                Initialized empty Git repository in /home/appuser/.local/share/gptme/logs/2026-03-01-gptme-evals-anthropic--claude-sonnet-4-6-markdown-a38bdb56/workspace/.git/
+[main (root-commit) 5aeb7a5] Initial commit
+ 1 file changed, 5 insertions(+)
+ create mode 100644 main.py
+System: 
+Ran command: `git init && cat > main.py << 'EOF'... (8 lines)`
+
+```stdout
+Initialized empty Git repository in 
+/home/appuser/.local/share/gptme/logs/2026-03-01-gptme-evals-anthropic--claude-s
+onnet-4-6-markdown-a38bdb56/workspace/.git/ Initial commit
+ 1 file changed, 5 insertions(+)
+ create mode 100644 main.py
+```
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Done.
+</think>        </think>
+
+Done. Repository initialized, `main.py` written, and committed.                                                                                [04:19:31] Session: $0.01 | 2 turns | 2k context | 0% cached                    
+--- Finished generation ---
+
