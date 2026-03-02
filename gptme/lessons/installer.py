@@ -112,8 +112,19 @@ def _parse_skill_frontmatter(skill_md: Path) -> dict:
         return {}
 
 
+def _sanitize_skill_name(name: str) -> str:
+    """Sanitize a skill name to prevent path traversal attacks.
+
+    Strips directory components (e.g. '../../evil') leaving only the
+    final path component so names cannot escape the skills directory.
+    """
+    return Path(name).name
+
+
 def _find_skill_md(directory: Path) -> Path | None:
     """Find SKILL.md in a directory (case-insensitive)."""
+    if not directory.is_dir():
+        return None
     for f in directory.iterdir():
         if f.name.lower() == "skill.md":
             return f
@@ -259,9 +270,10 @@ def install_skill(
     # Install from source
     if git_url:
         # Determine temporary name for installation
-        temp_name = name or (
+        raw_name = name or (
             git_skill_path.split("/")[-1] if git_skill_path else "skill"
         )
+        temp_name = _sanitize_skill_name(raw_name)
         dest = skills_dir / temp_name
 
         if dest.exists() and not force:
@@ -286,7 +298,8 @@ def install_skill(
         # Get name from SKILL.md if not provided
         if not name:
             fm = _parse_skill_frontmatter(skill_md)
-            name = fm.get("name") or local_path.name
+            raw_name = fm.get("name") or local_path.name
+            name = _sanitize_skill_name(raw_name)
 
         dest = skills_dir / name
 
@@ -308,7 +321,7 @@ def install_skill(
         return False, "Installed files do not contain SKILL.md"
 
     fm = _parse_skill_frontmatter(skill_md)
-    skill_name = name or fm.get("name", dest.name)
+    skill_name = _sanitize_skill_name(name or fm.get("name", dest.name))
 
     # Rename directory if skill name differs from temp name
     if dest.name != skill_name:
@@ -356,18 +369,27 @@ def uninstall_skill(name: str) -> tuple[bool, str]:
     """
     manifest = get_manifest()
     skills_dir = get_skills_dir()
+    safe_name = _sanitize_skill_name(name)
 
     # Check manifest first
-    if name in manifest.skills:
-        install_path = Path(manifest.skills[name].install_path)
+    if safe_name in manifest.skills:
+        install_path = Path(manifest.skills[safe_name].install_path).resolve()
+        # Validate install_path is within skills_dir to prevent manifest-tampering attacks
+        try:
+            install_path.relative_to(skills_dir.resolve())
+        except ValueError:
+            return (
+                False,
+                f"Refusing to delete '{install_path}': not within skills directory",
+            )
         if install_path.exists():
             shutil.rmtree(install_path)
-        del manifest.skills[name]
+        del manifest.skills[safe_name]
         manifest.save(get_manifest_path())
-        return True, f"Uninstalled '{name}'"
+        return True, f"Uninstalled '{safe_name}'"
 
     # Try direct directory match
-    skill_dir = skills_dir / name
+    skill_dir = skills_dir / safe_name
     if skill_dir.exists():
         shutil.rmtree(skill_dir)
         return True, f"Removed '{name}' (not in manifest)"
@@ -552,6 +574,9 @@ def publish_skill(path: Path) -> tuple[bool, str, Path | None]:
     with tarfile.open(archive_path, "w:gz") as tar:
         # Add all files in the skill directory under the skill name prefix
         for item in sorted(path.rglob("*")):
+            # Skip symlinks (could expose files outside the skill directory)
+            if item.is_symlink():
+                continue
             if item.is_file():
                 # Skip hidden files and __pycache__
                 rel = item.relative_to(path)
