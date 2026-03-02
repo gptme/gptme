@@ -993,11 +993,13 @@ def api_conversation_step(conversation_id: str):
             400,
         )
 
-    # If auto_confirm set, set auto_confirm_count
-    if isinstance(auto_confirm, int):
-        session.auto_confirm_count = auto_confirm
-    else:
+    # If auto_confirm set, set auto_confirm_count.
+    # Check bool first: bool is a subclass of int in Python, so isinstance(True, int) is True.
+    # Use type() to distinguish them correctly.
+    if type(auto_confirm) is bool:
         session.auto_confirm_count = 1 if auto_confirm else -1
+    else:  # int
+        session.auto_confirm_count = auto_confirm
 
     auto_confirm_enabled = bool(session.auto_confirm_count > 0)
 
