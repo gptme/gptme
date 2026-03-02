@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -36,6 +36,7 @@ class _DummyClient:
         self.closed = False
         self.prompt_calls: list[tuple[str, str]] = []
         self.set_model_calls: list[tuple[str, str]] = []
+        self._on_update = kwargs.get("on_update")
 
     async def __aenter__(self):
         self.started = True
@@ -49,10 +50,15 @@ class _DummyClient:
 
     async def prompt(self, session_id: str, message: str):
         self.prompt_calls.append((session_id, message))
+        if self._on_update is not None:
+            await self._on_update(session_id, {"text": "hello world"})
         return SimpleNamespace(output=[_DummyBlock("hello"), _DummyBlock(" world")])
 
     async def set_session_model(self, session_id: str, model_id: str) -> None:
         self.set_model_calls.append((session_id, model_id))
+
+    def set_on_update(self, on_update):
+        self._on_update = on_update
 
 
 @pytest.mark.parametrize(
@@ -488,3 +494,86 @@ def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
     finally:
         SessionManager._sessions.pop("sid-hooks", None)
         SessionManager._conversation_sessions[conversation_id].discard("sid-hooks")
+
+
+def test_iter_text_from_acp_update_shapes():
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    assert list(sessions_mod._iter_text_from_acp_update("abc")) == ["abc"]
+    assert list(sessions_mod._iter_text_from_acp_update({"text": "abc"})) == ["abc"]
+    assert list(
+        sessions_mod._iter_text_from_acp_update(
+            {"message": {"content": [{"text": "a"}, {"text": "b"}]}}
+        )
+    ) == ["a", "b"]
+    assert list(
+        sessions_mod._iter_text_from_acp_update({"content": [{"text": "x"}]})
+    ) == ["x"]
+
+
+def test_acp_step_bridges_generation_progress_events(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """ACP session_update text should be bridged to generation_progress SSE events."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hello stream bridge"},
+    )
+    assert resp.status_code == 200
+
+    session = ConversationSession(id="sid-stream", conversation_id=conversation_id)
+    session.use_acp = True
+    session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
+    SessionManager._sessions["sid-stream"] = session
+    SessionManager._conversation_sessions[conversation_id].add("sid-stream")
+
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+
+        progress_tokens: list[str] = []
+        for event in session.events:
+            if event.get("type") != "generation_progress":
+                continue
+            token = cast(dict[str, Any], event).get("token")
+            if isinstance(token, str):
+                progress_tokens.append(token)
+
+        assert "".join(progress_tokens) == "hello world"
+
+        completion_events = [
+            e for e in session.events if e.get("type") == "generation_complete"
+        ]
+        assert completion_events
+        completion = cast(dict[str, Any], completion_events[-1])
+        message_dict = cast(dict[str, Any], completion["message"])
+        final_content = message_dict["content"]
+        if isinstance(final_content, list):
+            final_text = "".join(
+                block.get("text", "")
+                for block in final_content
+                if isinstance(block, dict)
+            )
+        else:
+            final_text = str(final_content)
+        assert final_text == "hello world"
+    finally:
+        SessionManager._sessions.pop("sid-stream", None)
+        SessionManager._conversation_sessions[conversation_id].discard("sid-stream")

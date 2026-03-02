@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .acp_session_runtime import AcpSessionRuntime
@@ -277,6 +277,55 @@ def _close_acp_runtime_bg(acp_runtime: "AcpSessionRuntime") -> None:
     t.start()
 
 
+def _iter_text_from_acp_update(update: Any) -> Iterable[str]:
+    """Yield best-effort text chunks from ACP session_update payloads."""
+    if update is None:
+        return
+
+    # Direct text payloads
+    if isinstance(update, str):
+        yield update
+        return
+
+    if isinstance(update, dict):
+        if isinstance(update.get("text"), str):
+            yield update["text"]
+            return
+
+        # Common shape: {message: {content: [{text: ...}]}}
+        message = update.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and isinstance(block.get("text"), str):
+                        yield block["text"]
+                return
+
+        # Alternate shape: {content: [{text: ...}]}
+        content = update.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    yield block["text"]
+            return
+
+    # Dataclass/object-style fallbacks
+    text = getattr(update, "text", None)
+    if isinstance(text, str):
+        yield text
+        return
+
+    message = getattr(update, "message", None)
+    if message is not None:
+        msg_content = getattr(message, "content", None)
+        if isinstance(msg_content, list):
+            for block in msg_content:
+                block_text = getattr(block, "text", None)
+                if isinstance(block_text, str):
+                    yield block_text
+
+
 async def _acp_step(
     conversation_id: str,
     session: "ConversationSession",
@@ -352,6 +401,22 @@ async def _acp_step(
 
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
 
+    stream_tokens: list[str] = []
+
+    async def _on_acp_update(_session_id: str, update: Any) -> None:
+        # Best-effort bridge: forward ACP session_update text chunks to SSE.
+        for chunk in _iter_text_from_acp_update(update):
+            if not chunk:
+                continue
+            for token in chunk:
+                stream_tokens.append(token)
+                SessionManager.add_event(
+                    conversation_id,
+                    {"type": "generation_progress", "token": token},
+                )
+
+    session.acp_runtime.set_on_update(_on_acp_update)
+
     try:
         final_msg: Message | None = None
 
@@ -360,7 +425,9 @@ async def _acp_step(
             start=next_user_index,
         ):
             text, _raw = await session.acp_runtime.prompt(user_msg.content)
-            msg = Message("assistant", text)
+            final_text = "".join(stream_tokens) if stream_tokens else text
+            stream_tokens.clear()
+            msg = Message("assistant", final_text)
             _append_and_notify(manager, session, msg)
             manager.write()
             session.acp_last_user_msg_index = absolute_index
@@ -394,6 +461,7 @@ async def _acp_step(
         logger.exception("Error during ACP step: %s", e)
         SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
     finally:
+        session.acp_runtime.set_on_update(None)
         session.generating = False
 
 

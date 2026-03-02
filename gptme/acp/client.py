@@ -255,6 +255,7 @@ class GptmeAcpClient:
         self._conn: Any = None
         self._process: Any = None
         self._ctx: Any = None
+        self._client_handler: Any = None
 
     # -- context manager ----------------------------------------------------
 
@@ -277,6 +278,7 @@ class GptmeAcpClient:
                 auto_confirm=self._auto_confirm,
             )
         )
+        self._client_handler = client
 
         self._ctx = spawn_agent_process(
             client,  # type: ignore[arg-type]
@@ -303,6 +305,18 @@ class GptmeAcpClient:
         self._conn = None
         self._process = None
         self._ctx = None
+        self._client_handler = None
+
+    def set_on_update(
+        self,
+        on_update: Callable[[str, Any], None | Awaitable[None]] | None,
+    ) -> None:
+        """Update session_update callback at runtime."""
+        self._on_update = on_update
+        if self._client_handler is not None and hasattr(
+            self._client_handler, "_on_update"
+        ):
+            self._client_handler._on_update = on_update
 
     # -- public API ---------------------------------------------------------
 

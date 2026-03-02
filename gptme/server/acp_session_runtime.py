@@ -68,6 +68,7 @@ class AcpSessionRuntime:
         env: dict[str, str] | None = None,
         auto_confirm: bool = True,
         model: str | None = None,
+        on_update: Any | None = None,
     ) -> None:
         self.workspace = workspace
         self.command = command
@@ -75,6 +76,7 @@ class AcpSessionRuntime:
         self.env = env
         self.auto_confirm = auto_confirm
         self.model = model
+        self._on_update = on_update
 
         self._client: GptmeAcpClient | None = None
         self._session_id: str | None = None
@@ -94,6 +96,7 @@ class AcpSessionRuntime:
             extra_args=self.extra_args,
             env=self.env,
             auto_confirm=self.auto_confirm,
+            on_update=self._on_update,
         )
         await client.__aenter__()
         try:
@@ -128,6 +131,12 @@ class AcpSessionRuntime:
             self._session_id,
             self.model,
         )
+
+    def set_on_update(self, on_update: Any | None) -> None:
+        """Set/update callback for ACP session_update notifications."""
+        self._on_update = on_update
+        if self._client is not None:
+            self._client.set_on_update(on_update)
 
     async def prompt(self, message: str) -> tuple[str, Any]:
         """Send prompt to ACP session and return extracted text + raw response."""
