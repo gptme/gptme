@@ -103,6 +103,8 @@ if [ "$DRY_RUN" = "false" ]; then
         if [ "$NOTES_SIZE" -gt "$GH_BODY_LIMIT" ]; then
             echo "Warning: changelog is ${NOTES_SIZE} chars (limit ${GH_BODY_LIMIT}), truncating..."
             TRUNCATED_FILE=$(mktemp)
+            # shellcheck disable=SC2064
+            trap "rm -f '$TRUNCATED_FILE'" EXIT
             head -c "$GH_BODY_LIMIT" "$NOTES_FILE" > "$TRUNCATED_FILE"
             printf '\n\n*(Changelog truncated — see full git log for details)*\n' >> "$TRUNCATED_FILE"
             NOTES_FILE="$TRUNCATED_FILE"
