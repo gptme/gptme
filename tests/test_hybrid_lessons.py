@@ -1,8 +1,6 @@
 """Tests for hybrid lesson matching integration."""
 
 import json
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -64,7 +62,7 @@ def test_backward_compatibility():
 
 
 @pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
-def test_load_ts_posteriors():
+def test_load_ts_posteriors(tmp_path):
     """Test loading Thompson sampling posteriors from JSON state file."""
     state = {
         "arms": {
@@ -72,17 +70,13 @@ def test_load_ts_posteriors():
             "python-invocation.md": {"alpha": 3.0, "beta": 7.0},
         }
     }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(state, f)
-        f.flush()
-        posteriors = _load_ts_posteriors(f.name)
+    state_file = tmp_path / "ts_state.json"
+    state_file.write_text(json.dumps(state))
+    posteriors = _load_ts_posteriors(str(state_file))
 
     assert len(posteriors) == 2
     assert posteriors["git-workflow.md"] == pytest.approx(0.8)
     assert posteriors["python-invocation.md"] == pytest.approx(0.3)
-
-    # Cleanup
-    Path(f.name).unlink()
 
 
 @pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
@@ -93,30 +87,25 @@ def test_load_ts_posteriors_missing_file():
 
 
 @pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
-def test_effectiveness_score_with_ts():
+def test_effectiveness_score_with_ts(tmp_path):
     """Test that effectiveness_score uses TS posteriors when configured."""
     state = {
         "arms": {
             "git-workflow.md": {"alpha": 9.0, "beta": 1.0},  # 0.9 effectiveness
         }
     }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(state, f)
-        f.flush()
-        state_path = f.name
+    state_file = tmp_path / "ts_state.json"
+    state_file.write_text(json.dumps(state))
 
     config = HybridConfig(
         enable_semantic=False,
-        effectiveness_state_file=state_path,
+        effectiveness_state_file=str(state_file),
     )
     matcher = HybridLessonMatcher(config=config)
 
     # Verify posteriors were loaded
     assert len(matcher._ts_posteriors) == 1
     assert matcher._ts_posteriors["git-workflow.md"] == pytest.approx(0.9)
-
-    # Cleanup
-    Path(state_path).unlink()
 
 
 @pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
