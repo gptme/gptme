@@ -292,14 +292,43 @@ async def _acp_step(
     Limitations (compared to the in-process ``step()``):
     - No per-token streaming (response arrives in one chunk)
     - Tool confirmations are auto-approved inside the subprocess
-    - No STEP_PRE / TURN_POST hooks on the server side
     """
 
     assert session.acp_runtime is not None, (
         "acp_runtime must be set before calling _acp_step"
     )
 
+    logdir = get_logs_dir() / conversation_id
+    chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+    prepare_execution_environment(
+        workspace=workspace,
+        tools=chat_config.tools,
+        chat_config=chat_config,
+    )
+
     manager = LogManager.load(conversation_id, lock=False)
+
+    # Keep server-side hook semantics aligned with the in-process step path.
+    assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
+    if len(assistant_messages) == 0:
+        if session_start_msgs := trigger_hook(
+            HookType.SESSION_START,
+            logdir=logdir,
+            workspace=workspace,
+            initial_msgs=manager.log.messages,
+        ):
+            for hook_msg in session_start_msgs:
+                _append_and_notify(manager, session, hook_msg)
+            manager.write()
+
+    if pre_msgs := trigger_hook(
+        HookType.STEP_PRE,
+        manager=manager,
+    ):
+        for hook_msg in pre_msgs:
+            _append_and_notify(manager, session, hook_msg)
+        manager.write()
+
     user_messages = [m for m in manager.log.messages if m.role == "user"]
     if not user_messages:
         error_event: ErrorEvent = {
@@ -337,11 +366,20 @@ async def _acp_step(
             session.acp_last_user_msg_index = absolute_index
             final_msg = msg
 
-        # Auto-name if this is the first assistant turn
-        logdir = get_logs_dir() / conversation_id
-        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+        if post_msgs := trigger_hook(
+            HookType.TURN_POST,
+            manager=manager,
+        ):
+            for hook_msg in post_msgs:
+                _append_and_notify(manager, session, hook_msg)
+
+        manager.write()
+
         _try_auto_name_and_notify(
-            chat_config, manager.log.messages, chat_config.model or "", conversation_id
+            chat_config,
+            manager.log.messages,
+            chat_config.model or "",
+            conversation_id,
         )
 
         assert final_msg is not None, "pending_user_messages should not be empty"

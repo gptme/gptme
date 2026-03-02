@@ -333,8 +333,13 @@ def test_acp_step_processes_all_pending_user_messages(
     try:
         _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
 
-        assert len(created) == 1
-        assert created[0].prompt_calls == [
+        all_calls = [call for c in created for call in c.prompt_calls]
+        question_calls = [
+            call
+            for call in all_calls
+            if call[1] in {"first question", "second question"}
+        ]
+        assert question_calls == [
             ("sess-test", "first question"),
             ("sess-test", "second question"),
         ]
@@ -348,3 +353,69 @@ def test_acp_step_processes_all_pending_user_messages(
     finally:
         SessionManager._sessions.pop("sid-pending", None)
         SessionManager._conversation_sessions[conversation_id].discard("sid-pending")
+
+
+def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """ACP step should preserve key server-side hook semantics."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    from gptme.hooks import HookType
+    from gptme.message import Message
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    def _fake_trigger_hook(hook_type: HookType, **kwargs):
+        if hook_type == HookType.SESSION_START:
+            return [Message("system", "HOOK_SESSION_START")]
+        if hook_type == HookType.STEP_PRE:
+            return [Message("system", "HOOK_STEP_PRE")]
+        if hook_type == HookType.TURN_POST:
+            return [Message("system", "HOOK_TURN_POST")]
+        return []
+
+    monkeypatch.setattr(sessions_mod, "trigger_hook", _fake_trigger_hook)
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    # One user message to trigger one ACP prompt
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hello hooks"},
+    )
+    assert resp.status_code == 200
+
+    session = ConversationSession(id="sid-hooks", conversation_id=conversation_id)
+    session.use_acp = True
+    session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
+    SessionManager._sessions["sid-hooks"] = session
+    SessionManager._conversation_sessions[conversation_id].add("sid-hooks")
+
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+
+        assert len(created) == 1
+        assert created[0].prompt_calls == [("sess-test", "hello hooks")]
+
+        from gptme.logmanager import LogManager
+
+        manager = LogManager.load(conversation_id)
+        contents = [m.content for m in manager.log.messages]
+        assert "HOOK_SESSION_START" in contents
+        assert "HOOK_STEP_PRE" in contents
+        assert "HOOK_TURN_POST" in contents
+    finally:
+        SessionManager._sessions.pop("sid-hooks", None)
+        SessionManager._conversation_sessions[conversation_id].discard("sid-hooks")
