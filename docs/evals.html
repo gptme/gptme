@@ -528,7 +528,7 @@ docker<span class="w"> </span>run<span class="w"> </span><span class="se">\</spa
 <h2>Results<a class="headerlink" href="#results" title="Link to this heading">#</a></h2>
 <p>Here are the results of the evals we have run so far:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>$ gptme-eval eval_results/*/eval_results.csv
-2026-02-28 16:56:22,341 - INFO - gptme.config - Using user configuration from ~/.config/gptme/config.toml
+2026-03-02 08:49:13,343 - INFO - gptme.config - Using user configuration from ~/.config/gptme/config.toml
 Model                                     Format    hello             hello-patch       hello-ask         prime100          init-git          init-rust      whois-superuserlabs-ceo
 ----------------------------------------  --------  ----------------  ----------------  ----------------  ----------------  ----------------  -------------  -------------------------
 anthropic/claude-3-5-haiku-20241022       markdown  ✅ 66/69 456tk    ✅ 68/69 377tk    ✅ 68/69 458tk    ✅ 67/69 885tk    ✅ 65/68 905tk    ❓ N/A         ✅ 1/1 2619tk
@@ -539,17 +539,17 @@ anthropic/claude-3-5-sonnet-20241022      markdown  🔶 146/294 286tk  🔶 186
 anthropic/claude-3-5-sonnet-20241022      tool      🔶 80/238 230tk   🔶 59/238 288tk   🔶 80/238 324tk   🔶 77/238 420tk   🔶 70/238 446tk   ❓ N/A         ❓ N/A
 anthropic/claude-3-5-sonnet-20241022      xml       ❌ 10/226 251tk   🔶 80/226 271tk   🔶 76/226 308tk   ❌ 12/226 447tk   ❌ 41/226 466tk   ❓ N/A         ❓ N/A
 anthropic/claude-3-haiku-20240307         markdown  ✅ 34/34 388tk    ✅ 34/34 375tk    ✅ 34/34 432tk    ❌ 6/34 781tk     🔶 24/34 903tk    🔶 3/4 670tk   ✅ 4/4 1535tk
-anthropic/claude-haiku-4-5                tool      🔶 91/122 347tk   🔶 91/122 454tk   🔶 91/122 521tk   🔶 39/122 1051tk  🔶 72/122 879tk   ❓ N/A         ❓ N/A
-anthropic/claude-haiku-4-5                xml       ✅ 117/122 386tk  ✅ 116/122 469tk  ✅ 118/122 556tk  ✅ 114/122 774tk  🔶 73/122 897tk   ❓ N/A         ❓ N/A
+anthropic/claude-haiku-4-5                tool      🔶 91/124 347tk   🔶 91/124 453tk   🔶 91/124 519tk   🔶 39/124 1043tk  🔶 72/124 870tk   ❓ N/A         ❓ N/A
+anthropic/claude-haiku-4-5                xml       ✅ 119/124 385tk  ✅ 118/124 469tk  ✅ 120/124 556tk  ✅ 116/124 772tk  🔶 73/124 883tk   ❓ N/A         ❓ N/A
 anthropic/claude-opus-4-1-20250805        markdown  🔶 1/2 393tk      ❌ 0/1 197tk      ❌ 0/1 204tk      ❌ 0/1 190tk      ❌ 0/1 186tk      ❓ N/A         ❓ N/A
 anthropic/claude-opus-4-1-20250805        tool      ❌ 0/1 181tk      ❌ 0/1 196tk      ❌ 0/1 202tk      ❌ 0/1 188tk      ❌ 0/1 184tk      ❓ N/A         ❓ N/A
 anthropic/claude-opus-4-1-20250805        xml       🔶 1/2 372tk      ❌ 0/1 197tk      ❌ 0/1 205tk      ❌ 0/1 191tk      ❌ 0/1 187tk      ❓ N/A         ❓ N/A
 anthropic/claude-sonnet-4-20250514        markdown  ✅ 1/1 439tk      ✅ 1/1 480tk      ✅ 1/1 532tk      ✅ 1/1 1180tk     ✅ 1/1 2006tk     ❓ N/A         ❓ N/A
 anthropic/claude-sonnet-4-20250514        tool      ✅ 1/1 283tk      ✅ 1/1 320tk      ✅ 1/1 471tk      ✅ 1/1 1133tk     ✅ 1/1 1070tk     ❓ N/A         ❓ N/A
 anthropic/claude-sonnet-4-20250514        xml       ✅ 1/1 404tk      ✅ 1/1 495tk      ✅ 1/1 584tk      ✅ 1/1 1223tk     ❌ 0/1 1422tk     ❓ N/A         ❓ N/A
-anthropic/claude-sonnet-4-6               markdown  ✅ 10/10 292tk    ✅ 10/10 371tk    ✅ 10/10 486tk    ✅ 10/10 429tk    ✅ 10/10 643tk    ❓ N/A         ❓ N/A
-anthropic/claude-sonnet-4-6               tool      ❌ 0/10 256tk     ❌ 0/10 367tk     ❌ 0/10 370tk     ❌ 0/10 336tk     ❌ 0/10 310tk     ❓ N/A         ❓ N/A
-anthropic/claude-sonnet-4-6               xml       ✅ 10/10 303tk    ✅ 10/10 390tk    ✅ 10/10 420tk    ✅ 10/10 448tk    ✅ 8/10 686tk     ❓ N/A         ❓ N/A
+anthropic/claude-sonnet-4-6               markdown  ✅ 12/12 292tk    ✅ 12/12 372tk    ✅ 12/12 475tk    ✅ 12/12 429tk    ✅ 12/12 637tk    ❓ N/A         ❓ N/A
+anthropic/claude-sonnet-4-6               tool      ❌ 0/12 258tk     ❌ 0/12 367tk     ❌ 0/12 369tk     ❌ 0/12 335tk     ❌ 0/12 309tk     ❓ N/A         ❓ N/A
+anthropic/claude-sonnet-4-6               xml       ✅ 12/12 303tk    ✅ 12/12 390tk    ✅ 12/12 421tk    ✅ 12/12 448tk    🔶 9/12 650tk     ❓ N/A         ❓ N/A
 deepseek/deepseek-chat                    markdown  ✅ 1/1 429tk      ❓ N/A            ❓ N/A            ❓ N/A            ❓ N/A            ❓ N/A         ❓ N/A
 deepseek/deepseek-reasoner                markdown  ✅ 1/1 742tk      ❓ N/A            ❓ N/A            ❓ N/A            ❓ N/A            ❓ N/A         ❓ N/A
 deepseek/deepseek-reasoner                xml       ✅ 1/1 680tk      ❓ N/A            ❓ N/A            ❓ N/A            ❓ N/A            ❓ N/A         ❓ N/A
@@ -564,10 +564,10 @@ groq/qwen/qwen3-32b                       tool      ❌ 0/1 172tk      ❌ 0/1 1
 groq/qwen/qwen3-32b                       xml       ✅ 1/1 1918tk     ✅ 1/1 725tk      ✅ 1/1 1115tk     ❌ 0/1 5171tk     ❌ 0/1 4367tk     ❓ N/A         ❓ N/A
 openai/gpt-4-turbo                        markdown  ✅ 3/3 255tk      ✅ 3/3 312tk      ✅ 3/3 376tk      ✅ 3/3 527tk      ✅ 4/4 590tk      ✅ 4/4 784tk   ✅ 6/7 819tk
 openai/gpt-4o-mini                        markdown  🔶 61/104 263tk   ✅ 103/104 319tk  ✅ 103/104 375tk  🔶 65/104 502tk   ✅ 92/104 766tk   ✅ 6/6 813tk   ✅ 6/6 951tk
-openai/gpt-4o-mini                        tool      ✅ 239/248 289tk  🔶 196/248 285tk  ✅ 248/248 421tk  🔶 174/248 619tk  ✅ 248/248 680tk  ❓ N/A         ❓ N/A
-openai/gpt-4o                             markdown  🔶 167/339 299tk  🔶 181/339 358tk  ✅ 292/339 382tk  🔶 69/339 511tk   🔶 181/339 659tk  ✅ 5/5 663tk   ✅ 5/5 1253tk
-openai/gpt-4o                             tool      ❌ 43/248 293tk   🔶 163/248 457tk  🔶 141/248 461tk  🔶 78/248 686tk   ✅ 243/248 835tk  ❓ N/A         ❓ N/A
-openai/gpt-4o                             xml       ❌ 12/236 261tk   🔶 52/236 305tk   ❌ 26/236 284tk   ❌ 1/236 359tk    ❌ 2/236 304tk    ❓ N/A         ❓ N/A
+openai/gpt-4o-mini                        tool      ✅ 241/250 290tk  🔶 196/250 283tk  ✅ 250/250 421tk  🔶 174/250 619tk  ✅ 250/250 680tk  ❓ N/A         ❓ N/A
+openai/gpt-4o                             markdown  🔶 167/341 300tk  🔶 181/341 358tk  ✅ 294/341 383tk  🔶 70/341 512tk   🔶 183/341 660tk  ✅ 5/5 663tk   ✅ 5/5 1253tk
+openai/gpt-4o                             tool      ❌ 43/250 293tk   🔶 165/250 457tk  🔶 142/250 461tk  🔶 78/250 685tk   ✅ 245/250 836tk  ❓ N/A         ❓ N/A
+openai/gpt-4o                             xml       ❌ 12/238 262tk   🔶 52/238 305tk   ❌ 26/238 284tk   ❌ 1/238 359tk    ❌ 2/238 304tk    ❓ N/A         ❓ N/A
 openai/gpt-5-mini                         markdown  ✅ 1/1 379tk      ✅ 1/1 358tk      ✅ 1/1 884tk      ❌ 0/1 0tk        ❌ 0/1 715tk      ❓ N/A         ❓ N/A
 openai/gpt-5-mini                         tool      ✅ 1/1 286tk      ✅ 1/1 294tk      ✅ 1/1 1150tk     ❌ 0/1 0tk        ❌ 0/1 0tk        ❓ N/A         ❓ N/A
 openai/gpt-5-mini                         xml       ❌ 0/1 331tk      ✅ 1/1 386tk      ✅ 1/1 922tk      ✅ 1/1 1369tk     ✅ 1/1 1614tk     ❓ N/A         ❓ N/A
@@ -583,7 +583,7 @@ google/gemma-2-9b-it                      markdown  ❌ 0/2 186tk      ✅ 2/2 3
 meta-llama/llama-3.1-405b-instruct        markdown  🔶 80/103 253tk   ✅ 84/103 400tk   ✅ 83/103 364tk   🔶 79/103 449tk   🔶 71/103 501tk   🔶 2/5 255tk   ❌ 0/5 85tk
 meta-llama/llama-3.1-405b-instruct        tool      ❌ 0/12 184tk     ❌ 0/12 198tk     ❌ 0/12 214tk     ❌ 0/12 190tk     ❌ 0/12 189tk     ❓ N/A         ❓ N/A
 meta-llama/llama-3.1-70b-instruct         markdown  ✅ 5/6 367tk      ✅ 5/6 424tk      ✅ 6/6 452tk      🔶 2/6 546tk      ✅ 5/6 813tk      🔶 3/4 682tk   🔶 2/3 1461tk
-meta-llama/llama-3.1-70b-instruct         xml       🔶 186/236 272tk  ❌ 10/236 351tk   🔶 56/236 403tk   ❌ 21/236 364tk   🔶 136/236 463tk  ❓ N/A         ❓ N/A
+meta-llama/llama-3.1-70b-instruct         xml       🔶 188/238 273tk  ❌ 10/238 348tk   🔶 56/238 399tk   ❌ 21/238 361tk   🔶 136/238 459tk  ❓ N/A         ❓ N/A
 meta-llama/llama-3.1-8b-instruct          markdown  ✅ 1/1 277tk      ✅ 1/1 441tk      ❌ 0/1 400tk      ❌ 0/1 5095tk     ✅ 1/1 2266tk     ❓ N/A         ❓ N/A
 meta-llama/llama-3.2-11b-vision-instruct  markdown  ✅ 2/2 352tk      ✅ 2/2 493tk      ❌ 0/2 479tk      ✅ 2/2 2643tk     ❓ N/A            ❓ N/A         ❓ N/A
 meta-llama/llama-3.2-90b-vision-instruct  markdown  🔶 2/4 237tk      🔶 2/4 288tk      🔶 3/4 336tk      🔶 1/4 233tk      ❓ N/A            ❓ N/A         ❓ N/A
