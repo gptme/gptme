@@ -47,7 +47,11 @@ cd "$REPO_ROOT"
 # --- Shared: find last stable and last tag ---
 
 LAST_STABLE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
-LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+# Use --sort to find the most recent tag by version, including dev tags that may not be
+# reachable from the current branch (dev release commits are not pushed to master).
+# `git describe --tags --abbrev=0` only finds tags reachable from HEAD, which misses
+# dev tags whose version-bump commits are floating off master.
+LAST_TAG=$(git tag --sort=-version:refname | head -1 || echo "")
 
 if [ -z "$LAST_STABLE" ]; then
     echo "Error: No stable release tag found (vX.Y.Z). Create an initial release manually first." >&2
