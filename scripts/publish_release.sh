@@ -97,6 +97,17 @@ fi
 echo "Creating GitHub release: ${TAG}..."
 if [ "$DRY_RUN" = "false" ]; then
     if [ -n "$NOTES_FILE" ] && [ -f "$NOTES_FILE" ]; then
+        # Truncate changelog if it exceeds GitHub API limit (125000 chars)
+        GH_BODY_LIMIT=120000
+        NOTES_SIZE=$(wc -c < "$NOTES_FILE")
+        if [ "$NOTES_SIZE" -gt "$GH_BODY_LIMIT" ]; then
+            echo "Warning: changelog is ${NOTES_SIZE} chars (limit ${GH_BODY_LIMIT}), truncating..."
+            TRUNCATED_FILE=$(mktemp)
+            head -c "$GH_BODY_LIMIT" "$NOTES_FILE" > "$TRUNCATED_FILE"
+            printf '\n\n*(Changelog truncated — see full git log for details)*\n' >> "$TRUNCATED_FILE"
+            NOTES_FILE="$TRUNCATED_FILE"
+        fi
+
         # Use structured changelog file (from `make release`)
         # shellcheck disable=SC2086
         gh release create "$TAG" \
