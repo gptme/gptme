@@ -960,8 +960,21 @@ def api_conversation_step(conversation_id: str):
 
     stream = req_json.get("stream", chat_config.stream)
 
-    # ACP opt-in: sticky once enabled for a session
-    if req_json.get("use_acp", False) and not session.use_acp:
+    # ACP opt-in: sticky once enabled for a session.
+    # Validate type explicitly to avoid truthy string surprises (e.g. "false").
+    use_acp = req_json.get("use_acp", False)
+    if not isinstance(use_acp, bool):
+        return (
+            flask.jsonify(
+                {
+                    "error": "Invalid 'use_acp' value",
+                    "message": "'use_acp' must be a boolean",
+                }
+            ),
+            400,
+        )
+
+    if use_acp and not session.use_acp:
         from .acp_session_runtime import AcpSessionRuntime
 
         session.use_acp = True

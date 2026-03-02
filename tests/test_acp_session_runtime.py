@@ -226,6 +226,31 @@ def test_acp_step_emits_events(monkeypatch, client: FlaskClient, tmp_path):
         SessionManager._conversation_sessions[conversation_id].discard("sid-evt")
 
 
+def test_use_acp_step_rejects_non_boolean_flag(client: FlaskClient):
+    """/step should reject non-boolean use_acp values with 400."""
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    # Send a user message first
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hello"},
+    )
+    assert resp.status_code == 200
+
+    # Non-boolean use_acp should fail validation
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}/step",
+        json={"session_id": session_id, "use_acp": "false"},
+    )
+    assert resp.status_code == 400
+
+    data = resp.get_json()
+    assert data is not None
+    assert data.get("error") == "Invalid 'use_acp' value"
+
+
 @pytest.mark.timeout(10)
 def test_use_acp_flag_in_step_request(monkeypatch, client: FlaskClient, tmp_path):
     """Posting use_acp=True to /step should create an ACP runtime and route through it."""
