@@ -364,6 +364,31 @@ class GptmeAcpClient:
         logger.debug("ACP prompt → stop_reason=%s", getattr(resp, "stop_reason", "?"))
         return resp
 
+    async def set_session_model(self, session_id: str, model_id: str) -> None:
+        """Set the model for an existing ACP session.
+
+        This wraps the ACP ``set_session_model`` RPC. Some older ACP adapters
+        may not implement it, in which case this method raises
+        ``NotImplementedError``.
+        """
+        if self._conn is None:
+            raise RuntimeError(
+                "GptmeAcpClient is not connected; use as async context manager"
+            )
+
+        setter = getattr(self._conn, "set_session_model", None)
+        if setter is None:
+            raise NotImplementedError(
+                "ACP connection does not support set_session_model"
+            )
+
+        await setter(session_id=session_id, model_id=model_id)
+        logger.debug(
+            "ACP set_session_model → session_id=%s model_id=%s",
+            session_id,
+            model_id,
+        )
+
     async def run(
         self,
         message: str,

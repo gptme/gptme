@@ -67,12 +67,14 @@ class AcpSessionRuntime:
         extra_args: list[str] | None = None,
         env: dict[str, str] | None = None,
         auto_confirm: bool = True,
+        model: str | None = None,
     ) -> None:
         self.workspace = workspace
         self.command = command
         self.extra_args = extra_args or []
         self.env = env
         self.auto_confirm = auto_confirm
+        self.model = model
 
         self._client: GptmeAcpClient | None = None
         self._session_id: str | None = None
@@ -101,11 +103,30 @@ class AcpSessionRuntime:
             raise
         self._client = client
         self._session_id = session_id
+        if self.model:
+            try:
+                await client.set_session_model(
+                    session_id=session_id, model_id=self.model
+                )
+            except NotImplementedError:
+                logger.debug(
+                    "ACP client does not support set_session_model; "
+                    "falling back to ACP-side model resolution"
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to set ACP session model %s for session %s",
+                    self.model,
+                    session_id,
+                )
+                await client.__aexit__(None, None, None)
+                raise
         logger.debug(
-            "Started ACP runtime (command=%s, workspace=%s, session_id=%s)",
+            "Started ACP runtime (command=%s, workspace=%s, session_id=%s, model=%s)",
             self.command,
             self.workspace,
             self._session_id,
+            self.model,
         )
 
     async def prompt(self, message: str) -> tuple[str, Any]:

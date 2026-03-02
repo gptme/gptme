@@ -943,6 +943,11 @@ def api_conversation_step(conversation_id: str):
             }
         ), 400
 
+    # If ACP mode is active, keep session runtime model aligned with the
+    # resolved request/config/default model whenever available.
+    if session.use_acp and model and session.acp_runtime is not None:
+        session.acp_runtime.model = model
+
     # Route through ACP subprocess if the session has opted in
     if session.use_acp and session.acp_runtime is not None:
         _start_acp_step_thread(

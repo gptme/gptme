@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import random
+import uuid
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +35,7 @@ class _DummyClient:
         self.started = False
         self.closed = False
         self.prompt_calls: list[tuple[str, str]] = []
+        self.set_model_calls: list[tuple[str, str]] = []
 
     async def __aenter__(self):
         self.started = True
@@ -49,6 +50,9 @@ class _DummyClient:
     async def prompt(self, session_id: str, message: str):
         self.prompt_calls.append((session_id, message))
         return SimpleNamespace(output=[_DummyBlock("hello"), _DummyBlock(" world")])
+
+    async def set_session_model(self, session_id: str, model_id: str) -> None:
+        self.set_model_calls.append((session_id, model_id))
 
 
 @pytest.mark.parametrize(
@@ -121,6 +125,26 @@ def test_runtime_lazy_start_on_prompt(monkeypatch, tmp_path):
     assert len(created) == 1
 
 
+def test_runtime_sets_session_model_on_start(monkeypatch, tmp_path):
+    import gptme.server.acp_session_runtime as mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _factory)
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path, model="openai/gpt-4o-mini")
+    _run(runtime.start())
+
+    assert runtime.session_id == "sess-test"
+    assert len(created) == 1
+    assert created[0].set_model_calls == [("sess-test", "openai/gpt-4o-mini")]
+
+
 # ---------------------------------------------------------------------------
 # Server-side integration: _acp_step + ConversationSession.use_acp routing
 # ---------------------------------------------------------------------------
@@ -128,7 +152,7 @@ def test_runtime_lazy_start_on_prompt(monkeypatch, tmp_path):
 
 def _make_v2_conversation(client: FlaskClient, name: str | None = None) -> dict:
     """Create a V2 conversation and return {conversation_id, session_id}."""
-    convname = name or f"test-acp-{random.randint(0, 1_000_000)}"
+    convname = name or f"test-acp-{uuid.uuid4().hex[:12]}"
     resp = client.put(
         f"/api/v2/conversations/{convname}",
         json={"prompt": "You are a test assistant."},
@@ -240,6 +264,50 @@ def test_use_acp_flag_in_step_request(monkeypatch, client: FlaskClient, tmp_path
     assert sess.acp_runtime is not None
 
 
+def test_use_acp_step_forwards_model_to_runtime(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """When ACP mode is active, /step should update runtime model from request."""
+    import gptme.server.acp_session_runtime as rt_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "model me"},
+    )
+    assert resp.status_code == 200
+
+    # First call enables ACP and sets model from request
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}/step",
+        json={
+            "session_id": session_id,
+            "use_acp": True,
+            "model": "openai/gpt-4o-mini",
+        },
+    )
+    assert resp.status_code == 200
+
+    from gptme.server.api_v2_sessions import SessionManager
+
+    sess = SessionManager.get_session(session_id)
+    assert sess is not None
+    assert sess.acp_runtime is not None
+    assert sess.acp_runtime.model == "openai/gpt-4o-mini"
+
+
 def test_acp_step_rejects_duplicate_without_new_user_message(
     monkeypatch, client: FlaskClient, tmp_path
 ):
@@ -255,6 +323,7 @@ def test_acp_step_rejects_duplicate_without_new_user_message(
         return c
 
     monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+    monkeypatch.setattr(sessions_mod, "trigger_hook", lambda *args, **kwargs: [])
 
     from gptme.server.acp_session_runtime import AcpSessionRuntime
     from gptme.server.api_v2_sessions import ConversationSession, SessionManager
