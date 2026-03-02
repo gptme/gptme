@@ -439,6 +439,17 @@ To wait for all CI checks to complete:
 The optional commit_sha allows checking a specific commit instead of the PR head.
 This is useful for checking previous commits without waiting for new builds.
 
+For posting multi-line comments, always use `--body-file` with a heredoc to avoid literal \\n in output:
+```shell
+gh issue comment NUM --repo owner/repo --body-file - << 'EOF'
+## Summary
+Line 1
+
+Line 2
+EOF
+```
+Never use `--body "text\\nmore text"` — `\\n` in double-quoted strings is not interpreted as a newline by bash.
+
 For other operations, use the `shell` tool with the `gh` command."""
 
 
@@ -506,6 +517,24 @@ def examples(tool_format):
 REPO=$(basename $(pwd))
 gh repo create $REPO --public --source . --push
 '''.strip(),
+        ).to_output(tool_format)
+    }
+
+> User: post a multi-line comment on issue 42
+> Assistant:
+{
+        ToolUse(
+            "shell",
+            [],
+            '''gh issue comment 42 --repo $REPO --body-file - << 'EOF'
+## Summary
+
+Work is complete. Here are the details:
+- Fixed the bug
+- Added tests
+
+See PR #123 for the implementation.
+EOF''',
         ).to_output(tool_format)
     }
 
