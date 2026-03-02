@@ -946,7 +946,6 @@ def api_conversation_step(conversation_id: str):
     """Take a step in the conversation - generate a response or continue after tool execution."""
     req_json = flask.request.json or {}
     session_id = req_json.get("session_id")
-    auto_confirm_int_or_bool: int | bool = req_json.get("auto_confirm", False)
 
     if not session_id:
         return flask.jsonify({"error": "session_id is required"}), 400
@@ -980,12 +979,27 @@ def api_conversation_step(conversation_id: str):
         session.use_acp = True
         session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
 
-    # if auto_confirm set, set auto_confirm_count
-    if isinstance(auto_confirm_int_or_bool, int):
-        session.auto_confirm_count = auto_confirm_int_or_bool
-    elif isinstance(auto_confirm_int_or_bool, bool):
-        session.auto_confirm_count = 1 if auto_confirm_int_or_bool else -1
-    auto_confirm = bool(session.auto_confirm_count > 0)
+    # Validate auto_confirm type explicitly (bool OR int).
+    # Reject strings/floats/etc. to avoid accidental truthy coercion.
+    auto_confirm = req_json.get("auto_confirm", False)
+    if type(auto_confirm) not in (bool, int):
+        return (
+            flask.jsonify(
+                {
+                    "error": "Invalid 'auto_confirm' value",
+                    "message": "'auto_confirm' must be a boolean or integer",
+                }
+            ),
+            400,
+        )
+
+    # If auto_confirm set, set auto_confirm_count
+    if isinstance(auto_confirm, int):
+        session.auto_confirm_count = auto_confirm
+    else:
+        session.auto_confirm_count = 1 if auto_confirm else -1
+
+    auto_confirm_enabled = bool(session.auto_confirm_count > 0)
 
     if session.generating:
         return flask.jsonify({"error": "Generation already in progress"}), 409
@@ -1048,7 +1062,7 @@ def api_conversation_step(conversation_id: str):
             model=model,
             workspace=chat_config.workspace,
             branch=branch,
-            auto_confirm=auto_confirm,
+            auto_confirm=auto_confirm_enabled,
             stream=stream,
         )
 
