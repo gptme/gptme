@@ -686,7 +686,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f56c3fb3920&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1ad489b920&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1139,6 +1139,20 @@ To wait for all CI checks to complete:
 The optional commit_sha allows checking a specific commit instead of the PR head.
 This is useful for checking previous commits without waiting for new builds.
 
+For posting multi-line comments, always use <span class="sb">`--body-file`</span> with a single-quoted heredoc to avoid two bash pitfalls:
+<span class="sb">```shell</span>
+gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> </span>NUM<span class="w"> </span>--repo<span class="w"> </span>owner/repo<span class="w"> </span>--body-file<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
+<span class="s">## Summary</span>
+<span class="s">Line 1</span>
+
+<span class="s">Line 2</span>
+<span class="s">EOF</span>
+<span class="sb">```</span>
+Never use <span class="sb">`--body &quot;text\nmore text&quot;`</span>:
+<span class="k">-</span><span class="w"> </span><span class="sb">`\n`</span> in double-quoted strings is literal backslash-n, not a newline.
+<span class="k">-</span><span class="w"> </span><span class="sb">`$`</span> in double-quoted strings triggers variable expansion (e.g. <span class="sb">`$42,000`</span> → <span class="sb">`,000`</span>).
+The single-quoted <span class="sb">`&lt;&lt; &#39;EOF&#39;`</span> heredoc prevents both issues.
+
 For other operations, use the <span class="sb">`shell`</span> tool with the <span class="sb">`gh`</span> command.
 
 <span class="gu">### Examples</span>
@@ -1176,6 +1190,21 @@ gh<span class="w"> </span>run<span class="w"> </span>view<span class="w"> </span
 <span class="sb">```shell</span>
 <span class="nv">REPO</span><span class="o">=</span><span class="k">$(</span>basename<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">))</span>
 gh<span class="w"> </span>repo<span class="w"> </span>create<span class="w"> </span><span class="nv">$REPO</span><span class="w"> </span>--public<span class="w"> </span>--source<span class="w"> </span>.<span class="w"> </span>--push
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">User: post a multi-line comment on issue 42</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```shell</span>
+gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> </span><span class="m">42</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$REPO</span><span class="w"> </span>--body-file<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
+
+<span class="s">## Summary</span>
+
+<span class="s">Work is complete. Here are the details:</span>
+<span class="s">- Fixed the bug</span>
+<span class="s">- Added tests</span>
+
+<span class="s">See PR #123 for the implementation.</span>
+<span class="s">EOF</span>
 <span class="sb">```</span>
 
 <span class="k">&gt; </span><span class="ge">User: show issues</span>
@@ -2139,7 +2168,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11423</p>
+<p>Tokens: 11650</p>
 </dd></dl>
 
 <dl class="py function">
