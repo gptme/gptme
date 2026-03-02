@@ -439,7 +439,7 @@ To wait for all CI checks to complete:
 The optional commit_sha allows checking a specific commit instead of the PR head.
 This is useful for checking previous commits without waiting for new builds.
 
-For posting multi-line comments, always use `--body-file` with a heredoc to avoid literal \\n in output:
+For posting multi-line comments, always use `--body-file` with a single-quoted heredoc to avoid two bash pitfalls:
 ```shell
 gh issue comment NUM --repo owner/repo --body-file - << 'EOF'
 ## Summary
@@ -448,7 +448,10 @@ Line 1
 Line 2
 EOF
 ```
-Never use `--body "text\\nmore text"` — `\\n` in double-quoted strings is not interpreted as a newline by bash.
+Never use `--body "text\\nmore text"`:
+- `\\n` in double-quoted strings is literal backslash-n, not a newline.
+- `$` in double-quoted strings triggers variable expansion (e.g. `$42,000` → `,000`).
+The single-quoted `<< 'EOF'` heredoc prevents both issues.
 
 For other operations, use the `shell` tool with the `gh` command."""
 
