@@ -21,7 +21,7 @@ try:
 except ImportError as e:
     raise ImportError(
         "terminal-bench is required for tbench evaluation. "
-        "Install it with: uv tool install terminal-bench"
+        "Install it with: pip install 'gptme[eval]'"
     ) from e
 
 
