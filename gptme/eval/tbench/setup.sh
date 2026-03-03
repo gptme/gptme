@@ -7,7 +7,7 @@
 #                  Defaults to "master". Set to a tagged release or commit SHA
 #                  for reproducible benchmark runs, e.g. GPTME_VERSION=v0.22.0
 
-set -e
+set -euo pipefail
 
 GPTME_VERSION="${GPTME_VERSION:-master}"
 

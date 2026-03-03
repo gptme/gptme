@@ -14,12 +14,14 @@ import sys
 
 import click
 
+from . import DEFAULT_MODEL
+
 
 @click.command()
 @click.option(
     "--model",
     "-m",
-    default="anthropic/claude-sonnet-4-6",
+    default=DEFAULT_MODEL,
     show_default=True,
     help="Model to use.",
 )

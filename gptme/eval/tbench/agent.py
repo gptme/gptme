@@ -11,6 +11,8 @@ import os
 import shlex
 from pathlib import Path
 
+from . import DEFAULT_MODEL
+
 try:
     from terminal_bench.agents.installed_agents.abstract_installed_agent import (  # type: ignore[import-not-found]
         AbstractInstalledAgent,
@@ -49,7 +51,7 @@ class GptmeAgent(AbstractInstalledAgent):
     def name() -> str:
         return "gptme"
 
-    _default_model = "anthropic/claude-sonnet-4-6"
+    _default_model = DEFAULT_MODEL
 
     _default_timeout_sec = (
         600.0  # 10 minutes; override via agent-args if tasks need longer

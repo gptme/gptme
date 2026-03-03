@@ -23,6 +23,10 @@ See: https://github.com/openai/terminal-bench
 
 from __future__ import annotations
 
+# Default model for tbench evaluations — shared by agent.py and run.py
+# to avoid silent drift if one file is updated without the other.
+DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
+
 # Lazy import to avoid ImportError when terminal-bench is not installed.
 # The friendly error message in run.py would never be reached if we import
 # GptmeAgent eagerly here (since agent.py imports terminal_bench at module level).
@@ -36,4 +40,4 @@ def __getattr__(name: str) -> object:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["GptmeAgent"]
+__all__ = ["GptmeAgent", "DEFAULT_MODEL"]
