@@ -275,6 +275,7 @@ def test_step_rejects_invalid_auto_confirm_type(client: FlaskClient):
     assert data is not None
     assert data.get("error") == "Invalid 'auto_confirm' value"
 
+
 @pytest.mark.timeout(10)
 def test_use_acp_flag_in_step_request(monkeypatch, client: FlaskClient, tmp_path):
     """Posting use_acp=True to /step should create an ACP runtime and route through it."""
@@ -626,3 +627,108 @@ def test_acp_step_bridges_generation_progress_events(
     finally:
         SessionManager._sessions.pop("sid-stream", None)
         SessionManager._conversation_sessions[conversation_id].discard("sid-stream")
+
+
+# ---------------------------------------------------------------------------
+# GPTME_USE_ACP_DEFAULT config tests
+# ---------------------------------------------------------------------------
+
+
+def test_use_acp_default_env_var_enables_acp(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """GPTME_USE_ACP_DEFAULT=true should cause ACP mode by default (no use_acp in request)."""
+    import gptme.server.acp_session_runtime as rt_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+    monkeypatch.setenv("GPTME_USE_ACP_DEFAULT", "true")
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    # Send a user message
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hello default acp"},
+    )
+    assert resp.status_code == 200
+
+    # Step WITHOUT explicit use_acp — should default to True from env var
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}/step",
+        json={"session_id": session_id},
+    )
+    assert resp.status_code == 200
+
+    from gptme.server.api_v2_sessions import SessionManager
+
+    sess = SessionManager.get_session(session_id)
+    assert sess is not None
+    assert sess.use_acp is True
+    assert sess.acp_runtime is not None
+
+
+def test_explicit_use_acp_false_overrides_default(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Explicit use_acp=False in request should override GPTME_USE_ACP_DEFAULT=true."""
+    monkeypatch.setenv("GPTME_USE_ACP_DEFAULT", "true")
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    # Send a user message
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hello override"},
+    )
+    assert resp.status_code == 200
+
+    # Step with explicit use_acp=False — should NOT enable ACP despite env var
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}/step",
+        json={"session_id": session_id, "use_acp": False, "model": "openai/gpt-4o"},
+    )
+    assert resp.status_code == 200
+
+    from gptme.server.api_v2_sessions import SessionManager
+
+    sess = SessionManager.get_session(session_id)
+    assert sess is not None
+    assert sess.use_acp is False
+
+
+def test_without_env_var_default_remains_false(client: FlaskClient, tmp_path):
+    """Without GPTME_USE_ACP_DEFAULT, use_acp should default to False (non-ACP)."""
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    # Send a user message
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hello no env"},
+    )
+    assert resp.status_code == 200
+
+    # Step without use_acp and no env var — should use non-ACP path
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}/step",
+        json={"session_id": session_id, "model": "openai/gpt-4o"},
+    )
+    assert resp.status_code == 200
+
+    from gptme.server.api_v2_sessions import SessionManager
+
+    sess = SessionManager.get_session(session_id)
+    assert sess is not None
+    assert sess.use_acp is False
