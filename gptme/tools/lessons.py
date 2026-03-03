@@ -345,7 +345,9 @@ def auto_include_lessons_hook(
             content_parts.append(f"\n## {lesson.title}\n")
             content_parts.append(f"\n*Path: {lesson.path}*\n")
             content_parts.append(f"\n*Category: {lesson.category}*\n")
-            content_parts.append(f"\n*Matched by: {', '.join(match.matched_by)}*\n")
+            content_parts.append(
+                f"\n*Matched by: {len(match.matched_by)} keyword(s)*\n"
+            )
             content_parts.append(f"\n{lesson.body}\n")
 
         lesson_msg = Message(
