@@ -15,14 +15,12 @@ GPTME_VERSION="${GPTME_VERSION:-master}"
 apt-get update -q
 apt-get install -y --no-install-recommends python3 python3-pip python3-venv git
 
-# Install uv via pip (avoids piped-curl; --break-system-packages required on Ubuntu 24.04+)
-python3 -m pip install --quiet --break-system-packages uv
-export PATH="$HOME/.local/bin:$PATH"
-
-# Create venv and install gptme (Ubuntu 24.04+ requires isolated venv)
+# Create venv and install uv inside it (no system package changes required)
 python3 -m venv /opt/gptme-venv
-source /opt/gptme-venv/bin/activate
-uv pip install "gptme @ git+https://github.com/gptme/gptme.git@${GPTME_VERSION}"
+/opt/gptme-venv/bin/pip install --quiet uv
+
+# Install gptme via uv (fast, reproducible)
+/opt/gptme-venv/bin/uv pip install "gptme @ git+https://github.com/gptme/gptme.git@${GPTME_VERSION}"
 
 # Make gptme available globally
 ln -sf /opt/gptme-venv/bin/gptme /usr/local/bin/gptme
