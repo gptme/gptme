@@ -178,25 +178,37 @@ def _handle_response(
 
 
 def _looks_like_diff(content: str | None) -> bool:
-    """Check if content looks like unified diff output."""
+    """Check if content looks like unified diff output.
+
+    Save/append previews currently come from ``Patch.diff_minimal()``, which strips
+    unified-diff headers (``---``, ``+++``, ``@@``). So we rely on the body shape:
+    mostly diff-like lines plus either mixed +/- changes or context lines.
+    """
     if not content:
         return False
+
     lines = content.splitlines()
     if not lines:
         return False
-    # Must have at least one +/- line (actual changes)
-    has_changes = any(line.startswith(("+", "-")) for line in lines)
-    if not has_changes:
-        return False
-    # A unified diff always contains at least one @@ hunk header
-    has_hunk = any(line.startswith("@@") for line in lines)
-    if not has_hunk:
-        return False
-    # Most lines should look like diff lines (context, changes, or hunk headers)
+
+    # Most lines should look like diff body lines.
     diff_lines = sum(
-        1 for line in lines if line.startswith((" ", "+", "-", "@")) or line == ""
+        1 for line in lines if line.startswith((" ", "+", "-")) or line == ""
     )
-    return diff_lines >= len(lines) * 0.8
+    if diff_lines < len(lines) * 0.8:
+        return False
+
+    has_plus = any(line.startswith("+") for line in lines)
+    has_minus = any(line.startswith("-") for line in lines)
+    has_context = any(line.startswith(" ") for line in lines)
+
+    # Must contain actual change markers.
+    if not (has_plus or has_minus):
+        return False
+
+    # Avoid false positives on plain markdown/yaml lists (mostly '-' lines).
+    # Real diff previews usually have either mixed +/- lines or context lines.
+    return (has_plus and has_minus) or has_context
 
 
 def _get_lang_for_tool(tool: str, content: str | None = None) -> str:
