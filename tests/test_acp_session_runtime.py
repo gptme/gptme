@@ -736,3 +736,135 @@ def test_without_env_var_default_remains_false(
     sess = SessionManager.get_session(session_id)
     assert sess is not None
     assert sess.use_acp is False
+
+
+# ---------------------------------------------------------------------------
+# ACP Health Monitoring Tests
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_is_subprocess_alive(monkeypatch, tmp_path):
+    """is_subprocess_alive reports False when no client / dead subprocess."""
+    import gptme.server.acp_session_runtime as mod
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    # No client yet → not alive
+    assert runtime.is_subprocess_alive() is False
+    assert runtime.process_pid is None
+
+    # Mock a client with a process that has poll() returning None (alive)
+    class _MockProcess:
+        pid = 12345
+
+        def poll(self):
+            return None  # Still running
+
+    class _MockClient:
+        _process = _MockProcess()
+
+    runtime._client = _MockClient()  # type: ignore[assignment]
+    assert runtime.is_subprocess_alive() is True
+    assert runtime.process_pid == 12345
+
+    # Process died (poll returns exit code)
+    class _DeadProcess:
+        pid = 12345
+
+        def poll(self) -> int:
+            return 1
+
+    class _DeadClient:
+        _process = _DeadProcess()
+
+    runtime._client = _DeadClient()  # type: ignore[assignment]
+    assert runtime.is_subprocess_alive() is False
+
+
+def test_health_check_cleans_dead_subprocess(monkeypatch, tmp_path):
+    """_run_health_check removes sessions with dead ACP subprocesses."""
+    import gptme.server.acp_session_runtime as rt_mod
+    from gptme.server.api_v2_sessions import (
+        ConversationSession,
+        SessionManager,
+        _run_health_check,
+    )
+
+    # Create a session with a dead ACP runtime
+    session = ConversationSession(id="dead-session", conversation_id="conv-dead")
+    session.use_acp = True
+    runtime = rt_mod.AcpSessionRuntime(workspace=tmp_path)
+
+    # Mock client with dead process
+    runtime._client = type(  # type: ignore[assignment]
+        "C",
+        (),
+        {"_process": type("P", (), {"pid": 99, "poll": lambda self: 1})()},
+    )()
+    session.acp_runtime = runtime
+
+    SessionManager._sessions["dead-session"] = session
+    SessionManager._conversation_sessions["conv-dead"].add("dead-session")
+
+    try:
+        _run_health_check()
+
+        # Session should have been removed
+        assert "dead-session" not in SessionManager._sessions
+    finally:
+        # Cleanup in case test failed
+        SessionManager._sessions.pop("dead-session", None)
+        SessionManager._conversation_sessions.pop("conv-dead", None)
+
+
+def test_health_check_skips_generating_sessions(monkeypatch, tmp_path):
+    """_run_health_check should not disturb sessions that are generating."""
+    import gptme.server.acp_session_runtime as rt_mod
+    from gptme.server.api_v2_sessions import (
+        ConversationSession,
+        SessionManager,
+        _run_health_check,
+    )
+
+    session = ConversationSession(id="gen-session", conversation_id="conv-gen")
+    session.use_acp = True
+    session.generating = True  # Actively generating
+    runtime = rt_mod.AcpSessionRuntime(workspace=tmp_path)
+
+    # Even with dead process, should not be cleaned while generating
+    runtime._client = type(  # type: ignore[assignment]
+        "C",
+        (),
+        {"_process": type("P", (), {"pid": 88, "poll": lambda self: 1})()},
+    )()
+    session.acp_runtime = runtime
+
+    SessionManager._sessions["gen-session"] = session
+    SessionManager._conversation_sessions["conv-gen"].add("gen-session")
+
+    try:
+        _run_health_check()
+
+        # Session should still be present (generating flag protects it)
+        assert "gen-session" in SessionManager._sessions
+    finally:
+        SessionManager._sessions.pop("gen-session", None)
+        SessionManager._conversation_sessions.pop("conv-gen", None)
+
+
+def test_health_monitor_start_stop():
+    """start/stop_acp_health_monitor should be safe to call."""
+    from gptme.server.api_v2_sessions import (
+        start_acp_health_monitor,
+        stop_acp_health_monitor,
+    )
+
+    # Start with short interval for testing
+    start_acp_health_monitor(interval=1)
+
+    # Starting again should be a no-op
+    start_acp_health_monitor(interval=1)
+
+    # Stop should clean up
+    stop_acp_health_monitor()
+

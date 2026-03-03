@@ -150,6 +150,34 @@ class AcpSessionRuntime:
         text = extract_text_from_prompt_response(resp)
         return text, resp
 
+    @property
+    def process_pid(self) -> int | None:
+        """Return the PID of the ACP subprocess, if available."""
+        if self._client is None:
+            return None
+        proc = getattr(self._client, "_process", None)
+        if proc is None:
+            return None
+        return getattr(proc, "pid", None)
+
+    def is_subprocess_alive(self) -> bool:
+        """Check if the ACP subprocess is still running.
+
+        Returns False if the subprocess has exited or was never started.
+        """
+        if self._client is None:
+            return False
+        proc = getattr(self._client, "_process", None)
+        if proc is None:
+            return False
+        # subprocess.Popen.poll() returns None if still running
+        poll = getattr(proc, "poll", None)
+        if callable(poll):
+            return poll() is None
+        # Fallback: check returncode directly
+        returncode = getattr(proc, "returncode", None)
+        return returncode is None
+
     async def close(self) -> None:
         """Close ACP subprocess/session. Safe to call multiple times."""
         if self._client is None:

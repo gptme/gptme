@@ -6,6 +6,7 @@ for real-time conversation interactions.
 """
 
 import asyncio
+import atexit
 import dataclasses
 import logging
 import os
@@ -230,6 +231,105 @@ class SessionManager:
             cls.remove_session(session.id)
 
 
+# ACP Health Monitor
+# ------------------
+
+_health_monitor_thread: threading.Thread | None = None
+_health_monitor_stop = threading.Event()
+
+# How often the health monitor runs (seconds)
+_HEALTH_CHECK_INTERVAL = 30
+# Max idle time before a session is cleaned up (minutes)
+_SESSION_MAX_AGE_MINUTES = 60
+
+
+def start_acp_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
+    """Start a background thread that periodically checks ACP subprocess health.
+
+    The monitor:
+    - Cleans up sessions idle longer than ``_SESSION_MAX_AGE_MINUTES``
+    - Detects dead ACP subprocesses and removes their sessions
+    - Logs subprocess lifecycle events for observability
+    """
+    global _health_monitor_thread
+    if _health_monitor_thread is not None:
+        return  # Already running
+
+    _health_monitor_stop.clear()
+
+    def _monitor() -> None:
+        while not _health_monitor_stop.wait(interval):
+            try:
+                _run_health_check()
+            except Exception:
+                logger.exception("Error in ACP health monitor")
+
+    _health_monitor_thread = threading.Thread(
+        target=_monitor, daemon=True, name="acp-health-monitor"
+    )
+    _health_monitor_thread.start()
+    atexit.register(stop_acp_health_monitor)
+    logger.info("ACP health monitor started (interval=%ds)", interval)
+
+
+def stop_acp_health_monitor() -> None:
+    """Stop the health monitor and clean up all remaining ACP sessions."""
+    global _health_monitor_thread
+    _health_monitor_stop.set()
+    if _health_monitor_thread is not None:
+        _health_monitor_thread.join(timeout=5)
+        _health_monitor_thread = None
+
+    # Best-effort cleanup of all ACP sessions on shutdown
+    _cleanup_all_acp_sessions()
+
+
+def _run_health_check() -> None:
+    """Single health check iteration."""
+    # 1. Clean inactive sessions (was never called before this change)
+    SessionManager.clean_inactive_sessions(max_age_minutes=_SESSION_MAX_AGE_MINUTES)
+
+    # 2. Check ACP subprocess health
+    for session_id, session in list(SessionManager._sessions.items()):
+        if session.acp_runtime is None:
+            continue
+        if session.generating:
+            continue  # Don't disturb active generation
+        if not session.acp_runtime.is_subprocess_alive():
+            logger.warning(
+                "ACP subprocess dead for session %s (conversation=%s, pid=%s), "
+                "cleaning up",
+                session_id,
+                session.conversation_id,
+                session.acp_runtime.process_pid,
+            )
+            SessionManager.remove_session(session_id)
+
+
+def _cleanup_all_acp_sessions() -> None:
+    """Close all ACP runtimes (called during server shutdown)."""
+    acp_sessions = [
+        (sid, s)
+        for sid, s in list(SessionManager._sessions.items())
+        if s.acp_runtime is not None
+    ]
+    if not acp_sessions:
+        return
+
+    logger.info("Shutting down %d ACP session(s)", len(acp_sessions))
+    for session_id, session in acp_sessions:
+        try:
+            assert session.acp_runtime is not None  # for type checker
+            asyncio.run(session.acp_runtime.close())
+            logger.debug("Closed ACP runtime for session %s", session_id)
+        except Exception:
+            logger.warning(
+                "Failed to close ACP runtime for session %s",
+                session_id,
+                exc_info=True,
+            )
+
+
 # Helper Functions for Generation
 # ------------------------------
 
@@ -288,11 +388,16 @@ def _try_auto_name_and_notify(
 
 def _close_acp_runtime_bg(acp_runtime: "AcpSessionRuntime") -> None:
     """Close an ACP runtime in a background thread (handles both sync and async callers)."""
+    pid = acp_runtime.process_pid
 
     def _run() -> None:
-        asyncio.run(acp_runtime.close())
+        try:
+            asyncio.run(acp_runtime.close())
+            logger.debug("ACP runtime closed (pid=%s)", pid)
+        except Exception:
+            logger.warning("Failed to close ACP runtime (pid=%s)", pid, exc_info=True)
 
-    t = threading.Thread(target=_run, daemon=True)
+    t = threading.Thread(target=_run, daemon=True, name="acp-close")
     t.start()
 
 
