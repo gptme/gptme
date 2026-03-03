@@ -594,4 +594,9 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
     # Server confirmation hook is now registered via init_hooks(server=True)
     # in server/cli.py
 
+    # Start ACP health monitor for subprocess lifecycle management
+    from .api_v2_sessions import start_acp_health_monitor  # fmt: skip
+
+    start_acp_health_monitor()
+
     return app
