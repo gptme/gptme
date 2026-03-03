@@ -188,6 +188,10 @@ def _looks_like_diff(content: str | None) -> bool:
     has_changes = any(line.startswith(("+", "-")) for line in lines)
     if not has_changes:
         return False
+    # A unified diff always contains at least one @@ hunk header
+    has_hunk = any(line.startswith("@@") for line in lines)
+    if not has_hunk:
+        return False
     # Most lines should look like diff lines (context, changes, or hunk headers)
     diff_lines = sum(
         1 for line in lines if line.startswith((" ", "+", "-", "@")) or line == ""
