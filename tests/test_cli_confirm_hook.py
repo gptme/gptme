@@ -46,3 +46,33 @@ def test_get_lang_for_save_uses_diff_when_preview_is_diff() -> None:
 def test_get_lang_for_save_plain_text_fallback() -> None:
     content = "# Notes\n\n- Apples\n- Bananas\n"
     assert _get_lang_for_tool("save", content) == "text"
+
+
+def test_looks_like_diff_plus_only_append() -> None:
+    """Plus-only diffs (append to empty file) should be detected."""
+    content = "+line1\n+line2\n+line3\n"
+    assert _looks_like_diff(content) is True
+
+
+def test_looks_like_diff_plus_only_code_append() -> None:
+    """Plus-only code diffs from Patch.diff_minimal() should be detected."""
+    content = '+def hello():\n+    print("world")'
+    assert _looks_like_diff(content) is True
+
+
+def test_get_lang_for_append_uses_diff_when_preview_is_diff() -> None:
+    """Append tool should detect diff content the same as save."""
+    content = " existing\n+new line\n"
+    assert _get_lang_for_tool("append", content) == "diff"
+
+
+def test_get_lang_for_append_plain_text_fallback() -> None:
+    """Append tool should fall back to text for non-diff content."""
+    content = "Just some plain text to append.\n"
+    assert _get_lang_for_tool("append", content) == "text"
+
+
+def test_get_lang_for_append_plus_only_diff() -> None:
+    """Append to empty file produces plus-only diff — should detect as diff."""
+    content = "+line1\n+line2\n+line3"
+    assert _get_lang_for_tool("append", content) == "diff"

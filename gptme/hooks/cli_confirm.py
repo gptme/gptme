@@ -208,7 +208,25 @@ def _looks_like_diff(content: str | None) -> bool:
 
     # Avoid false positives on plain markdown/yaml lists (mostly '-' lines).
     # Real diff previews usually have either mixed +/- lines or context lines.
-    return (has_plus and has_minus) or has_context
+    if (has_plus and has_minus) or has_context:
+        return True
+
+    # Accept plus-only diffs (e.g. append to empty file produces all-'+' output
+    # from Patch.diff_minimal). Require every non-empty line to start with '+'
+    # and at least one non-"+ " line to avoid matching markdown/yaml '+' lists.
+    if has_plus and not has_minus:
+        non_empty = [line for line in lines if line.strip()]
+        all_plus = non_empty and all(line.startswith("+") for line in non_empty)
+        # Markdown '+ item' lists always have a space after '+'.  Real diffs from
+        # diff_minimal() use '+content' (no space) for most lines.
+        has_tight_plus = any(
+            line.startswith("+") and (len(line) == 1 or line[1] != " ")
+            for line in non_empty
+        )
+        if all_plus and has_tight_plus:
+            return True
+
+    return False
 
 
 def _get_lang_for_tool(tool: str, content: str | None = None) -> str:
