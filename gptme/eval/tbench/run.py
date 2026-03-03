@@ -27,7 +27,7 @@ import click
     "--dataset",
     default="terminal-bench-core==head",
     show_default=True,
-    help="Terminal-Bench dataset.",
+    help="Terminal-Bench dataset. Pin to a specific version (e.g. terminal-bench-core==1.0.0) for reproducible benchmark comparisons.",
 )
 @click.option("--task", "-t", multiple=True, help="Task ID(s) to run. Omit to run all.")
 @click.option(
@@ -50,8 +50,8 @@ def main(
 ) -> None:
     """Run Terminal-Bench evaluation with gptme.
 
-    Requires terminal-bench to be installed:
-        uv tool install terminal-bench
+    Requires gptme with eval extras (installs terminal-bench in the same env):
+        pip install 'gptme[eval]'
 
     Example:
         gptme-eval-tbench --task hello-world
@@ -61,8 +61,8 @@ def main(
         subprocess.run(["tb", "--version"], capture_output=True, check=True)
     except FileNotFoundError:
         click.echo(
-            "terminal-bench is not installed. Install it with:\n"
-            "  uv tool install terminal-bench",
+            "terminal-bench is not installed. Install gptme with eval extras:\n"
+            "  pip install 'gptme[eval]'",
             err=True,
         )
         sys.exit(1)

@@ -6,7 +6,8 @@ terminal-based tasks. This module provides a gptme adapter that implements
 the AbstractInstalledAgent interface.
 
 Usage:
-    # Install terminal-bench: uv tool install terminal-bench
+    # Install gptme with eval extras (includes terminal-bench in the same env):
+    # pip install 'gptme[eval]'
 
     # Run via CLI:
     gptme-eval-tbench --task hello-world --model anthropic/claude-haiku-4-5
