@@ -22,6 +22,7 @@ gptme-server = "gptme.server.cli:main"
 gptme-acp = "gptme.acp.__main__:main"
 gptme-eval = "gptme.eval.main:main"
 gptme-eval-swebench = "gptme.eval.swebench.main:main"
+gptme-eval-tbench = "gptme.eval.tbench.run:main"
 gptme-util = "gptme.cli.util:main"
 gptme-agent = "gptme.agent.cli:main"
 gptme-doctor = "gptme.cli.doctor:main"
@@ -73,6 +74,7 @@ multiprocessing-logging = "^0.3.4"
 dspy = {version = "^3.0.2", python = "<=3.13", optional=true}
 datasets = {version = ">=2.14.0", optional=true}  # for SWE-bench eval
 swebench = {version = ">=1.0", optional=true}  # for SWE-bench eval harness
+terminal-bench = {version = ">=0.1", optional=true, python = ">=3.12"}  # for Terminal-Bench eval harness
 
 # datascience essentials
 pillow = {version = "*"}  # non-optional, needed for image scaling in vision
@@ -165,7 +167,7 @@ telemetry = [
     "opentelemetry-instrumentation-threading",
 ]
 dspy = ["dspy", "sentence-transformers"]
-eval = ["dspy", "sentence-transformers", "datasets", "swebench"]
+eval = ["dspy", "sentence-transformers", "datasets", "swebench", "terminal-bench"]
 all = [
     # server
     "flask", "flask-cors", "pydantic",
@@ -279,6 +281,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "swebench.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "terminal_bench.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

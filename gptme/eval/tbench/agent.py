@@ -1,0 +1,96 @@
+"""
+gptme agent adapter for Terminal-Bench.
+
+Implements the AbstractInstalledAgent interface so that terminal-bench
+can run gptme as an agent in its evaluation harness.
+"""
+
+from __future__ import annotations
+
+import os
+import shlex
+from pathlib import Path
+
+try:
+    from terminal_bench.agents.installed_agents.abstract_installed_agent import (  # type: ignore[import-not-found]
+        AbstractInstalledAgent,
+    )
+    from terminal_bench.terminal.models import (
+        TerminalCommand,  # type: ignore[import-not-found]
+    )
+except ImportError as e:
+    raise ImportError(
+        "terminal-bench is required for tbench evaluation. "
+        "Install it with: uv tool install terminal-bench"
+    ) from e
+
+
+class GptmeAgent(AbstractInstalledAgent):
+    """gptme agent adapter for Terminal-Bench evaluation.
+
+    Wraps gptme as an AbstractInstalledAgent so it can be evaluated
+    by the terminal-bench harness.
+
+    Example usage with terminal-bench:
+        tb run \\
+            --dataset terminal-bench-core==head \\
+            --agent-import-path gptme.eval.tbench.agent:GptmeAgent \\
+            --task-id hello-world
+
+    Or with a specific model:
+        tb run \\
+            --dataset terminal-bench-core==head \\
+            --agent-import-path gptme.eval.tbench.agent:GptmeAgent \\
+            --agent-args '{"model_name": "anthropic/claude-sonnet-4-6"}' \\
+            --task-id hello-world
+    """
+
+    @staticmethod
+    def name() -> str:
+        return "gptme"
+
+    _default_model = "anthropic/claude-sonnet-4-6"
+
+    def __init__(self, model_name: str | None = None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._model_name: str = (
+            model_name
+            if model_name is not None
+            else (os.environ.get("GPTME_MODEL") or self._default_model)
+        )
+
+    @property
+    def _env(self) -> dict[str, str]:
+        """Pass API keys and config from local environment to the agent."""
+        env: dict[str, str] = {}
+
+        # Pass through API keys
+        for key in (
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "OPENROUTER_API_KEY",
+            "GEMINI_API_KEY",
+        ):
+            if key in os.environ:
+                env[key] = os.environ[key]
+
+        env["GPTME_MODEL"] = self._model_name
+        return env
+
+    @property
+    def _install_agent_script_path(self) -> os.PathLike:
+        """Returns the path to the gptme setup script for the tbench container."""
+        return Path(__file__).parent / "setup.sh"
+
+    def _run_agent_commands(self, task_description: str) -> list[TerminalCommand]:
+        """Returns terminal commands that run gptme with the given task."""
+        escaped = shlex.quote(task_description)
+        model_flag = shlex.quote(self._model_name)
+
+        return [
+            TerminalCommand(
+                command=f"gptme -n --model {model_flag} {escaped}",
+                max_timeout_sec=float("inf"),
+                block=True,
+            )
+        ]
