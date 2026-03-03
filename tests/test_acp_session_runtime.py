@@ -707,8 +707,12 @@ def test_explicit_use_acp_false_overrides_default(
     assert sess.use_acp is False
 
 
-def test_without_env_var_default_remains_false(client: FlaskClient, tmp_path):
+def test_without_env_var_default_remains_false(
+    monkeypatch, client: FlaskClient, tmp_path
+):
     """Without GPTME_USE_ACP_DEFAULT, use_acp should default to False (non-ACP)."""
+    monkeypatch.delenv("GPTME_USE_ACP_DEFAULT", raising=False)
+    monkeypatch.delenv("USE_ACP_DEFAULT", raising=False)
     conv = _make_v2_conversation(client)
     conversation_id = conv["conversation_id"]
     session_id = conv["session_id"]

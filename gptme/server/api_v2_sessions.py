@@ -234,17 +234,23 @@ class SessionManager:
 # ------------------------------
 
 
-def _get_use_acp_default(workspace: Path) -> bool:
+def _get_use_acp_default() -> bool:
     """Return the server-wide default for ACP mode.
 
     Checks the ``GPTME_USE_ACP_DEFAULT`` environment variable (or its bare
-    form ``USE_ACP_DEFAULT``) via :meth:`Config.get_env_bool`.  When set to a
-    truthy value (``1``, ``true``, ``yes``, ``on``), new sessions that don't
-    explicitly pass ``use_acp`` in the step request will use ACP mode by
+    form ``USE_ACP_DEFAULT``) directly from the process environment.  When set
+    to a truthy value (``1``, ``true``, ``yes``, ``on``), new sessions that
+    don't explicitly pass ``use_acp`` in the step request will use ACP mode by
     default.
+
+    Reads ``os.environ`` directly rather than going through
+    :meth:`Config.from_workspace` to avoid clearing the shared
+    ``_get_project_config_cached`` LRU cache on every step request.
     """
-    config = Config.from_workspace(workspace=workspace)
-    return config.get_env_bool("USE_ACP_DEFAULT", default=False) or False
+    val = os.environ.get("GPTME_USE_ACP_DEFAULT") or os.environ.get("USE_ACP_DEFAULT")
+    if val is None:
+        return False
+    return val.lower() in ("1", "true", "yes", "on")
 
 
 def _append_and_notify(manager: LogManager, session: ConversationSession, msg: Message):
@@ -975,7 +981,7 @@ def api_conversation_step(conversation_id: str):
     # ACP opt-in: sticky once enabled for a session.
     # Default can be set server-wide via GPTME_USE_ACP_DEFAULT=true env var.
     # Validate type explicitly to avoid truthy string surprises (e.g. "false").
-    _acp_default = _get_use_acp_default(chat_config.workspace)
+    _acp_default = _get_use_acp_default()
     use_acp = req_json.get("use_acp", _acp_default)
     if not isinstance(use_acp, bool):
         return (
