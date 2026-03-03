@@ -8,6 +8,7 @@ pre-configured to use the gptme agent adapter.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 
@@ -90,7 +91,7 @@ def main(
     if verbose:
         cmd.append("--verbose")
 
-    click.echo(f"Running: {' '.join(cmd)}")
+    click.echo(f"Running: {shlex.join(cmd)}")
     result = subprocess.run(cmd, check=False)
     sys.exit(result.returncode)
 

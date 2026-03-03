@@ -51,12 +51,27 @@ class GptmeAgent(AbstractInstalledAgent):
 
     _default_model = "anthropic/claude-sonnet-4-6"
 
-    def __init__(self, model_name: str | None = None, *args, **kwargs):
+    _default_timeout_sec = (
+        600.0  # 10 minutes; override via agent-args if tasks need longer
+    )
+
+    def __init__(
+        self,
+        model_name: str | None = None,
+        max_timeout_sec: float | None = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._model_name: str = (
             model_name
             if model_name is not None
             else (os.environ.get("GPTME_MODEL") or self._default_model)
+        )
+        self._max_timeout_sec: float = (
+            max_timeout_sec
+            if max_timeout_sec is not None
+            else self._default_timeout_sec
         )
 
     @property
@@ -90,7 +105,7 @@ class GptmeAgent(AbstractInstalledAgent):
         return [
             TerminalCommand(
                 command=f"gptme -n --model {model_flag} {escaped}",
-                max_timeout_sec=float("inf"),
+                max_timeout_sec=self._max_timeout_sec,
                 block=True,
             )
         ]
