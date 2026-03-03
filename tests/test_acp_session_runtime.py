@@ -275,6 +275,7 @@ def test_step_rejects_invalid_auto_confirm_type(client: FlaskClient):
     assert data is not None
     assert data.get("error") == "Invalid 'auto_confirm' value"
 
+
 @pytest.mark.timeout(10)
 def test_use_acp_flag_in_step_request(monkeypatch, client: FlaskClient, tmp_path):
     """Posting use_acp=True to /step should create an ACP runtime and route through it."""
@@ -626,3 +627,43 @@ def test_acp_step_bridges_generation_progress_events(
     finally:
         SessionManager._sessions.pop("sid-stream", None)
         SessionManager._conversation_sessions[conversation_id].discard("sid-stream")
+
+
+def test_reply_stream_on_token_callback(monkeypatch):
+    """on_token callback is called once per character during streaming."""
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+
+    # Mock _stream to yield known chunks
+    chunks_to_yield = ["Hello", ", ", "world!"]
+
+    def _fake_gen(chunks):
+        yield from chunks
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self.gen = _fake_gen(chunks)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks_to_yield),
+    )
+
+    collected: list[str] = []
+
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+        on_token=collected.append,
+    )
+
+    expected_text = "Hello, world!"
+    assert result.content == expected_text
+    assert "".join(collected) == expected_text
+    # Verify callback was called once per character
+    assert len(collected) == len(expected_text)

@@ -10,6 +10,7 @@ import asyncio
 import contextvars
 import hashlib
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1044,15 +1045,57 @@ class GptmeAgent:
             # Run gptme chat step in executor to not block event loop
             loop = asyncio.get_running_loop()
 
+            # Build a batching on_token callback that sends incremental session_update
+            # calls during generation, enabling per-token streaming to the client.
+            FLUSH_INTERVAL = 0.1  # seconds
+            FLUSH_SIZE = 50  # characters
+
+            batch_buffer: list[str] = []
+            last_flush: list[float] = [
+                time.monotonic()
+            ]  # mutable for nonlocal in nested fn
+
+            def _flush_batch() -> None:
+                """Flush accumulated tokens as a session_update (called from executor thread)."""
+                if not batch_buffer or not self._conn:
+                    return
+                batch_text = "".join(batch_buffer)
+                batch_buffer.clear()
+                last_flush[0] = time.monotonic()
+                chunk = update_agent_message(text_block(batch_text))
+                future = asyncio.run_coroutine_threadsafe(
+                    self._conn.session_update(
+                        session_id=session_id,
+                        update=chunk,
+                        source="gptme-stream",
+                    ),
+                    loop,
+                )
+                try:
+                    future.result(timeout=5)
+                except Exception:
+                    logger.debug("Failed to send streaming token batch", exc_info=True)
+
+            def on_token(token: str) -> None:
+                """Accumulate a token; flush if size/time threshold is reached."""
+                batch_buffer.append(token)
+                now = time.monotonic()
+                if (
+                    len(batch_buffer) >= FLUSH_SIZE
+                    or (now - last_flush[0]) >= FLUSH_INTERVAL
+                ):
+                    _flush_batch()
+
             def run_chat_step() -> list[Message]:
-                """Run chat step synchronously."""
+                """Run chat step synchronously with per-token streaming."""
                 # Note: confirmation is now handled via the hook system
                 return list(
                     chat_step(
                         log=log.log,
-                        stream=False,
+                        stream=True,
                         tool_format="markdown",
                         model=effective_model,
+                        on_token=on_token,
                     )
                 )
 
@@ -1061,12 +1104,29 @@ class GptmeAgent:
             ctx = contextvars.copy_context()
             response_msgs = await loop.run_in_executor(None, ctx.run, run_chat_step)
 
+            # Final flush: send any remaining buffered tokens
+            if batch_buffer and self._conn:
+                batch_text = "".join(batch_buffer)
+                batch_buffer.clear()
+                final_chunk = update_agent_message(text_block(batch_text))
+                await self._conn.session_update(
+                    session_id=session_id,
+                    update=final_chunk,
+                    source="gptme-stream",
+                )
+
             # Phase 2: Mark all in-progress tool calls as completed
             await self._complete_pending_tool_calls(session_id)
 
-            # Stream each response message back
+            # Process response messages: add to log and forward non-assistant messages.
+            # Assistant messages were already streamed incrementally via on_token,
+            # so we skip re-sending their content to avoid duplicating the output.
             for response_msg in response_msgs:
                 if response_msg.role == "assistant":
+                    # Tokens were already sent via on_token batching; just persist to log.
+                    log.append(response_msg)
+                else:
+                    # Tool results and other non-assistant messages: send via session_update.
                     content = gptme_message_to_acp_content(response_msg)
                     for block in content:
                         text = block.get("text", "")
@@ -1077,7 +1137,6 @@ class GptmeAgent:
                                 update=chunk,
                                 source="gptme",
                             )
-                    # Also add to log
                     log.append(response_msg)
 
             _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")

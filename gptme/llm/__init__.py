@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 import time
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import cast
@@ -94,6 +94,7 @@ def reply(
     tools: list[ToolSpec] | None = None,
     workspace: Path | None = None,
     output_schema: type | None = None,
+    on_token: Callable[[str], None] | None = None,
 ) -> Message:
     # Trigger GENERATION_PRE hooks and collect context messages
     from ..hooks import HookType, trigger_hook
@@ -121,6 +122,7 @@ def reply(
             break_on_tooluse,
             agent_name=agent_name,
             output_schema=output_schema,
+            on_token=on_token,
         )
     rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
     response, metadata = _chat_complete(
@@ -242,6 +244,7 @@ def _reply_stream(
     break_on_tooluse: bool = True,
     agent_name: str | None = None,
     output_schema: type | None = None,
+    on_token: Callable[[str], None] | None = None,
 ) -> Message:
     rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
 
@@ -296,6 +299,10 @@ def _reply_stream(
 
             assert len(char) == 1
             output += char
+
+            # Fire token callback (used by ACP path for incremental streaming)
+            if on_token:
+                on_token(char)
 
             # need to flush stdout to get the print to show up
             sys.stdout.flush()
