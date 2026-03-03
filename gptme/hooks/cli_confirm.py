@@ -80,7 +80,7 @@ def cli_confirm_hook(
     """
     # Get preview content - use provided preview or generate from tool_use
     content = preview or tool_use.content
-    lang = _get_lang_for_tool(tool_use.tool)
+    lang = _get_lang_for_tool(tool_use.tool, content)
 
     # Determine if content is editable/copiable
     editable = bool(content)
@@ -177,8 +177,32 @@ def _handle_response(
     return ConfirmationResult.skip(f"Unknown response: {answer}")
 
 
-def _get_lang_for_tool(tool: str) -> str:
-    """Get the syntax highlighting language for a tool."""
+def _looks_like_diff(content: str | None) -> bool:
+    """Check if content looks like unified diff output."""
+    if not content:
+        return False
+    lines = content.splitlines()
+    if not lines:
+        return False
+    # Must have at least one +/- line (actual changes)
+    has_changes = any(line.startswith(("+", "-")) for line in lines)
+    if not has_changes:
+        return False
+    # Most lines should look like diff lines (context, changes, or hunk headers)
+    diff_lines = sum(
+        1 for line in lines if line.startswith((" ", "+", "-", "@")) or line == ""
+    )
+    return diff_lines >= len(lines) * 0.8
+
+
+def _get_lang_for_tool(tool: str, content: str | None = None) -> str:
+    """Get the syntax highlighting language for a tool.
+
+    For save/append, detects if the preview content is a diff and
+    highlights accordingly.
+    """
+    if tool in ("save", "append") and _looks_like_diff(content):
+        return "diff"
     lang_map = {
         "python": "python",
         "ipython": "python",
