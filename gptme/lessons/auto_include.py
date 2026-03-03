@@ -125,9 +125,10 @@ def _format_lessons(matches: list) -> str:
         parts.append(f"\n*Path: {lesson.path}*\n")
         parts.append(f"\n*Category: {lesson.category or 'general'}*\n")
 
-        # Add match info
+        # Add match info (count only — avoid injecting keyword text which
+        # creates self-referential corpus matches in lesson effectiveness analysis)
         if match.matched_by:
-            parts.append(f"\n*Matched by: {', '.join(match.matched_by[:3])}*\n")
+            parts.append(f"\n*Matched by: {len(match.matched_by)} keyword(s)*\n")
 
         # Add lesson content
         parts.append(f"\n{lesson.body}\n")
