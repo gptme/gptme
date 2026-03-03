@@ -178,6 +178,27 @@ class AcpSessionRuntime:
         returncode = getattr(proc, "returncode", None)
         return returncode is None
 
+    def terminate_subprocess_sync(self, timeout: float = 3.0) -> None:
+        """Terminate the ACP subprocess synchronously.
+
+        Safer than ``close()`` in atexit handlers where the asyncio event loop
+        may already be partially torn down.  Falls back to SIGKILL if SIGTERM
+        does not succeed within *timeout* seconds.
+        """
+        if self._client is None:
+            return
+        proc = getattr(self._client, "_process", None)
+        if proc is None:
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=timeout)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
     async def close(self) -> None:
         """Close ACP subprocess/session. Safe to call multiple times."""
         if self._client is None:
