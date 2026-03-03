@@ -40,6 +40,20 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+# Mapping from provider name to the environment variable that holds its API key.
+# This is the single source of truth for provider authentication env vars.
+PROVIDER_API_KEYS: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "xai": "XAI_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "azure": "AZURE_OPENAI_API_KEY",
+}
+
+
 # Track subscription provider initialization
 _subscription_initialized = False
 
@@ -405,18 +419,7 @@ def list_available_providers() -> list[tuple[Provider, str]]:
     config = get_config()
     available = []
 
-    provider_checks = [
-        ("openai", "OPENAI_API_KEY"),
-        ("anthropic", "ANTHROPIC_API_KEY"),
-        ("openrouter", "OPENROUTER_API_KEY"),
-        ("gemini", "GEMINI_API_KEY"),
-        ("groq", "GROQ_API_KEY"),
-        ("xai", "XAI_API_KEY"),
-        ("deepseek", "DEEPSEEK_API_KEY"),
-        ("azure", "AZURE_OPENAI_API_KEY"),
-    ]
-
-    for provider, env_var in provider_checks:
+    for provider, env_var in PROVIDER_API_KEYS.items():
         if config.get_env(env_var):
             available.append((cast(Provider, provider), env_var))
 

@@ -11,6 +11,7 @@ import os
 import shlex
 from pathlib import Path
 
+from ...llm import PROVIDER_API_KEYS
 from . import DEFAULT_MODEL
 
 try:
@@ -81,15 +82,10 @@ class GptmeAgent(AbstractInstalledAgent):
         """Pass API keys and config from local environment to the agent."""
         env: dict[str, str] = {}
 
-        # Pass through API keys
-        for key in (
-            "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY",
-            "OPENROUTER_API_KEY",
-            "GEMINI_API_KEY",
-        ):
-            if key in os.environ:
-                env[key] = os.environ[key]
+        # Pass through all provider API keys (sourced from gptme.llm.PROVIDER_API_KEYS)
+        for env_var in PROVIDER_API_KEYS.values():
+            if env_var in os.environ:
+                env[env_var] = os.environ[env_var]
 
         env["GPTME_MODEL"] = self._model_name
         return env
