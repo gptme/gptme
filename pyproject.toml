@@ -35,7 +35,7 @@ gptme-dspy = "gptme.eval.dspy:main"
 packages = [
     { include = "gptme" },
 ]
-include = ["gptme/server/static/**/*", "media/*.png", "media/*.wav"]
+include = ["gptme/server/static/**/*", "gptme/eval/tbench/setup.sh", "media/*.png", "media/*.wav"]
 
 [tool.poetry.dependencies]
 python = "^3.10"

@@ -59,10 +59,17 @@ def main(
     """
     try:
         subprocess.run(["tb", "--version"], capture_output=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except FileNotFoundError:
         click.echo(
             "terminal-bench is not installed. Install it with:\n"
             "  uv tool install terminal-bench",
+            err=True,
+        )
+        sys.exit(1)
+    except subprocess.CalledProcessError:
+        click.echo(
+            "terminal-bench is installed but 'tb --version' returned a non-zero exit code.\n"
+            "It may be broken or misconfigured.",
             err=True,
         )
         sys.exit(1)
