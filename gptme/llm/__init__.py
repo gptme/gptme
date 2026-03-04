@@ -366,8 +366,8 @@ def _reply_stream(
             line_buffer.clear()
         suffix = "... ^C Interrupted"
         if on_token:
-            for ch in suffix:
-                on_token(ch)
+            # Emit as one chunk; ACP batching callback handles downstream chunking.
+            on_token(suffix)
         return Message("assistant", output + suffix, metadata=stream.metadata)
     finally:
         # Explicitly close the underlying generator to release resources
