@@ -1083,13 +1083,28 @@ class GptmeAgent:
                         0
                     ]  # Sync attempt to flush time on success
                 except Exception:
-                    future.cancel()  # Prevent stale coroutine from delivering after timeout
+                    # Check if the coroutine completed just after the timeout deadline.
+                    # future.cancel() is a no-op on an already-completed task, so if the
+                    # send succeeded we clear the buffer to avoid duplicate delivery on retry.
+                    already_sent = (
+                        future.done()
+                        and not future.cancelled()
+                        and future.exception() is None
+                    )
+                    future.cancel()
                     last_attempt[0] = (
                         time.monotonic()
                     )  # Throttle retry: enforce FLUSH_INTERVAL between attempts
-                    # Leave batch_buffer intact so tokens survive to the final flush
-                    # last_flush[0] is NOT updated, so time-based retry fires when event loop recovers
-                    logger.debug("Failed to send streaming token batch", exc_info=True)
+                    if already_sent:
+                        # Coroutine completed despite our timeout — safe to clear, no retry needed
+                        batch_buffer.clear()
+                        last_flush[0] = last_attempt[0]
+                    else:
+                        # Tokens weren't delivered — preserve buffer so final flush can retry
+                        # last_flush[0] is NOT updated, so time-based retry fires when event loop recovers
+                        logger.debug(
+                            "Failed to send streaming token batch", exc_info=True
+                        )
 
             def on_token(token: str) -> None:
                 """Accumulate a token; flush if size/time threshold is reached."""
