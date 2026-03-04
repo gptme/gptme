@@ -1412,7 +1412,13 @@ class TestPromptErrorHandling:
         original_import = builtins.__import__
 
         def _failing_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "gptme.chat" and "step" in fromlist:
+            # Match both absolute (name="gptme.chat") and relative (name="chat", level>=1)
+            # forms of `from [..]chat import step` since CPython uses the relative form
+            # when the import statement itself is a relative import.
+            is_chat_step = "step" in (fromlist or ()) and (
+                name == "gptme.chat" or (name == "chat" and level >= 1)
+            )
+            if is_chat_step:
                 raise ImportError("boom chat import")
             return original_import(name, globals, locals, fromlist, level)
 
