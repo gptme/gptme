@@ -91,17 +91,19 @@ class TestLessonIndex:
 class TestLessonDeduplication:
     """Tests for lesson deduplication feature.
 
-    Deduplication is based on resolved path (realpath), not filename.
-    This handles symlinks pointing to the same file correctly.
+    Deduplication is two-level:
+    1. By resolved path (realpath) — catches symlinks to the same file
+    2. By relative filename — catches same-named lessons across directories
+       (first directory wins)
     """
 
-    def test_same_filename_different_files_not_deduplicated(
-        self, sample_lesson_content
-    ):
-        """Test that different files with same filename are NOT deduplicated.
+    def test_same_filename_different_dirs_deduplicated(self, sample_lesson_content):
+        """Test that same-named files in different directories are deduplicated.
 
-        With realpath-based deduplication, files with same name but different
-        paths are treated as separate lessons.
+        When the same relative filename exists in multiple configured lesson
+        directories, only the version from the first directory is included.
+        This prevents double-injection of lessons that exist in both
+        workspace lessons/ and gptme-contrib/lessons/.
         """
         clear_cache()
         with (
@@ -122,11 +124,9 @@ class TestLessonDeduplication:
 
             index = LessonIndex([dir1, dir2])
 
-            # Both files have different realpaths, so both are included
-            assert len(index.lessons) == 2
-            titles = {lesson.title for lesson in index.lessons}
-            assert "First Version" in titles
-            assert "Second Version" in titles
+            # Filename dedup: first directory wins
+            assert len(index.lessons) == 1
+            assert index.lessons[0].title == "First Version"
 
     def test_symlink_deduplication(self, sample_lesson_content):
         """Test that symlinks to the same file are deduplicated.
@@ -277,8 +277,8 @@ class TestLessonDeduplication:
             assert len(index.lessons) == 1
             assert index.lessons[0].title == "Real Lesson"
 
-    def test_different_files_multiple_directories(self, sample_lesson_content):
-        """Test different files with same name in multiple directories."""
+    def test_same_filename_multiple_directories_first_wins(self, sample_lesson_content):
+        """Test that same-named files in 3+ directories are deduplicated (first wins)."""
         clear_cache()
         with (
             tempfile.TemporaryDirectory() as tmp1,
@@ -298,12 +298,64 @@ class TestLessonDeduplication:
 
             index = LessonIndex(dirs)
 
-            # All files have different realpaths, so all are included
-            assert len(index.lessons) == 3
+            # Filename dedup: first directory wins
+            assert len(index.lessons) == 1
+            assert index.lessons[0].title == "Version 1"
+
+    def test_same_relative_path_in_subdirs_deduplicated(self, sample_lesson_content):
+        """Test that same relative path (subdir/file.md) across dirs is deduplicated.
+
+        This is the real-world case: lessons/social/foo.md in workspace and
+        gptme-contrib/lessons/social/foo.md — same relative path, first dir wins.
+        """
+        clear_cache()
+        with (
+            tempfile.TemporaryDirectory() as tmp1,
+            tempfile.TemporaryDirectory() as tmp2,
+        ):
+            dir1 = Path(tmp1) / "lessons"
+            dir2 = Path(tmp2) / "lessons"
+            (dir1 / "social").mkdir(parents=True)
+            (dir2 / "social").mkdir(parents=True)
+
+            content1 = sample_lesson_content.replace("Test Lesson", "Workspace Version")
+            content2 = sample_lesson_content.replace("Test Lesson", "Contrib Version")
+
+            (dir1 / "social" / "github-engagement.md").write_text(content1)
+            (dir2 / "social" / "github-engagement.md").write_text(content2)
+
+            index = LessonIndex([dir1, dir2])
+
+            # Same relative path social/github-engagement.md → first dir wins
+            assert len(index.lessons) == 1
+            assert index.lessons[0].title == "Workspace Version"
+
+    def test_different_relative_paths_not_deduplicated(self, sample_lesson_content):
+        """Test that different relative paths are NOT deduplicated even with same basename."""
+        clear_cache()
+        with (
+            tempfile.TemporaryDirectory() as tmp1,
+            tempfile.TemporaryDirectory() as tmp2,
+        ):
+            dir1 = Path(tmp1) / "lessons"
+            dir2 = Path(tmp2) / "lessons"
+            (dir1 / "workflow").mkdir(parents=True)
+            (dir2 / "social").mkdir(parents=True)
+
+            content1 = sample_lesson_content.replace("Test Lesson", "Workflow Version")
+            content2 = sample_lesson_content.replace("Test Lesson", "Social Version")
+
+            # Same filename but different subdirectories = different relative paths
+            (dir1 / "workflow" / "best-practices.md").write_text(content1)
+            (dir2 / "social" / "best-practices.md").write_text(content2)
+
+            index = LessonIndex([dir1, dir2])
+
+            # Different relative paths → both included
+            assert len(index.lessons) == 2
             titles = {lesson.title for lesson in index.lessons}
-            assert "Version 1" in titles
-            assert "Version 2" in titles
-            assert "Version 3" in titles
+            assert "Workflow Version" in titles
+            assert "Social Version" in titles
 
 
 class TestLessonCache:

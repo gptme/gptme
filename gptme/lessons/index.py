@@ -249,13 +249,11 @@ class LessonIndex:
     def _index_lessons(self) -> None:
         """Discover and parse all lessons (with caching and deduplication).
 
-        Deduplication: Lessons are deduplicated by resolved path (realpath).
-        This handles:
-        - Symlinks pointing to files in other configured directories
-        - Multiple paths resolving to the same physical file
-        - Same filename in different directories (only first is used)
+        Deduplication is two-level:
+        1. By resolved path (realpath) — catches symlinks to the same file
+        2. By relative filename — catches same-named lessons across directories
 
-        Directory order determines precedence:
+        Directory order determines precedence (first directory wins):
         1. User config (~/.config/gptme/lessons)
         2. Workspace (./lessons)
         3. Configured dirs (from gptme.toml)
@@ -267,13 +265,19 @@ class LessonIndex:
         # Track seen lesson paths (resolved via realpath) for deduplication
         # This handles symlinks pointing to the same file
         seen_paths: set[str] = set()
+        # Track seen relative filenames for cross-directory deduplication
+        # This handles same-named lessons in different configured directories
+        # (e.g. lessons/social/foo.md and gptme-contrib/lessons/social/foo.md)
+        seen_filenames: set[str] = set()
 
         for lesson_dir in self.lesson_dirs:
             if not lesson_dir.exists():
                 logger.debug(f"Lesson directory not found: {lesson_dir}")
                 continue
 
-            hits, misses, skipped = self._index_directory(lesson_dir, seen_paths)
+            hits, misses, skipped = self._index_directory(
+                lesson_dir, seen_paths, seen_filenames
+            )
             cache_hits += hits
             cache_misses += misses
             skipped_duplicates += skipped
@@ -285,13 +289,17 @@ class LessonIndex:
         logger.debug(" ".join(log_parts))
 
     def _index_directory(
-        self, directory: Path, seen_paths: set[str]
+        self,
+        directory: Path,
+        seen_paths: set[str],
+        seen_filenames: set[str],
     ) -> tuple[int, int, int]:
         """Index all lessons in a directory (with caching and deduplication).
 
         Args:
             directory: Directory to scan for lessons
             seen_paths: Set of resolved lesson paths already indexed (for deduplication)
+            seen_filenames: Set of relative filenames already indexed (cross-dir dedup)
 
         Returns:
             Tuple of (cache_hits, cache_misses, skipped_duplicates)
@@ -331,6 +339,19 @@ class LessonIndex:
                 skipped_duplicates += 1
                 continue
 
+            # Deduplication: Skip if lesson with same relative filename already indexed
+            # from a different directory. This handles the common case where workspace
+            # lessons/ and gptme-contrib/lessons/ both contain e.g. social/foo.md
+            # First directory wins (per configured order).
+            relative_name = lesson_file.relative_to(directory).as_posix()
+            if relative_name in seen_filenames:
+                logger.debug(
+                    f"Skipping duplicate lesson: {lesson_file.relative_to(directory)} "
+                    f"(same filename already indexed from earlier directory)"
+                )
+                skipped_duplicates += 1
+                continue
+
             try:
                 # Try to use cached lesson first
                 lesson = _get_cached_lesson(lesson_file)
@@ -352,6 +373,7 @@ class LessonIndex:
 
                 self.lessons.append(lesson)
                 seen_paths.add(resolved_path)  # Mark resolved path as seen
+                seen_filenames.add(relative_name)  # Mark filename as seen
             except Exception as e:
                 logger.warning(f"Failed to parse lesson {lesson_file}: {e}")
 
