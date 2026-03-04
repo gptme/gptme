@@ -41,7 +41,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const savedSettings = localStorage.getItem('gptme-settings');
       if (savedSettings) {
         const parsed = JSON.parse(savedSettings);
-        setSettings({ ...defaultSettings, ...parsed });
+        // Existing users who pre-date hasCompletedSetup should not see the wizard
+        const hasCompletedSetup = parsed.hasCompletedSetup ?? true;
+        setSettings({ ...defaultSettings, ...parsed, hasCompletedSetup });
       }
     } catch (error) {
       console.error('Failed to load settings from localStorage:', error);
