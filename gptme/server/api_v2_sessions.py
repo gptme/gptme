@@ -283,9 +283,10 @@ def stop_acp_health_monitor() -> None:
     """Stop the health monitor and clean up all remaining ACP sessions."""
     global _health_monitor_thread
     _health_monitor_stop.set()
-    if _health_monitor_thread is not None:
-        _health_monitor_thread.join(timeout=5)
-        _health_monitor_thread = None
+    with _health_monitor_lock:
+        if _health_monitor_thread is not None:
+            _health_monitor_thread.join(timeout=5)
+            _health_monitor_thread = None
 
     # Best-effort cleanup of all ACP sessions on shutdown
     _cleanup_all_acp_sessions()
@@ -347,6 +348,9 @@ def _cleanup_all_acp_sessions() -> None:
                 exc_info=True,
             )
         finally:
+            # Null out acp_runtime before remove_session so it won't re-trigger
+            # _close_acp_runtime_bg for an already-terminated process.
+            session.acp_runtime = None
             # Remove from SessionManager to avoid stale entries surviving shutdown.
             # This is safe in the atexit path and prevents zombie sessions on
             # non-atexit calls (e.g. tests, hypothetical reload scenarios).

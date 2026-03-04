@@ -10,6 +10,7 @@ introduced incrementally.
 from __future__ import annotations
 
 import logging
+import subprocess
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -193,7 +194,7 @@ class AcpSessionRuntime:
         try:
             proc.terminate()
             proc.wait(timeout=timeout)
-        except Exception:
+        except subprocess.TimeoutExpired:
             try:
                 proc.kill()
                 proc.wait(timeout=1.0)  # reap zombie after SIGKILL
