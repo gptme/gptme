@@ -72,6 +72,8 @@ jobs:
             args: '--bundles app'
           - platform: ubuntu-24.04
             args: '--bundles appimage,deb'
+          - platform: windows-latest
+            args: '--bundles nsis'
 
     runs-on: ${{ matrix.platform }}
 
@@ -106,16 +108,22 @@ jobs:
         run: cd tauri && npm install
 
       - name: Create placeholder sidecar for tauri-build
+        shell: bash
         run: |
           # tauri-build checks that externalBin paths exist at compile time.
           mkdir -p tauri/bins
           TRIPLE=$(rustc -Vv | grep host | cut -f2 -d' ')
           touch "tauri/bins/gptme-server-${TRIPLE}"
+          # Windows needs .exe extension for sidecar
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            touch "tauri/bins/gptme-server-${TRIPLE}.exe"
+          fi
 
       - name: Install webui deps and build
         run: cd webui && npm install && npm run build
 
       - name: Create placeholder icons for tauri::generate_context!
+        shell: bash
         run: |
           mkdir -p tauri/src-tauri/icons
           printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > tauri/src-tauri/icons/32x32.png
@@ -125,6 +133,7 @@ jobs:
           touch tauri/src-tauri/icons/icon.ico
 
       - name: Generate Tauri icons
+        shell: bash
         run: cd tauri && npm run tauri icon ../webui/public/logo.png || true
 
       - name: Build the app
@@ -141,7 +150,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -157,24 +166,31 @@ jobs:
         run: pipx install poetry
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
           cache: 'poetry'
 
       - name: Install dependencies
+        shell: bash
         run: |
           make build
           poetry install --extras server --extras pyinstaller --with dev
 
       - name: Build PyInstaller executable
+        shell: bash
         run: make build-server-exe
 
       - name: Place sidecar with Rust target triple
+        shell: bash
         run: |
           mkdir -p tauri/bins
           TRIPLE=$(rustc -Vv | grep host | cut -f2 -d' ')
-          cp dist/gptme-server "tauri/bins/gptme-server-${TRIPLE}"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp dist/gptme-server.exe "tauri/bins/gptme-server-${TRIPLE}.exe"
+          else
+            cp dist/gptme-server "tauri/bins/gptme-server-${TRIPLE}"
+          fi
 
       - name: Upload sidecar artifact
         uses: actions/upload-artifact@v4
@@ -194,6 +210,8 @@ jobs:
             args: '--target aarch64-apple-darwin'
           - platform: ubuntu-24.04
             args: ''
+          - platform: windows-latest
+            args: '--bundles nsis'
 
     runs-on: ${{ matrix.platform }}
     permissions:
@@ -242,6 +260,7 @@ jobs:
           path: tauri/bins
 
       - name: Create placeholder icons for tauri::generate_context!
+        shell: bash
         run: |
           mkdir -p tauri/src-tauri/icons
           printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > tauri/src-tauri/icons/32x32.png
@@ -251,6 +270,7 @@ jobs:
           touch tauri/src-tauri/icons/icon.ico
 
       - name: Generate Tauri icons
+        shell: bash
         run: cd tauri && npm run tauri icon ../webui/public/logo.png || true
 
       # macOS code signing setup
