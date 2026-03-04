@@ -343,6 +343,11 @@ def _cleanup_all_acp_sessions() -> None:
                 session_id,
                 exc_info=True,
             )
+        finally:
+            # Remove from SessionManager to avoid stale entries surviving shutdown.
+            # This is safe in the atexit path and prevents zombie sessions on
+            # non-atexit calls (e.g. tests, hypothetical reload scenarios).
+            SessionManager.remove_session(session_id)
 
 
 # Helper Functions for Generation
@@ -1098,6 +1103,9 @@ def api_conversation_step(conversation_id: str):
 
         session.use_acp = True
         session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
+        # Lazy-start the health monitor on first ACP session — avoids unconditional
+        # background thread and global session-eviction side-effects at app startup.
+        start_acp_health_monitor()
 
     # Validate auto_confirm type explicitly (bool OR int).
     # Reject strings/floats/etc. to avoid accidental truthy coercion.
