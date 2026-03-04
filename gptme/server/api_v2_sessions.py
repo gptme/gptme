@@ -299,11 +299,14 @@ def _run_health_check() -> None:
 
     # 2. Check ACP subprocess health
     for session_id, session in list(SessionManager._sessions.items()):
-        if session.acp_runtime is None:
+        # Snapshot to a local variable: a concurrent _cleanup_all_acp_sessions()
+        # can set session.acp_runtime = None between reads, causing AttributeError.
+        acp_runtime = session.acp_runtime
+        if acp_runtime is None:
             continue
         if session.generating:
             continue  # Don't disturb active generation
-        if not session.acp_runtime.is_subprocess_alive():
+        if not acp_runtime.is_subprocess_alive():
             # Re-check generating flag before removing to narrow the TOCTOU window:
             # a /step request arriving between the check above and remove_session()
             # could start a generation on a session we are about to delete.
@@ -314,7 +317,7 @@ def _run_health_check() -> None:
                 "cleaning up",
                 session_id,
                 session.conversation_id,
-                session.acp_runtime.process_pid,
+                acp_runtime.process_pid,
             )
             # Null out acp_runtime before remove_session so it doesn't
             # spawn a _close_acp_runtime_bg thread for an already-dead process.
