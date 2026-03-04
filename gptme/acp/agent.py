@@ -1060,7 +1060,6 @@ class GptmeAgent:
                 if not batch_buffer or not self._conn:
                     return
                 batch_text = "".join(batch_buffer)
-                last_flush[0] = time.monotonic()
                 chunk = update_agent_message(text_block(batch_text))
                 future = asyncio.run_coroutine_threadsafe(
                     self._conn.session_update(
@@ -1073,8 +1072,10 @@ class GptmeAgent:
                 try:
                     future.result(timeout=5)
                     batch_buffer.clear()  # Only clear after confirmed successful send
+                    last_flush[0] = time.monotonic()  # Only advance timer on success
                 except Exception:
                     # Leave batch_buffer intact so tokens survive to the final flush
+                    # last_flush[0] is NOT updated, so time-based retry fires promptly
                     logger.debug("Failed to send streaming token batch", exc_info=True)
 
             def on_token(token: str) -> None:
