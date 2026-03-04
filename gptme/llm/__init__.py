@@ -325,9 +325,11 @@ def _reply_stream(
                     break
 
     except KeyboardInterrupt:
-        return Message(
-            "assistant", output + "... ^C Interrupted", metadata=stream.metadata
-        )
+        suffix = "... ^C Interrupted"
+        if on_token:
+            for ch in suffix:
+                on_token(ch)
+        return Message("assistant", output + suffix, metadata=stream.metadata)
     finally:
         # Explicitly close the underlying generator to release resources
         # This handles all exit paths: normal completion, KeyboardInterrupt, and tool break
