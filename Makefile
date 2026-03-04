@@ -312,7 +312,7 @@ tauri-dev: ## Run gptme-tauri in development mode (hot-reload webui + Tauri wind
 tauri-build: ## Build the gptme-tauri desktop app
 	cd tauri && npm install && \
 	cd ../gptme/webui && npm install && npm run build && \
-	cd ../../tauri && \
+	cd ../tauri && \
 	if [ "$$(uname)" = "Linux" ]; then \
 		NO_STRIP=true npm run tauri build; \
 	else \

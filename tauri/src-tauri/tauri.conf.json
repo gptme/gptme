@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "org.gptme.tauri",
   "build": {
-    "beforeDevCommand": "cd ../gptme/webui && npm run dev",
+    "beforeDevCommand": "cd ../../gptme/webui && npm run dev",
     "devUrl": "http://localhost:5701",
-    "beforeBuildCommand": "cd ../gptme/webui && npm run build",
+    "beforeBuildCommand": "cd ../../gptme/webui && npm run build",
     "frontendDist": "../../gptme/webui/dist"
   },
   "app": {

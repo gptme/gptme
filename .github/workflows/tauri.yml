@@ -106,7 +106,7 @@ jobs:
         run: cd gptme/webui && npm install && npm run build
 
       - name: Generate Tauri icons
-        run: cd tauri && npm run tauri icon ./public/logo.png || true
+        run: cd tauri && npm run tauri icon ../webui/public/logo.png || true
 
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
@@ -167,7 +167,7 @@ jobs:
         run: cd gptme/webui && npm install && npm run build
 
       - name: Generate Tauri icons
-        run: cd tauri && npm run tauri icon ./public/logo.png || true
+        run: cd tauri && npm run tauri icon ../webui/public/logo.png || true
 
       # macOS code signing setup
       - name: Import Apple Developer Certificate (macOS)
