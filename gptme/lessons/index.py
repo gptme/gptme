@@ -265,10 +265,10 @@ class LessonIndex:
         # Track seen lesson paths (resolved via realpath) for deduplication
         # This handles symlinks pointing to the same file
         seen_paths: set[str] = set()
-        # Track seen relative filenames for cross-directory deduplication
+        # Track seen relative paths for cross-directory deduplication
         # This handles same-named lessons in different configured directories
         # (e.g. lessons/social/foo.md and gptme-contrib/lessons/social/foo.md)
-        seen_filenames: set[str] = set()
+        seen_rel_paths: set[str] = set()
 
         for lesson_dir in self.lesson_dirs:
             if not lesson_dir.exists():
@@ -276,7 +276,7 @@ class LessonIndex:
                 continue
 
             hits, misses, skipped = self._index_directory(
-                lesson_dir, seen_paths, seen_filenames
+                lesson_dir, seen_paths, seen_rel_paths
             )
             cache_hits += hits
             cache_misses += misses
@@ -292,14 +292,14 @@ class LessonIndex:
         self,
         directory: Path,
         seen_paths: set[str],
-        seen_filenames: set[str],
+        seen_rel_paths: set[str],
     ) -> tuple[int, int, int]:
         """Index all lessons in a directory (with caching and deduplication).
 
         Args:
             directory: Directory to scan for lessons
             seen_paths: Set of resolved lesson paths already indexed (for deduplication)
-            seen_filenames: Set of relative filenames already indexed (cross-dir dedup)
+            seen_rel_paths: Set of relative paths already indexed (cross-dir dedup)
 
         Returns:
             Tuple of (cache_hits, cache_misses, skipped_duplicates)
@@ -339,18 +339,23 @@ class LessonIndex:
                 skipped_duplicates += 1
                 continue
 
-            # Deduplication: Skip if lesson with same relative filename already indexed
+            # Deduplication: Skip if lesson with same relative path already indexed
             # from a different directory. This handles the common case where workspace
             # lessons/ and gptme-contrib/lessons/ both contain e.g. social/foo.md
-            # First directory wins (per configured order).
+            # First directory wins (per configured order), regardless of active status.
             relative_name = lesson_file.relative_to(directory).as_posix()
-            if relative_name in seen_filenames:
+            if relative_name in seen_rel_paths:
                 logger.debug(
                     f"Skipping duplicate lesson: {lesson_file.relative_to(directory)} "
-                    f"(same filename already indexed from earlier directory)"
+                    f"(same relative path already indexed from earlier directory)"
                 )
                 skipped_duplicates += 1
                 continue
+
+            # Always mark as seen (regardless of status) to enforce "first dir wins"
+            # An inactive lesson in an earlier dir suppresses all copies in later dirs.
+            seen_paths.add(resolved_path)
+            seen_rel_paths.add(relative_name)
 
             try:
                 # Try to use cached lesson first
@@ -372,8 +377,6 @@ class LessonIndex:
                     continue
 
                 self.lessons.append(lesson)
-                seen_paths.add(resolved_path)  # Mark resolved path as seen
-                seen_filenames.add(relative_name)  # Mark filename as seen
             except Exception as e:
                 logger.warning(f"Failed to parse lesson {lesson_file}: {e}")
 

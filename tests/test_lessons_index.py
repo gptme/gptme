@@ -357,6 +357,40 @@ class TestLessonDeduplication:
             assert "Workflow Version" in titles
             assert "Social Version" in titles
 
+    def test_inactive_lesson_in_first_dir_blocks_active_in_second(
+        self, sample_lesson_content
+    ):
+        """Test that an inactive lesson in an earlier dir suppresses same file in later dirs.
+
+        'First directory wins' must hold regardless of lesson status.
+        A user who marks a lesson as 'deprecated' in their workspace dir should
+        fully suppress it, even if an active copy exists in gptme-contrib/lessons/.
+        """
+        clear_cache()
+        draft_content = sample_lesson_content.replace(
+            "status: active", "status: deprecated"
+        ).replace("Test Lesson", "Draft Version")
+        active_content = sample_lesson_content.replace("Test Lesson", "Active Version")
+
+        with (
+            tempfile.TemporaryDirectory() as tmp1,
+            tempfile.TemporaryDirectory() as tmp2,
+        ):
+            dir1 = Path(tmp1) / "lessons"
+            dir2 = Path(tmp2) / "lessons"
+            dir1.mkdir()
+            dir2.mkdir()
+
+            # dir1 has an inactive copy (should claim the slot)
+            (dir1 / "shared.md").write_text(draft_content)
+            # dir2 has an active copy (should be suppressed by dir1's copy)
+            (dir2 / "shared.md").write_text(active_content)
+
+            index = LessonIndex([dir1, dir2])
+
+            # The active copy from dir2 must NOT be loaded (dir1 wins)
+            assert len(index.lessons) == 0
+
 
 class TestLessonCache:
     """Tests for lesson caching functionality."""
