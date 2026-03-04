@@ -397,7 +397,7 @@ class TestProcessImageFile:
 
 
 def test_reply_stream_on_token_callback(monkeypatch):
-    """on_token callback is called once per character during streaming."""
+    """on_token callback receives complete lines (not individual characters)."""
     from gptme.llm import _reply_stream
     from gptme.message import Message
 
@@ -432,12 +432,13 @@ def test_reply_stream_on_token_callback(monkeypatch):
     expected_text = "Hello, world!"
     assert result.content == expected_text
     assert "".join(collected) == expected_text
-    # Verify callback was called once per character
-    assert len(collected) == len(expected_text)
+    # on_token receives whole lines (or fragments without newline for the final partial line),
+    # not individual characters — fewer calls than chars.
+    assert len(collected) < len(expected_text)
 
 
 def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
-    """on_token receives only characters up to the break_on_tooluse breakpoint."""
+    """on_token receives only content up to the break_on_tooluse breakpoint."""
     from gptme.llm import _reply_stream
     from gptme.message import Message
     from gptme.tools import init_tools
@@ -476,12 +477,13 @@ def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
     )
 
     received_text = "".join(collected)
-    # on_token should only receive chars up to (including) the newline that triggered break
+    # on_token should only receive content up to (including) the newline that triggered break
     assert received_text == tool_block
     assert result.content == tool_block
     # suffix was never streamed
     assert suffix not in received_text
-    assert len(collected) == len(tool_block)
+    # on_token receives whole lines, so fewer calls than characters
+    assert len(collected) < len(tool_block)
 
 
 def test_reply_stream_on_token_thinking_tag_suppressed(monkeypatch):

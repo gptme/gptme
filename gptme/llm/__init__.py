@@ -321,10 +321,8 @@ def _reply_stream(
                     # are_thinking != prev_thinking.  In that case discard the
                     # buffer (tag line itself should not reach the caller).
                     if not are_thinking and not prev_thinking:
-                        # Normal line — flush buffered chars then the newline.
-                        for c in line_buffer:
-                            on_token(c)
-                        on_token("\n")
+                        # Normal line — emit the whole line as one chunk.
+                        on_token("".join(line_buffer) + "\n")
                     line_buffer.clear()
                 elif not are_thinking:
                     # Accumulate non-newline chars; we don't yet know if this
@@ -353,16 +351,14 @@ def _reply_stream(
         # Flush any remaining buffered chars (responses that end without a
         # trailing newline, or partial lines left after a break_on_tooluse break).
         if on_token and line_buffer and not are_thinking:
-            for c in line_buffer:
-                on_token(c)
+            on_token("".join(line_buffer))
             line_buffer.clear()
 
     except KeyboardInterrupt:
         # Flush partial line before the interrupt suffix so callers see the
         # content that was streamed up to the interrupt point.
         if on_token and line_buffer:
-            for c in line_buffer:
-                on_token(c)
+            on_token("".join(line_buffer))
             line_buffer.clear()
         suffix = "... ^C Interrupted"
         if on_token:

@@ -1051,7 +1051,7 @@ class GptmeAgent:
             # Build a batching on_token callback that sends incremental session_update
             # calls during generation, enabling per-token streaming to the client.
             FLUSH_INTERVAL = 0.1  # seconds
-            FLUSH_SIZE = 50  # characters (each on_token call receives exactly 1 char)
+            FLUSH_SIZE = 50  # characters (measured across buffer items)
 
             last_flush: list[float] = [
                 time.monotonic()
@@ -1114,7 +1114,7 @@ class GptmeAgent:
                 # time-based trigger stays open after a failed flush.
                 # last_attempt[0] alone throttles retry cadence to FLUSH_INTERVAL.
                 if (
-                    len(batch_buffer) >= FLUSH_SIZE
+                    sum(len(t) for t in batch_buffer) >= FLUSH_SIZE
                     or (now - last_flush[0]) >= FLUSH_INTERVAL
                 ) and (now - last_attempt[0]) >= FLUSH_INTERVAL:
                     _flush_batch()
