@@ -96,7 +96,8 @@ def test_message_conversion_with_tools():
         Message(role="user", content="First user prompt"),
         Message(
             role="assistant",
-            content='<thinking>\nSomething\n</thinking>\n@save(tool_call_id): {"path": "path.txt", "content": "file_content"}',
+            # Include the embedded signature so the thinking block survives round-trip.
+            content='<thinking>\nSomething\n<!-- think-sig: test-sig-abc== -->\n</thinking>\n@save(tool_call_id): {"path": "path.txt", "content": "file_content"}',
         ),
         Message(role="system", content="Saved to toto.txt", call_id="tool_call_id"),
         Message(role="system", content="(Modified by user)", call_id="tool_call_id"),
@@ -127,8 +128,9 @@ def test_message_conversion_with_tools():
         }
     ]
 
-    # NOTE: <thinking> tags are now converted to proper Anthropic thinking blocks
-    # This enables thinking mode to work with native tool calling
+    # NOTE: <thinking> tags are converted to proper Anthropic thinking blocks.
+    # The embedded <!-- think-sig: ... --> comment is parsed out to supply the
+    # required `signature` field; without it the Anthropic API returns a 400.
     assert list(messages_dicts) == [
         {
             "role": "user",
@@ -143,7 +145,11 @@ def test_message_conversion_with_tools():
         {
             "role": "assistant",
             "content": [
-                {"type": "thinking", "thinking": "Something"},
+                {
+                    "type": "thinking",
+                    "thinking": "Something",
+                    "signature": "test-sig-abc==",
+                },
                 {
                     "type": "tool_use",
                     "id": "tool_call_id",
