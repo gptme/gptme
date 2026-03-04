@@ -198,6 +198,11 @@ class AcpSessionRuntime:
                 proc.kill()
             except Exception:
                 pass
+        finally:
+            # Clear references so the runtime is left in a consistent state.
+            # Mirrors what close() does asynchronously; prevents accidental reuse.
+            self._client = None
+            self._session_id = None
 
     async def close(self) -> None:
         """Close ACP subprocess/session. Safe to call multiple times."""
