@@ -97,7 +97,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             tauri/package-lock.json
-            gptme/webui/package-lock.json
+            webui/package-lock.json
 
       - name: Install Tauri CLI deps
         run: cd tauri && npm install
@@ -158,7 +158,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             tauri/package-lock.json
-            gptme/webui/package-lock.json
+            webui/package-lock.json
 
       - name: Install Tauri CLI deps
         run: cd tauri && npm install
