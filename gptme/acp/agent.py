@@ -1072,8 +1072,8 @@ class GptmeAgent:
                     loop,
                 )
                 try:
-                    # Short timeout to avoid stalling the LLM streaming thread
-                    future.result(timeout=0.5)
+                    # Timeout matches flush interval to bound worst-case stall per attempt
+                    future.result(timeout=FLUSH_INTERVAL)
                     batch_buffer.clear()  # Only clear after confirmed successful send
                     last_flush[0] = time.monotonic()  # Only advance timer on success
                 except Exception:
