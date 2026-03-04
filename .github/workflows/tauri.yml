@@ -131,13 +131,18 @@ jobs:
           cp tauri/src-tauri/icons/32x32.png tauri/src-tauri/icons/128x128.png
           cp tauri/src-tauri/icons/32x32.png "tauri/src-tauri/icons/128x128@2x.png"
           touch tauri/src-tauri/icons/icon.icns
-          # Windows needs a valid ICO (not empty) — wrap the 1x1 PNG in ICO format
+          # Windows RC needs BMP-based ICO (not PNG-inside-ICO)
           python3 -c "
           import struct
-          png = open('tauri/src-tauri/icons/32x32.png', 'rb').read()
+          s = 32  # 32x32 icon
+          bpp = 32
+          px = s * s * 4  # pixel data size (BGRA)
+          mask = ((s + 31) // 32) * 4 * s  # AND mask size
+          bmp = struct.pack('<IiiHHIIiiII', 40, s, s*2, 1, bpp, 0, 0, 0, 0, 0, 0)
+          img = bmp + (b'\x00' * px) + (b'\xff' * mask)
           hdr = struct.pack('<HHH', 0, 1, 1)
-          entry = struct.pack('<BBBBHHIH', 1, 1, 0, 0, 1, 32, len(png), 22)
-          open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + png)
+          entry = struct.pack('<BBBBHHIH', s, s, 0, 0, 1, bpp, len(img), 22)
+          open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + img)
           "
 
       - name: Generate Tauri icons
@@ -275,13 +280,18 @@ jobs:
           cp tauri/src-tauri/icons/32x32.png tauri/src-tauri/icons/128x128.png
           cp tauri/src-tauri/icons/32x32.png "tauri/src-tauri/icons/128x128@2x.png"
           touch tauri/src-tauri/icons/icon.icns
-          # Windows needs a valid ICO (not empty) — wrap the 1x1 PNG in ICO format
+          # Windows RC needs BMP-based ICO (not PNG-inside-ICO)
           python3 -c "
           import struct
-          png = open('tauri/src-tauri/icons/32x32.png', 'rb').read()
+          s = 32  # 32x32 icon
+          bpp = 32
+          px = s * s * 4  # pixel data size (BGRA)
+          mask = ((s + 31) // 32) * 4 * s  # AND mask size
+          bmp = struct.pack('<IiiHHIIiiII', 40, s, s*2, 1, bpp, 0, 0, 0, 0, 0, 0)
+          img = bmp + (b'\x00' * px) + (b'\xff' * mask)
           hdr = struct.pack('<HHH', 0, 1, 1)
-          entry = struct.pack('<BBBBHHIH', 1, 1, 0, 0, 1, 32, len(png), 22)
-          open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + png)
+          entry = struct.pack('<BBBBHHIH', s, s, 0, 0, 1, bpp, len(img), 22)
+          open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + img)
           "
 
       - name: Generate Tauri icons
