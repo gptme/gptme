@@ -2,7 +2,7 @@
 
 Desktop app for [gptme](https://github.com/gptme/gptme), built with [Tauri 2](https://tauri.app/).
 
-The Tauri app wraps the gptme webui (`gptme/webui/`) in a native window and manages a local
+The Tauri app wraps the gptme webui (`webui/`) in a native window and manages a local
 `gptme-server` process as a bundled sidecar. It supports deep-linking via the `gptme://` URL
 scheme for authentication flows.
 
@@ -16,7 +16,7 @@ tauri/
 │   ├── Cargo.toml
 │   ├── Cargo.lock
 │   ├── build.rs
-│   ├── tauri.conf.json  # References ../gptme/webui/ for frontend
+│   ├── tauri.conf.json  # References ../webui/ for frontend
 │   └── capabilities/
 │       └── default.json # Shell/sidecar permissions
 ├── scripts/
@@ -25,7 +25,7 @@ tauri/
 └── README.md            # This file
 ```
 
-The frontend lives in `gptme/webui/` (the existing gptme webui). The Tauri config references
+The frontend lives in `webui/` (the existing gptme webui). The Tauri config references
 it directly — no submodule or symlink needed.
 
 ## Development
@@ -47,7 +47,7 @@ cd tauri && npm install && npm run tauri dev
 ```
 
 This will:
-1. Start the webui dev server (`gptme/webui/` on port 5701)
+1. Start the webui dev server (`webui/` on port 5701)
 2. Open the Tauri window pointing at the dev server
 3. Hot-reload on webui changes
 
@@ -93,7 +93,7 @@ the code and injects it into the webview to complete the auth handshake.
 
 ### Frontend
 
-The webui is built from `gptme/webui/` during `beforeBuildCommand`. In dev mode,
+The webui is built from `webui/` during `beforeBuildCommand`. In dev mode,
 `beforeDevCommand` starts the Vite dev server. The Tauri window loads from
 `http://localhost:5701` in dev, and from the built `dist/` in production.
 
@@ -101,7 +101,7 @@ The webui is built from `gptme/webui/` during `beforeBuildCommand`. In dev mode,
 
 This directory replaces the standalone [gptme-tauri](https://github.com/gptme/gptme-tauri)
 repo. The key difference is the frontend: instead of a git submodule pointing to `gptme/gptme`,
-`tauri.conf.json` references `../gptme/webui/` directly — the webui is already in this repo.
+`tauri.conf.json` references `../webui/` directly — the webui is already in this repo.
 
-See the [merge proposal](../knowledge/technical-designs/gptme-tauri-upstream-merge-proposal.md)
+See the [merge proposal](https://github.com/ErikBjare/bob/blob/master/knowledge/technical-designs/gptme-tauri-upstream-merge-proposal.md)
 for rationale and migration steps.
