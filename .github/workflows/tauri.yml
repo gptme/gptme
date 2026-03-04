@@ -113,10 +113,11 @@ jobs:
           # tauri-build checks that externalBin paths exist at compile time.
           mkdir -p tauri/bins
           TRIPLE=$(rustc -Vv | grep host | cut -f2 -d' ')
-          touch "tauri/bins/gptme-server-${TRIPLE}"
-          # Windows needs .exe extension for sidecar
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # Windows needs .exe extension for sidecar
             touch "tauri/bins/gptme-server-${TRIPLE}.exe"
+          else
+            touch "tauri/bins/gptme-server-${TRIPLE}"
           fi
 
       - name: Install webui deps and build
