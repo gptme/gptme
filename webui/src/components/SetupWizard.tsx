@@ -37,6 +37,10 @@ export function SetupWizard() {
   };
 
   const handleLocalSetup = async () => {
+    if (isConnected) {
+      setStep('complete');
+      return;
+    }
     setIsConnecting(true);
     try {
       await connect();
@@ -159,7 +163,7 @@ export function SetupWizard() {
                     Start the server in your terminal:
                   </p>
                   <code className="rounded bg-muted px-3 py-2 text-sm font-mono">
-                    pipx run gptme-python[server] --server
+                    pipx run --spec &apos;gptme[server]&apos; gptme-server
                   </code>
                   <p className="text-xs text-muted-foreground">
                     Or if you have gptme installed:{' '}
