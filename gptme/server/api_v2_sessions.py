@@ -286,6 +286,11 @@ def stop_acp_health_monitor() -> None:
     with _health_monitor_lock:
         if _health_monitor_thread is not None:
             _health_monitor_thread.join(timeout=5)
+            if _health_monitor_thread.is_alive():
+                logger.warning(
+                    "ACP health monitor thread did not exit within 5s — "
+                    "thread may still be running"
+                )
             _health_monitor_thread = None
 
     # Best-effort cleanup of all ACP sessions on shutdown
@@ -294,7 +299,10 @@ def stop_acp_health_monitor() -> None:
 
 def _run_health_check() -> None:
     """Single health check iteration."""
-    # 1. Clean inactive sessions (was never called before this change)
+    # 1. Clean inactive sessions (was never called before this change).
+    # Note: this intentionally applies to all sessions (not just ACP ones) —
+    # the health monitor acts as server-wide session hygiene in ACP deployments.
+    # Non-ACP sessions idle for more than _SESSION_MAX_AGE_MINUTES are also evicted.
     SessionManager.clean_inactive_sessions(max_age_minutes=_SESSION_MAX_AGE_MINUTES)
 
     # 2. Check ACP subprocess health
