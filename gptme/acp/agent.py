@@ -1038,6 +1038,9 @@ class GptmeAgent:
                 msg, log, session_id, text_block, update_agent_message
             )
 
+        # Keep buffering state outside the try-block so it's always in scope in
+        # the exception handler (including early import/setup failures).
+        batch_buffer: list[str] = []
         try:
             # Import chat step
             from ..chat import step as chat_step
@@ -1050,7 +1053,6 @@ class GptmeAgent:
             FLUSH_INTERVAL = 0.1  # seconds
             FLUSH_SIZE = 50  # characters (each on_token call receives exactly 1 char)
 
-            batch_buffer: list[str] = []
             last_flush: list[float] = [
                 time.monotonic()
             ]  # mutable for nonlocal in nested fn
@@ -1152,12 +1154,12 @@ class GptmeAgent:
             if batch_buffer and self._conn:
                 try:
                     batch_text = "".join(batch_buffer)
-                    batch_buffer.clear()
                     await self._conn.session_update(
                         session_id=session_id,
                         update=update_agent_message(text_block(batch_text)),
                         source="gptme-stream",
                     )
+                    batch_buffer.clear()  # Only clear after confirmed successful send
                 except Exception:
                     logger.debug("Failed to flush token buffer on error", exc_info=True)
             # Phase 2: Mark tool calls as failed on error
