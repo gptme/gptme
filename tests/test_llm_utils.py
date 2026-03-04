@@ -545,3 +545,89 @@ def test_reply_stream_on_token_thinking_tag_suppressed(monkeypatch):
     assert "<think>" not in received_text
     assert "</think>" not in received_text
     assert "some private reasoning" not in received_text
+
+
+def test_extract_thinking_content_with_signature():
+    """_extract_thinking_content must parse embedded think-sig comments."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    sig = "abc123XYZ=="
+    content = (
+        f"<think>\nsome reasoning\n<!-- think-sig: {sig} -->\n</think>\nAnswer here."
+    )
+
+    thinking, cleaned, signature = _extract_thinking_content(content)
+
+    assert thinking == "some reasoning"
+    assert "Answer here." in cleaned
+    assert "<think>" not in cleaned
+    assert signature == sig
+    # Signature comment must not appear in thinking content
+    assert "think-sig" not in thinking
+
+
+def test_extract_thinking_content_no_signature():
+    """_extract_thinking_content returns empty signature when none embedded."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = "<think>\nsome reasoning\n</think>\nAnswer."
+
+    thinking, cleaned, signature = _extract_thinking_content(content)
+
+    assert thinking == "some reasoning"
+    assert signature == ""
+
+
+def test_handle_tools_thinking_with_signature():
+    """_handle_tools must include thinking block with signature when available."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+
+    # Use a tool-format tool call so _handle_tools converts content to a list.
+    sig = "testSignature=="
+    tool_call = '@save(call-1): {"path": "hello.py", "content": "print()"}'
+    messages = [
+        {
+            "role": "assistant",
+            "content": f"<think>\nI think...\n<!-- think-sig: {sig} -->\n</think>\n{tool_call}",
+        }
+    ]
+
+    result = list(_handle_tools(messages))
+    assert len(result) == 1
+    content = result[0]["content"]
+    assert isinstance(content, list)
+
+    thinking_blocks = [b for b in content if b.get("type") == "thinking"]
+    assert len(thinking_blocks) == 1
+    assert thinking_blocks[0]["thinking"] == "I think..."
+    assert thinking_blocks[0]["signature"] == sig
+
+
+def test_handle_tools_thinking_without_signature_skipped():
+    """_handle_tools must skip thinking blocks that lack a signature."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+
+    tool_call = '@save(call-1): {"path": "hello.py", "content": "print()"}'
+    messages = [
+        {
+            "role": "assistant",
+            "content": f"<think>\nI think...\n</think>\n{tool_call}",
+        }
+    ]
+
+    result = list(_handle_tools(messages))
+    assert len(result) == 1
+    content = result[0]["content"]
+    assert isinstance(content, list)
+
+    thinking_blocks = [b for b in content if b.get("type") == "thinking"]
+    assert len(thinking_blocks) == 0
+    # Tool use must still be present
+    tool_blocks = [b for b in content if b.get("type") == "tool_use"]
+    assert len(tool_blocks) >= 1
