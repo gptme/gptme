@@ -303,7 +303,8 @@ def _reply_stream(
             output += char
 
             # Fire token callback (used by ACP path for incremental streaming)
-            if on_token:
+            # Skip thinking-tag content: ACP clients don't need raw reasoning traces
+            if on_token and not are_thinking:
                 on_token(char)
 
             # need to flush stdout to get the print to show up

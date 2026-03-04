@@ -434,3 +434,51 @@ def test_reply_stream_on_token_callback(monkeypatch):
     assert "".join(collected) == expected_text
     # Verify callback was called once per character
     assert len(collected) == len(expected_text)
+
+
+def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
+    """on_token receives only characters up to the break_on_tooluse breakpoint."""
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools()
+
+    # Use ``shell`` lang tag (recognized by get_tool_for_langtag).
+    # streaming=True requires a blank line after closing ``` to confirm block closure.
+    tool_block = "```shell\necho hi\n```\n\n"
+    suffix = "This text should not be reached"
+
+    def _fake_gen(chunks):
+        yield from chunks
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self.gen = _fake_gen(chunks)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream([tool_block, suffix]),
+    )
+
+    collected: list[str] = []
+
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+        on_token=collected.append,
+        break_on_tooluse=True,
+    )
+
+    received_text = "".join(collected)
+    # on_token should only receive chars up to (including) the newline that triggered break
+    assert received_text == tool_block
+    assert result.content == tool_block
+    # suffix was never streamed
+    assert suffix not in received_text
+    assert len(collected) == len(tool_block)

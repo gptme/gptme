@@ -1110,6 +1110,9 @@ class GptmeAgent:
                 """Accumulate a token; flush if size/time threshold is reached."""
                 batch_buffer.append(token)
                 now = time.monotonic()
+                # last_flush[0] is intentionally not updated on failure, so the
+                # time-based trigger stays open after a failed flush.
+                # last_attempt[0] alone throttles retry cadence to FLUSH_INTERVAL.
                 if (
                     len(batch_buffer) >= FLUSH_SIZE
                     or (now - last_flush[0]) >= FLUSH_INTERVAL
