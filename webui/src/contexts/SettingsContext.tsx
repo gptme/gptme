@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 
 export interface Settings {
   chimeEnabled: boolean;
@@ -22,6 +22,21 @@ const defaultSettings: Settings = {
   hasCompletedSetup: false,
 };
 
+function loadSettingsFromStorage(): Settings {
+  try {
+    const savedSettings = localStorage.getItem('gptme-settings');
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings);
+      // Existing users who pre-date hasCompletedSetup should not see the wizard
+      const hasCompletedSetup = parsed.hasCompletedSetup ?? true;
+      return { ...defaultSettings, ...parsed, hasCompletedSetup };
+    }
+  } catch {
+    // ignore
+  }
+  return defaultSettings;
+}
+
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const useSettings = () => {
@@ -33,22 +48,8 @@ export const useSettings = () => {
 };
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
-
-  // Load settings from localStorage on mount
-  useEffect(() => {
-    try {
-      const savedSettings = localStorage.getItem('gptme-settings');
-      if (savedSettings) {
-        const parsed = JSON.parse(savedSettings);
-        // Existing users who pre-date hasCompletedSetup should not see the wizard
-        const hasCompletedSetup = parsed.hasCompletedSetup ?? true;
-        setSettings({ ...defaultSettings, ...parsed, hasCompletedSetup });
-      }
-    } catch (error) {
-      console.error('Failed to load settings from localStorage:', error);
-    }
-  }, []);
+  // Initialize synchronously from localStorage to prevent a flash of the setup wizard
+  const [settings, setSettings] = useState<Settings>(loadSettingsFromStorage);
 
   const updateSettings = (updates: Partial<Settings>) => {
     const newSettings = { ...settings, ...updates };
