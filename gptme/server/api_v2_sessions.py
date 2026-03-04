@@ -282,8 +282,8 @@ def start_acp_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
 def stop_acp_health_monitor() -> None:
     """Stop the health monitor and clean up all remaining ACP sessions."""
     global _health_monitor_thread
-    _health_monitor_stop.set()
     with _health_monitor_lock:
+        _health_monitor_stop.set()
         if _health_monitor_thread is not None:
             _health_monitor_thread.join(timeout=5)
             if _health_monitor_thread.is_alive():
@@ -350,10 +350,11 @@ def _cleanup_all_acp_sessions() -> None:
 
     logger.info("Shutting down %d ACP session(s)", len(acp_sessions))
     for session_id, session in acp_sessions:
+        acp_runtime = session.acp_runtime
         try:
-            if session.acp_runtime is None:
+            if acp_runtime is None:
                 continue
-            session.acp_runtime.terminate_subprocess_sync()
+            acp_runtime.terminate_subprocess_sync()
             logger.debug("Closed ACP runtime for session %s", session_id)
         except Exception:
             logger.warning(
