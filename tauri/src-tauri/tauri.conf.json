@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "gptme-tauri",
+  "version": "0.1.0",
+  "identifier": "org.gptme.tauri",
+  "build": {
+    "beforeDevCommand": "cd ../gptme/webui && npm run dev",
+    "devUrl": "http://localhost:5701",
+    "beforeBuildCommand": "cd ../gptme/webui && npm run build",
+    "frontendDist": "../../gptme/webui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "gptme-tauri",
+        "width": 800,
+        "height": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["../bins/gptme-server"]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["gptme"]
+      }
+    }
+  }
+}

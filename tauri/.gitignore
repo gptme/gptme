@@ -1,0 +1,12 @@
+# Node
+node_modules/
+
+# Tauri build output
+src-tauri/target/
+src-tauri/gen/
+
+# Icons (generated from logo.png)
+src-tauri/icons/
+
+# Bundled sidecar binaries
+bins/
