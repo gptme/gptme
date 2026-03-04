@@ -152,7 +152,7 @@ jobs:
           bmp = struct.pack('<IiiHHIIiiII', 40, s, s*2, 1, bpp, 0, px + mask, 0, 0, 0, 0)
           img = bmp + (b'\x00\x80\x00\xff' * s * s) + (b'\x00' * mask)
           hdr = struct.pack('<HHH', 0, 1, 1)
-          entry = struct.pack('<BBBBHHIH', s, s, 0, 0, 1, bpp, len(img), 22)
+          entry = struct.pack('<BBBBHHII', s, s, 0, 0, 1, bpp, len(img), 22)
           open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + img)
           "
 
@@ -306,7 +306,7 @@ jobs:
           bmp = struct.pack('<IiiHHIIiiII', 40, s, s*2, 1, bpp, 0, px + mask, 0, 0, 0, 0)
           img = bmp + (b'\x00\x80\x00\xff' * s * s) + (b'\x00' * mask)
           hdr = struct.pack('<HHH', 0, 1, 1)
-          entry = struct.pack('<BBBBHHIH', s, s, 0, 0, 1, bpp, len(img), 22)
+          entry = struct.pack('<BBBBHHII', s, s, 0, 0, 1, bpp, len(img), 22)
           open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + img)
           "
 
