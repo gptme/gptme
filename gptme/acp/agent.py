@@ -1109,13 +1109,13 @@ class GptmeAgent:
             # Final flush: send any remaining buffered tokens
             if batch_buffer and self._conn:
                 batch_text = "".join(batch_buffer)
-                batch_buffer.clear()
                 final_chunk = update_agent_message(text_block(batch_text))
                 await self._conn.session_update(
                     session_id=session_id,
                     update=final_chunk,
                     source="gptme-stream",
                 )
+                batch_buffer.clear()  # Only clear after confirmed successful send
 
             # Phase 2: Mark all in-progress tool calls as completed
             await self._complete_pending_tool_calls(session_id)
