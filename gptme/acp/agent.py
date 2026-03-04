@@ -1077,6 +1077,7 @@ class GptmeAgent:
                     batch_buffer.clear()  # Only clear after confirmed successful send
                     last_flush[0] = time.monotonic()  # Only advance timer on success
                 except Exception:
+                    future.cancel()  # Prevent stale coroutine from delivering after timeout
                     # Leave batch_buffer intact so tokens survive to the final flush
                     # last_flush[0] is NOT updated, so time-based retry fires promptly
                     logger.debug("Failed to send streaming token batch", exc_info=True)
