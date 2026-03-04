@@ -131,23 +131,30 @@ jobs:
           cp tauri/src-tauri/icons/32x32.png tauri/src-tauri/icons/128x128.png
           cp tauri/src-tauri/icons/32x32.png "tauri/src-tauri/icons/128x128@2x.png"
           touch tauri/src-tauri/icons/icon.icns
-          # Windows RC needs BMP-based ICO (not PNG-inside-ICO)
-          python3 -c "
-          import struct
-          s = 32  # 32x32 icon
-          bpp = 32
-          px = s * s * 4  # pixel data size (BGRA)
-          mask = ((s + 31) // 32) * 4 * s  # AND mask size
-          bmp = struct.pack('<IiiHHIIiiII', 40, s, s*2, 1, bpp, 0, 0, 0, 0, 0, 0)
-          img = bmp + (b'\x00' * px) + (b'\xff' * mask)
-          hdr = struct.pack('<HHH', 0, 1, 1)
-          entry = struct.pack('<BBBBHHIH', s, s, 0, 0, 1, bpp, len(img), 22)
-          open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + img)
-          "
+          touch tauri/src-tauri/icons/icon.ico
 
       - name: Generate Tauri icons
         shell: bash
         run: cd tauri && npm run tauri icon ../webui/public/logo.png || true
+
+      - name: Fix ICO for Windows Resource Compiler
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # tauri icon may produce PNG-inside-ICO which Windows RC rejects (RC2176).
+          # Regenerate as BMP-based ICO that RC can compile.
+          python3 -c "
+          import struct
+          s = 32
+          bpp = 32
+          px = s * s * 4
+          mask = ((s + 31) // 32) * 4 * s
+          bmp = struct.pack('<IiiHHIIiiII', 40, s, s*2, 1, bpp, 0, px + mask, 0, 0, 0, 0)
+          img = bmp + (b'\x00\x80\x00\xff' * s * s) + (b'\x00' * mask)
+          hdr = struct.pack('<HHH', 0, 1, 1)
+          entry = struct.pack('<BBBBHHIH', s, s, 0, 0, 1, bpp, len(img), 22)
+          open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + img)
+          "
 
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
@@ -280,23 +287,28 @@ jobs:
           cp tauri/src-tauri/icons/32x32.png tauri/src-tauri/icons/128x128.png
           cp tauri/src-tauri/icons/32x32.png "tauri/src-tauri/icons/128x128@2x.png"
           touch tauri/src-tauri/icons/icon.icns
-          # Windows RC needs BMP-based ICO (not PNG-inside-ICO)
-          python3 -c "
-          import struct
-          s = 32  # 32x32 icon
-          bpp = 32
-          px = s * s * 4  # pixel data size (BGRA)
-          mask = ((s + 31) // 32) * 4 * s  # AND mask size
-          bmp = struct.pack('<IiiHHIIiiII', 40, s, s*2, 1, bpp, 0, 0, 0, 0, 0, 0)
-          img = bmp + (b'\x00' * px) + (b'\xff' * mask)
-          hdr = struct.pack('<HHH', 0, 1, 1)
-          entry = struct.pack('<BBBBHHIH', s, s, 0, 0, 1, bpp, len(img), 22)
-          open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + img)
-          "
+          touch tauri/src-tauri/icons/icon.ico
 
       - name: Generate Tauri icons
         shell: bash
         run: cd tauri && npm run tauri icon ../webui/public/logo.png || true
+
+      - name: Fix ICO for Windows Resource Compiler
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python3 -c "
+          import struct
+          s = 32
+          bpp = 32
+          px = s * s * 4
+          mask = ((s + 31) // 32) * 4 * s
+          bmp = struct.pack('<IiiHHIIiiII', 40, s, s*2, 1, bpp, 0, px + mask, 0, 0, 0, 0)
+          img = bmp + (b'\x00\x80\x00\xff' * s * s) + (b'\x00' * mask)
+          hdr = struct.pack('<HHH', 0, 1, 1)
+          entry = struct.pack('<BBBBHHIH', s, s, 0, 0, 1, bpp, len(img), 22)
+          open('tauri/src-tauri/icons/icon.ico', 'wb').write(hdr + entry + img)
+          "
 
       # macOS code signing setup
       - name: Import Apple Developer Certificate (macOS)
