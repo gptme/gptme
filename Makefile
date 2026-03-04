@@ -1,4 +1,4 @@
-.PHONY: test test-api docs build build-docker check-rst install-completions help
+.PHONY: test test-api docs build build-docker check-rst install-completions help tauri-dev tauri-build tauri-lint tauri-build-sidecar
 
 # set default shell
 SHELL := $(shell which bash)
@@ -305,6 +305,25 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 	@echo
 	@echo "Run 'make <command>' to execute a command."
+
+tauri-dev: ## Run gptme-tauri in development mode (hot-reload webui + Tauri window)
+	cd tauri && npm install && npm run tauri dev
+
+tauri-build: ## Build the gptme-tauri desktop app
+	cd tauri && npm install && \
+	cd ../gptme/webui && npm install && npm run build && \
+	cd ../../tauri && \
+	if [ "$$(uname)" = "Linux" ]; then \
+		NO_STRIP=true npm run tauri build; \
+	else \
+		npm run tauri build; \
+	fi
+
+tauri-lint: ## Run Rust fmt + clippy on tauri/src-tauri
+	cd tauri/src-tauri && cargo fmt -- --check && cargo clippy -- -D warnings
+
+tauri-build-sidecar: ## Build the gptme-server sidecar binary for bundling
+	bash tauri/scripts/build-sidecar.sh
 
 build-docker-github-bot: ## Build Docker image for GitHub bot
 	docker build . -t gptme-github-bot:latest -f scripts/Dockerfile.github-bot

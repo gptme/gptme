@@ -1,0 +1,212 @@
+name: Tauri
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'tauri/**'
+      - 'gptme/webui/**'
+      - '.github/workflows/tauri.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'tauri/**'
+      - 'gptme/webui/**'
+      - '.github/workflows/tauri.yml'
+
+jobs:
+  lint:
+    name: Lint (format + clippy)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'tauri/src-tauri -> target'
+
+      - name: Check formatting
+        run: cd tauri/src-tauri && cargo fmt -- --check
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
+
+      - name: Create placeholder sidecar for tauri-build
+        run: |
+          # tauri-build checks that externalBin paths exist at compile time.
+          mkdir -p tauri/bins
+          TRIPLE=$(rustc -Vv | grep host | cut -f2 -d' ')
+          touch "tauri/bins/gptme-server-${TRIPLE}"
+
+      - name: Create placeholder icons for tauri::generate_context!
+        run: |
+          mkdir -p tauri/src-tauri/icons
+          # Minimal valid PNG (1x1 transparent pixel)
+          printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > tauri/src-tauri/icons/32x32.png
+          cp tauri/src-tauri/icons/32x32.png tauri/src-tauri/icons/128x128.png
+          cp tauri/src-tauri/icons/32x32.png "tauri/src-tauri/icons/128x128@2x.png"
+          touch tauri/src-tauri/icons/icon.icns
+          touch tauri/src-tauri/icons/icon.ico
+
+      - name: Run clippy
+        run: cd tauri/src-tauri && cargo clippy -- -D warnings
+
+  build:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+          - platform: ubuntu-24.04
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'tauri/src-tauri -> target'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: |
+            tauri/package-lock.json
+            gptme/webui/package-lock.json
+
+      - name: Install Tauri CLI deps
+        run: cd tauri && npm install
+
+      - name: Install webui deps and build
+        run: cd gptme/webui && npm install && npm run build
+
+      - name: Generate Tauri icons
+        run: cd tauri && npm run tauri icon ./public/logo.png || true
+
+      - name: Build the app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tauri
+
+  release:
+    name: Release (${{ matrix.platform }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+          - platform: ubuntu-24.04
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'tauri/src-tauri -> target'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: |
+            tauri/package-lock.json
+            gptme/webui/package-lock.json
+
+      - name: Install Tauri CLI deps
+        run: cd tauri && npm install
+
+      - name: Install webui deps and build
+        run: cd gptme/webui && npm install && npm run build
+
+      - name: Generate Tauri icons
+        run: cd tauri && npm run tauri icon ./public/logo.png || true
+
+      # macOS code signing setup
+      - name: Import Apple Developer Certificate (macOS)
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
+            echo "Warning: Apple signing certificates not available. Building without code signing."
+            exit 0
+          fi
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          CERT_INFO=$(security find-identity -v -p codesigning build.keychain | head -n 1)
+          SIGNING_IDENTITY=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+          echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY" >> $GITHUB_ENV
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: 'gptme ${{ github.ref_name }}'
+          releaseBody: 'Desktop app release. See the assets to download and install.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
