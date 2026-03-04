@@ -237,6 +237,7 @@ class SessionManager:
 _health_monitor_thread: threading.Thread | None = None
 _health_monitor_stop = threading.Event()
 _health_monitor_atexit_registered = False
+_health_monitor_lock = threading.Lock()
 
 # How often the health monitor runs (seconds)
 _HEALTH_CHECK_INTERVAL = 30
@@ -253,10 +254,6 @@ def start_acp_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
     - Logs subprocess lifecycle events for observability
     """
     global _health_monitor_thread, _health_monitor_atexit_registered
-    if _health_monitor_thread is not None:
-        return  # Already running
-
-    _health_monitor_stop.clear()
 
     def _monitor() -> None:
         while not _health_monitor_stop.wait(interval):
@@ -265,15 +262,20 @@ def start_acp_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
             except Exception:
                 logger.exception("Error in ACP health monitor")
 
-    _health_monitor_thread = threading.Thread(
-        target=_monitor, daemon=True, name="acp-health-monitor"
-    )
-    _health_monitor_thread.start()
-    # Register atexit handler only once — stop/start cycles re-enter this function
-    # but must not accumulate duplicate registrations.
-    if not _health_monitor_atexit_registered:
-        atexit.register(stop_acp_health_monitor)
-        _health_monitor_atexit_registered = True
+    with _health_monitor_lock:
+        if _health_monitor_thread is not None:
+            return  # Already running
+
+        _health_monitor_stop.clear()
+        _health_monitor_thread = threading.Thread(
+            target=_monitor, daemon=True, name="acp-health-monitor"
+        )
+        _health_monitor_thread.start()
+        # Register atexit handler only once — stop/start cycles re-enter this function
+        # but must not accumulate duplicate registrations.
+        if not _health_monitor_atexit_registered:
+            atexit.register(stop_acp_health_monitor)
+            _health_monitor_atexit_registered = True
     logger.info("ACP health monitor started (interval=%ds)", interval)
 
 
@@ -334,7 +336,8 @@ def _cleanup_all_acp_sessions() -> None:
     logger.info("Shutting down %d ACP session(s)", len(acp_sessions))
     for session_id, session in acp_sessions:
         try:
-            assert session.acp_runtime is not None  # for type checker
+            if session.acp_runtime is None:
+                continue
             session.acp_runtime.terminate_subprocess_sync()
             logger.debug("Closed ACP runtime for session %s", session_id)
         except Exception:

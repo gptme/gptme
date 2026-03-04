@@ -196,6 +196,7 @@ class AcpSessionRuntime:
         except Exception:
             try:
                 proc.kill()
+                proc.wait(timeout=1.0)  # reap zombie after SIGKILL
             except Exception:
                 pass
         finally:
