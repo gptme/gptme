@@ -500,10 +500,12 @@ def test_reply_stream_on_token_thinking_tag_suppressed(monkeypatch):
 
     # Model emits a thinking block followed by the actual answer.
     # Each element in the list is one "chunk" from the provider.
+    # Use the *real* Anthropic closing sequence "\n</think>\n\n" (double newline)
+    # to exercise the post-close blank-line suppression fix.
     chunks = [
         "<think>\n",
         "some private reasoning\n",
-        "</think>\n",
+        "\n</think>\n\n",
         "Hello, world!",
     ]
     full_text = "".join(chunks)
@@ -545,6 +547,11 @@ def test_reply_stream_on_token_thinking_tag_suppressed(monkeypatch):
     assert "<think>" not in received_text
     assert "</think>" not in received_text
     assert "some private reasoning" not in received_text
+
+    # The trailing blank "\n" from "\n</think>\n\n" must not leak as a leading
+    # newline before the answer.  (Without the `and line_buffer` guard, callers
+    # would receive "\nHello, world!" instead of "Hello, world!".)
+    assert not received_text.startswith("\n")
 
 
 def test_extract_thinking_content_with_signature():

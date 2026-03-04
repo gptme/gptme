@@ -258,6 +258,9 @@ def _reply_stream(
     start_time = time.time()
     first_token_time = None
     are_thinking = False
+    # Set to True when we detect a closing </think> tag so we can suppress the
+    # one trailing blank "\n" that Anthropic always emits after </think>.
+    just_closed_thinking = False
     # Buffer chars for the current line before forwarding to on_token.
     # Thinking-tag lines are only detectable at the '\n' that closes them, so we
     # must buffer the entire line and then decide whether to emit or suppress it.
@@ -297,6 +300,7 @@ def _reply_stream(
                     # Print styled version
                     rprint(f"[dim]{last_line}[/dim]", end="")
                     are_thinking = False
+                    just_closed_thinking = True
 
                 # Now print the newline
                 rprint(char, end="")
@@ -321,8 +325,23 @@ def _reply_stream(
                     # are_thinking != prev_thinking.  In that case discard the
                     # buffer (tag line itself should not reach the caller).
                     if not are_thinking and not prev_thinking:
-                        # Normal line — emit the whole line as one chunk.
-                        on_token("".join(line_buffer) + "\n")
+                        if line_buffer:
+                            # Normal line — emit the whole line as one chunk.
+                            on_token("".join(line_buffer) + "\n")
+                        elif just_closed_thinking:
+                            # Suppress the one blank "\n" that Anthropic always
+                            # emits after "\n</think>\n\n".  Without this guard
+                            # ACP clients would receive a spurious leading "\n"
+                            # before the first real response character.
+                            pass
+                        else:
+                            # Intentional blank line in response content.
+                            on_token("\n")
+                        # Only reset here (inside the normal-line branch), NOT on
+                        # the "\n" that triggered the </think> detection — that "\n"
+                        # has prev_thinking=True so it skips this block entirely,
+                        # keeping just_closed_thinking set for the NEXT newline.
+                        just_closed_thinking = False
                     line_buffer.clear()
                 elif not are_thinking:
                     # Accumulate non-newline chars; we don't yet know if this
