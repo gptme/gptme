@@ -113,6 +113,8 @@ def reply(
     init_llm(get_provider_from_model(model))
     config = get_config()
     agent_name = _get_agent_name(config)
+    if on_token is not None and not stream:
+        logger.warning("on_token callback has no effect when stream=False; ignoring")
     if stream:
         break_on_tooluse = bool(config.get_env_bool("GPTME_BREAK_ON_TOOLUSE", True))
         return _reply_stream(

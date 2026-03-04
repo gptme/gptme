@@ -394,3 +394,43 @@ class TestProcessImageFile:
         content_parts2: list[dict] = []
         result2 = process_image_file(str(img_file), content_parts2, max_size_mb=3)
         assert result2 is not None
+
+
+def test_reply_stream_on_token_callback(monkeypatch):
+    """on_token callback is called once per character during streaming."""
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+
+    # Mock _stream to yield known chunks
+    chunks_to_yield = ["Hello", ", ", "world!"]
+
+    def _fake_gen(chunks):
+        yield from chunks
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self.gen = _fake_gen(chunks)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks_to_yield),
+    )
+
+    collected: list[str] = []
+
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+        on_token=collected.append,
+    )
+
+    expected_text = "Hello, world!"
+    assert result.content == expected_text
+    assert "".join(collected) == expected_text
+    # Verify callback was called once per character
+    assert len(collected) == len(expected_text)
