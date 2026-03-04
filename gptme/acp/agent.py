@@ -1048,7 +1048,7 @@ class GptmeAgent:
             # Build a batching on_token callback that sends incremental session_update
             # calls during generation, enabling per-token streaming to the client.
             FLUSH_INTERVAL = 0.1  # seconds
-            FLUSH_SIZE = 50  # characters
+            FLUSH_SIZE = 50  # characters (each on_token call receives exactly 1 char)
 
             batch_buffer: list[str] = []
             last_flush: list[float] = [
@@ -1060,7 +1060,6 @@ class GptmeAgent:
                 if not batch_buffer or not self._conn:
                     return
                 batch_text = "".join(batch_buffer)
-                batch_buffer.clear()
                 last_flush[0] = time.monotonic()
                 chunk = update_agent_message(text_block(batch_text))
                 future = asyncio.run_coroutine_threadsafe(
@@ -1073,7 +1072,9 @@ class GptmeAgent:
                 )
                 try:
                     future.result(timeout=5)
+                    batch_buffer.clear()  # Only clear after confirmed successful send
                 except Exception:
+                    # Leave batch_buffer intact so tokens survive to the final flush
                     logger.debug("Failed to send streaming token batch", exc_info=True)
 
             def on_token(token: str) -> None:
