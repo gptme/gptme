@@ -1055,7 +1055,10 @@ class GptmeAgent:
 
             last_flush: list[float] = [
                 time.monotonic()
-            ]  # mutable for nonlocal in nested fn
+            ]  # mutable for nonlocal in nested fn; tracks last *successful* flush
+            last_attempt: list[float] = [
+                time.monotonic()
+            ]  # tracks last flush *attempt*; prevents retry cascade under event loop pressure
 
             def _flush_batch() -> None:
                 """Flush accumulated tokens as a session_update (called from executor thread)."""
@@ -1076,10 +1079,16 @@ class GptmeAgent:
                     future.result(timeout=FLUSH_INTERVAL)
                     batch_buffer.clear()  # Only clear after confirmed successful send
                     last_flush[0] = time.monotonic()  # Only advance timer on success
+                    last_attempt[0] = last_flush[
+                        0
+                    ]  # Sync attempt to flush time on success
                 except Exception:
                     future.cancel()  # Prevent stale coroutine from delivering after timeout
+                    last_attempt[0] = (
+                        time.monotonic()
+                    )  # Throttle retry: enforce FLUSH_INTERVAL between attempts
                     # Leave batch_buffer intact so tokens survive to the final flush
-                    # last_flush[0] is NOT updated, so time-based retry fires promptly
+                    # last_flush[0] is NOT updated, so time-based retry fires when event loop recovers
                     logger.debug("Failed to send streaming token batch", exc_info=True)
 
             def on_token(token: str) -> None:
@@ -1089,7 +1098,7 @@ class GptmeAgent:
                 if (
                     len(batch_buffer) >= FLUSH_SIZE
                     or (now - last_flush[0]) >= FLUSH_INTERVAL
-                ):
+                ) and (now - last_attempt[0]) >= FLUSH_INTERVAL:
                     _flush_batch()
 
             def run_chat_step() -> list[Message]:
@@ -1127,6 +1136,9 @@ class GptmeAgent:
             # Process response messages: add to log and forward non-assistant messages.
             # Assistant messages were already streamed incrementally via on_token,
             # so we skip re-sending their content to avoid duplicating the output.
+            # NOTE: Before this PR, tool-result messages were silently dropped (neither sent
+            # nor logged). Now they are forwarded via session_update so clients see tool output.
+            # This is intentional: clients receive one assistant-text stream + any tool results.
             for response_msg in response_msgs:
                 if response_msg.role == "assistant":
                     # Tokens were already sent via on_token batching; just persist to log.
