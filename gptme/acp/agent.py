@@ -1070,7 +1070,8 @@ class GptmeAgent:
                     loop,
                 )
                 try:
-                    future.result(timeout=5)
+                    # Short timeout to avoid stalling the LLM streaming thread
+                    future.result(timeout=0.5)
                     batch_buffer.clear()  # Only clear after confirmed successful send
                     last_flush[0] = time.monotonic()  # Only advance timer on success
                 except Exception:
@@ -1146,6 +1147,19 @@ class GptmeAgent:
 
         except Exception as e:
             logger.exception("Error processing prompt: %s", e)
+            # Best-effort flush of any buffered tokens before error message,
+            # so the client sees partial output before the error notification.
+            if batch_buffer and self._conn:
+                try:
+                    batch_text = "".join(batch_buffer)
+                    batch_buffer.clear()
+                    await self._conn.session_update(
+                        session_id=session_id,
+                        update=update_agent_message(text_block(batch_text)),
+                        source="gptme-stream",
+                    )
+                except Exception:
+                    logger.debug("Failed to flush token buffer on error", exc_info=True)
             # Phase 2: Mark tool calls as failed on error
             await self._complete_pending_tool_calls(session_id, success=False)
             # Send error message
