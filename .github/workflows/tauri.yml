@@ -62,6 +62,45 @@ jobs:
       - name: Run clippy
         run: cd tauri/src-tauri && cargo clippy -- -D warnings
 
+  test:
+    name: Test (unit + IPC)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'tauri/src-tauri -> target'
+
+      - name: Create placeholder sidecar for tauri-build
+        run: |
+          mkdir -p tauri/bins
+          TRIPLE=$(rustc -Vv | grep host | cut -f2 -d' ')
+          touch "tauri/bins/gptme-server-${TRIPLE}"
+
+      - name: Create placeholder icons for tauri::generate_context!
+        run: |
+          mkdir -p tauri/src-tauri/icons
+          printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > tauri/src-tauri/icons/32x32.png
+          cp tauri/src-tauri/icons/32x32.png tauri/src-tauri/icons/128x128.png
+          cp tauri/src-tauri/icons/32x32.png "tauri/src-tauri/icons/128x128@2x.png"
+          touch tauri/src-tauri/icons/icon.icns
+          touch tauri/src-tauri/icons/icon.ico
+
+      - name: Run Rust tests
+        run: cd tauri/src-tauri && cargo test
+
   build:
     name: Build (${{ matrix.platform }})
     strategy:

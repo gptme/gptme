@@ -36,3 +36,6 @@ format:
 
 check:
 	cd src-tauri && cargo check && cargo clippy
+
+test:
+	cd src-tauri && cargo test

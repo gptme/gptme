@@ -150,6 +150,25 @@ async fn start_server(
     Ok(GPTME_SERVER_PORT)
 }
 
+/// Extract and sanitize an auth code from a deep-link URL.
+///
+/// Parses `gptme://pairing-complete?code=<hex>` or `gptme://callback?code=<hex>`
+/// and returns the sanitized (alphanumeric-only) code, or `None`.
+fn extract_auth_code(url: &url::Url) -> Option<String> {
+    let code = url
+        .query_pairs()
+        .find(|(key, _)| key == "code")
+        .map(|(_, value)| value.to_string())?;
+
+    // Sanitize: only allow alphanumeric characters (codes should be hex)
+    let safe_code: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    if safe_code.is_empty() {
+        log::warn!("Auth code was empty after sanitization");
+        return None;
+    }
+    Some(safe_code)
+}
+
 /// Extract auth code from a gptme:// deep-link URL and inject it into the webview.
 ///
 /// Sets the URL hash to `#code=<hex>` and reloads the page, which triggers
@@ -158,19 +177,7 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
     for url in &urls {
         log::info!("Deep link received: {}", url);
 
-        // Parse gptme://pairing-complete?code=<hex> or gptme://callback?code=<hex>
-        if let Some(code) = url
-            .query_pairs()
-            .find(|(key, _)| key == "code")
-            .map(|(_, value)| value.to_string())
-        {
-            // Sanitize: only allow alphanumeric characters (codes should be hex)
-            let safe_code: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
-            if safe_code.is_empty() {
-                log::warn!("Auth code was empty after sanitization");
-                continue;
-            }
-
+        if let Some(safe_code) = extract_auth_code(url) {
             log::info!("Auth code extracted from deep link, injecting into webview");
 
             if let Some(window) = app.get_webview_window("main") {
@@ -427,4 +434,110 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Port availability ──────────────────────────────────────────
+
+    #[test]
+    fn test_is_port_available_on_unused_port() {
+        // Port 0 tells the OS to pick a free port — but is_port_available
+        // tries to *bind* the given port, so use a high ephemeral port that
+        // is very unlikely to be in use.
+        assert!(is_port_available(19876));
+    }
+
+    #[test]
+    fn test_is_port_available_on_occupied_port() {
+        // Bind a port so it's occupied, then verify is_port_available returns false.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(!is_port_available(port));
+        drop(listener);
+        // After dropping the listener, the port should be available again.
+        assert!(is_port_available(port));
+    }
+
+    // ── Deep-link auth code extraction ─────────────────────────────
+
+    #[test]
+    fn test_extract_auth_code_valid() {
+        let url = url::Url::parse("gptme://pairing-complete?code=abc123def").unwrap();
+        assert_eq!(extract_auth_code(&url), Some("abc123def".to_string()));
+    }
+
+    #[test]
+    fn test_extract_auth_code_hex() {
+        let url = url::Url::parse("gptme://callback?code=deadBEEF42").unwrap();
+        assert_eq!(extract_auth_code(&url), Some("deadBEEF42".to_string()));
+    }
+
+    #[test]
+    fn test_extract_auth_code_strips_special_chars() {
+        // XSS attempt: special characters should be stripped
+        let url =
+            url::Url::parse("gptme://callback?code=abc%3Cscript%3Ealert(1)%3C/script%3E").unwrap();
+        let code = extract_auth_code(&url).unwrap();
+        assert_eq!(code, "abcscriptalert1script");
+    }
+
+    #[test]
+    fn test_extract_auth_code_empty_after_sanitization() {
+        let url = url::Url::parse("gptme://callback?code=%3C%3E%22%27").unwrap();
+        assert_eq!(extract_auth_code(&url), None);
+    }
+
+    #[test]
+    fn test_extract_auth_code_missing() {
+        let url = url::Url::parse("gptme://pairing-complete?other=value").unwrap();
+        assert_eq!(extract_auth_code(&url), None);
+    }
+
+    #[test]
+    fn test_extract_auth_code_no_query() {
+        let url = url::Url::parse("gptme://pairing-complete").unwrap();
+        assert_eq!(extract_auth_code(&url), None);
+    }
+
+    // ── ServerStatus serialization ─────────────────────────────────
+
+    #[test]
+    fn test_server_status_serialization() {
+        let status = ServerStatus {
+            running: false,
+            port: 5700,
+            port_available: true,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"running\":false"));
+        assert!(json.contains("\"port\":5700"));
+        assert!(json.contains("\"port_available\":true"));
+    }
+
+    // ── IPC command tests using Tauri mock runtime ─────────────────
+
+    #[test]
+    fn test_get_server_status_initial() {
+        // With no server process, status should report not running.
+        let state = ServerProcess(Arc::new(Mutex::new(None)));
+        let status = get_server_status(tauri::State::new(&state));
+        assert!(!status.running);
+        assert_eq!(status.port, GPTME_SERVER_PORT);
+    }
+
+    #[test]
+    fn test_stop_server_when_not_running() {
+        let state = ServerProcess(Arc::new(Mutex::new(None)));
+        let result = stop_server(tauri::State::new(&state));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "No server process running");
+    }
+
+    #[test]
+    fn test_gptme_server_port_constant() {
+        assert_eq!(GPTME_SERVER_PORT, 5700);
+    }
 }
