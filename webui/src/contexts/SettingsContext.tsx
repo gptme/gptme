@@ -5,6 +5,7 @@ export interface Settings {
   blocksDefaultOpen: boolean;
   showHiddenMessages: boolean;
   showInitialSystem: boolean;
+  hasCompletedSetup: boolean;
 }
 
 interface SettingsContextType {
@@ -18,6 +19,7 @@ const defaultSettings: Settings = {
   blocksDefaultOpen: true,
   showHiddenMessages: false,
   showInitialSystem: false,
+  hasCompletedSetup: false,
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);

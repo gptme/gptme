@@ -10,6 +10,7 @@ import Index from './pages/Index';
 import Tasks from './pages/Tasks';
 import Workspace from './pages/Workspace';
 import { CommandPalette } from './components/CommandPalette';
+import { SetupWizard } from './components/SetupWizard';
 import type { FC } from 'react';
 
 const queryClient = new QueryClient({
@@ -57,6 +58,7 @@ const App: FC = () => {
                   <Route path="/tasks/:id" element={<Tasks />} />
                   <Route path="/workspace/:id" element={<Workspace />} />
                 </Routes>
+                <SetupWizard />
                 <CommandPalette />
                 <Toaster />
                 <Sonner />
