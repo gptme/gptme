@@ -482,3 +482,64 @@ def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
     # suffix was never streamed
     assert suffix not in received_text
     assert len(collected) == len(tool_block)
+
+
+def test_reply_stream_on_token_thinking_tag_suppressed(monkeypatch):
+    """on_token must not receive thinking-tag lines or their content.
+
+    Reasoning traces appear as ``<think>\\n...\\n</think>`` blocks in the raw
+    stream.  ACP clients should receive only the final answer text, not the
+    raw reasoning.  Critically, even the opening ``<think>`` tag must be
+    suppressed — previous code would forward it to on_token before
+    ``are_thinking`` could flip at the trailing newline.
+    """
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+
+    # Model emits a thinking block followed by the actual answer.
+    # Each element in the list is one "chunk" from the provider.
+    chunks = [
+        "<think>\n",
+        "some private reasoning\n",
+        "</think>\n",
+        "Hello, world!",
+    ]
+    full_text = "".join(chunks)
+
+    def _fake_gen(c):
+        yield from c
+
+    class _FakeStream:
+        def __init__(self, c):
+            self.gen = _fake_gen(c)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks),
+    )
+
+    collected: list[str] = []
+
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+        on_token=collected.append,
+    )
+
+    received_text = "".join(collected)
+
+    # The persistent log must contain the full text (including thinking block).
+    assert result.content == full_text
+
+    # on_token must only receive the final answer — no thinking content.
+    assert received_text == "Hello, world!"
+
+    # Specifically: opening tag must NOT appear (was the root cause of the bug).
+    assert "<think>" not in received_text
+    assert "</think>" not in received_text
+    assert "some private reasoning" not in received_text

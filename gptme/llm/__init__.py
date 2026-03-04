@@ -258,6 +258,10 @@ def _reply_stream(
     start_time = time.time()
     first_token_time = None
     are_thinking = False
+    # Buffer chars for the current line before forwarding to on_token.
+    # Thinking-tag lines are only detectable at the '\n' that closes them, so we
+    # must buffer the entire line and then decide whether to emit or suppress it.
+    line_buffer: list[str] = []
 
     # Create stream wrapper to capture metadata
     stream = _stream(messages, model, tools, output_schema=output_schema)
@@ -268,6 +272,10 @@ def _reply_stream(
                 first_token_time = time.time()
                 print_clear()
                 rprint(f"{prompt_assistant(agent_name)}: \n", end="")
+
+            # Capture thinking state before the tag-detection update below so
+            # we can tell whether a transition happened at this newline.
+            prev_thinking = are_thinking
 
             # Check for thinking tags before printing a newline
             if char == "\n" or not output:
@@ -302,10 +310,27 @@ def _reply_stream(
             assert len(char) == 1
             output += char
 
-            # Fire token callback (used by ACP path for incremental streaming)
-            # Skip thinking-tag content: ACP clients don't need raw reasoning traces
-            if on_token and not are_thinking:
-                on_token(char)
+            # Fire token callback (used by ACP path for incremental streaming).
+            # We buffer each line and only flush to on_token once we confirm the
+            # line is not a thinking-tag delimiter.  This prevents the opening
+            # <think> tag characters from leaking to callers before are_thinking
+            # flips at the trailing '\n'.
+            if on_token:
+                if char == "\n":
+                    # A thinking-tag transition happened on this newline when
+                    # are_thinking != prev_thinking.  In that case discard the
+                    # buffer (tag line itself should not reach the caller).
+                    if not are_thinking and not prev_thinking:
+                        # Normal line — flush buffered chars then the newline.
+                        for c in line_buffer:
+                            on_token(c)
+                        on_token("\n")
+                    line_buffer.clear()
+                elif not are_thinking:
+                    # Accumulate non-newline chars; we don't yet know if this
+                    # line will turn out to be a thinking-tag opener.
+                    line_buffer.append(char)
+                # else: are_thinking is True — skip thinking content
 
             # need to flush stdout to get the print to show up
             sys.stdout.flush()
@@ -325,7 +350,20 @@ def _reply_stream(
                     logger.debug("Found tool use, breaking")
                     break
 
+        # Flush any remaining buffered chars (responses that end without a
+        # trailing newline, or partial lines left after a break_on_tooluse break).
+        if on_token and line_buffer and not are_thinking:
+            for c in line_buffer:
+                on_token(c)
+            line_buffer.clear()
+
     except KeyboardInterrupt:
+        # Flush partial line before the interrupt suffix so callers see the
+        # content that was streamed up to the interrupt point.
+        if on_token and line_buffer:
+            for c in line_buffer:
+                on_token(c)
+            line_buffer.clear()
         suffix = "... ^C Interrupted"
         if on_token:
             for ch in suffix:
