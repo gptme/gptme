@@ -16,6 +16,8 @@ import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucid
 
 type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'complete';
 
+// The gptme cloud service is hosted on fleet.gptme.ai (the cloud.gptme.ai domain
+// is a planned alias). Override with VITE_GPTME_CLOUD_BASE_URL for other deployments.
 const CLOUD_AUTH_URL =
   import.meta.env.VITE_GPTME_CLOUD_BASE_URL
     ? `${import.meta.env.VITE_GPTME_CLOUD_BASE_URL}/authorize`
@@ -27,6 +29,7 @@ export function SetupWizard() {
   const isConnected = use$(isConnected$);
   const [step, setStep] = useState<SetupStep>('welcome');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const isTauri = isTauriEnvironment();
 
   // Don't show if setup already completed
@@ -42,13 +45,16 @@ export function SetupWizard() {
       return;
     }
     setIsConnecting(true);
+    setConnectError(null);
     try {
       await connect();
-    } catch {
-      // Connection failed — that's okay, user can retry from the connection button later
+      setStep('complete');
+    } catch (err) {
+      setConnectError(
+        err instanceof Error ? err.message : 'Could not connect to server. Is it running?'
+      );
     } finally {
       setIsConnecting(false);
-      setStep('complete');
     }
   };
 
@@ -175,6 +181,11 @@ export function SetupWizard() {
                 <div className="flex items-center gap-2 text-sm text-green-500">
                   <Check className="h-4 w-4" />
                   Connected to server
+                </div>
+              )}
+              {connectError && (
+                <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {connectError}
                 </div>
               )}
             </div>

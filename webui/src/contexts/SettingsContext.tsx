@@ -63,14 +63,17 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const resetSettings = () => {
-    // Preserve hasCompletedSetup so a settings reset doesn't re-trigger the wizard
-    const newSettings = { ...defaultSettings, hasCompletedSetup: settings.hasCompletedSetup };
-    setSettings(newSettings);
-    try {
-      localStorage.setItem('gptme-settings', JSON.stringify(newSettings));
-    } catch (error) {
-      console.error('Failed to reset settings in localStorage:', error);
-    }
+    // Use functional updater to avoid stale closure on hasCompletedSetup.
+    // Preserve hasCompletedSetup so a settings reset doesn't re-trigger the wizard.
+    setSettings((current) => {
+      const newSettings = { ...defaultSettings, hasCompletedSetup: current.hasCompletedSetup };
+      try {
+        localStorage.setItem('gptme-settings', JSON.stringify(newSettings));
+      } catch (error) {
+        console.error('Failed to reset settings in localStorage:', error);
+      }
+      return newSettings;
+    });
   };
 
   return (
