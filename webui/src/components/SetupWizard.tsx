@@ -28,8 +28,13 @@ export function SetupWizard() {
   const { isConnected$, connect } = useApi();
   const isConnected = use$(isConnected$);
   const [step, setStep] = useState<SetupStep>('welcome');
-  // Control dialog visibility with local state so React batching of completeSetup()
-  // + setStep('complete') doesn't trigger the early-return guard before 'complete' renders.
+  // isOpen is a one-time snapshot of hasCompletedSetup taken at mount. It is intentionally
+  // NOT derived from settings on subsequent renders — the wizard manages its own visibility
+  // via setIsOpen after mount. This prevents external changes to hasCompletedSetup (e.g. from
+  // resetSettings) from re-opening the wizard mid-session.
+  // Also avoids React batching issues: completeSetup() + setStep('complete') update two separate
+  // state atoms in the same event handler; a derived signal would close the dialog before the
+  // 'complete' step could render.
   const [isOpen, setIsOpen] = useState(!settings.hasCompletedSetup);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -82,7 +87,7 @@ export function SetupWizard() {
       <DialogContent
         className="sm:max-w-md [&>button]:hidden"
         onPointerDownOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
+        onEscapeKeyDown={closeWizard}
       >
         {step === 'welcome' && (
           <>

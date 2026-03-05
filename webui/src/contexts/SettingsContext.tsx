@@ -31,8 +31,8 @@ function loadSettingsFromStorage(): Settings {
       const hasCompletedSetup = parsed.hasCompletedSetup ?? true;
       return { ...defaultSettings, ...parsed, hasCompletedSetup };
     }
-  } catch {
-    // ignore
+  } catch (error) {
+    console.error('Failed to load settings from localStorage:', error);
   }
   return defaultSettings;
 }
