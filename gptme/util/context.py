@@ -1,6 +1,7 @@
 import errno
 import json
 import logging
+import mimetypes
 import os
 import re
 import shutil
@@ -615,6 +616,47 @@ def _find_potential_paths(content: str) -> list[str]:
     return paths
 
 
+def _binary_file_metadata(path: Path, prompt: str) -> str | None:
+    """Return metadata about a binary file as a codeblock instead of silently ignoring it."""
+    try:
+        size = path.stat().st_size
+        mime, _ = mimetypes.guess_type(str(path))
+
+        lines = [f"Binary file: {path.name}"]
+        lines.append(f"Size: {_human_readable_size(size)}")
+        if mime:
+            lines.append(f"Type: {mime}")
+
+        # Try the `file` command for richer metadata
+        if shutil.which("file"):
+            try:
+                result = subprocess.run(
+                    ["file", "--brief", str(path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    lines.append(f"Details: {result.stdout.strip()}")
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+
+        return md_codeblock(prompt, "\n".join(lines))
+    except OSError:
+        return None
+
+
+def _human_readable_size(size_bytes: int) -> str:
+    """Format byte size as human-readable string."""
+    size = float(size_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
 def _resource_to_codeblock(
     prompt: str, confirmed_urls: list[str] | None = None
 ) -> str | None:
@@ -641,10 +683,9 @@ def _resource_to_codeblock(
             return None
         raise
     except UnicodeDecodeError:
-        # some files are not text files (images, audio, PDFs, binaries, etc), so we can't read them
-        # TODO: but can we handle them better than just printing the path? maybe with metadata from `file`?
-        # logger.warning(f"Failed to read file {prompt}: not a text file")
-        return None
+        # Binary file — return metadata instead of contents
+        f = Path(prompt).expanduser()
+        return _binary_file_metadata(f, prompt)
 
     # check if any word in prompt is a path or URL,
     # if so, append the contents as a code block
