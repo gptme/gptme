@@ -1217,9 +1217,9 @@ def test_acp_mode_creates_subagent():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    with patch(
-        "gptme.acp.client.GptmeAcpClient",
-        return_value=mock_client,
+    with (
+        patch("gptme.acp.client.GptmeAcpClient", return_value=mock_client),
+        patch("gptme.tools.subagent.notify_completion"),
     ):
         subagent(
             agent_id="test-acp",
@@ -1234,6 +1234,11 @@ def test_acp_mode_creates_subagent():
         assert sa.execution_mode == "acp"
         assert sa.acp_command == "fake-acp"
         assert sa.thread is not None  # ACP runs in a wrapper thread
+
+        # Join the thread inside the patch context so the mock stays active
+        # for the full duration — prevents the thread from using the real
+        # GptmeAcpClient after the mock is removed.
+        sa.thread.join(timeout=10)
 
 
 def test_acp_mode_stores_result():

@@ -949,6 +949,11 @@ def subagent(
 
     if use_acp:
         # ACP mode: multi-harness support via Agent Client Protocol
+        if use_subprocess:
+            logger.warning(
+                f"Subagent {agent_id}: both 'use_acp' and 'use_subprocess' are set; "
+                "'use_subprocess' is ignored (ACP mode takes precedence)"
+            )
         logger.info(f"Starting subagent {agent_id} in ACP mode (command={acp_command})")
         if profile:
             logger.info(f"  with profile: {profile}")
