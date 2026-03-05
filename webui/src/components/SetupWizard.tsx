@@ -28,19 +28,26 @@ export function SetupWizard() {
   const { isConnected$, connect } = useApi();
   const isConnected = use$(isConnected$);
   const [step, setStep] = useState<SetupStep>('welcome');
+  // Control dialog visibility with local state so React batching of completeSetup()
+  // + setStep('complete') doesn't trigger the early-return guard before 'complete' renders.
+  const [isOpen, setIsOpen] = useState(!settings.hasCompletedSetup);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const isTauri = isTauriEnvironment();
-
-  // Don't show if setup already completed
-  if (settings.hasCompletedSetup) return null;
 
   const completeSetup = () => {
     updateSettings({ hasCompletedSetup: true });
   };
 
+  // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
+  const closeWizard = () => {
+    completeSetup();
+    setIsOpen(false);
+  };
+
   const handleLocalSetup = async () => {
     if (isConnected) {
+      // Persist immediately so a refresh before clicking "Start using gptme" won't re-show wizard.
       completeSetup();
       setStep('complete');
       return;
@@ -49,6 +56,7 @@ export function SetupWizard() {
     setConnectError(null);
     try {
       await connect();
+      // Persist immediately — isOpen remains true so the complete step renders.
       completeSetup();
       setStep('complete');
     } catch (err) {
@@ -62,16 +70,15 @@ export function SetupWizard() {
 
   const handleCloudLogin = () => {
     // Open the cloud auth URL — the deep-link flow (gptme://) or URL fragment
-    // will handle the callback and connect automatically
+    // will handle the callback and connect automatically.
     window.open(CLOUD_AUTH_URL, '_blank');
-    // Persist setup completion before navigating to complete step — ensures
-    // the wizard won't reappear if the user refreshes before clicking "Start using gptme"
+    // Persist immediately — isOpen stays true so the complete step renders.
     completeSetup();
     setStep('complete');
   };
 
   return (
-    <Dialog open={!settings.hasCompletedSetup} onOpenChange={() => {}}>
+    <Dialog open={isOpen} onOpenChange={() => {}}>
       <DialogContent
         className="sm:max-w-md [&>button]:hidden"
         onPointerDownOutside={(e) => e.preventDefault()}
@@ -139,7 +146,7 @@ export function SetupWizard() {
               </button>
             </div>
             <DialogFooter>
-              <Button variant="ghost" onClick={completeSetup}>
+              <Button variant="ghost" onClick={closeWizard}>
                 Skip for now
               </Button>
             </DialogFooter>
@@ -254,7 +261,7 @@ export function SetupWizard() {
               </div>
             </div>
             <DialogFooter className="sm:justify-center">
-              <Button onClick={completeSetup} className="gap-2">
+              <Button onClick={closeWizard} className="gap-2">
                 Start using gptme
                 <ArrowRight className="h-4 w-4" />
               </Button>

@@ -52,14 +52,16 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [settings, setSettings] = useState<Settings>(loadSettingsFromStorage);
 
   const updateSettings = (updates: Partial<Settings>) => {
-    const newSettings = { ...settings, ...updates };
-    setSettings(newSettings);
-
-    try {
-      localStorage.setItem('gptme-settings', JSON.stringify(newSettings));
-    } catch (error) {
-      console.error('Failed to save settings to localStorage:', error);
-    }
+    // Use functional updater to avoid stale closure if called in rapid succession.
+    setSettings((current) => {
+      const newSettings = { ...current, ...updates };
+      try {
+        localStorage.setItem('gptme-settings', JSON.stringify(newSettings));
+      } catch (error) {
+        console.error('Failed to save settings to localStorage:', error);
+      }
+      return newSettings;
+    });
   };
 
   const resetSettings = () => {
