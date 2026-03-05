@@ -19,7 +19,10 @@ NIGHTMARKET_BASE_URL = "https://nightmarket.ai/api"
 instructions = """
 ## Nightmarket — API Marketplace
 
-Use the `nightmarket` tool to discover and call paid third-party API services.
+You can extend your capabilities on demand by discovering and calling any
+third-party API on Nightmarket — no API keys or pre-configuration required.
+Use `search` to find services, `details` to understand their inputs, and
+`call` to invoke them inline and return results directly to the conversation.
 
 **Search for services:**
 ```nightmarket
@@ -36,9 +39,11 @@ details abc123def456
 call abc123def456 GET
 ```
 
-**Call with payment (after getting 402 and paying via CrowPay):**
+**Call with body and payment (use newline to separate body from payment sig):**
 ```nightmarket
-call abc123def456 POST {"query": "test"} payment_signature_base64_here
+call abc123def456 POST
+{"query": "test"}
+payment_signature_base64_here
 ```
 
 Every first call returns 402 Payment Required. Use CrowPay to handle payment,
@@ -61,11 +66,19 @@ details abc123
 
 
 def _http_get(url: str) -> dict | list:
+    from urllib.error import HTTPError
     from urllib.request import Request, urlopen
 
     req = Request(url, headers={"Accept": "application/json"})
-    with urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
+    try:
+        with urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except HTTPError as e:
+        body = e.read().decode() if e.fp else "{}"
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            return {"error": body, "status": e.code}
 
 
 def _http_request(url: str, method: str = "GET", body: str | None = None, headers: dict | None = None) -> tuple[int, str]:
@@ -125,14 +138,34 @@ def execute_nightmarket(
             yield Message("system", json.dumps(result, indent=2))
 
         elif cmd == "call":
-            call_parts = lines[0].split(maxsplit=4)
+            # Parse: first line has "call <endpoint_id> <method>"
+            # Optional second line: JSON body
+            # Optional last line (if body present): payment signature
+            call_parts = lines[0].split(maxsplit=3)
             if len(call_parts) < 3:
-                yield Message("system", "Usage: call <endpoint_id> <method> [body_json] [payment_signature]")
+                yield Message("system", "Usage: call <endpoint_id> <method> [body on next line] [payment_sig on last line]")
                 return
             endpoint_id = call_parts[1]
             method = call_parts[2].upper()
-            body = call_parts[3] if len(call_parts) > 3 else None
-            payment_sig = call_parts[4] if len(call_parts) > 4 else None
+
+            body = None
+            payment_sig = None
+            remaining_lines = lines[1:]
+            if remaining_lines:
+                # Try to parse first remaining line as JSON body
+                try:
+                    json.loads(remaining_lines[0])
+                    body = remaining_lines[0]
+                    if len(remaining_lines) > 1:
+                        payment_sig = remaining_lines[-1].strip()
+                except json.JSONDecodeError:
+                    # Not JSON — treat as payment signature
+                    payment_sig = remaining_lines[0].strip()
+
+            cost_note = " (may incur USDC payment)" if payment_sig else " (will return 402; payment required)"
+            if not confirm(f"Call Nightmarket endpoint {endpoint_id} via {method}{cost_note}?"):
+                yield Message("system", "Aborted.")
+                return
 
             headers = {}
             if payment_sig:
@@ -150,6 +183,7 @@ def execute_nightmarket(
             yield Message("system", f"Unknown command: {cmd}. Use: search, details, or call")
 
     except Exception as e:
+        logger.exception("Nightmarket tool error")
         yield Message("system", f"Nightmarket error: {e}")
 
 
@@ -160,4 +194,5 @@ tool: ToolSpec = ToolSpec(
     examples=examples,
     execute=execute_nightmarket,
     block_types=["nightmarket"],
+    disabled_by_default=True,
 )
