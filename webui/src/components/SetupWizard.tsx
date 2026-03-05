@@ -201,7 +201,7 @@ export function SetupWizard() {
               )}
             </div>
             <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setStep('mode')}>
+              <Button variant="outline" onClick={() => { setStep('mode'); setConnectError(null); }}>
                 Back
               </Button>
               <Button onClick={handleLocalSetup} disabled={isConnecting}>
