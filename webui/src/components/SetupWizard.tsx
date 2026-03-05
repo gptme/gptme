@@ -41,6 +41,7 @@ export function SetupWizard() {
 
   const handleLocalSetup = async () => {
     if (isConnected) {
+      completeSetup();
       setStep('complete');
       return;
     }
@@ -48,6 +49,7 @@ export function SetupWizard() {
     setConnectError(null);
     try {
       await connect();
+      completeSetup();
       setStep('complete');
     } catch (err) {
       setConnectError(
@@ -62,7 +64,9 @@ export function SetupWizard() {
     // Open the cloud auth URL — the deep-link flow (gptme://) or URL fragment
     // will handle the callback and connect automatically
     window.open(CLOUD_AUTH_URL, '_blank');
-    // Move to complete — the auth callback will connect in the background
+    // Persist setup completion before navigating to complete step — ensures
+    // the wizard won't reappear if the user refreshes before clicking "Start using gptme"
+    completeSetup();
     setStep('complete');
   };
 
