@@ -684,8 +684,11 @@ def _resource_to_codeblock(
         raise
     except UnicodeDecodeError:
         # Binary file — return metadata instead of contents
+        # Skip visual formats (images, PDF) already handled via msg.files
         f = Path(prompt).expanduser()
-        return _binary_file_metadata(f, prompt)
+        if f.suffix[1:].lower() not in ("png", "jpg", "jpeg", "gif", "webp", "pdf"):
+            return _binary_file_metadata(f, prompt)
+        return None
 
     # check if any word in prompt is a path or URL,
     # if so, append the contents as a code block
