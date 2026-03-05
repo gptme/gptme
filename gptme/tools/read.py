@@ -1,5 +1,5 @@
 """
-Read the contents of a file.
+Read the contents of a file or list the contents of a directory.
 
 Provides a sandboxed file reading capability that works without shell access.
 Useful for restricted tool sets (e.g., ``--tools read,patch,save``).
@@ -17,9 +17,10 @@ from .base import (
 )
 
 instructions = """
-Read the content of a file, optionally specifying a line range.
+Read the content of a file or list the contents of a directory.
 The path can be relative or absolute.
-Output includes line numbers for easy reference.
+For files, output includes line numbers for easy reference.
+For directories, output shows a tree listing of files and subdirectories.
 """.strip()
 
 instructions_format = {
@@ -52,6 +53,37 @@ def _get_read_path(
     return None
 
 
+_MAX_DIR_ENTRIES = 100
+
+
+def _list_directory(path: Path) -> Generator[Message, None, None]:
+    """List directory contents in a tree-like format."""
+    try:
+        entries = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+    except PermissionError:
+        yield Message("system", f"Permission denied: {path}")
+        return
+
+    if not entries:
+        yield Message("system", md_codeblock(str(path), "(empty directory)"))
+        return
+
+    lines = []
+    truncated = len(entries) > _MAX_DIR_ENTRIES
+    for entry in entries[:_MAX_DIR_ENTRIES]:
+        name = entry.name + ("/" if entry.is_dir() else "")
+        lines.append(name)
+
+    if truncated:
+        lines.append(f"... and {len(entries) - _MAX_DIR_ENTRIES} more entries")
+
+    summary = f"{len(entries)} entries"
+    yield Message(
+        "system",
+        md_codeblock(f"{path} ({summary})", "\n".join(lines)),
+    )
+
+
 def execute_read(
     code: str | None,
     args: list[str] | None,
@@ -80,6 +112,10 @@ def execute_read(
 
     if not path.exists():
         yield Message("system", f"File not found: {path}")
+        return
+
+    if path.is_dir():
+        yield from _list_directory(path)
         return
 
     if not path.is_file():
@@ -134,7 +170,7 @@ def execute_read(
 
 tool = ToolSpec(
     name="read",
-    desc="Read the content of a file",
+    desc="Read the content of a file or list directory contents",
     instructions=instructions,
     instructions_format=instructions_format,
     examples=examples,

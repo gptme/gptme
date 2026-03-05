@@ -80,10 +80,30 @@ def test_read_nonexistent_file(tmp_path: Path):
 
 
 def test_read_directory(tmp_path: Path):
-    """Test reading a directory (should fail gracefully)."""
+    """Test reading a directory shows a listing."""
+    # Create some files and a subdirectory
+    (tmp_path / "hello.py").write_text("print('hello')")
+    (tmp_path / "readme.md").write_text("# Hello")
+    (tmp_path / "subdir").mkdir()
+    (tmp_path / "subdir" / "nested.txt").write_text("nested")
+
     messages = list(execute_read(None, [str(tmp_path)], None))
     assert len(messages) == 1
-    assert "Not a file" in messages[0].content
+    content = messages[0].content
+    # Directories listed with trailing slash, sorted first
+    assert "subdir/" in content
+    assert "hello.py" in content
+    assert "readme.md" in content
+    assert "3 entries" in content
+
+
+def test_read_empty_directory(tmp_path: Path):
+    """Test reading an empty directory."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    messages = list(execute_read(None, [str(empty_dir)], None))
+    assert len(messages) == 1
+    assert "empty directory" in messages[0].content
 
 
 def test_read_binary_file(tmp_path: Path):
