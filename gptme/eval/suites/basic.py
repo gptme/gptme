@@ -66,7 +66,7 @@ def check_read_modify_file(ctx):
 
 
 def check_json_transform_output(ctx):
-    """Output should contain the transformed JSON data with total revenue."""
+    """Output should contain the transformed JSON data with total revenue and products list."""
     import json
 
     try:
@@ -74,7 +74,14 @@ def check_json_transform_output(ctx):
     except (json.JSONDecodeError, ValueError):
         return False
     # products: A(10*100=1000), B(20*50=1000), C(5*200=1000) => total 3000
-    return data.get("total_revenue") == 3000
+    if data.get("total_revenue") != 3000:
+        return False
+    # Prompt requires a 'products' list with per-product revenue entries
+    products = data.get("products")
+    if not isinstance(products, list) or len(products) != 3:
+        return False
+    revenues = {p.get("name"): p.get("revenue") for p in products}
+    return revenues == {"A": 1000, "B": 1000, "C": 1000}
 
 
 def check_json_transform_file(ctx):
@@ -132,6 +139,8 @@ def check_tests_output(ctx):
 # --- fix-import-error checks ---
 
 
+def check_fix_import_output(ctx):
+    """multiply(6, 7) should output 42; use substring match to handle 42.0 float output."""
     return "42" in ctx.stdout
 
 
