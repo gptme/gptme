@@ -121,6 +121,25 @@ def test_load_ts_posteriors_invalid_numeric_data_returns_empty(tmp_path):
 
 
 @pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
+def test_load_ts_posteriors_non_dict_arm_skipped(tmp_path):
+    """Test non-dict arm values (e.g. scalars) are skipped without crashing."""
+    state = {
+        "arms": {
+            "bad-arm.md": 0.9,  # not a dict — would raise AttributeError without guard
+            "good-arm.md": {"alpha": 8.0, "beta": 2.0},
+        }
+    }
+    state_file = tmp_path / "ts_state.json"
+    state_file.write_text(json.dumps(state))
+
+    posteriors = _load_ts_posteriors(str(state_file))
+
+    # bad-arm skipped, good-arm still parsed
+    assert "bad-arm.md" not in posteriors
+    assert posteriors.get("good-arm.md") == pytest.approx(0.8)
+
+
+@pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
 def test_effectiveness_score_with_ts(tmp_path):
     """Test that effectiveness_score uses TS posteriors when configured."""
     state = {
@@ -140,6 +159,17 @@ def test_effectiveness_score_with_ts(tmp_path):
     # Verify posteriors were loaded
     assert len(matcher._ts_posteriors) == 1
     assert matcher._ts_posteriors["git-workflow.md"] == pytest.approx(0.9)
+
+    # Verify _effectiveness_score uses posteriors via basename lookup
+    lesson = Lesson(
+        path=Path("/tmp/lessons/git-workflow.md"),
+        metadata=LessonMetadata(),
+        title="Git Workflow",
+        description="",
+        category="workflow",
+        body="",
+    )
+    assert matcher._effectiveness_score(lesson) == pytest.approx(0.9)
 
 
 @pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")

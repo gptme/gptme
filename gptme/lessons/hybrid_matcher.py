@@ -74,13 +74,16 @@ def _load_ts_posteriors(state_file: str) -> dict[str, float]:
         arms = data.get("arms", {})
         posteriors: dict[str, float] = {}
         for arm_name, arm_data in arms.items():
-            alpha = float(arm_data.get("alpha", 1.0))
-            beta = float(arm_data.get("beta", 1.0))
-            total = alpha + beta
-            posteriors[arm_name] = alpha / total if total > 0 else 0.5
+            try:
+                alpha = float(arm_data.get("alpha", 1.0))
+                beta = float(arm_data.get("beta", 1.0))
+                total = alpha + beta
+                posteriors[arm_name] = alpha / total if total > 0 else 0.5
+            except (AttributeError, TypeError, ValueError) as e:
+                logger.warning(f"Skipping malformed arm '{arm_name}': {e}")
         logger.info(f"Loaded {len(posteriors)} TS posteriors from {path}")
         return posteriors
-    except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
+    except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load TS state: {e}")
         return {}
 
