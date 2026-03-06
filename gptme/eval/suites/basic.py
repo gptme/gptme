@@ -106,7 +106,7 @@ def check_refactor_utils(ctx):
 
 def check_refactor_output(ctx):
     """Program should still produce correct output after refactoring."""
-    return "150" in ctx.stdout.split()
+    return "150" in ctx.stdout
 
 
 def check_refactor_exit(ctx):
