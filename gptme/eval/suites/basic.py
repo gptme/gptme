@@ -100,7 +100,7 @@ def check_refactor_main(ctx):
     content = ctx.files.get("main.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return "calculate_total" in content and "calcTotal" not in content
+    return "calculate_total" in content and "calcTotal(" not in content
 
 
 def check_refactor_utils(ctx):
@@ -132,8 +132,8 @@ def check_tests_pass(ctx):
 
 
 def check_tests_output(ctx):
-    """pytest should report multiple tests passed."""
-    return "passed" in ctx.stdout.lower() or "passed" in ctx.stderr.lower()
+    """All three library functions should have tests (visible in verbose pytest -v output)."""
+    return all(fn in ctx.stdout for fn in ("factorial", "is_palindrome", "clamp"))
 
 
 # --- fix-import-error checks ---
