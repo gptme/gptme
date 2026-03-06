@@ -225,8 +225,8 @@ def check_debug_type_config(ctx):
     # All prices should be numbers, discount should be a number
     prices = data.get("prices", [])
     discount = data.get("discount")
-    return all(isinstance(p, (int, float)) for p in prices) and isinstance(
-        discount, (int, float)
+    return all(isinstance(p, int | float) for p in prices) and isinstance(
+        discount, int | float
     )
 
 
