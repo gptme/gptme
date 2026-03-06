@@ -94,6 +94,15 @@ def test_command_tokens(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
 
 
+def test_command_context(args: list[str], runner: CliRunner):
+    args.append("/context")
+    result = runner.invoke(cli.main, args)
+    assert "/context" in result.output
+    assert "Token Usage by Role:" in result.output
+    assert "Total Context:" in result.output
+    assert result.exit_code == 0
+
+
 def test_command_log(args: list[str], runner: CliRunner):
     args.append("/log")
     result = runner.invoke(cli.main, args)

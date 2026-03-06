@@ -269,6 +269,32 @@ def cmd_context(ctx: CommandContext) -> None:
 
     console.log(f"\n[bold]Total Context:[/bold] {total_tokens:,} tokens")
 
+    # Show context window utilization if model info is available
+    if current_model and current_model.context > 0:
+        context_limit = current_model.context
+        remaining = max(0, context_limit - total_tokens)
+        utilization = (total_tokens / context_limit * 100) if context_limit > 0 else 0
+
+        # Color-code utilization: green < 50%, yellow 50-80%, red > 80%
+        if utilization > 80:
+            color = "red"
+        elif utilization > 50:
+            color = "yellow"
+        else:
+            color = "green"
+
+        console.log(
+            f"[bold]Context Window:[/bold] [{color}]{utilization:.0f}%[/{color}] "
+            f"used ({total_tokens:,} / {context_limit:,}), "
+            f"{remaining:,} remaining"
+        )
+        if current_model.max_output:
+            effective_remaining = max(0, remaining - current_model.max_output)
+            console.log(
+                f"[dim]  max output: {current_model.max_output:,} tokens, "
+                f"effective input capacity: {effective_remaining:,}[/dim]"
+            )
+
     if is_approximate:
         console.log(f"[dim](approximate, using {tokenizer_model} tokenizer)[/dim]")
 
