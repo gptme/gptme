@@ -204,7 +204,7 @@ def check_extract_exit(ctx):
 
 def check_debug_type_output(ctx):
     """Fixed config should produce Total: 90.0 (sum=100, discount=0.1, total=90.0)."""
-    return "90" in ctx.stdout
+    return "90.0" in ctx.stdout
 
 
 def check_debug_type_exit(ctx):
@@ -244,19 +244,27 @@ def check_find_fix_output(ctx):
 
 
 def check_find_fix_routes(ctx):
-    """routes.py should use fetch_user, not get_user."""
+    """routes.py should use fetch_user, not get_user (calls/imports, not comments)."""
+    import re
+
     content = ctx.files.get("routes.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return "fetch_user" in content and "get_user" not in content
+    return "fetch_user" in content and not re.search(
+        r"\bget_user\s*\(|import\s+get_user", content
+    )
 
 
 def check_find_fix_report(ctx):
-    """report.py should use fetch_user, not get_user."""
+    """report.py should use fetch_user, not get_user (calls/imports, not comments)."""
+    import re
+
     content = ctx.files.get("report.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return "fetch_user" in content and "get_user" not in content
+    return "fetch_user" in content and not re.search(
+        r"\bget_user\s*\(|import\s+get_user", content
+    )
 
 
 def check_find_fix_exit(ctx):
