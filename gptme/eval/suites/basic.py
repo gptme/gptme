@@ -154,8 +154,8 @@ def check_cli_file(ctx):
 
 
 def check_cli_basic(ctx):
-    """CLI should output correct word count."""
-    return "3" in ctx.stdout
+    """CLI should output correct word count (sample.txt has 6 words)."""
+    return ctx.stdout.strip() == "6"
 
 
 def check_cli_exit(ctx):
