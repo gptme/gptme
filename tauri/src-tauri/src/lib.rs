@@ -444,10 +444,12 @@ mod tests {
 
     #[test]
     fn test_is_port_available_on_unused_port() {
-        // Port 0 tells the OS to pick a free port — but is_port_available
-        // tries to *bind* the given port, so use a high ephemeral port that
-        // is very unlikely to be in use.
-        assert!(is_port_available(19876));
+        // Bind to port 0 to get an OS-assigned free port, then release it
+        // and verify is_port_available returns true for that port.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        assert!(is_port_available(port));
     }
 
     #[test]

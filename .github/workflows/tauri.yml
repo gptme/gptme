@@ -224,7 +224,7 @@ jobs:
   release:
     name: Release (${{ matrix.platform }})
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [lint, build, build-sidecar]
+    needs: [lint, test, build, build-sidecar]
     strategy:
       fail-fast: false
       matrix:
