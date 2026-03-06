@@ -2041,13 +2041,14 @@ is_complete() to check status, and get_completed() for partial results.</p>
 </section>
 <section id="read">
 <h2>Read<a class="headerlink" href="#read" title="Link to this heading">#</a></h2>
-<p>Read the contents of a file.</p>
+<p>Read the contents of a file or list the contents of a directory.</p>
 <p>Provides a sandboxed file reading capability that works without shell access.
 Useful for restricted tool sets (e.g., <code class="docutils literal notranslate"><span class="pre">--tools</span> <span class="pre">read,patch,save</span></code>).</p>
 <p class="rubric">Instructions</p>
-<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Read the content of a file, optionally specifying a line range.
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Read the content of a file or list the contents of a directory.
 The path can be relative or absolute.
-Output includes line numbers for easy reference.
+For files, output includes line numbers for easy reference.
+For directories, output shows a flat listing of immediate files and subdirectories.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>

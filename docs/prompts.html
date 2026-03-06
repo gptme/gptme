@@ -686,7 +686,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f7a9db34040&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fe543f28040&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1446,11 +1446,12 @@ The following Python functions are available using the <span class="sb">`ipython
 
 <span class="gu">## read</span>
 
-<span class="gs">**Description:**</span> Read the content of a file
+<span class="gs">**Description:**</span> Read the content of a file or list directory contents
 
-<span class="gs">**Instructions:**</span> Read the content of a file, optionally specifying a line range.
+<span class="gs">**Instructions:**</span> Read the content of a file or list the contents of a directory.
 The path can be relative or absolute.
-Output includes line numbers for easy reference.
+For files, output includes line numbers for easy reference.
+For directories, output shows a flat listing of immediate files and subdirectories.
 
 Use a code block with the language tag: <span class="sb">`read &lt;path&gt;`</span> to read a file.
 
@@ -2168,7 +2169,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11650</p>
+<p>Tokens: 11674</p>
 </dd></dl>
 
 <dl class="py function">
