@@ -14,6 +14,8 @@ try:
     from gptme.lessons.hybrid_matcher import (
         HybridConfig,
         HybridLessonMatcher,
+        _default_effectiveness_state_file,
+        _lesson_lookup_keys,
         _load_ts_posteriors,
     )
 
@@ -217,3 +219,73 @@ def test_effectiveness_score_default():
         body="",
     )
     assert matcher._effectiveness_score(lesson) == pytest.approx(0.5)
+
+
+@pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
+def test_default_effectiveness_state_file_uses_env(monkeypatch):
+    """Env override should take precedence for TS state discovery."""
+    monkeypatch.setenv("GPTME_LESSONS_TS_STATE", "/tmp/custom-bandit.json")
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+
+    assert _default_effectiveness_state_file() == "/tmp/custom-bandit.json"
+
+
+@pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
+def test_default_effectiveness_state_file_uses_xdg(monkeypatch):
+    """XDG state home should be used when env override is absent."""
+    monkeypatch.delenv("GPTME_LESSONS_TS_STATE", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", "/tmp/xdg-state")
+
+    assert (
+        _default_effectiveness_state_file()
+        == "/tmp/xdg-state/gptme/lessons/bandit-state.json"
+    )
+
+
+@pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
+def test_lesson_lookup_keys_include_id_and_path_forms():
+    """Lookup keys should prefer explicit id and keep legacy path variants."""
+    lesson = Lesson(
+        path=Path("/tmp/lessons/workflow/git-workflow.md"),
+        metadata=LessonMetadata(id="workflow.git-workflow"),
+        title="Git Workflow",
+        description="",
+        category="workflow",
+        body="",
+    )
+
+    assert _lesson_lookup_keys(lesson) == [
+        "workflow.git-workflow",
+        "/tmp/lessons/workflow/git-workflow.md",
+        "git-workflow.md",
+        "workflow/git-workflow.md",
+    ]
+
+
+@pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
+def test_effectiveness_score_matches_explicit_lesson_id(tmp_path):
+    """Explicit lesson ids should provide a stable lookup key."""
+    state = {
+        "arms": {
+            "workflow.git-workflow": {"alpha": 8.0, "beta": 2.0},
+        }
+    }
+    state_file = tmp_path / "ts_state.json"
+    state_file.write_text(json.dumps(state))
+
+    matcher = HybridLessonMatcher(
+        config=HybridConfig(
+            enable_semantic=False,
+            effectiveness_state_file=str(state_file),
+        )
+    )
+    lesson = Lesson(
+        path=Path("/tmp/elsewhere/workflow/git-workflow.md"),
+        metadata=LessonMetadata(id="workflow.git-workflow"),
+        title="Git Workflow",
+        description="",
+        category="workflow",
+        body="",
+    )
+
+    assert matcher._effectiveness_score(lesson) == pytest.approx(0.8)

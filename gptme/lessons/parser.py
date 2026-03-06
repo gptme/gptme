@@ -26,6 +26,9 @@ class LessonMetadata:
     name: str | None = None
     description: str | None = None
 
+    # Stable lesson identifier (optional)
+    id: str | None = None
+
     # Lesson format fields
     keywords: list[str] = field(default_factory=list)
     patterns: list[str] = field(default_factory=list)
@@ -323,6 +326,7 @@ def parse_lesson(path: Path) -> Lesson:
                         # Extract Anthropic skill format fields
                         name = frontmatter.get("name")
                         description = frontmatter.get("description")
+                        lesson_id = frontmatter.get("id")
 
                         # Extract lesson format fields
                         match_data = frontmatter.get("match", {})
@@ -347,6 +351,7 @@ def parse_lesson(path: Path) -> Lesson:
                         metadata = LessonMetadata(
                             name=name,
                             description=description,
+                            id=lesson_id,
                             keywords=keywords,
                             patterns=patterns,
                             tools=match_data.get("tools", []),

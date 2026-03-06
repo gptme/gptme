@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,8 +53,22 @@ class HybridConfig:
 
     # Thompson sampling state file for effectiveness scoring.
     # JSON file with {"arms": {"lesson_name.md": {"alpha": N, "beta": M}, ...}}
-    # If set and file exists, posterior means replace the hardcoded 0.5 default.
+    # If omitted, a conventional default path or env var override may be used.
     effectiveness_state_file: str | None = None
+
+
+def _default_effectiveness_state_file() -> str | None:
+    """Return the default Thompson sampling state file path, if available."""
+    if env_path := os.getenv("GPTME_LESSONS_TS_STATE"):
+        return env_path
+
+    xdg_state_home = os.getenv("XDG_STATE_HOME")
+    if xdg_state_home:
+        return str(Path(xdg_state_home) / "gptme" / "lessons" / "bandit-state.json")
+
+    return str(
+        Path.home() / ".local" / "state" / "gptme" / "lessons" / "bandit-state.json"
+    )
 
 
 def _load_ts_posteriors(state_file: str) -> dict[str, float]:
@@ -88,6 +103,24 @@ def _load_ts_posteriors(state_file: str) -> dict[str, float]:
         return {}
 
 
+def _lesson_lookup_keys(lesson: Lesson) -> list[str]:
+    """Return candidate identifiers for matching lesson TS state."""
+    keys: list[str] = []
+
+    if lesson.metadata.id:
+        keys.append(lesson.metadata.id)
+
+    keys.append(str(lesson.path))
+    keys.append(lesson.path.name)
+
+    parts = lesson.path.parts
+    if len(parts) >= 2:
+        keys.append(f"{parts[-2]}/{parts[-1]}")
+
+    # De-duplicate while preserving order
+    return list(dict.fromkeys(keys))
+
+
 class HybridLessonMatcher(LessonMatcher):
     """Hybrid lesson matcher combining keyword, semantic, and metadata signals."""
 
@@ -112,10 +145,11 @@ class HybridLessonMatcher(LessonMatcher):
 
         # Load Thompson sampling posteriors for effectiveness scoring
         self._ts_posteriors: dict[str, float] = {}
-        if self.config.effectiveness_state_file:
-            self._ts_posteriors = _load_ts_posteriors(
-                self.config.effectiveness_state_file
-            )
+        state_file = (
+            self.config.effectiveness_state_file or _default_effectiveness_state_file()
+        )
+        if state_file:
+            self._ts_posteriors = _load_ts_posteriors(state_file)
 
     def match(
         self, lessons: list[Lesson], context: MatchContext, threshold: float = 0.0
@@ -282,17 +316,9 @@ class HybridLessonMatcher(LessonMatcher):
         if not self._ts_posteriors:
             return 0.5
 
-        # Try matching by lesson filename (basename)
-        lesson_name = lesson.path.name
-        if lesson_name in self._ts_posteriors:
-            return self._ts_posteriors[lesson_name]
-
-        # Try matching by last two path components (e.g., "workflow/git-workflow.md")
-        parts = lesson.path.parts
-        if len(parts) >= 2:
-            short_path = f"{parts[-2]}/{parts[-1]}"
-            if short_path in self._ts_posteriors:
-                return self._ts_posteriors[short_path]
+        for key in _lesson_lookup_keys(lesson):
+            if key in self._ts_posteriors:
+                return self._ts_posteriors[key]
 
         return 0.5
 

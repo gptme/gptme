@@ -154,6 +154,30 @@ Lesson content.
             assert "---" not in lesson.body  # Frontmatter stripped
             assert "# Test Lesson" in lesson.body
 
+    def test_parse_lesson_with_explicit_id(self):
+        """Test parsing optional stable lesson id from frontmatter."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lesson_dir = Path(tmpdir) / "workflow"
+            lesson_dir.mkdir()
+            lesson_file = lesson_dir / "git-workflow.md"
+
+            content = """---
+id: workflow.git-workflow
+match:
+  keywords: [git, workflow]
+---
+
+# Git Workflow
+
+Description.
+"""
+            lesson_file.write_text(content)
+
+            lesson = parse_lesson(lesson_file)
+
+            assert lesson.metadata.id == "workflow.git-workflow"
+            assert lesson.metadata.keywords == ["git", "workflow"]
+
     def test_parse_lesson_frontmatter_without_match(self):
         """Test parsing lesson with frontmatter but no match section."""
         with tempfile.TemporaryDirectory() as tmpdir:
