@@ -101,9 +101,7 @@ def check_refactor_main(ctx):
     if isinstance(content, bytes):
         content = content.decode()
     return (
-        "from utils import calculate_total" in content
-        and "calculate_total" in content
-        and "calcTotal(" not in content
+        "from utils import calculate_total" in content and "calcTotal(" not in content
     )
 
 
