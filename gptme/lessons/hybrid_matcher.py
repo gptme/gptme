@@ -61,7 +61,7 @@ def _default_effectiveness_state_file() -> str:
     """Return the default Thompson sampling state file path.
 
     Priority: GPTME_LESSONS_TS_STATE env var > XDG_STATE_HOME > ~/.local/state fallback.
-    Note: the returned path may not exist; callers should handle missing files gracefully.
+    Always returns a path string; callers should handle missing files gracefully.
     """
     if env_path := os.getenv("GPTME_LESSONS_TS_STATE"):
         return env_path
@@ -148,12 +148,10 @@ class HybridLessonMatcher(LessonMatcher):
                 self.embedder = None
 
         # Load Thompson sampling posteriors for effectiveness scoring
-        self._ts_posteriors: dict[str, float] = {}
         state_file = (
             self.config.effectiveness_state_file or _default_effectiveness_state_file()
         )
-        if state_file:
-            self._ts_posteriors = _load_ts_posteriors(state_file)
+        self._ts_posteriors = _load_ts_posteriors(state_file)
 
     def match(
         self, lessons: list[Lesson], context: MatchContext, threshold: float = 0.0

@@ -207,6 +207,7 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
     version = frontmatter.get("version")
 
     return LessonMetadata(
+        id=frontmatter.get("id"),
         name=name,
         description=description,
         keywords=list(dict.fromkeys(keywords)),  # Remove duplicates

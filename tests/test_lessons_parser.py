@@ -525,6 +525,29 @@ class TestTranslateCursorMetadata:
         assert "typescript" in metadata.keywords
         assert "javascript" in metadata.keywords
 
+    def test_cursor_metadata_propagates_id(self):
+        """Test that explicit id field is propagated through .mdc translation."""
+        frontmatter = {
+            "id": "workflow.python-style",
+            "name": "Python Style",
+            "description": "Enforce PEP8",
+            "globs": ["**/*.py"],
+        }
+        metadata = _translate_cursor_metadata(frontmatter)
+
+        assert metadata.id == "workflow.python-style"
+
+    def test_cursor_metadata_id_defaults_to_none(self):
+        """Test that id defaults to None when not specified in .mdc metadata."""
+        frontmatter = {
+            "name": "Python Style",
+            "description": "Enforce PEP8",
+            "globs": ["**/*.py"],
+        }
+        metadata = _translate_cursor_metadata(frontmatter)
+
+        assert metadata.id is None
+
 
 class TestParseMdcLesson:
     """Tests for parsing .mdc (Cursor rules) files."""
