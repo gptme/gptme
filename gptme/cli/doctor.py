@@ -7,6 +7,7 @@ Usage:
     gptme-doctor --fix        # Attempt to fix issues (future)
 """
 
+import importlib.util
 import logging
 import os
 import shutil
@@ -21,6 +22,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ..__version__ import __version__
 from ..config import config_path, get_config
 from ..info import get_config_info, get_installed_extras
 from ..llm import list_available_providers
@@ -365,6 +367,146 @@ def _check_permissions(verbose: bool = False) -> list[CheckResult]:
     return results
 
 
+def _check_version(verbose: bool = False) -> list[CheckResult]:
+    """Check if gptme is up to date by comparing with PyPI."""
+    results = []
+
+    try:
+        from importlib.metadata import version as get_version
+
+        current = get_version("gptme")
+    except Exception:
+        current = __version__
+
+    # Skip version check for dev/editable installs
+    if ".dev" in current or "+g" in current:
+        results.append(
+            CheckResult(
+                name="Version: gptme",
+                status=CheckStatus.OK,
+                message=f"Development install ({current})",
+                details="Skipping PyPI check for dev installs" if verbose else None,
+            )
+        )
+        return results
+
+    try:
+        import json
+        import urllib.request
+
+        url = "https://pypi.org/pypi/gptme/json"
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            latest = data["info"]["version"]
+
+        if current == latest:
+            results.append(
+                CheckResult(
+                    name="Version: gptme",
+                    status=CheckStatus.OK,
+                    message=f"Up to date ({current})",
+                )
+            )
+        else:
+            # Compare versions to determine severity
+            from packaging.version import Version
+
+            try:
+                current_v = Version(current)
+                latest_v = Version(latest)
+                is_major = latest_v.major > current_v.major
+                is_minor = latest_v.minor > current_v.minor
+                severity = (
+                    CheckStatus.WARNING if (is_major or is_minor) else CheckStatus.OK
+                )
+            except Exception:
+                severity = CheckStatus.WARNING
+
+            if severity == CheckStatus.WARNING:
+                results.append(
+                    CheckResult(
+                        name="Version: gptme",
+                        status=CheckStatus.WARNING,
+                        message=f"Update available: {current} → {latest}",
+                        fix_hint="pip install --upgrade gptme",
+                    )
+                )
+            else:
+                results.append(
+                    CheckResult(
+                        name="Version: gptme",
+                        status=CheckStatus.OK,
+                        message=f"Installed {current} (latest: {latest})",
+                        details="Patch update available" if verbose else None,
+                    )
+                )
+    except Exception as e:
+        results.append(
+            CheckResult(
+                name="Version: gptme",
+                status=CheckStatus.OK,
+                message=f"Installed ({current})",
+                details=f"Could not check PyPI: {e}" if verbose else None,
+            )
+        )
+
+    return results
+
+
+def _check_browser(verbose: bool = False) -> list[CheckResult]:
+    """Check Playwright browser installation if browser extra is installed."""
+    results: list[CheckResult] = []
+
+    # Only check if playwright is installed
+    if not importlib.util.find_spec("playwright"):
+        return results
+
+    # Check if browsers are installed by looking at the standard cache directory
+    # Playwright stores browsers in PLAYWRIGHT_BROWSERS_PATH or ~/.cache/ms-playwright
+    browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if not browsers_path:
+        browsers_path = str(Path.home() / ".cache" / "ms-playwright")
+
+    browsers_dir = Path(browsers_path)
+    if browsers_dir.exists():
+        # Count installed browser directories (e.g., chromium-1148, firefox-1460)
+        browser_dirs = [
+            d.name
+            for d in browsers_dir.iterdir()
+            if d.is_dir() and not d.name.startswith(".")
+        ]
+        if browser_dirs:
+            results.append(
+                CheckResult(
+                    name="Browser: Playwright",
+                    status=CheckStatus.OK,
+                    message=f"{len(browser_dirs)} browser(s) installed",
+                    details=", ".join(sorted(browser_dirs)) if verbose else None,
+                )
+            )
+        else:
+            results.append(
+                CheckResult(
+                    name="Browser: Playwright",
+                    status=CheckStatus.WARNING,
+                    message="Playwright installed but no browsers found",
+                    fix_hint="playwright install chromium",
+                )
+            )
+    else:
+        results.append(
+            CheckResult(
+                name="Browser: Playwright",
+                status=CheckStatus.WARNING,
+                message="Playwright installed but no browsers found",
+                fix_hint="playwright install chromium",
+            )
+        )
+
+    return results
+
+
 def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     """Run all diagnostic checks.
 
@@ -374,10 +516,12 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     all_results: list[CheckResult] = []
 
     # Run all checks
+    all_results.extend(_check_version(verbose))
     all_results.extend(_check_config(verbose))
     all_results.extend(_check_api_keys(verbose))
     all_results.extend(_check_tools(verbose))
     all_results.extend(_check_python_deps(verbose))
+    all_results.extend(_check_browser(verbose))
     all_results.extend(_check_permissions(verbose))
 
     # Calculate summary

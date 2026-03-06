@@ -9,10 +9,12 @@ from gptme.cli.doctor import (
     CheckResult,
     CheckStatus,
     _check_api_keys,
+    _check_browser,
     _check_config,
     _check_permissions,
     _check_python_deps,
     _check_tools,
+    _check_version,
     main,
     run_diagnostics,
 )
@@ -56,6 +58,112 @@ class TestCheckResult:
         )
         assert result.details == "Detailed info"
         assert result.fix_hint == "Try this fix"
+
+
+class TestCheckVersion:
+    """Test _check_version function."""
+
+    def test_returns_results(self):
+        """Test that version check returns results."""
+        results = _check_version()
+        assert len(results) == 1
+        assert "Version" in results[0].name
+
+    @patch("gptme.cli.doctor.__version__", "0.31.0")
+    def test_dev_install_skips_pypi(self):
+        """Test that dev installs skip PyPI check."""
+        with patch("importlib.metadata.version", return_value="0.31.0.dev123"):
+            results = _check_version()
+            assert len(results) == 1
+            assert results[0].status == CheckStatus.OK
+            assert "Development" in results[0].message
+
+    @patch("gptme.cli.doctor.__version__", "0.31.0")
+    def test_up_to_date(self):
+        """Test that matching version shows OK."""
+        import io
+        import json as json_mod
+
+        mock_resp = io.BytesIO(json_mod.dumps({"info": {"version": "0.31.0"}}).encode())
+        mock_cm = patch("urllib.request.urlopen")
+        with (
+            patch("importlib.metadata.version", return_value="0.31.0"),
+            mock_cm as mock_urlopen,
+        ):
+            mock_urlopen.return_value.__enter__ = lambda s: mock_resp
+            mock_urlopen.return_value.__exit__ = lambda s, *a: None
+
+            results = _check_version()
+            assert len(results) == 1
+            assert results[0].status == CheckStatus.OK
+            assert "Up to date" in results[0].message
+
+    @patch("gptme.cli.doctor.__version__", "0.30.0")
+    def test_update_available(self):
+        """Test that newer version triggers warning."""
+        import io
+        import json as json_mod
+
+        mock_resp = io.BytesIO(json_mod.dumps({"info": {"version": "0.31.0"}}).encode())
+        mock_cm = patch("urllib.request.urlopen")
+        with (
+            patch("importlib.metadata.version", return_value="0.30.0"),
+            mock_cm as mock_urlopen,
+        ):
+            mock_urlopen.return_value.__enter__ = lambda s: mock_resp
+            mock_urlopen.return_value.__exit__ = lambda s, *a: None
+
+            results = _check_version()
+            assert len(results) == 1
+            assert results[0].status == CheckStatus.WARNING
+            assert "0.31.0" in results[0].message
+            assert results[0].fix_hint is not None
+
+    @patch("gptme.cli.doctor.__version__", "0.31.0")
+    def test_network_error_graceful(self):
+        """Test that network errors are handled gracefully."""
+        with (
+            patch("importlib.metadata.version", return_value="0.31.0"),
+            patch("urllib.request.urlopen", side_effect=Exception("Network error")),
+        ):
+            results = _check_version()
+            assert len(results) == 1
+            # Should still report OK (installed version) not ERROR
+            assert results[0].status == CheckStatus.OK
+            assert "0.31.0" in results[0].message
+
+
+class TestCheckBrowser:
+    """Test _check_browser function."""
+
+    @patch("importlib.util.find_spec", return_value=None)
+    def test_no_playwright_returns_empty(self, mock_find):
+        """Test that missing playwright returns no results."""
+        results = _check_browser()
+        assert len(results) == 0
+
+    @patch("importlib.util.find_spec", return_value=True)
+    def test_playwright_no_browsers(self, mock_find, tmp_path):
+        """Test warning when playwright installed but no browsers."""
+        with patch.dict("os.environ", {"PLAYWRIGHT_BROWSERS_PATH": str(tmp_path)}):
+            results = _check_browser()
+            assert len(results) == 1
+            assert results[0].status == CheckStatus.WARNING
+            assert "no browsers" in results[0].message.lower()
+            assert results[0].fix_hint is not None
+
+    @patch("importlib.util.find_spec", return_value=True)
+    def test_playwright_with_browsers(self, mock_find, tmp_path):
+        """Test OK when playwright has browsers installed."""
+        # Create fake browser directories
+        (tmp_path / "chromium-1148").mkdir()
+        (tmp_path / "firefox-1460").mkdir()
+
+        with patch.dict("os.environ", {"PLAYWRIGHT_BROWSERS_PATH": str(tmp_path)}):
+            results = _check_browser()
+            assert len(results) == 1
+            assert results[0].status == CheckStatus.OK
+            assert "2 browser(s)" in results[0].message
 
 
 class TestCheckTools:
