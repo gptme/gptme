@@ -105,10 +105,11 @@ def _setup_completions():
         except ImportError:
             console.print("[red]❌ Could not find gptme installation directory[/red]")
 
-    elif shell in ["bash", "zsh"]:
-        console.print(f"[blue]Detected shell:[/blue] [bold]{shell}[/bold]")
-        console.print(f"[yellow]⚠️  {shell} completions not yet implemented[/yellow]")
-        console.print("   [dim]Fish completions are currently supported[/dim]")
+    elif shell == "bash":
+        _setup_bash_completions()
+
+    elif shell == "zsh":
+        _setup_zsh_completions()
 
     console.print()
 
@@ -195,6 +196,132 @@ def _install_fish_completions(fish_completions_file: Path, source_file: Path):
     console.print(
         "   [yellow]💡 Restart your shell or run 'exec fish' to enable completions[/yellow]"
     )
+
+
+def _generate_click_completion(shell: str) -> str | None:
+    """Generate Click shell completion script for the given shell.
+
+    Uses Click's built-in shell completion templates (Click 8.0+).
+    Generates the script in-process without spawning a subprocess.
+    """
+    try:
+        from click.shell_completion import get_completion_class
+    except ImportError:
+        return None
+
+    cls = get_completion_class(shell)
+    if cls is None:
+        return None
+
+    complete_var = "_GPTME_COMPLETE"
+    func_name = "_gptme_completion"
+
+    return cls.source_template % {
+        "complete_func": func_name,
+        "complete_var": complete_var,
+        "prog_name": "gptme",
+    }
+
+
+def _setup_bash_completions():
+    """Setup bash shell completions using Click's built-in completion."""
+    console.print(
+        Panel.fit(
+            Text("🐚 Bash Completions", style="bold blue"),
+            style="blue",
+            padding=(0, 2),
+        )
+    )
+
+    # Standard user bash completion directory
+    completions_dir = (
+        Path.home() / ".local" / "share" / "bash-completion" / "completions"
+    )
+    completions_file = completions_dir / "gptme"
+
+    if completions_file.exists():
+        console.print(
+            f"[green]✅ Bash completions already installed[/green] [dim]({path_with_tilde(completions_file)})[/dim]"
+        )
+        return
+
+    script = _generate_click_completion("bash")
+    if not script:
+        console.print("[red]❌ Failed to generate bash completions[/red]")
+        console.print(
+            "   [dim]You can manually add to ~/.bashrc:[/dim]\n"
+            '   [dim]eval "$(_GPTME_COMPLETE=bash_source gptme)"[/dim]'
+        )
+        return
+
+    completions_dir.mkdir(parents=True, exist_ok=True)
+    completions_file.write_text(script)
+    console.print(
+        f"[green]✅ Bash completions installed[/green]\n"
+        f"   [dim]{path_with_tilde(completions_file)}[/dim]"
+    )
+    console.print(
+        "   [yellow]💡 Restart your shell or run 'source ~/.bashrc' to enable completions[/yellow]"
+    )
+
+
+def _setup_zsh_completions():
+    """Setup zsh shell completions using Click's built-in completion."""
+    console.print(
+        Panel.fit(
+            Text("🐚 Zsh Completions", style="bold blue"),
+            style="blue",
+            padding=(0, 2),
+        )
+    )
+
+    # Standard user zsh completions directory
+    completions_dir = Path.home() / ".local" / "share" / "zsh" / "completions"
+    completions_file = completions_dir / "_gptme"
+
+    if completions_file.exists():
+        console.print(
+            f"[green]✅ Zsh completions already installed[/green] [dim]({path_with_tilde(completions_file)})[/dim]"
+        )
+        return
+
+    script = _generate_click_completion("zsh")
+    if not script:
+        console.print("[red]❌ Failed to generate zsh completions[/red]")
+        console.print(
+            "   [dim]You can manually add to ~/.zshrc:[/dim]\n"
+            '   [dim]eval "$(_GPTME_COMPLETE=zsh_source gptme)"[/dim]'
+        )
+        return
+
+    completions_dir.mkdir(parents=True, exist_ok=True)
+    completions_file.write_text(script)
+    console.print(
+        f"[green]✅ Zsh completions installed[/green]\n"
+        f"   [dim]{path_with_tilde(completions_file)}[/dim]"
+    )
+
+    # Check if the completions dir is in fpath
+    zshrc = Path.home() / ".zshrc"
+    fpath_line = f"fpath=({path_with_tilde(completions_dir)} $fpath)"
+    needs_fpath = True
+    if zshrc.exists():
+        zshrc_content = zshrc.read_text()
+        if (
+            str(completions_dir) in zshrc_content
+            or str(path_with_tilde(completions_dir)) in zshrc_content
+        ):
+            needs_fpath = False
+
+    if needs_fpath:
+        console.print(
+            f"   [yellow]💡 Add this to your ~/.zshrc (before compinit):[/yellow]\n"
+            f"   [dim]{fpath_line}[/dim]"
+        )
+    else:
+        console.print(
+            "   [yellow]💡 Restart your shell or run 'exec zsh' to enable completions[/yellow]"
+        )
 
 
 def _show_user_config_status():
