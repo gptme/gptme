@@ -96,11 +96,15 @@ def check_json_transform_exit(ctx):
 
 
 def check_refactor_main(ctx):
-    """main.py should call calculate_total instead of calcTotal."""
+    """main.py should import and call calculate_total instead of calcTotal."""
     content = ctx.files.get("main.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return "calculate_total" in content and "calcTotal(" not in content
+    return (
+        "from utils import calculate_total" in content
+        and "calculate_total" in content
+        and "calcTotal(" not in content
+    )
 
 
 def check_refactor_utils(ctx):
@@ -145,6 +149,11 @@ def check_tests_output(ctx):
 
 
 # --- fix-import-error checks ---
+
+
+def check_fix_import_created(ctx):
+    """math_ops.py must be created — the task requires creating the missing module, not inlining."""
+    return "math_ops.py" in ctx.files
 
 
 def check_fix_import_output(ctx):
@@ -370,6 +379,7 @@ tests: list["EvalSpec"] = [
         ),
         "tools": ["read", "save", "shell"],
         "expect": {
+            "math_ops.py created": check_fix_import_created,
             "correct output": check_fix_import_output,
             "clean exit": check_fix_import_exit,
         },
