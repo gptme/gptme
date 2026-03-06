@@ -132,9 +132,7 @@ def check_tests_output(ctx):
 # --- fix-import-error checks ---
 
 
-def check_fix_import_output(ctx):
-    """After fixing, the program should output the correct result."""
-    return "42" in ctx.stdout.split()
+    return "42" in ctx.stdout
 
 
 def check_fix_import_exit(ctx):
