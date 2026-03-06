@@ -1,20 +1,44 @@
+import json
+
 from gptme.tools import init_tools
 from gptme.tools.chats import _format_message_with_context, list_chats, search_chats
 
 
-def test_chats(capsys):
+def test_chats(tmp_path, monkeypatch, capsys):
+    """Test list_chats and search_chats with a controlled conversation store."""
+    # Isolate from real conversation history to make the test deterministic
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    # Create a test conversation containing "python"
+    conv_dir = tmp_path / "2026-01-01-python-demo"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        json.dumps(
+            {
+                "role": "user",
+                "content": "How do I write python code?",
+                "timestamp": "2026-01-01T00:00:00+00:00",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "role": "assistant",
+                "content": "Here is how to write python: use def for functions.",
+                "timestamp": "2026-01-01T00:00:01+00:00",
+            }
+        )
+        + "\n"
+    )
+
     init_tools([])
     list_chats()
     captured = capsys.readouterr()
-    if "No conversations found" in captured.out:
-        search_chats("python", system=True)
-        captured = capsys.readouterr()
-        assert "No results found" in captured.out
-    else:
-        assert "1." in captured.out
-        search_chats("python", system=True)
-        captured = capsys.readouterr()
-        assert "Search results" in captured.out
+    assert "1." in captured.out
+
+    search_chats("python", system=True)
+    captured = capsys.readouterr()
+    assert "Search results" in captured.out
 
 
 def test_format_message_basic():

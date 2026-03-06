@@ -204,8 +204,11 @@ def test_effectiveness_score_matches_short_path(tmp_path):
 
 
 @pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
-def test_effectiveness_score_default():
+def test_effectiveness_score_default(monkeypatch):
     """Test that effectiveness_score returns 0.5 without TS config."""
+    monkeypatch.delenv("GPTME_LESSONS_TS_STATE", raising=False)
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: Path("/nonexistent"))
     config = HybridConfig(enable_semantic=False)
     matcher = HybridLessonMatcher(config=config)
     assert matcher._ts_posteriors == {}

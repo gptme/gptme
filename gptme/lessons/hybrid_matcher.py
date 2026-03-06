@@ -57,8 +57,12 @@ class HybridConfig:
     effectiveness_state_file: str | None = None
 
 
-def _default_effectiveness_state_file() -> str | None:
-    """Return the default Thompson sampling state file path, if available."""
+def _default_effectiveness_state_file() -> str:
+    """Return the default Thompson sampling state file path.
+
+    Priority: GPTME_LESSONS_TS_STATE env var > XDG_STATE_HOME > ~/.local/state fallback.
+    Note: the returned path may not exist; callers should handle missing files gracefully.
+    """
     if env_path := os.getenv("GPTME_LESSONS_TS_STATE"):
         return env_path
 
