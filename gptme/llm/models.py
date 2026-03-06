@@ -1116,7 +1116,9 @@ def list_models(
         # Detailed format: print by provider with formatting
         from ..config import get_config  # fmt: skip
 
-        configured_set = configured or _get_configured_providers()
+        configured_set = (
+            configured if configured is not None else _get_configured_providers()
+        )
         if available_only:
             print("Models from configured providers:")
         else:
