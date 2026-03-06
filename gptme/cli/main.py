@@ -57,18 +57,27 @@ class CommaSeparatedChoice(click.ParamType):
         self,
         choices: list[str],
         allow_prefix: str | None = None,
+        allow_prefixes: list[str] | None = None,
         metavar: str | None = None,
     ):
         self.choices = choices
-        self.allow_prefix = allow_prefix
+        # Support both single prefix and multiple prefixes
+        if allow_prefixes:
+            self.allow_prefixes = allow_prefixes
+        elif allow_prefix:
+            self.allow_prefixes = [allow_prefix]
+        else:
+            self.allow_prefixes = []
         self._metavar = metavar
 
     def convert(self, value, param, ctx):
         parts = [v.strip() for v in value.split(",") if v.strip()]
         for part in parts:
             check = part
-            if self.allow_prefix and check.startswith(self.allow_prefix):
-                check = check[len(self.allow_prefix) :]
+            for prefix in self.allow_prefixes:
+                if check.startswith(prefix):
+                    check = check[len(prefix) :]
+                    break
             # Allow file paths (e.g. path/to/tool.py) to pass through
             if check.endswith(".py") or "/" in check or "\\" in check:
                 continue
@@ -125,6 +134,7 @@ Examples:
   gptme --tools none "what is 2+2"           No tools, just chat
   gptme -t patch,save "fix typo" main.py     Only specific tools (comma-separated)
   gptme -t +subagent "plan a refactor"       Default tools + subagent
+  gptme -t=-browser "summarize code"         Default tools minus browser
   gptme --context files "do task"             Skip context_cmd, keep project files
 
 \b
@@ -210,9 +220,9 @@ Run 'gptme-util --help' for all utility commands."""
     default=None,
     multiple=True,
     type=CommaSeparatedChoice(
-        _available_tools + ["none"], allow_prefix="+", metavar="TOOL"
+        _available_tools + ["none"], allow_prefixes=["+", "-"], metavar="TOOL"
     ),
-    help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). Available: {available_tool_names}.",
+    help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). Available: {available_tool_names}.",
 )
 @click.option(
     "--agent-profile",
@@ -381,6 +391,14 @@ def main(
 
         # Check if any tool starts with '+' (additive syntax)
         additive_mode = any(t.startswith("+") for t in tools_list)
+        # Check if any tool starts with '-' (exclusion syntax)
+        exclusion_mode = any(t.startswith("-") for t in tools_list)
+
+        if additive_mode and exclusion_mode:
+            raise click.UsageError(
+                "Cannot mix '+tool' (additive) and '-tool' (exclusion) syntax. "
+                "Use one or the other."
+            )
 
         if additive_mode:
             # Strip '+' prefix from all tools
@@ -393,6 +411,17 @@ def main(
                 tool_allowlist_str = "+" + ",".join(additional_tools)
             else:
                 # Just '+' means use defaults
+                tool_allowlist_str = None
+        elif exclusion_mode:
+            # Strip '-' prefix from all tools
+            excluded_tools = [t.removeprefix("-") for t in tools_list]
+            # Filter out empty strings
+            excluded_tools = [t for t in excluded_tools if t]
+
+            if excluded_tools:
+                # Prefix with '-' to signal exclusion mode to config layer
+                tool_allowlist_str = "-" + ",".join(excluded_tools)
+            else:
                 tool_allowlist_str = None
         else:
             # Normal mode - replace defaults with specified tools
