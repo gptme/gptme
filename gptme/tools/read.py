@@ -20,7 +20,7 @@ instructions = """
 Read the content of a file or list the contents of a directory.
 The path can be relative or absolute.
 For files, output includes line numbers for easy reference.
-For directories, output shows a tree listing of files and subdirectories.
+For directories, output shows a flat listing of immediate files and subdirectories.
 """.strip()
 
 instructions_format = {
@@ -180,7 +180,7 @@ tool = ToolSpec(
         Parameter(
             name="path",
             type="string",
-            description="The path of the file to read",
+            description="The path of the file or directory to read",
             required=True,
         ),
         Parameter(
