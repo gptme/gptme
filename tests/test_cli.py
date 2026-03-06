@@ -495,7 +495,8 @@ def test_tool_exclusion_mixed_bare_and_minus_raises():
     from click.testing import CliRunner
 
     runner = CliRunner()
-    # Passing 'shell,-browser' should raise a UsageError because 'shell' is bare
-    result = runner.invoke(cli.main, ["--tools", "shell,-browser", "test prompt"])
+    # Passing 'shell,-tmux' should raise a UsageError because 'shell' is bare
+    # Note: use a valid tool name so CommaSeparatedChoice passes before the mixing guard
+    result = runner.invoke(cli.main, ["--tools", "shell,-tmux", "test prompt"])
     assert result.exit_code != 0
     assert "Cannot mix bare tool names" in (result.output or "")
