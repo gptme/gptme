@@ -119,6 +119,27 @@ class TestCheckVersion:
             assert "0.31.0" in results[0].message
             assert results[0].fix_hint is not None
 
+    @patch("gptme.cli.doctor.__version__", "0.32.0")
+    def test_current_ahead_of_pypi(self):
+        """Test that installed version newer than PyPI shows OK (no spurious warning)."""
+        import io
+        import json as json_mod
+
+        mock_resp = io.BytesIO(json_mod.dumps({"info": {"version": "0.31.0"}}).encode())
+        mock_cm = patch("urllib.request.urlopen")
+        with (
+            patch("importlib.metadata.version", return_value="0.32.0"),
+            mock_cm as mock_urlopen,
+        ):
+            mock_urlopen.return_value.__enter__ = lambda s: mock_resp
+            mock_urlopen.return_value.__exit__ = lambda s, *a: None
+
+            results = _check_version()
+            assert len(results) == 1
+            assert results[0].status == CheckStatus.OK
+            assert results[0].fix_hint is None
+            assert "0.32.0" in results[0].message
+
     @patch("gptme.cli.doctor.__version__", "0.31.0")
     def test_network_error_graceful(self):
         """Test that network errors are handled gracefully."""

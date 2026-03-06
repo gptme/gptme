@@ -415,30 +415,43 @@ def _check_version(verbose: bool = False) -> list[CheckResult]:
             try:
                 current_v = Version(current)
                 latest_v = Version(latest)
-                is_major = latest_v.major > current_v.major
-                is_minor = latest_v.minor > current_v.minor
-                severity = (
-                    CheckStatus.WARNING if (is_major or is_minor) else CheckStatus.OK
-                )
+                if latest_v <= current_v:
+                    # User is running a newer version than PyPI (pre-release, branch install)
+                    results.append(
+                        CheckResult(
+                            name="Version: gptme",
+                            status=CheckStatus.OK,
+                            message=f"Installed {current} (ahead of PyPI: {latest})",
+                        )
+                    )
+                else:
+                    is_major = latest_v.major > current_v.major
+                    is_minor = latest_v.minor > current_v.minor
+                    if is_major or is_minor:
+                        results.append(
+                            CheckResult(
+                                name="Version: gptme",
+                                status=CheckStatus.WARNING,
+                                message=f"Update available: {current} → {latest}",
+                                fix_hint="pip install --upgrade gptme",
+                            )
+                        )
+                    else:
+                        results.append(
+                            CheckResult(
+                                name="Version: gptme",
+                                status=CheckStatus.OK,
+                                message=f"Installed {current} (latest: {latest})",
+                                details="Patch update available" if verbose else None,
+                            )
+                        )
             except Exception:
-                severity = CheckStatus.WARNING
-
-            if severity == CheckStatus.WARNING:
                 results.append(
                     CheckResult(
                         name="Version: gptme",
                         status=CheckStatus.WARNING,
                         message=f"Update available: {current} → {latest}",
                         fix_hint="pip install --upgrade gptme",
-                    )
-                )
-            else:
-                results.append(
-                    CheckResult(
-                        name="Version: gptme",
-                        status=CheckStatus.OK,
-                        message=f"Installed {current} (latest: {latest})",
-                        details="Patch update available" if verbose else None,
                     )
                 )
     except Exception as e:
@@ -463,10 +476,13 @@ def _check_browser(verbose: bool = False) -> list[CheckResult]:
         return results
 
     # Check if browsers are installed by looking at the standard cache directory
-    # Playwright stores browsers in PLAYWRIGHT_BROWSERS_PATH or ~/.cache/ms-playwright
+    # Playwright stores browsers in PLAYWRIGHT_BROWSERS_PATH or a platform-specific default
     browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
     if not browsers_path:
-        browsers_path = str(Path.home() / ".cache" / "ms-playwright")
+        if sys.platform == "darwin":
+            browsers_path = str(Path.home() / "Library" / "Caches" / "ms-playwright")
+        else:
+            browsers_path = str(Path.home() / ".cache" / "ms-playwright")
 
     browsers_dir = Path(browsers_path)
     if browsers_dir.exists():
