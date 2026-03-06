@@ -413,6 +413,13 @@ def main(
                 # Just '+' means use defaults
                 tool_allowlist_str = None
         elif exclusion_mode:
+            # Guard: bare tool names mixed with '-' exclusion tools is ambiguous
+            bare_tools = [t for t in tools_list if not t.startswith("-")]
+            if bare_tools:
+                raise click.UsageError(
+                    f"Cannot mix bare tool names ({', '.join(bare_tools)}) with '-tool' exclusion syntax. "
+                    "Prefix all tools with '-' to exclude them."
+                )
             # Strip '-' prefix from all tools
             excluded_tools = [t.removeprefix("-") for t in tools_list]
             # Filter out empty strings

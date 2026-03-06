@@ -965,7 +965,7 @@ def test_tool_exclusion_config(tmp_path):
     assert tool_to_exclude not in config.chat.tools, (
         f"Excluded tool '{tool_to_exclude}' should not be in tools list"
     )
-    # Other default tools should still be present (minus excluded + minus 'complete' which is only added in non-interactive)
+    # Other default tools should still be present (minus the excluded one)
     remaining_defaults = [t for t in default_tools if t != tool_to_exclude]
     for tool in remaining_defaults:
         assert tool in config.chat.tools, (

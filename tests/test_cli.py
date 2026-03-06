@@ -488,3 +488,14 @@ def test_comma_separated_choice_minus_prefix():
     # Should reject invalid tool name even with '-' prefix
     with pytest.raises(click.exceptions.BadParameter):
         csc.convert("-nonexistent", None, None)
+
+
+def test_tool_exclusion_mixed_bare_and_minus_raises():
+    """Test that mixing bare tool names with '-' exclusion syntax raises UsageError."""
+    from click.testing import CliRunner
+
+    runner = CliRunner()
+    # Passing 'shell,-browser' should raise a UsageError because 'shell' is bare
+    result = runner.invoke(cli.main, ["--tools", "shell,-browser", "test prompt"])
+    assert result.exit_code != 0
+    assert "Cannot mix bare tool names" in (result.output or "")
