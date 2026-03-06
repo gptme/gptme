@@ -146,6 +146,59 @@ def check_tests_output(ctx):
     return all(fn in content for fn in ("factorial", "is_palindrome", "clamp"))
 
 
+# --- generate-cli checks ---
+
+
+def check_cli_file(ctx):
+    return "wordcount.py" in ctx.files
+
+
+def check_cli_basic(ctx):
+    """CLI should output correct word count."""
+    return "3" in ctx.stdout
+
+
+def check_cli_exit(ctx):
+    return ctx.exit_code == 0
+
+
+# --- extract-function checks ---
+
+
+def check_extract_shared(ctx):
+    """A shared validate function should exist in validators.py."""
+    content = ctx.files.get("validators.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return "def validate" in content
+
+
+def check_extract_order_uses_shared(ctx):
+    """order.py should import from validators, not define its own validation."""
+    content = ctx.files.get("order.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return "from validators import" in content or "import validators" in content
+
+
+def check_extract_user_uses_shared(ctx):
+    """user.py should import from validators, not define its own validation."""
+    content = ctx.files.get("user.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return "from validators import" in content or "import validators" in content
+
+
+def check_extract_output(ctx):
+    """Program should still produce correct output after refactoring."""
+    output = ctx.stdout
+    return "Order OK" in output and "User OK" in output
+
+
+def check_extract_exit(ctx):
+    return ctx.exit_code == 0
+
+
 # --- fix-import-error checks ---
 
 
@@ -349,6 +402,82 @@ tests: list["EvalSpec"] = [
             "test file exists": check_tests_file,
             "tests pass": check_tests_pass,
             "test output": check_tests_output,
+        },
+    },
+    {
+        "name": "generate-cli",
+        "files": {
+            "sample.txt": "hello world foo\nbar baz\nqux\n",
+        },
+        "run": "python wordcount.py sample.txt",
+        "prompt": (
+            "Write a command-line tool wordcount.py that takes a filename as a "
+            "command-line argument and prints the number of words in that file. "
+            "Use argparse for argument parsing. The output should be just the "
+            "word count as a single number."
+        ),
+        "tools": ["save", "shell", "read"],
+        "expect": {
+            "file exists": check_cli_file,
+            "correct count": check_cli_basic,
+            "clean exit": check_cli_exit,
+        },
+    },
+    {
+        "name": "extract-function",
+        "files": {
+            "order.py": (
+                "def process_order(data):\n"
+                "    # validate required fields\n"
+                "    errors = []\n"
+                "    for field in ['product', 'quantity', 'price']:\n"
+                "        if field not in data:\n"
+                "            errors.append(f'missing {field}')\n"
+                "        elif not data[field]:\n"
+                "            errors.append(f'{field} is empty')\n"
+                "    if errors:\n"
+                "        return {'ok': False, 'errors': errors}\n"
+                "    return {'ok': True, 'total': data['quantity'] * data['price']}\n"
+            ),
+            "user.py": (
+                "def process_user(data):\n"
+                "    # validate required fields\n"
+                "    errors = []\n"
+                "    for field in ['name', 'email', 'age']:\n"
+                "        if field not in data:\n"
+                "            errors.append(f'missing {field}')\n"
+                "        elif not data[field]:\n"
+                "            errors.append(f'{field} is empty')\n"
+                "    if errors:\n"
+                "        return {'ok': False, 'errors': errors}\n"
+                "    return {'ok': True, 'user': data['name']}\n"
+            ),
+            "main.py": (
+                "from order import process_order\n"
+                "from user import process_user\n"
+                "\n"
+                "r1 = process_order({'product': 'Widget', 'quantity': 5, 'price': 10})\n"
+                "print('Order OK' if r1['ok'] else 'Order FAIL')\n"
+                "\n"
+                "r2 = process_user({'name': 'Alice', 'email': 'a@b.com', 'age': 30})\n"
+                "print('User OK' if r2['ok'] else 'User FAIL')\n"
+            ),
+        },
+        "run": "python main.py",
+        "prompt": (
+            "Both order.py and user.py contain duplicated validation logic "
+            "(checking for missing/empty required fields). Extract this shared "
+            "pattern into a validate_required_fields() function in a new "
+            "validators.py module. Update both order.py and user.py to import "
+            "and use the shared function. Make sure main.py still works correctly."
+        ),
+        "tools": ["read", "save", "patch", "shell"],
+        "expect": {
+            "validators.py created": check_extract_shared,
+            "order.py uses shared": check_extract_order_uses_shared,
+            "user.py uses shared": check_extract_user_uses_shared,
+            "correct output": check_extract_output,
+            "clean exit": check_extract_exit,
         },
     },
     {
