@@ -197,7 +197,7 @@ class HybridLessonMatcher(LessonMatcher):
                 semantic_score = self._semantic_score(query_embed, lesson, context)
 
             # Component 3: Effectiveness score
-            # NOTE: Neutral until ACE metadata implemented (Phase 1 schema)
+            # Falls back to 0.5 (neutral) when no TS data is configured or available
             effectiveness_score = 0.5
             if self.config.enable_effectiveness:
                 effectiveness_score = self._effectiveness_score(lesson)

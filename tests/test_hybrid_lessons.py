@@ -207,3 +207,13 @@ def test_effectiveness_score_default():
     config = HybridConfig(enable_semantic=False)
     matcher = HybridLessonMatcher(config=config)
     assert matcher._ts_posteriors == {}
+    # Verify the fallback path inside _effectiveness_score returns 0.5
+    lesson = Lesson(
+        path=Path("/tmp/lessons/some-lesson.md"),
+        metadata=LessonMetadata(),
+        title="Some Lesson",
+        description="",
+        category="workflow",
+        body="",
+    )
+    assert matcher._effectiveness_score(lesson) == pytest.approx(0.5)
