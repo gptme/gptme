@@ -1325,3 +1325,51 @@ def test_acp_mode_handles_failure():
             assert "test-acp-fail" in _subagent_results
             result = _subagent_results["test-acp-fail"]
             assert result.status == "failure"
+
+
+def test_acp_mode_subagent_batch():
+    """Test that subagent_batch forwards use_acp and acp_command to subagent()."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from gptme.tools.subagent import (
+        _subagent_results,
+        _subagent_results_lock,
+        _subagents,
+        subagent_batch,
+    )
+
+    _subagents.clear()
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+    mock_client = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.stop_reason = "end_turn"
+    mock_client.run = AsyncMock(return_value=mock_result)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("gptme.acp.client.GptmeAcpClient", return_value=mock_client),
+        patch("gptme.tools.subagent.notify_completion"),
+    ):
+        job = subagent_batch(
+            [("batch-acp-1", "Task 1"), ("batch-acp-2", "Task 2")],
+            use_acp=True,
+            acp_command="fake-acp",
+        )
+
+        assert job.agent_ids == ["batch-acp-1", "batch-acp-2"]
+
+        # Wait for both ACP threads to complete
+        for agent_id in job.agent_ids:
+            sa = next(s for s in _subagents if s.agent_id == agent_id)
+            assert sa.execution_mode == "acp"
+            assert sa.acp_command == "fake-acp"
+            assert sa.thread is not None
+            sa.thread.join(timeout=10)
+
+        with _subagent_results_lock:
+            for agent_id in job.agent_ids:
+                assert agent_id in _subagent_results
+                assert _subagent_results[agent_id].status == "success"

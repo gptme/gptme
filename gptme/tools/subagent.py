@@ -1015,11 +1015,7 @@ def subagent(
                     return status, summary
 
             try:
-                loop = asyncio.new_event_loop()
-                try:
-                    status, summary = loop.run_until_complete(_acp_run())
-                finally:
-                    loop.close()
+                status, summary = asyncio.run(_acp_run())
 
                 with _subagent_results_lock:
                     _subagent_results[agent_id] = ReturnType(status, summary)
@@ -1029,7 +1025,7 @@ def subagent(
                     _summarize_result(ReturnType(status, summary), max_chars=200),
                 )
             except Exception as e:
-                logger.error(f"ACP subagent {agent_id} failed: {e}")
+                logger.error(f"ACP subagent {agent_id} failed: {e}", exc_info=True)
                 with _subagent_results_lock:
                     _subagent_results[agent_id] = ReturnType("failure", str(e))
                 notify_completion(agent_id, "failure", f"ACP error: {e}")
