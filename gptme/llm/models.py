@@ -167,7 +167,6 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
         }
         for model in [
             "gpt-5.4",
-            "gpt-5.4-codex",
             "gpt-5.3-codex",
             "gpt-5.3-codex-spark",
             "gpt-5.2",
@@ -809,7 +808,7 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
     if provider == "openai":
         return "gpt-5"
     if provider == "openai-subscription":
-        return "gpt-5.4-codex"
+        return "gpt-5.4"
     if provider == "openrouter":
         return "meta-llama/llama-3.1-405b-instruct"
     if provider == "gemini":
