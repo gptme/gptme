@@ -199,6 +199,70 @@ def check_extract_exit(ctx):
     return ctx.exit_code == 0
 
 
+# --- debug-type-error checks ---
+
+
+def check_debug_type_output(ctx):
+    """Fixed config should produce Total: 90.0 (sum=100, discount=0.1, total=90.0)."""
+    return "90" in ctx.stdout
+
+
+def check_debug_type_exit(ctx):
+    return ctx.exit_code == 0
+
+
+def check_debug_type_config(ctx):
+    """config.json should have numeric values, not strings."""
+    import json
+
+    content = ctx.files.get("config.json", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        return False
+    # All prices should be numbers, discount should be a number
+    prices = data.get("prices", [])
+    discount = data.get("discount")
+    return all(isinstance(p, (int, float)) for p in prices) and isinstance(
+        discount, (int, float)
+    )
+
+
+# --- find-and-fix checks ---
+
+
+def check_find_fix_no_warnings(ctx):
+    """No deprecation warnings should appear in output."""
+    return "deprecated" not in ctx.stdout.lower()
+
+
+def check_find_fix_output(ctx):
+    """Program should still produce correct output."""
+    return "Profile: User 1" in ctx.stdout and "User 2: active" in ctx.stdout
+
+
+def check_find_fix_routes(ctx):
+    """routes.py should use fetch_user, not get_user."""
+    content = ctx.files.get("routes.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return "fetch_user" in content and "get_user" not in content
+
+
+def check_find_fix_report(ctx):
+    """report.py should use fetch_user, not get_user."""
+    content = ctx.files.get("report.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return "fetch_user" in content and "get_user" not in content
+
+
+def check_find_fix_exit(ctx):
+    return ctx.exit_code == 0
+
+
 # --- fix-import-error checks ---
 
 
@@ -478,6 +542,107 @@ tests: list["EvalSpec"] = [
             "user.py uses shared": check_extract_user_uses_shared,
             "correct output": check_extract_output,
             "clean exit": check_extract_exit,
+        },
+    },
+    {
+        "name": "debug-type-error",
+        "files": {
+            "process.py": (
+                "import json\n"
+                "\n"
+                "\n"
+                "def load_config(path):\n"
+                "    with open(path) as f:\n"
+                "        return json.load(f)\n"
+                "\n"
+                "\n"
+                "def compute_total(config):\n"
+                '    prices = config["prices"]\n'
+                '    discount = config["discount"]\n'
+                "    total = sum(prices)\n"
+                "    return total - total * discount\n"
+                "\n"
+                "\n"
+                'if __name__ == "__main__":\n'
+                '    cfg = load_config("config.json")\n'
+                "    result = compute_total(cfg)\n"
+                '    print(f"Total: {result}")\n'
+            ),
+            "config.json": (
+                '{\n  "prices": [10, 20, "30", 40],\n  "discount": "0.1"\n}\n'
+            ),
+        },
+        "run": "python process.py",
+        "prompt": (
+            "Running 'python process.py' produces a TypeError. "
+            "Diagnose the issue by reading the code and config, then fix the bug "
+            "so the program runs correctly. The prices should all be numeric and "
+            "the discount should be a float. Fix config.json, not the Python code."
+        ),
+        "tools": ["read", "save", "patch", "shell"],
+        "expect": {
+            "correct output": check_debug_type_output,
+            "clean exit": check_debug_type_exit,
+            "config fixed": check_debug_type_config,
+        },
+    },
+    {
+        "name": "find-and-fix",
+        "files": {
+            "api.py": (
+                "import logging\n"
+                "\n"
+                "logger = logging.getLogger(__name__)\n"
+                "\n"
+                "\n"
+                "def get_user(user_id):\n"
+                '    logger.warning("deprecated: use fetch_user() instead")\n'
+                "    return fetch_user(user_id)\n"
+                "\n"
+                "\n"
+                "def fetch_user(user_id):\n"
+                '    return {"id": user_id, "name": f"User {user_id}"}\n'
+            ),
+            "routes.py": (
+                "from api import get_user\n"
+                "\n"
+                "\n"
+                "def handle_profile(user_id):\n"
+                "    user = get_user(user_id)\n"
+                "    return f\"Profile: {user['name']}\"\n"
+            ),
+            "report.py": (
+                "from api import get_user\n"
+                "\n"
+                "\n"
+                "def generate_report(user_ids):\n"
+                "    results = []\n"
+                "    for uid in user_ids:\n"
+                "        user = get_user(uid)\n"
+                "        results.append(f\"{user['name']}: active\")\n"
+                '    return "\\n".join(results)\n'
+            ),
+            "main.py": (
+                "from routes import handle_profile\n"
+                "from report import generate_report\n"
+                "\n"
+                "print(handle_profile(1))\n"
+                "print(generate_report([2, 3]))\n"
+            ),
+        },
+        "run": "python main.py 2>&1",
+        "prompt": (
+            "The function get_user() in api.py is deprecated in favor of fetch_user(). "
+            "Update all files that import and call get_user() to use fetch_user() instead. "
+            "Make sure main.py still runs correctly with no deprecation warnings."
+        ),
+        "tools": ["read", "patch", "save", "shell"],
+        "expect": {
+            "no deprecation warnings": check_find_fix_no_warnings,
+            "correct output": check_find_fix_output,
+            "routes updated": check_find_fix_routes,
+            "report updated": check_find_fix_report,
+            "clean exit": check_find_fix_exit,
         },
     },
     {
