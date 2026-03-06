@@ -670,6 +670,32 @@ def skills_dirs():
         click.echo(f"  {icon} {d}  ({status})")
 
 
+@skills.command("check")
+@click.option(
+    "--workspace",
+    default=".",
+    show_default=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Agent workspace to check (default: current directory).",
+)
+def skills_check(workspace: Path):
+    """Validate lesson/skill health: frontmatter, keywords, sizing."""
+    from ..agent.doctor import DoctorReport, check_lessons
+
+    report = DoctorReport()
+    check_lessons(workspace.resolve(), report)
+
+    if not report.results:
+        click.echo("No lesson directories found.")
+        sys.exit(1)
+
+    for result in report.results:
+        click.echo(f"  {result.emoji} {result.name}: {result.message}")
+
+    if report.errors:
+        sys.exit(1)
+
+
 @main.group()
 def tools():
     """Tool-related utilities."""

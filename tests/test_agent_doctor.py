@@ -347,6 +347,40 @@ class TestCheckLessons:
             for r in report.results
         )
 
+    def test_overlapping_dirs_no_double_count(self, workspace: Path):
+        """Files in overlapping dirs (parent + child) are counted only once."""
+        lessons_dir = workspace / "lessons"
+        tools_dir = lessons_dir / "tools"
+        tools_dir.mkdir(parents=True)
+        (tools_dir / "tool-lesson.md").write_text(
+            '---\nmatch:\n  keywords:\n    - "tool"\n---\n# Tool Lesson\n\nContent.\n'
+        )
+        # Configure tools subdir in gptme.toml — lessons/ will also be prepended by default
+        (workspace / "gptme.toml").write_text('[lessons]\ndirs = ["lessons/tools"]\n')
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        # Should see exactly 1 lesson, not 2
+        count_msg = next(
+            (
+                r.message
+                for r in report.results
+                if "lessons" in r.message and "dir" in r.message
+            ),
+            "",
+        )
+        assert "1 lessons" in count_msg, f"Expected 1 lesson, got: {count_msg}"
+
+    def test_empty_frontmatter_flagged(self, workspace: Path):
+        """A lesson with empty frontmatter (---\\n---) is flagged as missing match config."""
+        lessons_dir = workspace / "lessons"
+        lessons_dir.mkdir()
+        (lessons_dir / "empty-fm.md").write_text(
+            "---\n---\n# Empty Frontmatter\n\nNo config.\n"
+        )
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        assert any("no keywords" in r.message for r in report.results)
+
 
 class TestRunDoctor:
     """Integration tests for the full doctor run."""

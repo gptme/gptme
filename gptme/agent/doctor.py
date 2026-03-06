@@ -364,18 +364,23 @@ def check_lessons(workspace: Path, report: DoctorReport) -> None:
         report.warn("Lessons", "no lesson directories found")
         return
 
-    # Scan all lesson files
+    # Scan all lesson files (track seen files to avoid double-counting overlapping dirs)
     total = 0
     no_frontmatter = 0
     no_keywords = 0
     oversized = []
     parse_errors = []
+    seen_files: set[Path] = set()
 
     for lesson_dir in lesson_dirs:
         for md_file in sorted(lesson_dir.rglob("*.md")):
-            # Skip READMEs and non-lesson files
+            # Skip READMEs and already-counted files (overlapping dirs)
             if md_file.name.lower() == "readme.md":
                 continue
+            resolved = md_file.resolve()
+            if resolved in seen_files:
+                continue
+            seen_files.add(resolved)
 
             total += 1
             try:
@@ -404,7 +409,7 @@ def check_lessons(workspace: Path, report: DoctorReport) -> None:
                     parse_errors.append(md_file.name)
                     continue
 
-                if fm:
+                if fm is not None:
                     # Check for keywords (lesson format) or name (skill format)
                     match_data = fm.get("match", {})
                     has_keywords = bool(
@@ -414,6 +419,9 @@ def check_lessons(workspace: Path, report: DoctorReport) -> None:
                     has_globs = bool(fm.get("globs"))
                     if not (has_keywords or has_name or has_globs):
                         no_keywords += 1
+                else:
+                    # Empty frontmatter (---\n---) has no matching config
+                    no_keywords += 1
 
             # Check size (primary lessons should be <=100 lines)
             if line_count > 100:
