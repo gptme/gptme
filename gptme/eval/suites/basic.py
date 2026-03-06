@@ -132,16 +132,24 @@ def check_tests_pass(ctx):
 
 
 def check_tests_output(ctx):
-    """All three library functions should have tests (visible in verbose pytest -v output)."""
-    return all(fn in ctx.stdout for fn in ("factorial", "is_palindrome", "clamp"))
+    """All three library functions should be covered — check file content, not pytest stdout.
+
+    Inspecting the test file is more robust than checking pytest -v output:
+    a valid grouped/parametrized test suite may not mention each function name in stdout,
+    but the identifiers will always appear in the source file.
+    """
+    content = ctx.files.get("test_mathlib.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return all(fn in content for fn in ("factorial", "is_palindrome", "clamp"))
 
 
 # --- fix-import-error checks ---
 
 
 def check_fix_import_output(ctx):
-    """multiply(6, 7) should output 42; use substring match to handle 42.0 float output."""
-    return "42" in ctx.stdout
+    """multiply(6, 7) should output 42; exact match prevents false-positives from '420' etc."""
+    return ctx.stdout.strip() in ("42", "42.0")
 
 
 def check_fix_import_exit(ctx):
