@@ -12,6 +12,7 @@ from gptme.agent.doctor import (
     check_directories,
     check_git,
     check_gptme_toml,
+    check_lessons,
     check_python_env,
     check_tools,
     run_doctor,
@@ -245,6 +246,105 @@ class TestCheckPythonEnv:
         check_python_env(workspace, report)
         assert any(
             r.status == "pass" and "present" in r.message for r in report.results
+        )
+
+
+class TestCheckLessons:
+    """Tests for lesson health checks."""
+
+    def test_no_lessons_dir(self, workspace: Path):
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        assert report.warnings == 1
+        assert "no lesson directories" in report.results[0].message
+
+    def test_empty_lessons_dir(self, workspace: Path):
+        (workspace / "lessons").mkdir()
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        assert any("no .md files" in r.message for r in report.results)
+
+    def test_valid_lessons(self, workspace: Path):
+        lessons_dir = workspace / "lessons" / "tools"
+        lessons_dir.mkdir(parents=True)
+        (lessons_dir / "my-lesson.md").write_text(
+            '---\nmatch:\n  keywords:\n    - "test keyword"\nstatus: active\n---\n# My Lesson\n\n## Rule\nDo the thing.\n'
+        )
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        assert any(
+            r.status == "pass" and "1 lessons" in r.message for r in report.results
+        )
+
+    def test_missing_frontmatter(self, workspace: Path):
+        lessons_dir = workspace / "lessons"
+        lessons_dir.mkdir()
+        (lessons_dir / "no-frontmatter.md").write_text(
+            "# Just a heading\n\nNo frontmatter here.\n"
+        )
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        assert any("missing YAML frontmatter" in r.message for r in report.results)
+
+    def test_missing_keywords(self, workspace: Path):
+        lessons_dir = workspace / "lessons"
+        lessons_dir.mkdir()
+        (lessons_dir / "no-keywords.md").write_text(
+            "---\nstatus: active\n---\n# Lesson Without Keywords\n\nNo match config.\n"
+        )
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        assert any("no keywords" in r.message for r in report.results)
+
+    def test_oversized_lesson(self, workspace: Path):
+        lessons_dir = workspace / "lessons"
+        lessons_dir.mkdir()
+        content = '---\nmatch:\n  keywords:\n    - "test"\n---\n# Big Lesson\n'
+        content += "Line\n" * 100  # 106 lines total
+        (lessons_dir / "big-lesson.md").write_text(content)
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        assert any("exceed 100 lines" in r.message for r in report.results)
+
+    def test_skill_format_accepted(self, workspace: Path):
+        lessons_dir = workspace / "lessons"
+        lessons_dir.mkdir()
+        (lessons_dir / "my-skill.md").write_text(
+            "---\nname: my-skill\ndescription: A useful skill\n---\n# My Skill\n\nInstructions here.\n"
+        )
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        # Should pass — skill format uses name instead of keywords
+        assert any(
+            r.status == "pass" and "1 lessons" in r.message for r in report.results
+        )
+
+    def test_configured_lesson_dirs(self, workspace: Path):
+        """Lessons from gptme.toml [lessons] dirs are scanned."""
+        custom_dir = workspace / "custom-lessons"
+        custom_dir.mkdir()
+        (custom_dir / "custom.md").write_text(
+            '---\nmatch:\n  keywords:\n    - "custom"\n---\n# Custom\n\nCustom lesson.\n'
+        )
+        (workspace / "gptme.toml").write_text('[lessons]\ndirs = ["custom-lessons"]\n')
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        assert any(
+            r.status == "pass" and "1 lessons" in r.message for r in report.results
+        )
+
+    def test_all_healthy(self, workspace: Path):
+        """All lessons valid produces quality pass."""
+        lessons_dir = workspace / "lessons"
+        lessons_dir.mkdir()
+        (lessons_dir / "good.md").write_text(
+            '---\nmatch:\n  keywords:\n    - "good lesson"\nstatus: active\n---\n# Good Lesson\n\n## Rule\nBe good.\n'
+        )
+        report = DoctorReport()
+        check_lessons(workspace, report)
+        assert any(
+            r.status == "pass" and "valid frontmatter" in r.message
+            for r in report.results
         )
 
 

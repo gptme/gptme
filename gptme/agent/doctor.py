@@ -12,6 +12,13 @@ from pathlib import Path
 
 import tomlkit
 
+try:
+    import yaml
+
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -327,6 +334,133 @@ def check_context_script(workspace: Path, report: DoctorReport) -> None:
     report.warn("Context script", "no context script found in scripts/")
 
 
+def check_lessons(workspace: Path, report: DoctorReport) -> None:
+    """Check lesson system health: count, frontmatter validity, sizing."""
+    # Collect lesson directories from gptme.toml or default
+    lesson_dirs: list[Path] = []
+    toml_path = workspace / "gptme.toml"
+
+    if toml_path.exists():
+        try:
+            with open(toml_path) as f:
+                config = tomlkit.load(f)
+            configured_dirs = (
+                config.get("lessons", {}).get("dirs") if config.get("lessons") else None
+            )
+            if configured_dirs:
+                for d in configured_dirs:
+                    p = workspace / d
+                    if p.is_dir():
+                        lesson_dirs.append(p)
+        except Exception:
+            pass
+
+    # Default: workspace lessons/ directory
+    default_lessons = workspace / "lessons"
+    if default_lessons.is_dir() and default_lessons not in lesson_dirs:
+        lesson_dirs.insert(0, default_lessons)
+
+    if not lesson_dirs:
+        report.warn("Lessons", "no lesson directories found")
+        return
+
+    # Scan all lesson files
+    total = 0
+    no_frontmatter = 0
+    no_keywords = 0
+    oversized = []
+    parse_errors = []
+
+    for lesson_dir in lesson_dirs:
+        for md_file in sorted(lesson_dir.rglob("*.md")):
+            # Skip READMEs and non-lesson files
+            if md_file.name.lower() == "readme.md":
+                continue
+
+            total += 1
+            try:
+                content = md_file.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                parse_errors.append(md_file.name)
+                continue
+
+            line_count = len(content.splitlines())
+
+            # Check frontmatter presence
+            if not content.startswith("---"):
+                no_frontmatter += 1
+                continue
+
+            # Check frontmatter validity
+            parts = content.split("---", 2)
+            if len(parts) < 3:
+                no_frontmatter += 1
+                continue
+
+            if HAS_YAML:
+                try:
+                    fm = yaml.safe_load(parts[1])
+                except yaml.YAMLError:
+                    parse_errors.append(md_file.name)
+                    continue
+
+                if fm:
+                    # Check for keywords (lesson format) or name (skill format)
+                    match_data = fm.get("match", {})
+                    has_keywords = bool(
+                        match_data.get("keywords") if match_data else False
+                    )
+                    has_name = bool(fm.get("name"))
+                    has_globs = bool(fm.get("globs"))
+                    if not (has_keywords or has_name or has_globs):
+                        no_keywords += 1
+
+            # Check size (primary lessons should be <=100 lines)
+            if line_count > 100:
+                oversized.append(md_file.name)
+
+    # Report results
+    if total == 0:
+        report.warn("Lessons", "lesson directories exist but contain no .md files")
+        return
+
+    # Build summary
+    dirs_desc = ", ".join(d.name for d in lesson_dirs)
+    report.passed(
+        "Lessons", f"{total} lessons across {len(lesson_dirs)} dir(s) ({dirs_desc})"
+    )
+
+    if parse_errors:
+        report.warn(
+            "Lesson parse errors",
+            f"{len(parse_errors)} file(s) with YAML errors: {', '.join(parse_errors[:3])}",
+        )
+
+    if no_frontmatter:
+        report.warn(
+            "Lesson frontmatter",
+            f"{no_frontmatter}/{total} lessons missing YAML frontmatter",
+        )
+
+    if no_keywords:
+        report.warn(
+            "Lesson matching",
+            f"{no_keywords}/{total} lessons have no keywords, name, or globs (won't auto-match)",
+        )
+
+    if oversized:
+        # Only warn if a significant portion is oversized
+        report.warn(
+            "Lesson sizing",
+            f"{len(oversized)}/{total} lessons exceed 100 lines (target: <=100 for primaries)",
+        )
+
+    if not parse_errors and not no_frontmatter and not no_keywords and not oversized:
+        report.passed(
+            "Lesson quality", "all lessons have valid frontmatter and matching config"
+        )
+
+
 def check_autonomous_run(workspace: Path, report: DoctorReport) -> None:
     """Check autonomous run infrastructure."""
     candidates = [
@@ -370,6 +504,7 @@ def run_doctor(workspace: Path, fix: bool = False) -> DoctorReport:
     check_tools(report)
     check_python_env(workspace, report)
     check_submodules(workspace, report, fix=fix)
+    check_lessons(workspace, report)
     check_context_script(workspace, report)
     check_autonomous_run(workspace, report)
 
