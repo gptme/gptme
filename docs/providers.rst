@@ -61,7 +61,6 @@ Access tokens are automatically refreshed before expiry, so you only need to aut
 
 .. code-block:: sh
 
-    gptme "hello" -m openai-subscription/gpt-5.4-codex
     gptme "hello" -m openai-subscription/gpt-5.4
     gptme "hello" -m openai-subscription/gpt-5.2
 
@@ -69,12 +68,11 @@ You can also append reasoning levels: ``:low``, ``:medium``, ``:high``, or ``:xh
 
 .. code-block:: sh
 
-    gptme "solve this problem" -m openai-subscription/gpt-5.4-codex:high
+    gptme "solve this problem" -m openai-subscription/gpt-5.4:high
 
 **Available Models:**
 
-- ``gpt-5.4`` - Latest GPT model with reasoning capabilities
-- ``gpt-5.4-codex`` - Latest model optimized for code tasks (recommended)
+- ``gpt-5.4`` - Latest GPT model with reasoning capabilities (recommended)
 - ``gpt-5.3-codex`` - Previous code-optimized variant
 - ``gpt-5.3-codex-spark`` - Faster variant of gpt-5.3-codex
 - ``gpt-5.2`` - Previous generation GPT model
