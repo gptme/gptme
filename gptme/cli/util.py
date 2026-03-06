@@ -836,6 +836,11 @@ def models():
     is_flag=True,
     help="Include deprecated/sunset models in the listing",
 )
+@click.option(
+    "--available",
+    is_flag=True,
+    help="Only show models from providers with configured API keys",
+)
 def models_list(
     provider: str | None,
     pricing: bool,
@@ -843,6 +848,7 @@ def models_list(
     reasoning: bool,
     simple: bool,
     include_deprecated: bool,
+    available: bool,
 ):
     """List available models."""
 
@@ -854,6 +860,7 @@ def models_list(
         include_deprecated=include_deprecated,
         simple_format=simple,
         dynamic_fetch=True,
+        available_only=available,
     )
 
 

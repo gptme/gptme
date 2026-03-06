@@ -1043,9 +1043,14 @@ def _print_detailed_format(
     models: list[ModelMeta],
     show_pricing: bool = False,
     dynamic_fetch: bool = True,
+    is_configured: bool | None = None,
 ) -> None:
     """Print models in detailed format with provider grouping."""
-    print(f"\n{provider}:")
+    if is_configured is not None:
+        marker = "✓" if is_configured else "✗"
+        print(f"\n{provider} [{marker}]:")
+    else:
+        print(f"\n{provider}:")
 
     if dynamic_fetch and provider == "openrouter" and len(models) > 0:
         print(f"  ({len(models)} models available via API)")
@@ -1063,6 +1068,13 @@ def _print_detailed_format(
         print("  (no models configured)")
 
 
+def _get_configured_providers() -> set[str]:
+    """Get the set of provider names that have API keys or OAuth configured."""
+    from ..llm import list_available_providers  # fmt: skip
+
+    return {provider for provider, _ in list_available_providers()}
+
+
 def list_models(
     provider_filter: str | None = None,
     show_pricing: bool = False,
@@ -1071,6 +1083,7 @@ def list_models(
     include_deprecated: bool = False,
     simple_format: bool = False,
     dynamic_fetch: bool = True,
+    available_only: bool = False,
 ) -> None:
     """
     List available models with optional filtering.
@@ -1083,7 +1096,10 @@ def list_models(
         include_deprecated: Include deprecated/sunset models
         simple_format: Output one model per line as provider/model
         dynamic_fetch: Fetch dynamic models from APIs where available
+        available_only: Only show models from configured providers
     """
+    configured = _get_configured_providers() if available_only else None
+
     if simple_format:
         # Simple format: just get all models and print them
         all_models = get_model_list(
@@ -1093,12 +1109,18 @@ def list_models(
             include_deprecated=include_deprecated,
             dynamic_fetch=dynamic_fetch,
         )
+        if configured is not None:
+            all_models = [m for m in all_models if m.provider in configured]
         _print_simple_format(all_models)
     else:
         # Detailed format: print by provider with formatting
         from ..config import get_config  # fmt: skip
 
-        print("Available models:")
+        configured_set = configured or _get_configured_providers()
+        if available_only:
+            print("Models from configured providers:")
+        else:
+            print("Available models:")
 
         config = get_config()
         custom_providers: list[Provider] = [
@@ -1112,6 +1134,9 @@ def list_models(
             if provider_filter and provider != provider_filter:
                 continue
 
+            if available_only and provider not in configured_set:
+                continue
+
             models = _get_models_for_provider(provider, dynamic_fetch)
             filtered_models = _apply_model_filters(
                 models, vision_only, reasoning_only, include_deprecated
@@ -1120,6 +1145,11 @@ def list_models(
             if not filtered_models:
                 continue
 
+            is_configured = provider in configured_set
             _print_detailed_format(
-                provider, filtered_models, show_pricing, dynamic_fetch
+                provider,
+                filtered_models,
+                show_pricing,
+                dynamic_fetch,
+                is_configured=is_configured,
             )

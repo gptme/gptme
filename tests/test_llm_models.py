@@ -8,6 +8,7 @@ from gptme.llm.models import (
     _get_models_for_provider,
     get_model,
     get_recommended_model,
+    list_models,
 )
 
 
@@ -199,3 +200,54 @@ def test_get_model_provider_only_groq():
     model = get_model("groq")
     assert model.provider == "groq"
     assert model.model == "llama-3.3-70b-versatile"
+
+
+@patch("gptme.llm.models._get_configured_providers")
+def test_list_models_available_only(mock_configured, capsys):
+    """Test that --available filters to only configured providers."""
+    mock_configured.return_value = {"anthropic"}
+
+    list_models(available_only=True, dynamic_fetch=False)
+    output = capsys.readouterr().out
+
+    assert "anthropic" in output
+    # Should not contain unconfigured providers
+    assert "\nopenai" not in output
+    assert "\ngemini" not in output
+
+
+@patch("gptme.llm.models._get_configured_providers")
+def test_list_models_shows_availability_markers(mock_configured, capsys):
+    """Test that detailed format shows availability markers."""
+    mock_configured.return_value = {"anthropic", "openai"}
+
+    list_models(provider_filter="anthropic", dynamic_fetch=False)
+    output = capsys.readouterr().out
+
+    assert "[✓]" in output
+
+
+@patch("gptme.llm.models._get_configured_providers")
+def test_list_models_unconfigured_marker(mock_configured, capsys):
+    """Test that unconfigured providers show ✗ marker."""
+    mock_configured.return_value = set()
+
+    list_models(provider_filter="anthropic", dynamic_fetch=False)
+    output = capsys.readouterr().out
+
+    assert "[✗]" in output
+
+
+@patch("gptme.llm.models._get_configured_providers")
+def test_list_models_simple_available(mock_configured, capsys):
+    """Test that --simple --available filters correctly."""
+    mock_configured.return_value = {"anthropic"}
+
+    list_models(simple_format=True, available_only=True, dynamic_fetch=False)
+    output = capsys.readouterr().out
+
+    lines = [line for line in output.strip().split("\n") if line]
+    # All lines should be anthropic models
+    assert all("anthropic/" in line for line in lines)
+    # Should not contain any other provider
+    assert not any("openai/" in line for line in lines)
