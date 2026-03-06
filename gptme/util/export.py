@@ -5,10 +5,10 @@ from pathlib import Path
 from ..logmanager import Log
 
 
-def replace_or_fail(html: str, old: str, new: str, desc: str = "") -> str:
+def replace_or_fail(content: str, old: str, new: str, desc: str = "") -> str:
     """Replace a string and fail if nothing was replaced"""
-    result = html.replace(old, new)
-    if result == html:
+    result = content.replace(old, new)
+    if result == content:
         raise ValueError(f"Failed to replace {desc or old!r}")
     return result
 
