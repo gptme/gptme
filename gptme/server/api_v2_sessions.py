@@ -264,6 +264,10 @@ def start_acp_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
 
     with _health_monitor_lock:
         if _health_monitor_thread is not None:
+            logger.debug(
+                "ACP health monitor already running (interval arg %ds ignored)",
+                interval,
+            )
             return  # Already running
 
         _health_monitor_stop.clear()
