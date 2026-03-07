@@ -327,7 +327,7 @@ def install_skill(
 
         if dest.exists():
             shutil.rmtree(dest)
-        shutil.copytree(local_path, dest)
+        shutil.copytree(local_path, dest, symlinks=True)
     else:
         return False, "Could not determine source type"
 
@@ -584,7 +584,8 @@ def publish_skill(path: Path) -> tuple[bool, str, Path | None]:
 
     # Get skill metadata
     skill_md = _find_skill_md(path)
-    assert skill_md is not None  # validate_skill already checked this
+    if skill_md is None:
+        return False, "SKILL.md disappeared unexpectedly after validation", None
     fm = _parse_skill_frontmatter(skill_md)
     # Sanitize skill_name and version from frontmatter to prevent archive path traversal.
     # A crafted SKILL.md with name: ../../../../tmp/evil could write outside the dir.
