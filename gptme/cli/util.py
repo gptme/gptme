@@ -328,6 +328,51 @@ def chats_read(id: str):
             print(f"{msg.role}: {msg.content}")
 
 
+@chats.command("export")
+@click.argument("id")
+@click.option(
+    "-f",
+    "--format",
+    "fmt",
+    type=click.Choice(["html", "markdown"]),
+    default="markdown",
+    help="Export format (default: markdown).",
+)
+@click.option(
+    "-o", "--output", type=click.Path(), default=None, help="Output file path."
+)
+def chats_export(id: str, fmt: str, output: str | None):
+    """Export a conversation to HTML or markdown.
+
+    Exports the conversation with the given ID to a file.
+    Use --format to choose between HTML (self-contained) and markdown.
+
+    Examples:
+
+        gptme-util chats export my-conversation
+
+        gptme-util chats export my-conversation -f html -o chat.html
+    """
+    from ..util.export import export_chat_to_html, export_chat_to_markdown  # fmt: skip
+
+    logdir = get_logs_dir() / id
+    if not logdir.exists():
+        click.echo(f"Chat '{id}' not found")
+        raise SystemExit(1)
+
+    log = LogManager.load(logdir)
+
+    ext = "html" if fmt == "html" else "md"
+    output_path = Path(output) if output else Path(f"{id}.{ext}")
+
+    if fmt == "html":
+        export_chat_to_html(id, log.log, output_path)
+    else:
+        export_chat_to_markdown(id, log.log, output_path)
+
+    click.echo(f"Exported conversation to {output_path}")
+
+
 @main.group()
 def tokens():
     """Commands for token counting."""
