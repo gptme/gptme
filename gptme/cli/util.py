@@ -425,10 +425,18 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
     if json_output:
         import json
 
+        deleted_count = 0
+        freed_bytes = 0
+        if delete:
+            for r in results:
+                if delete_conversation(r["conversation"].id):
+                    deleted_count += 1
+                    freed_bytes += r["size_bytes"]
+
         output = {
             "found": len(results),
-            "deleted": len(results) if delete else 0,
-            "freed_bytes": total_size if delete else 0,
+            "deleted": deleted_count,
+            "freed_bytes": freed_bytes,
             "total_bytes": total_size,
             "conversations": [
                 {
@@ -441,9 +449,6 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
             ],
         }
         click.echo(json.dumps(output, indent=2))
-        if delete:
-            for r in results:
-                delete_conversation(r["conversation"].id)
         return
 
     click.echo(
@@ -459,13 +464,15 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
     if delete:
         click.echo()
         deleted = 0
+        freed_bytes = 0
         for r in results:
             conv_id = r["conversation"].id
             if delete_conversation(conv_id):
                 deleted += 1
+                freed_bytes += r["size_bytes"]
 
         click.echo(
-            f"Deleted {deleted} conversation(s), freed {_format_size(total_size)}."
+            f"Deleted {deleted} conversation(s), freed {_format_size(freed_bytes)}."
         )
     else:
         click.echo("\nDry run. Use --delete to remove these conversations.")

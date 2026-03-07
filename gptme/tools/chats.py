@@ -216,7 +216,7 @@ def read_chat(id: str, max_results: int = 5, incl_system=False) -> None:
 
 def find_empty_conversations(
     max_messages: int = 1,
-    include_test: bool = True,
+    include_test: bool = False,
 ) -> list[dict]:
     """Find conversations with few or no messages.
 
