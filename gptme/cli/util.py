@@ -353,6 +353,7 @@ def chats_export(id: str, fmt: str, output: str | None):
 
         gptme-util chats export my-conversation -f html -o chat.html
     """
+    _ensure_tools()
     from ..util.export import export_chat_to_html, export_chat_to_markdown  # fmt: skip
 
     logdir = get_logs_dir() / id
@@ -441,9 +442,15 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         freed_bytes = 0
         if delete:
             for r in results:
-                if delete_conversation(r["conversation"].id):
-                    deleted_count += 1
-                    freed_bytes += r["size_bytes"]
+                try:
+                    if delete_conversation(r["conversation"].id):
+                        deleted_count += 1
+                        freed_bytes += r["size_bytes"]
+                except PermissionError as e:
+                    click.echo(
+                        f"Warning: could not delete {r['conversation'].id}: {e}",
+                        err=True,
+                    )
 
         output = {
             "found": len(results),
@@ -479,9 +486,12 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         freed_bytes = 0
         for r in results:
             conv_id = r["conversation"].id
-            if delete_conversation(conv_id):
-                deleted += 1
-                freed_bytes += r["size_bytes"]
+            try:
+                if delete_conversation(conv_id):
+                    deleted += 1
+                    freed_bytes += r["size_bytes"]
+            except PermissionError as e:
+                click.echo(f"Warning: could not delete {conv_id}: {e}", err=True)
 
         click.echo(
             f"Deleted {deleted} conversation(s), freed {_format_size(freed_bytes)}."

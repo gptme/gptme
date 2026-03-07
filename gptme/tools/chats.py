@@ -238,7 +238,10 @@ def find_empty_conversations(
 
     results = []
     for conv in conversation_iter:
-        if conv.messages <= max_messages:
+        # Skip conversations with branch history — conv.messages only counts the main
+        # branch, so a conversation with few main-branch messages but significant branch
+        # history could be incorrectly flagged as empty.
+        if conv.messages <= max_messages and conv.branches <= 1:
             # Calculate disk usage for the conversation directory
             conv_dir = Path(conv.path).parent
             try:
