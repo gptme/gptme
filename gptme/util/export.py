@@ -4,7 +4,6 @@ from datetime import datetime
 from pathlib import Path
 
 from ..logmanager import Log
-from ..message import Message
 
 
 def replace_or_fail(content: str, old: str, new: str, desc: str = "") -> str:
@@ -146,13 +145,10 @@ def _role_label(role: str) -> str:
 def export_chat_to_markdown(name: str, chat_data: Log, output_path: Path) -> None:
     """Export a chat log to a markdown file."""
     lines: list[str] = []
-    lines.append(f"# {name}\n")
+    lines.append(f"# {name}")
 
     for msg in chat_data.messages:
-        if not isinstance(msg, Message):
-            continue
-
-        # Skip hidden system messages
+        # Skip hidden messages (markdown is static so hidden messages are excluded)
         if msg.hide:
             continue
 

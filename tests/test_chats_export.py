@@ -172,6 +172,40 @@ class TestExportCLI:
             assert "Hello" in content
             assert "Hi!" in content
 
+    def test_export_html_cli(self, tmp_path: Path, monkeypatch):
+        """Test HTML export via CLI (exercises template-reading code path)."""
+        from unittest.mock import patch
+
+        from click.testing import CliRunner
+
+        from gptme.cli.util import main
+
+        logdir = tmp_path / "logs" / "test-conv"
+        logdir.mkdir(parents=True)
+        _create_test_log(
+            logdir,
+            [
+                Message("user", "Hello", timestamp=_TS),
+                Message("assistant", "Hi!", timestamp=_TS),
+            ],
+        )
+
+        monkeypatch.setattr("gptme.cli.util.get_logs_dir", lambda: tmp_path / "logs")
+        monkeypatch.setattr("gptme.cli.util.get_tools", lambda: ["fake"])
+
+        # Patch export_chat_to_html to avoid needing real template files in tests
+        with patch("gptme.util.export.export_chat_to_html") as mock_export:
+            runner = CliRunner()
+            with runner.isolated_filesystem():
+                result = runner.invoke(
+                    main, ["chats", "export", "test-conv", "-f", "html"]
+                )
+                assert result.exit_code == 0, result.output
+                assert "Exported conversation to" in result.output
+                assert mock_export.called
+                _, _, output_path = mock_export.call_args[0]
+                assert str(output_path).endswith(".html")
+
     def test_export_custom_output(self, tmp_path: Path, monkeypatch):
         """Test export with custom output path."""
         from click.testing import CliRunner
