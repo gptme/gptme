@@ -517,9 +517,15 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills">skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-check">check</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-dirs">dirs</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-init">init</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-install">install</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-installed">installed</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-publish">publish</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-search">search</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-show">show</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-uninstall">uninstall</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-validate">validate</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-tokens">tokens</a><ul class="nav section-nav flex-column">
@@ -1481,6 +1487,99 @@ using the same logic as the main gptme tool.</p>
 </pre></div>
 </div>
 </section>
+<section id="gptme-util-skills-init">
+<h4>init<a class="headerlink" href="#gptme-util-skills-init" title="Link to this heading">#</a></h4>
+<p>Create a new skill from a template.</p>
+<p>PATH is the directory to create the skill in.</p>
+<div class="line-block">
+<div class="line">Example:</div>
+<div class="line-block">
+<div class="line">gptme-util skills init ./my-skill –name my-skill -d “Does cool things”</div>
+</div>
+</div>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>skills<span class="w"> </span>init<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>PATH
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-init-n">
+<span id="cmdoption-gptme-util-skills-init-name"></span><span class="sig-name descname"><span class="pre">-n</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--name</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;name&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-skills-init-n" title="Link to this definition">#</a></dt>
+<dd><p>Skill name (defaults to directory name)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-init-d">
+<span id="cmdoption-gptme-util-skills-init-description"></span><span class="sig-name descname"><span class="pre">-d</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--description</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;description&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-skills-init-d" title="Link to this definition">#</a></dt>
+<dd><p>Short description</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-init-a">
+<span id="cmdoption-gptme-util-skills-init-author"></span><span class="sig-name descname"><span class="pre">-a</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--author</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;author&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-skills-init-a" title="Link to this definition">#</a></dt>
+<dd><p>Author name</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-init-t">
+<span id="cmdoption-gptme-util-skills-init-tags"></span><span class="sig-name descname"><span class="pre">-t</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--tags</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tags&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-skills-init-t" title="Link to this definition">#</a></dt>
+<dd><p>Comma-separated tags</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-init-arg-PATH">
+<span class="sig-name descname"><span class="pre">PATH</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-skills-init-arg-PATH" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-skills-install">
+<h4>install<a class="headerlink" href="#gptme-util-skills-install" title="Link to this heading">#</a></h4>
+<p>Install a skill from a source.</p>
+<p>SOURCE can be:</p>
+<div class="line-block">
+<div class="line">- A skill name from the registry (e.g. ‘code-review-helper’)</div>
+<div class="line">- A git URL (e.g. ‘<a class="github reference external" href="https://github.com/user/skills.git#path/to/skill">user/skills.git</a>’)</div>
+<div class="line">- A local path to a skill directory (e.g. ‘./my-skill/’)</div>
+</div>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>SOURCE
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-install-n">
+<span id="cmdoption-gptme-util-skills-install-name"></span><span class="sig-name descname"><span class="pre">-n</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--name</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;name&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-skills-install-n" title="Link to this definition">#</a></dt>
+<dd><p>Override skill name</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-install-f">
+<span id="cmdoption-gptme-util-skills-install-force"></span><span class="sig-name descname"><span class="pre">-f</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--force</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-skills-install-f" title="Link to this definition">#</a></dt>
+<dd><p>Overwrite existing installation</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-install-arg-SOURCE">
+<span class="sig-name descname"><span class="pre">SOURCE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-skills-install-arg-SOURCE" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-skills-installed">
+<h4>installed<a class="headerlink" href="#gptme-util-skills-installed" title="Link to this heading">#</a></h4>
+<p>List installed skills from the user’s skill directory.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>skills<span class="w"> </span>installed<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-installed-json">
+<span class="sig-name descname"><span class="pre">--json</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-skills-installed-json" title="Link to this definition">#</a></dt>
+<dd><p>Output as JSON</p>
+</dd></dl>
+
+</section>
 <section id="gptme-util-skills-list">
 <h4>list<a class="headerlink" href="#gptme-util-skills-list" title="Link to this heading">#</a></h4>
 <p>List available skills (and optionally lessons).</p>
@@ -1498,6 +1597,23 @@ using the same logic as the main gptme tool.</p>
 <dt class="sig sig-object std" id="cmdoption-gptme-util-skills-list-json">
 <span class="sig-name descname"><span class="pre">--json</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-skills-list-json" title="Link to this definition">#</a></dt>
 <dd><p>Output as JSON</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-skills-publish">
+<h4>publish<a class="headerlink" href="#gptme-util-skills-publish" title="Link to this heading">#</a></h4>
+<p>Validate and package a skill for sharing.</p>
+<p>PATH is the skill directory (containing SKILL.md).</p>
+<p>Creates a .tar.gz archive and shows instructions for submitting
+to the gptme-contrib registry.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>skills<span class="w"> </span>publish<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>PATH
+</pre></div>
+</div>
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-publish-arg-PATH">
+<span class="sig-name descname"><span class="pre">PATH</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-skills-publish-arg-PATH" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
 </dd></dl>
 
 </section>
@@ -1532,6 +1648,35 @@ using the same logic as the main gptme tool.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-util-skills-show-arg-NAME">
 <span class="sig-name descname"><span class="pre">NAME</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-skills-show-arg-NAME" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-skills-uninstall">
+<h4>uninstall<a class="headerlink" href="#gptme-util-skills-uninstall" title="Link to this heading">#</a></h4>
+<p>Uninstall a skill by name.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>skills<span class="w"> </span>uninstall<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>NAME
+</pre></div>
+</div>
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-uninstall-arg-NAME">
+<span class="sig-name descname"><span class="pre">NAME</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-skills-uninstall-arg-NAME" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-skills-validate">
+<h4>validate<a class="headerlink" href="#gptme-util-skills-validate" title="Link to this heading">#</a></h4>
+<p>Validate a skill directory or SKILL.md file.</p>
+<p>Checks for required frontmatter fields and marketplace metadata.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>skills<span class="w"> </span>validate<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>PATH
+</pre></div>
+</div>
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-skills-validate-arg-PATH">
+<span class="sig-name descname"><span class="pre">PATH</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-skills-validate-arg-PATH" title="Link to this definition">#</a></dt>
 <dd><p>Required argument</p>
 </dd></dl>
 
@@ -1781,9 +1926,15 @@ Use –all to include unavailable tools as well.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills">skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-check">check</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-dirs">dirs</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-init">init</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-install">install</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-installed">installed</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-publish">publish</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-search">search</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-show">show</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-uninstall">uninstall</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-skills-validate">validate</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-tokens">tokens</a><ul class="nav section-nav flex-column">
