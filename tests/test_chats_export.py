@@ -1,7 +1,7 @@
 """Tests for chats export functionality."""
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -11,7 +11,7 @@ from gptme.util.export import export_chat_to_markdown
 
 Role = Literal["system", "user", "assistant"]
 
-_TS = datetime(2026, 3, 7, 12, 0, 0, tzinfo=UTC)
+_TS = datetime(2026, 3, 7, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _make_log(*messages: Message) -> Log:
