@@ -95,7 +95,7 @@ export const AgentsList: FC<AgentsListProps> = ({
                   {formatDistanceToNow(new Date(agent.lastUsed), { addSuffix: true })}
                 </span>
               </div>
-              {agent.urls?.dashboard && (
+              {agent.urls?.dashboard && /^https?:\/\//i.test(agent.urls.dashboard) && (
                 <div className="mt-1 flex w-full">
                   <a
                     href={agent.urls.dashboard}

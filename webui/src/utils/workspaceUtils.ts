@@ -110,12 +110,14 @@ export function extractAgentsFromConversations(conversations: ConversationSummar
     if (agentMap.has(agentPath)) {
       const existing = agentMap.get(agentPath)!;
       existing.conversationCount += 1;
-      // Use the most recent timestamp
+      // Use the most recent timestamp; prefer URLs from the most recent conversation
       if (new Date(lastUsed) > new Date(existing.lastUsed)) {
         existing.lastUsed = lastUsed;
-      }
-      // Merge urls from conversations (in case first conversation didn't have them)
-      if (!existing.urls && conversation.agent_urls) {
+        if (conversation.agent_urls) {
+          existing.urls = conversation.agent_urls;
+        }
+      } else if (!existing.urls && conversation.agent_urls) {
+        // Fall back to older conversation's URLs if we don't have any yet
         existing.urls = conversation.agent_urls;
       }
     } else {
