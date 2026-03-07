@@ -734,7 +734,7 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             else None
         )
         agent_urls = (
-            agent_project_config.agent.urls
+            agent_project_config.agent.links or agent_project_config.agent.urls
             if agent_project_config and agent_project_config.agent
             else None
         )

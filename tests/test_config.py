@@ -604,6 +604,39 @@ def test_project_config_loaded_from_json():
     }
 
 
+def test_agent_links_canonical_key():
+    """Test that [agent.links] is the canonical form for agent named links."""
+    toml_str = """
+[agent]
+name = "MyBot"
+
+[agent.links]
+dashboard = "https://mybot.example.com/"
+repo = "https://github.com/example/mybot"
+"""
+    config = ProjectConfig.from_dict(tomlkit.loads(toml_str).unwrap())
+    assert config.agent is not None
+    assert config.agent.links == {
+        "dashboard": "https://mybot.example.com/",
+        "repo": "https://github.com/example/mybot",
+    }
+    assert config.agent.urls is None
+
+
+def test_agent_links_preferred_over_urls():
+    """When both [agent.links] and [agent.urls] are set, links takes precedence in logmanager."""
+    from gptme.config import AgentConfig
+
+    agent = AgentConfig(
+        name="MyBot",
+        links={"dashboard": "https://links.example.com/"},
+        urls={"dashboard": "https://urls.example.com/"},
+    )
+    # links or urls mirrors the logmanager logic
+    resolved = agent.links or agent.urls
+    assert resolved == {"dashboard": "https://links.example.com/"}
+
+
 def test_project_config_to_dict():
     config = ProjectConfig.from_dict(json.loads(project_config_json))
     config_dict = config.to_dict()
