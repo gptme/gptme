@@ -5,6 +5,7 @@ List, search, and summarize past conversation logs.
 import json as json_mod
 import logging
 import re
+import statistics
 import textwrap
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -346,9 +347,7 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
 
     # Compute derived stats
     avg_messages = total_messages / total_conversations if total_conversations else 0
-    median_messages = (
-        sorted(messages_list)[len(messages_list) // 2] if messages_list else 0
-    )
+    median_messages = statistics.median(messages_list) if messages_list else 0
 
     # Recent activity (last 7 and 30 days)
     now = datetime.now(tz=timezone.utc)
@@ -373,20 +372,23 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
     )
 
     if as_json:
-        data = {
+        data: dict = {
             "total_conversations": total_conversations,
             "total_messages": total_messages,
             "avg_messages_per_conversation": round(avg_messages, 1),
             "median_messages_per_conversation": median_messages,
             "oldest": oldest_dt.isoformat() if oldest_dt else None,
             "newest": newest_dt.isoformat() if newest_dt else None,
-            "conversations_last_7d": last_7d,
-            "conversations_last_30d": last_30d,
             "by_agent": dict(agent_counts.most_common()),
             "by_day": dict(sorted(daily_counts.items(), reverse=True)[:14]),
         }
         if since:
             data["since"] = since
+        else:
+            # Only include last_7d/last_30d when not filtering — otherwise they'd
+            # equal total_conversations and be misleading.
+            data["conversations_last_7d"] = last_7d
+            data["conversations_last_30d"] = last_30d
         print(json_mod.dumps(data, indent=2))
         return
 
@@ -403,9 +405,12 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
     if newest_dt:
         print(f"  Newest:               {newest_dt:%Y-%m-%d %H:%M}")
 
-    print("\nRecent Activity")
-    print(f"  Last 7 days:   {last_7d} conversations")
-    print(f"  Last 30 days:  {last_30d} conversations")
+    # Only show last-7d/last-30d when not filtering; when --since is set the
+    # data is already scoped and these values would just repeat the total.
+    if not since:
+        print("\nRecent Activity")
+        print(f"  Last 7 days:   {last_7d} conversations")
+        print(f"  Last 30 days:  {last_30d} conversations")
 
     if agent_counts:
         print("\nBy Agent")

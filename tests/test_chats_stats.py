@@ -170,6 +170,36 @@ def test_stats_median(mock_get_convs, capsys):
     assert "Median messages/conv: 10" in output
 
 
+@patch("gptme.logmanager.get_user_conversations")
+def test_stats_median_even(mock_get_convs, capsys):
+    """Test median calculation for even-length list (returns true median, not upper-middle)."""
+    mock_get_convs.return_value = iter(
+        [
+            _make_conv("a", messages=20, days_ago=0),
+            _make_conv("b", messages=10, days_ago=1),
+        ]
+    )
+
+    conversation_stats()
+
+    output = capsys.readouterr().out
+    # True median of [10, 20] is 15.0, not 20 (upper-middle)
+    assert "Median messages/conv: 15.0" in output
+
+
+@patch("gptme.logmanager.get_user_conversations")
+def test_stats_invalid_since(mock_get_convs):
+    """Test that invalid --since value raises a friendly UsageError, not a traceback."""
+    from click.testing import CliRunner
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["chats", "stats", "--since", "foo"])
+    assert result.exit_code != 0
+    # Should be a friendly usage error, not a Python traceback
+    assert "Error" in result.output
+    assert "Traceback" not in result.output
+
+
 # --- CLI integration tests ---
 
 
