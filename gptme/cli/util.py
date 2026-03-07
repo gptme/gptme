@@ -415,7 +415,19 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
 
     if not results:
         if json_output:
-            click.echo('{"found": 0, "deleted": 0, "freed_bytes": 0}')
+            import json
+
+            click.echo(
+                json.dumps(
+                    {
+                        "found": 0,
+                        "deleted": 0,
+                        "freed_bytes": 0,
+                        "total_bytes": 0,
+                        "conversations": [],
+                    }
+                )
+            )
         else:
             click.echo("No empty conversations found.")
         return

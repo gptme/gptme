@@ -170,6 +170,23 @@ def test_cli_clean_no_results():
         assert "No empty conversations" in result.output
 
 
+def test_cli_clean_no_results_json():
+    """No empty conversations JSON output has consistent schema."""
+    runner = CliRunner()
+    with (
+        patch("gptme.cli.util.find_empty_conversations", return_value=[]),
+        patch("gptme.cli.util._ensure_tools"),
+    ):
+        result = runner.invoke(chats_clean, ["--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["found"] == 0
+        assert data["deleted"] == 0
+        assert data["freed_bytes"] == 0
+        assert data["total_bytes"] == 0
+        assert data["conversations"] == []
+
+
 def test_cli_clean_json_output(mock_empty_convs):
     """--json flag outputs machine-readable JSON."""
     runner = CliRunner()
