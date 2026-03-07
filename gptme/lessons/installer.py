@@ -192,6 +192,9 @@ def _clone_skill_from_git(url: str, skill_path: str | None, dest: Path) -> Path 
         except subprocess.CalledProcessError as e:
             logger.error(f"Git clone failed: {e.stderr}")
             return None
+        except subprocess.TimeoutExpired:
+            logger.error("Git clone timed out after 60 seconds")
+            return None
         except FileNotFoundError:
             logger.error("git command not found")
             return None
@@ -209,6 +212,8 @@ def _clone_skill_from_git(url: str, skill_path: str | None, dest: Path) -> Path 
                 )
             except subprocess.CalledProcessError as e:
                 logger.warning(f"Sparse checkout failed, using full clone: {e.stderr}")
+            except subprocess.TimeoutExpired:
+                logger.warning("Sparse checkout timed out, using full clone")
 
             source_dir = tmp / skill_path
         else:
@@ -307,11 +312,13 @@ def install_skill(
         if not skill_md:
             return False, f"No SKILL.md found in {local_path}"
 
-        # Get name from SKILL.md if not provided
+        # Get name from SKILL.md if not provided; always sanitize to prevent path traversal
         if not name:
             fm = _parse_skill_frontmatter(skill_md)
             raw_name = fm.get("name") or local_path.name
             name = _sanitize_skill_name(raw_name)
+        else:
+            name = _sanitize_skill_name(name)
 
         dest = skills_dir / name
 
