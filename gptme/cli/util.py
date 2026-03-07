@@ -3,9 +3,13 @@ CLI for gptme utility commands.
 """
 
 import io
+import json
 import logging
+import re
 import sys
+import time
 from contextlib import redirect_stderr
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -263,6 +267,20 @@ def mcp_search(query: str, registry: str, limit: int):
         click.echo(f"❌ Search failed: {e}")
 
 
+def _parse_since(since_str: str) -> float:
+    """Parse a human-readable duration string into a Unix timestamp cutoff.
+
+    Supports: Nh (hours), Nd (days), Nw (weeks).
+    Returns the timestamp representing ``now - duration``.
+    """
+    m = re.match(r"^(\d+)([hdw])$", since_str)
+    if not m:
+        raise click.BadParameter(f"Invalid duration '{since_str}'. Use e.g. 1h, 2d, 1w")
+    value, unit = int(m.group(1)), m.group(2)
+    multipliers = {"h": 3600, "d": 86400, "w": 604800}
+    return time.time() - value * multipliers[unit]
+
+
 @main.group()
 def chats():
     """Commands for managing chat logs."""
@@ -271,22 +289,57 @@ def chats():
 @chats.command("list")
 @click.option("-n", "--limit", default=20, help="Maximum number of chats to show.")
 @click.option(
+    "--since",
+    type=str,
+    default=None,
+    help="Only show chats modified within duration (e.g. 1h, 2d, 1w).",
+)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+@click.option(
     "--summarize", is_flag=True, help="Generate LLM-based summaries for chats"
 )
-def chats_list(limit: int, summarize: bool):
+def chats_list(limit: int, since: str | None, as_json: bool, summarize: bool):
     """List conversation logs."""
     _ensure_tools()
     if summarize:
         from gptme.init import init  # fmt: skip
 
-        # This isn't the best way to initialize the model for summarization, but it works for now
         init(
             "openai/gpt-4o",
             interactive=False,
             tool_allowlist=[],
             tool_format="markdown",
         )
-    list_chats(max_results=limit, include_summary=summarize)
+
+    since_ts = _parse_since(since) if since else None
+
+    if as_json:
+        from gptme.logmanager import list_conversations  # fmt: skip
+
+        fetch_limit = limit * 10 if since_ts else limit
+        conversations = list_conversations(fetch_limit)
+        if since_ts:
+            conversations = [c for c in conversations if c.modified >= since_ts]
+        conversations = conversations[:limit]
+        result = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "created": datetime.fromtimestamp(c.created, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "modified": datetime.fromtimestamp(c.modified, tz=timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "messages": c.messages,
+                "branches": c.branches,
+                "workspace": c.workspace,
+            }
+            for c in conversations
+        ]
+        print(json.dumps(result, indent=2))
+    else:
+        list_chats(max_results=limit, include_summary=summarize, since=since_ts)
 
 
 @chats.command("search")

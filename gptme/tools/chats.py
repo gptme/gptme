@@ -2,13 +2,18 @@
 List, search, and summarize past conversation logs.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 import textwrap
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from ..message import Message
+if TYPE_CHECKING:
+    from ..logmanager import ConversationMeta
+    from ..message import Message
+
 from .base import ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
@@ -27,26 +32,41 @@ def _get_matching_messages(
 
 
 def list_chats(
-    max_results: int = 5, metadata=False, include_summary: bool = False
-) -> None:
+    max_results: int = 5,
+    metadata=False,
+    include_summary: bool = False,
+    since: float | None = None,
+) -> list[ConversationMeta]:
     """
     List recent chat conversations and optionally summarize them using an LLM.
 
     Args:
-        max_results (int): Maximum number of conversations to display.
-        include_summary (bool): Whether to include a summary of each conversation.
-            If True, uses an LLM to generate a comprehensive summary.
-            If False, uses a simple strategy showing snippets of the first and last messages.
+        max_results: Maximum number of conversations to display.
+        include_summary: Whether to include a summary of each conversation.
+        since: Only include conversations modified after this Unix timestamp.
+
+    Returns:
+        List of matching ConversationMeta objects.
     """
     from ..llm import summarize  # fmt: skip
-    from ..logmanager import LogManager, list_conversations  # fmt: skip
+    from ..logmanager import (  # fmt: skip
+        LogManager,
+        list_conversations,
+    )
 
-    conversations = list_conversations(max_results)
+    # Fetch more when filtering by time, since many may be excluded
+    fetch_limit = max_results * 10 if since else max_results
+    conversations = list_conversations(fetch_limit)
+
+    if since:
+        conversations = [c for c in conversations if c.modified >= since]
+        conversations = conversations[:max_results]
+
     if not conversations:
         print("No conversations found.")
-        return
+        return []
 
-    print(f"Recent conversations (showing up to {max_results}):")
+    print(f"Recent conversations (showing {len(conversations)}):")
     for i, conv in enumerate(conversations, 1):
         if metadata:
             print()  # Add a newline between conversations
@@ -62,6 +82,8 @@ def list_chats(
                 f"\n    Summary:\n{textwrap.indent(summary.content, '    > ', predicate=lambda _: True)}"
             )
             print()
+
+    return conversations
 
 
 def search_chats(
