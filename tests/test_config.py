@@ -623,18 +623,46 @@ repo = "https://github.com/example/mybot"
     assert config.agent.urls is None
 
 
-def test_agent_links_preferred_over_urls():
-    """When both [agent.links] and [agent.urls] are set, links takes precedence in logmanager."""
-    from gptme.config import AgentConfig
+def test_agent_links_preferred_over_urls(tmp_path, monkeypatch):
+    """When both [agent.links] and [agent.urls] are set, links takes precedence via logmanager."""
+    import json
+    from unittest.mock import patch
 
-    agent = AgentConfig(
-        name="MyBot",
-        links={"dashboard": "https://links.example.com/"},
-        urls={"dashboard": "https://urls.example.com/"},
+    from gptme.config import AgentConfig, ProjectConfig
+    from gptme.logmanager import get_conversations
+
+    # Isolate from real conversations
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    # Create a minimal conversation
+    conv_dir = tmp_path / "my-agent-conv"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        json.dumps(
+            {"role": "user", "content": "hi", "timestamp": "2026-01-01T00:00:00+00:00"}
+        )
+        + "\n"
     )
-    # links or urls mirrors the logmanager logic
-    resolved = agent.links or agent.urls
-    assert resolved == {"dashboard": "https://links.example.com/"}
+
+    # Write a chat config that references an agent path
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    (conv_dir / "config.toml").write_text(f'[chat]\nagent = "{agent_dir}"\n')
+
+    # Return a ProjectConfig with both links and urls so we can verify precedence
+    fake_config = ProjectConfig(
+        agent=AgentConfig(
+            name="TestBot",
+            links={"dashboard": "https://links.example.com/"},
+            urls={"dashboard": "https://urls.example.com/"},
+        )
+    )
+    with patch("gptme.logmanager.get_project_config", return_value=fake_config):
+        convs = list(get_conversations())
+
+    assert len(convs) == 1
+    # logmanager must prefer links over urls
+    assert convs[0].agent_urls == {"dashboard": "https://links.example.com/"}
 
 
 def test_project_config_to_dict():

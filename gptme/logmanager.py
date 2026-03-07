@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import textwrap
+import warnings
 
 try:
     import fcntl
@@ -733,11 +734,21 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             if agent_project_config and agent_project_config.agent
             else None
         )
-        agent_urls = (
-            agent_project_config.agent.links or agent_project_config.agent.urls
-            if agent_project_config and agent_project_config.agent
-            else None
-        )
+        if agent_project_config and agent_project_config.agent:
+            _agent = agent_project_config.agent
+            if _agent.links:
+                agent_urls = _agent.links
+            elif _agent.urls:
+                warnings.warn(
+                    "[agent.urls] is deprecated; use [agent.links] instead",
+                    DeprecationWarning,
+                    stacklevel=1,
+                )
+                agent_urls = _agent.urls
+            else:
+                agent_urls = None
+        else:
+            agent_urls = None
 
         yield ConversationMeta(
             id=conv_id,
