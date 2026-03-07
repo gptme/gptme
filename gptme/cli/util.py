@@ -933,12 +933,22 @@ def skills_validate(path: str):
     """
     from ..lessons.installer import validate_skill
 
-    errors = validate_skill(Path(path))
-    if errors:
-        click.echo(f"Validation errors ({len(errors)}):")
-        for error in errors:
+    all_issues = validate_skill(Path(path))
+    # Separate "recommended" warnings from real errors, matching publish_skill behavior
+    real_errors = [e for e in all_issues if "recommended" not in e.lower()]
+    warnings = [e for e in all_issues if "recommended" in e.lower()]
+
+    if warnings:
+        click.echo(f"Warnings ({len(warnings)}):")
+        for w in warnings:
+            click.echo(f"  - {w}")
+    if real_errors:
+        click.echo(f"Validation errors ({len(real_errors)}):")
+        for error in real_errors:
             click.echo(f"  - {error}")
         sys.exit(1)
+    elif warnings:
+        click.echo("Skill is valid (with warnings).")
     else:
         click.echo("Skill is valid.")
 

@@ -7,6 +7,7 @@ Supports installing skills from:
 """
 
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -117,8 +118,13 @@ def _sanitize_skill_name(name: str) -> str:
 
     Strips directory components (e.g. '../../evil') leaving only the
     final path component so names cannot escape the skills directory.
+    Note: Path('..').name returns '..' unchanged, so we handle that explicitly.
     """
-    return Path(name).name
+    safe = Path(name).name
+    # Path(".").name → ".", Path("..").name → ".." — must reject these
+    if safe in ("", ".", ".."):
+        return "unnamed-skill"
+    return safe
 
 
 def _find_skill_md(directory: Path) -> Path | None:
@@ -137,9 +143,15 @@ def _resolve_registry_skill(name: str) -> str | None:
     Checks gptme-contrib for a matching skill directory.
     Returns the clone URL if found, None otherwise.
     """
-    # For now, we use a convention: skills in gptme-contrib/skills/<name>/
-    # In the future, this could query a remote index.json
-    return f"{DEFAULT_REGISTRY_REPO}#skills/{name}"
+    # Validate name is a reasonable skill identifier before constructing a URL.
+    # This makes the None branch reachable (preventing a 60-second git clone
+    # timeout on typos) and ensures the resolved URL is safe.
+    safe = _sanitize_skill_name(name)
+    if not safe or not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9\-_]*$", safe):
+        return None
+    # Skills in gptme-contrib follow the convention: skills/<name>/
+    # In the future this could query a remote index.json.
+    return f"{DEFAULT_REGISTRY_REPO}#skills/{safe}"
 
 
 def _is_git_url(source: str) -> bool:
@@ -512,14 +524,20 @@ def init_skill(
     # Format tags for YAML
     tag_list = ", ".join(f'"{t.strip()}"' for t in tags.split(",") if t.strip())
 
-    # Create SKILL.md from template
+    # Create SKILL.md from template.
+    # Escape braces in user-supplied values to prevent KeyError when
+    # the template is rendered via str.format().  Input like "Parses JSON {key}"
+    # would otherwise raise KeyError instead of writing the file.
+    def _esc(s: str) -> str:
+        return s.replace("{", "{{").replace("}", "}}")
+
     title = skill_name.replace("-", " ").replace("_", " ").title()
     content = SKILL_TEMPLATE.format(
-        name=skill_name,
-        description=description,
-        author=author or "your-name",
+        name=_esc(skill_name),
+        description=_esc(description),
+        author=_esc(author or "your-name"),
         tags=tag_list,
-        title=title,
+        title=_esc(title),
     )
 
     skill_md_path = path / "SKILL.md"
@@ -561,11 +579,14 @@ def publish_skill(path: Path) -> tuple[bool, str, Path | None]:
     skill_md = _find_skill_md(path)
     assert skill_md is not None  # validate_skill already checked this
     fm = _parse_skill_frontmatter(skill_md)
-    skill_name = fm.get("name", path.name)
+    # Sanitize skill_name and version from frontmatter to prevent archive path traversal.
+    # A crafted SKILL.md with name: ../../../../tmp/evil could write outside the dir.
+    skill_name = _sanitize_skill_name(fm.get("name", path.name))
     metadata = fm.get("metadata", {})
-    version = (
+    version_raw = (
         metadata.get("version", "0.0.0") if isinstance(metadata, dict) else "0.0.0"
     )
+    version = re.sub(r"[^\w.\-]", "_", str(version_raw))
 
     # Create archive
     archive_name = f"{skill_name}-{version}.tar.gz"
