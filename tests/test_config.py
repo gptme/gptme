@@ -626,6 +626,7 @@ repo = "https://github.com/example/mybot"
 def test_agent_links_preferred_over_urls(tmp_path, monkeypatch):
     """When both [agent.links] and [agent.urls] are set, links takes precedence via logmanager."""
     import json
+    import warnings
     from unittest.mock import patch
 
     from gptme.config import AgentConfig, ProjectConfig
@@ -657,12 +658,23 @@ def test_agent_links_preferred_over_urls(tmp_path, monkeypatch):
             urls={"dashboard": "https://urls.example.com/"},
         )
     )
-    with patch("gptme.logmanager.get_project_config", return_value=fake_config):
+    with (
+        patch("gptme.logmanager.get_project_config", return_value=fake_config),
+        warnings.catch_warnings(record=True) as caught,
+    ):
+        warnings.simplefilter("always")
         convs = list(get_conversations())
 
     assert len(convs) == 1
     # logmanager must prefer links over urls
     assert convs[0].agent_urls == {"dashboard": "https://links.example.com/"}
+    # no deprecation warning should fire when links wins
+    agent_url_warnings = [
+        w
+        for w in caught
+        if issubclass(w.category, UserWarning) and "agent.urls" in str(w.message)
+    ]
+    assert not agent_url_warnings, "No UserWarning expected when [agent.links] wins"
 
 
 def test_agent_urls_deprecated_warning(tmp_path, monkeypatch):
