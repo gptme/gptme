@@ -278,14 +278,19 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
         total_messages += conv.messages
         messages_list.append(conv.messages)
 
-        # Track date range
-        if oldest_ts is None or conv.created < oldest_ts:
-            oldest_ts = conv.created
+        # Track date range.
+        # When filtering by --since (which uses conv.modified), also use modified for
+        # display so the "Oldest" date and histogram align with the filtered window.
+        ts_for_display = conv.modified if since_ts else conv.created
+        if oldest_ts is None or ts_for_display < oldest_ts:
+            oldest_ts = ts_for_display
         if newest_ts is None or conv.modified > newest_ts:
             newest_ts = conv.modified
 
-        # Daily activity (by creation date)
-        day = datetime.fromtimestamp(conv.created, tz=timezone.utc).strftime("%Y-%m-%d")
+        # Daily activity
+        day = datetime.fromtimestamp(ts_for_display, tz=timezone.utc).strftime(
+            "%Y-%m-%d"
+        )
         daily_counts[day] += 1
 
         # Agent breakdown
