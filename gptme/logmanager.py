@@ -4,6 +4,8 @@ import os
 import shutil
 import textwrap
 
+import tomlkit
+
 try:
     import fcntl
 except ImportError:
@@ -795,6 +797,45 @@ def get_conversation_by_id(conv_id: str) -> ConversationMeta | None:
         if conv.id == conv_id:
             return conv
     return None
+
+
+def rename_conversation(conv_id: str, new_name: str) -> bool:
+    """
+    Rename a conversation by updating its display name in the chat config.
+
+    Args:
+        conv_id: The conversation ID to rename
+        new_name: The new display name for the conversation
+
+    Returns:
+        True if renamed successfully, False if not found
+    """
+    conv = get_conversation_by_id(conv_id)
+    if conv is None:
+        return False
+
+    conv_path = Path(conv.path)
+    conv_dir = conv_path.parent
+    config_path = conv_dir / "config.toml"
+
+    # Load existing config or create fresh — update only the name field.
+    # We avoid ChatConfig.save() here because it also manages the workspace
+    # symlink, which would create an unintended symlink pointing to cwd for
+    # conversations that have no pre-existing workspace configuration.
+    if config_path.exists():
+        with open(config_path) as f:
+            config_data = tomlkit.load(f)
+    else:
+        config_data = tomlkit.document()
+
+    if "chat" not in config_data:
+        config_data.add("chat", tomlkit.table())
+    config_data["chat"]["name"] = new_name  # type: ignore[index]
+
+    with open(config_path, "w") as f:
+        tomlkit.dump(config_data, f)
+
+    return True
 
 
 def delete_conversation(conv_id: str) -> bool:

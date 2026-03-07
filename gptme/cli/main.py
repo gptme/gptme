@@ -147,6 +147,7 @@ Utilities (gptme-util):
   gptme-util tools info TOOL  Show detailed tool instructions/examples
   gptme-util chats list       List past conversations
   gptme-util chats search Q   Search conversations for query
+  gptme-util chats rename     Rename a conversation
   gptme-util models list      List available models
   gptme-util context index    Index project files for RAG
   gptme-util llm generate     Direct LLM generation without chat
