@@ -28,6 +28,7 @@ export interface ConversationSummary {
   readonly?: boolean; // For demo conversations
   agent_name?: string;
   agent_path?: string;
+  agent_urls?: Record<string, string>;
   serverId?: string; // which server this conversation is from (multi-backend)
   serverName?: string; // display name for the server label
 }

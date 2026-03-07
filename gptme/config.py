@@ -164,6 +164,15 @@ class AgentConfig:
 
     name: str
     avatar: str | None = None
+    urls: dict[str, str] | None = None
+    """Named URLs for the agent, e.g. ``{"dashboard": "https://...", "repo": "https://..."}``.
+
+    Configured in ``gptme.toml`` as an ``[agent.urls]`` section::
+
+        [agent.urls]
+        dashboard = "https://myagent.github.io/dashboard/"
+        repo      = "https://github.com/myorg/myagent"
+    """
 
 
 @dataclass

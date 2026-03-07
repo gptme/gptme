@@ -178,6 +178,10 @@ enabled = true
 name = "TestBot"
 avatar = "assets/avatar.png"
 
+[agent.urls]
+dashboard = "https://testbot.example.com/dashboard/"
+repo = "https://github.com/testorg/testbot"
+
 """
 
 project_config_json = """
@@ -209,7 +213,11 @@ project_config_json = """
     },
     "agent": {
         "name": "TestBot",
-        "avatar": "assets/avatar.png"
+        "avatar": "assets/avatar.png",
+        "urls": {
+            "dashboard": "https://testbot.example.com/dashboard/",
+            "repo": "https://github.com/testorg/testbot"
+        }
     }
 }
 """
@@ -553,6 +561,10 @@ def test_project_config_loaded_from_toml():
     assert config.agent is not None
     assert config.agent.name == "TestBot"
     assert config.agent.avatar == "assets/avatar.png"
+    assert config.agent.urls == {
+        "dashboard": "https://testbot.example.com/dashboard/",
+        "repo": "https://github.com/testorg/testbot",
+    }
 
 
 def test_project_config_loaded_from_json():
@@ -586,6 +598,10 @@ def test_project_config_loaded_from_json():
     assert config.agent is not None
     assert config.agent.name == "TestBot"
     assert config.agent.avatar == "assets/avatar.png"
+    assert config.agent.urls == {
+        "dashboard": "https://testbot.example.com/dashboard/",
+        "repo": "https://github.com/testorg/testbot",
+    }
 
 
 def test_project_config_to_dict():

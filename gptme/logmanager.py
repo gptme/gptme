@@ -690,6 +690,7 @@ class ConversationMeta:
     workspace: str
     agent_name: str | None = None
     agent_path: str | None = None
+    agent_urls: dict[str, str] | None = None
 
     def format(self, metadata=False) -> str:
         """Format conversation metadata for display."""
@@ -732,6 +733,11 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             if agent_project_config and agent_project_config.agent
             else None
         )
+        agent_urls = (
+            agent_project_config.agent.urls
+            if agent_project_config and agent_project_config.agent
+            else None
+        )
 
         yield ConversationMeta(
             id=conv_id,
@@ -744,6 +750,7 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             workspace=str(chat_config.workspace),
             agent_name=agent_name,
             agent_path=str(agent_path) if agent_path else None,
+            agent_urls=agent_urls,
         )
 
 
