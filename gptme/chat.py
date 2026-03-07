@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 import threading
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
 
 try:
@@ -450,6 +450,7 @@ def step(
     workspace: Path | None = None,
     model: str | None = None,
     output_schema: type | None = None,
+    on_token: Callable[[str], None] | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
     default_model = get_default_model()
@@ -476,7 +477,13 @@ def step(
         # generate response
         with terminal_state_title("🤔 generating"):
             msg_response = reply(
-                msgs, get_model(model).full, stream, tools, workspace, output_schema
+                msgs,
+                get_model(model).full,
+                stream,
+                tools,
+                workspace,
+                output_schema,
+                on_token=on_token,
             )
             if get_config().get_env_bool("GPTME_COSTS"):
                 log_costs(msgs + [msg_response])
