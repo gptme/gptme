@@ -797,6 +797,30 @@ def get_conversation_by_id(conv_id: str) -> ConversationMeta | None:
     return None
 
 
+def rename_conversation(conv_id: str, new_name: str) -> bool:
+    """
+    Rename a conversation by updating its display name in the chat config.
+
+    Args:
+        conv_id: The conversation ID to rename
+        new_name: The new display name for the conversation
+
+    Returns:
+        True if renamed successfully, False if not found
+    """
+    conv = get_conversation_by_id(conv_id)
+    if conv is None:
+        return False
+
+    conv_path = Path(conv.path)
+    conv_dir = conv_path.parent
+
+    chat_config = ChatConfig.from_logdir(conv_dir)
+    chat_config.name = new_name
+    chat_config.save()
+    return True
+
+
 def delete_conversation(conv_id: str) -> bool:
     """
     Delete a conversation by its ID.

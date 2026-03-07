@@ -328,6 +328,24 @@ def chats_read(id: str):
             print(f"{msg.role}: {msg.content}")
 
 
+@chats.command("rename")
+@click.argument("id")
+@click.argument("name")
+def chats_rename(id: str, name: str):
+    """Rename a conversation's display name.
+
+    Updates the conversation's display name without moving files.
+    The conversation ID remains unchanged.
+    """
+    from ..logmanager import rename_conversation  # fmt: skip
+
+    if rename_conversation(id, name):
+        print(f"Renamed '{id}' to '{name}'")
+    else:
+        print(f"Chat '{id}' not found")
+        sys.exit(1)
+
+
 @chats.command("export")
 @click.argument("id")
 @click.option(
