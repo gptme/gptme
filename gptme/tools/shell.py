@@ -1381,8 +1381,9 @@ def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     while i < len(cmd):
         c = cmd[i]
 
-        # Handle escape sequences
-        if c == "\\" and i + 1 < len(cmd):
+        # Handle escape sequences (only outside single quotes, since
+        # bash single-quoted strings treat backslashes as literal)
+        if c == "\\" and i + 1 < len(cmd) and not in_single:
             i += 2
             continue
 
