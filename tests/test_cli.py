@@ -499,4 +499,8 @@ def test_tool_exclusion_mixed_bare_and_minus_raises():
     # Note: use a valid tool name so CommaSeparatedChoice passes before the mixing guard
     result = runner.invoke(cli.main, ["--tools", "shell,-tmux", "test prompt"])
     assert result.exit_code != 0
-    assert "Cannot mix bare tool names" in (result.output or "")
+    # Check output directly; if it's empty, the error may be in result.exception
+    error_text = result.output or (str(result.exception) if result.exception else "")
+    assert "Cannot mix bare tool names" in error_text, (
+        f"Expected 'Cannot mix bare tool names' in output, got: {error_text!r}"
+    )

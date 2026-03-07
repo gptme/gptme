@@ -1004,3 +1004,9 @@ def test_tool_exclusion_multiple(tmp_path):
         assert excluded not in config.chat.tools, (
             f"Excluded tool '{excluded}' should not be in tools list"
         )
+    # Also verify the remaining default tools are still present
+    remaining_defaults = [t for t in default_tools if t not in tools_to_exclude]
+    for tool in remaining_defaults:
+        assert tool in config.chat.tools, (
+            f"Default tool '{tool}' should still be in tools list after exclusion"
+        )
