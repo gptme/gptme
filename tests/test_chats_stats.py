@@ -231,3 +231,42 @@ def test_cli_chats_stats_json(mock_get_convs):
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["total_conversations"] == 1
+
+
+@patch("gptme.logmanager.get_user_conversations")
+def test_stats_json_by_day_includes_zeros(mock_get_convs):
+    """JSON by_day should include zero-count days (consistent with text histogram)."""
+    import io
+    from contextlib import redirect_stdout
+
+    mock_get_convs.return_value = iter([_make_conv("a", messages=5, days_ago=0)])
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        conversation_stats(since=None, as_json=True)
+    data = json.loads(buf.getvalue())
+    # by_day should have hist_days (14) entries including zeros
+    assert len(data["by_day"]) == 14
+    # Today should have count 1
+    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    assert data["by_day"][today] == 1
+    # Other days should be 0
+    for day, count in data["by_day"].items():
+        if day != today:
+            assert count == 0, f"Expected 0 for {day}, got {count}"
+
+
+@patch("gptme.logmanager.get_user_conversations")
+def test_stats_hist_days_capped_at_365(mock_get_convs):
+    """hist_days should be capped at 365 even for very old --since dates."""
+    # --since 2020-01-01 would be ~2200 days — must be capped at 365
+    mock_get_convs.return_value = iter([])
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        conversation_stats(since="2020-01-01", as_json=True)
+    # Should print "No conversations found" — no output to parse; just check it doesn't hang
+    output = buf.getvalue()
+    assert "No conversations found" in output

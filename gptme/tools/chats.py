@@ -357,10 +357,12 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
     # Recent activity (last 7 and 30 days)
     now = datetime.now(tz=timezone.utc)
 
-    # Histogram window: match the --since window (or default to 14 days)
+    # Histogram window: match the --since window (or default to 14 days).
+    # Cap at 365 to avoid thousands of output lines for old --since dates.
     if since_ts:
-        hist_days = max(
-            1, (now - datetime.fromtimestamp(since_ts, tz=timezone.utc)).days + 1
+        hist_days = min(
+            365,
+            max(1, (now - datetime.fromtimestamp(since_ts, tz=timezone.utc)).days + 1),
         )
     else:
         hist_days = 14
@@ -394,7 +396,12 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
             "oldest": oldest_dt.isoformat() if oldest_dt else None,
             "newest": newest_dt.isoformat() if newest_dt else None,
             "by_agent": dict(agent_counts.most_common()),
-            "by_day": dict(sorted(daily_counts.items(), reverse=True)[:hist_days]),
+            "by_day": {
+                (now - timedelta(days=i)).strftime("%Y-%m-%d"): daily_counts.get(
+                    (now - timedelta(days=i)).strftime("%Y-%m-%d"), 0
+                )
+                for i in range(hist_days)
+            },
         }
         if since:
             data["since"] = since
