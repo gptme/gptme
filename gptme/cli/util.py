@@ -500,6 +500,23 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         click.echo("\nDry run. Use --delete to remove these conversations.")
 
 
+@chats.command("stats")
+@click.option(
+    "--since",
+    default=None,
+    help="Only include conversations since this date (YYYY-MM-DD or Nd for N days ago).",
+)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def chats_stats(since: str | None, as_json: bool):
+    """Show conversation statistics.
+
+    Displays overview of conversation history including counts,
+    date ranges, message totals, and activity breakdown.
+    """
+    from ..tools.chats import conversation_stats  # fmt: skip
+
+    conversation_stats(since=since, as_json=as_json)
+
 def _ensure_tools():
     """Lazily initialize tools only when needed."""
     if not get_tools():
