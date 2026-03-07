@@ -145,6 +145,7 @@ def api_conversation(conversation_id: str):
         log_dict["agent"] = {
             "name": agent_config.name,
             "avatar": agent_config.avatar,
+            "urls": agent_config.urls or None,
         }
         if chat_config.agent:
             log_dict["agent"]["path"] = str(chat_config.agent)

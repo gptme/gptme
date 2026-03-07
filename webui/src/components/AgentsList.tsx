@@ -1,4 +1,4 @@
-import { Bot, Plus, X } from 'lucide-react';
+import { Bot, ExternalLink, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { extractAgentsFromConversations, type Agent } from '@/utils/workspaceUtils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -95,6 +95,20 @@ export const AgentsList: FC<AgentsListProps> = ({
                   {formatDistanceToNow(new Date(agent.lastUsed), { addSuffix: true })}
                 </span>
               </div>
+              {agent.urls?.dashboard && /^https?:\/\//i.test(agent.urls.dashboard) && (
+                <div className="mt-1 flex w-full">
+                  <a
+                    href={agent.urls.dashboard}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center gap-1 text-xs ${isSelected ? 'text-primary-foreground/80 hover:text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Dashboard
+                  </a>
+                </div>
+              )}
             </Button>
           );
         })}

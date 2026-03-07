@@ -13,6 +13,7 @@ export interface Agent {
   description?: string;
   conversationCount: number;
   lastUsed: string;
+  urls?: Record<string, string>;
 }
 
 // For now, we'll use a simple heuristic to detect agents
@@ -109,9 +110,15 @@ export function extractAgentsFromConversations(conversations: ConversationSummar
     if (agentMap.has(agentPath)) {
       const existing = agentMap.get(agentPath)!;
       existing.conversationCount += 1;
-      // Use the most recent timestamp
+      // Use the most recent timestamp; prefer URLs from the most recent conversation
       if (new Date(lastUsed) > new Date(existing.lastUsed)) {
         existing.lastUsed = lastUsed;
+        if (conversation.agent_urls) {
+          existing.urls = conversation.agent_urls;
+        }
+      } else if (!existing.urls && conversation.agent_urls) {
+        // Fall back to older conversation's URLs if we don't have any yet
+        existing.urls = conversation.agent_urls;
       }
     } else {
       agentMap.set(agentPath, {
@@ -120,6 +127,7 @@ export function extractAgentsFromConversations(conversations: ConversationSummar
         description: `Agent: ${agentName}`,
         conversationCount: 1,
         lastUsed,
+        urls: conversation.agent_urls,
       });
     }
   }
