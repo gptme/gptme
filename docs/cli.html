@@ -476,6 +476,7 @@
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-list">list</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-read">read</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-search">search</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-stats">stats</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context">context</a><ul class="nav section-nav flex-column">
@@ -1123,6 +1124,28 @@ Use –format to choose between HTML (self-contained) and markdown.</p>
 </dd></dl>
 
 </section>
+<section id="gptme-util-chats-stats">
+<h4>stats<a class="headerlink" href="#gptme-util-chats-stats" title="Link to this heading">#</a></h4>
+<p>Show conversation statistics.</p>
+<p>Displays overview of conversation history including counts,
+date ranges, message totals, and activity breakdown.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>chats<span class="w"> </span>stats<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-stats-since">
+<span class="sig-name descname"><span class="pre">--since</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;since&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-chats-stats-since" title="Link to this definition">#</a></dt>
+<dd><p>Only include conversations since this date (YYYY-MM-DD or Nd for N days ago).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-stats-json">
+<span class="sig-name descname"><span class="pre">--json</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-chats-stats-json" title="Link to this definition">#</a></dt>
+<dd><p>Output as JSON.</p>
+</dd></dl>
+
+</section>
 </section>
 <section id="gptme-util-context">
 <h3>context<a class="headerlink" href="#gptme-util-context" title="Link to this heading">#</a></h3>
@@ -1717,6 +1740,7 @@ Use –all to include unavailable tools as well.</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-list">list</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-read">read</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-search">search</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-stats">stats</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context">context</a><ul class="nav section-nav flex-column">
