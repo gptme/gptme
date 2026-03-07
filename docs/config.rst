@@ -155,6 +155,15 @@ This file currently supports a few options:
 
   - ``name``: The agent's name, used in system prompts and identification.
   - ``avatar``: Path to an avatar image (relative to workspace) or URL. Used by gptme-webui, gptme-server, and multi-agent UIs to display the agent's profile picture.
+  - ``links``: Named URLs for the agent. Used by gptme-webui to show dashboard/repo links next to the agent. Example:
+
+    .. code-block:: toml
+
+        [agent.links]
+        dashboard = "https://myagent.github.io/dashboard/"
+        repo = "https://github.com/myorg/myagent"
+
+  - ``urls``: Deprecated alias for ``links``. Use ``[agent.links]`` instead.
 
 - ``env``, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.
 - ``mcp``, MCP server configuration for this project. See :ref:`mcp` for more information.

@@ -604,6 +604,130 @@ def test_project_config_loaded_from_json():
     }
 
 
+def test_agent_links_canonical_key():
+    """Test that [agent.links] is the canonical form for agent named links."""
+    toml_str = """
+[agent]
+name = "MyBot"
+
+[agent.links]
+dashboard = "https://mybot.example.com/"
+repo = "https://github.com/example/mybot"
+"""
+    config = ProjectConfig.from_dict(tomlkit.loads(toml_str).unwrap())
+    assert config.agent is not None
+    assert config.agent.links == {
+        "dashboard": "https://mybot.example.com/",
+        "repo": "https://github.com/example/mybot",
+    }
+    assert config.agent.urls is None
+
+
+def test_agent_links_preferred_over_urls(tmp_path, monkeypatch):
+    """When both [agent.links] and [agent.urls] are set, links takes precedence via logmanager."""
+    import json
+    import warnings
+    from unittest.mock import patch
+
+    from gptme.config import AgentConfig, ProjectConfig
+    from gptme.logmanager import get_conversations
+
+    # Isolate from real conversations
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    # Create a minimal conversation
+    conv_dir = tmp_path / "my-agent-conv"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        json.dumps(
+            {"role": "user", "content": "hi", "timestamp": "2026-01-01T00:00:00+00:00"}
+        )
+        + "\n"
+    )
+
+    # Write a chat config that references an agent path
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    (conv_dir / "config.toml").write_text(f'[chat]\nagent = "{agent_dir}"\n')
+
+    # Return a ProjectConfig with both links and urls so we can verify precedence
+    fake_config = ProjectConfig(
+        agent=AgentConfig(
+            name="TestBot",
+            links={"dashboard": "https://links.example.com/"},
+            urls={"dashboard": "https://urls.example.com/"},
+        )
+    )
+    with (
+        patch("gptme.logmanager.get_project_config", return_value=fake_config),
+        warnings.catch_warnings(record=True) as caught,
+    ):
+        warnings.simplefilter("always")
+        convs = list(get_conversations())
+
+    assert len(convs) == 1
+    # logmanager must prefer links over urls
+    assert convs[0].agent_urls == {"dashboard": "https://links.example.com/"}
+    # no deprecation warning should fire when links wins
+    agent_url_warnings = [
+        w
+        for w in caught
+        if issubclass(w.category, UserWarning) and "agent.urls" in str(w.message)
+    ]
+    assert not agent_url_warnings, "No UserWarning expected when [agent.links] wins"
+
+
+def test_agent_urls_deprecated_warning(tmp_path, monkeypatch):
+    """When only [agent.urls] is set (no [agent.links]), logmanager emits a UserWarning."""
+    import json
+    import warnings
+    from unittest.mock import patch
+
+    from gptme.config import AgentConfig, ProjectConfig
+    from gptme.logmanager import get_conversations
+
+    # Isolate from real conversations
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    # Create a minimal conversation
+    conv_dir = tmp_path / "my-agent-conv"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        json.dumps(
+            {"role": "user", "content": "hi", "timestamp": "2026-01-01T00:00:00+00:00"}
+        )
+        + "\n"
+    )
+
+    # Write a chat config that references an agent path
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    (conv_dir / "config.toml").write_text(f'[chat]\nagent = "{agent_dir}"\n')
+
+    # Config with only urls set (no links) — should trigger deprecation warning
+    fake_config = ProjectConfig(
+        agent=AgentConfig(
+            name="TestBot",
+            links=None,
+            urls={"dashboard": "https://urls.example.com/"},
+        )
+    )
+    with (
+        patch("gptme.logmanager.get_project_config", return_value=fake_config),
+        warnings.catch_warnings(record=True) as caught,
+    ):
+        warnings.simplefilter("always")
+        convs = list(get_conversations())
+
+    assert len(convs) == 1
+    # agent_urls should be populated from the deprecated urls field
+    assert convs[0].agent_urls == {"dashboard": "https://urls.example.com/"}
+    # a UserWarning about the deprecation must have been emitted
+    user_warnings = [w for w in caught if issubclass(w.category, UserWarning)]
+    assert user_warnings, "Expected a UserWarning for deprecated [agent.urls]"
+    assert "[agent.urls] is deprecated" in str(user_warnings[0].message)
+
+
 def test_project_config_to_dict():
     config = ProjectConfig.from_dict(json.loads(project_config_json))
     config_dict = config.to_dict()
