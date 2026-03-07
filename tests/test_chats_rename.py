@@ -98,6 +98,7 @@ def test_rename_conversation_preserves_existing_config(tmp_path: Path):
         saved = tomlkit.load(f).unwrap()
     assert saved["chat"]["name"] == "New Name"
     assert saved["chat"]["stream"] is True  # original field must survive
+    assert not (conv_dir / "workspace").exists()  # must not create spurious symlink
 
 
 def test_rename_conversation_idempotent(tmp_path: Path):
