@@ -214,6 +214,50 @@ def read_chat(id: str, max_results: int = 5, incl_system=False) -> None:
         print(f"Conversation '{id}' not found.")
 
 
+def find_empty_conversations(
+    max_messages: int = 1,
+    include_test: bool = True,
+) -> list[dict]:
+    """Find conversations with few or no messages.
+
+    Scans all conversations and returns those with at most `max_messages` messages.
+    Useful for cleaning up abandoned or empty conversation logs.
+
+    Args:
+        max_messages: Maximum message count to consider "empty" (default: 1, system-only).
+        include_test: Whether to include test/eval conversations.
+
+    Returns:
+        List of dicts with conversation metadata and disk size.
+    """
+    from ..logmanager import get_conversations, get_user_conversations  # fmt: skip
+
+    conversation_iter = (
+        get_conversations() if include_test else get_user_conversations()
+    )
+
+    results = []
+    for conv in conversation_iter:
+        if conv.messages <= max_messages:
+            # Calculate disk usage for the conversation directory
+            conv_dir = Path(conv.path).parent
+            try:
+                size_bytes = sum(
+                    f.stat().st_size for f in conv_dir.rglob("*") if f.is_file()
+                )
+            except OSError:
+                size_bytes = 0
+
+            results.append(
+                {
+                    "conversation": conv,
+                    "size_bytes": size_bytes,
+                }
+            )
+
+    return results
+
+
 def examples(tool_format):
     return f"""
 ### Search for a specific topic in past conversations

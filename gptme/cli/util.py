@@ -17,7 +17,7 @@ from ..logmanager import LogManager
 from ..mcp.client import MCPClient
 from ..message import Message
 from ..tools import get_tools, init_tools
-from ..tools.chats import list_chats, search_chats
+from ..tools.chats import find_empty_conversations, list_chats, search_chats
 from ..util.context import include_paths
 
 
@@ -266,9 +266,6 @@ def mcp_search(query: str, registry: str, limit: int):
 @main.group()
 def chats():
     """Commands for managing chat logs."""
-    # needed since get_prompt() requires tools to be loaded
-    if not get_tools():
-        init_tools()
 
 
 @chats.command("list")
@@ -278,6 +275,7 @@ def chats():
 )
 def chats_list(limit: int, summarize: bool):
     """List conversation logs."""
+    _ensure_tools()
     if summarize:
         from gptme.init import init  # fmt: skip
 
@@ -299,6 +297,7 @@ def chats_list(limit: int, summarize: bool):
 )
 def chats_search(query: str, limit: int, summarize: bool):
     """Search conversation logs."""
+    _ensure_tools()
     if summarize:
         from gptme.init import init  # fmt: skip
 
@@ -316,6 +315,7 @@ def chats_search(query: str, limit: int, summarize: bool):
 @click.argument("id")
 def chats_read(id: str):
     """Read a specific chat log."""
+    _ensure_tools()
 
     logdir = get_logs_dir() / id
     if not logdir.exists():
@@ -371,6 +371,121 @@ def chats_export(id: str, fmt: str, output: str | None):
         export_chat_to_markdown(id, log.log, output_path)
 
     click.echo(f"Exported conversation to {output_path}")
+
+
+@chats.command("clean")
+@click.option(
+    "-n",
+    "--max-messages",
+    default=1,
+    help="Treat conversations with at most N messages as empty (default: 1).",
+)
+@click.option(
+    "--include-test",
+    is_flag=True,
+    help="Include test/eval conversations in scan.",
+)
+@click.option(
+    "--delete",
+    is_flag=True,
+    help="Actually delete empty conversations (default is dry-run).",
+)
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
+def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output: bool):
+    """Find and remove empty or trivial conversations.
+
+    By default, lists conversations with 0-1 messages (dry-run).
+    Use --delete to actually remove them.
+
+    \b
+    Examples:
+        gptme-util chats clean                  # List empty conversations
+        gptme-util chats clean -n 2             # Include conversations with <=2 messages
+        gptme-util chats clean --delete         # Delete empty conversations
+        gptme-util chats clean --include-test   # Include test/eval conversations
+    """
+    from ..logmanager import delete_conversation  # fmt: skip
+
+    _ensure_tools()
+
+    results = find_empty_conversations(
+        max_messages=max_messages,
+        include_test=include_test,
+    )
+
+    if not results:
+        if json_output:
+            click.echo('{"found": 0, "deleted": 0, "freed_bytes": 0}')
+        else:
+            click.echo("No empty conversations found.")
+        return
+
+    total_size = sum(r["size_bytes"] for r in results)
+
+    if json_output:
+        import json
+
+        output = {
+            "found": len(results),
+            "deleted": len(results) if delete else 0,
+            "freed_bytes": total_size if delete else 0,
+            "total_bytes": total_size,
+            "conversations": [
+                {
+                    "id": r["conversation"].id,
+                    "name": r["conversation"].name,
+                    "messages": r["conversation"].messages,
+                    "size_bytes": r["size_bytes"],
+                }
+                for r in results
+            ],
+        }
+        click.echo(json.dumps(output, indent=2))
+        if delete:
+            for r in results:
+                delete_conversation(r["conversation"].id)
+        return
+
+    click.echo(
+        f"Found {len(results)} conversation(s) with <={max_messages} messages "
+        f"({_format_size(total_size)} total):\n"
+    )
+
+    for r in results:
+        conv = r["conversation"]
+        size = _format_size(r["size_bytes"])
+        click.echo(f"  {conv.id}  {conv.messages} msg  {size}")
+
+    if delete:
+        click.echo()
+        deleted = 0
+        for r in results:
+            conv_id = r["conversation"].id
+            if delete_conversation(conv_id):
+                deleted += 1
+
+        click.echo(
+            f"Deleted {deleted} conversation(s), freed {_format_size(total_size)}."
+        )
+    else:
+        click.echo("\nDry run. Use --delete to remove these conversations.")
+
+
+def _ensure_tools():
+    """Lazily initialize tools only when needed."""
+    if not get_tools():
+        init_tools()
+
+
+def _format_size(size_bytes: int) -> str:
+    """Format bytes as human-readable size."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
 
 @main.group()
