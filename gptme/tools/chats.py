@@ -310,6 +310,15 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
 
     # Recent activity (last 7 and 30 days)
     now = datetime.now(tz=timezone.utc)
+
+    # Histogram window: match the --since window (or default to 14 days)
+    if since_ts:
+        hist_days = max(
+            1, (now - datetime.fromtimestamp(since_ts, tz=timezone.utc)).days + 1
+        )
+    else:
+        hist_days = 14
+
     last_7d = sum(
         count
         for day, count in daily_counts.items()
@@ -339,7 +348,7 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
             "oldest": oldest_dt.isoformat() if oldest_dt else None,
             "newest": newest_dt.isoformat() if newest_dt else None,
             "by_agent": dict(agent_counts.most_common()),
-            "by_day": dict(sorted(daily_counts.items(), reverse=True)[:14]),
+            "by_day": dict(sorted(daily_counts.items(), reverse=True)[:hist_days]),
         }
         if since:
             data["since"] = since
@@ -377,9 +386,9 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
             pct = count / total_conversations * 100
             print(f"  {agent:20s}  {count:5,} ({pct:5.1f}%)")
 
-    # Show daily breakdown for last 7 days
-    print("\nDaily Activity (last 7 days)")
-    for i in range(7):
+    # Show daily breakdown for the histogram window
+    print(f"\nDaily Activity (last {hist_days} days)")
+    for i in range(hist_days):
         day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
         count = daily_counts.get(day, 0)
         bar = "#" * min(count, 50)
