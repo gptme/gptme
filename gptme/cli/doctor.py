@@ -23,7 +23,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..__version__ import __version__
-from ..config import config_path, get_config
+from ..config import MCPServerConfig, config_path, get_config
 from ..info import get_config_info, get_installed_extras
 from ..llm import list_available_providers
 from ..llm.models import PROVIDERS
@@ -523,6 +523,142 @@ def _check_browser(verbose: bool = False) -> list[CheckResult]:
     return results
 
 
+def _check_mcp(verbose: bool = False) -> list[CheckResult]:
+    """Check MCP server configuration and connectivity."""
+    results: list[CheckResult] = []
+
+    config = get_config()
+
+    # Check if MCP is enabled
+    if not config.mcp.enabled:
+        results.append(
+            CheckResult(
+                name="MCP: Status",
+                status=CheckStatus.SKIPPED,
+                message="MCP not enabled",
+                fix_hint="Add [mcp] enabled = true to gptme.toml",
+            )
+        )
+        return results
+
+    results.append(
+        CheckResult(
+            name="MCP: Status",
+            status=CheckStatus.OK,
+            message=f"Enabled ({len(config.mcp.servers)} server(s) configured)",
+        )
+    )
+
+    if not config.mcp.servers:
+        return results
+
+    # Check each configured server
+    for server_config in config.mcp.servers:
+        if not server_config.enabled:
+            results.append(
+                CheckResult(
+                    name=f"MCP: {server_config.name}",
+                    status=CheckStatus.SKIPPED,
+                    message="Disabled in config",
+                )
+            )
+            continue
+
+        if server_config.is_http:
+            # HTTP server: check URL reachability
+            results.extend(_check_mcp_http_server(server_config, verbose))
+        else:
+            # stdio server: check command exists
+            results.extend(_check_mcp_stdio_server(server_config, verbose))
+
+    return results
+
+
+def _check_mcp_http_server(
+    server_config: MCPServerConfig, verbose: bool = False
+) -> list[CheckResult]:
+    """Check an HTTP-based MCP server."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            server_config.url,
+            method="HEAD",
+            headers=server_config.headers or {},
+        )
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+        return [
+            CheckResult(
+                name=f"MCP: {server_config.name}",
+                status=CheckStatus.OK,
+                message="HTTP server reachable",
+                details=server_config.url if verbose else None,
+            )
+        ]
+    except Exception as e:
+        # Accept any HTTP response (even 4xx/5xx) as "reachable"
+        error_str = str(e)
+        if "HTTP Error" in error_str:
+            return [
+                CheckResult(
+                    name=f"MCP: {server_config.name}",
+                    status=CheckStatus.OK,
+                    message="HTTP server reachable",
+                    details=f"{server_config.url} ({error_str})" if verbose else None,
+                )
+            ]
+        return [
+            CheckResult(
+                name=f"MCP: {server_config.name}",
+                status=CheckStatus.ERROR,
+                message=f"Cannot reach server: {e}",
+                details=server_config.url if verbose else None,
+                fix_hint=f"Check that {server_config.url} is accessible",
+            )
+        ]
+
+
+def _check_mcp_stdio_server(
+    server_config: MCPServerConfig, verbose: bool = False
+) -> list[CheckResult]:
+    """Check a stdio-based MCP server."""
+    command = server_config.command
+    if not command:
+        return [
+            CheckResult(
+                name=f"MCP: {server_config.name}",
+                status=CheckStatus.ERROR,
+                message="No command configured",
+                fix_hint="Set 'command' in MCP server config",
+            )
+        ]
+
+    # Check if the command binary exists
+    cmd_path = shutil.which(command)
+    if cmd_path:
+        details = None
+        if verbose:
+            args_str = " ".join(server_config.args) if server_config.args else ""
+            details = f"{cmd_path} {args_str}".strip()
+        return [
+            CheckResult(
+                name=f"MCP: {server_config.name}",
+                status=CheckStatus.OK,
+                message=f"Command '{command}' found",
+                details=details,
+            )
+        ]
+    return [
+        CheckResult(
+            name=f"MCP: {server_config.name}",
+            status=CheckStatus.ERROR,
+            message=f"Command '{command}' not found",
+            fix_hint=f"Install {command} or check PATH",
+        )
+    ]
+
+
 def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     """Run all diagnostic checks.
 
@@ -538,6 +674,7 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     all_results.extend(_check_tools(verbose))
     all_results.extend(_check_python_deps(verbose))
     all_results.extend(_check_browser(verbose))
+    all_results.extend(_check_mcp(verbose))
     all_results.extend(_check_permissions(verbose))
 
     # Calculate summary

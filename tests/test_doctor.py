@@ -11,6 +11,7 @@ from gptme.cli.doctor import (
     _check_api_keys,
     _check_browser,
     _check_config,
+    _check_mcp,
     _check_permissions,
     _check_python_deps,
     _check_tools,
@@ -18,6 +19,7 @@ from gptme.cli.doctor import (
     main,
     run_diagnostics,
 )
+from gptme.config import MCPConfig, MCPServerConfig
 
 
 class TestCheckStatus:
@@ -552,3 +554,165 @@ class TestCheckApiKeys:
         auth_results = [r for r in results if r.name.startswith("Auth:")]
         assert len(auth_results) == 1
         assert auth_results[0].status == CheckStatus.OK
+
+
+class TestCheckMCP:
+    """Test _check_mcp function."""
+
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_disabled(self, mock_config):
+        """Test that disabled MCP is reported as SKIPPED."""
+        mock_config.return_value.mcp = MCPConfig(enabled=False)
+
+        results = _check_mcp()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.SKIPPED
+        assert "not enabled" in results[0].message.lower()
+
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_enabled_no_servers(self, mock_config):
+        """Test MCP enabled but no servers configured."""
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[])
+
+        results = _check_mcp()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.OK
+        assert "0 server(s)" in results[0].message
+
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_disabled_server(self, mock_config):
+        """Test that disabled servers are reported as SKIPPED."""
+        server = MCPServerConfig(name="test-server", enabled=False, command="echo")
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[server])
+
+        results = _check_mcp()
+        assert len(results) == 2  # status + server
+        server_result = results[1]
+        assert server_result.status == CheckStatus.SKIPPED
+        assert "Disabled" in server_result.message
+
+    @patch("shutil.which", return_value="/usr/bin/npx")
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_stdio_server_found(self, mock_config, mock_which):
+        """Test that stdio server with available command is OK."""
+        server = MCPServerConfig(
+            name="test-mcp", command="npx", args=["-y", "some-mcp-server"]
+        )
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[server])
+
+        results = _check_mcp()
+        server_result = [r for r in results if "test-mcp" in r.name][0]
+        assert server_result.status == CheckStatus.OK
+        assert "'npx' found" in server_result.message
+
+    @patch("shutil.which", return_value=None)
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_stdio_server_not_found(self, mock_config, mock_which):
+        """Test that stdio server with missing command is ERROR."""
+        server = MCPServerConfig(name="test-mcp", command="nonexistent-binary")
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[server])
+
+        results = _check_mcp()
+        server_result = [r for r in results if "test-mcp" in r.name][0]
+        assert server_result.status == CheckStatus.ERROR
+        assert "not found" in server_result.message
+        assert server_result.fix_hint is not None
+
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_stdio_server_no_command(self, mock_config):
+        """Test that stdio server with no command is ERROR."""
+        server = MCPServerConfig(name="test-mcp", command="")
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[server])
+
+        results = _check_mcp()
+        server_result = [r for r in results if "test-mcp" in r.name][0]
+        assert server_result.status == CheckStatus.ERROR
+        assert "No command" in server_result.message
+
+    @patch("urllib.request.urlopen")
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_http_server_reachable(self, mock_config, mock_urlopen):
+        """Test that reachable HTTP server is OK."""
+        server = MCPServerConfig(name="remote-mcp", url="http://localhost:8080/mcp")
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[server])
+
+        # Mock successful HTTP response
+        mock_urlopen.return_value.__enter__ = lambda s: None
+        mock_urlopen.return_value.__exit__ = lambda s, *a: None
+
+        results = _check_mcp()
+        server_result = [r for r in results if "remote-mcp" in r.name][0]
+        assert server_result.status == CheckStatus.OK
+        assert "reachable" in server_result.message.lower()
+
+    @patch("urllib.request.urlopen", side_effect=ConnectionRefusedError("refused"))
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_http_server_unreachable(self, mock_config, mock_urlopen):
+        """Test that unreachable HTTP server is ERROR."""
+        server = MCPServerConfig(name="remote-mcp", url="http://localhost:9999/mcp")
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[server])
+
+        results = _check_mcp()
+        server_result = [r for r in results if "remote-mcp" in r.name][0]
+        assert server_result.status == CheckStatus.ERROR
+        assert "Cannot reach" in server_result.message
+
+    @patch("urllib.request.urlopen")
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_http_server_error_status_still_reachable(
+        self, mock_config, mock_urlopen
+    ):
+        """Test that HTTP errors (4xx/5xx) still count as reachable."""
+        from email.message import Message
+        from urllib.error import HTTPError
+
+        server = MCPServerConfig(name="remote-mcp", url="http://localhost:8080/mcp")
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[server])
+
+        mock_urlopen.side_effect = HTTPError(
+            "http://localhost:8080/mcp", 404, "Not Found", Message(), None
+        )
+
+        results = _check_mcp()
+        server_result = [r for r in results if "remote-mcp" in r.name][0]
+        assert server_result.status == CheckStatus.OK
+        assert "reachable" in server_result.message.lower()
+
+    @patch("shutil.which")
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_multiple_servers(self, mock_config, mock_which):
+        """Test checking multiple MCP servers."""
+        servers = [
+            MCPServerConfig(name="server-a", command="npx", args=["-y", "mcp-a"]),
+            MCPServerConfig(name="server-b", command="missing-cmd"),
+        ]
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=servers)
+
+        def which_side_effect(cmd):
+            return "/usr/bin/npx" if cmd == "npx" else None
+
+        mock_which.side_effect = which_side_effect
+
+        results = _check_mcp()
+        # 1 status + 2 servers
+        assert len(results) == 3
+
+        a_result = [r for r in results if "server-a" in r.name][0]
+        b_result = [r for r in results if "server-b" in r.name][0]
+        assert a_result.status == CheckStatus.OK
+        assert b_result.status == CheckStatus.ERROR
+
+    @patch("shutil.which", return_value="/usr/bin/npx")
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_verbose_shows_details(self, mock_config, mock_which):
+        """Test that verbose mode shows command args."""
+        server = MCPServerConfig(
+            name="test-mcp", command="npx", args=["-y", "some-server"]
+        )
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[server])
+
+        results = _check_mcp(verbose=True)
+        server_result = [r for r in results if "test-mcp" in r.name][0]
+        assert server_result.details is not None
+        assert "npx" in server_result.details
+        assert "-y" in server_result.details
