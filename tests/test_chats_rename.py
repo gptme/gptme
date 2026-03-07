@@ -93,10 +93,11 @@ def test_rename_conversation_preserves_existing_config(tmp_path: Path):
 
     assert result is True
 
-    # Re-read and verify
+    # Re-read and verify name changed, other fields preserved
     with open(conv_dir / "config.toml") as f:
         saved = tomlkit.load(f).unwrap()
     assert saved["chat"]["name"] == "New Name"
+    assert saved["chat"]["stream"] is True  # original field must survive
 
 
 def test_rename_conversation_idempotent(tmp_path: Path):
@@ -110,6 +111,20 @@ def test_rename_conversation_idempotent(tmp_path: Path):
     # Need a fresh iterator each time
     with patch("gptme.logmanager.get_conversations", return_value=iter([conv])):
         assert rename_conversation("test-conv", "Name A") is True
+
+
+def test_rename_conversation_no_workspace_symlink(tmp_path: Path):
+    """rename_conversation must not create a spurious workspace symlink."""
+    conv_dir = _make_conv_dir(tmp_path, "test-conv")
+    # No pre-existing config.toml, no workspace/ dir
+    conv = _make_conv("test-conv", path=str(conv_dir / "conversation.jsonl"))
+
+    with patch("gptme.logmanager.get_conversations", return_value=iter([conv])):
+        rename_conversation("test-conv", "NicerName")
+
+    assert not (conv_dir / "workspace").exists(), (
+        "rename must not create a workspace symlink as a side effect"
+    )
 
 
 # --- CLI tests ---

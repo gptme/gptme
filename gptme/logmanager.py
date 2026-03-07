@@ -4,6 +4,8 @@ import os
 import shutil
 import textwrap
 
+import tomlkit
+
 try:
     import fcntl
 except ImportError:
@@ -814,10 +816,25 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
 
     conv_path = Path(conv.path)
     conv_dir = conv_path.parent
+    config_path = conv_dir / "config.toml"
 
-    chat_config = ChatConfig.from_logdir(conv_dir)
-    chat_config.name = new_name
-    chat_config.save()
+    # Load existing config or create fresh — update only the name field.
+    # We avoid ChatConfig.save() here because it also manages the workspace
+    # symlink, which would create an unintended symlink pointing to cwd for
+    # conversations that have no pre-existing workspace configuration.
+    if config_path.exists():
+        with open(config_path) as f:
+            config_data = tomlkit.load(f)
+    else:
+        config_data = tomlkit.document()
+
+    if "chat" not in config_data:
+        config_data.add("chat", tomlkit.table())
+    config_data["chat"]["name"] = new_name  # type: ignore[index]
+
+    with open(config_path, "w") as f:
+        tomlkit.dump(config_data, f)
+
     return True
 
 
