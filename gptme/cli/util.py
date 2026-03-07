@@ -348,7 +348,10 @@ def chats_stats(since: str | None, as_json: bool):
     """
     from ..tools.chats import conversation_stats  # fmt: skip
 
-    conversation_stats(since=since, as_json=as_json)
+    try:
+        conversation_stats(since=since, as_json=as_json)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
 
 
 @main.group()
