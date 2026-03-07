@@ -264,6 +264,7 @@ def find_empty_conversations(
 
     return results
 
+
 def _parse_since(since: str | None) -> float | None:
     """Parse a --since argument into a timestamp.
 
@@ -362,7 +363,7 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
     if since_ts:
         hist_days = min(
             365,
-            max(1, (now - datetime.fromtimestamp(since_ts, tz=timezone.utc)).days + 1),
+            max(1, (now - datetime.fromtimestamp(since_ts, tz=timezone.utc)).days),
         )
     else:
         hist_days = 14
