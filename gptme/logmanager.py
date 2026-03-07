@@ -741,7 +741,7 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             elif _agent.urls:
                 warnings.warn(
                     "[agent.urls] is deprecated; use [agent.links] instead",
-                    DeprecationWarning,
+                    UserWarning,
                     stacklevel=1,
                 )
                 agent_urls = _agent.urls
