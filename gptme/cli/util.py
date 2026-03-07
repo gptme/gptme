@@ -263,12 +263,15 @@ def mcp_search(query: str, registry: str, limit: int):
         click.echo(f"❌ Search failed: {e}")
 
 
+def _ensure_tools():
+    """Lazily initialize tools when needed (e.g. for summarization)."""
+    if not get_tools():
+        init_tools()
+
+
 @main.group()
 def chats():
     """Commands for managing chat logs."""
-    # needed since get_prompt() requires tools to be loaded
-    if not get_tools():
-        init_tools()
 
 
 @chats.command("list")
@@ -278,6 +281,7 @@ def chats():
 )
 def chats_list(limit: int, summarize: bool):
     """List conversation logs."""
+    _ensure_tools()
     if summarize:
         from gptme.init import init  # fmt: skip
 
@@ -299,6 +303,7 @@ def chats_list(limit: int, summarize: bool):
 )
 def chats_search(query: str, limit: int, summarize: bool):
     """Search conversation logs."""
+    _ensure_tools()
     if summarize:
         from gptme.init import init  # fmt: skip
 
@@ -316,7 +321,7 @@ def chats_search(query: str, limit: int, summarize: bool):
 @click.argument("id")
 def chats_read(id: str):
     """Read a specific chat log."""
-
+    _ensure_tools()
     logdir = get_logs_dir() / id
     if not logdir.exists():
         print(f"Chat '{id}' not found")
@@ -326,6 +331,24 @@ def chats_read(id: str):
     for msg in log.log:
         if isinstance(msg, Message):
             print(f"{msg.role}: {msg.content}")
+
+
+@chats.command("stats")
+@click.option(
+    "--since",
+    default=None,
+    help="Only include conversations since this date (YYYY-MM-DD or Nd for N days ago).",
+)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def chats_stats(since: str | None, as_json: bool):
+    """Show conversation statistics.
+
+    Displays overview of conversation history including counts,
+    date ranges, message totals, and activity breakdown.
+    """
+    from ..tools.chats import conversation_stats  # fmt: skip
+
+    conversation_stats(since=since, as_json=as_json)
 
 
 @main.group()
