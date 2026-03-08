@@ -78,32 +78,36 @@ def pytest_runtest_makereport(item, call):
     ):
         return
 
+    # Helper: mark the report as a quota-exhaustion skip.
+    # Use wasxfail pattern (same as pytest's built-in xfail plugin) — setting
+    # rep.longrepr to a plain string causes INTERNALERROR in the terminal reporter
+    # (it expects a tuple or ReprExceptionInfo, not a str).
+    def _mark_quota_skip(reason: str) -> None:
+        rep.outcome = "skipped"
+        rep.wasxfail = reason
+
     # --- Path 1: direct exception ---
     if _is_anthropic_quota_exhausted(call.excinfo.value):
-        rep.outcome = "skipped"
-        rep.longrepr = f"Anthropic API quota exhausted: {call.excinfo.value}"
+        _mark_quota_skip(f"API quota exhausted: {call.excinfo.value}")
         return
 
     # --- Path 2: exception/output inside a CliRunner result ---
     # The gptme CLI catches BadRequestError with `except (RuntimeError, Exception)`
     # and calls sys.exit(1), so result.exception is SystemExit, not BadRequestError.
-    # We detect the quota error via the captured CLI output text instead.
+    # We detect the quota error via result.exception (Path 2a) or the captured CLI
+    # output text (Path 2b, most common path).
     tb = call.excinfo.tb
     while tb is not None:
         for local_val in tb.tb_frame.f_locals.values():
             # Path 2a: result.exception is BadRequestError (some code paths)
             inner_exc = getattr(local_val, "exception", None)
             if _is_anthropic_quota_exhausted(inner_exc):
-                rep.outcome = "skipped"
-                rep.longrepr = (
-                    f"Anthropic API quota exhausted (via CLI invocation): {inner_exc}"
-                )
+                _mark_quota_skip(f"API quota exhausted (via CLI): {inner_exc}")
                 return
             # Path 2b: quota error logged in result.output (most CLI code paths)
             output_text = getattr(local_val, "output", None)
             if isinstance(output_text, str) and "usage limits" in output_text.lower():
-                rep.outcome = "skipped"
-                rep.longrepr = "Anthropic API quota exhausted (detected in CLI output)"
+                _mark_quota_skip("API quota exhausted (detected in CLI output)")
                 return
         tb = tb.tb_next
 
