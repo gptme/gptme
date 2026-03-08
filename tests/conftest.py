@@ -79,13 +79,13 @@ def pytest_runtest_makereport(item, call):
         return
 
     # --- Path 1: direct exception ---
-    if _is_anthropic_quota_exhausted(call.excinfo[1]):
+    if _is_anthropic_quota_exhausted(call.excinfo.value):
         rep.outcome = "skipped"
-        rep.longrepr = f"Anthropic API quota exhausted: {call.excinfo[1]}"
+        rep.longrepr = f"Anthropic API quota exhausted: {call.excinfo.value}"
         return
 
     # --- Path 2: exception buried inside a CliRunner / requests result ---
-    tb = call.excinfo[2]
+    tb = call.excinfo.tb
     while tb is not None:
         for local_val in tb.tb_frame.f_locals.values():
             inner_exc = getattr(local_val, "exception", None)
