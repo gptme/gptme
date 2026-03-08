@@ -656,6 +656,28 @@ def test_is_denylisted_escaped_quotes():
         )
 
 
+def test_is_denylisted_single_quote_backslash_bypass():
+    """Regression test: backslash before closing single quote must not extend the quoted region.
+
+    In POSIX shell, single quotes do not support any escape sequences --
+    a backslash inside single quotes is literal. So in:
+        echo 'foo\' ; rm -rf /
+    the single-quoted string is 'foo\', and '; rm -rf /' is unquoted
+    and must be caught by the denylist.
+    """
+    dangerous_cmds = [
+        "echo 'foo\\' ; rm -rf /",
+        "echo 'test\\' && sudo rm -rf /",
+        "echo '\\' ; chmod 777 /etc/passwd",
+    ]
+    for cmd in dangerous_cmds:
+        is_denied, reason, matched_cmd = is_denylisted(cmd)
+        assert is_denied, (
+            f"Command after single-quote-backslash should be denied: {cmd}"
+        )
+        assert matched_cmd is not None
+
+
 def test_is_denylisted_heredoc():
     """Test handling of heredoc syntax."""
 
