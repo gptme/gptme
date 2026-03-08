@@ -33,6 +33,7 @@ try:
     )
     from gptme.eval.dspy.prompt_optimizer import (  # fmt: skip
         PromptOptimizer,
+        _is_quota_error,
         get_current_gptme_prompt,
     )
     from gptme.eval.dspy.signatures import (  # fmt: skip
@@ -194,6 +195,30 @@ def test_optimization_experiment():
     assert experiment.name == "test_experiment"
     assert experiment.model == DEFAULT_MODEL
     assert experiment.output_dir.exists()
+
+
+def test_is_quota_error():
+    """Test _is_quota_error correctly identifies API quota/rate-limit errors."""
+    # Anthropic usage limit message (the real-world trigger)
+    assert _is_quota_error(
+        Exception("You have reached your specified API usage limits.")
+    )
+
+    # Rate limit phrase variants
+    assert _is_quota_error(Exception("rate limit exceeded"))
+    assert _is_quota_error(Exception("rate_limit error"))
+
+    # API quota phrase (specific, not bare "quota")
+    assert _is_quota_error(Exception("api quota exceeded"))
+
+    # Should NOT match unrelated quota messages (false-positive guard)
+    assert not _is_quota_error(Exception("disk quota exceeded"))
+    assert not _is_quota_error(Exception("quota: storage full"))
+
+    # Generic errors that are NOT quota-related
+    assert not _is_quota_error(ValueError("No messages available"))
+    assert not _is_quota_error(RuntimeError("Connection timeout"))
+    assert not _is_quota_error(Exception("Bad request: invalid model"))
 
 
 def test_cli_argument_parsing():

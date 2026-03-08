@@ -40,11 +40,12 @@ def _is_quota_error(e: Exception) -> bool:
             return True
     except ImportError:
         pass
-    # Also check by message for wrapped errors (litellm, DSPy wrappers)
+    # Also check by message for wrapped errors (litellm, DSPy wrappers).
+    # Use specific phrases to avoid false positives (e.g. "disk quota exceeded").
     msg = str(e).lower()
     return any(
         phrase in msg
-        for phrase in ["usage limits", "quota", "rate limit", "rate_limit"]
+        for phrase in ["usage limits", "api quota", "rate limit", "rate_limit"]
     )
 
 
