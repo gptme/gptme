@@ -728,6 +728,52 @@ def test_agent_urls_deprecated_warning(tmp_path, monkeypatch):
     assert "[agent.urls] is deprecated" in str(user_warnings[0].message)
 
 
+def test_agent_no_links_no_urls(tmp_path, monkeypatch):
+    """When agent has neither links nor urls, agent_urls is None and no warning is emitted."""
+    import json
+    import warnings
+    from unittest.mock import patch
+
+    from gptme.config import AgentConfig, ProjectConfig
+    from gptme.logmanager import get_conversations
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    conv_dir = tmp_path / "my-agent-conv"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        json.dumps(
+            {"role": "user", "content": "hi", "timestamp": "2026-01-01T00:00:00+00:00"}
+        )
+        + "\n"
+    )
+
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    (conv_dir / "config.toml").write_text(f'[chat]\nagent = "{agent_dir}"\n')
+
+    fake_config = ProjectConfig(
+        agent=AgentConfig(name="TestBot", links=None, urls=None)
+    )
+    with (
+        patch("gptme.logmanager.get_project_config", return_value=fake_config),
+        warnings.catch_warnings(record=True) as caught,
+    ):
+        warnings.simplefilter("always")
+        convs = list(get_conversations())
+
+    assert len(convs) == 1
+    assert convs[0].agent_urls is None
+    user_warnings = [
+        w
+        for w in caught
+        if issubclass(w.category, UserWarning) and "agent.urls" in str(w.message)
+    ]
+    assert not user_warnings, (
+        "No UserWarning expected when neither links nor urls is set"
+    )
+
+
 def test_project_config_to_dict():
     config = ProjectConfig.from_dict(json.loads(project_config_json))
     config_dict = config.to_dict()
