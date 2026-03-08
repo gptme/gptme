@@ -241,6 +241,10 @@ def quick_test(prompt_files: tuple[str, ...], num_examples: int, model: str) -> 
         print("\n✅ Quick test completed!")
 
     except Exception as e:
+        err_str = str(e)
+        if "API usage limits" in err_str or "rate_limit" in err_str.lower():
+            print(f"⚠️  API quota exhausted, skipping quick test: {e}")
+            sys.exit(0)
         print(f"❌ Quick test failed: {e}")
         logger.exception("Quick test failed")
         sys.exit(1)

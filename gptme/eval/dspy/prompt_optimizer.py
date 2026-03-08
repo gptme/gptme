@@ -167,6 +167,10 @@ class GptmeModule(dspy.Module):
             )
 
         except Exception as e:
+            err_str = str(e)
+            # Re-raise API quota/rate-limit errors so callers can handle them distinctly
+            if "API usage limits" in err_str or "rate_limit" in err_str.lower():
+                raise
             logger.error(f"Error in GptmeModule forward: {e}")
             return dspy.Prediction(response=f"Error: {e!s}", messages=[])
 
