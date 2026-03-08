@@ -23,6 +23,9 @@ from gptme.tools.subagent import _subagents
 
 logger = logging.getLogger(__name__)
 
+# Set at session start if Anthropic API quota is exhausted
+_anthropic_quota_exhausted = False
+
 
 def has_api_key() -> bool:
     """Check if any API key is configured."""
@@ -34,6 +37,41 @@ def has_api_key() -> bool:
         or config.get_env("OPENROUTER_API_KEY", "")
         or config.get_env("DEEPSEEK_API_KEY", "")
     )
+
+
+def _check_anthropic_quota_exhausted() -> bool:
+    """Make a minimal API call to detect if the Anthropic quota is exhausted.
+
+    Returns True if quota is exhausted, False if API is available or not Anthropic.
+    Only runs when MODEL env var points to an Anthropic model.
+    """
+    model = os.environ.get("MODEL", "")
+    if not model or (
+        "anthropic" not in model.lower() and "claude" not in model.lower()
+    ):
+        return False
+    try:
+        import anthropic
+    except ImportError:
+        return False
+    try:
+        client = anthropic.Anthropic()
+        client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        return False
+    except anthropic.BadRequestError as e:
+        if "usage limits" in str(e).lower():
+            logger.warning(f"Anthropic API quota exhausted: {e}")
+            return True
+        return False
+    except anthropic.RateLimitError as e:
+        logger.warning(f"Anthropic API rate limited: {e}")
+        return True
+    except Exception:
+        return False
 
 
 def pytest_configure(config):
@@ -49,22 +87,34 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip tests marked as requiring API key if no key is configured."""
+    """Skip tests marked as requiring API key if no key is configured or quota exhausted."""
     if not has_api_key():
         # Set environment variables to override LLM provider config
         os.environ["MODEL"] = "local/test"
         os.environ["OPENAI_BASE_URL"] = "http://localhost:666"
 
-        # Skip tests that require an API key if no key is configured
         skip_api = pytest.mark.skip(reason="No API key configured")
+        for item in items:
+            if "requires_api" in item.keywords:
+                item.add_marker(skip_api)
+    elif _anthropic_quota_exhausted:
+        skip_api = pytest.mark.skip(reason="Anthropic API quota exhausted")
         for item in items:
             if "requires_api" in item.keywords:
                 item.add_marker(skip_api)
 
 
 def pytest_sessionstart(session):
+    global _anthropic_quota_exhausted
     # Download the embedding model before running tests.
     download_model()
+    # Check if Anthropic quota is exhausted to skip API tests gracefully.
+    if has_api_key():
+        _anthropic_quota_exhausted = _check_anthropic_quota_exhausted()
+        if _anthropic_quota_exhausted:
+            logger.warning(
+                "⚠️  Anthropic API quota exhausted — requires_api tests will be skipped"
+            )
 
 
 def download_model():
