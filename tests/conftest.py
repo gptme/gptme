@@ -24,6 +24,80 @@ from gptme.tools.subagent import _subagents
 logger = logging.getLogger(__name__)
 
 
+def _is_anthropic_quota_exhausted(exc: BaseException | None) -> bool:
+    """Return True when *exc* is an Anthropic API quota-exhaustion error.
+
+    These are HTTP 400 responses with the message
+    "You have reached your specified API usage limits."
+    They are not caused by the code under test — they indicate that the CI
+    API-key has hit its monthly spend cap and will recover automatically.
+    """
+    if exc is None:
+        return False
+    try:
+        import anthropic  # only present when extras are installed
+
+        return isinstance(exc, anthropic.BadRequestError) and (
+            "usage limits" in str(exc).lower()
+        )
+    except ImportError:
+        return False
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Convert Anthropic API quota-exhaustion failures to skips.
+
+    When the CI Anthropic API key has hit its monthly spend cap every
+    ``@pytest.mark.requires_api`` test that reaches out to the Anthropic API
+    will fail with HTTP 400 "You have reached your specified API usage limits."
+    This is an infrastructure issue, not a code bug.  Rather than showing a
+    wall of red, we convert these failures to SKIPs so that:
+
+    * the PR is not blocked by an unrelated quota problem,
+    * the tests automatically run (and pass) again once the quota resets.
+
+    Two detection paths are supported:
+
+    1. **Direct propagation** – the ``BadRequestError`` propagates to pytest
+       unchanged (e.g. server tests, direct-API tests).
+    2. **CliRunner swallowed** – Click's ``CliRunner.invoke()`` catches
+       exceptions internally; the ``BadRequestError`` ends up in
+       ``result.exception``.  We walk the traceback frames and inspect local
+       variables to find it.
+    """
+    outcome = yield
+    rep = outcome.get_result()
+
+    # Only intervene on call-phase failures in API-requiring tests.
+    if not (
+        rep.failed
+        and call.when == "call"
+        and call.excinfo is not None
+        and "requires_api" in item.keywords
+    ):
+        return
+
+    # --- Path 1: direct exception ---
+    if _is_anthropic_quota_exhausted(call.excinfo[1]):
+        rep.outcome = "skipped"
+        rep.longrepr = f"Anthropic API quota exhausted: {call.excinfo[1]}"
+        return
+
+    # --- Path 2: exception buried inside a CliRunner / requests result ---
+    tb = call.excinfo[2]
+    while tb is not None:
+        for local_val in tb.tb_frame.f_locals.values():
+            inner_exc = getattr(local_val, "exception", None)
+            if _is_anthropic_quota_exhausted(inner_exc):
+                rep.outcome = "skipped"
+                rep.longrepr = (
+                    f"Anthropic API quota exhausted (via CLI invocation): {inner_exc}"
+                )
+                return
+        tb = tb.tb_next
+
+
 def has_api_key() -> bool:
     """Check if any API key is configured."""
     config = get_config()
