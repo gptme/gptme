@@ -63,13 +63,19 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
-def skip_on_quota_exhaustion():
-    """Skip tests that fail due to API quota exhaustion.
+def skip_on_quota_exhaustion(request):
+    """Skip tests that would fail due to API quota exhaustion.
 
     When the Anthropic API key hits its monthly quota limit, all API calls
     raise BadRequestError with "API usage limits". This is an infrastructure
     condition, not a code failure — skip the test rather than failing it.
+
+    Two detection modes:
+    1. Session probe (_probe_api_quota) sets GPTME_QUOTA_EXHAUSTED at session start.
+    2. Runtime catch: if quota error slips through, convert it to a skip.
     """
+    if os.environ.get("GPTME_QUOTA_EXHAUSTED") and "requires_api" in request.keywords:
+        pytest.skip("API quota exhausted (detected at session start)")
     try:
         yield
     except Exception as e:
@@ -81,6 +87,7 @@ def skip_on_quota_exhaustion():
 def pytest_sessionstart(session):
     # Download the embedding model before running tests.
     download_model()
+    _probe_api_quota()
 
 
 def download_model():
@@ -96,6 +103,43 @@ def download_model():
     ef = embedding_functions.DefaultEmbeddingFunction()
     if ef:
         ef._download_model_if_not_exists()
+
+
+def _probe_api_quota() -> None:
+    """Probe the active model's API for quota exhaustion before tests run.
+
+    If the monthly API usage limit is hit, marks all subsequent requires_api
+    tests to be skipped via the GPTME_QUOTA_EXHAUSTED environment variable,
+    which the skip_on_quota_exhaustion fixture checks.
+
+    This avoids misleading AssertionError failures when the real cause is an
+    infrastructure quota limit, not a code regression.
+    """
+    model_env = os.environ.get("MODEL", "")
+    if "anthropic" not in model_env:
+        return
+
+    config = get_config()
+    anthropic_key = config.get_env("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        return
+
+    try:
+        import anthropic  # type: ignore[import-untyped]
+
+        client = anthropic.Anthropic(api_key=anthropic_key, max_retries=0)
+        client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+    except Exception as e:
+        if "API usage limits" in str(e):
+            os.environ["GPTME_QUOTA_EXHAUSTED"] = "1"
+            logger.warning(
+                "Anthropic API quota exhausted — all requires_api tests will be skipped. %s",
+                e,
+            )
 
 
 @pytest.fixture
