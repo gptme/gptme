@@ -13,6 +13,7 @@ from contextlib import contextmanager
 
 import pytest
 import requests
+from _pytest.outcomes import Skipped
 
 from gptme.config import get_config
 from gptme.init import init
@@ -22,6 +23,40 @@ from gptme.tools.rag import _has_gptme_rag
 from gptme.tools.subagent import _subagents
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Anthropic API quota-exhaustion handling
+# ---------------------------------------------------------------------------
+# When the CI Anthropic API key hits its monthly spend cap every
+# @pytest.mark.requires_api test fails with HTTP 400
+# "You have reached your specified API usage limits."
+# This is an infrastructure issue, not a code bug.
+#
+# Strategy: intercept in pytest_runtest_call (before makereport) and replace
+# the failure exception with Skipped so pytest-retry never sees a "failed"
+# outcome and does not schedule retries.
+#
+# Three detection paths:
+# 1. Direct propagation – BadRequestError reaches pytest unchanged.
+# 2. CliRunner swallowed – gptme catches it and calls sys.exit(1).
+#    We walk the traceback frames looking for result.exception or result.output.
+# 3. Server / background threads – the error is logged by a server thread;
+#    detected via a global log handler that sets _quota_flag.
+# ---------------------------------------------------------------------------
+
+# Path 3 infrastructure: log handler that watches for quota errors in any thread.
+_quota_flag = threading.Event()
+
+
+class _QuotaLogHandler(logging.Handler):
+    """Sets _quota_flag when a quota-exhaustion message is logged anywhere."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if "usage limits" in record.getMessage().lower():
+            _quota_flag.set()
+
+
+logging.getLogger("gptme").addHandler(_QuotaLogHandler(logging.WARNING))
 
 
 def _is_anthropic_quota_exhausted(exc: BaseException | None) -> bool:
@@ -44,72 +79,67 @@ def _is_anthropic_quota_exhausted(exc: BaseException | None) -> bool:
         return False
 
 
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    """Convert Anthropic API quota-exhaustion failures to skips.
+def _quota_skip_reason(outcome) -> str | None:  # type: ignore[return]
+    """Return a skip reason string if quota exhaustion is detected, else None."""
+    excinfo = outcome.excinfo  # (type, value, tb) tuple or None
+    if excinfo is None:
+        return None
 
-    When the CI Anthropic API key has hit its monthly spend cap every
-    ``@pytest.mark.requires_api`` test that reaches out to the Anthropic API
-    will fail with HTTP 400 "You have reached your specified API usage limits."
-    This is an infrastructure issue, not a code bug.  Rather than showing a
-    wall of red, we convert these failures to SKIPs so that:
+    exc_value = excinfo[1]
+    tb = excinfo[2]
 
-    * the PR is not blocked by an unrelated quota problem,
-    * the tests automatically run (and pass) again once the quota resets.
+    # Path 1: direct exception
+    if _is_anthropic_quota_exhausted(exc_value):
+        return f"API quota exhausted: {exc_value}"
 
-    Two detection paths are supported:
-
-    1. **Direct propagation** – the ``BadRequestError`` propagates to pytest
-       unchanged (e.g. server tests, direct-API tests).
-    2. **CliRunner swallowed** – Click's ``CliRunner.invoke()`` catches
-       exceptions internally; the ``BadRequestError`` ends up in
-       ``result.exception``.  We walk the traceback frames and inspect local
-       variables to find it.
-    """
-    outcome = yield
-    rep = outcome.get_result()
-
-    # Only intervene on call-phase failures in API-requiring tests.
-    if not (
-        rep.failed
-        and call.when == "call"
-        and call.excinfo is not None
-        and "requires_api" in item.keywords
-    ):
-        return
-
-    # Helper: mark the report as a quota-exhaustion skip.
-    # Use wasxfail pattern (same as pytest's built-in xfail plugin) — setting
-    # rep.longrepr to a plain string causes INTERNALERROR in the terminal reporter
-    # (it expects a tuple or ReprExceptionInfo, not a str).
-    def _mark_quota_skip(reason: str) -> None:
-        rep.outcome = "skipped"
-        rep.wasxfail = reason
-
-    # --- Path 1: direct exception ---
-    if _is_anthropic_quota_exhausted(call.excinfo.value):
-        _mark_quota_skip(f"API quota exhausted: {call.excinfo.value}")
-        return
-
-    # --- Path 2: exception/output inside a CliRunner result ---
-    # The gptme CLI catches BadRequestError with `except (RuntimeError, Exception)`
-    # and calls sys.exit(1), so result.exception is SystemExit, not BadRequestError.
-    # We detect the quota error via result.exception (Path 2a) or the captured CLI
-    # output text (Path 2b, most common path).
-    tb = call.excinfo.tb
+    # Path 2: exception/output inside a CliRunner result
     while tb is not None:
         for local_val in tb.tb_frame.f_locals.values():
-            # Path 2a: result.exception is BadRequestError (some code paths)
+            # Path 2a: result.exception is BadRequestError
             inner_exc = getattr(local_val, "exception", None)
             if _is_anthropic_quota_exhausted(inner_exc):
-                _mark_quota_skip(f"API quota exhausted (via CLI): {inner_exc}")
-                return
-            # Path 2b: quota error logged in result.output (most CLI code paths)
+                return f"API quota exhausted (via CLI): {inner_exc}"
+            # Path 2b: quota error text captured in result.output
             output_text = getattr(local_val, "output", None)
             if isinstance(output_text, str) and "usage limits" in output_text.lower():
-                _mark_quota_skip("API quota exhausted (detected in CLI output)")
-                return
+                return "API quota exhausted (detected in CLI output)"
         tb = tb.tb_next
+
+    # Path 3: quota error logged by server or background thread
+    if _quota_flag.is_set():
+        return "API quota exhausted (detected in server/background logs)"
+
+    return None
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_setup(item):
+    """Reset quota flag before each test so Path 3 is per-test."""
+    _quota_flag.clear()
+    yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    """Convert Anthropic API quota-exhaustion failures to skips.
+
+    Intercepting in pytest_runtest_call (not makereport) ensures the skip
+    is recorded *before* pytest-retry's makereport hook sees a "failed"
+    outcome.  Without this, pytest-retry queues retries before our hook
+    ever runs, and the test ends up FAILED after all retries are exhausted.
+
+    outcome.force_exception(Skipped(...)) replaces the failing exception
+    with a Skipped outcome; pytest then records the test as skipped and
+    pytest-retry does not schedule a rerun.
+    """
+    outcome = yield
+
+    if "requires_api" not in item.keywords:
+        return
+
+    reason = _quota_skip_reason(outcome)
+    if reason:
+        outcome.force_exception(Skipped(reason))
 
 
 def has_api_key() -> bool:
