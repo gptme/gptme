@@ -405,6 +405,11 @@ def act_process(
         duration = time.time() - start
         if not isinstance(e, KeyboardInterrupt):
             subprocess_logger.error(f"Error: {e}")
+            # Also write directly to sys.stderr (the StreamTee) so the error
+            # message is captured in gen_stderr for test quota detection.
+            # subprocess_logger uses the pre-fork Console._file (original stderr),
+            # not the StreamTee replacement, so this explicit write is needed.
+            sys.stderr.write(f"Error: {e}\n")
         result_error: ProcessError = {
             "status": "error",
             "message": str(e),

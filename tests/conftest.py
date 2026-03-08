@@ -92,17 +92,19 @@ def _quota_skip_reason(outcome) -> str | None:  # type: ignore[return]
     if _is_anthropic_quota_exhausted(exc_value):
         return f"API quota exhausted: {exc_value}"
 
-    # Path 2: exception/output inside a CliRunner result
+    # Path 2: exception/output inside a CliRunner result or EvalResult
     while tb is not None:
         for local_val in tb.tb_frame.f_locals.values():
             # Path 2a: result.exception is BadRequestError
             inner_exc = getattr(local_val, "exception", None)
             if _is_anthropic_quota_exhausted(inner_exc):
                 return f"API quota exhausted (via CLI): {inner_exc}"
-            # Path 2b: quota error text captured in result.output
-            output_text = getattr(local_val, "output", None)
-            if isinstance(output_text, str) and "usage limits" in output_text.lower():
-                return "API quota exhausted (detected in CLI output)"
+            # Path 2b: quota error text in any captured output attribute
+            # Covers: CliRunner result.output, EvalResult.gen_stderr, EvalResult.gen_stdout
+            for attr in ("output", "gen_stderr", "gen_stdout"):
+                text = getattr(local_val, attr, None)
+                if isinstance(text, str) and "usage limits" in text.lower():
+                    return f"API quota exhausted (detected in {attr})"
         tb = tb.tb_next
 
     # Path 3: quota error logged by server or background thread
