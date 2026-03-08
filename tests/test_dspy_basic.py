@@ -33,8 +33,8 @@ try:
     )
     from gptme.eval.dspy.prompt_optimizer import (  # fmt: skip
         PromptOptimizer,
-        _is_quota_error,
         get_current_gptme_prompt,
+        is_quota_error,
     )
     from gptme.eval.dspy.signatures import (  # fmt: skip
         GptmeTaskSignature,
@@ -198,27 +198,63 @@ def test_optimization_experiment():
 
 
 def test_is_quota_error():
-    """Test _is_quota_error correctly identifies API quota/rate-limit errors."""
+    """Test is_quota_error correctly identifies API quota/rate-limit errors."""
     # Anthropic usage limit message (the real-world trigger)
-    assert _is_quota_error(
+    assert is_quota_error(
         Exception("You have reached your specified API usage limits.")
     )
 
     # Rate limit phrase variants
-    assert _is_quota_error(Exception("rate limit exceeded"))
-    assert _is_quota_error(Exception("rate_limit error"))
+    assert is_quota_error(Exception("rate limit exceeded"))
+    assert is_quota_error(Exception("rate_limit error"))
 
     # API quota phrase (specific, not bare "quota")
-    assert _is_quota_error(Exception("api quota exceeded"))
+    assert is_quota_error(Exception("api quota exceeded"))
 
     # Should NOT match unrelated quota messages (false-positive guard)
-    assert not _is_quota_error(Exception("disk quota exceeded"))
-    assert not _is_quota_error(Exception("quota: storage full"))
+    assert not is_quota_error(Exception("disk quota exceeded"))
+    assert not is_quota_error(Exception("quota: storage full"))
 
     # Generic errors that are NOT quota-related
-    assert not _is_quota_error(ValueError("No messages available"))
-    assert not _is_quota_error(RuntimeError("Connection timeout"))
-    assert not _is_quota_error(Exception("Bad request: invalid model"))
+    assert not is_quota_error(ValueError("No messages available"))
+    assert not is_quota_error(RuntimeError("Connection timeout"))
+    assert not is_quota_error(Exception("Bad request: invalid model"))
+
+
+def test_is_quota_error_type_based():
+    """Test is_quota_error with anthropic exception types (isinstance-based paths)."""
+    try:
+        from anthropic import BadRequestError, RateLimitError
+        from httpx import Request, Response
+
+        request = Request("POST", "https://api.anthropic.com/v1/messages")
+
+        # RateLimitError → always a quota error
+        rate_limit_err = RateLimitError(
+            "rate limit exceeded",
+            response=Response(429, request=request),
+            body={},
+        )
+        assert is_quota_error(rate_limit_err)
+
+        # BadRequestError with "usage limits" → quota error
+        quota_bad_request = BadRequestError(
+            "You have reached your specified API usage limits.",
+            response=Response(400, request=request),
+            body={},
+        )
+        assert is_quota_error(quota_bad_request)
+
+        # BadRequestError without quota message → not a quota error
+        other_bad_request = BadRequestError(
+            "invalid model specified",
+            response=Response(400, request=request),
+            body={},
+        )
+        assert not is_quota_error(other_bad_request)
+
+    except ImportError:
+        pytest.skip("anthropic package not available for isinstance tests")
 
 
 def test_cli_argument_parsing():

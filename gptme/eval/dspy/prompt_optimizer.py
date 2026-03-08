@@ -29,7 +29,7 @@ from .signatures import GptmeTaskSignature, PromptImprovementSignature
 logger = logging.getLogger(__name__)
 
 
-def _is_quota_error(e: Exception) -> bool:
+def is_quota_error(e: Exception) -> bool:
     """Check if an exception is due to API quota exhaustion or rate limiting."""
     try:
         from anthropic import BadRequestError, RateLimitError
@@ -187,7 +187,7 @@ class GptmeModule(dspy.Module):
             )
 
         except Exception as e:
-            if _is_quota_error(e):
+            if is_quota_error(e):
                 raise
             logger.error(f"Error in GptmeModule forward: {e}")
             return dspy.Prediction(response=f"Error: {e!s}", messages=[])
@@ -355,6 +355,8 @@ class PromptOptimizer:
             return optimized_prompt, results
 
         except Exception as e:
+            if is_quota_error(e):
+                raise
             logger.error(f"Optimization failed: {e}")
             return base_prompt, {"error": str(e)}
 
