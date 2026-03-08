@@ -198,6 +198,9 @@ def optimize(
                 print(f"📊 Improvement over baseline: {improvement:+.3f}")
 
     except Exception as e:
+        if "API usage limits" in str(e):
+            print(f"⚠️  API quota exhausted, skipping optimization: {e}")
+            sys.exit(0)
         print(f"❌ Experiment failed: {e}")
         logger.exception("Optimization experiment failed")
         sys.exit(1)
@@ -242,7 +245,7 @@ def quick_test(prompt_files: tuple[str, ...], num_examples: int, model: str) -> 
 
     except Exception as e:
         err_str = str(e)
-        if "API usage limits" in err_str or "rate_limit" in err_str.lower():
+        if "API usage limits" in err_str:
             print(f"⚠️  API quota exhausted, skipping quick test: {e}")
             sys.exit(0)
         print(f"❌ Quick test failed: {e}")
@@ -459,6 +462,9 @@ def optimize_gepa(
                 print(f"📊 Improvement over baseline: {improvement:+.3f}")
 
     except Exception as e:
+        if "API usage limits" in str(e):
+            print(f"⚠️  API quota exhausted, skipping GEPA optimization: {e}")
+            sys.exit(0)
         print(f"❌ GEPA experiment failed: {e}")
         logger.exception("GEPA optimization experiment failed")
         sys.exit(1)

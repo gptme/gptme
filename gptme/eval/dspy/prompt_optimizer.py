@@ -168,8 +168,9 @@ class GptmeModule(dspy.Module):
 
         except Exception as e:
             err_str = str(e)
-            # Re-raise API quota/rate-limit errors so callers can handle them distinctly
-            if "API usage limits" in err_str or "rate_limit" in err_str.lower():
+            # Re-raise API quota errors so callers can handle them distinctly.
+            # Only matches monthly quota exhaustion ("API usage limits"), not transient 429s.
+            if "API usage limits" in err_str:
                 raise
             logger.error(f"Error in GptmeModule forward: {e}")
             return dspy.Prediction(response=f"Error: {e!s}", messages=[])
@@ -337,6 +338,9 @@ class PromptOptimizer:
             return optimized_prompt, results
 
         except Exception as e:
+            err_str = str(e)
+            if "API usage limits" in err_str:
+                raise
             logger.error(f"Optimization failed: {e}")
             return base_prompt, {"error": str(e)}
 
