@@ -62,6 +62,27 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(skip_api)
 
 
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Convert API quota exhaustion errors to skips in the test report.
+
+    When the Anthropic API key hits its monthly quota limit, all API calls
+    raise BadRequestError with "API usage limits". This is an infrastructure
+    condition, not a code failure — skip the test rather than failing it.
+    """
+    outcome = yield
+    rep = outcome.get_result()
+    if rep.when == "call" and rep.failed:
+        exc_info = call.excinfo
+        if exc_info is not None and "API usage limits" in str(exc_info):
+            rep.outcome = "skipped"
+            rep.longrepr = (
+                str(item.fspath),
+                item.location[1],
+                "Skipped: API quota exhausted (reached monthly API usage limits)",
+            )
+
+
 def pytest_sessionstart(session):
     # Download the embedding model before running tests.
     download_model()
