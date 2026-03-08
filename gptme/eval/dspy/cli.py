@@ -15,7 +15,7 @@ from gptme.eval.suites import tests as gptme_eval_tests
 from gptme.eval.types import EvalSpec
 
 from .experiments import quick_prompt_test, run_prompt_optimization_experiment
-from .prompt_optimizer import get_current_gptme_prompt
+from .prompt_optimizer import _is_quota_error, get_current_gptme_prompt
 from .tasks import (
     analyze_task_coverage,
     get_prompt_optimization_tasks,
@@ -241,6 +241,9 @@ def quick_test(prompt_files: tuple[str, ...], num_examples: int, model: str) -> 
         print("\n✅ Quick test completed!")
 
     except Exception as e:
+        if _is_quota_error(e):
+            print("⚠️ API quota exhausted, skipping quick test")
+            sys.exit(0)
         print(f"❌ Quick test failed: {e}")
         logger.exception("Quick test failed")
         sys.exit(1)
