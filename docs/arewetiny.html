@@ -152,6 +152,7 @@
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
@@ -502,20 +503,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     282591 |     mcp.types
-     284942 |   gptme.tools.mcp_adapter
-     307209 |             openai.types
-     373795 |           openai
-     442603 |         gptme.llm.llm_openai
-     562219 | gptme.cli.main
-     712847 |       gptme.llm
-     714722 |     gptme.commands
-     827143 |   gptme.chat
-     876343 | gptme
+     293326 |     mcp.types
+     295830 |   gptme.tools.mcp_adapter
+     322976 |             openai.types
+     390399 |           openai
+     464330 |         gptme.llm.llm_openai
+     674572 | gptme.cli.main
+     741209 |       gptme.llm
+     743222 |     gptme.commands
+     859075 |   gptme.chat
+     908938 | gptme
 
-real	0m2.368s
-user	0m1.888s
-sys	0m0.262s
+real	0m2.556s
+user	0m1.933s
+sys	0m0.289s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -524,8 +525,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.133 s ±  0.054 s    [User: 1.906 s, System: 0.220 s]
-  Range (min … max):    2.072 s …  2.191 s    5 runs
+  Time (mean ± σ):      2.226 s ±  0.088 s    [User: 1.982 s, System: 0.227 s]
+  Range (min … max):    2.161 s …  2.380 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1708,7 +1709,7 @@ Clone found (python):
 │ Total:     │ 262            │ 68320       │ 441300       │ 35           │ 488 (0.71%)      │ 4038 (0.92%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 35 clones.
-Detection time:: 4.296s
+Detection time:: 4.576s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>

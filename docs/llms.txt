@@ -5,6 +5,7 @@
 - [gptme documentation](https://gptme.org/docs/index.html)
 - [Getting Started](https://gptme.org/docs/getting-started.html)
 - [System Dependencies](https://gptme.org/docs/system-dependencies.html)
+- [Features](https://gptme.org/docs/features.html)
 - [Usage](https://gptme.org/docs/usage.html)
 - [Core Concepts](https://gptme.org/docs/concepts.html)
 - [Glossary](https://gptme.org/docs/glossary.html)
