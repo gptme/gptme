@@ -152,10 +152,7 @@
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
-<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
-<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
-<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
 <li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
@@ -163,33 +160,39 @@
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
-<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
+<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Extensibility</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
 <li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
-<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
-<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
-<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
-<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
 <li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
 <ul class="nav bd-sidenav">
@@ -503,20 +506,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     341538 |       mcp
-     341724 |     mcp.types
-     344268 |   gptme.tools.mcp_adapter
-     388732 |           openai
-     459624 |         gptme.llm.llm_openai
-     711197 | gptme.cli.main
-     733470 |       gptme.llm
-     735472 |     gptme.commands
-     881861 |   gptme.chat
-     932112 | gptme
+     278775 |     mcp.types
+     281181 |   gptme.tools.mcp_adapter
+     324996 |             openai.types
+     395109 |           openai
+     469716 |         gptme.llm.llm_openai
+     510247 | gptme.cli.main
+     748325 |       gptme.llm
+     750331 |     gptme.commands
+     862352 |   gptme.chat
+     915171 | gptme
 
-real	0m2.512s
-user	0m2.065s
-sys	0m0.298s
+real	0m2.380s
+user	0m1.909s
+sys	0m0.313s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -525,10 +528,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.126 s ±  0.052 s    [User: 1.892 s, System: 0.222 s]
-  Range (min … max):    2.093 s …  2.218 s    5 runs
- 
-  Warning: The first benchmarking run for this command was significantly slower than the rest (2.218 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
+  Time (mean ± σ):      2.202 s ±  0.041 s    [User: 1.976 s, System: 0.222 s]
+  Range (min … max):    2.153 s …  2.255 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -663,7 +664,7 @@ gptme/tools/mcp_adapter.py                          206            210          
 gptme/hooks/__init__.py                             170            211            598
 gptme/tools/base.py                                 138            160            553
 gptme/tools/computer.py                             155            223            450
-gptme/tools/gh.py                                    90            142            354
+gptme/tools/gh.py                                    93            134            352
 gptme/tools/tmux.py                                  95            171            346
 gptme/tools/mcp.py                                  104            105            336
 gptme/tools/chats.py                                 80             92            297
@@ -711,7 +712,7 @@ gptme/hooks/cwd_awareness.py                         11             17          
 gptme/tools/youtube.py                               10              1             26
 gptme/hooks/auto_confirm.py                          11              9             24
 -------------------------------------------------------------------------------------
-SUM:                                               4073           5173          13480
+SUM:                                               4076           5165          13478
 -------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1004,7 +1005,7 @@ gptme/eval/dspy/cli.py                                               73         
 gptme/util/_telemetry.py                                            106            123            357
 tests/test_profiles.py                                               84             30            356
 gptme/eval/run.py                                                    58             50            354
-gptme/tools/gh.py                                                    90            142            354
+gptme/tools/gh.py                                                    93            134            352
 gptme/eval/dspy/experiments.py                                       94             60            350
 gptme/eval/execenv.py                                                54             96            350
 tests/test_llm_anthropic.py                                          64             26            348
@@ -1337,7 +1338,7 @@ gptme/server/__init__.py                                              2         
 gptme/server/__main__.py                                              1              0              3
 gptme/server/constants.py                                             1              3              1
 -----------------------------------------------------------------------------------------------------
-SUM:                                                              23483          22879          78747
+SUM:                                                              23486          22871          78745
 -----------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1352,8 +1353,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 
 Project Overview:
   Files: 398
-  Total blocks: 5476
-  Average complexity: 4.090759678597516
+  Total blocks: 5479
+  Average complexity: 4.089432378171199
 
 Most Complex Functions (D+):
   gptme/context/selector/file_selector.py
@@ -1503,7 +1504,7 @@ Largest Files (&gt;300 SLOC):
    486 tests/test_doctor.py
    484 tests/test_lessons_parser.py
    480 gptme/llm/llm_openai_subscription.py
-   464 gptme/tools/gh.py
+   462 gptme/tools/gh.py
    451 scripts/demo_capture.py
    445 scripts/analyze_compression.py
    433 gptme/tools/tmux.py
@@ -1560,8 +1561,8 @@ Clone found (python):
    gptme/tools/save.py [108:5 - 122:41]
 
 Clone found (python):
- - gptme/tools/gh.py [367:9 - 378:30] (11 lines, 92 tokens)
-   gptme/tools/gh.py [228:9 - 239:12]
+ - gptme/tools/gh.py [371:9 - 386:6] (15 lines, 106 tokens)
+   gptme/tools/gh.py [306:5 - 321:10]
 
 Clone found (python):
  - gptme/server/tasks_api.py [482:5 - 493:42] (11 lines, 79 tokens)
@@ -1694,7 +1695,7 @@ Clone found (python):
 ┌────────────┬────────────────┬─────────────┬──────────────┬──────────────┬──────────────────┬───────────────────┐
 │ Format     │ Files analyzed │ Total lines │ Total tokens │ Clones found │ Duplicated lines │ Duplicated tokens │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 239            │ 65608       │ 422519       │ 35           │ 488 (0.74%)      │ 4038 (0.96%)      │
+│ python     │ 239            │ 65601       │ 422624       │ 35           │ 492 (0.75%)      │ 4052 (0.96%)      │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ css        │ 1              │ 173         │ 1045         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -1708,10 +1709,10 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ url        │ 1              │ 2           │ 16           │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 262            │ 68353       │ 441548       │ 35           │ 488 (0.71%)      │ 4038 (0.91%)      │
+│ Total:     │ 262            │ 68346       │ 441653       │ 35           │ 492 (0.72%)      │ 4052 (0.92%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 35 clones.
-Detection time:: 4.501s
+Detection time:: 4.541s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>

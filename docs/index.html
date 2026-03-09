@@ -153,10 +153,7 @@
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
-<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
-<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
-<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
 <li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
@@ -164,33 +161,39 @@
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="tools.html">Tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
-<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
+<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Extensibility</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
 <li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
-<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
-<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
-<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
-<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
 <li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
 <ul class="nav bd-sidenav">
@@ -509,43 +512,10 @@
 <li class="toctree-l2"><a class="reference internal" href="system-dependencies.html#details">Details</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="features.html#core-capabilities">Core Capabilities</a></li>
-<li class="toctree-l2"><a class="reference internal" href="features.html#interfaces">Interfaces</a></li>
-<li class="toctree-l2"><a class="reference internal" href="features.html#llm-support">LLM Support</a></li>
-<li class="toctree-l2"><a class="reference internal" href="features.html#extensibility">Extensibility</a></li>
-<li class="toctree-l2"><a class="reference internal" href="features.html#autonomous-agents">Autonomous Agents</a></li>
-<li class="toctree-l2"><a class="reference internal" href="features.html#automation-ci">Automation &amp; CI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="features.html#quality-of-life">Quality of Life</a></li>
-</ul>
-</li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="usage.html#commands">Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="usage.html#interfaces">Interfaces</a></li>
 <li class="toctree-l2"><a class="reference internal" href="usage.html#features">Features</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#architecture-overview">Architecture Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#knowledge-files-context-injection">Knowledge Files (Context Injection)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#tools-capabilities">Tools (Capabilities)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#hooks-lifecycle-integration">Hooks (Lifecycle Integration)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#commands-user-interface">Commands (User Interface)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#plugins-packaging-mechanism">Plugins (Packaging Mechanism)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#how-they-work-together">How They Work Together</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#decision-guide">Decision Guide</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#progressive-enhancement">Progressive Enhancement</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#best-practices">Best Practices</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#further-reading">Further Reading</a></li>
-<li class="toctree-l2"><a class="reference internal" href="concepts.html#summary">Summary</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="glossary.html#conversational-concepts">Conversational Concepts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="glossary.html#context-and-memory">Context and Memory</a></li>
-<li class="toctree-l2"><a class="reference internal" href="glossary.html#tool-concepts">Tool Concepts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="glossary.html#session-concepts">Session Concepts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="glossary.html#configuration">Configuration</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a><ul>
@@ -573,30 +543,21 @@
 <li class="toctree-l2"><a class="reference internal" href="tools.html#mcp">MCP</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#how-lessons-work">How Lessons Work</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#lesson-format">Lesson Format</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#creating-lessons">Creating Lessons</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#configuration">Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#cli-commands">CLI Commands</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#example-lessons">Example Lessons</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#migration-guide">Migration Guide</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#troubleshooting">Troubleshooting</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html#see-also">See Also</a></li>
+<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="commands.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="commands.html#built-in-commands">Built-in Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="commands.html#tool-commands">Tool Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="commands.html#tool-shortcuts">Tool Shortcuts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="commands.html#keyboard-shortcuts">Keyboard Shortcuts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="commands.html#command-registration">Command Registration</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#key-difference-matching-behavior">Key Difference: Matching Behavior</a></li>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#skill-vs-lesson-vs-plugin">Skill vs. Lesson vs. Plugin</a></li>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#skill-format">Skill Format</a></li>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#directory-structure">Directory Structure</a></li>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#skill-loading-directories">Skill Loading Directories</a></li>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#creating-skills">Creating Skills</a></li>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#use-cases">Use Cases</a></li>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#integration-with-lessons">Integration with Lessons</a></li>
-<li class="toctree-l2"><a class="reference internal" href="skills.html#related">Related</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme">gptme</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme-server">gptme-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme-eval">gptme-eval</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme-auth">gptme-auth</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme-util">gptme-util</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a><ul>
@@ -608,6 +569,53 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="providers.html">Providers</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="security.html#threat-model">Threat Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security.html#project-configuration-trust">Project Configuration Trust</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security.html#tool-specific-security-notes">Tool-Specific Security Notes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security.html#reporting-security-issues">Reporting Security Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security.html#related-documentation">Related Documentation</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Extensibility</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="features.html#core-capabilities">Core Capabilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="features.html#interfaces">Interfaces</a></li>
+<li class="toctree-l2"><a class="reference internal" href="features.html#llm-support">LLM Support</a></li>
+<li class="toctree-l2"><a class="reference internal" href="features.html#extensibility">Extensibility</a></li>
+<li class="toctree-l2"><a class="reference internal" href="features.html#autonomous-agents">Autonomous Agents</a></li>
+<li class="toctree-l2"><a class="reference internal" href="features.html#automation-ci">Automation &amp; CI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="features.html#quality-of-life">Quality of Life</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#architecture-overview">Architecture Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#knowledge-files-context-injection">Knowledge Files (Context Injection)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#tools-capabilities">Tools (Capabilities)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#hooks-lifecycle-integration">Hooks (Lifecycle Integration)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#commands-user-interface">Commands (User Interface)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#plugins-packaging-mechanism">Plugins (Packaging Mechanism)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#how-they-work-together">How They Work Together</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#decision-guide">Decision Guide</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#progressive-enhancement">Progressive Enhancement</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#further-reading">Further Reading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#summary">Summary</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="glossary.html#conversational-concepts">Conversational Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="glossary.html#context-and-memory">Context and Memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="glossary.html#tool-concepts">Tool Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="glossary.html#session-concepts">Session Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="glossary.html#configuration">Configuration</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a><ul>
@@ -650,30 +658,30 @@
 <li class="toctree-l2"><a class="reference internal" href="acp.html#related">Related</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="commands.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="commands.html#built-in-commands">Built-in Commands</a></li>
-<li class="toctree-l2"><a class="reference internal" href="commands.html#tool-commands">Tool Commands</a></li>
-<li class="toctree-l2"><a class="reference internal" href="commands.html#tool-shortcuts">Tool Shortcuts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="commands.html#keyboard-shortcuts">Keyboard Shortcuts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="commands.html#command-registration">Command Registration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#how-lessons-work">How Lessons Work</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#lesson-format">Lesson Format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#creating-lessons">Creating Lessons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#configuration">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#cli-commands">CLI Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#example-lessons">Example Lessons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#migration-guide">Migration Guide</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lessons.html#see-also">See Also</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme">gptme</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme-server">gptme-server</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme-eval">gptme-eval</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme-auth">gptme-auth</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cli.html#gptme-util">gptme-util</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="security.html#threat-model">Threat Model</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#project-configuration-trust">Project Configuration Trust</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#tool-specific-security-notes">Tool-Specific Security Notes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#best-practices">Best Practices</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#reporting-security-issues">Reporting Security Issues</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#related-documentation">Related Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#key-difference-matching-behavior">Key Difference: Matching Behavior</a></li>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#skill-vs-lesson-vs-plugin">Skill vs. Lesson vs. Plugin</a></li>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#skill-format">Skill Format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#directory-structure">Directory Structure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#skill-loading-directories">Skill Loading Directories</a></li>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#creating-skills">Creating Skills</a></li>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#use-cases">Use Cases</a></li>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#integration-with-lessons">Integration with Lessons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="skills.html#related">Related</a></li>
 </ul>
 </li>
 </ul>
@@ -695,51 +703,6 @@
 <li class="toctree-l2"><a class="reference internal" href="building.html#distribution">Distribution</a></li>
 <li class="toctree-l2"><a class="reference internal" href="building.html#cleaning-build-artifacts">Cleaning Build Artifacts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="building.html#customization">Customization</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.find_agent_files_in_tree"><code class="docutils literal notranslate"><span class="pre">find_agent_files_in_tree()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.get_prompt"><code class="docutils literal notranslate"><span class="pre">get_prompt()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_chat_history"><code class="docutils literal notranslate"><span class="pre">prompt_chat_history()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_full"><code class="docutils literal notranslate"><span class="pre">prompt_full()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_gptme"><code class="docutils literal notranslate"><span class="pre">prompt_gptme()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_project"><code class="docutils literal notranslate"><span class="pre">prompt_project()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_short"><code class="docutils literal notranslate"><span class="pre">prompt_short()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_skills_summary"><code class="docutils literal notranslate"><span class="pre">prompt_skills_summary()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_systeminfo"><code class="docutils literal notranslate"><span class="pre">prompt_systeminfo()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_timeinfo"><code class="docutils literal notranslate"><span class="pre">prompt_timeinfo()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_tools"><code class="docutils literal notranslate"><span class="pre">prompt_tools()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_user"><code class="docutils literal notranslate"><span class="pre">prompt_user()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_workspace"><code class="docutils literal notranslate"><span class="pre">prompt_workspace()</span></code></a></li>
-<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.use_chat_history_context"><code class="docutils literal notranslate"><span class="pre">use_chat_history_context()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="evals.html#recommended-model">Recommended Model</a></li>
-<li class="toctree-l2"><a class="reference internal" href="evals.html#usage">Usage</a></li>
-<li class="toctree-l2"><a class="reference internal" href="evals.html#available-evals">Available Evals</a></li>
-<li class="toctree-l2"><a class="reference internal" href="evals.html#results">Results</a></li>
-<li class="toctree-l2"><a class="reference internal" href="evals.html#other-evals">Other evals</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#quick-start">Quick Start</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#how-it-works">How It Works</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#configuration-options">Configuration Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#best-practices">Best Practices</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#security-considerations">Security Considerations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#troubleshooting">Troubleshooting</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#local-testing">Local Testing</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#limitations">Limitations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#examples-in-the-wild">Examples in the Wild</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bot.html#related">Related</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="finetuning.html#step-1-gather-the-data">Step 1: Gather the data</a></li>
-<li class="toctree-l2"><a class="reference internal" href="finetuning.html#step-2-prepare-the-data">Step 2: Prepare the data</a></li>
-<li class="toctree-l2"><a class="reference internal" href="finetuning.html#step-3-fine-tune-the-model">Step 3: Fine-tune the model</a></li>
-<li class="toctree-l2"><a class="reference internal" href="finetuning.html#model-suggestions">Model suggestions</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a><ul>
@@ -784,12 +747,57 @@
 <li class="toctree-l2"><a class="reference internal" href="plugins.html#troubleshooting">Troubleshooting</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.find_agent_files_in_tree"><code class="docutils literal notranslate"><span class="pre">find_agent_files_in_tree()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.get_prompt"><code class="docutils literal notranslate"><span class="pre">get_prompt()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_chat_history"><code class="docutils literal notranslate"><span class="pre">prompt_chat_history()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_full"><code class="docutils literal notranslate"><span class="pre">prompt_full()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_gptme"><code class="docutils literal notranslate"><span class="pre">prompt_gptme()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_project"><code class="docutils literal notranslate"><span class="pre">prompt_project()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_short"><code class="docutils literal notranslate"><span class="pre">prompt_short()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_skills_summary"><code class="docutils literal notranslate"><span class="pre">prompt_skills_summary()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_systeminfo"><code class="docutils literal notranslate"><span class="pre">prompt_systeminfo()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_timeinfo"><code class="docutils literal notranslate"><span class="pre">prompt_timeinfo()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_tools"><code class="docutils literal notranslate"><span class="pre">prompt_tools()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_user"><code class="docutils literal notranslate"><span class="pre">prompt_user()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.prompt_workspace"><code class="docutils literal notranslate"><span class="pre">prompt_workspace()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="prompts.html#gptme.prompts.use_chat_history_context"><code class="docutils literal notranslate"><span class="pre">use_chat_history_context()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="api.html#core">core</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api.html#config">Config</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api.html#prompts">prompts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api.html#tools">tools</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api.html#server">server</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="evals.html#recommended-model">Recommended Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="evals.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="evals.html#available-evals">Available Evals</a></li>
+<li class="toctree-l2"><a class="reference internal" href="evals.html#results">Results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="evals.html#other-evals">Other evals</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#quick-start">Quick Start</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#how-it-works">How It Works</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#security-considerations">Security Considerations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#local-testing">Local Testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#limitations">Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#examples-in-the-wild">Examples in the Wild</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bot.html#related">Related</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="finetuning.html#step-1-gather-the-data">Step 1: Gather the data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="finetuning.html#step-2-prepare-the-data">Step 2: Prepare the data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="finetuning.html#step-3-fine-tune-the-model">Step 3: Fine-tune the model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="finetuning.html#model-suggestions">Model suggestions</a></li>
 </ul>
 </li>
 </ul>
