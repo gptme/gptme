@@ -27,23 +27,28 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
 
    getting-started
    system-dependencies
-   features
    usage
-   concepts
-   glossary
    examples
    tools
-   lessons
-   skills
+   commands
+   cli
    config
    providers
+   security
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Agents & Extensibility
+
+   features
+   concepts
+   glossary
    agents
    server
    mcp
    acp
-   commands
-   cli
-   security
+   lessons
+   skills
 
 .. toctree::
    :maxdepth: 2
@@ -51,14 +56,14 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
 
    contributing
    building
-   prompts
-   evals
-   bot
-   finetuning
    custom_tool
    hooks
    plugins
+   prompts
    api
+   evals
+   bot
+   finetuning
 
 .. toctree::
    :maxdepth: 2
