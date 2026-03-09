@@ -479,6 +479,7 @@
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-export">export</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-list">list</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-read">read</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-rename">rename</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-search">search</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-stats">stats</a></li>
 </ul>
@@ -629,6 +630,7 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <div class="line">gptme-util tools info TOOL  Show detailed tool instructions/examples</div>
 <div class="line">gptme-util chats list       List past conversations</div>
 <div class="line">gptme-util chats search Q   Search conversations for query</div>
+<div class="line">gptme-util chats rename     Rename a conversation</div>
 <div class="line">gptme-util models list      List available models</div>
 <div class="line">gptme-util context index    Index project files for RAG</div>
 <div class="line">gptme-util llm generate     Direct LLM generation without chat</div>
@@ -1103,6 +1105,28 @@ Use –format to choose between HTML (self-contained) and markdown.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-util-chats-read-arg-ID">
 <span class="sig-name descname"><span class="pre">ID</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-chats-read-arg-ID" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-chats-rename">
+<h4>rename<a class="headerlink" href="#gptme-util-chats-rename" title="Link to this heading">#</a></h4>
+<p>Rename a conversation’s display name.</p>
+<p>Updates the conversation’s display name without moving files.
+The conversation ID remains unchanged.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>chats<span class="w"> </span>rename<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>ID<span class="w"> </span>NAME
+</pre></div>
+</div>
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-rename-arg-ID">
+<span class="sig-name descname"><span class="pre">ID</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-chats-rename-arg-ID" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-rename-arg-NAME">
+<span class="sig-name descname"><span class="pre">NAME</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-chats-rename-arg-NAME" title="Link to this definition">#</a></dt>
 <dd><p>Required argument</p>
 </dd></dl>
 
@@ -1888,6 +1912,7 @@ Use –all to include unavailable tools as well.</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-export">export</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-list">list</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-read">read</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-rename">rename</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-search">search</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-stats">stats</a></li>
 </ul>
