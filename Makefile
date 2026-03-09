@@ -238,6 +238,21 @@ rename-logs:
 analyze-compression: ## Analyze compression ratios of conversation logs
 	poetry run python scripts/analyze_compression.py --limit $(or $(LIMIT),100) $(if $(VERBOSE),-v) $(if $(DETAILED),-d)
 
+tiny:  ## Quick "are we tiny?" summary (LoC + complexity)
+	@echo "=== Are we tiny? ==="
+	@echo
+	@echo "LoC by area:"
+	@printf "  Core:    %5d\n" $$(cloc $(FILES_CORE) --csv --quiet | tail -1 | cut -d, -f5)
+	@printf "  Tools:   %5d\n" $$(cloc $(FILES_TOOLS) --csv --quiet | tail -1 | cut -d, -f5)
+	@printf "  Server:  %5d\n" $$(cloc gptme/server --csv --quiet | tail -1 | cut -d, -f5)
+	@printf "  Tests:   %5d\n" $$(cloc tests --csv --quiet | tail -1 | cut -d, -f5)
+	@printf "  Total:   %5d\n" $$(cloc ${SRCFILES} --csv --quiet | tail -1 | cut -d, -f5)
+	@echo
+	@echo "Complexity:"
+	@printf "  Avg: %s\n" "$$(poetry run radon cc ${SRCFILES} --average --total-average | grep 'Average complexity' | cut -d'(' -f2 | cut -d')' -f1)"
+	@printf "  D+ functions: %d\n" $$(poetry run radon cc ${SRCFILES} --min D | grep -cE "    [FCM]" || true)
+	@printf "  Files >300 SLOC: %d\n" $$(poetry run radon raw ${SRCFILES} | awk '/^[^ ]/ {file=$$0} /SLOC:/ {if ($$2 > 300) count++} END {print count+0}')
+
 cloc: cloc-core cloc-tools cloc-server cloc-tests  ## Run cloc to count lines of code
 
 FILES_LLM=gptme/llm/*.py
