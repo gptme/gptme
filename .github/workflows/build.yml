@@ -44,7 +44,7 @@ jobs:
 
     # First build the base image locally (needed for subsequent builds)
     - name: Build Docker image (base)
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         tags: gptme:latest
         file: ./scripts/Dockerfile
@@ -53,7 +53,7 @@ jobs:
 
     # Push base image to registry if on master/tag
     - name: Push Docker image (base)
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       if: env.SHOULD_PUSH == 'true'
       with:
         tags: |
@@ -65,7 +65,7 @@ jobs:
 
     # Build and push eval image
     - name: Build and push Docker image (server)
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         tags: |
           ghcr.io/${{ env.OWNER_LC }}/gptme-server:latest
@@ -78,7 +78,7 @@ jobs:
 
     # Build and push eval image
     - name: Build and push Docker image (eval)
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         tags: |
           ghcr.io/${{ env.OWNER_LC }}/gptme-eval:latest
@@ -90,7 +90,7 @@ jobs:
     # Now the full eval image
     # NOTE: takes a long time and leads to a big (1GB+) image
     #- name: Build and push Docker image (eval-full)
-    #  uses: docker/build-push-action@v6
+    #  uses: docker/build-push-action@v7
     #  with:
     #    tags: |
     #      ghcr.io/${{ env.OWNER_LC }}/gptme-eval-full:latest
