@@ -14,7 +14,7 @@ Core Capabilities
 -----------------
 
 💻 Code Execution
-^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^
 
 Execute code in your local environment with full access to your installed tools and libraries.
 
@@ -25,7 +25,7 @@ Execute code in your local environment with full access to your installed tools 
 See :doc:`tools` for the full list of execution tools.
 
 🧩 File Operations
-^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
 
 Read, write, and make precise edits to files.
 
@@ -37,7 +37,7 @@ Read, write, and make precise edits to files.
 See the file tools in :doc:`tools` for details.
 
 🌐 Web Browsing & Search
-^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 Search the web and read pages, PDFs, and documentation.
 
@@ -49,7 +49,7 @@ Search the web and read pages, PDFs, and documentation.
 See the :ref:`Browser <tools:Browser>` tool.
 
 👀 Vision
-^^^^^^^^
+^^^^^^^^^
 
 Analyze images, screenshots, and visual content.
 
@@ -85,7 +85,7 @@ The primary interface — a powerful terminal chat with:
 See :doc:`usage` and :doc:`cli` for the full reference.
 
 🌐 Web UI
-^^^^^^^^
+^^^^^^^^^
 
 A modern React-based web interface available at `chat.gptme.org <https://chat.gptme.org>`_.
 
@@ -96,14 +96,14 @@ A modern React-based web interface available at `chat.gptme.org <https://chat.gp
 See :doc:`server` for setup instructions.
 
 🔌 REST API
-^^^^^^^^^^
+^^^^^^^^^^^
 
 A server component exposes gptme as a REST API for programmatic access and integration with other tools.
 
 See :doc:`server` for the API documentation.
 
 📝 Editor Integration
-^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
 
 - **ACP (Agent Client Protocol)**: Use gptme as a coding agent in Zed and JetBrains IDEs. See :doc:`acp`.
 - **gptme.vim**: Vim plugin for in-editor integration. See `gptme.vim <https://github.com/gptme/gptme.vim>`_.
@@ -131,21 +131,21 @@ Extensibility
 gptme has a layered extensibility system that lets you tailor it to your workflow. See :doc:`concepts` for the full architecture overview.
 
 📚 Lessons
-^^^^^^^^^
+^^^^^^^^^^
 
 Contextual guidance that auto-injects into conversations based on keywords, tools, and patterns. Write your own to capture team best-practices or domain knowledge.
 
 See :doc:`lessons`.
 
 🧠 Skills
-^^^^^^^^
+^^^^^^^^^
 
 Lightweight workflow bundles (Anthropic format) that auto-load when mentioned by name. Great for packaging reusable instructions and helper scripts.
 
 See :doc:`skills`.
 
 🔧 Plugins
-^^^^^^^^^
+^^^^^^^^^^
 
 Extend gptme with custom tools, hooks, and commands via Python packages.
 
@@ -159,21 +159,21 @@ Extend gptme with custom tools, hooks, and commands via Python packages.
 See :doc:`plugins`.
 
 🪝 Hooks
-^^^^^^^
+^^^^^^^^
 
 Run custom code at key lifecycle events (before/after tool calls, on file save, etc.) without writing a full plugin.
 
 See :doc:`hooks`.
 
 🔗 MCP (Model Context Protocol)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Use any MCP-compatible server as a tool source — databases, APIs, file systems, and more. gptme can discover and dynamically load MCP servers at runtime.
 
 See :doc:`mcp`.
 
 📦 Community Extensions
-^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^
 
 `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ hosts community-contributed plugins, scripts, and lessons:
 
@@ -190,7 +190,7 @@ Autonomous Agents
 gptme is designed to run not just interactively, but as a **persistent autonomous agent** — an AI that runs continuously, remembers everything, and gets better over time. This is where gptme truly differentiates itself from other coding assistants.
 
 🧠 How It Works
-^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
 
 Each agent is a **git repository that serves as its "brain"** — all memory, tasks, knowledge, and configuration are version-controlled and persist across sessions. A dynamic context system assembles relevant information (recent work, active tasks, notifications) at the start of each session, giving the agent situational awareness.
 
