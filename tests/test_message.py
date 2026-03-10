@@ -213,30 +213,33 @@ def test_message_metadata():
 
     from gptme.message import Message, MessageMetadata
 
-    # Create message with metadata using flat token format
-    # Per Erik's review: https://github.com/gptme/gptme/pull/943#issuecomment-3633137716
+    # Create message with metadata using nested usage format
     meta: MessageMetadata = {
         "model": "claude-sonnet",
-        "input_tokens": 100,
-        "output_tokens": 50,
-        "cache_read_tokens": 80,
-        "cache_creation_tokens": 10,
         "cost": 0.005,
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_read_tokens": 80,
+            "cache_creation_tokens": 10,
+        },
     }
     msg = Message(role="assistant", content="Hello world", metadata=meta)
 
     # Verify metadata stored correctly
     assert msg.metadata is not None
     assert msg.metadata["model"] == "claude-sonnet"
-    assert msg.metadata["input_tokens"] == 100
-    assert msg.metadata["output_tokens"] == 50
-    assert msg.metadata["cache_read_tokens"] == 80
-    assert msg.metadata["cache_creation_tokens"] == 10
     assert msg.metadata["cost"] == 0.005
+    usage = msg.metadata["usage"]
+    assert usage["input_tokens"] == 100
+    assert usage["output_tokens"] == 50
+    assert usage["cache_read_tokens"] == 80
+    assert usage["cache_creation_tokens"] == 10
 
     # Test JSON/JSONL roundtrip
     d = msg.to_dict()
     assert "metadata" in d
+    assert "usage" in d["metadata"]
     json_str = json.dumps(d)
     json_data = json.loads(json_str)
     from dateutil.parser import isoparse
@@ -249,6 +252,64 @@ def test_message_metadata():
     toml_str = msg.to_toml()
     msg3 = Message.from_toml(toml_str)
     assert msg3.metadata == meta
+
+
+def test_message_metadata_migration():
+    """Test backward-compatible migration from flat to nested usage format."""
+    import json
+
+    from gptme.message import Message, _migrate_metadata
+
+    # Old flat format (as stored in existing logs)
+    flat_meta = {
+        "model": "claude-sonnet",
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "cache_read_tokens": 80,
+        "cache_creation_tokens": 10,
+        "cost": 0.005,
+    }
+
+    # Migration should nest token fields under "usage"
+    migrated = _migrate_metadata(flat_meta)
+    assert migrated["model"] == "claude-sonnet"
+    assert migrated["cost"] == 0.005
+    assert "usage" in migrated
+    assert migrated["usage"]["input_tokens"] == 100
+    assert migrated["usage"]["output_tokens"] == 50
+    assert migrated["usage"]["cache_read_tokens"] == 80
+    assert migrated["usage"]["cache_creation_tokens"] == 10
+    # Flat token keys should NOT be at top level
+    assert "input_tokens" not in migrated
+    assert "output_tokens" not in migrated
+
+    # Already-migrated format should pass through unchanged
+    nested_meta = {
+        "model": "claude-sonnet",
+        "cost": 0.005,
+        "usage": {"input_tokens": 100, "output_tokens": 50},
+    }
+    migrated2 = _migrate_metadata(nested_meta)
+    assert migrated2 == nested_meta
+
+    # JSONL round-trip with old flat format should auto-migrate
+    old_json = json.dumps(
+        {
+            "role": "assistant",
+            "content": "Hello",
+            "timestamp": "2025-01-01T00:00:00",
+            "metadata": flat_meta,
+        }
+    )
+    from dateutil.parser import isoparse
+
+    json_data = json.loads(old_json)
+    json_data["timestamp"] = isoparse(json_data["timestamp"])
+    json_data["metadata"] = _migrate_metadata(json_data["metadata"])
+    msg = Message(**json_data)
+    assert msg.metadata is not None
+    assert "usage" in msg.metadata
+    assert msg.metadata["usage"]["input_tokens"] == 100
 
 
 def test_message_metadata_none():

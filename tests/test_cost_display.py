@@ -32,11 +32,13 @@ def test_gather_conversation_costs_zero_metadata():
             role="assistant",
             content="hi",
             metadata={
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "cache_read_tokens": 0,
-                "cache_creation_tokens": 0,
                 "cost": 0.0,
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "cache_creation_tokens": 0,
+                },
             },
         ),
     ]
@@ -52,11 +54,13 @@ def test_gather_conversation_costs_single_request():
             role="assistant",
             content="hi there",
             metadata={
-                "input_tokens": 100,
-                "output_tokens": 50,
-                "cache_read_tokens": 20,
-                "cache_creation_tokens": 10,
                 "cost": 0.005,
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 50,
+                    "cache_read_tokens": 20,
+                    "cache_creation_tokens": 10,
+                },
             },
         ),
     ]
@@ -80,9 +84,8 @@ def test_gather_conversation_costs_multiple_requests():
             role="assistant",
             content="hi",
             metadata={
-                "input_tokens": 100,
-                "output_tokens": 50,
                 "cost": 0.005,
+                "usage": {"input_tokens": 100, "output_tokens": 50},
             },
         ),
         Message(role="user", content="how are you?"),
@@ -90,9 +93,8 @@ def test_gather_conversation_costs_multiple_requests():
             role="assistant",
             content="fine",
             metadata={
-                "input_tokens": 200,
-                "output_tokens": 80,
                 "cost": 0.010,
+                "usage": {"input_tokens": 200, "output_tokens": 80},
             },
         ),
     ]
@@ -110,12 +112,18 @@ def test_gather_conversation_costs_last_request():
         Message(
             role="assistant",
             content="first",
-            metadata={"input_tokens": 100, "output_tokens": 50, "cost": 0.005},
+            metadata={
+                "cost": 0.005,
+                "usage": {"input_tokens": 100, "output_tokens": 50},
+            },
         ),
         Message(
             role="assistant",
             content="second",
-            metadata={"input_tokens": 200, "output_tokens": 80, "cost": 0.010},
+            metadata={
+                "cost": 0.010,
+                "usage": {"input_tokens": 200, "output_tokens": 80},
+            },
         ),
     ]
     result = gather_conversation_costs(msgs)
@@ -134,11 +142,13 @@ def test_gather_conversation_costs_cache_hit_rate():
             role="assistant",
             content="cached response",
             metadata={
-                "input_tokens": 50,
-                "output_tokens": 30,
-                "cache_read_tokens": 150,
-                "cache_creation_tokens": 0,
                 "cost": 0.003,
+                "usage": {
+                    "input_tokens": 50,
+                    "output_tokens": 30,
+                    "cache_read_tokens": 150,
+                    "cache_creation_tokens": 0,
+                },
             },
         ),
     ]
@@ -155,12 +165,18 @@ def test_gather_conversation_costs_user_metadata_counted():
         Message(
             role="user",
             content="hello",
-            metadata={"input_tokens": 50, "output_tokens": 0, "cost": 0.001},
+            metadata={
+                "cost": 0.001,
+                "usage": {"input_tokens": 50, "output_tokens": 0},
+            },
         ),
         Message(
             role="assistant",
             content="hi",
-            metadata={"input_tokens": 100, "output_tokens": 30, "cost": 0.005},
+            metadata={
+                "cost": 0.005,
+                "usage": {"input_tokens": 100, "output_tokens": 30},
+            },
         ),
     ]
     result = gather_conversation_costs(msgs)
@@ -179,7 +195,7 @@ def test_gather_conversation_costs_partial_metadata():
         Message(
             role="assistant",
             content="response",
-            metadata={"input_tokens": 100, "output_tokens": 50},
+            metadata={"usage": {"input_tokens": 100, "output_tokens": 50}},
             # No cache_read_tokens, cache_creation_tokens, or cost
         ),
     ]
@@ -247,17 +263,22 @@ def test_gather_conversation_costs_no_last_request_when_zero():
         Message(
             role="assistant",
             content="first",
-            metadata={"input_tokens": 100, "output_tokens": 50, "cost": 0.005},
+            metadata={
+                "cost": 0.005,
+                "usage": {"input_tokens": 100, "output_tokens": 50},
+            },
         ),
         Message(
             role="assistant",
             content="second",
             metadata={
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "cache_read_tokens": 0,
-                "cache_creation_tokens": 0,
                 "cost": 0.0,
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "cache_creation_tokens": 0,
+                },
             },
         ),
     ]

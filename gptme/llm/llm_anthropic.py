@@ -16,7 +16,7 @@ from httpx import RemoteProtocolError
 from pydantic import BaseModel  # fmt: skip
 
 from ..constants import TEMPERATURE, TOP_P
-from ..message import Message, MessageMetadata, msgs2dicts
+from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec
 from .models import ModelMeta, get_model
@@ -138,16 +138,21 @@ def _record_usage(
         cache_read_tokens=cache_read_tokens,
     )
 
+    # Build nested usage data
+    usage_data: UsageData = {}
+    if input_tokens is not None:
+        usage_data["input_tokens"] = input_tokens
+    if output_tokens is not None:
+        usage_data["output_tokens"] = output_tokens
+    if cache_read_tokens is not None:
+        usage_data["cache_read_tokens"] = cache_read_tokens
+    if cache_creation_tokens is not None:
+        usage_data["cache_creation_tokens"] = cache_creation_tokens
+
     # Return MessageMetadata for attachment to Message
     metadata: MessageMetadata = {"model": model}
-    if input_tokens is not None:
-        metadata["input_tokens"] = input_tokens
-    if output_tokens is not None:
-        metadata["output_tokens"] = output_tokens
-    if cache_read_tokens is not None:
-        metadata["cache_read_tokens"] = cache_read_tokens
-    if cache_creation_tokens is not None:
-        metadata["cache_creation_tokens"] = cache_creation_tokens
+    if usage_data:
+        metadata["usage"] = usage_data
     if cost > 0:
         metadata["cost"] = cost
     return metadata

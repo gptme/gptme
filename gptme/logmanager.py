@@ -36,7 +36,7 @@ from rich import print
 
 from .config import ChatConfig, get_project_config
 from .dirs import get_logs_dir
-from .message import Message, len_tokens, print_msg
+from .message import Message, _migrate_metadata, len_tokens, print_msg
 from .tools import ToolUse
 from .util.context import enrich_messages_with_context
 from .util.reduce import limit_log, reduce_log
@@ -911,4 +911,7 @@ def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
             file_hashes = json_data.pop("file_hashes", {})
             if "timestamp" in json_data:
                 json_data["timestamp"] = isoparse(json_data["timestamp"])
+            # Migrate flat metadata format to nested usage format
+            if json_data.get("metadata"):
+                json_data["metadata"] = _migrate_metadata(json_data["metadata"])
             yield Message(**json_data, files=files, file_hashes=file_hashes)

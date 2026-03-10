@@ -28,6 +28,19 @@ from .util.uri import URI, FilePath, parse_file_reference
 logger = logging.getLogger(__name__)
 
 
+class UsageData(TypedDict, total=False):
+    """Token usage data from LLM API responses.
+
+    Nested under ``usage`` in :class:`MessageMetadata` to mirror the structure
+    returned by LLM provider APIs (Anthropic, OpenAI, etc.).
+    """
+
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
+
+
 class MessageMetadata(TypedDict, total=False):
     """
     Metadata stored with each message.
@@ -36,23 +49,54 @@ class MessageMetadata(TypedDict, total=False):
 
     Token/cost fields are populated for assistant messages when telemetry is enabled.
 
-    Uses flat token format (matches cost_tracker and common industry conventions):
+    Token counts are nested under ``usage`` to match LLM API response structure::
+
         {
             "model": "claude-sonnet",
-            "input_tokens": 100,
-            "output_tokens": 50,
-            "cache_read_tokens": 80,
-            "cache_creation_tokens": 10,
-            "cost": 0.005
+            "cost": 0.005,
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_tokens": 80,
+                "cache_creation_tokens": 10,
+            }
         }
     """
 
     model: str
-    input_tokens: int
-    output_tokens: int
-    cache_read_tokens: int
-    cache_creation_tokens: int
     cost: float  # Cost in USD
+    usage: UsageData
+
+
+_TOKEN_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_creation_tokens",
+)
+
+
+def _migrate_metadata(meta: dict) -> MessageMetadata:
+    """Migrate flat token format to nested ``usage`` format.
+
+    Old format had token fields at the top level alongside ``model`` and ``cost``.
+    New format nests them under ``usage``.  This function detects the old format
+    and converts it, allowing transparent deserialization of old logs.
+    """
+    # Already migrated (or new format)
+    if "usage" in meta or not any(k in meta for k in _TOKEN_KEYS):
+        return MessageMetadata(**meta)
+
+    usage: UsageData = {}
+    remaining: dict = {}
+    for k, v in meta.items():
+        if k in _TOKEN_KEYS:
+            usage[k] = v  # type: ignore[literal-required]
+        else:
+            remaining[k] = v
+    if usage:
+        remaining["usage"] = usage
+    return MessageMetadata(**remaining)
 
 
 def _format_toml_value(value: object) -> str:
@@ -65,10 +109,15 @@ def _format_toml_value(value: object) -> str:
 
 
 def _format_metadata_toml(metadata: MessageMetadata) -> str:
-    """Format metadata as TOML inline table."""
+    """Format metadata as TOML inline table, handling nested ``usage``."""
     meta_items = []
     for k, v in metadata.items():
-        meta_items.append(f'"{k}" = {_format_toml_value(v)}')
+        if k == "usage" and isinstance(v, dict):
+            # Format usage as a nested inline table
+            usage_items = [f'"{uk}" = {_format_toml_value(uv)}' for uk, uv in v.items()]
+            meta_items.append(f'"usage" = {{ {", ".join(usage_items)} }}')
+        else:
+            meta_items.append(f'"{k}" = {_format_toml_value(v)}')
     return f"metadata = {{ {', '.join(meta_items)} }}"
 
 
@@ -181,7 +230,12 @@ class Message:
             d["call_id"] = self.call_id
         # Only serialize metadata if it has content (compact storage)
         if self.metadata:
-            d["metadata"] = dict(self.metadata)
+            meta_dict = dict(self.metadata)
+            # Ensure nested usage dict is also a plain dict (not tomlkit types)
+            usage = meta_dict.get("usage")
+            if isinstance(usage, dict):
+                meta_dict["usage"] = dict(usage)
+            d["metadata"] = meta_dict
         if keys:
             return {k: d[k] for k in keys if k in d}
         return d
@@ -290,10 +344,10 @@ timestamp = "{self.timestamp.isoformat()}"
         assert "message" in t and isinstance(t["message"], dict)
         msg: dict = t["message"]
 
-        # Parse metadata if present
+        # Parse metadata if present (migrate old flat format if needed)
         metadata: MessageMetadata | None = None
         if msg.get("metadata"):
-            metadata = MessageMetadata(**msg["metadata"])
+            metadata = _migrate_metadata(dict(msg["metadata"]))
 
         return cls(
             msg["role"],
@@ -476,7 +530,7 @@ def toml_to_msgs(toml: str) -> list[Message]:
             files=[parse_file_reference(f) for f in msg.get("files", [])],
             file_hashes=dict(msg.get("file_hashes", {})),
             call_id=msg.get("call_id"),
-            metadata=MessageMetadata(**msg["metadata"])
+            metadata=_migrate_metadata(dict(msg["metadata"]))
             if msg.get("metadata")
             else None,
         )

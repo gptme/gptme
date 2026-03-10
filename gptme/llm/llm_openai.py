@@ -13,7 +13,7 @@ from typing_extensions import NotRequired
 
 from ..config import Config, get_config
 from ..constants import TEMPERATURE, TOP_P
-from ..message import Message, MessageMetadata, msgs2dicts
+from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools import ToolSpec
 from .models import (
@@ -155,14 +155,19 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
         cache_read_tokens=cache_read_tokens,
     )
 
+    # Build nested usage data
+    usage_data: UsageData = {}
+    if input_tokens is not None:
+        usage_data["input_tokens"] = input_tokens
+    if output_tokens is not None:
+        usage_data["output_tokens"] = output_tokens
+    if cache_read_tokens is not None:
+        usage_data["cache_read_tokens"] = cache_read_tokens
+
     # Return MessageMetadata for attachment to Message
     metadata: MessageMetadata = {"model": model}
-    if input_tokens is not None:
-        metadata["input_tokens"] = input_tokens
-    if output_tokens is not None:
-        metadata["output_tokens"] = output_tokens
-    if cache_read_tokens is not None:
-        metadata["cache_read_tokens"] = cache_read_tokens
+    if usage_data:
+        metadata["usage"] = usage_data
     if cost > 0:
         metadata["cost"] = cost
     return metadata

@@ -98,10 +98,11 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
                 last_metadata = msg.metadata
                 request_count += 1
 
-            total_input += msg.metadata.get("input_tokens", 0)
-            total_output += msg.metadata.get("output_tokens", 0)
-            total_cache_read += msg.metadata.get("cache_read_tokens", 0)
-            total_cache_created += msg.metadata.get("cache_creation_tokens", 0)
+            usage = msg.metadata.get("usage", {})
+            total_input += usage.get("input_tokens", 0)
+            total_output += usage.get("output_tokens", 0)
+            total_cache_read += usage.get("cache_read_tokens", 0)
+            total_cache_created += usage.get("cache_creation_tokens", 0)
             total_cost += msg.metadata.get("cost", 0.0)
 
     # Check if we have any actual data
@@ -114,18 +115,20 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
 
     # Last request from metadata
     last_request = None
-    if last_metadata and (
-        last_metadata.get("input_tokens", 0) > 0
-        or last_metadata.get("output_tokens", 0) > 0
-        or last_metadata.get("cost", 0) > 0
-    ):
-        last_request = RequestCosts(
-            input_tokens=last_metadata.get("input_tokens", 0),
-            output_tokens=last_metadata.get("output_tokens", 0),
-            cache_read_tokens=last_metadata.get("cache_read_tokens", 0),
-            cache_creation_tokens=last_metadata.get("cache_creation_tokens", 0),
-            cost=last_metadata.get("cost", 0.0),
-        )
+    if last_metadata:
+        last_usage = last_metadata.get("usage", {})
+        if (
+            last_usage.get("input_tokens", 0) > 0
+            or last_usage.get("output_tokens", 0) > 0
+            or last_metadata.get("cost", 0) > 0
+        ):
+            last_request = RequestCosts(
+                input_tokens=last_usage.get("input_tokens", 0),
+                output_tokens=last_usage.get("output_tokens", 0),
+                cache_read_tokens=last_usage.get("cache_read_tokens", 0),
+                cache_creation_tokens=last_usage.get("cache_creation_tokens", 0),
+                cost=last_metadata.get("cost", 0.0),
+            )
 
     # Calculate cache hit rate
     total_input_with_cache = total_input + total_cache_read + total_cache_created
