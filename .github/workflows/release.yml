@@ -41,10 +41,8 @@ jobs:
       with:
         python-version: '3.x'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install poetry
+    - name: Install poetry
+      run: pipx install poetry
 
     - name: Build Python packages
       run: |
@@ -54,7 +52,14 @@ jobs:
     - name: Upload packages to GitHub release
       env:
         GH_TOKEN: ${{ github.token }}
-      run: gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber
+      run: |
+        # Wait for release to be visible (handles propagation delay for release:created)
+        for i in 1 2 3 4 5; do
+          gh release view "$TAG" &>/dev/null && break
+          echo "Waiting for release $TAG to become visible... ($i/5)"
+          sleep 5
+        done
+        gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber
 
     - name: Trigger artifact builds
       env:

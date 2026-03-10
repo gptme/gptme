@@ -45,6 +45,12 @@ jobs:
         REF_NAME="${TAG_INPUT:-${GITHUB_REF_NAME}}"
         SANITIZED_REF_NAME=$(echo "${REF_NAME}" | tr '/' '-')
         echo "SANITIZED_REF_NAME=${SANITIZED_REF_NAME}" >>${GITHUB_ENV}
+        # Only push :latest for stable releases and master; dev releases get :dev
+        if echo "${REF_NAME}" | grep -qE '\.(dev|a|b|rc)'; then
+          echo "DOCKER_EXTRA_TAG=dev" >>${GITHUB_ENV}
+        else
+          echo "DOCKER_EXTRA_TAG=latest" >>${GITHUB_ENV}
+        fi
       env:
         OWNER: '${{ github.repository_owner }}'
         TAG_INPUT: ${{ inputs.tag }}
@@ -64,18 +70,18 @@ jobs:
       if: env.SHOULD_PUSH == 'true'
       with:
         tags: |
-          ghcr.io/${{ env.OWNER_LC }}/gptme:latest
+          ghcr.io/${{ env.OWNER_LC }}/gptme:${{ env.DOCKER_EXTRA_TAG }}
           ghcr.io/${{ env.OWNER_LC }}/gptme:${{ env.SANITIZED_REF_NAME }}
         file: ./scripts/Dockerfile
         context: .
         push: true
 
-    # Build and push eval image
+    # Build and push server image
     - name: Build and push Docker image (server)
       uses: docker/build-push-action@v7
       with:
         tags: |
-          ghcr.io/${{ env.OWNER_LC }}/gptme-server:latest
+          ghcr.io/${{ env.OWNER_LC }}/gptme-server:${{ env.DOCKER_EXTRA_TAG }}
           ghcr.io/${{ env.OWNER_LC }}/gptme-server:${{ env.SANITIZED_REF_NAME }}
         file: ./scripts/Dockerfile.server
         context: .
@@ -88,7 +94,7 @@ jobs:
       uses: docker/build-push-action@v7
       with:
         tags: |
-          ghcr.io/${{ env.OWNER_LC }}/gptme-eval:latest
+          ghcr.io/${{ env.OWNER_LC }}/gptme-eval:${{ env.DOCKER_EXTRA_TAG }}
           ghcr.io/${{ env.OWNER_LC }}/gptme-eval:${{ env.SANITIZED_REF_NAME }}
         file: ./scripts/Dockerfile.eval
         context: .
