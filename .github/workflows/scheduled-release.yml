@@ -66,6 +66,8 @@ jobs:
             BASE=$(git merge-base "${LAST_TAG}" HEAD 2>/dev/null || echo "")
             if [ -n "$BASE" ]; then
               COMMITS_SINCE_TAG=$(git rev-list "${BASE}..HEAD" --count)
+            else
+              echo "WARNING: could not find merge-base for ${LAST_TAG} — commit count unavailable, treating as 0."
             fi
           fi
 
