@@ -46,6 +46,8 @@ def check_api_post_item(ctx):
         data = json.loads(ctx.stdout.strip())
     except (json.JSONDecodeError, ValueError):
         return False
+    if not isinstance(data, dict):
+        return False
     results = data.get("results", {})
     post_item = results.get("post_item")
     if not isinstance(post_item, dict):
@@ -58,6 +60,8 @@ def check_api_get_after_post(ctx):
     try:
         data = json.loads(ctx.stdout.strip())
     except (json.JSONDecodeError, ValueError):
+        return False
+    if not isinstance(data, dict):
         return False
     results = data.get("results", {})
     get_after = results.get("get_after_post")
@@ -164,6 +168,8 @@ tests: list["EvalSpec"] = [
                 "            try:\n"
                 "                urllib.request.urlopen(f'http://localhost:{port}/items')\n"
                 "                break\n"
+                "            except urllib.error.HTTPError:\n"
+                "                break  # Server is up (returned HTTP error) — stop probing\n"
                 "            except (urllib.error.URLError, ConnectionRefusedError):\n"
                 "                time.sleep(0.25)\n"
                 "        else:\n"
