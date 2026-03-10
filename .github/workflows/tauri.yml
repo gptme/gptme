@@ -271,9 +271,15 @@ jobs:
 
   release:
     name: Release (${{ matrix.platform }})
-    # Use !cancelled() so a single sidecar failure (e.g. Windows) doesn't block
-    # all platforms — each release job only needs its own platform's sidecar.
-    if: (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '') && !cancelled()
+    # Require lint/test/build to pass, but tolerate partial build-sidecar failures
+    # (e.g. Windows sidecar fails but Linux/macOS succeed). Each release platform
+    # only needs its own sidecar — download-artifact grabs whatever's available.
+    if: >-
+      !cancelled() &&
+      needs.lint.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.build.result == 'success' &&
+      (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '')
     needs: [lint, test, build, build-sidecar]
     strategy:
       fail-fast: false
