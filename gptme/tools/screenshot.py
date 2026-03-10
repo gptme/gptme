@@ -103,17 +103,21 @@ def screenshot(path: Path | None = None) -> Path:
     )
 
 
+def examples(tool_format) -> str:
+    return f"""
+To take a screenshot and view it immediately:
+
+{ToolUse("ipython", [], "view_image(screenshot())").to_output(tool_format)}
+
+This will take a screenshot, save it to a file, and include the image in the chat.
+    """.strip()
+
+
 tool = ToolSpec(
     name="screenshot",
     desc="Take a screenshot",
     available=_is_available,
     instructions=INSTRUCTIONS,
     functions=[screenshot],
-    examples=f"""
-To take a screenshot and view it immediately:
-
-{ToolUse("ipython", [], "view_image(screenshot())").to_output()}
-
-This will take a screenshot, save it to a file, and include the image in the chat.
-    """,
+    examples=examples,
 )
