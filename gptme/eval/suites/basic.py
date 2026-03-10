@@ -337,11 +337,6 @@ def check_json_filter_exit(ctx):
 # --- implement-class checks ---
 
 
-def check_implement_class_file(ctx):
-    """shapes.py should exist with the implementations."""
-    return "shapes.py" in ctx.files
-
-
 def check_implement_class_has_circle(ctx):
     """shapes.py must contain a Circle class definition."""
     content = ctx.files.get("shapes.py", "")
@@ -365,11 +360,6 @@ def check_implement_class_no_failures(ctx):
 
 
 # --- optimize-performance checks ---
-
-
-def check_optimize_perf_file(ctx):
-    """main.py should exist."""
-    return "main.py" in ctx.files
 
 
 def check_optimize_perf_output(ctx):
@@ -873,7 +863,6 @@ tests: list["EvalSpec"] = [
         ),
         "tools": ["read", "save", "patch", "shell"],
         "expect": {
-            "shapes.py exists": check_implement_class_file,
             "Circle defined": check_implement_class_has_circle,
             "Rectangle defined": check_implement_class_has_rectangle,
             "tests pass": check_implement_class_tests_pass,
@@ -912,7 +901,6 @@ tests: list["EvalSpec"] = [
         ),
         "tools": ["read", "save", "patch"],
         "expect": {
-            "file exists": check_optimize_perf_file,
             "correct output": check_optimize_perf_output,
             "runs fast": check_optimize_perf_fast,
         },
