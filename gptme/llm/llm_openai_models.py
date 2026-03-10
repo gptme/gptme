@@ -264,12 +264,9 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
 
 # OpenAI Codex / Responses API models.
 # These models use the Responses API (not Chat Completions), and are accessed
-# either via the ChatGPT subscription (openai-subscription provider, price=0)
-# or potentially via the Platform API in the future.
+# via the ChatGPT subscription (openai-subscription provider). Prices reflect
+# API-equivalent cost for comparison. models.py adds default_tool_format="tool".
 # Reasoning level suffix (e.g., :high) is stripped at lookup time in get_model().
-#
-# When used via subscription, models.py overrides price to 0 and sets
-# default_tool_format="tool".
 OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
     # GPT-5.4 — latest flagship, 1M context
     "gpt-5.4": {
