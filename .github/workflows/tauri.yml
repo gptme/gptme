@@ -271,7 +271,9 @@ jobs:
 
   release:
     name: Release (${{ matrix.platform }})
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+    # Use !cancelled() so a single sidecar failure (e.g. Windows) doesn't block
+    # all platforms — each release job only needs its own platform's sidecar.
+    if: (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '') && !cancelled()
     needs: [lint, test, build, build-sidecar]
     strategy:
       fail-fast: false
