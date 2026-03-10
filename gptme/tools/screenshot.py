@@ -112,7 +112,7 @@ tool = ToolSpec(
     examples=f"""
 To take a screenshot and view it immediately:
 
-{ToolUse("ipython", [], "view_image(screenshot())")}
+{ToolUse("ipython", [], "view_image(screenshot())").to_output()}
 
 This will take a screenshot, save it to a file, and include the image in the chat.
     """,
