@@ -374,15 +374,15 @@ def check_optimize_perf_file(ctx):
 
 def check_optimize_perf_output(ctx):
     """fibonacci(35) should output 9227465."""
-    return "9227465" in ctx.stdout
+    return "9227465" in ctx.stdout.split()
 
 
 def check_optimize_perf_fast(ctx):
     """Should complete in under 2 seconds (checked by the script's own timing logic)."""
     # The script itself raises SystemExit('Too slow!') if elapsed > 2s,
     # and the run command wraps with `timeout 10` as a hard backstop.
-    # Check both: exit_code 0 AND no 'Too slow' message.
-    return ctx.exit_code == 0 and "Too slow" not in ctx.stdout
+    # Check both: exit_code 0 AND no 'Too slow' message in stderr.
+    return ctx.exit_code == 0 and "Too slow" not in ctx.stderr
 
 
 tests: list["EvalSpec"] = [
