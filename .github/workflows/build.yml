@@ -45,8 +45,9 @@ jobs:
         REF_NAME="${TAG_INPUT:-${GITHUB_REF_NAME}}"
         SANITIZED_REF_NAME=$(echo "${REF_NAME}" | tr '/' '-')
         echo "SANITIZED_REF_NAME=${SANITIZED_REF_NAME}" >>${GITHUB_ENV}
-        # Only push :latest for stable releases and master; dev releases get :dev
-        if echo "${REF_NAME}" | grep -qE '\.(dev|a|b|rc)'; then
+        # Only push :latest for stable releases and master; dev/pre-releases get :dev
+        # Matches both .dev (project convention) and PEP 440 canonical (1.0a1, 1.0rc1)
+        if echo "${REF_NAME}" | grep -qE '\.(dev|a|b|rc)|[0-9](a|b|rc)[0-9]'; then
           echo "DOCKER_EXTRA_TAG=dev" >>${GITHUB_ENV}
         else
           echo "DOCKER_EXTRA_TAG=latest" >>${GITHUB_ENV}
