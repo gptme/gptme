@@ -147,12 +147,12 @@ release-dev:  ## Create a dev pre-release (.devYYYYMMDD) — same as CI schedule
 release-patch:  ## Create a stable patch release (x.y.Z+1)
 	@./scripts/bump_version.sh --type patch
 	@make dist/CHANGELOG.md
-	@./scripts/publish_release.sh --publish-pypi --notes-file dist/CHANGELOG.md
+	@./scripts/publish_release.sh --notes-file dist/CHANGELOG.md
 
 release-minor:  ## Create a stable minor release (x.Y+1.0)
 	@./scripts/bump_version.sh --type minor
 	@make dist/CHANGELOG.md
-	@./scripts/publish_release.sh --publish-pypi --notes-file dist/CHANGELOG.md
+	@./scripts/publish_release.sh --notes-file dist/CHANGELOG.md
 
 ./scripts/build_changelog.py:
 	wget -O $@ https://raw.githubusercontent.com/ActivityWatch/activitywatch/master/scripts/build_changelog.py

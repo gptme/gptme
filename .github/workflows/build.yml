@@ -3,8 +3,6 @@ name: Build
 on:
   push:
     branches: [ master ]
-    tags:
-      - 'v*'
   pull_request:
     branches: [ master ]
   workflow_dispatch:
@@ -200,7 +198,8 @@ jobs:
         TAG="${{ inputs.tag || github.ref_name }}"
         OS_SUFFIX="${{ runner.os }}-${{ runner.arch }}"
         # Rename with OS suffix for the release asset
-        for f in dist/gptme-server*; do
+        for f in dist/gptme-server dist/gptme-server.exe; do
+          [ -f "$f" ] || continue
           EXT=""
           [[ "$f" == *.exe ]] && EXT=".exe"
           cp "$f" "dist/gptme-server-${OS_SUFFIX}${EXT}"
