@@ -13,7 +13,7 @@ from typing import (
 
 from typing_extensions import NotRequired
 
-from .llm_openai_models import OPENAI_MODELS
+from .llm_openai_models import OPENAI_MODELS, OPENAI_SUBSCRIPTION_MODELS
 
 if TYPE_CHECKING:
     from ..tools.base import ToolFormat
@@ -151,31 +151,12 @@ _default_model_var: ContextVar[ModelMeta | None] = ContextVar(
 MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     "openai": OPENAI_MODELS,
     # OpenAI Subscription (ChatGPT Plus/Pro via Codex backend)
-    # All models share same specs; price is 0 since using existing subscription
+    # Uses the Responses API (not Chat Completions). Per-model specs from
+    # llm_openai_models.py; prices reflect API-equivalent cost for comparison.
     # Reasoning level suffix (e.g., :high) is stripped at lookup time in get_model()
-    # These models work best with native tool calling ("tool" format)
     "openai-subscription": {
-        model: {
-            "context": 128_000,
-            "max_output": 16_000,
-            "price_input": 0,
-            "price_output": 0,
-            "supports_streaming": True,
-            "supports_vision": True,
-            "supports_reasoning": True,
-            "default_tool_format": "tool",
-        }
-        for model in [
-            "gpt-5.4",
-            "gpt-5.3-codex",
-            "gpt-5.3-codex-spark",
-            "gpt-5.2",
-            "gpt-5.2-codex",
-            "gpt-5.1-codex-max",
-            "gpt-5.1-codex",
-            "gpt-5.1-codex-mini",
-            "gpt-5.1",
-        ]
+        model: {**props, "default_tool_format": "tool"}
+        for model, props in OPENAI_SUBSCRIPTION_MODELS.items()
     },
     # https://docs.anthropic.com/en/docs/about-claude/models
     "anthropic": {

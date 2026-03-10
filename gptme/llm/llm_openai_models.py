@@ -261,3 +261,101 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "deprecated": True,
     },
 }
+
+# OpenAI Codex / Responses API models.
+# These models use the Responses API (not Chat Completions), and are accessed
+# either via the ChatGPT subscription (openai-subscription provider, price=0)
+# or potentially via the Platform API in the future.
+# Reasoning level suffix (e.g., :high) is stripped at lookup time in get_model().
+#
+# When used via subscription, models.py overrides price to 0 and sets
+# default_tool_format="tool".
+OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
+    # GPT-5.4 — latest flagship, 1M context
+    "gpt-5.4": {
+        "context": 1_050_000,
+        "max_output": 128_000,
+        "price_input": 2.5,
+        "price_output": 15,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "knowledge_cutoff": datetime(2025, 8, 31, tzinfo=timezone.utc),
+    },
+    # GPT-5.3 Codex — top-tier agentic coding model
+    "gpt-5.3-codex": {
+        "context": 400_000,
+        "max_output": 128_000,
+        "price_input": 1.75,
+        "price_output": 14,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "knowledge_cutoff": datetime(2025, 8, 31, tzinfo=timezone.utc),
+    },
+    # GPT-5.3 Codex Spark — fast text-only coding (1000+ tok/s)
+    "gpt-5.3-codex-spark": {
+        "context": 128_000,
+        "max_output": 128_000,
+        "supports_reasoning": True,
+        "knowledge_cutoff": datetime(2025, 8, 31, tzinfo=timezone.utc),
+    },
+    # GPT-5.2
+    "gpt-5.2": {
+        "context": 400_000,
+        "max_output": 128_000,
+        "price_input": 1.75,
+        "price_output": 14,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "knowledge_cutoff": datetime(2025, 8, 31, tzinfo=timezone.utc),
+    },
+    # GPT-5.2 Codex — agentic coding variant of 5.2
+    "gpt-5.2-codex": {
+        "context": 400_000,
+        "max_output": 128_000,
+        "price_input": 1.75,
+        "price_output": 14,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "knowledge_cutoff": datetime(2025, 8, 31, tzinfo=timezone.utc),
+    },
+    # GPT-5.1 Codex Max — multi-context-window compaction
+    "gpt-5.1-codex-max": {
+        "context": 400_000,
+        "max_output": 128_000,
+        "price_input": 1.25,
+        "price_output": 10,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "knowledge_cutoff": datetime(2024, 9, 30, tzinfo=timezone.utc),
+    },
+    # GPT-5.1 Codex — agentic coding variant of 5.1
+    "gpt-5.1-codex": {
+        "context": 400_000,
+        "max_output": 128_000,
+        "price_input": 1.25,
+        "price_output": 10,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "knowledge_cutoff": datetime(2024, 9, 30, tzinfo=timezone.utc),
+    },
+    # GPT-5.1 Codex Mini — smaller/cheaper coding variant
+    "gpt-5.1-codex-mini": {
+        "context": 400_000,
+        "max_output": 128_000,
+        "price_input": 0.25,
+        "price_output": 2,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "knowledge_cutoff": datetime(2024, 9, 30, tzinfo=timezone.utc),
+    },
+    # GPT-5.1
+    "gpt-5.1": {
+        "context": 400_000,
+        "max_output": 128_000,
+        "price_input": 1.25,
+        "price_output": 10,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "knowledge_cutoff": datetime(2024, 9, 30, tzinfo=timezone.utc),
+    },
+}
