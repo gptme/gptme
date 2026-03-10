@@ -769,10 +769,14 @@ class ToolUse:
         if self.args is not None and self.content is not None:
             # match positional args with kwargs
             if tool := get_tool(self.tool):
-                if self.args:
-                    args = [*self.args, self.content]
-                else:
-                    args = [self.content]
+                args = list(self.args) if self.args else []
+                # Only append content as a positional parameter if it fills
+                # exactly the last remaining parameter slot. This prevents
+                # content from being incorrectly mapped to unrelated parameters
+                # (e.g. read tool's start_line getting content meant as display text).
+                remaining = len(tool.parameters) - len(args)
+                if self.content and remaining == 1:
+                    args.append(self.content)
 
                 json_parameters: dict[str, str] = {}
                 for index, param in enumerate(tool.parameters):

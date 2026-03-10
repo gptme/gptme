@@ -72,6 +72,46 @@ def test_tool_use_output_patch(tool_format, args, content, kwargs, expected):
     assert result == expected
 
 
+def test_tool_use_read_content_not_mapped_to_start_line():
+    """Content should not leak into unrelated parameters like start_line.
+
+    Regression test for https://github.com/gptme/gptme/issues/1645
+    """
+    init_tools(allowlist=["read"])
+
+    # Content should NOT become start_line
+    result = ToolUse("read", ["hello.py"], "hello.py")._to_params()
+    assert result == {"path": "hello.py"}
+    assert "start_line" not in result
+
+    # Empty content should also not leak
+    result = ToolUse("read", ["hello.py"], "")._to_params()
+    assert result == {"path": "hello.py"}
+
+    # With explicit start_line and end_line in args, they should map correctly
+    result = ToolUse("read", ["hello.py", "5", "9"], "")._to_params()
+    assert result == {"path": "hello.py", "start_line": "5", "end_line": "9"}
+
+
+def test_tool_use_save_content_maps_correctly():
+    """Content should correctly map to the content parameter for save tool.
+
+    Ensures the fix for #1645 doesn't break tools where content IS the body.
+    """
+    init_tools(allowlist=["save"])
+
+    result = ToolUse("save", ["hello.py"], 'print("Hello")')._to_params()
+    assert result == {"path": "hello.py", "content": 'print("Hello")'}
+
+
+def test_tool_use_shell_content_maps_to_command():
+    """Content should map to command when it's the only parameter."""
+    init_tools(allowlist=["shell"])
+
+    result = ToolUse("shell", [], "ls -la")._to_params()
+    assert result == {"command": "ls -la"}
+
+
 @pytest.mark.parametrize(
     ("content", "expected_tool", "expected_json"),
     [

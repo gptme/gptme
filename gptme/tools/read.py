@@ -32,7 +32,7 @@ def examples(tool_format):
     return f"""
 > User: read hello.py
 > Assistant:
-{ToolUse("read", ["hello.py"], "hello.py").to_output(tool_format)}
+{ToolUse("read", ["hello.py"], "").to_output(tool_format)}
 > System: ```hello.py
 >    1\tprint("Hello world")
 >    2\tprint("Goodbye world")
