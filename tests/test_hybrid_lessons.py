@@ -131,6 +131,12 @@ def test_score_from_ts_arm_returns_none_without_ts_fields():
 
 
 @pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
+def test_score_from_judge_arm_returns_none_without_judge_fields():
+    """TS-only arms should not be misread as judge arms."""
+    assert _score_from_judge_arm({"alpha": 2.0, "beta": 1.0}) is None
+
+
+@pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
 def test_score_from_judge_arm_uses_false_positive_and_noop():
     """Judge score should count both false_positive and noop as non-helpful."""
     arm = {

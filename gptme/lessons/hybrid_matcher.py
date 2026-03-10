@@ -60,7 +60,7 @@ class HybridConfig:
 
 
 def _default_effectiveness_state_file() -> str:
-    """Return the default Thompson sampling state file path.
+    """Return the default effectiveness state file path.
 
     Priority: GPTME_LESSONS_TS_STATE env var > XDG_STATE_HOME > ~/.local/state fallback.
     Always returns a path string; callers should handle missing files gracefully.
@@ -132,7 +132,7 @@ def _load_effectiveness_scores(state_file: str) -> dict[str, float]:
     """
     path = Path(state_file).expanduser()
     if not path.exists():
-        logger.debug(f"TS state file not found: {path}")
+        logger.debug(f"Effectiveness state file not found: {path}")
         return {}
 
     try:
@@ -163,12 +163,12 @@ def _load_effectiveness_scores(state_file: str) -> dict[str, float]:
         logger.info(f"Loaded {len(posteriors)} lesson effectiveness scores from {path}")
         return posteriors
     except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Failed to load TS state: {e}")
+        logger.warning(f"Failed to load effectiveness state: {e}")
         return {}
 
 
 def _lesson_lookup_keys(lesson: Lesson) -> list[str]:
-    """Return candidate identifiers for matching lesson TS state."""
+    """Return candidate identifiers for matching lesson effectiveness state."""
     keys: list[str] = []
 
     if lesson.metadata.id:
@@ -207,7 +207,7 @@ class HybridLessonMatcher(LessonMatcher):
                 logger.warning(f"Failed to initialize embedder: {e}")
                 self.embedder = None
 
-        # Load Thompson sampling posteriors for effectiveness scoring
+        # Load lesson effectiveness scores (TS / judge / combined)
         state_file = (
             self.config.effectiveness_state_file or _default_effectiveness_state_file()
         )
@@ -369,11 +369,12 @@ class HybridLessonMatcher(LessonMatcher):
         return (similarity + 1.0) / 2.0
 
     def _effectiveness_score(self, lesson: Lesson) -> float:
-        """Effectiveness score from Thompson sampling posteriors (0.0-1.0).
+        """Effectiveness score from TS posteriors, LLM-judge verdicts, or their average (0.0-1.0).
 
-        If a Thompson sampling state file is configured, looks up the lesson's
-        posterior mean (alpha / (alpha + beta)). Falls back to neutral 0.5
-        if no data is available for this lesson.
+        If an effectiveness state file is configured, looks up the lesson's score.
+        Score may come from a TS posterior, an LLM-judge score, or the average of both
+        when the arm carries combined data. Falls back to neutral 0.5 if no data is
+        available for this lesson.
         """
         if not self._ts_posteriors:
             return 0.5
