@@ -1,0 +1,43 @@
+{
+  "nodes": {
+    "multiprocessing-logging": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1769632133,
+        "narHash": "sha256-TwLXcCtFu3x0E/7vh5sACMgF+wpBlH1RCst5LPjBokk=",
+        "owner": "jruere",
+        "repo": "multiprocessing-logging",
+        "rev": "ad3f36b5642764af9f55b864dc63deb4fb49306d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "jruere",
+        "repo": "multiprocessing-logging",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1773138416,
+        "narHash": "sha256-USrdPyud+NzK896sVc5PiRzUtSCFkaiSQ2CHrPm77Wg=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "729d191189def8a1ded60ae2962854bdf2e27ef3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "multiprocessing-logging": "multiprocessing-logging",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
