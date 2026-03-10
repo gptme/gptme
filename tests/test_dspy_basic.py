@@ -135,6 +135,21 @@ def test_metrics_creation():
     assert callable(composite_metric)
 
 
+def test_tool_metric_empty_messages():
+    """Test that tool_usage_metric returns 0.0 on empty messages instead of raising."""
+    tool_metric = create_tool_usage_metric()
+
+    # Simulate a prediction with empty messages (e.g. from API quota exhaustion)
+    pred = MagicMock()
+    pred.messages = []
+    gold = MagicMock()
+    gold.tools = ["save"]
+
+    # Should return 0.0 gracefully, not raise ValueError
+    score = tool_metric(gold, pred, None)
+    assert score == 0.0
+
+
 @patch("gptme.eval.dspy.prompt_optimizer.dspy")
 def test_prompt_optimizer_init(mock_dspy):
     """Test PromptOptimizer initialization."""

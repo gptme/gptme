@@ -513,11 +513,20 @@ class PromptOptimizer:
         module = GptmeModule(prompt, self.model)
 
         for example in val_data:
-            pred = module(
-                task_description=example.task_description,
-                context=example.context,
-                eval_spec=example.eval_spec,
-            )
+            try:
+                pred = module(
+                    task_description=example.task_description,
+                    context=example.context,
+                    eval_spec=example.eval_spec,
+                )
+            except Exception as e:
+                if is_quota_error(e):
+                    raise
+                logger.warning(f"Example evaluation failed, scoring as 0: {e}")
+                task_scores.append(0.0)
+                tool_scores.append(0.0)
+                judge_scores.append(0.0)
+                continue
 
             # Run individual metrics once - no duplication
             task_scores.append(task_metric(example, pred, None))

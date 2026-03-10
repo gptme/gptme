@@ -274,12 +274,13 @@ def create_tool_usage_metric() -> Callable[[Any, Any, Any | None], float]:
         - Whether tools were used efficiently
         - Whether tool usage followed best practices
         """
-        # Get messages from pred (added by GptmeModule) - must be present
+        # Get messages from pred (added by GptmeModule)
         messages: list[Message] = pred.messages
         if not messages:
-            raise ValueError(
+            logger.warning(
                 "No messages available for tool usage analysis - evaluation may have failed"
             )
+            return 0.0
 
         # Count tool calls
         tool_calls = []
