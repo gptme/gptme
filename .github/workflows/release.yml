@@ -1,35 +1,230 @@
 name: Release
 
-# Central release handler — every release (manual or scheduled) flows through here.
+# Unified release pipeline for gptme.
 #
 # Triggers:
-#   - release: created  — from manual `make release-*` (user credentials fire this event)
-#   - workflow_dispatch  — from scheduled-release.yml (GITHUB_TOKEN can't fire release:created)
+#   - schedule        — automated dev pre-releases (Mon + Thu at noon UTC)
+#   - workflow_dispatch — manual dev/patch/minor releases from GitHub UI
+#   - release: created — manual releases via `make release-*` (user credentials)
 #
-# Does: Build + upload Python packages, publish to PyPI, trigger build + tauri workflows.
+# For schedule/dispatch: runs preflight checks, bumps version, generates
+# changelog, creates GH release, then publishes packages and triggers builds.
 #
-# Step ordering: PyPI publish is last because it's non-idempotent (rejects duplicates).
-# All steps before it are safe to re-run (--clobber / fire-and-forget dispatches).
+# For release:created: skips preparation (already done by `make release-*`)
+# and goes straight to publishing packages and triggering builds.
+#
+# Scripts shared with `make release` / `make release-dev`:
+#   - scripts/bump_version.sh    — version bump, commit, tag
+#   - scripts/publish_release.sh — push, GH release
+#
+# Step ordering: PyPI publish is last because it's non-idempotent (rejects
+# duplicates). All steps before it are safe to re-run.
 
 on:
+  schedule:
+    # Twice weekly: Monday and Thursday at 12:00 UTC
+    - cron: '0 12 * * 1,4'
   release:
     types: [created]
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Release tag to publish (e.g., v0.31.1.dev20260310)'
+      release_type:
+        description: 'Release type'
         required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev      # Development pre-release (.devYYYYMMDD)
+          - patch    # Stable patch release (x.y.Z+1)
+          - minor    # Stable minor release (x.Y+1.0)
 
 permissions:
   contents: write
   actions: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  # ── Preflight ─────────────────────────────────────────────────────────
+  # Only for schedule/dispatch. Checks for new commits and green CI.
+  check:
+    name: Pre-flight checks
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes and CI status
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Find last stable release tag (no pre-release suffix)
+          LAST_STABLE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          # Find last tag of any kind (including dev tags on detached commits).
+          # NOTE: `git describe --tags` only finds tags reachable from HEAD, but dev
+          # release tags live on version-bump commits that aren't pushed to master.
+          LAST_TAG=$(git tag --sort=-version:refname | head -1 || echo "")
+
+          COMMITS_SINCE_TAG=0
+          if [ -n "$LAST_TAG" ]; then
+            # Use merge-base to handle dev tags on detached commits correctly.
+            # For dev tags (one commit off master), this finds the master commit
+            # they branched from. For stable tags (on master), it's the tag itself.
+            BASE=$(git merge-base "${LAST_TAG}" HEAD 2>/dev/null || echo "")
+            if [ -n "$BASE" ]; then
+              COMMITS_SINCE_TAG=$(git rev-list "${BASE}..HEAD" --count)
+            else
+              echo "WARNING: could not find merge-base for ${LAST_TAG} — commit count unavailable, treating as 0."
+            fi
+          fi
+
+          echo "last_stable=$LAST_STABLE" >> "$GITHUB_OUTPUT"
+          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
+          echo "commits=$COMMITS_SINCE_TAG" >> "$GITHUB_OUTPUT"
+          echo "Last stable: $LAST_STABLE | Last tag: $LAST_TAG | Commits since tag: $COMMITS_SINCE_TAG"
+
+          # Skip if no new commits
+          if [ "$COMMITS_SINCE_TAG" -eq 0 ]; then
+            echo "No new commits since $LAST_TAG — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Verify CI is green on HEAD
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "Checking CI status for $HEAD_SHA..."
+
+          # Check individual check runs (not suites) to avoid blocking on
+          # flaky/optional checks like external API tests.
+          # Exclude: API tests (external, flaky), and this workflow's own runs.
+          CONCLUSIONS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+            --paginate \
+            --jq '[.check_runs[] | select(
+              .app.slug == "github-actions" and
+              (.name | test("API tests|Release") | not)
+            )] | map(.conclusion) | unique | .[]' 2>/dev/null || echo "unknown")
+
+          echo "CI conclusions (excluding API tests): $CONCLUSIONS"
+
+          # If any required check has failed, skip
+          if echo "$CONCLUSIONS" | grep -qE "failure|action_required|timed_out"; then
+            echo "CI has failures on HEAD — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if echo "$CONCLUSIONS" | grep -qE "null|pending"; then
+            echo "CI is still running on HEAD — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Require explicit success — skip if unknown or empty (API failure)
+          if [ -z "$CONCLUSIONS" ] || [ "$CONCLUSIONS" = "unknown" ]; then
+            echo "CI status unavailable on HEAD — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! echo "$CONCLUSIONS" | grep -q "success"; then
+            echo "No successful CI checks found on HEAD — skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+
+  # ── Prepare ───────────────────────────────────────────────────────────
+  # Only for schedule/dispatch. Bumps version, generates changelog, creates
+  # the GitHub release via publish_release.sh.
+  prepare:
+    name: Create release
+    needs: check
+    if: needs.check.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - name: Bump version
+        id: version
+        run: |
+          TYPE="${{ github.event.inputs.release_type || 'dev' }}"
+          bash scripts/bump_version.sh --type "$TYPE"
+
+      - name: Generate changelog
+        run: |
+          # Download the shared changelog generator (same as `make dist/CHANGELOG.md`)
+          wget -q -O scripts/build_changelog.py \
+            https://raw.githubusercontent.com/ActivityWatch/activitywatch/master/scripts/build_changelog.py
+          chmod +x scripts/build_changelog.py
+          pip install -q requests
+
+          TAG="${{ steps.version.outputs.tag }}"
+          PRERELEASE="${{ steps.version.outputs.prerelease }}"
+
+          # Use appropriate range: dev→since last tag, stable→since last stable
+          if [ "$PRERELEASE" = "true" ]; then
+            SINCE="${{ steps.version.outputs.last_tag }}"
+          else
+            SINCE="${{ steps.version.outputs.last_stable }}"
+          fi
+
+          echo "Generating changelog: ${SINCE}...${TAG}"
+          python3 scripts/build_changelog.py \
+            --range "${SINCE}...${TAG}" \
+            --project-title gptme \
+            --org gptme \
+            --repo gptme \
+            --output /tmp/changelog.md \
+            --add-version-header
+
+          echo "--- Generated changelog preview ---"
+          head -50 /tmp/changelog.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash scripts/publish_release.sh --notes-file /tmp/changelog.md
+
+  # ── Publish ───────────────────────────────────────────────────────────
+  # Runs for ALL triggers:
+  #   - schedule/dispatch: after prepare creates the GH release
+  #   - release:created: directly (make release-* already created the release)
+  #
+  # Builds Python packages, uploads to GH release, triggers artifact builds,
+  # and publishes to PyPI (last, since it's non-idempotent).
   publish:
     name: Publish release
+    needs: [prepare]
+    # Run if: prepare succeeded (schedule/dispatch), OR release:created (manual)
+    if: >-
+      !cancelled() &&
+      (needs.prepare.result == 'success' || github.event_name == 'release')
     runs-on: ubuntu-latest
     env:
-      TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
+      TAG: ${{ needs.prepare.outputs.tag || github.event.release.tag_name || github.ref_name }}
 
     steps:
     - uses: actions/checkout@v6
