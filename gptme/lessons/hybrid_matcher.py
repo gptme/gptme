@@ -51,8 +51,10 @@ class HybridConfig:
     enable_effectiveness: bool = True
     enable_recency: bool = True
 
-    # Thompson sampling state file for effectiveness scoring.
-    # JSON file with {"arms": {"lesson_name.md": {"alpha": N, "beta": M}, ...}}
+    # Effectiveness state file path.
+    # JSON file with {"arms": {"lesson_name.md": <arm>, ...}} where each arm may contain
+    # Thompson-sampling fields ({"alpha": N, "beta": M}), LLM-judge verdict counters
+    # ({"helpful": N, "harmful": M, "false_positive": K, "noop": J}), or both.
     # If omitted, a conventional default path or env var override may be used.
     effectiveness_state_file: str | None = None
 
@@ -98,6 +100,9 @@ def _score_from_judge_arm(arm_data: dict[str, Any]) -> float | None:
     All non-helpful verdicts count against the lesson. This keeps the schema
     compatible with both the issue proposal (`false_positive`) and Bob's current
     workspace pipeline (`noop`).
+
+    Uses Laplace (add-1) smoothing so sparse verdicts don't produce extreme 0.0/1.0
+    scores. Mirrors the implicit Beta(1,1) prior in the TS path.
     """
     verdict_keys = ("helpful", "harmful", "false_positive", "noop")
     if not any(key in arm_data for key in verdict_keys):
@@ -108,10 +113,11 @@ def _score_from_judge_arm(arm_data: dict[str, Any]) -> float | None:
     false_positive = float(arm_data.get("false_positive", 0.0))
     noop = float(arm_data.get("noop", 0.0))
     total = helpful + harmful + false_positive + noop
-    return helpful / total if total > 0 else 0.5
+    # Add-1 smoothing: treat as Beta(1,1) prior — same implicit prior as TS arm.
+    return (helpful + 1.0) / (total + 2.0)
 
 
-def _load_ts_posteriors(state_file: str) -> dict[str, float]:
+def _load_effectiveness_scores(state_file: str) -> dict[str, float]:
     """Load lesson effectiveness scores from a bandit/judge state file.
 
     Supported arm schemas:
@@ -205,7 +211,7 @@ class HybridLessonMatcher(LessonMatcher):
         state_file = (
             self.config.effectiveness_state_file or _default_effectiveness_state_file()
         )
-        self._ts_posteriors = _load_ts_posteriors(state_file)
+        self._ts_posteriors = _load_effectiveness_scores(state_file)
 
     def match(
         self, lessons: list[Lesson], context: MatchContext, threshold: float = 0.0
