@@ -34,6 +34,8 @@ def check_api_get_items(ctx):
     get_items = results.get("get_items")
     if not isinstance(get_items, list) or len(get_items) != 2:
         return False
+    if not all(isinstance(item, dict) for item in get_items):
+        return False
     names = {item.get("name") for item in get_items}
     return names == {"apple", "banana"}
 
@@ -133,6 +135,7 @@ tests: list["EvalSpec"] = [
         "files": {
             "test_server.py": (
                 "import json\n"
+                "import socket\n"
                 "import subprocess\n"
                 "import sys\n"
                 "import time\n"
@@ -140,10 +143,17 @@ tests: list["EvalSpec"] = [
                 "import urllib.error\n"
                 "\n"
                 "\n"
+                "def find_free_port():\n"
+                "    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:\n"
+                "        s.bind(('', 0))\n"
+                "        return s.getsockname()[1]\n"
+                "\n"
+                "\n"
                 "def main():\n"
-                "    # Start server in background\n"
+                "    port = find_free_port()\n"
+                "    # Start server in background with the chosen port\n"
                 "    proc = subprocess.Popen(\n"
-                "        [sys.executable, 'server.py'],\n"
+                "        [sys.executable, 'server.py', str(port)],\n"
                 "        stdout=subprocess.PIPE,\n"
                 "        stderr=subprocess.PIPE,\n"
                 "    )\n"
@@ -152,7 +162,7 @@ tests: list["EvalSpec"] = [
                 "        # Wait for server to start\n"
                 "        for _ in range(20):\n"
                 "            try:\n"
-                "                urllib.request.urlopen('http://localhost:8642/items')\n"
+                "                urllib.request.urlopen(f'http://localhost:{port}/items')\n"
                 "                break\n"
                 "            except (urllib.error.URLError, ConnectionRefusedError):\n"
                 "                time.sleep(0.25)\n"
@@ -161,13 +171,13 @@ tests: list["EvalSpec"] = [
                 "            return\n"
                 "\n"
                 "        # Test GET /items (should return seeded items)\n"
-                "        resp = urllib.request.urlopen('http://localhost:8642/items')\n"
+                "        resp = urllib.request.urlopen(f'http://localhost:{port}/items')\n"
                 "        results['get_items'] = json.loads(resp.read())\n"
                 "\n"
                 "        # Test POST /items\n"
                 "        data = json.dumps({'name': 'cherry', 'price': 3.0}).encode()\n"
                 "        req = urllib.request.Request(\n"
-                "            'http://localhost:8642/items',\n"
+                "            f'http://localhost:{port}/items',\n"
                 "            data=data,\n"
                 "            headers={'Content-Type': 'application/json'},\n"
                 "            method='POST',\n"
@@ -176,7 +186,7 @@ tests: list["EvalSpec"] = [
                 "        results['post_item'] = json.loads(resp.read())\n"
                 "\n"
                 "        # Test GET /items again (should include new item)\n"
-                "        resp = urllib.request.urlopen('http://localhost:8642/items')\n"
+                "        resp = urllib.request.urlopen(f'http://localhost:{port}/items')\n"
                 "        results['get_after_post'] = json.loads(resp.read())\n"
                 "\n"
                 "        print(json.dumps({'results': results}))\n"
@@ -193,7 +203,8 @@ tests: list["EvalSpec"] = [
         "prompt": (
             "Build a simple REST API server in server.py using only the Python standard "
             "library (http.server). The server should:\n"
-            "1. Listen on port 8642\n"
+            "1. Read the port from the first command-line argument "
+            "(e.g., `python server.py 8080`); default to 8642 if not provided\n"
             "2. Support GET /items — returns a JSON array of items\n"
             "3. Support POST /items — accepts JSON {name, price}, adds to the list, "
             "returns the new item as JSON\n"
