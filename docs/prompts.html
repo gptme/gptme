@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f97140c84a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f73521304a0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1464,7 +1464,7 @@ Use a code block with the language tag: <span class="sb">`read &lt;path&gt;`</sp
 <span class="k">&gt; </span><span class="ge">User: read hello.py</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```read</span><span class="w"> </span>hello.py
-<span class="s">hello.py</span>
+
 <span class="sb">```</span>
 
 <span class="gu">## restart</span>
@@ -1537,7 +1537,9 @@ To write to a file, use a code block with the language tag: <span class="sb">`sa
 
 To take a screenshot and view it immediately:
 
-ToolUse(tool=&#39;ipython&#39;, args=[], content=&#39;view_image(screenshot())&#39;, kwargs=None, call_id=None, start=None, _format=&#39;markdown&#39;)
+<span class="sb">```ipython</span>
+<span class="n">view_image</span><span class="p">(</span><span class="n">screenshot</span><span class="p">())</span>
+<span class="sb">```</span>
 
 This will take a screenshot, save it to a file, and include the image in the chat.
 
@@ -2190,7 +2192,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11974</p>
+<p>Tokens: 11951</p>
 </dd></dl>
 
 <dl class="py function">
