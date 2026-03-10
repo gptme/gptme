@@ -534,7 +534,7 @@ new-session gptme --non-interactive "fix lint 2"''',
 > Assistant: Of course! Let's inspect the pane content:
 {ToolUse("tmux", [], "inspect-pane gptme_1").to_output(tool_format)}
 > System:
-{ToolUse("output", [], "Server is running on localhost:5600").to_output(tool_format)}
+{md_codeblock("output", "Server is running on localhost:5600")}
 
 > User: Stop the dev server
 > Assistant: I'll send 'Ctrl+C' to the pane to stop the server:
@@ -547,7 +547,7 @@ new-session gptme --non-interactive "fix lint 2"''',
 > Assistant: Sure! Let's start the top command in a tmux session:
 {ToolUse("tmux", [], "new-session top").to_output(tool_format)}
 > System: Running `top` in session gptme_1.
-{ToolUse("output", [], "(output from top shown here)").to_output(tool_format)}
+{md_codeblock("output", "(output from top shown here)")}
 > Assistant: The load is...
 
 #### Send keys to a session
@@ -556,7 +556,7 @@ new-session gptme --non-interactive "fix lint 2"''',
 > Assistant: Let's start an ipython session:
 {ToolUse("tmux", [], "new-session ipython").to_output(tool_format)}
 > System: Running `ipython` in session 2.
-{ToolUse("output", [], "(output from ipython shown here)").to_output(tool_format)}
+{md_codeblock("output", "(output from ipython shown here)")}
 > User: Run 'print("Hello, world!")' in the ipython session
 {ToolUse("tmux", [], f"send-keys 2 {escaped_hello_world} Enter").to_output(tool_format)}
 

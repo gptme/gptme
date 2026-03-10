@@ -400,21 +400,15 @@ instructions_format: dict[str, str] = {}
 
 
 def examples(tool_format):
+    ls_output = "file1.txt\nfile2.txt"
+    ls_files_output = "README.md\nmain.py"
+    vue_output = "> npx\n> create-vue\n\nVue.js - The Progressive JavaScript Framework\n\nScaffolding project in ./fancy-project..."
     return f"""
 > User: list the current directory
 > Assistant: To list the files in the current directory, use `ls`:
 {ToolUse("shell", [], "ls").to_output(tool_format)}
 > System: Ran command: `ls`
-{
-        ToolUse(
-            "shell",
-            [],
-            '''
-file1.txt
-file2.txt
-'''.strip(),
-        ).to_output(tool_format)
-    }
+{md_codeblock("stdout", ls_output)}
 
 #### The assistant can learn context by exploring the filesystem
 
@@ -422,24 +416,15 @@ file2.txt
 > Assistant: Lets start by checking the files
 {ToolUse("shell", [], "git ls-files").to_output(tool_format)}
 > System:
-{
-        ToolUse(
-            "stdout",
-            [],
-            '''
-README.md
-main.py
-'''.strip(),
-        ).to_output(tool_format)
-    }
+{md_codeblock("stdout", ls_files_output)}
 > Assistant: Now lets check the README
 {ToolUse("shell", [], "cat README.md").to_output(tool_format)}
 > System:
-{ToolUse("stdout", [], "(contents of README.md)").to_output(tool_format)}
+{md_codeblock("stdout", "(contents of README.md)")}
 > Assistant: Now we check main.py
 {ToolUse("shell", [], "cat main.py").to_output(tool_format)}
 > System:
-{ToolUse("stdout", [], "(contents of main.py)").to_output(tool_format)}
+{md_codeblock("stdout", "(contents of main.py)")}
 > Assistant: The project is...
 
 
@@ -455,20 +440,7 @@ main.py
         ).to_output(tool_format)
     }
 > System:
-{
-        ToolUse(
-            "stdout",
-            [],
-            '''
-> npx
-> create-vue
-
-Vue.js - The Progressive JavaScript Framework
-
-Scaffolding project in ./fancy-project...
-'''.strip(),
-        ).to_output(tool_format)
-    }
+{md_codeblock("stdout", vue_output)}
 
 #### Proper quoting for complex content
 

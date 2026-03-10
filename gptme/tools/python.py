@@ -295,7 +295,7 @@ def examples(tool_format):
 > Assistant:
 {ToolUse("ipython", [], "2 + 2").to_output(tool_format)}
 > System: Executed code block.
-{ToolUse("result", [], "4").to_output(tool_format)}
+{md_codeblock("result", "4")}
 
 #### Write a function and call it
 
@@ -315,7 +315,7 @@ fib(10)
         ).to_output(tool_format)
     }
 > System: Executed code block.
-{ToolUse("result", [], "55").to_output(tool_format)}
+{md_codeblock("result", "55")}
 """.strip()
 
 
