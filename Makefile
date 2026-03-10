@@ -34,7 +34,7 @@ build-docker-full: ## Build full Docker images with Rust and Playwright
 	docker build . -t gptme-eval:latest -f scripts/Dockerfile.eval --build-arg RUST=yes --build-arg PLAYWRIGHT=no
 
 build-server-exe: ## Build gptme-server executable with PyInstaller
-	./scripts/build_server_executable.sh
+	bash ./scripts/build_server_executable.sh
 
 test: ## Run tests
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests
