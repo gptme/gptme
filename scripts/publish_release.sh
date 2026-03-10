@@ -135,15 +135,26 @@ else
     echo "  [dry-run] gh release create ${TAG} ..."
 fi
 
-# --- Step 3: PyPI publish (optional) ---
+# --- Step 3: Build and upload Python packages ---
+
+echo "Building Python packages..."
+if [ "$DRY_RUN" = "false" ]; then
+    poetry build
+    echo "Uploading Python packages to release..."
+    gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber
+else
+    echo "  [dry-run] poetry build"
+    echo "  [dry-run] gh release upload ${TAG} dist/*.whl dist/*.tar.gz"
+fi
+
+# --- Step 4: PyPI publish (optional) ---
 
 if [ "$PUBLISH_PYPI" = "true" ]; then
-    echo "Building and publishing to PyPI..."
+    echo "Publishing to PyPI..."
     if [ "$DRY_RUN" = "false" ]; then
-        poetry build
         poetry publish --username=__token__ --password="${PYPI_TOKEN:?PYPI_TOKEN not set}"
     else
-        echo "  [dry-run] poetry build && poetry publish"
+        echo "  [dry-run] poetry publish"
     fi
 fi
 

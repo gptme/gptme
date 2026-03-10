@@ -14,6 +14,11 @@ on:
       - 'tauri/**'
       - 'webui/**'
       - '.github/workflows/tauri.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build for (e.g., v0.31.1.dev20260310)'
+        required: false
 
 jobs:
   lint:
@@ -205,7 +210,7 @@ jobs:
 
   build-sidecar:
     name: Build sidecar (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
     strategy:
       fail-fast: false
       matrix:
@@ -214,6 +219,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -259,7 +266,7 @@ jobs:
 
   release:
     name: Release (${{ matrix.platform }})
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
     needs: [lint, test, build, build-sidecar]
     strategy:
       fail-fast: false
@@ -278,6 +285,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
@@ -384,9 +393,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: 'gptme ${{ github.ref_name }}'
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: 'gptme ${{ inputs.tag || github.ref_name }}'
           releaseBody: 'Desktop app release. See the assets to download and install.'
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ contains(inputs.tag || github.ref_name, '.dev') }}
           args: ${{ matrix.args }}

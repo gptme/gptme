@@ -7,18 +7,25 @@ on:
       - 'v*'
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build and upload artifacts for (e.g., v0.31.1.dev20260310)'
+        required: false
 
 jobs:
   build-docker:
     name: Docker
     runs-on: ubuntu-latest
     env:
-      SHOULD_PUSH: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master' }}
+      SHOULD_PUSH: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.tag != '' || github.ref == 'refs/heads/master' }}
     permissions:
       packages: write
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ inputs.tag || github.ref }}
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -37,10 +44,12 @@ jobs:
       run: |
         echo "OWNER_LC=${OWNER,,}" >>${GITHUB_ENV}
         # Sanitize the ref name to be used as a Docker tag
-        SANITIZED_REF_NAME=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')
+        REF_NAME="${TAG_INPUT:-${GITHUB_REF_NAME}}"
+        SANITIZED_REF_NAME=$(echo "${REF_NAME}" | tr '/' '-')
         echo "SANITIZED_REF_NAME=${SANITIZED_REF_NAME}" >>${GITHUB_ENV}
       env:
         OWNER: '${{ github.repository_owner }}'
+        TAG_INPUT: ${{ inputs.tag }}
 
     # First build the base image locally (needed for subsequent builds)
     - name: Build Docker image (base)
@@ -123,6 +132,8 @@ jobs:
   build-pyinstaller:
     name: PyInstaller binaries on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -131,6 +142,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ inputs.tag || github.ref }}
 
     - name: Install poetry
       run: pipx install poetry
@@ -177,3 +190,18 @@ jobs:
         path: |
           dist/gptme-server*
         retention-days: 7
+
+    - name: Upload to GitHub release
+      if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        TAG="${{ inputs.tag || github.ref_name }}"
+        OS_SUFFIX="${{ runner.os }}-${{ runner.arch }}"
+        # Rename with OS suffix for the release asset
+        for f in dist/gptme-server*; do
+          EXT=""
+          [[ "$f" == *.exe ]] && EXT=".exe"
+          cp "$f" "dist/gptme-server-${OS_SUFFIX}${EXT}"
+        done
+        gh release upload "$TAG" dist/gptme-server-${OS_SUFFIX}* --clobber

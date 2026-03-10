@@ -29,7 +29,7 @@ on:
 
 permissions:
   contents: write
-  actions: read
+  actions: write
 
 concurrency:
   group: scheduled-release
@@ -189,3 +189,13 @@ jobs:
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: |
           bash scripts/publish_release.sh --publish-pypi --notes-file /tmp/changelog.md
+
+      - name: Trigger artifact builds
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          echo "Triggering Build workflow for ${TAG}..."
+          gh workflow run build.yml -f tag="${TAG}"
+          echo "Triggering Tauri workflow for ${TAG}..."
+          gh workflow run tauri.yml -f tag="${TAG}"
