@@ -360,6 +360,8 @@ class ToolSpec:
         return "\n\n".join(instructions)
 
     def get_tool_prompt(self, examples: bool, tool_format: ToolFormat):
+        if tool_format == "xml":
+            return self._get_tool_prompt_xml(examples, tool_format)
         prompt = ""
         prompt += f"\n\n## {self.name}"
         prompt += f"\n\n**Description:** {self.desc}" if self.desc else ""
@@ -373,6 +375,23 @@ class ToolSpec:
         ):
             prompt += f"\n\n### Examples\n\n{examples_content}"
         return prompt
+
+    def _get_tool_prompt_xml(self, examples: bool, tool_format: ToolFormat):
+        """Generate tool prompt with XML-sectioned structure."""
+        parts = [f'\n<tool name="{self.name}">']
+        if self.desc:
+            parts.append(f"<description>{self.desc}</description>")
+        instructions = self.get_instructions(tool_format)
+        if instructions:
+            parts.append(f"<instructions>\n{instructions}\n</instructions>")
+        if examples and (
+            examples_content := self.get_examples(
+                tool_format, quote=True, strip_system=True
+            ).strip()
+        ):
+            parts.append(f"<examples>\n{examples_content}\n</examples>")
+        parts.append("</tool>")
+        return "\n".join(parts)
 
     def get_examples(
         self,

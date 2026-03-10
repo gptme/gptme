@@ -480,11 +480,16 @@ def prompt_tools(
             )
             examples = False
 
-    prompt = "# Tools Overview"
-    for tool in tools:
-        prompt += tool.get_tool_prompt(examples, tool_format)
-
-    prompt += "\n\n*End of Tools List.*"
+    if tool_format == "xml":
+        prompt = "<tools>"
+        for tool in tools:
+            prompt += tool.get_tool_prompt(examples, tool_format)
+        prompt += "\n</tools>"
+    else:
+        prompt = "# Tools Overview"
+        for tool in tools:
+            prompt += tool.get_tool_prompt(examples, tool_format)
+        prompt += "\n\n*End of Tools List.*"
 
     yield Message("system", prompt.strip() + "\n\n")
 

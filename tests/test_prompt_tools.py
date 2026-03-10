@@ -27,17 +27,31 @@ from gptme.tools import ToolFormat, clear_tools, init_tools
             "xml",
             True,
             [
-                "Executes shell commands",
+                "<tools>",
+                '<tool name="shell">',
+                "<description>Executes shell commands",
+                "<instructions>",
+                "<examples>",
                 "<tool-use>\n<shell>\nls\n</shell>\n</tool-use>",
-                "### Examples",
+                "</tool>",
+                "</tools>",
             ],
-            [],
+            ["# Tools Overview", "## shell", "### Examples"],
         ),
         (
             "xml",
             False,
-            ["Executes shell commands"],
-            ["<tool-use>\n<shell>\nls\n</shell>\n</tool-use>", "### Examples"],
+            [
+                "<tools>",
+                '<tool name="shell">',
+                "<description>Executes shell commands",
+                "</tools>",
+            ],
+            [
+                "<tool-use>\n<shell>\nls\n</shell>\n</tool-use>",
+                "<examples>",
+                "# Tools Overview",
+            ],
         ),
         (
             "tool",
@@ -112,8 +126,8 @@ def test_prompt_tools_reasoning_model_keeps_examples_xml():
 
     # XML format: examples are kept even for reasoning models
     prompt = next(prompt_tools(tools, "xml", examples=True, model="openai/o3")).content
-    assert "### Examples" in prompt
-    assert "Executes shell commands" in prompt
+    assert "<examples>" in prompt
+    assert "<description>Executes shell commands" in prompt
 
 
 def test_prompt_tools_non_reasoning_model_includes_examples():
