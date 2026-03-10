@@ -75,13 +75,54 @@ def _default_effectiveness_state_file() -> str:
     )
 
 
+def _score_from_ts_arm(arm_data: dict[str, Any]) -> float | None:
+    """Return posterior mean for a Thompson-sampling arm, if present."""
+    if "alpha" not in arm_data and "beta" not in arm_data:
+        return None
+
+    alpha = float(arm_data.get("alpha", 1.0))
+    beta = float(arm_data.get("beta", 1.0))
+    total = alpha + beta
+    return alpha / total if total > 0 else 0.5
+
+
+def _score_from_judge_arm(arm_data: dict[str, Any]) -> float | None:
+    """Return LLM-judge effectiveness score for a lesson arm, if present.
+
+    Supported verdict counters:
+    - helpful
+    - harmful
+    - false_positive
+    - noop
+
+    All non-helpful verdicts count against the lesson. This keeps the schema
+    compatible with both the issue proposal (`false_positive`) and Bob's current
+    workspace pipeline (`noop`).
+    """
+    verdict_keys = ("helpful", "harmful", "false_positive", "noop")
+    if not any(key in arm_data for key in verdict_keys):
+        return None
+
+    helpful = float(arm_data.get("helpful", 0.0))
+    harmful = float(arm_data.get("harmful", 0.0))
+    false_positive = float(arm_data.get("false_positive", 0.0))
+    noop = float(arm_data.get("noop", 0.0))
+    total = helpful + harmful + false_positive + noop
+    return helpful / total if total > 0 else 0.5
+
+
 def _load_ts_posteriors(state_file: str) -> dict[str, float]:
-    """Load Thompson sampling posterior means from a bandit state file.
+    """Load lesson effectiveness scores from a bandit/judge state file.
 
-    The state file is a JSON file with the schema:
-        {"arms": {"lesson_name.md": {"alpha": N, "beta": M}, ...}}
+    Supported arm schemas:
+    - Thompson sampling: {"alpha": N, "beta": M}
+    - LLM judge counts: {"helpful": N, "harmful": M, "false_positive": K}
+    - Combined: both schemas present in the same arm
 
-    Returns a dict mapping lesson identifiers to posterior means (alpha / (alpha + beta)).
+    When both TS and judge signals are present, the returned score is the simple
+    average of the two. This preserves backward compatibility while allowing the
+    higher-fidelity per-lesson judge signal proposed in #1574 to complement the
+    existing session-level TS signal from #1573.
     """
     path = Path(state_file).expanduser()
     if not path.exists():
@@ -94,13 +135,26 @@ def _load_ts_posteriors(state_file: str) -> dict[str, float]:
         posteriors: dict[str, float] = {}
         for arm_name, arm_data in arms.items():
             try:
-                alpha = float(arm_data.get("alpha", 1.0))
-                beta = float(arm_data.get("beta", 1.0))
-                total = alpha + beta
-                posteriors[arm_name] = alpha / total if total > 0 else 0.5
+                if not isinstance(arm_data, dict):
+                    raise TypeError(
+                        f"arm data must be object, got {type(arm_data).__name__}"
+                    )
+
+                component_scores = [
+                    score
+                    for score in (
+                        _score_from_ts_arm(arm_data),
+                        _score_from_judge_arm(arm_data),
+                    )
+                    if score is not None
+                ]
+                if not component_scores:
+                    continue
+
+                posteriors[arm_name] = sum(component_scores) / len(component_scores)
             except (AttributeError, TypeError, ValueError) as e:
                 logger.warning(f"Skipping malformed arm '{arm_name}': {e}")
-        logger.info(f"Loaded {len(posteriors)} TS posteriors from {path}")
+        logger.info(f"Loaded {len(posteriors)} lesson effectiveness scores from {path}")
         return posteriors
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load TS state: {e}")
