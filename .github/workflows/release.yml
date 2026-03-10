@@ -7,6 +7,9 @@ name: Release
 #   - workflow_dispatch  — from scheduled-release.yml (GITHUB_TOKEN can't fire release:created)
 #
 # Does: Build + upload Python packages, publish to PyPI, trigger build + tauri workflows.
+#
+# Step ordering: PyPI publish is last because it's non-idempotent (rejects duplicates).
+# All steps before it are safe to re-run (--clobber / fire-and-forget dispatches).
 
 on:
   release:
@@ -25,11 +28,13 @@ jobs:
   publish:
     name: Publish release
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
 
     steps:
     - uses: actions/checkout@v6
       with:
-        ref: ${{ inputs.tag || github.ref_name }}
+        ref: ${{ env.TAG }}
 
     - name: Set up Python
       uses: actions/setup-python@v6
@@ -49,21 +54,18 @@ jobs:
     - name: Upload packages to GitHub release
       env:
         GH_TOKEN: ${{ github.token }}
-      run: |
-        TAG="${{ inputs.tag || github.ref_name }}"
-        gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber
-
-    - name: Publish to PyPI
-      env:
-        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: poetry publish --username=__token__ --password=$PYPI_TOKEN
+      run: gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber
 
     - name: Trigger artifact builds
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        TAG="${{ inputs.tag || github.ref_name }}"
         echo "Triggering Build workflow for ${TAG}..."
         gh workflow run build.yml -f tag="${TAG}"
         echo "Triggering Tauri workflow for ${TAG}..."
         gh workflow run tauri.yml -f tag="${TAG}"
+
+    - name: Publish to PyPI
+      env:
+        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      run: poetry publish --username=__token__ --password=$PYPI_TOKEN
