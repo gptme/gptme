@@ -360,8 +360,8 @@ def check_implement_class_tests_pass(ctx):
 
 
 def check_implement_class_no_failures(ctx):
-    """No test failures."""
-    return "FAILED" not in ctx.stdout
+    """No test failures and tests actually ran."""
+    return "FAILED" not in ctx.stdout and "passed" in ctx.stdout
 
 
 # --- optimize-performance checks ---
@@ -378,13 +378,11 @@ def check_optimize_perf_output(ctx):
 
 
 def check_optimize_perf_fast(ctx):
-    """Should complete in under 2 seconds (memoized fib(35) is instant)."""
-    # The run command includes timing; if exit_code is 0, the timeout didn't trigger
-    return ctx.exit_code == 0
-
-
-def check_optimize_perf_exit(ctx):
-    return ctx.exit_code == 0
+    """Should complete in under 2 seconds (checked by the script's own timing logic)."""
+    # The script itself raises SystemExit('Too slow!') if elapsed > 2s,
+    # and the run command wraps with `timeout 10` as a hard backstop.
+    # Check both: exit_code 0 AND no 'Too slow' message.
+    return ctx.exit_code == 0 and "Too slow" not in ctx.stdout
 
 
 tests: list["EvalSpec"] = [
@@ -917,7 +915,6 @@ tests: list["EvalSpec"] = [
             "file exists": check_optimize_perf_file,
             "correct output": check_optimize_perf_output,
             "runs fast": check_optimize_perf_fast,
-            "clean exit": check_optimize_perf_exit,
         },
     },
 ]
