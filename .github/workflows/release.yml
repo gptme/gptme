@@ -108,7 +108,7 @@ jobs:
             --paginate \
             --jq '[.check_runs[] | select(
               .app.slug == "github-actions" and
-              (.name | test("API tests|Release") | not)
+              (.name | test("API tests|^Pre-flight checks$|^Create release$|^Publish release$") | not)
             )] | map(.conclusion) | unique | .[]' 2>/dev/null || echo "unknown")
 
           echo "CI conclusions (excluding API tests): $CONCLUSIONS"
@@ -175,8 +175,9 @@ jobs:
       - name: Generate changelog
         run: |
           # Download the shared changelog generator (same as `make dist/CHANGELOG.md`)
+          # Pinned to specific commit to avoid supply-chain risk from mutable master branch
           wget -q -O scripts/build_changelog.py \
-            https://raw.githubusercontent.com/ActivityWatch/activitywatch/master/scripts/build_changelog.py
+            https://raw.githubusercontent.com/ActivityWatch/activitywatch/ade74fd7636abb2b675591682b4f753e289deb72/scripts/build_changelog.py
           chmod +x scripts/build_changelog.py
           pip install -q requests
 

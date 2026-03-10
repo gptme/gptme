@@ -155,7 +155,7 @@ release-minor:  ## Create a stable minor release (x.Y+1.0)
 	@./scripts/publish_release.sh --notes-file dist/CHANGELOG.md
 
 ./scripts/build_changelog.py:
-	wget -O $@ https://raw.githubusercontent.com/ActivityWatch/activitywatch/master/scripts/build_changelog.py
+	wget -O $@ https://raw.githubusercontent.com/ActivityWatch/activitywatch/ade74fd7636abb2b675591682b4f753e289deb72/scripts/build_changelog.py
 	chmod +x $@
 
 .PHONY: dist/CHANGELOG.md
