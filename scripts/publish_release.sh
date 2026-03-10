@@ -139,6 +139,7 @@ fi
 
 echo "Building Python packages..."
 if [ "$DRY_RUN" = "false" ]; then
+    rm -f dist/*.whl dist/*.tar.gz
     poetry build
     echo "Uploading Python packages to release..."
     gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber

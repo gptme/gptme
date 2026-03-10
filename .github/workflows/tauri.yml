@@ -27,6 +27,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -73,6 +75,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install Linux dependencies
         run: |
@@ -123,6 +127,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
@@ -397,5 +403,5 @@ jobs:
           releaseName: 'gptme ${{ inputs.tag || github.ref_name }}'
           releaseBody: 'Desktop app release. See the assets to download and install.'
           releaseDraft: true
-          prerelease: ${{ contains(inputs.tag || github.ref_name, '.dev') }}
+          prerelease: ${{ contains(inputs.tag || github.ref_name, '.dev') || contains(inputs.tag || github.ref_name, '.a') || contains(inputs.tag || github.ref_name, '.b') || contains(inputs.tag || github.ref_name, '.rc') }}
           args: ${{ matrix.args }}
