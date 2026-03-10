@@ -275,7 +275,7 @@ def create_tool_usage_metric() -> Callable[[Any, Any, Any | None], float]:
         - Whether tool usage followed best practices
         """
         # Get messages from pred (added by GptmeModule)
-        messages: list[Message] = pred.messages
+        messages: list[Message] = getattr(pred, "messages", None) or []
         if not messages:
             logger.warning(
                 "No messages available for tool usage analysis - evaluation may have failed"
