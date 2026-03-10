@@ -325,11 +325,11 @@ User: find out which is the latest ActivityWatch version from superuserlabs.org
 Assistant: Let's browse the site.
 {ToolUse("ipython", [], "read_url('https://superuserlabs.org/')").to_output(tool_format)}
 System:
-{ToolUse("https://superuserlabs.org/", [], "... [ActivityWatch](https://activitywatch.net/) ...".strip()).to_output()}
+{ToolUse("https://superuserlabs.org/", [], "... [ActivityWatch](https://activitywatch.net/) ...".strip()).to_output(tool_format)}
 Assistant: Couldn't find the answer on the page. Following link to the ActivityWatch website.
 {ToolUse("ipython", [], "read_url('https://activitywatch.net/')").to_output(tool_format)}
 System:
-{ToolUse("https://activitywatch.net/", [], "... Download latest version v0.12.2 ...".strip()).to_output()}
+{ToolUse("https://activitywatch.net/", [], "... Download latest version v0.12.2 ...".strip()).to_output(tool_format)}
 Assistant: The latest version of ActivityWatch is v0.12.2
 
 ### Searching
@@ -337,7 +337,7 @@ User: who is the founder of ActivityWatch?
 Assistant: Let's search for that.
 {ToolUse("ipython", [], "search('ActivityWatch founder')").to_output(tool_format)}
 System:
-{ToolUse("result", [], "ActivityWatch was founded by Erik Bjäreholt in 2016...").to_output()}
+{ToolUse("result", [], "ActivityWatch was founded by Erik Bjäreholt in 2016...").to_output(tool_format)}
 Assistant: The founder of ActivityWatch is Erik Bjäreholt.
 
 ### Searching for latest information
@@ -345,7 +345,7 @@ User: what are the latest developments in AI?
 Assistant: Let me search for that.
 {ToolUse("ipython", [], "search('latest developments in AI')").to_output(tool_format)}
 System:
-{ToolUse("result", [], "Based on recent developments, AI has seen significant advances...").to_output()}
+{ToolUse("result", [], "Based on recent developments, AI has seen significant advances...").to_output(tool_format)}
 Assistant: Based on the search results, here are the latest AI developments...
 
 ### Take screenshot of page
@@ -353,25 +353,25 @@ User: take a screenshot of the ActivityWatch website
 Assistant: Certainly! I'll use the browser tool to screenshot the ActivityWatch website.
 {ToolUse("ipython", [], "screenshot_url('https://activitywatch.net')").to_output(tool_format)}
 System:
-{ToolUse("result", [], "Screenshot saved to screenshot.png").to_output()}
+{ToolUse("result", [], "Screenshot saved to screenshot.png").to_output(tool_format)}
 
 ### Read URL and check browser logs
 User: read this page and check if there are any console errors
 Assistant: I'll read the page first and then check the browser logs.
 {ToolUse("ipython", [], "read_url('https://example.com')").to_output(tool_format)}
 System:
-{ToolUse("https://example.com", [], "This domain is for use in illustrative examples...").to_output()}
+{ToolUse("https://example.com", [], "This domain is for use in illustrative examples...").to_output(tool_format)}
 Assistant: Now let me check the browser console logs:
 {ToolUse("ipython", [], "read_logs()").to_output(tool_format)}
 System:
-{ToolUse("result", [], "No logs or errors captured.").to_output()}
+{ToolUse("result", [], "No logs or errors captured.").to_output(tool_format)}
 
 ### Read PDF document
 User: read this research paper from arxiv
 Assistant: I'll read the PDF and extract its text content.
 {ToolUse("ipython", [], "read_url('https://arxiv.org/pdf/2410.12361v2')").to_output(tool_format)}
 System:
-{ToolUse("result", [], pdf_example_result).to_output()}
+{ToolUse("result", [], pdf_example_result).to_output(tool_format)}
 Assistant: I've extracted the text from the PDF. The paper discusses [summary of key points]...
 """.strip()
 

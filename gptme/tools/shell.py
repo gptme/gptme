@@ -413,7 +413,7 @@ def examples(tool_format):
 file1.txt
 file2.txt
 '''.strip(),
-        ).to_output()
+        ).to_output(tool_format)
     }
 
 #### The assistant can learn context by exploring the filesystem
@@ -430,16 +430,16 @@ file2.txt
 README.md
 main.py
 '''.strip(),
-        ).to_output()
+        ).to_output(tool_format)
     }
 > Assistant: Now lets check the README
 {ToolUse("shell", [], "cat README.md").to_output(tool_format)}
 > System:
-{ToolUse("stdout", [], "(contents of README.md)").to_output()}
+{ToolUse("stdout", [], "(contents of README.md)").to_output(tool_format)}
 > Assistant: Now we check main.py
 {ToolUse("shell", [], "cat main.py").to_output(tool_format)}
 > System:
-{ToolUse("stdout", [], "(contents of main.py)").to_output()}
+{ToolUse("stdout", [], "(contents of main.py)").to_output(tool_format)}
 > Assistant: The project is...
 
 
@@ -452,7 +452,7 @@ main.py
             "shell",
             [],
             "npm init vue@latest fancy-project --yes -- --typescript --pinia",
-        ).to_output()
+        ).to_output(tool_format)
     }
 > System:
 {
@@ -467,7 +467,7 @@ Vue.js - The Progressive JavaScript Framework
 
 Scaffolding project in ./fancy-project...
 '''.strip(),
-        ).to_output()
+        ).to_output(tool_format)
     }
 
 #### Proper quoting for complex content
