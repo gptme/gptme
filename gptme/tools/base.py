@@ -777,11 +777,10 @@ class ToolUse:
                 # tools like save/append/shell where the body IS required.
                 next_idx = len(args)
                 if (
-                    self.content
+                    self.content is not None
                     and next_idx < len(tool.parameters)
                     and tool.parameters[next_idx].required
                 ):
-                    args.append(self.content)
 
                 json_parameters: dict[str, str] = {}
                 for index, param in enumerate(tool.parameters):
