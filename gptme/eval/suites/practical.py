@@ -7,6 +7,7 @@ Tests capabilities beyond basic file I/O and debugging:
 """
 
 import json
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -79,9 +80,9 @@ def check_parse_log_output(ctx):
     output = ctx.stdout.lower()
     words = output.split()
     # Log has: 3 ERROR, 4 WARNING, 5 INFO = 12 total lines
-    # Error count should be 3
-    has_error_count = "3" in words
-    # Most common endpoint: /api/users appears 4 times
+    # Error count should be 3 — match specifically to avoid false positives from other stats
+    has_error_count = bool(re.search(r"errors?\s*:?\s*3\b", output))
+    # Most common endpoint: /api/users appears 5 times
     has_users_endpoint = "/api/users" in output
     # Total requests (lines with endpoints): 12
     has_total = "12" in words
