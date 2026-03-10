@@ -53,12 +53,20 @@ jobs:
         run: |
           # Find last stable release tag (no pre-release suffix)
           LAST_STABLE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
-          # Find last tag of any kind
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # Find last tag of any kind (including dev tags on detached commits).
+          # NOTE: `git describe --tags` only finds tags reachable from HEAD, but dev
+          # release tags live on version-bump commits that aren't pushed to master.
+          LAST_TAG=$(git tag --sort=-version:refname | head -1 || echo "")
 
           COMMITS_SINCE_TAG=0
           if [ -n "$LAST_TAG" ]; then
-            COMMITS_SINCE_TAG=$(git rev-list "${LAST_TAG}..HEAD" --count)
+            # Use merge-base to handle dev tags on detached commits correctly.
+            # For dev tags (one commit off master), this finds the master commit
+            # they branched from. For stable tags (on master), it's the tag itself.
+            BASE=$(git merge-base "${LAST_TAG}" HEAD 2>/dev/null || echo "")
+            if [ -n "$BASE" ]; then
+              COMMITS_SINCE_TAG=$(git rev-list "${BASE}..HEAD" --count)
+            fi
           fi
 
           echo "last_stable=$LAST_STABLE" >> "$GITHUB_OUTPUT"
@@ -77,34 +85,39 @@ jobs:
           HEAD_SHA=$(git rev-parse HEAD)
           echo "Checking CI status for $HEAD_SHA..."
 
-          # Check combined commit status (covers both status checks and check runs)
-          # Use check-runs API which covers GitHub Actions
-          CONCLUSION=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-suites" \
-            --jq '[.check_suites[] | select(.app.slug == "github-actions")] | map(.conclusion) | unique | .[]' 2>/dev/null || echo "unknown")
+          # Check individual check runs (not suites) to avoid blocking on
+          # flaky/optional checks like external API tests.
+          # Exclude: API tests (external, flaky), and this workflow's own runs.
+          CONCLUSIONS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+            --paginate \
+            --jq '[.check_runs[] | select(
+              .app.slug == "github-actions" and
+              (.name | test("API tests|Scheduled Release") | not)
+            )] | map(.conclusion) | unique | .[]' 2>/dev/null || echo "unknown")
 
-          echo "CI conclusions: $CONCLUSION"
+          echo "CI conclusions (excluding API tests): $CONCLUSIONS"
 
-          # If any suite is still running or has failed, skip
-          if echo "$CONCLUSION" | grep -qE "failure|action_required|timed_out"; then
+          # If any required check has failed, skip
+          if echo "$CONCLUSIONS" | grep -qE "failure|action_required|timed_out"; then
             echo "CI has failures on HEAD — skipping release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if echo "$CONCLUSION" | grep -qE "null|pending"; then
+          if echo "$CONCLUSIONS" | grep -qE "null|pending"; then
             echo "CI is still running on HEAD — skipping release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Require explicit success — skip if unknown or empty (API failure)
-          if [ -z "$CONCLUSION" ] || [ "$CONCLUSION" = "unknown" ]; then
+          if [ -z "$CONCLUSIONS" ] || [ "$CONCLUSIONS" = "unknown" ]; then
             echo "CI status unavailable on HEAD — skipping release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if ! echo "$CONCLUSION" | grep -q "success"; then
+          if ! echo "$CONCLUSIONS" | grep -q "success"; then
             echo "No successful CI checks found on HEAD — skipping release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
