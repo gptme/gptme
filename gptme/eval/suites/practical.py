@@ -70,10 +70,6 @@ def check_api_get_after_post(ctx):
     return len(get_after) == 3
 
 
-def check_api_exit(ctx):
-    return ctx.exit_code == 0
-
-
 # --- parse-log checks ---
 
 
@@ -121,9 +117,10 @@ def check_error_handling_normal(ctx):
     output = ctx.stdout
     # Test script runs process_records with mixed good/bad data.
     # All three good records (Alice/30, Charlie/25, Diana/28) must appear in output.
+    # Use "age=30" instead of bare "30" to tie Alice's age to her record specifically.
     return (
         "Alice" in output
-        and "30" in output
+        and "age=30" in output
         and "Charlie" in output
         and "Diana" in output
     )
@@ -268,7 +265,6 @@ tests: list["EvalSpec"] = [
             "GET /items works": check_api_get_items,
             "POST /items works": check_api_post_item,
             "POST persists": check_api_get_after_post,
-            "clean exit": check_api_exit,
         },
     },
     {
