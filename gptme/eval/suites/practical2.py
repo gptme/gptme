@@ -39,8 +39,12 @@ def check_sort_filter_order(ctx):
     if max(eng_indices) >= min(sales_indices):
         return False
     # Within eng: Alice (index lower) before Diana (index higher)
-    alice_idx = next((i for i, line in enumerate(lines) if "Alice" in line), None)
-    diana_idx = next((i for i, line in enumerate(lines) if "Diana" in line), None)
+    alice_idx = next(
+        (i for i, line in enumerate(lines) if "alice" in line.lower()), None
+    )
+    diana_idx = next(
+        (i for i, line in enumerate(lines) if "diana" in line.lower()), None
+    )
     if alice_idx is None or diana_idx is None:
         return False
     return alice_idx < diana_idx
@@ -101,21 +105,19 @@ def check_validate_row1_ok(ctx):
 def check_validate_row2_email(ctx):
     """Row 2 has an invalid email (missing @) — should report an email error."""
     line = _row_line(ctx.stdout, 2)
-    return line is not None and ("email" in line or "invalid" in line)
+    return line is not None and "email" in line
 
 
 def check_validate_row3_name(ctx):
     """Row 3 has an empty name — should report a name/missing error."""
     line = _row_line(ctx.stdout, 3)
-    return line is not None and (
-        "name" in line or "invalid" in line or "missing" in line
-    )
+    return line is not None and ("name" in line or "missing" in line)
 
 
 def check_validate_row4_age(ctx):
     """Row 4 has age -5 (out of range) — should report an age error."""
     line = _row_line(ctx.stdout, 4)
-    return line is not None and ("age" in line or "invalid" in line)
+    return line is not None and "age" in line
 
 
 def check_validate_exit(ctx):
