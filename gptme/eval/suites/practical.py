@@ -56,7 +56,7 @@ def check_api_post_item(ctx):
 
 
 def check_api_get_after_post(ctx):
-    """After POST, GET /items should return 3 items."""
+    """After POST, GET /items should return 3 items including cherry."""
     try:
         data = json.loads(ctx.stdout.strip())
     except (json.JSONDecodeError, ValueError):
@@ -65,9 +65,12 @@ def check_api_get_after_post(ctx):
         return False
     results = data.get("results") or {}
     get_after = results.get("get_after_post")
-    if not isinstance(get_after, list):
+    if not isinstance(get_after, list) or len(get_after) != 3:
         return False
-    return len(get_after) == 3
+    if not all(isinstance(item, dict) for item in get_after):
+        return False
+    names = {item.get("name") for item in get_after}
+    return "cherry" in names
 
 
 # --- parse-log checks ---
@@ -80,7 +83,6 @@ def check_parse_log_file(ctx):
 def check_parse_log_output(ctx):
     """Output should contain correct statistics extracted from the log."""
     output = ctx.stdout.lower()
-    words = output.split()
     # Log has: 3 ERROR, 4 WARNING, 5 INFO = 12 total lines, avg response time 378ms
     # Error count should be 3 — match specifically to avoid false positives from other stats
     has_error_count = bool(re.search(r"errors?\s*:?\s*3\b", output))
@@ -88,8 +90,8 @@ def check_parse_log_output(ctx):
     has_warning_count = bool(re.search(r"warnings?\s*:?\s*4\b", output))
     # Most common endpoint: /api/users appears 5 times
     has_users_endpoint = "/api/users" in output
-    # Total requests (lines with endpoints): 12
-    has_total = "12" in words
+    # Total requests (lines with endpoints): 12 — regex consistent with other numeric checks
+    has_total = bool(re.search(r"total\s*:?\s*12\b", output))
     # Average response time: 378ms (check substring, not word, since "378ms" is one token)
     has_avg_time = "378" in output
     return (
