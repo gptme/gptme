@@ -18,21 +18,32 @@ def check_sort_filter_alice(ctx):
     return "Alice" in ctx.stdout
 
 
+def check_sort_filter_diana(ctx):
+    """Diana (age 28, eng) should appear — boundary value for age >= 28."""
+    return "Diana" in ctx.stdout
+
+
 def check_sort_filter_bob_absent(ctx):
     """Bob (age 25) should be filtered out (age < 28)."""
     return "Bob" not in ctx.stdout
 
 
 def check_sort_filter_order(ctx):
-    """Engineering should come before Sales alphabetically; within dept, names in order."""
+    """Engineering should come before Sales alphabetically; within eng, Alice before Diana."""
     lines = [line.strip() for line in ctx.stdout.splitlines() if line.strip()]
-    # Expect: eng dept first, then sales; within eng: Alice before Diana
     eng_indices = [i for i, line in enumerate(lines) if "eng" in line.lower()]
     sales_indices = [i for i, line in enumerate(lines) if "sales" in line.lower()]
     if not eng_indices or not sales_indices:
         return False
-    # All eng lines should come before all sales lines
-    return max(eng_indices) < min(sales_indices)
+    # All eng lines before all sales lines
+    if max(eng_indices) >= min(sales_indices):
+        return False
+    # Within eng: Alice (index lower) before Diana (index higher)
+    alice_idx = next((i for i, line in enumerate(lines) if "Alice" in line), None)
+    diana_idx = next((i for i, line in enumerate(lines) if "Diana" in line), None)
+    if alice_idx is None or diana_idx is None:
+        return False
+    return alice_idx < diana_idx
 
 
 def check_sort_filter_exit(ctx):
@@ -72,31 +83,39 @@ def check_validate_file(ctx):
     return "validate.py" in ctx.files
 
 
+def _row_line(stdout: str, row_num: int) -> str | None:
+    """Return the lowercased output line that reports on the given row number, or None."""
+    prefix = f"row {row_num}:"
+    for line in stdout.lower().splitlines():
+        if line.lstrip().startswith(prefix):
+            return line
+    return None
+
+
 def check_validate_row1_ok(ctx):
     """Row 1 (Alice, valid data) should be reported as OK."""
-    lines = ctx.stdout.lower().splitlines()
-    return any("1" in line and "ok" in line for line in lines)
+    line = _row_line(ctx.stdout, 1)
+    return line is not None and "ok" in line
 
 
 def check_validate_row2_email(ctx):
     """Row 2 has an invalid email (missing @) — should report an email error."""
-    lines = ctx.stdout.lower().splitlines()
-    return any("2" in line and ("email" in line or "invalid" in line) for line in lines)
+    line = _row_line(ctx.stdout, 2)
+    return line is not None and ("email" in line or "invalid" in line)
 
 
 def check_validate_row3_name(ctx):
     """Row 3 has an empty name — should report a name/missing error."""
-    lines = ctx.stdout.lower().splitlines()
-    return any(
-        "3" in line and ("name" in line or "invalid" in line or "missing" in line)
-        for line in lines
+    line = _row_line(ctx.stdout, 3)
+    return line is not None and (
+        "name" in line or "invalid" in line or "missing" in line
     )
 
 
 def check_validate_row4_age(ctx):
     """Row 4 has age -5 (out of range) — should report an age error."""
-    lines = ctx.stdout.lower().splitlines()
-    return any("4" in line and ("age" in line or "invalid" in line) for line in lines)
+    line = _row_line(ctx.stdout, 4)
+    return line is not None and ("age" in line or "invalid" in line)
 
 
 def check_validate_exit(ctx):
@@ -129,6 +148,7 @@ tests: list["EvalSpec"] = [
         "expect": {
             "file created": check_sort_filter_file,
             "alice in output": check_sort_filter_alice,
+            "diana in output (boundary age=28)": check_sort_filter_diana,
             "bob filtered out": check_sort_filter_bob_absent,
             "correct sort order": check_sort_filter_order,
             "clean exit": check_sort_filter_exit,
