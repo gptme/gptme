@@ -30,6 +30,52 @@ def test_api_root(client: FlaskClient):
     assert response.get_json() == {"message": "Hello World!"}
 
 
+def test_api_config_no_project(client: FlaskClient):
+    """GET /api/config returns empty agent dict when no gptme.toml is present."""
+    response = client.get("/api/config")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "agent" in data
+    # Without a workspace gptme.toml, agent info is empty
+    assert isinstance(data["agent"], dict)
+
+
+def test_api_config_with_agent_urls(tmp_path, client: FlaskClient, monkeypatch):
+    """GET /api/config includes agent.urls when gptme.toml has [agent.urls]."""
+
+    from gptme.config import get_project_config
+
+    toml_content = """
+[agent]
+name = "testbot"
+
+[agent.urls]
+dashboard = "https://testbot.example.com/"
+repo = "https://github.com/example/testbot"
+"""
+    toml_file = tmp_path / "gptme.toml"
+    toml_file.write_text(toml_content)
+
+    # Monkeypatch get_project_config to return config from our tmp_path
+    from gptme import config as config_module
+
+    original_get_config = config_module.get_config
+
+    def mock_get_config():
+        cfg = original_get_config()
+        cfg.project = get_project_config(tmp_path)
+        return cfg
+
+    monkeypatch.setattr(config_module, "get_config", mock_get_config)
+
+    response = client.get("/api/config")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["agent"]["name"] == "testbot"
+    assert data["agent"]["urls"]["dashboard"] == "https://testbot.example.com/"
+    assert data["agent"]["urls"]["repo"] == "https://github.com/example/testbot"
+
+
 def test_api_conversation_list(client: FlaskClient):
     response = client.get("/api/conversations")
     assert response.status_code == 200

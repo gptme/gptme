@@ -45,8 +45,14 @@ new Vue({
 
     // Conversations limit
     conversationsLimit: 20,
+
+    // Agent URLs from gptme.toml [agent.urls] (dashboard, repo, etc.)
+    agentUrls: {},
   },
   async mounted() {
+    // Load agent config (urls from gptme.toml [agent.urls])
+    this.loadAgentConfig();
+
     // Check for embedded data first
     if (window.CHAT_DATA) {
       this.conversations = [
@@ -137,6 +143,19 @@ new Vue({
     },
   },
   methods: {
+    async loadAgentConfig() {
+      try {
+        const res = await fetch("/api/config");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.agent && data.agent.urls) {
+          this.agentUrls = data.agent.urls;
+        }
+      } catch (e) {
+        // Non-critical: silently ignore if endpoint unavailable
+        console.debug("Could not load agent config:", e);
+      }
+    },
     async getConversations() {
       const res = await fetch(`${apiRoot}?limit=${this.conversationsLimit}`);
       this.conversations = await res.json();
