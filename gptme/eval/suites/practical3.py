@@ -40,7 +40,11 @@ def check_tests_cover_all_ops(ctx):
     if isinstance(content, bytes):
         content = content.decode()
     content_lower = content.lower()
-    return all(op in content_lower for op in ["add", "subtract", "multiply", "divide"])
+    # Use word-boundary match for "add" to avoid false positives from common
+    # English words like "additional" or "adding".
+    return bool(re.search(r"\badd\b", content_lower)) and all(
+        op in content_lower for op in ["subtract", "multiply", "divide"]
+    )
 
 
 def check_tests_cover_zero_division(ctx):
@@ -60,7 +64,7 @@ def check_notes_file_exists(ctx):
 
 
 def check_notes_clean_exit(ctx):
-    """All note operations should succeed (exit code 0)."""
+    """Final list operation exits cleanly (exit code 0)."""
     return ctx.exit_code == 0
 
 
@@ -151,16 +155,22 @@ tests: list["EvalSpec"] = [
                 "    )\n"
                 "\n"
                 "\n"
+                "def check(result, label):\n"
+                "    if result.returncode != 0:\n"
+                "        print(f'{label} failed (exit {result.returncode})', file=sys.stderr)\n"
+                "        sys.exit(result.returncode)\n"
+                "\n"
+                "\n"
                 "# Add two notes ('buy milk' contains a space — passed as one argument)\n"
-                "run(['add', 'buy milk'])\n"
-                "run(['add', 'call dentist'])\n"
+                "check(run(['add', 'buy milk']), 'add buy milk')\n"
+                "check(run(['add', 'call dentist']), 'add call dentist')\n"
                 "\n"
                 "# List before delete\n"
                 "print('=== before delete ===')\n"
                 "print(run(['list']).stdout)\n"
                 "\n"
                 "# Delete one note\n"
-                "run(['delete', 'buy milk'])\n"
+                "check(run(['delete', 'buy milk']), 'delete buy milk')\n"
                 "\n"
                 "# List after delete\n"
                 "print('=== after delete ===')\n"
