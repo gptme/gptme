@@ -120,7 +120,7 @@ def check_error_handling_normal(ctx):
     """Normal case should still work: processed results appear in output."""
     output = ctx.stdout
     # Test script runs process_records with mixed good/bad data.
-    # All three good records (Alice/30, Charlie/25, Diana/35) must appear in output.
+    # All three good records (Alice/30, Charlie/25, Diana/28) must appear in output.
     return (
         "Alice" in output
         and "30" in output
@@ -206,6 +206,8 @@ tests: list["EvalSpec"] = [
                 "            results['get_items'] = json.loads(resp.read())\n"
                 "        except urllib.error.HTTPError:\n"
                 "            pass  # Server returned error — check will fail for this endpoint\n"
+                "        except json.JSONDecodeError:\n"
+                "            pass  # Server returned non-JSON body — check will fail\n"
                 "\n"
                 "        # Test POST /items\n"
                 "        data = json.dumps({'name': 'cherry', 'price': 3.0}).encode()\n"
@@ -220,6 +222,8 @@ tests: list["EvalSpec"] = [
                 "            results['post_item'] = json.loads(resp.read())\n"
                 "        except urllib.error.HTTPError:\n"
                 "            pass  # Server returned error — check will fail for this endpoint\n"
+                "        except json.JSONDecodeError:\n"
+                "            pass  # Server returned non-JSON body — check will fail\n"
                 "\n"
                 "        # Test GET /items again (should include new item)\n"
                 "        try:\n"
@@ -227,6 +231,8 @@ tests: list["EvalSpec"] = [
                 "            results['get_after_post'] = json.loads(resp.read())\n"
                 "        except urllib.error.HTTPError:\n"
                 "            pass  # Server returned error — check will fail for this endpoint\n"
+                "        except json.JSONDecodeError:\n"
+                "            pass  # Server returned non-JSON body — check will fail\n"
                 "\n"
                 "        print(json.dumps({'results': results}))\n"
                 "    finally:\n"
