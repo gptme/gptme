@@ -94,8 +94,8 @@ def check_parse_log_output(ctx):
     has_users_endpoint = "/api/users" in output
     # Total requests (lines with endpoints): 12
     has_total = "12" in words
-    # Average response time: 378ms
-    has_avg_time = "378" in words
+    # Average response time: 378ms (check substring, not word, since "378ms" is one token)
+    has_avg_time = "378" in output
     return (
         has_error_count
         and has_warning_count
