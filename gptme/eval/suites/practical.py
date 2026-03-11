@@ -30,7 +30,7 @@ def check_api_get_items(ctx):
         return False
     if not isinstance(data, dict):
         return False
-    results = data.get("results", {})
+    results = data.get("results") or {}
     get_items = results.get("get_items")
     if not isinstance(get_items, list) or len(get_items) != 2:
         return False
@@ -48,7 +48,7 @@ def check_api_post_item(ctx):
         return False
     if not isinstance(data, dict):
         return False
-    results = data.get("results", {})
+    results = data.get("results") or {}
     post_item = results.get("post_item")
     if not isinstance(post_item, dict):
         return False
@@ -63,7 +63,7 @@ def check_api_get_after_post(ctx):
         return False
     if not isinstance(data, dict):
         return False
-    results = data.get("results", {})
+    results = data.get("results") or {}
     get_after = results.get("get_after_post")
     if not isinstance(get_after, list):
         return False
@@ -184,8 +184,13 @@ tests: list["EvalSpec"] = [
                 "            except urllib.error.HTTPError:\n"
                 "                break  # Server is up (returned HTTP error) — stop probing\n"
                 "            except (urllib.error.URLError, ConnectionRefusedError):\n"
+                "                if proc.poll() is not None:\n"
+                "                    break\n"
                 "                time.sleep(0.25)\n"
                 "        else:\n"
+                "            print(json.dumps({'error': 'server did not start'}))\n"
+                "            return\n"
+                "        if proc.poll() is not None:\n"
                 "            print(json.dumps({'error': 'server did not start'}))\n"
                 "            return\n"
                 "\n"
