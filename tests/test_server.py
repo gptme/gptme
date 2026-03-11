@@ -38,7 +38,7 @@ def test_api_config_no_project(client: FlaskClient):
     data = response.get_json()
     assert "agent" in data
     # Without a workspace gptme.toml, agent info is empty
-    assert isinstance(data["agent"], dict)
+    assert data["agent"] == {}
 
 
 def test_api_config_with_agent_urls(tmp_path, client: FlaskClient, monkeypatch):
