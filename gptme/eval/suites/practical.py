@@ -198,7 +198,11 @@ tests: list["EvalSpec"] = [
                 "        print(json.dumps({'results': results}))\n"
                 "    finally:\n"
                 "        proc.terminate()\n"
-                "        proc.wait(timeout=5)\n"
+                "        try:\n"
+                "            proc.wait(timeout=5)\n"
+                "        except subprocess.TimeoutExpired:\n"
+                "            proc.kill()\n"
+                "            proc.wait()\n"
                 "\n"
                 "\n"
                 "if __name__ == '__main__':\n"
@@ -334,7 +338,7 @@ tests: list["EvalSpec"] = [
             "3. Good records (Alice, Charlie, Diana) still produce correct output\n"
             "Do not modify main.py."
         ),
-        "tools": ["read", "save", "patch"],
+        "tools": ["read", "save", "patch", "shell"],
         "expect": {
             "processor.py exists": check_error_handling_file,
             "normal data works": check_error_handling_normal,
