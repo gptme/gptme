@@ -380,10 +380,10 @@ class ToolSpec:
         """Generate tool prompt with XML-sectioned structure."""
         parts = [f'\n<tool name="{self.name}">']
         if self.desc:
-            parts.append(f"<description>{self.desc}</description>")
+            parts.append(f"<description>{xml_escape(self.desc)}</description>")
         instructions = self.get_instructions(tool_format)
         if instructions:
-            parts.append(f"<instructions>\n{instructions}\n</instructions>")
+            parts.append(f"<instructions>\n{xml_escape(instructions)}\n</instructions>")
         if examples and (
             examples_content := self.get_examples(
                 tool_format, quote=True, strip_system=True
