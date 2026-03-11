@@ -18,7 +18,6 @@ from ..config import get_config
 from ..constants import CONTENT_SIZE_INFO_THRESHOLD, CONTENT_SIZE_WARN_THRESHOLD
 from ..message import Message
 from ..tools import has_tool
-from ..tools.browser import read_url
 from .gh import (
     get_github_issue_content,
     get_github_pr_content,
@@ -738,6 +737,10 @@ def _resource_to_codeblock(
         # If GitHub handling failed or not a GitHub issue/PR, fall back to browser
         if not content and has_tool("browser"):
             try:
+                from ..tools.browser import (
+                    read_url,  # deferred to avoid circular import
+                )
+
                 # Transform GitHub blob URLs to raw URLs
                 transformed_url = transform_github_url(url)
                 if transformed_url != url:
