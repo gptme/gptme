@@ -5,6 +5,7 @@ from .init_projects import tests as tests_init_projects
 from .practical import tests as tests_practical
 from .practical2 import tests as tests_practical2
 from .practical3 import tests as tests_practical3
+from .practical4 import tests as tests_practical4
 
 suites: dict[str, list[EvalSpec]] = {
     "basic": tests_basic,
@@ -13,6 +14,7 @@ suites: dict[str, list[EvalSpec]] = {
     "practical": tests_practical,
     "practical2": tests_practical2,
     "practical3": tests_practical3,
+    "practical4": tests_practical4,
 }
 
 tests: list[EvalSpec] = [test for suite in suites.values() for test in suite]
