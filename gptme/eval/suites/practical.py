@@ -132,7 +132,7 @@ def check_error_handling_bad_data(ctx):
     """Bad records should each produce an error report, not be silently swallowed."""
     output = ctx.stdout.lower()
     # main.py prints "Error: {r['error']}" for each bad record via 'if "error" in r'.
-    # There are 3 bad records (non-numeric age, None name, missing name key),
+    # There are 3 bad records (non-numeric age, None age/name, missing name key),
     # so at least 3 error-indicating lines should appear.
     error_count = len(re.findall(r"\berror\b", output))
     return error_count >= 3
@@ -339,7 +339,7 @@ tests: list["EvalSpec"] = [
                 "    {'name': 'Alice', 'age': '30', 'score': '95'},\n"
                 "    {'name': 'Bob', 'age': 'not_a_number', 'score': '85'},\n"
                 "    {'name': 'Charlie', 'age': '25', 'score': '78'},\n"
-                "    {'name': None, 'age': '20', 'score': '60'},\n"
+                "    {'name': None, 'age': None, 'score': '60'},\n"  # None values cause TypeError
                 "    {'age': '22', 'score': '88'},\n"  # missing 'name'
                 "    {'name': 'Diana', 'age': '28', 'score': '92'},\n"
                 "]\n"
@@ -356,7 +356,7 @@ tests: list["EvalSpec"] = [
         "prompt": (
             "Running 'python main.py' crashes because processor.py has no error handling "
             "for bad input data. The records list in main.py contains intentionally bad data "
-            "(non-numeric age, None name, missing keys). Fix processor.py so that:\n"
+            "(non-numeric age, None values, missing keys). Fix processor.py so that:\n"
             "1. process_record() catches errors and returns {'error': '<description>'} "
             "for bad records instead of crashing\n"
             "2. process_records() continues processing remaining records when one fails\n"
