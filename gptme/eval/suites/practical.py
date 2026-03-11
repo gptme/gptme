@@ -119,8 +119,14 @@ def check_error_handling_file(ctx):
 def check_error_handling_normal(ctx):
     """Normal case should still work: processed results appear in output."""
     output = ctx.stdout
-    # Test script runs process_records with mixed good/bad data
-    return "Alice" in output and "30" in output
+    # Test script runs process_records with mixed good/bad data.
+    # All three good records (Alice/30, Charlie/25, Diana/35) must appear in output.
+    return (
+        "Alice" in output
+        and "30" in output
+        and "Charlie" in output
+        and "Diana" in output
+    )
 
 
 def check_error_handling_no_crash(ctx):
