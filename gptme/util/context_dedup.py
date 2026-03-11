@@ -30,6 +30,8 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from ..message import Message
 
 logger = logging.getLogger(__name__)
@@ -40,9 +42,9 @@ _MIN_CHUNK_LEN = 100
 
 
 def _content_hash(content: str) -> str:
-    """64-bit truncated SHA-256 hash of whitespace-normalised content (hex string)."""
+    """128-bit truncated SHA-256 hash of whitespace-normalised content (hex string)."""
     normalised = " ".join(content.split())
-    return hashlib.sha256(normalised.encode()).hexdigest()[:16]
+    return hashlib.sha256(normalised.encode()).hexdigest()[:32]
 
 
 def is_content_in_context(content: str, messages: list[Message]) -> bool:
@@ -138,6 +140,17 @@ class ContextDeduplicator:
         also checks each paragraph of *content* individually, so partial
         matches (e.g. a short document that is one paragraph of a larger
         indexed message) are detected.
+
+        .. note::
+            The secondary paragraph check can produce false positives in the
+            reverse direction: if the *incoming* content shares any paragraph
+            (≥ 100 chars) with an already-indexed message, the entire incoming
+            document is reported as present — even if only that one paragraph
+            overlaps.  This is an intentional trade-off: it prevents injecting
+            documents whose key content is already in context, at the cost of
+            occasionally suppressing a document with mostly-new content.  If
+            fine-grained overlap detection is required, use
+            :func:`is_content_in_context` instead.
         """
         if not content.strip():
             return False
@@ -160,7 +173,7 @@ class ContextDeduplicator:
         """Index a single newly-arrived message (e.g. after injection)."""
         self._index_message(message)
 
-    def update_from_log(self, log: list[Message]) -> None:
+    def update_from_log(self, log: Iterable[Message]) -> None:
         """Incrementally index messages not yet seen.
 
         This is a convenience method for STEP_PRE hooks that keep a
