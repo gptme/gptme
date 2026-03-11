@@ -31,8 +31,14 @@ def test_api_root(client: FlaskClient):
     assert response.get_json() == {"message": "Hello World!"}
 
 
-def test_api_config_no_project(client: FlaskClient):
+def test_api_config_no_project(client: FlaskClient, monkeypatch):
     """GET /api/config returns empty agent dict when no gptme.toml is present."""
+    import gptme.server.api as api_module
+    from gptme.config import Config
+
+    # Mock get_config to return a Config with no project (environment-independent)
+    monkeypatch.setattr(api_module, "get_config", lambda: Config(project=None))
+
     response = client.get("/api/config")
     assert response.status_code == 200
     data = response.get_json()
