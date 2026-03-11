@@ -85,14 +85,24 @@ def check_parse_log_output(ctx):
     """Output should contain correct statistics extracted from the log."""
     output = ctx.stdout.lower()
     words = output.split()
-    # Log has: 3 ERROR, 4 WARNING, 5 INFO = 12 total lines
+    # Log has: 3 ERROR, 4 WARNING, 5 INFO = 12 total lines, avg response time 378ms
     # Error count should be 3 — match specifically to avoid false positives from other stats
     has_error_count = bool(re.search(r"errors?\s*:?\s*3\b", output))
+    # Warning count should be 4
+    has_warning_count = bool(re.search(r"warnings?\s*:?\s*4\b", output))
     # Most common endpoint: /api/users appears 5 times
     has_users_endpoint = "/api/users" in output
     # Total requests (lines with endpoints): 12
     has_total = "12" in words
-    return has_error_count and has_users_endpoint and has_total
+    # Average response time: 378ms
+    has_avg_time = "378" in words
+    return (
+        has_error_count
+        and has_warning_count
+        and has_users_endpoint
+        and has_total
+        and has_avg_time
+    )
 
 
 def check_parse_log_exit(ctx):
@@ -119,10 +129,13 @@ def check_error_handling_no_crash(ctx):
 
 
 def check_error_handling_bad_data(ctx):
-    """Bad records should be reported, not crash the program."""
+    """Bad records should each produce an error report, not be silently swallowed."""
     output = ctx.stdout.lower()
-    # Should mention errors/skipped/invalid for the bad records
-    return "error" in output or "skip" in output or "invalid" in output
+    # main.py prints "Error: {r['error']}" for each bad record via 'if "error" in r'.
+    # There are 3 bad records (non-numeric age, None name, missing name key),
+    # so at least 3 error-indicating lines should appear.
+    error_count = len(re.findall(r"\berror\b", output))
+    return error_count >= 3
 
 
 def check_error_handling_has_try(ctx):
@@ -286,8 +299,6 @@ tests: list["EvalSpec"] = [
         "name": "add-error-handling",
         "files": {
             "processor.py": (
-                "import json\n"
-                "\n"
                 "\n"
                 "def process_record(record):\n"
                 '    """Process a single record and return formatted result."""\n'
