@@ -90,8 +90,8 @@ def check_parse_log_output(ctx):
     has_warning_count = bool(re.search(r"warnings?\s*:?\s*4\b", output))
     # Most common endpoint: /api/users appears 5 times
     has_users_endpoint = "/api/users" in output
-    # Total requests (lines with endpoints): 12 — regex consistent with other numeric checks
-    has_total = bool(re.search(r"total\s*:?\s*12\b", output))
+    # Total requests (lines with endpoints): 12 — matches "Total requests: 12" or "Total: 12"
+    has_total = bool(re.search(r"total\s*\w*\s*:?\s*12\b", output))
     # Average response time: 378ms (check substring, not word, since "378ms" is one token)
     has_avg_time = "378" in output
     return (
