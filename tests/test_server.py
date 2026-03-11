@@ -57,17 +57,18 @@ repo = "https://github.com/example/testbot"
     toml_file = tmp_path / "gptme.toml"
     toml_file.write_text(toml_content)
 
-    # Monkeypatch get_project_config to return config from our tmp_path
-    from gptme import config as config_module
-
-    original_get_config = config_module.get_config
+    # Monkeypatch the get_config reference inside api.py — api.py uses
+    # `from ..config import get_config` (direct import), so we must patch
+    # the name in that module's namespace, not in gptme.config.
+    import gptme.server.api as api_module
+    from gptme.config import get_config as original_get_config
 
     def mock_get_config():
         cfg = copy.copy(original_get_config())
         cfg.project = get_project_config(tmp_path)
         return cfg
 
-    monkeypatch.setattr(config_module, "get_config", mock_get_config)
+    monkeypatch.setattr(api_module, "get_config", mock_get_config)
 
     response = client.get("/api/config")
     assert response.status_code == 200
