@@ -1,3 +1,4 @@
+import copy
 import random
 
 import pytest
@@ -62,7 +63,7 @@ repo = "https://github.com/example/testbot"
     original_get_config = config_module.get_config
 
     def mock_get_config():
-        cfg = original_get_config()
+        cfg = copy.copy(original_get_config())
         cfg.project = get_project_config(tmp_path)
         return cfg
 

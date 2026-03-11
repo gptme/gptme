@@ -74,6 +74,7 @@ def api_root():
 
 
 @api.route("/api/config")
+@api_doc()
 def api_config():
     """Agent configuration endpoint.
 
@@ -94,8 +95,6 @@ def api_config():
           }
         }
     """
-    from ..config import get_config
-
     config = get_config()
     agent = config.project.agent if config.project else None
 

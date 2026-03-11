@@ -143,6 +143,10 @@ new Vue({
     },
   },
   methods: {
+    safeUrl(url) {
+      // Only allow http/https to prevent javascript: XSS in Vue 2 :href bindings
+      return /^https?:\/\//i.test(url) ? url : '#';
+    },
     async loadAgentConfig() {
       try {
         const res = await fetch("/api/config");
