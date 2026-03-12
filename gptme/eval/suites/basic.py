@@ -288,6 +288,52 @@ def check_fix_import_exit(ctx):
     return ctx.exit_code == 0
 
 
+# --- count-words checks ---
+
+
+def check_count_words_file(ctx):
+    return "wordcount.py" in ctx.files
+
+
+def check_count_words_output(ctx):
+    """Output should contain '17' on a line with 'words:'."""
+    for line in ctx.stdout.splitlines():
+        if "words" in line.lower() and "17" in line:
+            return True
+    return False
+
+
+def check_count_words_exit(ctx):
+    return ctx.exit_code == 0
+
+
+# --- json-filter checks ---
+
+
+def check_json_filter_file(ctx):
+    return "filter.py" in ctx.files
+
+
+def check_json_filter_output(ctx):
+    """Output should contain Alice, Carol, Eve (score >= 80), one per line, sorted."""
+    lines = [line.strip() for line in ctx.stdout.splitlines() if line.strip()]
+    try:
+        alice_idx = lines.index("Alice")
+        carol_idx = lines.index("Carol")
+        eve_idx = lines.index("Eve")
+    except ValueError:
+        return False
+    # Bob (71) and Dave (60) must not appear
+    if "Bob" in lines or "Dave" in lines:
+        return False
+    # Must be sorted alphabetically: Alice < Carol < Eve
+    return alice_idx < carol_idx < eve_idx
+
+
+def check_json_filter_exit(ctx):
+    return ctx.exit_code == 0
+
+
 tests: list["EvalSpec"] = [
     {
         "name": "hello",
@@ -682,6 +728,41 @@ tests: list["EvalSpec"] = [
             "math_ops.py created": check_fix_import_created,
             "correct output": check_fix_import_output,
             "clean exit": check_fix_import_exit,
+        },
+    },
+    {
+        "name": "count-words",
+        "files": {
+            "words.txt": "the quick brown fox jumps over the lazy dog\npack my box with five dozen liquor jugs\n",
+        },
+        "run": "python wordcount.py",
+        "prompt": (
+            "Write a Python script wordcount.py that reads words.txt and prints "
+            "the total number of words on a single line like: 'words: N'"
+        ),
+        "tools": ["save", "shell"],
+        "expect": {
+            "file exists": check_count_words_file,
+            "correct output": check_count_words_output,
+            "clean exit": check_count_words_exit,
+        },
+    },
+    {
+        "name": "json-filter",
+        "files": {
+            "data.json": '[{"name": "Alice", "score": 92}, {"name": "Bob", "score": 71}, {"name": "Carol", "score": 85}, {"name": "Dave", "score": 60}, {"name": "Eve", "score": 95}]\n',
+        },
+        "run": "python filter.py",
+        "prompt": (
+            "Read data.json (a list of objects with 'name' and 'score' fields). "
+            "Write a Python script filter.py that reads data.json and prints the names "
+            "of people with score >= 80, sorted alphabetically, one per line."
+        ),
+        "tools": ["read", "save", "shell"],
+        "expect": {
+            "file exists": check_json_filter_file,
+            "correct output": check_json_filter_output,
+            "clean exit": check_json_filter_exit,
         },
     },
 ]
