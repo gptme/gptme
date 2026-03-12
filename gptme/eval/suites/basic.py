@@ -296,9 +296,9 @@ def check_count_words_file(ctx):
 
 
 def check_count_words_output(ctx):
-    """Output should contain '17' on a line with 'words:'."""
+    """Output should contain '17' as a whole token on a line with 'words:'."""
     for line in ctx.stdout.splitlines():
-        if "words" in line.lower() and "17" in line:
+        if "words" in line.lower() and "17" in line.split():
             return True
     return False
 
@@ -740,7 +740,7 @@ tests: list["EvalSpec"] = [
             "Write a Python script wordcount.py that reads words.txt and prints "
             "the total number of words on a single line like: 'words: N'"
         ),
-        "tools": ["save", "shell"],
+        "tools": ["read", "save", "shell"],
         "expect": {
             "file exists": check_count_words_file,
             "correct output": check_count_words_output,
