@@ -153,7 +153,14 @@ new Vue({
         if (!res.ok) return;
         const data = await res.json();
         if (data.agent && data.agent.urls) {
-          this.agentUrls = data.agent.urls;
+          // Filter to only http/https URLs before assigning — prevents non-conforming
+          // entries from rendering as broken '#' links and the header from showing
+          // when every URL is invalid.
+          const filtered = {};
+          for (const [key, url] of Object.entries(data.agent.urls)) {
+            if (/^https?:\/\//i.test(url)) filtered[key] = url;
+          }
+          this.agentUrls = filtered;
         }
       } catch (e) {
         // Non-critical: silently ignore if endpoint unavailable
