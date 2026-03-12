@@ -1,0 +1,157 @@
+name: Eval Quality Gate
+
+on:
+  pull_request:
+    branches: [ master ]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'gptme/tools/**'
+      - 'gptme/models/**'
+      - 'gptme/eval/**'
+      - 'gptme/prompts/**'
+      - 'gptme/message*.py'
+      - 'gptme/llm/**'
+      - 'gptme/chat.py'
+      - 'gptme/codeblock.py'
+      - 'gptme/session.py'
+
+# Cancel stale runs for the same PR
+concurrency:
+  group: eval-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  eval-ci:
+    name: Eval Quality Gate
+    runs-on: ubuntu-latest
+    # Non-blocking in Phase 1 — informational only
+    continue-on-error: true
+    # Skip draft PRs to save API cost
+    if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+    - name: Checkout PR branch
+      uses: actions/checkout@v6
+
+    - name: Install poetry
+      run: pipx install poetry
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+        cache: 'poetry'
+        cache-dependency-path: poetry.lock
+
+    - name: Install gptme from PR branch
+      run: poetry install
+
+    - name: Write gptme config
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        mkdir -p ~/.config/gptme
+        cat > ~/.config/gptme/config.toml << EOF
+        [env]
+        ANTHROPIC_API_KEY = "$ANTHROPIC_API_KEY"
+        EOF
+
+    - name: Run eval quality gate (hello, prime100, fix-bug)
+      id: run_evals
+      env:
+        EVAL_RESULTS_DIR: ${{ github.workspace }}/eval_results
+      run: |
+        mkdir -p eval_results
+        # 3 basic tests with Haiku — fast and cheap (~$0.02–0.05/run)
+        poetry run python -m gptme.eval \
+          hello prime100 fix-bug \
+          -m anthropic/claude-haiku-4-5@tool \
+          --timeout 60 \
+          --parallel 3
+
+    - name: Parse results and post PR comment
+      if: always()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        EVAL_RESULTS_DIR: ${{ github.workspace }}/eval_results
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        EVAL_SUCCESS: ${{ steps.run_evals.outcome == 'success' }}
+      run: |
+        python3 - << 'PYEOF'
+        import csv
+        import os
+        import subprocess
+        from pathlib import Path
+
+        results_dir = Path(os.environ["EVAL_RESULTS_DIR"])
+        pr_number = os.environ["PR_NUMBER"]
+        repo = os.environ["REPO"]
+        run_url = os.environ["RUN_URL"]
+        eval_success = os.environ["EVAL_SUCCESS"] == "true"
+
+        # Find the most recent results CSV
+        csv_files = sorted(results_dir.glob("*/eval_results.csv"), key=lambda p: p.parent.name)
+
+        if not csv_files:
+            comment = (
+                "## ⚠️ Eval Quality Gate — could not run\n\n"
+                "Evals did not produce results (step may have failed to start).\n\n"
+                f"[View run]({run_url})\n\n"
+                "*Informational only — does not block merge*"
+            )
+        else:
+            csv_file = csv_files[-1]
+            rows = []
+            with open(csv_file) as f:
+                for row in csv.DictReader(f):
+                    rows.append(row)
+
+            passed_count = sum(1 for r in rows if r["Passed"] == "true")
+            total_count = len(rows)
+            total_duration = round(sum(float(r["Total Duration"]) for r in rows), 1)
+
+            status_emoji = "✅" if passed_count == total_count else "⚠️"
+            header = f"## {status_emoji} Eval Quality Gate — {passed_count}/{total_count} tests passed"
+
+            table_lines = [
+                "| Test | Status | Duration |",
+                "|------|--------|----------|",
+            ]
+            for row in rows:
+                icon = "✅" if row["Passed"] == "true" else "❌"
+                dur = round(float(row["Total Duration"]), 1)
+                table_lines.append(f"| `{row['Test']}` | {icon} | {dur}s |")
+            table = "\n".join(table_lines)
+
+            comment = (
+                f"{header}\n\n"
+                f"{table}\n\n"
+                f"Model: `claude-haiku-4-5` (tool) · Total: {total_duration}s · "
+                f"[Full run]({run_url})\n\n"
+                "*Informational only — does not block merge*"
+            )
+
+        # Post comment: edit last bot comment if one exists, else create new
+        edit_result = subprocess.run(
+            ["gh", "pr", "comment", pr_number, "--repo", repo,
+             "--body", comment, "--edit-last"],
+            capture_output=True, text=True, check=False,
+        )
+        if edit_result.returncode != 0:
+            # No prior comment from this bot — create a new one
+            new_result = subprocess.run(
+                ["gh", "pr", "comment", pr_number, "--repo", repo, "--body", comment],
+                capture_output=True, text=True, check=False,
+            )
+            if new_result.returncode != 0:
+                print(f"WARNING: failed to post PR comment: {new_result.stderr}")
+            else:
+                print("Posted new PR comment.")
+        else:
+            print("Updated existing PR comment.")
+        PYEOF
