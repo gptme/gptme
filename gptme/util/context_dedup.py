@@ -26,15 +26,12 @@ High-frequency STEP_PRE use (O(1) per check after construction)::
 from __future__ import annotations
 
 import hashlib
-import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from ..message import Message
-
-logger = logging.getLogger(__name__)
 
 # Minimum chunk length (chars) considered worth indexing as a standalone fragment.
 # Short strings like section headers are too common to use as dedup keys.
@@ -95,7 +92,7 @@ class ContextDeduplicator:
 
             def step_pre(self, manager: LogManager):
                 if self._dedup is None:
-                    self._dedup = ContextDeduplicator(list(manager.log))
+                    self._dedup = ContextDeduplicator(manager.log)
                 else:
                     # Incrementally index any messages added since last step
                     self._dedup.update_from_log(manager.log)
@@ -106,7 +103,7 @@ class ContextDeduplicator:
                         yield Message("system", doc["content"])
     """
 
-    def __init__(self, messages: list[Message]) -> None:
+    def __init__(self, messages: Iterable[Message]) -> None:
         self._hashes: set[str] = set()
         for msg in messages:
             self._index_message(msg)
