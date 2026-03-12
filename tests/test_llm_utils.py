@@ -563,8 +563,10 @@ def test_extract_thinking_content_with_signature():
         f"<think>\nsome reasoning\n<!-- think-sig: {sig} -->\n</think>\nAnswer here."
     )
 
-    thinking, cleaned, signature = _extract_thinking_content(content)
+    blocks, cleaned = _extract_thinking_content(content)
 
+    assert len(blocks) == 1
+    thinking, signature = blocks[0]
     assert thinking == "some reasoning"
     assert "Answer here." in cleaned
     assert "<think>" not in cleaned
@@ -579,10 +581,33 @@ def test_extract_thinking_content_no_signature():
 
     content = "<think>\nsome reasoning\n</think>\nAnswer."
 
-    thinking, cleaned, signature = _extract_thinking_content(content)
+    blocks, cleaned = _extract_thinking_content(content)
 
+    assert len(blocks) == 1
+    thinking, signature = blocks[0]
     assert thinking == "some reasoning"
     assert signature == ""
+
+
+def test_extract_thinking_content_multi_block():
+    """_extract_thinking_content preserves per-block signatures for multiple blocks."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    sig1 = "firstSig=="
+    sig2 = "secondSig=="
+    content = (
+        f"<think>\nfirst reasoning\n<!-- think-sig: {sig1} -->\n</think>\n"
+        f"<think>\nsecond reasoning\n<!-- think-sig: {sig2} -->\n</think>\n"
+        "Answer here."
+    )
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert len(blocks) == 2
+    assert blocks[0] == ("first reasoning", sig1)
+    assert blocks[1] == ("second reasoning", sig2)
+    assert "Answer here." in cleaned
+    assert "<think>" not in cleaned
 
 
 def test_handle_tools_thinking_with_signature():
