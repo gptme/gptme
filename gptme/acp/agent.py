@@ -10,6 +10,7 @@ import asyncio
 import contextvars
 import hashlib
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1037,6 +1038,9 @@ class GptmeAgent:
                 msg, log, session_id, text_block, update_agent_message
             )
 
+        # Keep buffering state outside the try-block so it's always in scope in
+        # the exception handler (including early import/setup failures).
+        batch_buffer: list[str] = []
         try:
             # Import chat step
             from ..chat import step as chat_step
@@ -1044,15 +1048,87 @@ class GptmeAgent:
             # Run gptme chat step in executor to not block event loop
             loop = asyncio.get_running_loop()
 
+            # Build a batching on_token callback that sends incremental session_update
+            # calls during generation, enabling per-token streaming to the client.
+            FLUSH_INTERVAL = 0.1  # seconds
+            FLUSH_SIZE = 50  # characters (measured across buffer items)
+
+            last_flush: list[float] = [
+                time.monotonic()
+            ]  # mutable for nonlocal in nested fn; tracks last *successful* flush
+            last_attempt: list[float] = [
+                time.monotonic()
+            ]  # tracks last flush *attempt*; prevents retry cascade under event loop pressure
+
+            def _flush_batch() -> None:
+                """Flush accumulated tokens as a session_update (called from executor thread)."""
+                if not batch_buffer or not self._conn:
+                    return
+                batch_text = "".join(batch_buffer)
+                chunk = update_agent_message(text_block(batch_text))
+                future = asyncio.run_coroutine_threadsafe(
+                    self._conn.session_update(
+                        session_id=session_id,
+                        update=chunk,
+                        source="gptme-stream",
+                    ),
+                    loop,
+                )
+                try:
+                    # Timeout matches flush interval to bound worst-case stall per attempt
+                    future.result(timeout=FLUSH_INTERVAL)
+                    batch_buffer.clear()  # Only clear after confirmed successful send
+                    last_flush[0] = time.monotonic()  # Only advance timer on success
+                    last_attempt[0] = last_flush[
+                        0
+                    ]  # Sync attempt to flush time on success
+                except Exception:
+                    # Check if the coroutine completed just after the timeout deadline.
+                    # future.cancel() is a no-op on an already-completed task, so if the
+                    # send succeeded we clear the buffer to avoid duplicate delivery on retry.
+                    already_sent = (
+                        future.done()
+                        and not future.cancelled()
+                        and future.exception() is None
+                    )
+                    future.cancel()
+                    last_attempt[0] = (
+                        time.monotonic()
+                    )  # Throttle retry: enforce FLUSH_INTERVAL between attempts
+                    if already_sent:
+                        # Coroutine completed despite our timeout — safe to clear, no retry needed
+                        batch_buffer.clear()
+                        last_flush[0] = last_attempt[0]
+                    else:
+                        # Tokens weren't delivered — preserve buffer so final flush can retry
+                        # last_flush[0] is NOT updated, so time-based retry fires when event loop recovers
+                        logger.debug(
+                            "Failed to send streaming token batch", exc_info=True
+                        )
+
+            def on_token(token: str) -> None:
+                """Accumulate a token; flush if size/time threshold is reached."""
+                batch_buffer.append(token)
+                now = time.monotonic()
+                # last_flush[0] is intentionally not updated on failure, so the
+                # time-based trigger stays open after a failed flush.
+                # last_attempt[0] alone throttles retry cadence to FLUSH_INTERVAL.
+                if (
+                    sum(len(t) for t in batch_buffer) >= FLUSH_SIZE
+                    or (now - last_flush[0]) >= FLUSH_INTERVAL
+                ) and (now - last_attempt[0]) >= FLUSH_INTERVAL:
+                    _flush_batch()
+
             def run_chat_step() -> list[Message]:
-                """Run chat step synchronously."""
+                """Run chat step synchronously with per-token streaming."""
                 # Note: confirmation is now handled via the hook system
                 return list(
                     chat_step(
                         log=log.log,
-                        stream=False,
+                        stream=True,
                         tool_format="markdown",
                         model=effective_model,
+                        on_token=on_token,
                     )
                 )
 
@@ -1061,12 +1137,32 @@ class GptmeAgent:
             ctx = contextvars.copy_context()
             response_msgs = await loop.run_in_executor(None, ctx.run, run_chat_step)
 
+            # Final flush: send any remaining buffered tokens
+            if batch_buffer and self._conn:
+                batch_text = "".join(batch_buffer)
+                final_chunk = update_agent_message(text_block(batch_text))
+                await self._conn.session_update(
+                    session_id=session_id,
+                    update=final_chunk,
+                    source="gptme-stream",
+                )
+                batch_buffer.clear()  # Only clear after confirmed successful send
+
             # Phase 2: Mark all in-progress tool calls as completed
             await self._complete_pending_tool_calls(session_id)
 
-            # Stream each response message back
+            # Process response messages: add to log and forward non-assistant messages.
+            # Assistant messages were already streamed incrementally via on_token,
+            # so we skip re-sending their content to avoid duplicating the output.
+            # NOTE: Before this PR, tool-result messages were silently dropped (neither sent
+            # nor logged). Now they are forwarded via session_update so clients see tool output.
+            # This is intentional: clients receive one assistant-text stream + any tool results.
             for response_msg in response_msgs:
                 if response_msg.role == "assistant":
+                    # Tokens were already sent via on_token batching; just persist to log.
+                    log.append(response_msg)
+                else:
+                    # Tool results and other non-assistant messages: send via session_update.
                     content = gptme_message_to_acp_content(response_msg)
                     for block in content:
                         text = block.get("text", "")
@@ -1077,7 +1173,6 @@ class GptmeAgent:
                                 update=chunk,
                                 source="gptme",
                             )
-                    # Also add to log
                     log.append(response_msg)
 
             _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
@@ -1085,6 +1180,19 @@ class GptmeAgent:
 
         except Exception as e:
             logger.exception("Error processing prompt: %s", e)
+            # Best-effort flush of any buffered tokens before error message,
+            # so the client sees partial output before the error notification.
+            if batch_buffer and self._conn:
+                try:
+                    batch_text = "".join(batch_buffer)
+                    await self._conn.session_update(
+                        session_id=session_id,
+                        update=update_agent_message(text_block(batch_text)),
+                        source="gptme-stream",
+                    )
+                    batch_buffer.clear()  # Only clear after confirmed successful send
+                except Exception:
+                    logger.debug("Failed to flush token buffer on error", exc_info=True)
             # Phase 2: Mark tool calls as failed on error
             await self._complete_pending_tool_calls(session_id, success=False)
             # Send error message

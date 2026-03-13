@@ -435,7 +435,11 @@ def chat(
         if block.type == "text":
             parsed_block.append(block.text)
         elif block.type == "thinking":
-            parsed_block.append(f"<think>\n{block.thinking}\n</think>")
+            # Embed signature so it survives serialisation and can be passed
+            # back on the next API call (Anthropic requires it for multi-turn).
+            parsed_block.append(
+                f"<think>\n{block.thinking}\n<!-- think-sig: {block.signature} -->\n</think>"
+            )
         elif block.type == "tool_use":
             parsed_block.append(f"\n@{block.name}({block.id}): {block.input}")
         else:
@@ -456,6 +460,9 @@ def stream(
 
     # Variable to capture metadata from usage recording
     captured_metadata: MessageMetadata | None = None
+    # Track the signature for the current thinking block so it can be embedded
+    # in the output before </think> for round-trip preservation.
+    _current_block_signature: str | None = None
 
     if not _anthropic:
         raise RuntimeError("LLM not initialized")
@@ -547,8 +554,8 @@ def stream(
                         if delta.partial_json is not None:
                             yield delta.partial_json
                     elif isinstance(delta, anthropic.types.SignatureDelta):
-                        # delta.signature
-                        pass
+                        # Capture signature for embedding in the closing </think> tag.
+                        _current_block_signature = delta.signature
                     elif isinstance(delta, anthropic.types.CitationsDelta):
                         # Citation from web search results
                         if (
@@ -567,6 +574,11 @@ def stream(
                     elif isinstance(stop_block, anthropic.types.ToolUseBlock):
                         pass
                     elif isinstance(stop_block, anthropic.types.ThinkingBlock):
+                        # Embed the signature so it's preserved in message history
+                        # and can be passed back to the API on subsequent turns.
+                        if _current_block_signature:
+                            yield f"\n<!-- think-sig: {_current_block_signature} -->"
+                            _current_block_signature = None
                         yield "\n</think>\n\n"
                     elif isinstance(stop_block, anthropic.types.RedactedThinkingBlock):
                         yield "\n</think redacted>\n\n"
@@ -598,13 +610,21 @@ def stream(
     return captured_metadata
 
 
-def _extract_thinking_content(content: str | list) -> tuple[str, str]:
+def _extract_thinking_content(
+    content: str | list,
+) -> tuple[list[tuple[str, str]], str]:
     """Extract thinking content from <think>/<thinking> tags.
 
     Handles both string content and list of content blocks.
+    Also extracts the embedded ``<!-- think-sig: ... -->`` signature comment
+    that is injected by ``chat()`` and ``stream()`` to preserve the Anthropic
+    thinking-block signature across message serialisation.
 
     Returns:
-        Tuple of (thinking_content, remaining_content_without_tags)
+        Tuple of (thinking_blocks, remaining_content_without_tags) where
+        thinking_blocks is a list of (thinking_text, signature) per block
+        (signature is empty string if none was embedded), and
+        remaining_content_without_tags is the text with all thinking tags removed.
     """
     import re
 
@@ -621,7 +641,7 @@ def _extract_thinking_content(content: str | list) -> tuple[str, str]:
         text_content = content
 
     if not text_content:
-        return "", ""
+        return [], ""
 
     # Extract content from <think>...</think> and <thinking>...</thinking> blocks
     think_matches = re.findall(r"<think>(.*?)</think>", text_content, flags=re.DOTALL)
@@ -629,9 +649,17 @@ def _extract_thinking_content(content: str | list) -> tuple[str, str]:
         r"<thinking>(.*?)</thinking>", text_content, flags=re.DOTALL
     )
     all_thinking = think_matches + thinking_matches
-    thinking_content = (
-        "\n".join(t.strip() for t in all_thinking if t.strip()) if all_thinking else ""
-    )
+
+    # Extract the embedded signature comment and strip it from each block.
+    # Each block gets its own signature to support multiple thinking blocks.
+    sig_pattern = re.compile(r"\n<!-- think-sig: (.*?) -->", re.DOTALL)
+    thinking_blocks: list[tuple[str, str]] = []
+    for block in all_thinking:
+        sig_match = sig_pattern.search(block)
+        signature = sig_match.group(1).strip() if sig_match else ""
+        cleaned_block = sig_pattern.sub("", block).strip()
+        if cleaned_block:
+            thinking_blocks.append((cleaned_block, signature))
 
     # Remove <think> and <thinking> tags from content
     cleaned_content = re.sub(
@@ -642,7 +670,7 @@ def _extract_thinking_content(content: str | list) -> tuple[str, str]:
     )
     cleaned_content = cleaned_content.strip()
 
-    return thinking_content, cleaned_content
+    return thinking_blocks, cleaned_content
 
 
 def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
@@ -664,7 +692,7 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             original_content = message["content"]
 
             # Extract thinking content from <think> tags for proper Anthropic format
-            thinking_content, cleaned_content = _extract_thinking_content(
+            thinking_blocks, cleaned_content = _extract_thinking_content(
                 original_content
             )
 
@@ -676,9 +704,27 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             # Build content array in proper order: thinking first, then text, then tools
             final_content: list[dict] = []
 
-            # Add thinking block if present (must come first in Anthropic format)
-            if thinking_content:
-                final_content.append({"type": "thinking", "thinking": thinking_content})
+            # Add thinking blocks (must come first in Anthropic format).
+            # The Anthropic API requires the signature field for thinking blocks in
+            # multi-turn history; without it the request returns a 400 error.
+            # We embed each block's signature as a <!-- think-sig: ... --> comment in
+            # the serialised message content so it survives round-trips.
+            # Each block is emitted separately to preserve per-block signatures.
+            for thinking_text, thinking_signature in thinking_blocks:
+                if thinking_signature:
+                    final_content.append(
+                        {
+                            "type": "thinking",
+                            "thinking": thinking_text,
+                            "signature": thinking_signature,
+                        }
+                    )
+                else:
+                    # No signature available (legacy message or format mismatch).
+                    # Skip the thinking block to avoid an Anthropic API 400 error.
+                    logger.debug(
+                        "Skipping thinking block in history: no signature available"
+                    )
 
             # Add text content parts
             for part in content_parts:

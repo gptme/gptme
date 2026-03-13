@@ -394,3 +394,272 @@ class TestProcessImageFile:
         content_parts2: list[dict] = []
         result2 = process_image_file(str(img_file), content_parts2, max_size_mb=3)
         assert result2 is not None
+
+
+def test_reply_stream_on_token_callback(monkeypatch):
+    """on_token callback receives complete lines (not individual characters)."""
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+
+    # Mock _stream to yield known chunks
+    chunks_to_yield = ["Hello", ", ", "world!"]
+
+    def _fake_gen(chunks):
+        yield from chunks
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self.gen = _fake_gen(chunks)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks_to_yield),
+    )
+
+    collected: list[str] = []
+
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+        on_token=collected.append,
+    )
+
+    expected_text = "Hello, world!"
+    assert result.content == expected_text
+    assert "".join(collected) == expected_text
+    # on_token receives whole lines (or fragments without newline for the final partial line),
+    # not individual characters — fewer calls than chars.
+    assert len(collected) < len(expected_text)
+
+
+def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
+    """on_token receives only content up to the break_on_tooluse breakpoint."""
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools()
+
+    # Use ``shell`` lang tag (recognized by get_tool_for_langtag).
+    # streaming=True requires a blank line after closing ``` to confirm block closure.
+    tool_block = "```shell\necho hi\n```\n\n"
+    suffix = "This text should not be reached"
+
+    def _fake_gen(chunks):
+        yield from chunks
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self.gen = _fake_gen(chunks)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream([tool_block, suffix]),
+    )
+
+    collected: list[str] = []
+
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+        on_token=collected.append,
+        break_on_tooluse=True,
+    )
+
+    received_text = "".join(collected)
+    # on_token should only receive content up to (including) the newline that triggered break
+    assert received_text == tool_block
+    assert result.content == tool_block
+    # suffix was never streamed
+    assert suffix not in received_text
+    # on_token receives whole lines, so fewer calls than characters
+    assert len(collected) < len(tool_block)
+
+
+def test_reply_stream_on_token_thinking_tag_suppressed(monkeypatch):
+    """on_token must not receive thinking-tag lines or their content.
+
+    Reasoning traces appear as ``<think>\\n...\\n</think>`` blocks in the raw
+    stream.  ACP clients should receive only the final answer text, not the
+    raw reasoning.  Critically, even the opening ``<think>`` tag must be
+    suppressed — previous code would forward it to on_token before
+    ``are_thinking`` could flip at the trailing newline.
+    """
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+
+    # Model emits a thinking block followed by the actual answer.
+    # Each element in the list is one "chunk" from the provider.
+    # Use the *real* Anthropic closing sequence "\n</think>\n\n" (double newline)
+    # to exercise the post-close blank-line suppression fix.
+    chunks = [
+        "<think>\n",
+        "some private reasoning\n",
+        "\n</think>\n\n",
+        "Hello, world!",
+    ]
+    full_text = "".join(chunks)
+
+    def _fake_gen(c):
+        yield from c
+
+    class _FakeStream:
+        def __init__(self, c):
+            self.gen = _fake_gen(c)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks),
+    )
+
+    collected: list[str] = []
+
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+        on_token=collected.append,
+    )
+
+    received_text = "".join(collected)
+
+    # The persistent log must contain the full text (including thinking block).
+    assert result.content == full_text
+
+    # on_token must only receive the final answer — no thinking content.
+    assert received_text == "Hello, world!"
+
+    # Specifically: opening tag must NOT appear (was the root cause of the bug).
+    assert "<think>" not in received_text
+    assert "</think>" not in received_text
+    assert "some private reasoning" not in received_text
+
+    # The trailing blank "\n" from "\n</think>\n\n" must not leak as a leading
+    # newline before the answer.  (Without the `and line_buffer` guard, callers
+    # would receive "\nHello, world!" instead of "Hello, world!".)
+    assert not received_text.startswith("\n")
+
+
+def test_extract_thinking_content_with_signature():
+    """_extract_thinking_content must parse embedded think-sig comments."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    sig = "abc123XYZ=="
+    content = (
+        f"<think>\nsome reasoning\n<!-- think-sig: {sig} -->\n</think>\nAnswer here."
+    )
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert len(blocks) == 1
+    thinking, signature = blocks[0]
+    assert thinking == "some reasoning"
+    assert "Answer here." in cleaned
+    assert "<think>" not in cleaned
+    assert signature == sig
+    # Signature comment must not appear in thinking content
+    assert "think-sig" not in thinking
+
+
+def test_extract_thinking_content_no_signature():
+    """_extract_thinking_content returns empty signature when none embedded."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = "<think>\nsome reasoning\n</think>\nAnswer."
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert len(blocks) == 1
+    thinking, signature = blocks[0]
+    assert thinking == "some reasoning"
+    assert signature == ""
+
+
+def test_extract_thinking_content_multi_block():
+    """_extract_thinking_content preserves per-block signatures for multiple blocks."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    sig1 = "firstSig=="
+    sig2 = "secondSig=="
+    content = (
+        f"<think>\nfirst reasoning\n<!-- think-sig: {sig1} -->\n</think>\n"
+        f"<think>\nsecond reasoning\n<!-- think-sig: {sig2} -->\n</think>\n"
+        "Answer here."
+    )
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert len(blocks) == 2
+    assert blocks[0] == ("first reasoning", sig1)
+    assert blocks[1] == ("second reasoning", sig2)
+    assert "Answer here." in cleaned
+    assert "<think>" not in cleaned
+
+
+def test_handle_tools_thinking_with_signature():
+    """_handle_tools must include thinking block with signature when available."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+
+    # Use a tool-format tool call so _handle_tools converts content to a list.
+    sig = "testSignature=="
+    tool_call = '@save(call-1): {"path": "hello.py", "content": "print()"}'
+    messages = [
+        {
+            "role": "assistant",
+            "content": f"<think>\nI think...\n<!-- think-sig: {sig} -->\n</think>\n{tool_call}",
+        }
+    ]
+
+    result = list(_handle_tools(messages))
+    assert len(result) == 1
+    content = result[0]["content"]
+    assert isinstance(content, list)
+
+    thinking_blocks = [b for b in content if b.get("type") == "thinking"]
+    assert len(thinking_blocks) == 1
+    assert thinking_blocks[0]["thinking"] == "I think..."
+    assert thinking_blocks[0]["signature"] == sig
+
+
+def test_handle_tools_thinking_without_signature_skipped():
+    """_handle_tools must skip thinking blocks that lack a signature."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+
+    tool_call = '@save(call-1): {"path": "hello.py", "content": "print()"}'
+    messages = [
+        {
+            "role": "assistant",
+            "content": f"<think>\nI think...\n</think>\n{tool_call}",
+        }
+    ]
+
+    result = list(_handle_tools(messages))
+    assert len(result) == 1
+    content = result[0]["content"]
+    assert isinstance(content, list)
+
+    thinking_blocks = [b for b in content if b.get("type") == "thinking"]
+    assert len(thinking_blocks) == 0
+    # Tool use must still be present
+    tool_blocks = [b for b in content if b.get("type") == "tool_use"]
+    assert len(tool_blocks) >= 1

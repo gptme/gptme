@@ -45,8 +45,14 @@ new Vue({
 
     // Conversations limit
     conversationsLimit: 20,
+
+    // Agent URLs from gptme.toml [agent.urls] (dashboard, repo, etc.)
+    agentUrls: {},
   },
   async mounted() {
+    // Load agent config (urls from gptme.toml [agent.urls])
+    this.loadAgentConfig();
+
     // Check for embedded data first
     if (window.CHAT_DATA) {
       this.conversations = [
@@ -137,6 +143,30 @@ new Vue({
     },
   },
   methods: {
+    safeUrl(url) {
+      // Only allow http/https to prevent javascript: XSS in Vue 2 :href bindings
+      return /^https?:\/\//i.test(url) ? url : '#';
+    },
+    async loadAgentConfig() {
+      try {
+        const res = await fetch("/api/config");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.agent && data.agent.urls) {
+          // Filter to only http/https URLs before assigning — prevents non-conforming
+          // entries from rendering as broken '#' links and the header from showing
+          // when every URL is invalid.
+          const filtered = {};
+          for (const [key, url] of Object.entries(data.agent.urls)) {
+            if (/^https?:\/\//i.test(url)) filtered[key] = url;
+          }
+          this.agentUrls = filtered;
+        }
+      } catch (e) {
+        // Non-critical: silently ignore if endpoint unavailable
+        console.debug("Could not load agent config:", e);
+      }
+    },
     async getConversations() {
       const res = await fetch(`${apiRoot}?limit=${this.conversationsLimit}`);
       this.conversations = await res.json();

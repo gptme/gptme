@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 import time
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import cast
@@ -94,6 +94,7 @@ def reply(
     tools: list[ToolSpec] | None = None,
     workspace: Path | None = None,
     output_schema: type | None = None,
+    on_token: Callable[[str], None] | None = None,
 ) -> Message:
     # Trigger GENERATION_PRE hooks and collect context messages
     from ..hooks import HookType, trigger_hook
@@ -112,6 +113,8 @@ def reply(
     init_llm(get_provider_from_model(model))
     config = get_config()
     agent_name = _get_agent_name(config)
+    if on_token is not None and not stream:
+        logger.warning("on_token callback has no effect when stream=False; ignoring")
     if stream:
         break_on_tooluse = bool(config.get_env_bool("GPTME_BREAK_ON_TOOLUSE", True))
         return _reply_stream(
@@ -121,6 +124,7 @@ def reply(
             break_on_tooluse,
             agent_name=agent_name,
             output_schema=output_schema,
+            on_token=on_token,
         )
     rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
     response, metadata = _chat_complete(
@@ -242,6 +246,7 @@ def _reply_stream(
     break_on_tooluse: bool = True,
     agent_name: str | None = None,
     output_schema: type | None = None,
+    on_token: Callable[[str], None] | None = None,
 ) -> Message:
     rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
 
@@ -253,6 +258,13 @@ def _reply_stream(
     start_time = time.time()
     first_token_time = None
     are_thinking = False
+    # Set to True when we detect a closing </think> tag so we can suppress the
+    # one trailing blank "\n" that Anthropic always emits after </think>.
+    just_closed_thinking = False
+    # Buffer chars for the current line before forwarding to on_token.
+    # Thinking-tag lines are only detectable at the '\n' that closes them, so we
+    # must buffer the entire line and then decide whether to emit or suppress it.
+    line_buffer: list[str] = []
 
     # Create stream wrapper to capture metadata
     stream = _stream(messages, model, tools, output_schema=output_schema)
@@ -263,6 +275,10 @@ def _reply_stream(
                 first_token_time = time.time()
                 print_clear()
                 rprint(f"{prompt_assistant(agent_name)}: \n", end="")
+
+            # Capture thinking state before the tag-detection update below so
+            # we can tell whether a transition happened at this newline.
+            prev_thinking = are_thinking
 
             # Check for thinking tags before printing a newline
             if char == "\n" or not output:
@@ -284,6 +300,7 @@ def _reply_stream(
                     # Print styled version
                     rprint(f"[dim]{last_line}[/dim]", end="")
                     are_thinking = False
+                    just_closed_thinking = True
 
                 # Now print the newline
                 rprint(char, end="")
@@ -296,6 +313,41 @@ def _reply_stream(
 
             assert len(char) == 1
             output += char
+
+            # Fire token callback (used by ACP path for incremental streaming).
+            # We buffer each line and only flush to on_token once we confirm the
+            # line is not a thinking-tag delimiter.  This prevents the opening
+            # <think> tag characters from leaking to callers before are_thinking
+            # flips at the trailing '\n'.
+            if on_token:
+                if char == "\n":
+                    # A thinking-tag transition happened on this newline when
+                    # are_thinking != prev_thinking.  In that case discard the
+                    # buffer (tag line itself should not reach the caller).
+                    if not are_thinking and not prev_thinking:
+                        if line_buffer:
+                            # Normal line — emit the whole line as one chunk.
+                            on_token("".join(line_buffer) + "\n")
+                        elif just_closed_thinking:
+                            # Suppress the one blank "\n" that Anthropic always
+                            # emits after "\n</think>\n\n".  Without this guard
+                            # ACP clients would receive a spurious leading "\n"
+                            # before the first real response character.
+                            pass
+                        else:
+                            # Intentional blank line in response content.
+                            on_token("\n")
+                        # Only reset here (inside the normal-line branch), NOT on
+                        # the "\n" that triggered the </think> detection — that "\n"
+                        # has prev_thinking=True so it skips this block entirely,
+                        # keeping just_closed_thinking set for the NEXT newline.
+                        just_closed_thinking = False
+                    line_buffer.clear()
+                elif not are_thinking:
+                    # Accumulate non-newline chars; we don't yet know if this
+                    # line will turn out to be a thinking-tag opener.
+                    line_buffer.append(char)
+                # else: are_thinking is True — skip thinking content
 
             # need to flush stdout to get the print to show up
             sys.stdout.flush()
@@ -315,10 +367,23 @@ def _reply_stream(
                     logger.debug("Found tool use, breaking")
                     break
 
+        # Flush any remaining buffered chars (responses that end without a
+        # trailing newline, or partial lines left after a break_on_tooluse break).
+        if on_token and line_buffer and not are_thinking:
+            on_token("".join(line_buffer))
+            line_buffer.clear()
+
     except KeyboardInterrupt:
-        return Message(
-            "assistant", output + "... ^C Interrupted", metadata=stream.metadata
-        )
+        # Flush partial line before the interrupt suffix so callers see the
+        # content that was streamed up to the interrupt point.
+        if on_token and line_buffer:
+            on_token("".join(line_buffer))
+            line_buffer.clear()
+        suffix = "... ^C Interrupted"
+        if on_token:
+            # Emit as one chunk; ACP batching callback handles downstream chunking.
+            on_token(suffix)
+        return Message("assistant", output + suffix, metadata=stream.metadata)
     finally:
         # Explicitly close the underlying generator to release resources
         # This handles all exit paths: normal completion, KeyboardInterrupt, and tool break

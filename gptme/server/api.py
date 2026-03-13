@@ -73,6 +73,40 @@ def api_root():
     return flask.jsonify({"message": "Hello World!"})
 
 
+@api.route("/api/config")
+@api_doc()
+def api_config():
+    """Agent configuration endpoint.
+
+    Returns workspace agent configuration including named URLs (dashboard, repo, etc.)
+    configured in ``gptme.toml`` under ``[agent.urls]``.
+
+    Clients can use the ``dashboard`` URL to link to or embed the agent's dashboard.
+
+    Response schema::
+
+        {
+          "agent": {
+            "name": "bob",               // agent name from gptme.toml [agent] name
+            "urls": {                     // from [agent.urls] section (may be empty)
+              "dashboard": "https://...", // static dashboard URL (gh-pages)
+              "dashboard-api": "https://..." // live dashboard API URL (optional)
+            }
+          }
+        }
+    """
+    config = get_config()
+    agent = config.project.agent if config.project else None
+
+    agent_info: dict = {}
+    if agent:
+        agent_info["name"] = agent.name
+        if agent.urls:
+            agent_info["urls"] = agent.urls
+
+    return flask.jsonify({"agent": agent_info})
+
+
 @api.route("/api/conversations")
 @api_doc_simple(
     responses={200: ConversationListResponse},
