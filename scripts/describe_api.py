@@ -16,7 +16,8 @@ def main(filenames: list[str]) -> None:
 
     print("Here are API descriptions of the files:")
     for filename in filenames:
-        code = open(filename).read()
+        with open(filename) as f:
+            code = f.read()
         print(f"\n```{filename}\n{describe_api(code).strip()}\n```")
 
 

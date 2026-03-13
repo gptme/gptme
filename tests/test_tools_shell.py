@@ -811,7 +811,7 @@ try:
     devnull_stat = os.stat('/dev/null')
     is_devnull = (stdin_stat.st_dev == devnull_stat.st_dev and
                   stdin_stat.st_ino == devnull_stat.st_ino)
-except:
+except (OSError, AttributeError, ValueError):
     is_devnull = False
 
 if not is_devnull and not sys.stdin.isatty():
@@ -861,7 +861,7 @@ try:
     devnull_stat = os.stat('/dev/null')
     is_devnull = (stdin_stat.st_dev == devnull_stat.st_dev and
                   stdin_stat.st_ino == devnull_stat.st_ino)
-except:
+except (OSError, AttributeError, ValueError):
     is_devnull = False
 
 if not is_devnull and not sys.stdin.isatty():
