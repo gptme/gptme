@@ -56,6 +56,7 @@ def test_get_github_pr_content_real():
 
     if content is None:
         pytest.skip("gh CLI not available or request failed")
+    assert content is not None  # help mypy narrow type after skip
 
     # Should have basic PR info
     assert "feat: implement basic lesson system" in content
@@ -79,6 +80,7 @@ def test_get_github_pr_with_suggestions():
 
     if content is None:
         pytest.skip("gh CLI not available or request failed")
+    assert content is not None  # help mypy narrow type after skip
 
     # PR #687 has a suggestion from ellipsis-dev about using logger.exception
     if "```suggestion" in content or "Suggested change:" in content:
@@ -97,6 +99,7 @@ def test_gh_tool_read_pr():
     gh_tool = get_tool("gh")
     if gh_tool is None or gh_tool.execute is None:
         pytest.skip("gh tool not available")
+    assert gh_tool is not None and gh_tool.execute is not None
 
     # Test with a real PR
     result = gh_tool.execute(
@@ -136,6 +139,7 @@ def test_get_github_pr_content_with_unresolved():
 
     if content is None:
         pytest.skip("gh CLI not available or request failed")
+    assert content is not None  # help mypy narrow type after skip
 
     # Should have basic PR info
     assert "gptme-util" in content or "prompts" in content
@@ -156,6 +160,7 @@ def test_gh_tool_read_pr_invalid_url():
     gh_tool = get_tool("gh")
     if gh_tool is None or gh_tool.execute is None:
         pytest.skip("gh tool not available")
+    assert gh_tool is not None and gh_tool.execute is not None
 
     # Test with invalid URL
     result = gh_tool.execute(

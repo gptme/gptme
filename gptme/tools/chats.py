@@ -177,7 +177,7 @@ def _format_message_with_context(
         highlighted = f"{prefix}{context}{suffix}"
         highlighted = re.sub(
             re.escape(query),
-            lambda m: f"\033[1;31m{m.group(0)}\033[0m",
+            lambda m: "\033[1;31m" + str(m.group()) + "\033[0m",
             highlighted,
             flags=re.IGNORECASE,
         )
