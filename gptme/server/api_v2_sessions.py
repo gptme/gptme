@@ -516,6 +516,7 @@ async def _acp_step(
     assert session.acp_runtime is not None, (
         "acp_runtime must be set before calling _acp_step"
     )
+    acp_runtime = session.acp_runtime  # snapshot to avoid TOCTOU races
 
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
@@ -585,7 +586,7 @@ async def _acp_step(
                     {"type": "generation_progress", "token": token},
                 )
 
-    session.acp_runtime.set_on_update(_on_acp_update)
+    acp_runtime.set_on_update(_on_acp_update)
 
     try:
         final_msg: Message | None = None
@@ -594,7 +595,7 @@ async def _acp_step(
             pending_user_messages,
             start=next_user_index,
         ):
-            text, _raw = await session.acp_runtime.prompt(user_msg.content)
+            text, _raw = await acp_runtime.prompt(user_msg.content)
             final_text = "".join(stream_tokens) if stream_tokens else text
             stream_tokens.clear()
             msg = Message("assistant", final_text)
@@ -631,8 +632,7 @@ async def _acp_step(
         logger.exception("Error during ACP step: %s", e)
         SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
     finally:
-        if session.acp_runtime is not None:
-            session.acp_runtime.set_on_update(None)
+        acp_runtime.set_on_update(None)
         session.generating = False
 
 
