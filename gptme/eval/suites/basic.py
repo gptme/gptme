@@ -355,8 +355,8 @@ def check_implement_class_tests_pass(ctx):
 
 
 def check_implement_class_no_failures(ctx):
-    """No test failures and tests actually ran."""
-    return "FAILED" not in ctx.stdout and "passed" in ctx.stdout
+    """No test failures and tests actually ran (exit_code guards against error-only pytest runs)."""
+    return ctx.exit_code == 0 and "FAILED" not in ctx.stdout and "passed" in ctx.stdout
 
 
 # --- optimize-performance checks ---
