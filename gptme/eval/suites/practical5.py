@@ -37,13 +37,19 @@ def check_refactor_main(ctx):
 
 
 def check_refactor_tests(ctx):
-    """test_utils.py should reference calculate_total, not calc_total."""
+    """test_utils.py should import and call calculate_total, not calc_total.
+
+    Test function names (e.g. test_calc_total_simple) are out of scope per the prompt
+    ("function definition, all imports, and all call sites"), so we only check that
+    the import and call sites are updated.
+    """
     content = ctx.files.get("test_utils.py", "")
     if isinstance(content, bytes):
         content = content.decode()
     has_new = "calculate_total" in content
-    no_old = "calc_total" not in content
-    return has_new and no_old
+    no_old_import = "import calc_total" not in content
+    no_old_calls = "calc_total(" not in content
+    return has_new and no_old_import and no_old_calls
 
 
 def check_refactor_output(ctx):
@@ -65,7 +71,7 @@ def check_pipeline_file(ctx):
 
 
 def check_pipeline_count(ctx):
-    """Output should show 3 senior employees (age >= 30 with 5+ years)."""
+    """Output should show 3 filtered employees (age >= 30 with 5+ years)."""
     return bool(re.search(r"\b3\b", ctx.stdout))
 
 
@@ -75,9 +81,9 @@ def check_pipeline_total_salary(ctx):
 
 
 def check_pipeline_avg_experience(ctx):
-    """Average experience of seniors: (8 + 12 + 15) / 3 = 11.67 (or 11.7)."""
-    # Accept various reasonable roundings
-    return bool(re.search(r"11\.6[67]", ctx.stdout))
+    """Average experience of seniors: (8 + 12 + 15) / 3 = 11.667 (or 11.7)."""
+    # Accept various reasonable roundings: 11.7, 11.67, 11.667, 11.6667, ...
+    return bool(re.search(r"11\.(?:6[67]\d*|7\b)", ctx.stdout))
 
 
 def check_pipeline_exit(ctx):
@@ -239,7 +245,7 @@ tests: list["EvalSpec"] = [
             "of the filtered employees\n\n"
             "The script should accept the filename as a command-line argument.\n"
             "Print output in this format:\n"
-            "Senior employees: <count>\n"
+            "Filtered employees: <count>\n"
             "Total salary: <amount>\n"
             "Avg experience: <value> years"
         ),
