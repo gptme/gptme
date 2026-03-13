@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f66d94ac4a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f377ca571a0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -835,40 +835,40 @@ to append the code block content to the file at the given path.
 To read more pages, use: <span class="sb">`read_url(&#39;...&#39;, max_pages=N)`</span> where N is the desired count, or 0 for all pages.
 
 <span class="gs">**Tip**</span>: If this text extraction seems incomplete or garbled (common with scanned documents, complex layouts, or image-heavy PDFs), try vision-based reading: convert pages to images using a PDF-to-image tool, then use the vision tool to analyze them.
-<span class="sb">```</span>
-<span class="sb">&gt; Assistant: I&#39;ve extracted the text from the PDF. The paper discusses [summary of key points]...</span>
+````
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ve extracted the text from the PDF. The paper discusses [summary of key points]...</span>
 
-<span class="sb">## chats</span>
+<span class="gu">## chats</span>
 
-<span class="sb">**Description:** List, search, and summarize past conversation logs</span>
+<span class="gs">**Description:**</span> List, search, and summarize past conversation logs
 
-<span class="sb">**Instructions:** The following Python functions are available using the `ipython` tool:</span>
+<span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="sb">list_chats(max_results: int, include_summary: bool):</span>
-<span class="sb">    List recent chat conversations and optionally summarize them using an LLM.</span>
+<span class="s">list_chats(max_results: int, include_summary: bool):</span>
+<span class="s">    List recent chat conversations and optionally summarize them using an LLM.</span>
 
-<span class="sb">    Args:</span>
-<span class="sb">        max_results (int): Maximum number of conversations to display.</span>
-<span class="sb">        include_summary (bool): Whether to include a summary of each conversation.</span>
-<span class="sb">            If True, uses an LLM to generate a comprehensive summary.</span>
-<span class="sb">            If False, uses a simple strategy showing snippets of the first and last messages.</span>
+<span class="s">    Args:</span>
+<span class="s">        max_results (int): Maximum number of conversations to display.</span>
+<span class="s">        include_summary (bool): Whether to include a summary of each conversation.</span>
+<span class="s">            If True, uses an LLM to generate a comprehensive summary.</span>
+<span class="s">            If False, uses a simple strategy showing snippets of the first and last messages.</span>
 
-<span class="sb">search_chats(query: str, max_results: int, sort: Literal[&quot;date&quot;, &quot;count&quot;]):</span>
-<span class="sb">    Search past conversation logs for the given query and print a summary of the results.</span>
+<span class="s">search_chats(query: str, max_results: int, sort: Literal[&quot;date&quot;, &quot;count&quot;]):</span>
+<span class="s">    Search past conversation logs for the given query and print a summary of the results.</span>
 
-<span class="sb">    Args:</span>
-<span class="sb">        query (str): The search query.</span>
-<span class="sb">        max_results (int): Maximum number of conversations to display.</span>
-<span class="sb">        system (bool): Whether to include system messages in the search.</span>
+<span class="s">    Args:</span>
+<span class="s">        query (str): The search query.</span>
+<span class="s">        max_results (int): Maximum number of conversations to display.</span>
+<span class="s">        system (bool): Whether to include system messages in the search.</span>
 
-<span class="sb">read_chat(id: str, max_results: int):</span>
-<span class="sb">    Read a specific conversation log.</span>
+<span class="s">read_chat(id: str, max_results: int):</span>
+<span class="s">    Read a specific conversation log.</span>
 
-<span class="sb">    Args:</span>
-<span class="sb">        id (str): The id of the conversation to read.</span>
-<span class="sb">        max_results (int): Maximum number of messages to display.</span>
-<span class="sb">        incl_system (bool): Whether to include system messages.</span>
+<span class="s">    Args:</span>
+<span class="s">        id (str): The id of the conversation to read.</span>
+<span class="s">        max_results (int): Maximum number of messages to display.</span>
+<span class="s">        incl_system (bool): Whether to include system messages.</span>
 
 <span class="sb">```</span>
 
@@ -1601,14 +1601,14 @@ npm<span class="w"> </span>init<span class="w"> </span>vue@latest<span class="w"
 Vue.js - The Progressive JavaScript Framework
 
 Scaffolding project in ./fancy-project...
-<span class="sb">```</span>
+````
 
-<span class="sb">#### Proper quoting for complex content</span>
+<span class="gu">#### Proper quoting for complex content</span>
 
-<span class="sb">&gt; User: add a comment with backticks and special characters</span>
-<span class="sb">&gt; Assistant: When passing complex content with special characters, use single quotes to prevent shell interpretation:</span>
+<span class="k">&gt; </span><span class="ge">User: add a comment with backticks and special characters</span>
+<span class="k">&gt; </span><span class="ge">Assistant: When passing complex content with special characters, use single quotes to prevent shell interpretation:</span>
 <span class="sb">```shell</span>
-<span class="sb">echo &#39;Content with `backticks` and $variables that should not be interpreted&#39; &gt; example.txt</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;Content with `backticks` and $variables that should not be interpreted&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>example.txt
 <span class="sb">```</span>
 
 <span class="gu">#### Background jobs for long-running commands</span>
@@ -2192,7 +2192,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11951</p>
+<p>Tokens: 11953</p>
 </dd></dl>
 
 <dl class="py function">
