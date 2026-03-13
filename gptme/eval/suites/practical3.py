@@ -91,7 +91,7 @@ def check_notes_after_delete(ctx):
 
 tests: list["EvalSpec"] = [
     {
-        "name": "write-tests",
+        "name": "write-calculator-tests",
         "files": {
             "calculator.py": (
                 "def add(a, b):\n"
