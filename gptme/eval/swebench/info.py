@@ -56,4 +56,5 @@ class SWEBenchInfo:
         log_dir = Path(log_dir)
         swe_bench_info_file = log_dir / "swe_bench_info.json"
         swe_bench_info_file.parent.mkdir(parents=True, exist_ok=True)
-        json.dump(self.to_dict(), swe_bench_info_file.open("w"), indent=2)
+        with swe_bench_info_file.open("w") as f:
+            json.dump(self.to_dict(), f, indent=2)
