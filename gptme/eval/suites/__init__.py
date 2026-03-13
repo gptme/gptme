@@ -20,6 +20,19 @@ suites: dict[str, list[EvalSpec]] = {
 }
 
 tests: list[EvalSpec] = [test for suite in suites.values() for test in suite]
+
+# Guard against duplicate test names (silently shadowed by dict comprehension)
+_seen_names: dict[str, str] = {}
+for _suite_name, _suite_tests in suites.items():
+    for _test in _suite_tests:
+        _name = _test["name"]
+        if _name in _seen_names:
+            raise ValueError(
+                f"Duplicate eval test name '{_name}' in suite '{_suite_name}' "
+                f"(already defined in '{_seen_names[_name]}')"
+            )
+        _seen_names[_name] = _suite_name
+
 tests_map: dict[str, EvalSpec] = {test["name"]: test for test in tests}
 
 tests_default_ids: list[str] = [

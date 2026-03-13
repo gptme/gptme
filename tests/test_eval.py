@@ -7,6 +7,31 @@ from gptme.config import get_config
 from gptme.eval import execute, tests
 from gptme.eval.agents import GPTMe
 from gptme.eval.main import main
+from gptme.eval.suites import suites, tests_map
+
+
+def test_no_duplicate_test_names():
+    """Ensure all eval test names are unique across suites.
+
+    Duplicate names cause silent shadowing in tests_map (dict comprehension).
+    See: cce683d25 which fixed a 'write-tests' name collision.
+    """
+    seen: dict[str, str] = {}
+    for suite_name, suite_tests in suites.items():
+        for test in suite_tests:
+            name = test["name"]
+            assert name not in seen, (
+                f"Duplicate test name '{name}' in suite '{suite_name}' "
+                f"(already in '{seen[name]}')"
+            )
+            seen[name] = suite_name
+
+    # Verify tests_map has all tests (no shadowing occurred)
+    total_tests = sum(len(t) for t in suites.values())
+    assert len(tests_map) == total_tests, (
+        f"tests_map has {len(tests_map)} entries but {total_tests} tests exist "
+        f"— some names are duplicated and being shadowed"
+    )
 
 
 def _detect_model():
