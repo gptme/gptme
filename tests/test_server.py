@@ -1,3 +1,4 @@
+import copy
 import random
 
 import pytest
@@ -28,6 +29,63 @@ def test_api_root(client: FlaskClient):
     response = client.get("/api")
     assert response.status_code == 200
     assert response.get_json() == {"message": "Hello World!"}
+
+
+def test_api_config_no_project(client: FlaskClient, monkeypatch):
+    """GET /api/config returns empty agent dict when no gptme.toml is present."""
+    import gptme.server.api as api_module
+    from gptme.config import get_config as original_get_config
+
+    def mock_get_config_no_project():
+        cfg = copy.copy(original_get_config())
+        cfg.project = None
+        return cfg
+
+    monkeypatch.setattr(api_module, "get_config", mock_get_config_no_project)
+
+    response = client.get("/api/config")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "agent" in data
+    # Without a workspace gptme.toml, agent info is empty
+    assert data["agent"] == {}
+
+
+def test_api_config_with_agent_urls(tmp_path, client: FlaskClient, monkeypatch):
+    """GET /api/config includes agent.urls when gptme.toml has [agent.urls]."""
+
+    from gptme.config import get_project_config
+
+    toml_content = """
+[agent]
+name = "testbot"
+
+[agent.urls]
+dashboard = "https://testbot.example.com/"
+repo = "https://github.com/example/testbot"
+"""
+    toml_file = tmp_path / "gptme.toml"
+    toml_file.write_text(toml_content)
+
+    # Monkeypatch the get_config reference inside api.py — api.py uses
+    # `from ..config import get_config` (direct import), so we must patch
+    # the name in that module's namespace, not in gptme.config.
+    import gptme.server.api as api_module
+    from gptme.config import get_config as original_get_config
+
+    def mock_get_config():
+        cfg = copy.copy(original_get_config())
+        cfg.project = get_project_config(tmp_path)
+        return cfg
+
+    monkeypatch.setattr(api_module, "get_config", mock_get_config)
+
+    response = client.get("/api/config")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["agent"]["name"] == "testbot"
+    assert data["agent"]["urls"]["dashboard"] == "https://testbot.example.com/"
+    assert data["agent"]["urls"]["repo"] == "https://github.com/example/testbot"
 
 
 def test_api_conversation_list(client: FlaskClient):

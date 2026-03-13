@@ -8,6 +8,7 @@ new test dependency.
 """
 
 import asyncio
+import builtins
 import threading
 from unittest.mock import AsyncMock, MagicMock
 
@@ -1389,6 +1390,52 @@ class TestCwdSessionId:
         assert len(sid) == len("acp-") + 8
         hash_part = sid[len("acp-") :]
         assert all(c in "0123456789abcdef" for c in hash_part)
+
+
+class TestPromptErrorHandling:
+    """Regression tests for prompt() error-path robustness."""
+
+    def test_prompt_preserves_original_import_error(self, monkeypatch):
+        """Early import failure should not be shadowed by unbound batch_buffer."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        agent = GptmeAgent()
+        agent._conn = MagicMock()
+        agent._conn.session_update = AsyncMock()
+        agent._session_commands_advertised.add("s1")
+
+        # Minimal in-memory session with log so prompt() can proceed to chat import.
+        log = _make_mock_log()
+        agent._registry.create("s1", log=log)
+
+        original_import = builtins.__import__
+
+        def _failing_import(name, globals=None, locals=None, fromlist=(), level=0):
+            # Match both absolute (name="gptme.chat") and relative (name="chat", level>=1)
+            # forms of `from [..]chat import step` since CPython uses the relative form
+            # when the import statement itself is a relative import.
+            is_chat_step = "step" in (fromlist or ()) and (
+                name == "gptme.chat" or (name == "chat" and level >= 1)
+            )
+            if is_chat_step:
+                raise ImportError("boom chat import")
+            return original_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", _failing_import)
+
+        result = _run(
+            agent.prompt(
+                prompt=[{"type": "text", "text": "hello"}],
+                session_id="s1",
+            )
+        )
+
+        assert result.stop_reason == "cancelled"
+        assert agent._conn.session_update.await_count >= 1
+        error_call = agent._conn.session_update.await_args_list[-1]
+        update = error_call.kwargs.get("update")
+        assert "boom chat import" in str(update)
 
 
 class TestNewSessionResume:
