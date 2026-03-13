@@ -1216,13 +1216,18 @@ def api_conversation_step(conversation_id: str):
             }
         ), 400
 
+    # Snapshot acp_runtime to avoid TOCTOU races: concurrent cleanup threads
+    # (e.g. _cleanup_stale_acp_sessions) can set session.acp_runtime = None
+    # between the check and the use.
+    acp_runtime = session.acp_runtime if session.use_acp else None
+
     # If ACP mode is active, keep session runtime model aligned with the
     # resolved request/config/default model whenever available.
-    if session.use_acp and model and session.acp_runtime is not None:
-        session.acp_runtime.model = model
+    if acp_runtime is not None and model:
+        acp_runtime.model = model
 
     # Route through ACP subprocess if the session has opted in
-    if session.use_acp and session.acp_runtime is not None:
+    if acp_runtime is not None:
         _start_acp_step_thread(
             conversation_id=conversation_id,
             session=session,
