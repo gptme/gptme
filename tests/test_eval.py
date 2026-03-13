@@ -13,6 +13,11 @@ from gptme.eval.suites import suites, tests_map
 def test_no_duplicate_test_names():
     """Ensure all eval test names are unique across suites.
 
+    Note: gptme.eval.suites raises ValueError at import time if a duplicate
+    exists, so if this module imports successfully the runtime guard has already
+    passed. This test is retained as explicit documentation and a structural
+    fallback in case the runtime guard is ever removed.
+
     Duplicate names cause silent shadowing in tests_map (dict comprehension).
     See: cce683d25 which fixed a 'write-tests' name collision.
     """
