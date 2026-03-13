@@ -1,6 +1,13 @@
 import pytest
 
-from gptme.prompts import prompt_tools
+from gptme.prompts import (
+    _xml_section,
+    prompt_gptme,
+    prompt_systeminfo,
+    prompt_timeinfo,
+    prompt_tools,
+    prompt_user,
+)
 from gptme.tools import ToolFormat, clear_tools, init_tools
 
 
@@ -161,3 +168,137 @@ def test_prompt_tools_reasoning_model_respects_explicit_no_examples():
         prompt_tools(tools, "tool", examples=False, model="openai/o3")
     ).content
     assert "### Examples" not in prompt
+
+
+# --- Tests for XML-sectioned system prompt sections ---
+
+
+def test_xml_section_helper():
+    """_xml_section wraps content in the given tag."""
+    result = _xml_section("role", "Hello world")
+    assert result == "<role>\nHello world\n</role>"
+
+
+def test_xml_section_strips_whitespace():
+    """_xml_section strips leading/trailing whitespace from content."""
+    result = _xml_section("tag", "  padded  \n")
+    assert result == "<tag>\npadded\n</tag>"
+
+
+def test_prompt_gptme_markdown_default():
+    """Default (markdown) prompt_gptme should NOT contain XML role tags."""
+    msgs = list(prompt_gptme(interactive=True))
+    content = msgs[0].content
+    assert "<role>" not in content
+    assert "</role>" not in content
+    assert "You are" in content
+
+
+def test_prompt_gptme_xml_wraps_in_role():
+    """XML format prompt_gptme should wrap content in <role> tags."""
+    msgs = list(prompt_gptme(interactive=True, tool_format="xml"))
+    content = msgs[0].content
+    assert content.startswith("<role>")
+    assert content.endswith("</role>")
+    assert "You are" in content
+
+
+def test_prompt_gptme_xml_interactive_vs_non_interactive():
+    """Both interactive and non-interactive modes should be wrapped in <role>."""
+    interactive_content = list(prompt_gptme(interactive=True, tool_format="xml"))[
+        0
+    ].content
+    non_interactive_content = list(prompt_gptme(interactive=False, tool_format="xml"))[
+        0
+    ].content
+
+    assert "<role>" in interactive_content
+    assert "<role>" in non_interactive_content
+    assert "interactive mode" in interactive_content
+    assert "non-interactive mode" in non_interactive_content
+
+
+def test_prompt_user_markdown():
+    """Default prompt_user uses markdown headers."""
+    msgs = list(prompt_user())
+    assert len(msgs) == 1
+    content = msgs[0].content
+    assert "# About" in content
+    assert "<user>" not in content
+
+
+def test_prompt_user_xml():
+    """XML prompt_user wraps in <user> with structured sub-tags."""
+    msgs = list(prompt_user(tool_format="xml"))
+    assert len(msgs) == 1
+    content = msgs[0].content
+    assert content.startswith("<user>")
+    assert content.endswith("</user>")
+    assert "<name>" in content
+    assert "<about>" in content
+    assert "<response-preferences>" in content
+    # Should NOT have markdown headers
+    assert "# About" not in content
+
+
+def test_prompt_systeminfo_markdown():
+    """Default prompt_systeminfo uses markdown headers."""
+    msgs = list(prompt_systeminfo())
+    assert len(msgs) == 1
+    content = msgs[0].content
+    assert "## System Information" in content
+    assert "<system-info>" not in content
+
+
+def test_prompt_systeminfo_xml():
+    """XML prompt_systeminfo wraps in <system-info> with sub-tags."""
+    msgs = list(prompt_systeminfo(tool_format="xml"))
+    assert len(msgs) == 1
+    content = msgs[0].content
+    assert content.startswith("<system-info>")
+    assert content.endswith("</system-info>")
+    assert "<os>" in content
+    assert "<working-directory>" in content
+    assert "## System Information" not in content
+
+
+def test_prompt_timeinfo_markdown():
+    """Default prompt_timeinfo uses markdown."""
+    msgs = list(prompt_timeinfo())
+    assert len(msgs) == 1
+    content = msgs[0].content
+    assert "## Current Date" in content
+    assert "<current-date>" not in content
+
+
+def test_prompt_timeinfo_xml():
+    """XML prompt_timeinfo wraps in <current-date>."""
+    msgs = list(prompt_timeinfo(tool_format="xml"))
+    assert len(msgs) == 1
+    content = msgs[0].content
+    assert content.startswith("<current-date>")
+    assert content.endswith("</current-date>")
+    assert "## Current Date" not in content
+
+
+def test_xml_sections_no_markdown_headers():
+    """When tool_format='xml', none of the standard sections should use markdown headers."""
+    all_content = ""
+    for gen in [
+        prompt_gptme(interactive=True, tool_format="xml"),
+        prompt_user(tool_format="xml"),
+        prompt_systeminfo(tool_format="xml"),
+        prompt_timeinfo(tool_format="xml"),
+    ]:
+        for msg in gen:
+            all_content += msg.content + "\n"
+
+    # No markdown headers should appear in XML mode
+    assert "# About" not in all_content
+    assert "## System Information" not in all_content
+    assert "## Current Date" not in all_content
+    # But XML tags should be present
+    assert "<role>" in all_content
+    assert "<user>" in all_content
+    assert "<system-info>" in all_content
+    assert "<current-date>" in all_content

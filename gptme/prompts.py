@@ -14,6 +14,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+from xml.sax.saxutils import escape as xml_escape
 
 from .__version__ import __version__
 from .config import config_path, get_config, get_project_config
@@ -159,7 +160,9 @@ def get_prompt(
     core_msgs: list[Message]
     if is_selective and not include_tools:
         # Selective mode with no tools loaded: base prompt only
-        core_msgs = list(prompt_gptme(interactive, model, agent_name))
+        core_msgs = list(
+            prompt_gptme(interactive, model, agent_name, tool_format=tool_format)
+        )
     elif prompt == "full":
         if include_tools:
             core_msgs = list(
@@ -176,19 +179,23 @@ def get_prompt(
             # Full mode without tools
             # Note: skills summary is intentionally excluded here since skills
             # require tool access (e.g., `cat <path>`) to load on-demand
-            core_msgs = list(prompt_gptme(interactive, model, agent_name))
+            core_msgs = list(
+                prompt_gptme(interactive, model, agent_name, tool_format=tool_format)
+            )
             if interactive:
-                core_msgs.extend(prompt_user())
-            core_msgs.extend(prompt_project())
-            core_msgs.extend(prompt_systeminfo(workspace))
-            core_msgs.extend(prompt_timeinfo())
+                core_msgs.extend(prompt_user(tool_format=tool_format))
+            core_msgs.extend(prompt_project(tool_format=tool_format))
+            core_msgs.extend(prompt_systeminfo(workspace, tool_format=tool_format))
+            core_msgs.extend(prompt_timeinfo(tool_format=tool_format))
     elif prompt == "short":
         if include_tools:
             core_msgs = list(
                 prompt_short(interactive, tools, tool_format, agent_name=agent_name)
             )
         else:
-            core_msgs = list(prompt_gptme(interactive, model, agent_name))
+            core_msgs = list(
+                prompt_gptme(interactive, model, agent_name, tool_format=tool_format)
+            )
     else:
         core_msgs = [Message("system", prompt)]
         if tools and include_tools:
@@ -259,6 +266,15 @@ def _join_messages(msgs: list[Message]) -> Message:
     )
 
 
+def _xml_section(tag: str, content: str) -> str:
+    """Wrap content in an XML section tag.
+
+    The content is NOT escaped — it may contain nested XML tags (e.g. tools).
+    Only use xml_escape() on leaf text that should not contain markup.
+    """
+    return f"<{tag}>\n{content.strip()}\n</{tag}>"
+
+
 def prompt_full(
     interactive: bool,
     tools: list[ToolSpec],
@@ -268,14 +284,14 @@ def prompt_full(
     workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
-    yield from prompt_gptme(interactive, model, agent_name)
+    yield from prompt_gptme(interactive, model, agent_name, tool_format=tool_format)
     yield from prompt_tools(tools=tools, tool_format=tool_format, model=model)
     if interactive:
-        yield from prompt_user()
-    yield from prompt_project()
-    yield from prompt_systeminfo(workspace)
-    yield from prompt_timeinfo()
-    yield from prompt_skills_summary()
+        yield from prompt_user(tool_format=tool_format)
+    yield from prompt_project(tool_format=tool_format)
+    yield from prompt_systeminfo(workspace, tool_format=tool_format)
+    yield from prompt_timeinfo(tool_format=tool_format)
+    yield from prompt_skills_summary(tool_format=tool_format)
 
 
 def prompt_short(
@@ -285,15 +301,18 @@ def prompt_short(
     agent_name: str | None = None,
 ) -> Generator[Message, None, None]:
     """Short prompt to start the conversation."""
-    yield from prompt_gptme(interactive, agent_name)
+    yield from prompt_gptme(interactive, agent_name=agent_name, tool_format=tool_format)
     yield from prompt_tools(examples=False, tools=tools, tool_format=tool_format)
     if interactive:
-        yield from prompt_user()
-    yield from prompt_project()
+        yield from prompt_user(tool_format=tool_format)
+    yield from prompt_project(tool_format=tool_format)
 
 
 def prompt_gptme(
-    interactive: bool, model: str | None = None, agent_name: str | None = None
+    interactive: bool,
+    model: str | None = None,
+    agent_name: str | None = None,
+    tool_format: ToolFormat = "markdown",
 ) -> Generator[Message, None, None]:
     """
     Base system prompt for gptme.
@@ -390,10 +409,14 @@ Proceed directly with the most appropriate actions to complete the task.
         + "\n\n"
         + (interactive_prompt if interactive else non_interactive_prompt)
     )
+    if tool_format == "xml":
+        full_prompt = _xml_section("role", full_prompt)
     yield Message("system", full_prompt)
 
 
-def prompt_user() -> Generator[Message, None, None]:
+def prompt_user(
+    tool_format: ToolFormat = "markdown",
+) -> Generator[Message, None, None]:
     """
     Generate the user-specific prompt based on config.
 
@@ -418,7 +441,15 @@ def prompt_user() -> Generator[Message, None, None]:
 
     user_name = user_identity.name or "User"
 
-    prompt_content = f"""# About {user_name}
+    if tool_format == "xml":
+        prompt_content = _xml_section(
+            "user",
+            f"<name>{xml_escape(user_name)}</name>\n"
+            f"<about>{xml_escape(about_user)}</about>\n"
+            f"<response-preferences>{xml_escape(response_prefs)}</response-preferences>",
+        )
+    else:
+        prompt_content = f"""# About {user_name}
 
 {about_user}
 
@@ -429,7 +460,9 @@ def prompt_user() -> Generator[Message, None, None]:
     yield Message("system", prompt_content)
 
 
-def prompt_project() -> Generator[Message, None, None]:
+def prompt_project(
+    tool_format: ToolFormat = "markdown",
+) -> Generator[Message, None, None]:
     """
     Generate the project-specific prompt based on the current Git repository.
 
@@ -447,10 +480,14 @@ def prompt_project() -> Generator[Message, None, None]:
         # TODO: remove project preferences in global config? use only project config
         project_info = (config_prompt.project or {}).get(project)
 
-    yield Message(
-        "system",
-        f"## Current Project: {project}\n\n{project_info}",
-    )
+    if tool_format == "xml":
+        content = f"<name>{xml_escape(project)}</name>\n{project_info}"
+        yield Message("system", _xml_section("project", content))
+    else:
+        yield Message(
+            "system",
+            f"## Current Project: {project}\n\n{project_info}",
+        )
 
 
 def prompt_tools(
@@ -496,6 +533,7 @@ def prompt_tools(
 
 def prompt_systeminfo(
     workspace: Path | None = None,
+    tool_format: ToolFormat = "markdown",
 ) -> Generator[Message, None, None]:
     """Generate the system information prompt."""
     if platform.system() == "Linux":
@@ -522,7 +560,14 @@ def prompt_systeminfo(
     # Get current working directory (use provided workspace if available)
     pwd = workspace or Path.cwd()
 
-    prompt = f"""## System Information
+    if tool_format == "xml":
+        prompt = _xml_section(
+            "system-info",
+            f"<os>{xml_escape(f'{os_info} {os_version}')}</os>\n"
+            f"<working-directory>{xml_escape(str(pwd))}</working-directory>",
+        )
+    else:
+        prompt = f"""## System Information
 
 **OS:** {os_info} {os_version}
 **Working Directory:** {pwd}""".strip()
@@ -533,12 +578,16 @@ def prompt_systeminfo(
     )
 
 
-def prompt_timeinfo() -> Generator[Message, None, None]:
+def prompt_timeinfo(
+    tool_format: ToolFormat = "markdown",
+) -> Generator[Message, None, None]:
     """Generate the current time prompt."""
     # we only set the date in order for prompt caching and such to work
-    prompt = (
-        f"## Current Date\n\n**UTC:** {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
-    )
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if tool_format == "xml":
+        prompt = _xml_section("current-date", date_str)
+    else:
+        prompt = f"## Current Date\n\n**UTC:** {date_str}"
     yield Message("system", prompt)
 
 
@@ -995,7 +1044,9 @@ document_prompt_function()(prompt_systeminfo)
 document_prompt_function()(prompt_chat_history)
 
 
-def prompt_skills_summary() -> Generator[Message, None, None]:
+def prompt_skills_summary(
+    tool_format: ToolFormat = "markdown",
+) -> Generator[Message, None, None]:
     """Generate a compact skills summary for the system prompt.
 
     Lists available skills (lessons with name/description metadata) so the agent
@@ -1022,22 +1073,36 @@ def prompt_skills_summary() -> Generator[Message, None, None]:
         # Sort by name
         skills = sorted(skills, key=lambda s: s.metadata.name or "")
 
-        lines = ["## Available Skills\n"]
-        lines.append("Load on-demand with `cat <path>`:\n")
+        if tool_format == "xml":
+            skill_entries = []
+            for skill in skills:
+                name = xml_escape(skill.metadata.name or "")
+                desc = xml_escape(skill.metadata.description or "")
+                if len(desc) > 80:
+                    desc = desc[:77] + "..."
+                path = skill.path
+                skill_entries.append(
+                    f'  <skill name="{name}" path="{path}">{desc}</skill>'
+                )
+            content = "\n".join(skill_entries)
+            yield Message("system", _xml_section("skills", content))
+        else:
+            lines = ["## Available Skills\n"]
+            lines.append("Load on-demand with `cat <path>`:\n")
 
-        for skill in skills:
-            name = skill.metadata.name
-            desc = skill.metadata.description or ""
-            # Truncate description to keep it compact
-            if len(desc) > 80:
-                desc = desc[:77] + "..."
-            path = skill.path
-            lines.append(f"- **{name}**: {desc}")
-            lines.append(f"  `{path}`")
+            for skill in skills:
+                name = skill.metadata.name or ""
+                desc = skill.metadata.description or ""
+                # Truncate description to keep it compact
+                if len(desc) > 80:
+                    desc = desc[:77] + "..."
+                path = skill.path
+                lines.append(f"- **{name}**: {desc}")
+                lines.append(f"  `{path}`")
 
-        lines.append(f"\n*{len(skills)} skills available*")
+            lines.append(f"\n*{len(skills)} skills available*")
 
-        yield Message("system", "\n".join(lines))
+            yield Message("system", "\n".join(lines))
 
     except Exception as e:
         logger.warning(f"Failed to generate skills summary: {e}")
