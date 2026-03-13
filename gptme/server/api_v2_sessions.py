@@ -631,7 +631,8 @@ async def _acp_step(
         logger.exception("Error during ACP step: %s", e)
         SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
     finally:
-        session.acp_runtime.set_on_update(None)
+        if session.acp_runtime is not None:
+            session.acp_runtime.set_on_update(None)
         session.generating = False
 
 
