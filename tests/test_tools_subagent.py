@@ -1149,8 +1149,10 @@ def test_subprocess_mode_with_profile():
     assert captured_cmd[profile_idx + 1] == "explorer"
 
 
-def test_create_subagent_thread_warns_on_unknown_profile_tools(mocker, tmp_path):
+def test_create_subagent_thread_warns_on_unknown_profile_tools(tmp_path):
     """Warn when profile includes unknown tool names and keep known ones + complete."""
+    from unittest.mock import MagicMock, patch
+
     from gptme.message import Message
     from gptme.profiles import Profile
     from gptme.tools.base import ToolSpec
@@ -1167,22 +1169,27 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(mocker, tmp_path)
         ToolSpec(name="shell", desc=""),
     ]
 
-    mocker.patch("gptme.profiles.get_profile", return_value=profile)
-    mocker.patch("gptme.tools.subagent.get_tools", return_value=tools)
-    mocker.patch("gptme.executor.prepare_execution_environment")
-    mock_prompt = mocker.patch("gptme.prompts.get_prompt", return_value=[])
-    mock_chat = mocker.patch("gptme.chat")
-    mock_warn = mocker.patch("gptme.tools.subagent.logger.warning")
+    mock_prompt = MagicMock(return_value=[])
+    mock_chat = MagicMock()
+    mock_warn = MagicMock()
 
-    _create_subagent_thread(
-        prompt="test",
-        logdir=tmp_path,
-        model=None,
-        context_mode="full",
-        context_include=None,
-        workspace=tmp_path,
-        profile_name="test",
-    )
+    with (
+        patch("gptme.profiles.get_profile", return_value=profile),
+        patch("gptme.tools.subagent.get_tools", return_value=tools),
+        patch("gptme.executor.prepare_execution_environment"),
+        patch("gptme.prompts.get_prompt", mock_prompt),
+        patch("gptme.chat", mock_chat),
+        patch("gptme.tools.subagent.logger.warning", mock_warn),
+    ):
+        _create_subagent_thread(
+            prompt="test",
+            logdir=tmp_path,
+            model=None,
+            context_mode="full",
+            context_include=None,
+            workspace=tmp_path,
+            profile_name="test",
+        )
 
     mock_warn.assert_called_once()
     assert "unknown tools" in mock_warn.call_args.args[0]
