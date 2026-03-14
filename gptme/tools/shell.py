@@ -870,6 +870,17 @@ class ShellSession:
                             continue
 
                         if "ReturnCode:" in line and self.delimiter in line:
+                            # Extract any command output that precedes the
+                            # delimiter on the same line.  This happens when
+                            # command output lacks a trailing newline (e.g.
+                            # printf "yes", echo -n "data").
+                            rc_pos = line.index("ReturnCode:")
+                            if rc_pos > 0:
+                                prefix = line[:rc_pos]
+                                stdout.append(prefix)
+                                if output:
+                                    print(prefix, end="", file=sys.stdout)
+
                             logger.debug(
                                 f"Shell: Delimiter detected in line: {line.strip()[:200]}"
                             )
@@ -1015,6 +1026,17 @@ class ShellSession:
                             continue
 
                         if "ReturnCode:" in line and self.delimiter in line:
+                            # Extract any command output that precedes the
+                            # delimiter on the same line.  This happens when
+                            # command output lacks a trailing newline (e.g.
+                            # printf "yes", echo -n "data").
+                            rc_pos = line.index("ReturnCode:")
+                            if rc_pos > 0:
+                                prefix = line[:rc_pos]
+                                stdout.append(prefix)
+                                if output:
+                                    print(prefix, end="", file=sys.stdout)
+
                             # Diagnostic logging for Issue #408
                             logger.debug(
                                 f"Shell: Delimiter detected in line: "
