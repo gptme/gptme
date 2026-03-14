@@ -18,23 +18,41 @@ logger = logging.getLogger(__name__)
 
 
 @lru_cache
-def get_tokenizer(model: str) -> "tiktoken.Encoding":
-    """Get the tokenizer for a given model, with caching and fallbacks."""
-    import tiktoken  # fmt: skip
+def get_tokenizer(model: str) -> "tiktoken.Encoding | None":
+    """Get the tokenizer for a given model, with caching and fallbacks.
 
-    if "gpt-4o" in model:
-        return tiktoken.get_encoding("o200k_base")
+    Returns None if tiktoken is unavailable or encodings can't be loaded
+    (e.g. offline/airgapped environments). Callers should fall back to
+    character-based approximation when None is returned.
+    """
+    try:
+        import tiktoken  # fmt: skip
+    except ImportError:
+        logger.warning(
+            "tiktoken not installed. Token counts will use character-based approximation."
+        )
+        return None
 
     try:
-        return tiktoken.encoding_for_model(model)
-    except KeyError:
-        global _warned_models
-        if model not in _warned_models:
-            logger.debug(
-                f"No tokenizer for '{model}'. Using tiktoken cl100k_base. Use results only as estimates."
-            )
-            _warned_models |= {model}
-        return tiktoken.get_encoding("cl100k_base")
+        if "gpt-4o" in model:
+            return tiktoken.get_encoding("o200k_base")
+
+        try:
+            return tiktoken.encoding_for_model(model)
+        except KeyError:
+            global _warned_models
+            if model not in _warned_models:
+                logger.debug(
+                    f"No tokenizer for '{model}'. Using tiktoken cl100k_base. Use results only as estimates."
+                )
+                _warned_models |= {model}
+            return tiktoken.get_encoding("cl100k_base")
+    except Exception as e:
+        logger.warning(
+            f"Failed to load tiktoken encoding: {e}. "
+            "Token counts will use character-based approximation (~4 chars/token)."
+        )
+        return None
 
 
 def _hash_content(content: str) -> str:
@@ -65,7 +83,11 @@ def len_tokens(content: "str | Message | list[Message]", model: str) -> int:
 
     # Calculate and cache
     tokenizer = get_tokenizer(model)
-    count = len(tokenizer.encode(content, disallowed_special=[]))
+    if tokenizer is not None:
+        count = len(tokenizer.encode(content, disallowed_special=[]))
+    else:
+        # Approximate: ~4 characters per token for English text
+        count = len(content) // 4
     _token_cache[cache_key] = count
 
     # Limit cache size by removing oldest entries if needed

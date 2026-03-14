@@ -45,10 +45,12 @@ def test_get_tokenizer_gpt4o():
     from gptme.util.tokens import get_tokenizer
 
     enc = get_tokenizer("gpt-4o")
+    assert enc is not None
     assert enc.name == "o200k_base"
 
     # Variants should also match
     enc2 = get_tokenizer("gpt-4o-mini")
+    assert enc2 is not None
     assert enc2.name == "o200k_base"
 
 
@@ -57,6 +59,7 @@ def test_get_tokenizer_unknown_model():
     from gptme.util.tokens import get_tokenizer
 
     enc = get_tokenizer("totally-unknown-model-xyz")
+    assert enc is not None
     assert enc.name == "cl100k_base"
 
 
@@ -65,6 +68,7 @@ def test_get_tokenizer_known_model():
     from gptme.util.tokens import get_tokenizer
 
     enc = get_tokenizer("gpt-4")
+    assert enc is not None
     assert enc.name == "cl100k_base"
 
 
@@ -157,3 +161,61 @@ def test_len_tokens_invalid_type():
 
     with pytest.raises(AssertionError):
         len_tokens(42, model="gpt-4")  # type: ignore
+
+
+def test_get_tokenizer_returns_none_on_network_failure(monkeypatch):
+    """get_tokenizer returns None when tiktoken fails to load encodings."""
+    import gptme.util.tokens as tokens_mod
+
+    # Clear lru_cache so our patched version is called
+    tokens_mod.get_tokenizer.cache_clear()
+
+    try:
+        import tiktoken
+
+        # Patch tiktoken to raise network-like errors
+        monkeypatch.setattr(
+            tiktoken,
+            "get_encoding",
+            lambda name: (_ for _ in ()).throw(Exception("Connection timed out")),
+        )
+        monkeypatch.setattr(
+            tiktoken,
+            "encoding_for_model",
+            lambda name: (_ for _ in ()).throw(Exception("Connection timed out")),
+        )
+
+        result = tokens_mod.get_tokenizer("some-offline-model")
+        assert result is None
+    finally:
+        tokens_mod.get_tokenizer.cache_clear()
+
+
+def test_len_tokens_fallback_approximation():
+    """len_tokens uses ~4 chars/token when tokenizer is unavailable."""
+    import gptme.util.tokens as tokens_mod
+
+    # Save originals
+    orig_get_tokenizer = tokens_mod.get_tokenizer
+
+    # Clear caches
+    orig_get_tokenizer.cache_clear()
+    tokens_mod._token_cache.clear()
+
+    try:
+        # Replace get_tokenizer with a version that returns None
+        tokens_mod.get_tokenizer = lambda model: None  # type: ignore
+
+        content = "a" * 400  # 400 chars → ~100 tokens
+        count = tokens_mod.len_tokens(content, model="fallback-test-model")
+        assert count == 100  # 400 // 4
+
+        # Empty string
+        tokens_mod._token_cache.clear()
+        count_empty = tokens_mod.len_tokens("", model="fallback-test-model")
+        assert count_empty == 0
+    finally:
+        # Restore original
+        tokens_mod.get_tokenizer = orig_get_tokenizer
+        tokens_mod._token_cache.clear()
+        orig_get_tokenizer.cache_clear()
