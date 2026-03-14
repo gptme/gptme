@@ -161,8 +161,9 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     # https://docs.anthropic.com/en/docs/about-claude/models
     "anthropic": {
         "claude-opus-4-6": {
-            "context": 200_000,
+            "context": 1_000_000,
             "max_output": 128_000,
+            # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 5,
             "price_output": 25,
             "supports_vision": True,
@@ -172,8 +173,9 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             ),  # training cutoff Aug 2025, reliable May 2025
         },
         "claude-sonnet-4-6": {
-            "context": 200_000,
+            "context": 1_000_000,
             "max_output": 64_000,
+            # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 3,
             "price_output": 15,
             "supports_vision": True,
@@ -504,8 +506,9 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
         },
         "anthropic/claude-sonnet-4-6": {
-            "context": 200_000,
+            "context": 1_000_000,
             "max_output": 64_000,
+            # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 3,
             "price_output": 15,
             "supports_vision": True,
