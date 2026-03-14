@@ -2075,13 +2075,16 @@ def _shorten_stdout(
         and len(lines) > pre_lines + post_lines
     )
     will_truncate_by_tokens = False
+    tokenizer = None
+    tokens: list[int] = []
     if pre_tokens is not None and post_tokens is not None:
         from ..llm.models import get_default_model  # fmt: skip
 
         model = get_default_model()
         tokenizer = get_tokenizer(model.model if model else "gpt-4")
-        tokens = tokenizer.encode(stdout)
-        will_truncate_by_tokens = len(tokens) > pre_tokens + post_tokens
+        if tokenizer is not None:
+            tokens = tokenizer.encode(stdout)
+            will_truncate_by_tokens = len(tokens) > pre_tokens + post_tokens
 
     # If truncation will happen, save full output to file
     saved_path = None
@@ -2138,8 +2141,9 @@ def _shorten_stdout(
 
             model = get_default_model()
             tokenizer = get_tokenizer(model.model if model else "gpt-4")
-            tokens = tokenizer.encode(stdout)
-        if len(tokens) > pre_tokens + post_tokens:
+            if tokenizer is not None:
+                tokens = tokenizer.encode(stdout)
+        if tokenizer is not None and len(tokens) > pre_tokens + post_tokens:
             truncation_msg = "... (output truncated"
             if saved_path:
                 truncation_msg += f", full output saved to {saved_path}"
