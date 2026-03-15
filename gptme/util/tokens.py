@@ -85,14 +85,16 @@ def len_tokens(content: "str | Message | list[Message]", model: str) -> int:
     tokenizer = get_tokenizer(model)
     if tokenizer is not None:
         count = len(tokenizer.encode(content, disallowed_special=[]))
+        # Only cache real token counts — approximations are not cached so that
+        # accurate counts are used if the tokenizer later becomes available
+        # (e.g. after network recovery in an offline environment).
+        _token_cache[cache_key] = count
+        # Limit cache size by removing oldest entries if needed
+        if len(_token_cache) > 1000:
+            # Remove first item (oldest in insertion order)
+            _token_cache.pop(next(iter(_token_cache)))
     else:
         # Approximate: ~4 characters per token for English text
         count = len(content) // 4
-    _token_cache[cache_key] = count
-
-    # Limit cache size by removing oldest entries if needed
-    if len(_token_cache) > 1000:
-        # Remove first item (oldest in insertion order)
-        _token_cache.pop(next(iter(_token_cache)))
 
     return count

@@ -219,3 +219,32 @@ def test_len_tokens_fallback_approximation():
         tokens_mod.get_tokenizer = orig_get_tokenizer
         tokens_mod._token_cache.clear()
         orig_get_tokenizer.cache_clear()
+
+
+def test_len_tokens_approximation_not_cached():
+    """Approximated token counts (tokenizer=None) are NOT stored in _token_cache.
+
+    This ensures accurate counts are used after network recovery — if approximations
+    were cached, they would persist even after the tokenizer became available again.
+    """
+    import gptme.util.tokens as tokens_mod
+
+    orig_get_tokenizer = tokens_mod.get_tokenizer
+    orig_get_tokenizer.cache_clear()
+    tokens_mod._token_cache.clear()
+
+    from gptme.util.tokens import _hash_content
+
+    content = "unique content for no-cache test 99887766"
+    model = "offline-model-xyz"
+    cache_key = (_hash_content(content), model)
+
+    try:
+        tokens_mod.get_tokenizer = lambda m: None  # type: ignore
+        tokens_mod.len_tokens(content, model=model)
+        # Approximated result must NOT be stored in _token_cache
+        assert cache_key not in tokens_mod._token_cache
+    finally:
+        tokens_mod.get_tokenizer = orig_get_tokenizer
+        tokens_mod._token_cache.clear()
+        orig_get_tokenizer.cache_clear()

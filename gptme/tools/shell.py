@@ -2085,6 +2085,9 @@ def _shorten_stdout(
         if tokenizer is not None:
             tokens = tokenizer.encode(stdout)
             will_truncate_by_tokens = len(tokens) > pre_tokens + post_tokens
+        else:
+            # Char-based approximation (~4 chars/token) when tokenizer unavailable
+            will_truncate_by_tokens = len(stdout) > (pre_tokens + post_tokens) * 4
 
     # If truncation will happen, save full output to file
     saved_path = None
@@ -2153,6 +2156,15 @@ def _shorten_stdout(
                 + [truncation_msg]
                 + [tokenizer.decode(tokens[-post_tokens:])]
             )
+        elif tokenizer is None and will_truncate_by_tokens:
+            # Char-based fallback when tokenizer unavailable (~4 chars/token)
+            pre_chars = pre_tokens * 4
+            post_chars = post_tokens * 4
+            truncation_msg = "... (output truncated"
+            if saved_path:
+                truncation_msg += f", full output saved to {saved_path}"
+            truncation_msg += ") ..."
+            lines = [stdout[:pre_chars]] + [truncation_msg] + [stdout[-post_chars:]]
 
     return "\n".join(lines)
 
