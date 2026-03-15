@@ -455,7 +455,7 @@ def examples(tool_format):
 ### Search for a specific topic in past conversations
 User: Can you find any mentions of "python" in our past conversations?
 Assistant: Certainly! I'll search our past conversations for mentions of "python" using the search_chats function.
-{ToolUse("ipython", [], "search_chats('python')").to_output(tool_format)}
+{ToolUse("chats", [], "search_chats('python')").to_output(tool_format)}
 """
 
 

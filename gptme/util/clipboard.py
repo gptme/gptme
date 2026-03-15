@@ -25,7 +25,7 @@ def copy() -> bool:
         # check if xclip or wl-clipboard is installed
         installed = get_installed_programs(("xclip", "wl-copy"))
         if "wl-copy" in installed:
-            output = subprocess.run(["wl-copy"], input=text, text=True, check=True)
+            output = subprocess.run(["wl-copy"], input=text, text=True, check=False)
             if output.returncode != 0:
                 print("wl-copy failed to copy to clipboard.")
                 return False

@@ -910,6 +910,11 @@ def start_tool_execution(
         # Load the conversation
         manager = LogManager.load(conversation_id, lock=False)
 
+        if tool_id not in session.pending_tools:
+            logger.error(
+                f"Tool {tool_id} not found in pending tools (may have been handled by another thread)"
+            )
+            return
         tool_exec = session.pending_tools[tool_id]
         tool_exec.status = ToolStatus.EXECUTING
 
@@ -917,8 +922,7 @@ def start_tool_execution(
         tooluse: ToolUse = edited_tooluse or tool_exec.tooluse
 
         # Remove the tool from pending
-        if tool_id in session.pending_tools:
-            del session.pending_tools[tool_id]
+        del session.pending_tools[tool_id]
 
         # Notify about tool execution
         SessionManager.add_event(

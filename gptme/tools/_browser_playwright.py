@@ -377,13 +377,21 @@ def html_to_markdown(html):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    stdout, stderr = p.communicate(input=html.encode())
+    try:
+        stdout, stderr = p.communicate(input=html.encode(), timeout=30)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.communicate()
+        raise Exception("Pandoc timed out while converting HTML to markdown") from None
 
     if p.returncode != 0:
-        raise Exception(f"Pandoc returned error code {p.returncode}: {stderr.decode()}")
+        raise Exception(
+            f"Pandoc returned error code {p.returncode}: "
+            f"{stderr.decode('utf-8', errors='replace')}"
+        )
 
     # Post-process the output to remove :::
-    markdown = stdout.decode()
+    markdown = stdout.decode("utf-8", errors="replace")
     markdown = "\n".join(
         line for line in markdown.split("\n") if not line.strip().startswith(":::")
     )
