@@ -10,6 +10,7 @@ from gptme.tools import (
     get_available_tools,
     get_tool,
     get_tool_for_langtag,
+    get_toolchain,
     get_tools,
     has_tool,
     init_tools,
@@ -349,3 +350,61 @@ tool2 = ToolSpec(
         assert tools1[0].name == "collision_tool_1"
         assert len(tools2) == 1
         assert tools2[0].name == "collision_tool_2"
+
+
+# --- get_toolchain strict/non-strict tests ---
+
+
+def test_get_toolchain_strict_raises_on_missing():
+    """Test that get_toolchain raises ValueError for unknown tools when strict=True."""
+    with pytest.raises(ValueError, match="not found"):
+        get_toolchain(["nonexistent_tool_xyz"], strict=True)
+
+
+def test_get_toolchain_strict_raises_on_unavailable():
+    """Test that get_toolchain raises ValueError for unavailable tools when strict=True."""
+    from gptme.tools.base import ToolSpec
+
+    available = get_available_tools()
+    unavailable_tool = ToolSpec(
+        name="fake_unavailable_strict",
+        desc="A fake unavailable tool",
+        available=False,
+    )
+    available.append(unavailable_tool)
+
+    try:
+        with pytest.raises(ValueError, match="unavailable"):
+            get_toolchain(["fake_unavailable_strict"], strict=True)
+    finally:
+        available.remove(unavailable_tool)
+
+
+def test_get_toolchain_nonstrict_skips_missing():
+    """Test that get_toolchain skips unknown tools when strict=False."""
+    # Should not raise, just warn and skip
+    tools = get_toolchain(["save", "nonexistent_tool_xyz"], strict=False)
+    tool_names = [t.name for t in tools]
+    assert "save" in tool_names
+    assert "nonexistent_tool_xyz" not in tool_names
+
+
+def test_get_toolchain_nonstrict_skips_unavailable():
+    """Test that get_toolchain skips unavailable tools when strict=False."""
+    from gptme.tools.base import ToolSpec
+
+    available = get_available_tools()
+    unavailable_tool = ToolSpec(
+        name="fake_unavailable_nonstrict",
+        desc="A fake unavailable tool",
+        available=False,
+    )
+    available.append(unavailable_tool)
+
+    try:
+        tools = get_toolchain(["save", "fake_unavailable_nonstrict"], strict=False)
+        tool_names = [t.name for t in tools]
+        assert "save" in tool_names
+        assert "fake_unavailable_nonstrict" not in tool_names
+    finally:
+        available.remove(unavailable_tool)

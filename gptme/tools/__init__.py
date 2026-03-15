@@ -197,24 +197,36 @@ def init_tools(
         return loaded_tools
 
 
-def get_toolchain(allowlist: list[str] | None) -> list[ToolSpec]:
+def get_toolchain(
+    allowlist: list[str] | None, *, strict: bool = True
+) -> list[ToolSpec]:
     # Validate allowlist if provided
-    # TODO: maybe check in CLI init instead, as this might hard error in the server when loading conversations where tools are not available
+    # When strict=False, warn about missing/unavailable tools instead of raising.
+    # Server contexts use strict=False since conversations may reference tools
+    # that are no longer available.
     if allowlist is not None:
         available_tools = get_available_tools()
         available_tool_names = [tool.name for tool in available_tools]
 
         for tool_name in allowlist:
             if tool_name not in available_tool_names:
-                raise ValueError(
-                    f"Tool '{tool_name}' not found. Available tools: {', '.join(sorted(available_tool_names))}"
-                )
+                if strict:
+                    raise ValueError(
+                        f"Tool '{tool_name}' not found. Available tools: {', '.join(sorted(available_tool_names))}"
+                    )
+                logger.warning("Tool '%s' in allowlist not found, skipping", tool_name)
+                continue
 
             # Check if tool is available
             tool_obj = next(tool for tool in available_tools if tool.name == tool_name)
             if not tool_obj.is_available:
-                raise ValueError(
-                    f"Tool '{tool_name}' is unavailable (likely missing dependencies)"
+                if strict:
+                    raise ValueError(
+                        f"Tool '{tool_name}' is unavailable (likely missing dependencies)"
+                    )
+                logger.warning(
+                    "Tool '%s' is unavailable (missing dependencies), skipping",
+                    tool_name,
                 )
 
     tools = []
