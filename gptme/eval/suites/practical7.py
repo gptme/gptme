@@ -64,6 +64,7 @@ def check_diff_file(ctx):
 
 
 def check_diff_added(ctx):
+<<<<<<< HEAD
     """Should detect the added key 'address.zip' on the same output line."""
     lines = ctx.stdout.strip().split("\n")
     return any("address.zip" in line and "added" in line.lower() for line in lines)
@@ -73,6 +74,17 @@ def check_diff_removed(ctx):
     """Should detect the removed key 'phone' on the same output line."""
     lines = ctx.stdout.strip().split("\n")
     return any("phone" in line and "removed" in line.lower() for line in lines)
+=======
+    """Should detect the added key 'address.zip'."""
+    output = ctx.stdout
+    return "address.zip" in output and "added" in output.lower()
+
+
+def check_diff_removed(ctx):
+    """Should detect the removed key 'phone'."""
+    output = ctx.stdout
+    return "phone" in output and "removed" in output.lower()
+>>>>>>> 5005d77a1 (feat(eval): add practical7 suite — ini-to-json, json-diff, changelog-gen)
 
 
 def check_diff_changed(ctx):
@@ -98,8 +110,12 @@ def check_diff_unchanged(ctx):
 
 
 def check_diff_exit(ctx):
+<<<<<<< HEAD
     # Accept both 0 (script convention) and 1 (Unix diff convention when files differ)
     return ctx.exit_code in (0, 1)
+=======
+    return ctx.exit_code == 0
+>>>>>>> 5005d77a1 (feat(eval): add practical7 suite — ini-to-json, json-diff, changelog-gen)
 
 
 # --- changelog checks ---
@@ -111,30 +127,43 @@ def check_changelog_file(ctx):
 
 
 def check_changelog_features(ctx):
+<<<<<<< HEAD
     """Should have a Features section heading with auth and search entries."""
     output = ctx.stdout
     # Anchor to a heading so raw commit lines don't false-positive
     has_section = bool(
         re.search(r"^#+\s*feat(ure)?s?", output, re.IGNORECASE | re.MULTILINE)
     )
+=======
+    """Should have a Features section with auth and search entries."""
+    output = ctx.stdout
+    has_section = bool(re.search(r"feat(ure)?s?", output, re.IGNORECASE))
+>>>>>>> 5005d77a1 (feat(eval): add practical7 suite — ini-to-json, json-diff, changelog-gen)
     has_auth = "authentication" in output.lower() or "auth" in output.lower()
     has_search = "search" in output.lower()
     return has_section and has_auth and has_search
 
 
 def check_changelog_fixes(ctx):
+<<<<<<< HEAD
     """Should have a Fixes section heading with login and memory entries."""
     output = ctx.stdout
     # Anchor to a heading so raw commit lines don't false-positive
     has_section = bool(
         re.search(r"^#+\s*fix(es)?", output, re.IGNORECASE | re.MULTILINE)
     )
+=======
+    """Should have a Fixes section with login and memory entries."""
+    output = ctx.stdout
+    has_section = bool(re.search(r"fix(es)?", output, re.IGNORECASE))
+>>>>>>> 5005d77a1 (feat(eval): add practical7 suite — ini-to-json, json-diff, changelog-gen)
     has_login = "login" in output.lower()
     has_memory = "memory" in output.lower()
     return has_section and has_login and has_memory
 
 
 def check_changelog_docs(ctx):
+<<<<<<< HEAD
     """Should have a Docs section heading with API entry in that section."""
     output = ctx.stdout
     # Anchor to a heading so raw commit lines don't false-positive
@@ -150,6 +179,13 @@ def check_changelog_docs(ctx):
         else output[section_start:]
     )
     return "api" in section_body.lower()
+=======
+    """Should have a Docs section with API entry."""
+    output = ctx.stdout
+    has_section = bool(re.search(r"doc(s|umentation)?", output, re.IGNORECASE))
+    has_api = "api" in output.lower()
+    return has_section and has_api
+>>>>>>> 5005d77a1 (feat(eval): add practical7 suite — ini-to-json, json-diff, changelog-gen)
 
 
 def check_changelog_scopes(ctx):
@@ -238,9 +274,12 @@ tests: list["EvalSpec"] = [
             "Each INI section becomes a top-level JSON key, and each key-value pair "
             "within a section becomes a nested key-value pair. All values should be "
             "kept as strings (do not attempt type conversion).\n\n"
+<<<<<<< HEAD
             "Important: use configparser.RawConfigParser (or ConfigParser(interpolation=None)) "
             "so that values containing percent signs (e.g. logging format strings) are "
             "preserved as-is without triggering interpolation errors.\n\n"
+=======
+>>>>>>> 5005d77a1 (feat(eval): add practical7 suite — ini-to-json, json-diff, changelog-gen)
             "Output should be pretty-printed JSON with 2-space indentation."
         ),
         "tools": ["read", "save", "shell"],
