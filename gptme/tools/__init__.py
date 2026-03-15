@@ -228,6 +228,7 @@ def get_toolchain(
                     "Tool '%s' is unavailable (missing dependencies), skipping",
                     tool_name,
                 )
+                continue
 
     tools = []
     for tool in get_available_tools():
