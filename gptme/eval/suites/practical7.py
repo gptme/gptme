@@ -11,7 +11,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from gptme.eval.types import EvalSpec
+    from gptme.eval.main import EvalSpec
 
 
 # --- ini-to-json checks ---
