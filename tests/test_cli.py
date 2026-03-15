@@ -260,6 +260,7 @@ def test_shell_file(args: list[str], runner: CliRunner):
     )
 
 
+@pytest.mark.slow
 def test_python(args: list[str], runner: CliRunner):
     args.append("/py print('yes')")
     result = runner.invoke(cli.main, args)
@@ -267,6 +268,7 @@ def test_python(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
 
 
+@pytest.mark.slow
 def test_python_error(args: list[str], runner: CliRunner):
     args.append("/py raise Exception('yes')")
     result = runner.invoke(cli.main, args)
