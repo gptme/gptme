@@ -513,9 +513,17 @@ async def _acp_step(
     - Tool confirmations are auto-approved inside the subprocess
     """
 
-    assert session.acp_runtime is not None, (
-        "acp_runtime must be set before calling _acp_step"
-    )
+    # Validate acp_runtime is set (use explicit check, not assert which python -O disables)
+    if session.acp_runtime is None:
+        logger.error(
+            "_acp_step called without acp_runtime for session %s", conversation_id
+        )
+        SessionManager.add_event(
+            conversation_id,
+            {"type": "error", "error": "Internal error: ACP runtime not initialized"},
+        )
+        session.generating = False
+        return
     acp_runtime = session.acp_runtime  # snapshot to avoid TOCTOU races
 
     logdir = get_logs_dir() / conversation_id
@@ -620,14 +628,26 @@ async def _acp_step(
             conversation_id,
         )
 
-        assert final_msg is not None, "pending_user_messages should not be empty"
-        SessionManager.add_event(
-            conversation_id,
-            {
-                "type": "generation_complete",
-                "message": msg2dict(final_msg, manager.workspace),
-            },
-        )
+        if final_msg is None:
+            # Should not happen: pending_user_messages was non-empty above, but
+            # guard explicitly instead of using assert (disabled by python -O).
+            logger.warning(
+                "ACP step produced no final message for conversation %s",
+                conversation_id,
+            )
+            no_msg_event: ErrorEvent = {
+                "type": "error",
+                "error": "ACP step completed but produced no assistant message",
+            }
+            SessionManager.add_event(conversation_id, no_msg_event)
+        else:
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "generation_complete",
+                    "message": msg2dict(final_msg, manager.workspace),
+                },
+            )
     except Exception as e:
         logger.exception("Error during ACP step: %s", e)
         SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
@@ -1234,9 +1254,13 @@ def api_conversation_step(conversation_id: str):
             workspace=chat_config.workspace,
         )
     else:
-        # model is guaranteed non-None here: the `if not model and not session.use_acp`
+        # model should be non-None here: the `if not model and not session.use_acp`
         # check above returns 400 for non-ACP sessions with no model.
-        assert model is not None, "model must be set for non-ACP sessions"
+        # Use explicit check instead of assert (which python -O disables).
+        if model is None:
+            return flask.jsonify(
+                {"error": "Model is required for non-ACP sessions"}
+            ), 400
         # Start step execution in a background thread
         # Model will be set in the worker thread by step()
         _start_step_thread(

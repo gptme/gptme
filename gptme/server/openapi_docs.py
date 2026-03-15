@@ -5,6 +5,7 @@ Simple decorator-based approach for existing function routes with automatic infe
 """
 
 import inspect
+import logging
 import re
 from collections.abc import Callable
 from typing import (
@@ -19,6 +20,8 @@ from flask import Blueprint, current_app, jsonify
 from pydantic import BaseModel, Field
 
 from gptme.__version__ import __version__
+
+logger = logging.getLogger(__name__)
 
 # Pydantic Models (auto-generate OpenAPI schemas)
 # -----------------------------------------------
@@ -273,6 +276,9 @@ def _infer_response_type(func: Callable) -> dict[int, type | None]:
 
         return {200: None}
     except Exception:
+        logger.debug(
+            "Failed to infer response type for %s", func.__name__, exc_info=True
+        )
         return {200: None}
 
 
@@ -298,6 +304,9 @@ def _infer_request_body(func: Callable) -> type[BaseModel] | None:
 
         return None
     except Exception:
+        logger.debug(
+            "Failed to infer request body for %s", func.__name__, exc_info=True
+        )
         return None
 
 
@@ -364,7 +373,9 @@ def _infer_parameters(func: Callable, rule_string: str) -> list[dict[str, Any]]:
                     }
                 )
     except Exception:
-        pass
+        logger.debug(
+            "Failed to infer query parameters for %s", func.__name__, exc_info=True
+        )
 
     return parameters
 
@@ -526,8 +537,10 @@ def _generate_schemas(model_classes: set[type[BaseModel]]) -> dict[str, Any]:
                 # Remove $defs from main schema since we've promoted them
                 del schema["$defs"]
 
-        except Exception as e:
-            print(f"Warning: Could not generate schema for {cls.__name__}: {e}")
+        except Exception:
+            logger.warning(
+                "Could not generate schema for %s", cls.__name__, exc_info=True
+            )
 
     return all_schemas
 

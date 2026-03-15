@@ -199,7 +199,9 @@ class AcpSessionRuntime:
                 proc.kill()
                 proc.wait(timeout=1.0)  # reap zombie after SIGKILL
             except Exception:
-                pass
+                logger.debug(
+                    "Failed to kill ACP subprocess after SIGTERM timeout", exc_info=True
+                )
         finally:
             # Clear references so the runtime is left in a consistent state.
             # Mirrors what close() does asynchronously; prevents accidental reuse.
