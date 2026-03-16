@@ -607,6 +607,11 @@ def stream(
         raise ValueError(f"Codex API error {response.status_code}: {error_text}")
 
     in_reasoning_block = False
+    # Track whether this stream uses structured reasoning.delta events.
+    # When true, skip <thinking>→<think> text conversion to avoid double-wrapping:
+    # gpt-5.4 can emit BOTH response.reasoning.delta AND raw <thinking> tags in
+    # output_text.delta for the same content, causing <think><think>...</think></think>.
+    seen_reasoning_delta = False
     # Buffer to detect tags split across SSE chunks (max tag length is ~11 chars)
     pending = ""
 
@@ -628,6 +633,7 @@ def stream(
             # Structured reasoning content — wrap in <think> blocks
             delta_text = data.get("delta", "")
             if delta_text:
+                seen_reasoning_delta = True
                 if not in_reasoning_block:
                     # Flush any pending partial-tag buffer before opening think block
                     if pending:
@@ -641,7 +647,10 @@ def stream(
 
         elif event_type == "response.output_text.delta":
             # Text output — close any open reasoning block first, then handle
-            # <thinking> tags that some models emit as plain text
+            # <thinking> tags that some models emit as plain text.
+            # Only convert <thinking> tags when no structured reasoning.delta was seen —
+            # if both mechanisms fire (gpt-5.4 emits both), skip text conversion to
+            # avoid double-wrapping <think><think>...</think></think>.
             if in_reasoning_block:
                 yield "\n</think>\n"
                 in_reasoning_block = False
@@ -652,24 +661,25 @@ def stream(
                 text = pending + delta_text
                 pending = ""
 
-                # Hold back potential partial tag suffix to check in next chunk.
-                # A trailing `<` is buffered because it could be the start of either
-                # `<thinking>` or `</thinking>`; it will be re-evaluated on the next chunk.
-                match_found = False
-                for tag in ("<thinking>", "</thinking>"):
-                    for i in range(len(tag) - 1, 0, -1):
-                        if text.endswith(tag[:i]):
-                            pending = text[-i:]
-                            text = text[:-i]
-                            match_found = True
+                if not seen_reasoning_delta:
+                    # Hold back potential partial tag suffix to check in next chunk.
+                    # A trailing `<` is buffered because it could be the start of either
+                    # `<thinking>` or `</thinking>`; it will be re-evaluated on the next chunk.
+                    match_found = False
+                    for tag in ("<thinking>", "</thinking>"):
+                        for i in range(len(tag) - 1, 0, -1):
+                            if text.endswith(tag[:i]):
+                                pending = text[-i:]
+                                text = text[:-i]
+                                match_found = True
+                                break
+                        if match_found:
                             break
-                    if match_found:
-                        break
 
-                # Convert <thinking>/<\/thinking> to <think>/<\/think>
-                text = text.replace("<thinking>", "<think>").replace(
-                    "</thinking>", "</think>"
-                )
+                    # Convert <thinking>/<\/thinking> to <think>/<\/think>
+                    text = text.replace("<thinking>", "<think>").replace(
+                        "</thinking>", "</think>"
+                    )
                 if text:
                     yield text
 
