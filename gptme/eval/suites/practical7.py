@@ -98,7 +98,8 @@ def check_diff_unchanged(ctx):
 
 
 def check_diff_exit(ctx):
-    return ctx.exit_code == 0
+    # Accept both 0 (script convention) and 1 (Unix diff convention when files differ)
+    return ctx.exit_code in (0, 1)
 
 
 # --- changelog checks ---
@@ -110,18 +111,24 @@ def check_changelog_file(ctx):
 
 
 def check_changelog_features(ctx):
-    """Should have a Features section with auth and search entries."""
+    """Should have a Features section heading with auth and search entries."""
     output = ctx.stdout
-    has_section = bool(re.search(r"feat(ure)?s?", output, re.IGNORECASE))
+    # Anchor to a heading so raw commit lines don't false-positive
+    has_section = bool(
+        re.search(r"^#+\s*feat(ure)?s?", output, re.IGNORECASE | re.MULTILINE)
+    )
     has_auth = "authentication" in output.lower() or "auth" in output.lower()
     has_search = "search" in output.lower()
     return has_section and has_auth and has_search
 
 
 def check_changelog_fixes(ctx):
-    """Should have a Fixes section with login and memory entries."""
+    """Should have a Fixes section heading with login and memory entries."""
     output = ctx.stdout
-    has_section = bool(re.search(r"fix(es)?", output, re.IGNORECASE))
+    # Anchor to a heading so raw commit lines don't false-positive
+    has_section = bool(
+        re.search(r"^#+\s*fix(es)?", output, re.IGNORECASE | re.MULTILINE)
+    )
     has_login = "login" in output.lower()
     has_memory = "memory" in output.lower()
     return has_section and has_login and has_memory
@@ -221,6 +228,9 @@ tests: list["EvalSpec"] = [
             "Each INI section becomes a top-level JSON key, and each key-value pair "
             "within a section becomes a nested key-value pair. All values should be "
             "kept as strings (do not attempt type conversion).\n\n"
+            "Important: use configparser.RawConfigParser (or ConfigParser(interpolation=None)) "
+            "so that values containing percent signs (e.g. logging format strings) are "
+            "preserved as-is without triggering interpolation errors.\n\n"
             "Output should be pretty-printed JSON with 2-space indentation."
         ),
         "tools": ["read", "save", "shell"],
