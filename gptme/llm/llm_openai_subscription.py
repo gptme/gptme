@@ -652,7 +652,9 @@ def stream(
                 text = pending + delta_text
                 pending = ""
 
-                # Hold back potential partial tag suffix to check in next chunk
+                # Hold back potential partial tag suffix to check in next chunk.
+                # A trailing `<` is buffered because it could be the start of either
+                # `<thinking>` or `</thinking>`; it will be re-evaluated on the next chunk.
                 match_found = False
                 for tag in ("<thinking>", "</thinking>"):
                     for i in range(len(tag) - 1, 0, -1):
@@ -696,13 +698,16 @@ def stream(
         elif event_type == "response.done":
             break
 
-    # Flush any remaining pending buffer
+    # Flush any remaining state.
+    # Invariant: pending and in_reasoning_block are mutually exclusive —
+    # reasoning.delta always flushes pending before setting in_reasoning_block.
+    # Close the reasoning block first so any pending text lands outside it.
+    if in_reasoning_block:
+        yield "\n</think>\n"
     if pending:
         yield pending.replace("<thinking>", "<think>").replace(
             "</thinking>", "</think>"
         )
-    if in_reasoning_block:
-        yield "\n</think>\n"
 
 
 def chat(
