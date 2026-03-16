@@ -643,7 +643,7 @@ def _find_base_model_properties(
 
 
 # Pattern to extract the model family prefix (letters and hyphens before a version number)
-# e.g. "claude-sonnet-4-6" -> "claude-sonnet", "gpt-5-mini" -> "gpt", "grok-4-1-fast" -> "grok"
+# e.g. "claude-sonnet-4-6" -> "claude-sonnet", "gpt-5-mini" -> "gpt-", "grok-4-1-fast" -> "grok-"
 _MODEL_FAMILY_PATTERN = re.compile(r"^([a-z]+-?[a-z]*)")
 
 
