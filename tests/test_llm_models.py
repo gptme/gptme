@@ -266,7 +266,7 @@ class TestClosestModelMatch:
         assert model.provider == "anthropic"
         assert model.model == "claude-sonnet-5-0"
         # Should get real metadata from closest sonnet, not generic fallback
-        assert model.context == 200_000
+        assert model.context == 1_000_000  # claude-sonnet-4-6 has 1M context (GA)
         assert model.supports_vision is True
         assert model.price_input > 0
         assert model.price_output > 0
@@ -275,7 +275,7 @@ class TestClosestModelMatch:
         """An unknown claude-opus variant should inherit from the latest known opus."""
         model = get_model("anthropic/claude-opus-5-0")
         assert model.provider == "anthropic"
-        assert model.context == 200_000
+        assert model.context == 1_000_000  # claude-opus-4-6 has 1M context (GA)
         assert model.supports_reasoning is True
         # Opus is more expensive than sonnet
         assert model.price_input >= 5
@@ -306,7 +306,7 @@ class TestClosestModelMatch:
         props = _find_closest_model_properties("anthropic", "totally-new-model")
         assert props is not None
         # Should get recommended model (claude-sonnet-4-6) properties
-        assert props["context"] == 200_000
+        assert props["context"] == 1_000_000  # claude-sonnet-4-6 has 1M context (GA)
 
     def test_closest_match_empty_provider_returns_none(self):
         """Providers with no models in registry return None."""
