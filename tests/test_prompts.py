@@ -116,6 +116,17 @@ def test_get_prompt_selective_components():
     assert len(full_mode) >= len(empty_selective)
 
 
+def test_prompt_systeminfo_uses_workspace(tmp_path):
+    """Test that prompt_systeminfo uses the provided workspace path."""
+    from gptme.prompts import prompt_systeminfo
+
+    msgs = list(prompt_systeminfo(workspace=tmp_path))
+    content = "\n".join(msg.content for msg in msgs)
+    assert str(tmp_path) in content, (
+        f"Expected {tmp_path} in system prompt, got: {content[:200]}"
+    )
+
+
 def test_glob_path_traversal_protection(tmp_path):
     """Test that glob patterns cannot traverse outside the workspace.
 
