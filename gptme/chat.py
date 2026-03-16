@@ -288,6 +288,16 @@ def _process_message_conversation(
 
     Note: Confirmation is now handled within ToolUse.execute() using the hook system.
     """
+    max_steps: int | None = None
+    max_steps_str = os.environ.get("GPTME_MAX_STEPS")
+    if max_steps_str:
+        try:
+            max_steps = int(max_steps_str)
+        except ValueError:
+            logger.warning(
+                f"Invalid GPTME_MAX_STEPS value: {max_steps_str!r}, ignoring"
+            )
+    step_count = 0
 
     while True:
         try:
@@ -349,6 +359,15 @@ def _process_message_conversation(
                     daemon=True,
                 )
                 thread.start()
+
+        # Check step limit (GPTME_MAX_STEPS)
+        step_count += 1
+        if max_steps is not None and step_count >= max_steps:
+            console.log(f"Reached max steps limit ({max_steps}), stopping.")
+            manager.append(
+                Message("system", f"Stopped: reached max steps limit ({max_steps})")
+            )
+            break
 
         # Check if there are any runnable tools left
         last_content = next(

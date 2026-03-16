@@ -1,5 +1,7 @@
 import atexit
 import logging
+import os
+from dataclasses import replace
 from typing import cast
 
 from dotenv import load_dotenv
@@ -115,7 +117,23 @@ def init_model(
     model_full = f"{provider}/{model_name}"
     console.log(f"Using model: [green]{model_full}[/green]")
     init_llm(provider)
-    set_default_model(model_full)
+
+    model_meta = get_model(model_full)
+
+    # Apply GPTME_CONTEXT_LENGTH override (useful for local models with non-standard context)
+    context_length_str = os.environ.get("GPTME_CONTEXT_LENGTH")
+    if context_length_str:
+        try:
+            context_length = int(context_length_str)
+        except ValueError:
+            logger.warning(
+                f"Invalid GPTME_CONTEXT_LENGTH value: {context_length_str!r}, ignoring"
+            )
+        else:
+            model_meta = replace(model_meta, context=context_length)
+            logger.info(f"Context length overridden to {context_length} tokens")
+
+    set_default_model(model_meta)
 
 
 def init_logging(verbose):
