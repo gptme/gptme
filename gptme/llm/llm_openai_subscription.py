@@ -629,6 +629,12 @@ def stream(
             delta_text = data.get("delta", "")
             if delta_text:
                 if not in_reasoning_block:
+                    # Flush any pending partial-tag buffer before opening think block
+                    if pending:
+                        yield pending.replace("<thinking>", "<think>").replace(
+                            "</thinking>", "</think>"
+                        )
+                        pending = ""
                     yield "<think>\n"
                     in_reasoning_block = True
                 yield delta_text
@@ -640,19 +646,23 @@ def stream(
                 yield "\n</think>\n"
                 in_reasoning_block = False
 
-            delta_text = data.get("delta", "") or data.get("text", "")
+            delta_text = data.get("delta", "")
             if delta_text:
                 # Combine with any pending partial-tag buffer
                 text = pending + delta_text
                 pending = ""
 
                 # Hold back potential partial tag suffix to check in next chunk
+                match_found = False
                 for tag in ("<thinking>", "</thinking>"):
                     for i in range(len(tag) - 1, 0, -1):
                         if text.endswith(tag[:i]):
                             pending = text[-i:]
                             text = text[:-i]
+                            match_found = True
                             break
+                    if match_found:
+                        break
 
                 # Convert <thinking>/<\/thinking> to <think>/<\/think>
                 text = text.replace("<thinking>", "<think>").replace(
