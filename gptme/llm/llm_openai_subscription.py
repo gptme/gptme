@@ -633,7 +633,7 @@ def stream(
                     in_reasoning_block = True
                 yield delta_text
 
-        elif event_type in ("response.output_text.delta", "response.output_text.done"):
+        elif event_type == "response.output_text.delta":
             # Text output — close any open reasoning block first, then handle
             # <thinking> tags that some models emit as plain text
             if in_reasoning_block:
