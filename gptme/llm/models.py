@@ -642,6 +642,66 @@ def _find_base_model_properties(
     return None
 
 
+# Pattern to extract the model family prefix (letters and hyphens before a version number)
+# e.g. "claude-sonnet-4-6" -> "claude-sonnet", "gpt-5-mini" -> "gpt", "grok-4-1-fast" -> "grok"
+_MODEL_FAMILY_PATTERN = re.compile(r"^([a-z]+-?[a-z]*)")
+
+
+def _find_closest_model_properties(
+    provider: "Provider", model_name: str
+) -> "_ModelDictMeta | None":
+    """Find properties from the closest known model in the same provider.
+
+    Used as a last resort when exact match, alias, and date-suffix lookups all fail.
+    Uses prefix matching to find models in the same family (e.g. claude-sonnet-*),
+    preferring the latest non-deprecated model. Falls back to the provider's
+    recommended model.
+
+    Returns:
+        Model properties dict from the closest match, or None if provider has no models.
+    """
+    if provider not in MODELS or not MODELS[provider]:
+        return None
+
+    provider_models = MODELS[provider]
+
+    # Extract family prefix from the unknown model name
+    family_match = _MODEL_FAMILY_PATTERN.match(model_name)
+    if family_match:
+        family_prefix = family_match.group(1)
+        # Find all models in the same family, preferring non-deprecated ones
+        candidates: list[tuple[str, _ModelDictMeta]] = []
+        for name, props in provider_models.items():
+            if name.startswith(family_prefix) and not props.get("deprecated", False):
+                candidates.append((name, props))
+
+        if candidates:
+            # Pick the candidate with the latest knowledge cutoff, or first if none have cutoffs
+            best = max(
+                candidates,
+                key=lambda c: c[1].get(
+                    "knowledge_cutoff", datetime.min.replace(tzinfo=timezone.utc)
+                ),
+            )
+            logger.debug(
+                f"Using closest match {best[0]} for unknown model {model_name}"
+            )
+            return best[1]
+
+    # Fall back to the recommended model's properties for this provider
+    try:
+        rec_name = get_recommended_model(provider)
+        if rec_name in provider_models:
+            logger.debug(
+                f"Using recommended model {rec_name} as fallback for {model_name}"
+            )
+            return provider_models[rec_name]
+    except ValueError:
+        pass
+
+    return None
+
+
 def get_model(model: str) -> ModelMeta:
     # if only provider is given, get recommended model
     if model in PROVIDERS:
@@ -727,29 +787,21 @@ def get_model(model: str) -> ModelMeta:
             if base_props:
                 return ModelMeta(provider, model_name, **base_props)
 
-            # Provider-specific intelligent fallbacks
-            # These defaults reflect modern baselines for each provider
-            # Suppress warnings for dynamic providers (openrouter, local)
-            if provider not in ["openrouter", "local", "gptme"]:
-                if provider == "anthropic":
+            # Try closest-match heuristic: find the most similar known model
+            closest_props = _find_closest_model_properties(provider, model_name)
+            if closest_props:
+                if provider not in ("openrouter", "local", "gptme"):
                     log_warn_once(
-                        f"Unknown model: using Anthropic fallback metadata for {model_name}"
+                        f"Unknown model {provider}/{model_name}: "
+                        f"using closest match metadata"
                     )
-                else:
-                    log_warn_once(
-                        f"Unknown model: using fallback metadata for {provider}/{model_name}"
-                    )
+                return ModelMeta(provider, model_name, **closest_props)
 
-            if provider == "anthropic":
-                # Anthropic modern baseline: 200k context, reasoning support
-                # This prevents API errors for unknown Anthropic models
-                return ModelMeta(
-                    provider,
-                    model_name,
-                    context=200_000,
-                    supports_reasoning=True,
+            # No models at all for this provider (e.g. azure, local with no entries)
+            if provider not in ("openrouter", "local", "gptme"):
+                log_warn_once(
+                    f"Unknown model: using generic fallback for {provider}/{model_name}"
                 )
-            # Generic fallback for other providers
             return ModelMeta(provider, model_name, context=128_000)
         # Unknown provider
         logger.warning(f"Unknown model {model}, using fallback metadata")

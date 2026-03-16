@@ -5,6 +5,7 @@ import pytest
 from gptme.llm.models import (
     MODELS,
     ModelMeta,
+    _find_closest_model_properties,
     _get_models_for_provider,
     get_model,
     get_recommended_model,
@@ -251,3 +252,83 @@ def test_list_models_simple_available(mock_configured, capsys):
     assert all("anthropic/" in line for line in lines)
     # Should not contain any other provider
     assert not any("openai/" in line for line in lines)
+
+
+# --- Tests for closest-match heuristic ---
+
+
+class TestClosestModelMatch:
+    """Tests for _find_closest_model_properties and its integration in get_model."""
+
+    def test_unknown_anthropic_sonnet_uses_closest_sonnet(self):
+        """An unknown claude-sonnet variant should inherit from the latest known sonnet."""
+        model = get_model("anthropic/claude-sonnet-5-0")
+        assert model.provider == "anthropic"
+        assert model.model == "claude-sonnet-5-0"
+        # Should get real metadata from closest sonnet, not generic fallback
+        assert model.context == 200_000
+        assert model.supports_vision is True
+        assert model.price_input > 0
+        assert model.price_output > 0
+
+    def test_unknown_anthropic_opus_uses_closest_opus(self):
+        """An unknown claude-opus variant should inherit from the latest known opus."""
+        model = get_model("anthropic/claude-opus-5-0")
+        assert model.provider == "anthropic"
+        assert model.context == 200_000
+        assert model.supports_reasoning is True
+        # Opus is more expensive than sonnet
+        assert model.price_input >= 5
+
+    def test_unknown_openai_gpt_uses_closest_gpt(self):
+        """An unknown GPT model should inherit from the latest known GPT."""
+        model = get_model("openai/gpt-6")
+        assert model.provider == "openai"
+        assert model.context > 0
+        assert model.price_input > 0
+
+    def test_unknown_gemini_uses_closest_gemini(self):
+        """An unknown Gemini model should inherit from the closest known Gemini."""
+        model = get_model("gemini/gemini-4.0-pro")
+        assert model.provider == "gemini"
+        assert model.context >= 1_000_000  # Gemini models have large contexts
+        assert model.price_input > 0
+
+    def test_closest_match_skips_deprecated_models(self):
+        """Closest match should prefer non-deprecated models."""
+        props = _find_closest_model_properties("anthropic", "claude-sonnet-99")
+        assert props is not None
+        assert not props.get("deprecated", False)
+
+    def test_closest_match_falls_back_to_recommended(self):
+        """When no family prefix matches, fall back to recommended model."""
+        # "totally-new-model" doesn't match any family prefix in anthropic
+        props = _find_closest_model_properties("anthropic", "totally-new-model")
+        assert props is not None
+        # Should get recommended model (claude-sonnet-4-6) properties
+        assert props["context"] == 200_000
+
+    def test_closest_match_empty_provider_returns_none(self):
+        """Providers with no models in registry return None."""
+        props = _find_closest_model_properties("azure", "some-model")
+        assert props is None
+
+    def test_closest_match_unknown_provider_returns_none(self):
+        """Providers not in MODELS at all return None."""
+        props = _find_closest_model_properties("nonexistent", "some-model")  # type: ignore[arg-type]
+        assert props is None
+
+    def test_get_model_unknown_anthropic_not_generic_fallback(self):
+        """Verify unknown Anthropic models don't get $0 pricing (the old behavior)."""
+        model = get_model("anthropic/claude-haiku-5-0")
+        # Old behavior: price_input=0, price_output=0
+        # New behavior: inherits from closest haiku match
+        assert model.price_input > 0
+        assert model.price_output > 0
+
+    def test_get_model_unknown_xai_uses_closest_grok(self):
+        """An unknown grok model should match the grok family."""
+        model = get_model("xai/grok-5")
+        assert model.provider == "xai"
+        assert model.supports_reasoning is True
+        assert model.price_input > 0
