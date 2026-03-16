@@ -606,6 +606,10 @@ def stream(
         error_text = response.text[:500]
         raise ValueError(f"Codex API error {response.status_code}: {error_text}")
 
+    in_reasoning_block = False
+    # Buffer to detect tags split across SSE chunks (max tag length is ~11 chars)
+    pending = ""
+
     for line in response.iter_lines():
         if not line:
             continue
@@ -620,13 +624,53 @@ def stream(
         # Handle Responses API SSE events
         event_type = data.get("type", "")
 
-        if event_type == "response.output_text.delta":
+        if event_type == "response.reasoning.delta":
+            # Structured reasoning content — wrap in <think> blocks
             delta_text = data.get("delta", "")
             if delta_text:
+                if not in_reasoning_block:
+                    yield "<think>\n"
+                    in_reasoning_block = True
                 yield delta_text
+
+        elif event_type in ("response.output_text.delta", "response.output_text.done"):
+            # Text output — close any open reasoning block first, then handle
+            # <thinking> tags that some models emit as plain text
+            if in_reasoning_block:
+                yield "\n</think>\n"
+                in_reasoning_block = False
+
+            delta_text = data.get("delta", "") or data.get("text", "")
+            if delta_text:
+                # Combine with any pending partial-tag buffer
+                text = pending + delta_text
+                pending = ""
+
+                # Hold back potential partial tag suffix to check in next chunk
+                for tag in ("<thinking>", "</thinking>"):
+                    for i in range(len(tag) - 1, 0, -1):
+                        if text.endswith(tag[:i]):
+                            pending = text[-i:]
+                            text = text[:-i]
+                            break
+
+                # Convert <thinking>/<\/thinking> to <think>/<\/think>
+                text = text.replace("<thinking>", "<think>").replace(
+                    "</thinking>", "</think>"
+                )
+                if text:
+                    yield text
 
         elif event_type == "response.output_item.added":
             # Function call start: emit @name(call_id): prefix
+            if in_reasoning_block:
+                yield "\n</think>\n"
+                in_reasoning_block = False
+            if pending:
+                yield pending.replace("<thinking>", "<think>").replace(
+                    "</thinking>", "</think>"
+                )
+                pending = ""
             item = data.get("item", {})
             if item.get("type") == "function_call":
                 name = item.get("name", "")
@@ -641,6 +685,14 @@ def stream(
 
         elif event_type == "response.done":
             break
+
+    # Flush any remaining pending buffer
+    if pending:
+        yield pending.replace("<thinking>", "<think>").replace(
+            "</thinking>", "</think>"
+        )
+    if in_reasoning_block:
+        yield "\n</think>\n"
 
 
 def chat(
