@@ -164,7 +164,12 @@ def get_prompt(
         if include_tools:
             core_msgs = list(
                 prompt_full(
-                    interactive, tools, tool_format, model, agent_name=agent_name
+                    interactive,
+                    tools,
+                    tool_format,
+                    model,
+                    agent_name=agent_name,
+                    workspace=workspace,
                 )
             )
         else:
@@ -175,7 +180,7 @@ def get_prompt(
             if interactive:
                 core_msgs.extend(prompt_user())
             core_msgs.extend(prompt_project())
-            core_msgs.extend(prompt_systeminfo())
+            core_msgs.extend(prompt_systeminfo(workspace))
             core_msgs.extend(prompt_timeinfo())
     elif prompt == "short":
         if include_tools:
@@ -260,6 +265,7 @@ def prompt_full(
     tool_format: ToolFormat,
     model: str | None,
     agent_name: str | None = None,
+    workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
     yield from prompt_gptme(interactive, model, agent_name)
@@ -267,7 +273,7 @@ def prompt_full(
     if interactive:
         yield from prompt_user()
     yield from prompt_project()
-    yield from prompt_systeminfo()
+    yield from prompt_systeminfo(workspace)
     yield from prompt_timeinfo()
     yield from prompt_skills_summary()
 
@@ -483,7 +489,9 @@ def prompt_tools(
     yield Message("system", prompt.strip() + "\n\n")
 
 
-def prompt_systeminfo() -> Generator[Message, None, None]:
+def prompt_systeminfo(
+    workspace: Path | None = None,
+) -> Generator[Message, None, None]:
     """Generate the system information prompt."""
     if platform.system() == "Linux":
         try:
@@ -506,9 +514,8 @@ def prompt_systeminfo() -> Generator[Message, None, None]:
         os_info = "unknown"
         os_version = ""
 
-    # Get current working directory
-
-    pwd = Path.cwd()
+    # Get current working directory (use provided workspace if available)
+    pwd = workspace or Path.cwd()
 
     prompt = f"""## System Information
 
