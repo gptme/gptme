@@ -103,15 +103,19 @@ def _extract_codeblocks(
     This handles nested cases where ``` appears inside string literals or other content.
     """
     # dont extract codeblocks from thinking blocks
-    # (since claude sometimes forgets to close codeblocks in its thinking)
-    think_end = markdown.find("</think>")
-    if think_end != -1:
-        # remove anything before and including </think> if it exists
-        markdown = markdown[think_end + len("</think>") :]
+    # (since claude sometimes forgets to close codeblocks in its thinking,
+    #  and gemini uses </thinking> instead of </think>)
+    for _think_end_tag in ["</thinking>", "</think>"]:
+        _think_end = markdown.find(_think_end_tag)
+        if _think_end != -1:
+            # remove anything before and including the closing thinking tag
+            markdown = markdown[_think_end + len(_think_end_tag) :]
+            break
     else:
-        # if start <think> tag but no end, early exit
-        if "<think>" in markdown:
-            return
+        # if start thinking tag but no end, early exit
+        for _think_start_tag in ["<thinking>", "<think>"]:
+            if _think_start_tag in markdown:
+                return
 
     # speed check (early exit): check if message contains a code block
     # Check for at least 2 fence markers (3+ backticks each)

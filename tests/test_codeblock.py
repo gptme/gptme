@@ -1265,3 +1265,37 @@ def test_mismatched_fence_lengths():
     markdown3 = "```text\nline 1\n````"
     blocks3 = Codeblock.iter_from_markdown(markdown3)
     assert len(blocks3) == 0
+
+
+def test_thinking_block_with_closing_thinking_tag():
+    """
+    Gemini uses </thinking> (not </think>) to close thinking blocks.
+    _extract_codeblocks should handle both tags so that save/execute blocks
+    after the thinking block are not swallowed by an unclosed nesting level.
+
+    Regression test for: autoresearch practical5 plateau where gemini-2.0-flash-001
+    wraps reasoning in ```thinking>...</thinking> and the save block after it was
+    never executed because </thinking> was not stripped.
+    """
+    markdown = "```thinking>\nsome model reasoning here\n</thinking>\n```save pipeline.py\nprint('hello')\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    # The save block after </thinking> should be extracted
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert "print('hello')" in blocks[0].content
+
+
+def test_thinking_block_with_closing_think_tag():
+    """Existing </think> tag variant still works after refactor."""
+    markdown = "<think>\nsome thinking\n</think>\n```save result.py\nx = 1\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert "x = 1" in blocks[0].content
+
+
+def test_thinking_block_unclosed_thinking_tag_early_exit():
+    """Unclosed <thinking> tag (no </thinking>) should cause early exit — no blocks extracted."""
+    markdown = "<thinking>\nmodel is still reasoning...\n```save pipeline.py\nprint('hello')\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 0
