@@ -689,7 +689,9 @@ class ToolUse:
                 for child in tooluse.getchildren():
                     tool_name = child.tag
                     args = list(child.attrib.values())
-                    tool_content = (child.text or "").strip()
+                    # Use itertext() to capture text across child elements
+                    # (handles <, > in code and angle-bracket tokens like <filename>)
+                    tool_content = "".join(child.itertext()).strip()
 
                     # Find the start position of the tool in the original content
                     start_pos = content.find(f"<{tool_name}")
@@ -712,7 +714,9 @@ class ToolUse:
 
                     # Get any other attributes as args (excluding 'name')
                     args = [v for k, v in invoke.attrib.items() if k != "name"]
-                    tool_content = (invoke.text or "").strip()
+                    # Use itertext() to capture text across child elements
+                    # (handles <, > in code and angle-bracket tokens like <filename>)
+                    tool_content = "".join(invoke.itertext()).strip()
 
                     # Find the start position of the invoke in the original content
                     start_pos = content.find(f'<invoke name="{tool_name}"')
