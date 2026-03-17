@@ -125,6 +125,8 @@ class GPTMe(Agent):
             tools=tools,
             workspace=self.workspace_dir,
             prompt=self.system_prompt or "full",  # this only replaces the base prompt
+            interactive=False,  # eval agents run non-interactively
+            context_mode="selective",  # skip workspace files to prevent contamination from user's gptme config
         )
 
         # Modify the first (core) system prompt to add eval-specific instruction
