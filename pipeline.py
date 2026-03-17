@@ -19,8 +19,10 @@ def process_data(data):
     # Step 1: Filter - age >= 30 AND years_experience >= 5
     df = df[(df["age"] >= 30) & (df["years_experience"] >= 5)]
 
-    # Step 2: Transform - add seniority field
-    df["seniority"] = "senior" if df["years_experience"].mean() >= 8 else "mid"
+    # Step 2: Transform - add seniority field based on individual experience
+    df["seniority"] = df["years_experience"].apply(
+        lambda x: "senior" if x >= 8 else "mid"
+    )
 
     return df.to_dict("records")
 
