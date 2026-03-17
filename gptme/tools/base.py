@@ -655,7 +655,7 @@ class ToolUse:
     def _iter_from_xml(cls, content: str) -> Generator[ToolUse, None, None]:
         """Returns all XML-style ToolUse in a message.
 
-        Supports two formats:
+        Supports three formats:
         1. gptme format:
           <tool-use>
           <ipython>
@@ -669,14 +669,22 @@ class ToolUse:
           print("Hello, world!")
           </invoke>
           </function_calls>
+
+        3. Gemini tool_code format:
+          ```tool_code
+          <save args="pipeline.py">
+          content
+          </save>
+          ```
         """
-        # Check for either format
+        # Check for each format
         has_tool_use = "<tool-use>" in content and "</tool-use>" in content
         has_function_calls = (
             "<function_calls>" in content and "</function_calls>" in content
         )
+        has_tool_code_block = "```tool_code" in content
 
-        if not (has_tool_use or has_function_calls):
+        if not (has_tool_use or has_function_calls or has_tool_code_block):
             return
 
         try:
@@ -731,6 +739,30 @@ class ToolUse:
         except etree.ParseError as e:
             logger.warning(f"Failed to parse XML content: {e}")
             return
+
+        # Handle Gemini format: ```tool_code\n<toolname args="value">content</toolname>\n```
+        # Processed separately (outside the main try/except) so parse errors in one block
+        # don't suppress other blocks.
+        for match in re.finditer(r"```tool_code\n(.*?)\n```", content, re.DOTALL):
+            block_content = match.group(1).strip()
+            if not block_content:
+                continue
+            try:
+                block_parser = etree.HTMLParser()
+                block_tree = etree.fromstring(block_content, block_parser)
+                for elem in block_tree.xpath("/html/body/*"):
+                    tool_name = elem.tag
+                    args = list(elem.attrib.values())
+                    tool_content = (elem.text or "").strip()
+                    yield ToolUse(
+                        tool_name,
+                        args,
+                        tool_content,
+                        start=match.start(),
+                        _format="xml",
+                    )
+            except etree.ParseError as e:
+                logger.warning(f"Failed to parse tool_code block as XML: {e}")
 
     def to_output(self, tool_format: ToolFormat = "markdown") -> str:
         if tool_format == "markdown":

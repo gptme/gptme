@@ -1,4 +1,4 @@
-"""Test XML tool format parsing for both gptme and Haiku formats."""
+"""Test XML tool format parsing for gptme, Haiku, and Gemini tool_code formats."""
 
 from gptme.tools.base import ToolUse
 
@@ -126,3 +126,53 @@ if __name__ == "__main__":
     # but itertext() ensures code AFTER them is still captured (tail text preserved).
     assert tools[0].content is not None
     assert 'if __name__ == "__main__":' in tools[0].content
+
+
+def test_gemini_tool_code_format():
+    """Test Gemini tool_code format: ```tool_code\\n<toolname args="...">content</toolname>\\n```"""
+    content = """I'll write a script for you.
+
+```tool_code
+<save args="pipeline.py">
+import json
+import sys
+
+def main():
+    print("hello")
+
+if __name__ == "__main__":
+    main()
+</save>
+```"""
+    tools = list(ToolUse._iter_from_xml(content))
+    assert len(tools) == 1
+    assert tools[0].tool == "save"
+    assert tools[0].args == ["pipeline.py"]
+    assert "def main():" in (tools[0].content or "")
+
+
+def test_gemini_tool_code_shell():
+    """Test Gemini format with shell command."""
+    content = """Let me run this.
+
+```tool_code
+<shell>
+python pipeline.py employees.json
+</shell>
+```"""
+    tools = list(ToolUse._iter_from_xml(content))
+    assert len(tools) == 1
+    assert tools[0].tool == "shell"
+    assert tools[0].content == "python pipeline.py employees.json"
+
+
+def test_gemini_tool_code_no_false_positives():
+    """Test that regular tool_code blocks without XML tool calls don't match."""
+    # A tool_code block with plain Python (no XML wrapper) should not match
+    content = """Example:
+
+```tool_code
+print("just a code example")
+```"""
+    tools = list(ToolUse._iter_from_xml(content))
+    assert len(tools) == 0
