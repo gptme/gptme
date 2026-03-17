@@ -745,7 +745,7 @@ class ToolUse:
         # don't suppress other blocks.
         for match in re.finditer(r"```tool_code\n(.*?)\n```", content, re.DOTALL):
             block_content = match.group(1).strip()
-            if not block_content:
+            if not block_content or not block_content.startswith("<"):
                 continue
             try:
                 block_parser = etree.HTMLParser()
