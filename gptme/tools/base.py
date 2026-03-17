@@ -738,7 +738,7 @@ class ToolUse:
                     )
         except etree.ParseError as e:
             logger.warning(f"Failed to parse XML content: {e}")
-            return
+            # fall through so Gemini tool_code blocks are still processed
 
         # Handle Gemini format: ```tool_code\n<toolname args="value">content</toolname>\n```
         # Processed separately (outside the main try/except) so parse errors in one block
@@ -753,7 +753,8 @@ class ToolUse:
                 for elem in block_tree.xpath("/html/body/*"):
                     tool_name = elem.tag
                     args = list(elem.attrib.values())
-                    tool_content = (elem.text or "").strip()
+                    # Use itertext() to capture text across child elements (handles < and > in code)
+                    tool_content = "".join(elem.itertext()).strip()
                     yield ToolUse(
                         tool_name,
                         args,

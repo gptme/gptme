@@ -176,3 +176,25 @@ print("just a code example")
 ```"""
     tools = list(ToolUse._iter_from_xml(content))
     assert len(tools) == 0
+
+
+def test_gemini_tool_code_html_special_chars():
+    """Test that code with < and > characters is preserved correctly (not truncated)."""
+    content = """Here's the code.
+
+```tool_code
+<save args="compare.py">
+from typing import List
+
+def compare(a: List[int], b: List[int]) -> bool:
+    return len(a) < len(b) and a[0] > b[0]
+</save>
+```"""
+    tools = list(ToolUse._iter_from_xml(content))
+    assert len(tools) == 1
+    assert tools[0].tool == "save"
+    assert tools[0].args == ["compare.py"]
+    code = tools[0].content or ""
+    assert "List[int]" in code
+    assert "len(a) < len(b)" in code
+    assert "a[0] > b[0]" in code
