@@ -520,7 +520,8 @@ def prompt_systeminfo(
     prompt = f"""## System Information
 
 **OS:** {os_info} {os_version}
-**Working Directory:** {pwd}""".strip()
+**Working Directory:** {pwd}
+**Write Files To:** {workspace or pwd} (workspace)""".strip()
 
     yield Message(
         "system",
