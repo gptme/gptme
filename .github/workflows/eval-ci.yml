@@ -6,9 +6,8 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'gptme/tools/**'
-      - 'gptme/models/**'
       - 'gptme/eval/**'
-      - 'gptme/prompts/**'
+      - 'gptme/prompts.py'
       - 'gptme/message*.py'
       - 'gptme/llm/**'
       - 'gptme/chat.py'
