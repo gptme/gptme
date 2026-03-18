@@ -395,7 +395,7 @@ class ToolSpec:
             return (
                 description
                 + "\n".join(
-                    f"{callable_signature(func)}: {func.__doc__ or 'No description'}"
+                    f"{callable_signature(func)}: {(func.__doc__ or 'No description').splitlines()[0]}"
                     for func in self.functions
                 )
                 + "\n```"

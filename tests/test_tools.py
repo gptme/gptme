@@ -136,6 +136,21 @@ def test_is_supported_lang_tag():
     assert not is_supported_langtag("randomtag")
 
 
+def test_tool_description_length():
+    """Test that all tool descriptions fit within the OpenAI tool API limit (1024 chars)."""
+    init_tools()
+    max_len = 1024
+    over_limit = [
+        (tool.name, len(tool.get_instructions("tool")))
+        for tool in get_tools()
+        if len(tool.get_instructions("tool")) > max_len
+    ]
+    assert not over_limit, (
+        f"Tool descriptions exceed {max_len} chars (will be silently truncated by OpenAI provider): "
+        + ", ".join(f"{name}={length}" for name, length in over_limit)
+    )
+
+
 def test_load_tool():
     """Test loading a tool mid-conversation."""
     clear_tools()

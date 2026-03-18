@@ -441,10 +441,7 @@ Line 1
 Line 2
 EOF
 ```
-Never use `--body "text\\nmore text"`:
-- `\\n` in double-quoted strings is literal backslash-n, not a newline.
-- `$` in double-quoted strings triggers variable expansion (e.g. `$42,000` → `,000`).
-The single-quoted `<< 'EOF'` heredoc prevents both issues.
+Never use `--body "..."` (newlines become literal `\\n`, `$` triggers expansion). The heredoc prevents both.
 
 For other operations, use the `shell` tool with the `gh` command."""
 
