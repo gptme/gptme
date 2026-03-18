@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from xml.sax.saxutils import escape as xml_escape
+from xml.sax.saxutils import quoteattr
 
 from .__version__ import __version__
 from .config import config_path, get_config, get_project_config
@@ -1076,15 +1077,13 @@ def prompt_skills_summary(
         if tool_format == "xml":
             skill_entries = []
             for skill in skills:
-                name = xml_escape(skill.metadata.name or "")
+                name = quoteattr(skill.metadata.name or "")
                 raw_desc = skill.metadata.description or ""
                 if len(raw_desc) > 80:
                     raw_desc = raw_desc[:77] + "..."
                 desc = xml_escape(raw_desc)
-                path = xml_escape(str(skill.path))
-                skill_entries.append(
-                    f'  <skill name="{name}" path="{path}">{desc}</skill>'
-                )
+                path = quoteattr(str(skill.path))
+                skill_entries.append(f"  <skill name={name} path={path}>{desc}</skill>")
             content = "\n".join(skill_entries)
             yield Message("system", _xml_section("skills", content))
         else:
