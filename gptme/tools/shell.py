@@ -2093,7 +2093,9 @@ def _shorten_stdout(
     saved_path = None
     if (will_truncate_by_lines or will_truncate_by_tokens) and logdir:
         command_info = f"Command: {cmd}" if cmd else None
-        original_tokens = len(tokens) if will_truncate_by_tokens else None
+        original_tokens = (
+            len(tokens) if (will_truncate_by_tokens and tokenizer is not None) else None
+        )
         _, saved_path = save_large_output(
             content=stdout,
             logdir=logdir,
