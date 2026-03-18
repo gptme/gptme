@@ -87,12 +87,13 @@ jobs:
       if: steps.check_key.outputs.available == 'true'
       env:
         EVAL_RESULTS_DIR: ${{ github.workspace }}/eval_results
+        EVAL_MODEL: anthropic/claude-haiku-4-5@tool
       run: |
         mkdir -p eval_results
         # 3 basic tests with Haiku — fast and cheap (~$0.02–0.05/run)
         poetry run python -m gptme.eval \
           hello prime100 fix-bug \
-          -m anthropic/claude-haiku-4-5@tool \
+          -m "$EVAL_MODEL" \
           --timeout 60 \
           --parallel 3
 
@@ -106,6 +107,7 @@ jobs:
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         KEY_AVAILABLE: ${{ steps.check_key.outputs.available }}
         EVAL_OUTCOME: ${{ steps.run_evals.outcome }}
+        EVAL_MODEL: anthropic/claude-haiku-4-5@tool
       run: |
         python3 - << 'PYEOF'
         import csv
@@ -119,12 +121,19 @@ jobs:
         run_url = os.environ["RUN_URL"]
         key_available = os.environ.get("KEY_AVAILABLE", "false") == "true"
         eval_outcome = os.environ.get("EVAL_OUTCOME", "skipped")  # success|failure|cancelled|skipped
+        # Derive display name from model spec (e.g. "anthropic/claude-haiku-4-5@tool" → "claude-haiku-4-5 (tool)")
+        eval_model_spec = os.environ.get("EVAL_MODEL", "")
+        _model_id = eval_model_spec.split("/")[-1]  # strip provider prefix
+        _model_name, _backend = (_model_id.rsplit("@", 1) if "@" in _model_id else (_model_id, ""))
+        eval_model_display = f"{_model_name} ({_backend})" if _backend else _model_name
+        # Unique marker so we can identify and update this workflow's comment specifically
+        COMMENT_MARKER = "<!-- eval-quality-gate -->"
 
         if not key_available:
             comment = (
                 "## ℹ️ Eval Quality Gate — skipped (fork PR)\n\n"
                 "Evals require `ANTHROPIC_API_KEY` which is not available for fork PRs.\n\n"
-                "*Informational only — does not block merge*"
+                f"*Informational only — does not block merge*\n{COMMENT_MARKER}"
             )
         else:
             # Find the most recent results CSV
@@ -137,7 +146,7 @@ jobs:
                     "## ⚠️ Eval Quality Gate — could not run\n\n"
                     f"Evals did not produce results ({reason}).\n\n"
                     f"[View run]({run_url})\n\n"
-                    "*Informational only — does not block merge*"
+                    f"*Informational only — does not block merge*\n{COMMENT_MARKER}"
                 )
             else:
                 csv_file = csv_files[-1]
@@ -171,20 +180,33 @@ jobs:
                 comment = (
                     f"{header}\n\n"
                     f"{table}\n\n"
-                    f"Model: `claude-haiku-4-5` (tool) · Total: {total_duration}s · "
+                    f"Model: `{eval_model_display}` · Total: {total_duration}s · "
                     f"[Full run]({run_url})"
                     f"{step_warning}\n\n"
-                    "*Informational only — does not block merge*"
+                    f"*Informational only — does not block merge*\n{COMMENT_MARKER}"
                 )
 
-        # Post comment: edit last bot comment if one exists, else create new
-        edit_result = subprocess.run(
-            ["gh", "pr", "comment", pr_number, "--repo", repo,
-             "--body", comment, "--edit-last"],
+        # Post comment: find our prior comment by unique marker, then update or create
+        import json
+        list_result = subprocess.run(
+            ["gh", "api", f"repos/{repo}/issues/{pr_number}/comments",
+             "--jq", f'[.[] | select(.body | contains("{COMMENT_MARKER}"))] | last | .id'],
             capture_output=True, text=True, check=False,
         )
-        if edit_result.returncode != 0:
-            # No prior comment from this bot — create a new one
+        prior_id = list_result.stdout.strip()
+        if prior_id and prior_id != "null":
+            # Update the existing comment in-place
+            update_result = subprocess.run(
+                ["gh", "api", f"repos/{repo}/issues/comments/{prior_id}",
+                 "-X", "PATCH", "-f", f"body={comment}"],
+                capture_output=True, text=True, check=False,
+            )
+            if update_result.returncode != 0:
+                print(f"WARNING: failed to update existing comment: {update_result.stderr}")
+            else:
+                print(f"Updated existing PR comment (id={prior_id}).")
+        else:
+            # No prior comment from this workflow — create a new one
             new_result = subprocess.run(
                 ["gh", "pr", "comment", pr_number, "--repo", repo, "--body", comment],
                 capture_output=True, text=True, check=False,
@@ -193,6 +215,4 @@ jobs:
                 print(f"WARNING: failed to post PR comment: {new_result.stderr}")
             else:
                 print("Posted new PR comment.")
-        else:
-            print("Updated existing PR comment.")
         PYEOF
