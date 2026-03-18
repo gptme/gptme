@@ -432,7 +432,7 @@ To wait for all CI checks to complete:
 The optional commit_sha allows checking a specific commit instead of the PR head.
 This is useful for checking previous commits without waiting for new builds.
 
-For posting multi-line comments, always use `--body-file` with a single-quoted heredoc to avoid two bash pitfalls:
+For multi-line comments, use `--body-file` with a single-quoted heredoc:
 ```shell
 gh issue comment NUM --repo owner/repo --body-file - << 'EOF'
 ## Summary

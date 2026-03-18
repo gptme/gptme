@@ -493,27 +493,23 @@ tool = ToolSpec(
     name="mcp",
     desc="Search, discover, and manage MCP servers",
     instructions="""
-This tool allows you to search for MCP servers in various registries and dynamically load/unload them.
+Search, load, and manage MCP servers. Loaded server tools available as `<server-name>.<tool-name>`. Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
 
-Once loaded, server tools are available as `<server-name>.<tool-name>`.
+**Resource Commands:**
+- `resources list <server>` - List available resources
+- `resources read <server> <uri>` - Read a resource by URI
+- `templates list <server>` - List resource templates
 
-Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
+**Prompt Commands:**
+- `prompts list <server>` - List available prompts
+- `prompts get <server> <name> [args]` - Get a prompt with optional args
 
-**Resource Commands** (for servers that expose resources):
-- `resources list <server>` - List available resources from a loaded server
-- `resources read <server> <uri>` - Read a specific resource by URI
-- `templates list <server>` - List resource templates (parameterized resources)
+**Roots Commands** (operational boundaries):
+- `roots list [server]` - List configured roots
+- `roots add <server> <uri> [name]` - Add a root URI
+- `roots remove <server> <uri>` - Remove a root
 
-**Prompt Commands** (for servers that expose prompts):
-- `prompts list <server>` - List available prompts from a loaded server
-- `prompts get <server> <name> [args]` - Get a specific prompt, optionally with JSON arguments
-
-**Roots Commands** (for defining operational boundaries):
-- `roots list [server]` - List configured roots (all servers if no server specified)
-- `roots add <server> <uri> [name]` - Add a root to tell the server where it can operate
-- `roots remove <server> <uri>` - Remove a root from a server
-
-Roots are advisory URIs (file paths, HTTP URLs) that help servers understand workspace boundaries.
+Roots are advisory URIs (file paths, HTTP URLs) defining workspace boundaries.
 """.strip(),
     examples=examples,
     execute=execute_mcp,

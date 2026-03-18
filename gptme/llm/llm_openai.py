@@ -1067,7 +1067,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> "ChatCompletionToolParam":
     if spec.block_types:
         name = spec.block_types[0]
 
-    description = spec.get_instructions("tool")
+    description = spec.get_instructions("tool") or spec.desc or ""
     if len(description) > 1024:
         logger.warning(
             "Description for tool `%s` is too long ( %d > 1024 chars). Truncating...",
