@@ -1,8 +1,13 @@
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from gptme.prompts import (
     _xml_section,
     prompt_gptme,
+    prompt_project,
     prompt_systeminfo,
     prompt_timeinfo,
     prompt_tools,
@@ -302,3 +307,28 @@ def test_xml_sections_no_markdown_headers():
     assert "<user>" in all_content
     assert "<system-info>" in all_content
     assert "<current-date>" in all_content
+
+
+def test_prompt_project_xml_escapes_project_info(tmp_path: Path):
+    """project_info with XML special chars must be escaped in XML mode to avoid malformed output."""
+    project_dir = tmp_path / "my-project"
+    project_dir.mkdir()
+
+    mock_config = MagicMock()
+    mock_config.prompt = "Support C++ & Python <template> builds"
+
+    with (
+        patch("gptme.prompts.get_project_git_dir", return_value=project_dir),
+        patch("gptme.prompts.get_project_config", return_value=mock_config),
+        patch("gptme.prompts.get_config") as mock_get_config,
+    ):
+        mock_get_config.return_value.user.prompt.project = None
+        msgs = list(prompt_project(tool_format="xml"))
+
+    assert len(msgs) == 1
+    content = msgs[0].content
+    # Must be valid XML (wrap in root tag since it's a fragment)
+    ET.fromstring(content)
+    # Raw special chars must not appear unescaped in the project_info portion
+    assert "<template>" not in content
+    assert "C++ &amp; Python" in content or "&amp;" in content

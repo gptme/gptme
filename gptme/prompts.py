@@ -481,7 +481,7 @@ def prompt_project(
         project_info = (config_prompt.project or {}).get(project)
 
     if tool_format == "xml":
-        content = f"<name>{xml_escape(project)}</name>\n{project_info}"
+        content = f"<name>{xml_escape(project)}</name>\n{xml_escape(project_info) if project_info else ''}"
         yield Message("system", _xml_section("project", content))
     else:
         yield Message(
@@ -1077,9 +1077,10 @@ def prompt_skills_summary(
             skill_entries = []
             for skill in skills:
                 name = xml_escape(skill.metadata.name or "")
-                desc = xml_escape(skill.metadata.description or "")
-                if len(desc) > 80:
-                    desc = desc[:77] + "..."
+                raw_desc = skill.metadata.description or ""
+                if len(raw_desc) > 80:
+                    raw_desc = raw_desc[:77] + "..."
+                desc = xml_escape(raw_desc)
                 path = skill.path
                 skill_entries.append(
                     f'  <skill name="{name}" path="{path}">{desc}</skill>'
