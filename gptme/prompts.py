@@ -410,7 +410,7 @@ Proceed directly with the most appropriate actions to complete the task.
         + (interactive_prompt if interactive else non_interactive_prompt)
     )
     if tool_format == "xml":
-        full_prompt = _xml_section("role", full_prompt)
+        full_prompt = _xml_section("role", xml_escape(full_prompt))
     yield Message("system", full_prompt)
 
 
@@ -481,7 +481,7 @@ def prompt_project(
         project_info = (config_prompt.project or {}).get(project)
 
     if tool_format == "xml":
-        content = f"<name>{xml_escape(project)}</name>\n{xml_escape(project_info) if project_info else ''}"
+        content = f"<name>{xml_escape(project)}</name>\n{'<info>' + xml_escape(project_info) + '</info>' if project_info else ''}"
         yield Message("system", _xml_section("project", content))
     else:
         yield Message(

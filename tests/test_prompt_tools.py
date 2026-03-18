@@ -200,12 +200,14 @@ def test_prompt_gptme_markdown_default():
 
 
 def test_prompt_gptme_xml_wraps_in_role():
-    """XML format prompt_gptme should wrap content in <role> tags."""
+    """XML format prompt_gptme should wrap content in <role> tags and be valid XML."""
     msgs = list(prompt_gptme(interactive=True, tool_format="xml"))
     content = msgs[0].content
     assert content.startswith("<role>")
     assert content.endswith("</role>")
     assert "You are" in content
+    # Validate well-formed XML — catches unescaped <thinking> tags
+    ET.fromstring(content)
 
 
 def test_prompt_gptme_xml_interactive_vs_non_interactive():
