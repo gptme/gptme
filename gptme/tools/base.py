@@ -352,13 +352,10 @@ class ToolSpec:
             instructions.append(self.instructions)
 
         if tool_format in self.instructions_format:
+            # A format-specific override replaces the verbose function listing.
+            # The override is expected to include a concise summary (see #1697).
             instructions.append(self.instructions_format[tool_format])
-
-        # Only include Python function listings for non-tool formats.
-        # In "tool" format (OpenAI function-calling), the agent calls tools by name
-        # with parameters — ipython-callable function signatures are irrelevant there
-        # and would push the description over OpenAI's 1024-char limit (see #1697).
-        if self.functions and tool_format != "tool":
+        elif self.functions:
             instructions.append(self.get_functions_description())
 
         return "\n\n".join(instructions)

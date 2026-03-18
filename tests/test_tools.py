@@ -397,10 +397,12 @@ def test_tool_descriptions_within_openai_limit():
     """
     init_tools()
     MAX_CHARS = 1024
+    # Mirror the composite expression used in _spec2tool (llm_openai.py) to catch
+    # tools whose spec.desc alone would exceed the limit (e.g. no instructions set).
     over_limit = [
-        (tool.name, len(tool.get_instructions("tool")))
+        (tool.name, len(tool.get_instructions("tool") or tool.desc or ""))
         for tool in get_tools()
-        if len(tool.get_instructions("tool")) > MAX_CHARS
+        if len(tool.get_instructions("tool") or tool.desc or "") > MAX_CHARS
     ]
     assert not over_limit, (
         f"Tools with descriptions exceeding {MAX_CHARS} chars: "
