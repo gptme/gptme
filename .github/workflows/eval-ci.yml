@@ -36,10 +36,24 @@ jobs:
     - name: Checkout PR branch
       uses: actions/checkout@v6
 
+    - name: Check API key availability
+      id: check_key
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        if [ -z "$ANTHROPIC_API_KEY" ]; then
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          echo "Fork PRs do not have access to ANTHROPIC_API_KEY — skipping eval."
+        else
+          echo "available=true" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Install poetry
+      if: steps.check_key.outputs.available == 'true'
       run: pipx install poetry
 
     - name: Set up Python
+      if: steps.check_key.outputs.available == 'true'
       uses: actions/setup-python@v6
       with:
         python-version: '3.12'
@@ -47,20 +61,30 @@ jobs:
         cache-dependency-path: poetry.lock
 
     - name: Install gptme from PR branch
+      if: steps.check_key.outputs.available == 'true'
       run: poetry install
 
     - name: Write gptme config
+      if: steps.check_key.outputs.available == 'true'
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       run: |
         mkdir -p ~/.config/gptme
-        cat > ~/.config/gptme/config.toml << EOF
-        [env]
-        ANTHROPIC_API_KEY = "$ANTHROPIC_API_KEY"
-        EOF
+        # Use python to safely write TOML, avoiding shell interpolation issues
+        # with special characters (quotes, backslashes) in the key value
+        python3 -c "
+        import os, pathlib
+        key = os.environ['ANTHROPIC_API_KEY']
+        # Escape backslashes and double-quotes for TOML string literal
+        key_escaped = key.replace('\\\\', '\\\\\\\\').replace('\"', '\\\\\"')
+        pathlib.Path(os.path.expanduser('~/.config/gptme/config.toml')).write_text(
+            f'[env]\\nANTHROPIC_API_KEY = \"{key_escaped}\"\\n'
+        )
+        "
 
     - name: Run eval quality gate (hello, prime100, fix-bug)
       id: run_evals
+      if: steps.check_key.outputs.available == 'true'
       env:
         EVAL_RESULTS_DIR: ${{ github.workspace }}/eval_results
       run: |
@@ -80,7 +104,8 @@ jobs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        EVAL_SUCCESS: ${{ steps.run_evals.outcome == 'success' }}
+        KEY_AVAILABLE: ${{ steps.check_key.outputs.available }}
+        EVAL_OUTCOME: ${{ steps.run_evals.outcome }}
       run: |
         python3 - << 'PYEOF'
         import csv
@@ -92,49 +117,65 @@ jobs:
         pr_number = os.environ["PR_NUMBER"]
         repo = os.environ["REPO"]
         run_url = os.environ["RUN_URL"]
-        eval_success = os.environ["EVAL_SUCCESS"] == "true"
+        key_available = os.environ.get("KEY_AVAILABLE", "false") == "true"
+        eval_outcome = os.environ.get("EVAL_OUTCOME", "skipped")  # success|failure|cancelled|skipped
 
-        # Find the most recent results CSV
-        csv_files = sorted(results_dir.glob("*/eval_results.csv"), key=lambda p: p.parent.name)
-
-        if not csv_files:
+        if not key_available:
             comment = (
-                "## ⚠️ Eval Quality Gate — could not run\n\n"
-                "Evals did not produce results (step may have failed to start).\n\n"
-                f"[View run]({run_url})\n\n"
+                "## ℹ️ Eval Quality Gate — skipped (fork PR)\n\n"
+                "Evals require `ANTHROPIC_API_KEY` which is not available for fork PRs.\n\n"
                 "*Informational only — does not block merge*"
             )
         else:
-            csv_file = csv_files[-1]
-            rows = []
-            with open(csv_file) as f:
-                for row in csv.DictReader(f):
-                    rows.append(row)
+            # Find the most recent results CSV
+            csv_files = sorted(results_dir.glob("*/eval_results.csv"), key=lambda p: p.parent.name)
 
-            passed_count = sum(1 for r in rows if r["Passed"] == "true")
-            total_count = len(rows)
-            total_duration = round(sum(float(r["Total Duration"]) for r in rows), 1)
+            if not csv_files:
+                # No CSV produced — step-level failure (bad install, auth error, etc.)
+                reason = "step failed before producing results" if eval_outcome == "failure" else "step did not run"
+                comment = (
+                    "## ⚠️ Eval Quality Gate — could not run\n\n"
+                    f"Evals did not produce results ({reason}).\n\n"
+                    f"[View run]({run_url})\n\n"
+                    "*Informational only — does not block merge*"
+                )
+            else:
+                csv_file = csv_files[-1]
+                rows = []
+                with open(csv_file) as f:
+                    for row in csv.DictReader(f):
+                        rows.append(row)
 
-            status_emoji = "✅" if passed_count == total_count else "⚠️"
-            header = f"## {status_emoji} Eval Quality Gate — {passed_count}/{total_count} tests passed"
+                passed_count = sum(1 for r in rows if r["Passed"] == "true")
+                total_count = len(rows)
+                total_duration = round(sum(float(r["Total Duration"]) for r in rows), 1)
 
-            table_lines = [
-                "| Test | Status | Duration |",
-                "|------|--------|----------|",
-            ]
-            for row in rows:
-                icon = "✅" if row["Passed"] == "true" else "❌"
-                dur = round(float(row["Total Duration"]), 1)
-                table_lines.append(f"| `{row['Test']}` | {icon} | {dur}s |")
-            table = "\n".join(table_lines)
+                # Warn if the eval step itself failed (partial results)
+                step_warning = ""
+                if eval_outcome == "failure" and passed_count < total_count:
+                    step_warning = "\n\n> ⚠️ Eval step exited with an error — results may be incomplete."
 
-            comment = (
-                f"{header}\n\n"
-                f"{table}\n\n"
-                f"Model: `claude-haiku-4-5` (tool) · Total: {total_duration}s · "
-                f"[Full run]({run_url})\n\n"
-                "*Informational only — does not block merge*"
-            )
+                status_emoji = "✅" if passed_count == total_count else "⚠️"
+                header = f"## {status_emoji} Eval Quality Gate — {passed_count}/{total_count} tests passed"
+
+                table_lines = [
+                    "| Test | Status | Duration |",
+                    "|------|--------|----------|",
+                ]
+                for row in rows:
+                    icon = "✅" if row["Passed"] == "true" else "❌"
+                    dur = round(float(row["Total Duration"]), 1)
+                    table_lines.append(f"| `{row['Test']}` | {icon} | {dur}s |")
+                table = "\n".join(table_lines)
+
+                comment = (
+                    f"{header}\n\n"
+                    f"{table}\n\n"
+                    f"Model: `claude-haiku-4-5` (tool) · Total: {total_duration}s · "
+                    f"[Full run]({run_url})"
+                    f"{step_warning}\n\n"
+                    "*Informational only — does not block merge*"
+                )
 
         # Post comment: edit last bot comment if one exists, else create new
         edit_result = subprocess.run(
