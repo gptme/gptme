@@ -187,14 +187,15 @@ jobs:
                 )
 
         # Post comment: find our prior comment by unique marker, then update or create
-        import json
+        # --paginate searches all pages (default page size is 30; busy PRs can exceed that)
+        # With --paginate, jq runs per page so we filter each page and take the last match
         list_result = subprocess.run(
-            ["gh", "api", f"repos/{repo}/issues/{pr_number}/comments",
-             "--jq", f'[.[] | select(.body | contains("{COMMENT_MARKER}"))] | last | .id'],
+            ["gh", "api", "--paginate", f"repos/{repo}/issues/{pr_number}/comments",
+             "--jq", f'.[] | select(.body | contains("{COMMENT_MARKER}")) | .id'],
             capture_output=True, text=True, check=False,
         )
-        prior_id = list_result.stdout.strip()
-        if prior_id and prior_id != "null":
+        prior_id = list_result.stdout.strip().splitlines()[-1] if list_result.stdout.strip() else ""
+        if prior_id:
             # Update the existing comment in-place
             update_result = subprocess.run(
                 ["gh", "api", f"repos/{repo}/issues/comments/{prior_id}",
