@@ -887,8 +887,11 @@ class ShellSession:
                             logger.debug(
                                 f"Shell: Delimiter detected in line: {line.strip()[:200]}"
                             )
-                            if match := re_returncode.search(line):
-                                return_code = int(match.group(1))
+                            # Use findall+last to avoid matching "ReturnCode:N"
+                            # in command output that precedes the marker.
+                            rc_matches = re_returncode.findall(line)
+                            if rc_matches:
+                                return_code = int(rc_matches[-1])
                             if command.startswith("cd ") and return_code == 0:
                                 ex, pwd, _ = self._run("pwd", output=False)
                                 if ex == 0:
@@ -1058,8 +1061,11 @@ class ShellSession:
                                     f"{last_stdout}"
                                 )
 
-                            if match := re_returncode.search(line):
-                                return_code = int(match.group(1))
+                            # Use findall+last to avoid matching "ReturnCode:N"
+                            # in command output that precedes the marker.
+                            rc_matches = re_returncode.findall(line)
+                            if rc_matches:
+                                return_code = int(rc_matches[-1])
                             # if command is cd, update working directory
                             if command.startswith("cd ") and return_code == 0:
                                 ex, pwd, _ = self._run("pwd", output=False)
