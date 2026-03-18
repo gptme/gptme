@@ -135,9 +135,12 @@ def check_changelog_fixes(ctx):
 
 
 def check_changelog_docs(ctx):
-    """Should have a Docs section with API entry."""
+    """Should have a Docs section heading with API entry."""
     output = ctx.stdout
-    has_section = bool(re.search(r"doc(s|umentation)?", output, re.IGNORECASE))
+    # Anchor to a heading so raw commit lines don't false-positive
+    has_section = bool(
+        re.search(r"^#+\s*doc(s|umentation)?", output, re.IGNORECASE | re.MULTILINE)
+    )
     has_api = "api" in output.lower()
     return has_section and has_api
 
