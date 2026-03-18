@@ -64,15 +64,15 @@ def check_diff_file(ctx):
 
 
 def check_diff_added(ctx):
-    """Should detect the added key 'address.zip'."""
-    output = ctx.stdout
-    return "address.zip" in output and "added" in output.lower()
+    """Should detect the added key 'address.zip' on the same output line."""
+    lines = ctx.stdout.strip().split("\n")
+    return any("address.zip" in line and "added" in line.lower() for line in lines)
 
 
 def check_diff_removed(ctx):
-    """Should detect the removed key 'phone'."""
-    output = ctx.stdout
-    return "phone" in output and "removed" in output.lower()
+    """Should detect the removed key 'phone' on the same output line."""
+    lines = ctx.stdout.strip().split("\n")
+    return any("phone" in line and "removed" in line.lower() for line in lines)
 
 
 def check_diff_changed(ctx):
@@ -135,14 +135,21 @@ def check_changelog_fixes(ctx):
 
 
 def check_changelog_docs(ctx):
-    """Should have a Docs section heading with API entry."""
+    """Should have a Docs section heading with API entry in that section."""
     output = ctx.stdout
     # Anchor to a heading so raw commit lines don't false-positive
-    has_section = bool(
-        re.search(r"^#+\s*doc(s|umentation)?", output, re.IGNORECASE | re.MULTILINE)
+    m = re.search(r"^#+\s*doc(s|umentation)?.*$", output, re.IGNORECASE | re.MULTILINE)
+    if not m:
+        return False
+    # Extract section body: from end of heading to the next heading (or EOF)
+    section_start = m.end()
+    next_heading = re.search(r"^#+\s+\S", output[section_start:], re.MULTILINE)
+    section_body = (
+        output[section_start : section_start + next_heading.start()]
+        if next_heading
+        else output[section_start:]
     )
-    has_api = "api" in output.lower()
-    return has_section and has_api
+    return "api" in section_body.lower()
 
 
 def check_changelog_scopes(ctx):
