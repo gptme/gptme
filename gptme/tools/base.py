@@ -743,6 +743,8 @@ class ToolUse:
         # Handle Gemini format: ```tool_code\n<toolname args="value">content</toolname>\n```
         # Processed separately (outside the main try/except) so parse errors in one block
         # don't suppress other blocks.
+        if not has_tool_code_block:
+            return
         for match in re.finditer(r"```tool_code\n(.*?)\n```", content, re.DOTALL):
             block_content = match.group(1).strip()
             if not block_content or not block_content.startswith("<"):
