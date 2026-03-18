@@ -359,7 +359,11 @@ Always consider the full range of your available tools and abilities when approa
 
 Maintain a professional and efficient communication style. Be concise but thorough in your explanations.
 
-{"Use `<thinking>` tags to think before you answer." if use_thinking_tags else ""}
+{
+        "Use `<thinking>` tags to think before you answer. Never put reasoning in fenced code blocks like ```thinking; reasoning must stay in plain `<thinking>...</thinking>` text outside tool blocks."
+        if use_thinking_tags
+        else ""
+    }
 """.strip()
 
     interactive_prompt = """
