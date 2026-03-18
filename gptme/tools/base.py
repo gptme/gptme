@@ -378,7 +378,7 @@ class ToolSpec:
 
     def _get_tool_prompt_xml(self, examples: bool, tool_format: ToolFormat):
         """Generate tool prompt with XML-sectioned structure."""
-        parts = [f'\n<tool name="{self.name}">']
+        parts = [f'\n<tool name="{xml_escape(self.name)}">']
         if self.desc:
             parts.append(f"<description>{xml_escape(self.desc)}</description>")
         instructions = self.get_instructions(tool_format)

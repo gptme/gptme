@@ -1081,7 +1081,7 @@ def prompt_skills_summary(
                 if len(raw_desc) > 80:
                     raw_desc = raw_desc[:77] + "..."
                 desc = xml_escape(raw_desc)
-                path = skill.path
+                path = xml_escape(str(skill.path))
                 skill_entries.append(
                     f'  <skill name="{name}" path="{path}">{desc}</skill>'
                 )
@@ -1097,9 +1097,8 @@ def prompt_skills_summary(
                 # Truncate description to keep it compact
                 if len(desc) > 80:
                     desc = desc[:77] + "..."
-                path = skill.path
                 lines.append(f"- **{name}**: {desc}")
-                lines.append(f"  `{path}`")
+                lines.append(f"  `{skill.path}`")
 
             lines.append(f"\n*{len(skills)} skills available*")
 
