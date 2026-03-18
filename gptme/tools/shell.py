@@ -874,7 +874,10 @@ class ShellSession:
                             # delimiter on the same line.  This happens when
                             # command output lacks a trailing newline (e.g.
                             # printf "yes", echo -n "data").
-                            rc_pos = line.index("ReturnCode:")
+                            # Use rfind to get the LAST "ReturnCode:" occurrence,
+                            # which is always the shell-injected marker (not
+                            # command output that itself contains "ReturnCode:").
+                            rc_pos = line.rfind("ReturnCode:")
                             if rc_pos > 0:
                                 prefix = line[:rc_pos]
                                 stdout.append(prefix)
@@ -1030,7 +1033,10 @@ class ShellSession:
                             # delimiter on the same line.  This happens when
                             # command output lacks a trailing newline (e.g.
                             # printf "yes", echo -n "data").
-                            rc_pos = line.index("ReturnCode:")
+                            # Use rfind to get the LAST "ReturnCode:" occurrence,
+                            # which is always the shell-injected marker (not
+                            # command output that itself contains "ReturnCode:").
+                            rc_pos = line.rfind("ReturnCode:")
                             if rc_pos > 0:
                                 prefix = line[:rc_pos]
                                 stdout.append(prefix)
