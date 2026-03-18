@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f03eb063240&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fda07a2f240&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -878,8 +878,8 @@ To read more pages, use: <span class="sb">`read_url(&#39;...&#39;, max_pages=N)`
 
 <span class="k">&gt; </span><span class="ge">User: Can you find any mentions of &quot;python&quot; in our past conversations?</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Certainly! I&#39;ll search our past conversations for mentions of &quot;python&quot; using the search_chats function.</span>
-<span class="sb">```ipython</span>
-<span class="n">search_chats</span><span class="p">(</span><span class="s1">&#39;python&#39;</span><span class="p">)</span>
+<span class="sb">```chats</span>
+<span class="s">search_chats(&#39;python&#39;)</span>
 <span class="sb">```</span>
 
 <span class="gu">## choice</span>
