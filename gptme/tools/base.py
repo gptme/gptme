@@ -403,6 +403,52 @@ class ToolSpec:
         return "None"
 
 
+def _extract_tool_code_blocks(content: str) -> list[tuple[str, int]]:
+    """Extract content of ```tool_code blocks, returning (block_content, start_pos) pairs.
+
+    Handles nested code fences (e.g. ```python inside the block) correctly by
+    tracking fence depth rather than using a simple regex that terminates at the
+    first ``` occurrence.
+    """
+    results = []
+    lines = content.split("\n")
+    pos = 0  # Track byte position for start= field
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.rstrip() == "```tool_code":
+            block_start = pos
+            i += 1
+            pos += len(line) + 1  # +1 for the \n
+            depth = 0
+            block_lines: list[str] = []
+            while i < len(lines):
+                inner = lines[i]
+                stripped = inner.strip()
+                if stripped.startswith("```"):
+                    if stripped == "```":
+                        if depth == 0:
+                            # Closing fence of the tool_code block
+                            results.append(("\n".join(block_lines), block_start))
+                            pos += len(inner) + 1
+                            i += 1
+                            break
+                        depth -= 1
+                    else:
+                        # Opening fence with language tag (e.g. ```python)
+                        depth += 1
+                block_lines.append(inner)
+                pos += len(inner) + 1
+                i += 1
+            else:
+                # Unterminated block — skip
+                pass
+        else:
+            pos += len(line) + 1
+            i += 1
+    return results
+
+
 @dataclass(frozen=True)
 class ToolUse:
     tool: str
@@ -745,8 +791,8 @@ class ToolUse:
         # don't suppress other blocks.
         if not has_tool_code_block:
             return
-        for match in re.finditer(r"```tool_code\n(.*?)\n```", content, re.DOTALL):
-            block_content = match.group(1).strip()
+        for block_content, block_start in _extract_tool_code_blocks(content):
+            block_content = block_content.strip()
             if not block_content or not block_content.startswith("<"):
                 continue
             try:
@@ -761,7 +807,7 @@ class ToolUse:
                         tool_name,
                         args,
                         tool_content,
-                        start=match.start(),
+                        start=block_start,
                         _format="xml",
                     )
             except etree.ParseError as e:

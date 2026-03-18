@@ -198,3 +198,27 @@ def compare(a: List[int], b: List[int]) -> bool:
     assert "List[int]" in code
     assert "len(a) < len(b)" in code
     assert "a[0] > b[0]" in code
+
+
+def test_gemini_tool_code_nested_backticks():
+    """Test that tool_code blocks containing nested triple-backtick fences are not truncated."""
+    content = """\
+```tool_code
+<save args="README.md">
+# Hello
+
+```python
+print("hi")
+```
+
+More content here.
+</save>
+```"""
+    tools = list(ToolUse._iter_from_xml(content))
+    assert len(tools) == 1
+    assert tools[0].tool == "save"
+    assert tools[0].args == ["README.md"]
+    code = tools[0].content or ""
+    assert "```python" in code
+    assert "print(" in code
+    assert "More content here." in code
