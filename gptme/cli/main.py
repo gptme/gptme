@@ -706,20 +706,20 @@ def main(
             output_schema_type,
         )
         if review:
-            _REVIEW_PROMPT = (
+            review_prompt = (
                 "Review the work you just completed. "
                 "Check for correctness, completeness, and any issues or bugs. "
                 "Fix any problems you find."
             )
             console.print("\n[bold cyan]Review pass[/bold cyan]")
             chat(
-                [Message("user", _REVIEW_PROMPT)],
+                [Message("user", review_prompt)],
                 [],
                 logdir,
                 config.chat.workspace,
                 config.chat.model,
                 config.chat.stream,
-                no_confirm=True,
+                no_confirm=no_confirm,
                 interactive=False,
                 show_hidden=show_hidden,
                 tool_allowlist=config.chat.tools,
