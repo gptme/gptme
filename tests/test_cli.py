@@ -118,6 +118,45 @@ def test_command_tools(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
 
 
+def test_repeat_flag_help(runner: CliRunner):
+    """--repeat N flag should appear in --help output."""
+    result = runner.invoke(cli.main, ["--help"])
+    assert result.exit_code == 0
+    assert "--repeat" in result.output
+
+
+def test_repeat_flag_invalid(runner: CliRunner):
+    """--repeat with value < 1 should fail."""
+    result = runner.invoke(cli.main, ["--repeat", "0", "/exit"])
+    assert result.exit_code != 0
+
+
+def test_repeat_flag_creates_separate_logdirs(
+    name: str, runner: CliRunner, tmp_path: Path
+):
+    """--repeat 2 should create two separate conversations."""
+    import os
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        os.environ["XDG_DATA_HOME"] = str(data_dir)
+        result = runner.invoke(
+            cli.main,
+            ["--name", name, "--non-interactive", "--repeat", "2", "/exit"],
+        )
+        assert result.exit_code == 0, result.output
+        # Should mention "Run 1/2" and "Run 2/2"
+        assert "Run 1/2" in result.output
+        assert "Run 2/2" in result.output
+        # Each run should get its own logdir (name-run-1, name-run-2)
+        logs_dir = data_dir / "gptme" / "logs"
+        if logs_dir.exists():
+            log_names = [p.name for p in logs_dir.iterdir()]
+            assert any("run-1" in n for n in log_names)
+            assert any("run-2" in n for n in log_names)
+
+
 def test_command_doctor(args: list[str], runner: CliRunner):
     args.append("/doctor")
     result = runner.invoke(cli.main, args)

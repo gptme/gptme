@@ -36,7 +36,7 @@ from ..profiles import get_profile
 from ..prompts import get_prompt
 from ..telemetry import init_telemetry, shutdown_telemetry
 from ..tools import ToolFormat, get_available_tools, init_tools
-from ..util import epoch_to_age
+from ..util import console, epoch_to_age
 from ..util.auto_naming import generate_conversation_id
 from ..util.context import md_codeblock
 from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
@@ -309,6 +309,13 @@ Run 'gptme-util --help' for all utility commands."""
     hidden=True,
     help="Schema for structured output in format 'module:ClassName'. The class should be a Pydantic BaseModel.",
 )
+@click.option(
+    "--repeat",
+    "repeat",
+    default=1,
+    type=click.IntRange(min=1),
+    help="Run the prompt N times, each in a separate conversation. Useful for batch runs or generating multiple independent outputs.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -333,6 +340,7 @@ def main(
     context_mode: str | None,
     context_include: tuple[str, ...],
     output_schema: str | None,
+    repeat: int,
 ):
     """Main entrypoint for the CLI."""
 
@@ -683,44 +691,64 @@ def main(
         sys.exit(1)
 
     try:
-        chat(
-            prompt_msgs,
-            initial_msgs,
-            logdir,
-            config.chat.workspace,
-            config.chat.model,
-            config.chat.stream,
-            no_confirm,
-            config.chat.interactive,
-            show_hidden,
-            config.chat.tools,
-            config.chat.tool_format,
-            output_schema_type,
-        )
-    except (RuntimeError, Exception) as e:
-        logger.error("Fatal error occurred")
-        if verbose:
-            logger.exception(e)
-        else:
-            logger.error(e)
-            # Print last call site in gptme code for context
-            tb = traceback.extract_tb(sys.exc_info()[2])
-
-            # Get actual gptme package directory
-
-            gptme_dir = Path(gptme.__file__).parent.resolve()
-
-            # Filter for frames actually in gptme source code
-            gptme_frames = [
-                frame for frame in tb if Path(frame.filename).is_relative_to(gptme_dir)
-            ]
-
-            if gptme_frames:
-                last_frame = gptme_frames[-1]
-                logger.error(
-                    f"  at {last_frame.filename}:{last_frame.lineno} in {last_frame.name}"
+        for run_idx in range(repeat):
+            if repeat > 1:
+                # Give each run its own logdir so conversations don't clobber each other
+                if name == "random":
+                    run_logdir = get_logdir("random")
+                else:
+                    run_logdir = get_logdir(f"{name}-run-{run_idx + 1}")
+                console.print(
+                    f"\n[bold cyan]Run {run_idx + 1}/{repeat}[/bold cyan] → {run_logdir.name}"
                 )
-        sys.exit(1)
+            else:
+                run_logdir = logdir
+
+            try:
+                chat(
+                    prompt_msgs,
+                    initial_msgs,
+                    run_logdir,
+                    config.chat.workspace,
+                    config.chat.model,
+                    config.chat.stream,
+                    no_confirm,
+                    config.chat.interactive,
+                    show_hidden,
+                    config.chat.tools,
+                    config.chat.tool_format,
+                    output_schema_type,
+                )
+            except SystemExit as e:
+                # A graceful exit (code 0) from one run should not abort remaining runs
+                if e.code not in (0, None):
+                    raise
+            except (RuntimeError, Exception) as e:
+                logger.error("Fatal error occurred")
+                if verbose:
+                    logger.exception(e)
+                else:
+                    logger.error(e)
+                    # Print last call site in gptme code for context
+                    tb = traceback.extract_tb(sys.exc_info()[2])
+
+                    # Get actual gptme package directory
+
+                    gptme_dir = Path(gptme.__file__).parent.resolve()
+
+                    # Filter for frames actually in gptme source code
+                    gptme_frames = [
+                        frame
+                        for frame in tb
+                        if Path(frame.filename).is_relative_to(gptme_dir)
+                    ]
+
+                    if gptme_frames:
+                        last_frame = gptme_frames[-1]
+                        logger.error(
+                            f"  at {last_frame.filename}:{last_frame.lineno} in {last_frame.name}"
+                        )
+                sys.exit(1)
     finally:
         shutdown_telemetry()
 
