@@ -154,6 +154,19 @@ echo "second"
     assert codeblocks[1].start == 3
 
 
+def test_extract_codeblocks_concatenated_adjacent_fences():
+    """Recover when a closing fence and the next opening fence are concatenated."""
+    markdown = """```shell
+pwd && ls -la
+``````shell
+find /tmp/x -maxdepth 2 -type f | sort
+```"""
+    codeblocks = Codeblock.iter_from_markdown(markdown)
+    assert len(codeblocks) == 2
+    assert codeblocks[0] == Codeblock("shell", "pwd && ls -la")
+    assert codeblocks[1] == Codeblock("shell", "find /tmp/x -maxdepth 2 -type f | sort")
+
+
 def test_extract_codeblocks_streaming_interrupted():
     """
     Test case based on real interruption during streaming.

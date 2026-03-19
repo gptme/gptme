@@ -138,6 +138,7 @@ def _extract_codeblocks(
             lang = line[fence_len:].strip()
             content_lines: list[str] = []
             i += 1
+            reprocess_current_line = False
 
             # Track nesting depth to handle nested code blocks
             nesting_depth = 1
@@ -145,6 +146,19 @@ def _extract_codeblocks(
             # Collect content until we find the matching closing ```
             while i < len(lines):
                 line = lines[i]
+
+                # Recover from malformed adjacent fences where a closing fence for the
+                # current block is directly concatenated with the opening fence of the
+                # next block, e.g. "``````shell" instead of "```\n```shell".
+                if nesting_depth == 1 and line.startswith("`" * fence_len):
+                    rest = line[fence_len:]
+                    if re.match(r"^`{3,}.*$", rest):
+                        yield Codeblock(
+                            lang, "\n".join(content_lines), start=start_line
+                        )
+                        lines[i] = rest
+                        reprocess_current_line = True
+                        break
 
                 # Check if this line starts with backticks (potential opening or closing)
                 line_fence_match = re.match(r"^(`{3,})", line)
@@ -309,5 +323,7 @@ def _extract_codeblocks(
 
             # If we reached the end without completing the block, don't yield it
             # (this handles the unfinished nested test case)
+            if reprocess_current_line:
+                continue
         else:
             i += 1
