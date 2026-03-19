@@ -198,9 +198,20 @@ def _run_chat_loop(
                     continue
 
                 # Process the message and get response
-                _process_message_conversation(
-                    manager, stream, tool_format, model, output_schema
-                )
+                try:
+                    _process_message_conversation(
+                        manager, stream, tool_format, model, output_schema
+                    )
+                except SessionCompleteException:
+                    if not prompt_queue:
+                        # No more prompts, properly exit
+                        raise
+                    # More chained prompts remain — continue processing them
+                    logger.debug(
+                        "complete called but %d chained prompts remain, continuing",
+                        len(prompt_queue),
+                    )
+                    continue
             else:
                 # Get user input or exit if non-interactive
                 if not interactive:
