@@ -36,7 +36,7 @@ from ..profiles import get_profile
 from ..prompts import get_prompt
 from ..telemetry import init_telemetry, shutdown_telemetry
 from ..tools import ToolFormat, get_available_tools, init_tools
-from ..util import epoch_to_age
+from ..util import console, epoch_to_age
 from ..util.auto_naming import generate_conversation_id
 from ..util.context import md_codeblock
 from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
@@ -309,6 +309,13 @@ Run 'gptme-util --help' for all utility commands."""
     hidden=True,
     help="Schema for structured output in format 'module:ClassName'. The class should be a Pydantic BaseModel.",
 )
+@click.option(
+    "--review",
+    "review",
+    is_flag=True,
+    default=False,
+    help="After the main run, add a self-review pass where the assistant checks and fixes its own work.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -333,6 +340,7 @@ def main(
     context_mode: str | None,
     context_include: tuple[str, ...],
     output_schema: str | None,
+    review: bool,
 ):
     """Main entrypoint for the CLI."""
 
@@ -697,6 +705,27 @@ def main(
             config.chat.tool_format,
             output_schema_type,
         )
+        if review:
+            _REVIEW_PROMPT = (
+                "Review the work you just completed. "
+                "Check for correctness, completeness, and any issues or bugs. "
+                "Fix any problems you find."
+            )
+            console.print("\n[bold cyan]Review pass[/bold cyan]")
+            chat(
+                [Message("user", _REVIEW_PROMPT)],
+                [],
+                logdir,
+                config.chat.workspace,
+                config.chat.model,
+                config.chat.stream,
+                no_confirm=True,
+                interactive=False,
+                show_hidden=show_hidden,
+                tool_allowlist=config.chat.tools,
+                tool_format=config.chat.tool_format,
+                output_schema=None,
+            )
     except (RuntimeError, Exception) as e:
         logger.error("Fatal error occurred")
         if verbose:

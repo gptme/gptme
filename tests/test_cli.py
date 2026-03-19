@@ -64,6 +64,13 @@ def test_help(runner: CliRunner):
     assert result.exit_code == 0
 
 
+def test_review_flag_help(runner: CliRunner):
+    """--review flag should appear in --help output."""
+    result = runner.invoke(cli.main, ["--help"])
+    assert result.exit_code == 0
+    assert "--review" in result.output
+
+
 def test_version(runner: CliRunner):
     result = runner.invoke(cli.main, ["--version"])
     assert result.exit_code == 0
